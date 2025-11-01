@@ -59,6 +59,21 @@ class HeliosPlanner:
         """Energy (kWh) delivered after accounting for discharge losses."""
         return battery_energy_kwh * self.discharge_efficiency
 
+    def _available_charge_power_kw(self, row) -> float:
+        """
+        Compute realistic available charge power for a slot respecting inverter, grid, water heating, and net load.
+        Returns 0 if constraints prevent charging.
+        """
+        inverter_max = self.config.get('system', {}).get('inverter', {}).get('max_power_kw', 10.0)
+        grid_max = self.config.get('system', {}).get('grid', {}).get('max_power_kw', 25.0)
+        battery_max = self.battery_config.get('max_charge_power_kw', 5.0)
+
+        water_kw = row.get('water_heating_kw', 0.0)
+        net_load_kw = max(0.0, (row.get('adjusted_load_kwh', 0.0) - row.get('adjusted_pv_kwh', 0.0)) / 0.25)
+
+        available = min(inverter_max, grid_max, battery_max) - water_kw - net_load_kw
+        return max(0.0, available)
+
     def generate_schedule(self, input_data):
         """
         The main method that executes all planning passes and returns the schedule.
@@ -216,12 +231,13 @@ class HeliosPlanner:
     def _pass_3_simulate_baseline_depletion(self, df):
         """
         Simulate battery SoC evolution with economic decisions for discharging.
+        Stores window start states for later gap calculations.
 
         Args:
             df (pd.DataFrame): DataFrame with water heating scheduled
 
         Returns:
-            pd.DataFrame: DataFrame with baseline SoC projections
+            pd.DataFrame: DataFrame with baseline SoC projections and window start states
         """
         capacity_kwh = self.battery_config.get('capacity_kwh', 10.0)
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
@@ -235,8 +251,17 @@ class HeliosPlanner:
 
         current_kwh = self.state['battery_kwh']
         soc_list = []
+        window_start_states = []
 
         for idx, row in df.iterrows():
+            # Record window start state
+            if row.get('is_cheap', False):
+                window_start_states.append({
+                    'start': idx,
+                    'soc_kwh': current_kwh,
+                    'avg_cost_sek_per_kwh': battery_cost,
+                })
+
             adjusted_pv = row['adjusted_pv_kwh']
             adjusted_load = row['adjusted_load_kwh']
             water_kwh = row['water_heating_kw'] * 0.25
@@ -263,14 +288,15 @@ class HeliosPlanner:
             soc_list.append(current_kwh)
 
         df['simulated_soc_kwh'] = soc_list
+        self.window_start_states = window_start_states
         return df
 
     def _pass_4_allocate_cascading_responsibilities(self, df):
         """
-        Advanced MPC logic with projected battery cost, realistic capacity estimation, and strategic carry-forward.
+        Advanced MPC logic with price-aware gap energy, S-index safety, and strategic carry-forward.
 
         Args:
-            df (pd.DataFrame): DataFrame with baseline projections
+            df (pd.DataFrame): DataFrame with baseline projections and window start states
 
         Returns:
             pd.DataFrame: Original DataFrame (responsibilities stored in instance attribute)
@@ -293,7 +319,7 @@ class HeliosPlanner:
 
         # Identify strategic windows
         strategic_windows = []
-        strategic_price_threshold_sek = self.strategic_charging['price_threshold_sek']
+        strategic_price_threshold_sek = self.strategic_charging.get('price_threshold_sek', 0.90)
         for i, window in enumerate(windows):
             start_idx = window['start']
             end_idx = window['end']
@@ -301,79 +327,101 @@ class HeliosPlanner:
             if self.is_strategic_period and (window_prices < strategic_price_threshold_sek).any():
                 strategic_windows.append(i)
 
-        # Calculate basic responsibilities
+        # S-index factor
+        s_index_cfg = self.config.get('s_index', {})
+        s_index_mode = s_index_cfg.get('mode', 'static')
+        s_index_factor = s_index_cfg.get('static_factor', 1.05)
+        s_index_max = s_index_cfg.get('max_factor', 1.25)
+        s_index_factor = min(s_index_factor, s_index_max)
+
+        # Calculate price-aware gap responsibilities
         self.window_responsibilities = []
         capacity_kwh = self.battery_config.get('capacity_kwh', 10.0)
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
         max_soc_percent = self.battery_config.get('max_soc_percent', 95)
-        efficiency_percent = self.battery_config.get('efficiency_percent', 95.0)
-        
+
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
-        efficiency = efficiency_percent / 100.0
         max_charge_power_kw = self.battery_config.get('max_charge_power_kw', 5.0)
 
         for i, window in enumerate(windows):
             start_idx = window['start']
             end_idx = window['end']
-            soc_at_window_start = df.loc[start_idx, 'simulated_soc_kwh']
+            window_df = df.loc[start_idx:end_idx]
 
-            if i + 1 < len(windows):
-                next_window_start = windows[i + 1]['start']
-                min_soc_until_next = df.loc[start_idx:next_window_start, 'simulated_soc_kwh'].min()
-            else:
-                min_soc_until_next = df.loc[start_idx:, 'simulated_soc_kwh'].min()
+            # Find the window start state (SoC and avg cost)
+            start_state = next((s for s in getattr(self, 'window_start_states', []) if s['start'] == start_idx), None)
+            soc_at_window_start = start_state['soc_kwh'] if start_state else df.loc[start_idx, 'simulated_soc_kwh']
+            avg_cost_at_start = start_state['avg_cost_sek_per_kwh'] if start_state else self.state.get('battery_cost_sek_per_kwh', 0.0)
 
-            energy_gap_kwh = min_soc_kwh - min_soc_until_next
-            total_responsibility_kwh = max(0, energy_gap_kwh)
+            # Compute gap energy only for slots where battery would be economical
+            economic_threshold = avg_cost_at_start + self.cycle_cost + self.thresholds.get('battery_use_margin_sek', 0.10)
+            gap_slots = window_df[window_df['import_price_sek_kwh'] > economic_threshold]
+            gap_energy_kwh = gap_slots['adjusted_load_kwh'].sum() - gap_slots['adjusted_pv_kwh'].sum()
+            gap_energy_kwh = max(0.0, gap_energy_kwh)
+
+            # Apply S-index safety factor
+            total_responsibility_kwh = gap_energy_kwh * s_index_factor
 
             self.window_responsibilities.append({
                 'window': window,
-                'total_responsibility_kwh': total_responsibility_kwh
+                'total_responsibility_kwh': total_responsibility_kwh,
+                'start_soc_kwh': soc_at_window_start,
+                'start_avg_cost_sek_per_kwh': avg_cost_at_start,
             })
 
-        # Strategic override
-        strategic_target_soc_percent = self.strategic_charging['target_soc_percent']
+        # Strategic override to absolute target
+        strategic_target_soc_percent = self.strategic_charging.get('target_soc_percent', 95)
         strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
         for i in strategic_windows:
-            window = windows[i]
-            start_idx = window['start']
+            start_idx = windows[i]['start']
             soc_at_window_start = df.loc[start_idx, 'simulated_soc_kwh']
-            self.window_responsibilities[i]['total_responsibility_kwh'] = max(0, strategic_target_kwh - soc_at_window_start)
+            self.window_responsibilities[i]['total_responsibility_kwh'] = max(
+                0, strategic_target_kwh - soc_at_window_start
+            )
 
-        # Cascading with realistic capacity
-        for i in range(len(windows)-2, -1, -1):
+        # Cascading with realistic capacity and self-depletion
+        for i in range(len(windows) - 2, -1, -1):
             next_i = i + 1
             next_resp = self.window_responsibilities[next_i]['total_responsibility_kwh']
             next_window = windows[next_i]
             next_df = df.loc[next_window['start']:next_window['end']]
-            avg_water = next_df['water_heating_kw'].mean()
-            avg_load_kw = next_df['adjusted_load_kwh'].mean() / 0.25
-            realistic_charge_kw = max(0, max_charge_power_kw - avg_water - avg_load_kw)
+
+            # Compute realistic charge capacity for the next window
+            realistic_charge_kw = max(0.0, max_charge_power_kw - next_df['water_heating_kw'].mean() - (next_df['adjusted_load_kwh'].mean() / 0.25))
             num_slots = len(next_df)
-            max_energy = realistic_charge_kw * num_slots * 0.25 * efficiency
-            if next_resp > max_energy:
-                self.window_responsibilities[i]['total_responsibility_kwh'] += next_resp
+            max_energy = realistic_charge_kw * num_slots * 0.25 * self.charge_efficiency
+
+            # Add self-depletion during the next window to its responsibility
+            net_load_next = (next_df['adjusted_load_kwh'] - next_df['adjusted_pv_kwh']).sum()
+            self_depletion_kwh = max(0.0, net_load_next)
+            adjusted_next_resp = next_resp + self_depletion_kwh
+
+            if adjusted_next_resp > max_energy:
+                self.window_responsibilities[i]['total_responsibility_kwh'] += adjusted_next_resp
 
         # Strategic carry-forward
+        carry_tolerance = self.strategic_charging.get('carry_forward_tolerance_ratio', 0.10)
         for i in strategic_windows:
             window = windows[i]
             start_idx = window['start']
             soc_at_window_start = df.loc[start_idx, 'simulated_soc_kwh']
             resp = self.window_responsibilities[i]['total_responsibility_kwh']
-            soc_after = soc_at_window_start + resp * efficiency
-            if soc_after < strategic_target_kwh:
+            soc_after = soc_at_window_start + resp * self.charge_efficiency
+            if soc_after < strategic_target_kwh and i + 1 < len(windows):
                 remaining_energy = strategic_target_kwh - soc_after
-                if i + 1 < len(windows):
-                    self.window_responsibilities[i + 1]['total_responsibility_kwh'] += remaining_energy / efficiency
+                next_window = windows[i + 1]
+                next_window_prices = df.loc[next_window['start']:next_window['end'], 'import_price_sek_kwh']
+                if (next_window_prices <= strategic_price_threshold_sek * (1 + carry_tolerance)).any():
+                    self.window_responsibilities[i + 1]['total_responsibility_kwh'] += remaining_energy / self.charge_efficiency
 
         return df
-        
+
     def _pass_5_distribute_charging_in_windows(self, df):
         """
-        For each window, sort the slots by price.
+        For each window, sort slots by price.
         Iteratively assign 'Charge' action to the cheapest slots until the window's
-        total charging responsibility (in kWh) is met.
+        total charging responsibility (in kWh) is met, respecting realistic power limits.
 
         Args:
             df (pd.DataFrame): DataFrame with allocated responsibilities
@@ -382,7 +430,7 @@ class HeliosPlanner:
             pd.DataFrame: DataFrame with detailed charging assignments
         """
         df['charge_kw'] = 0.0
-        max_charge_power_kw = self.battery_config['max_charge_power_kw']
+        max_charge_power_kw = self.battery_config.get('max_charge_power_kw', 5.0)
 
         for resp in self.window_responsibilities:
             window = resp['window']
@@ -391,12 +439,14 @@ class HeliosPlanner:
 
             for idx, row in window_df.iterrows():
                 if total_responsibility_kwh > 0:
-                    charge_kwh_for_slot = max_charge_power_kw * 0.25
-                    df.loc[idx, 'charge_kw'] = max_charge_power_kw
+                    available_kw = self._available_charge_power_kw(row)
+                    charge_kw_for_slot = min(available_kw, max_charge_power_kw)
+                    charge_kwh_for_slot = charge_kw_for_slot * 0.25
+                    df.loc[idx, 'charge_kw'] = charge_kw_for_slot
                     total_responsibility_kwh -= charge_kwh_for_slot
 
         return df
-        
+
     def _pass_6_finalize_schedule(self, df):
         """
         Generate the final schedule with rule-based decision hierarchy and MPC principles.

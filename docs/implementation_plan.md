@@ -32,12 +32,12 @@
    - UI: display battery average cost on dashboard.
    - Tests: weighted average correctness; wear reflected in decision thresholds.
 
-### Phase 2 – Realistic Slot Constraints & Responsibilities (Severity 2–3)
-3. **Slot-level power limits**
+### Phase 2 – Realistic Slot Constraints & Responsibilities (Severity 2–3) ✅ COMPLETED
+3. **Slot-level power limits** ✅
    - Compute available charge power per slot considering inverter limit, grid limit, concurrent water heating, and net load.
    - Update Pass 5 distribution and execution.
 
-4. **Gap responsibilities with price thresholds**
+4. **Gap responsibilities with price thresholds** ✅
    - Store window start states (SoC, cost) during depletion pass.
    - Compute gap energy only for slots where `import_price > avg_cost + wear + battery_use_margin`.
    - Apply S-index factor (static for now); add `s_index` config block.
