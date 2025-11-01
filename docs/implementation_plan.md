@@ -44,13 +44,13 @@
    - Update cascading inheritance to include window self-depletion.
    - Tests: responsibilities scale with S-index and price filters.
 
-### Phase 3 – Water Heating Parity (Severity 4)
-5. **Schedule contiguous blocks**
+### Phase 3 – Water Heating Parity (Severity 4) ✅ COMPLETED
+5. **Schedule contiguous blocks** ✅
    - Parameters: `water_heating.min_hours_per_day`, `min_kwh_per_day`, `max_blocks_per_day`, `schedule_future_only`.
    - Prefer a single block; allow two when required to meet minimum energy/time; do not plan extra slots once `min_kwh` met for today.
    - Respect existing scheduled slots (no removal of already executed blocks).
 
-6. **Source selection & tracking**
+6. **Source selection & tracking** ✅
    - Execution order: PV surplus → battery (economical) → grid.
    - Update slot flows (`water_from_pv`, `water_from_battery`, `water_from_grid`).
    - Integrate HA sensor when provided; otherwise refresh sqlite tracker at midnight.

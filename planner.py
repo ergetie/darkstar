@@ -179,7 +179,7 @@ class HeliosPlanner:
 
     def _pass_2_schedule_water_heating(self, df):
         """
-        Schedule water heating with advanced future-day and dynamic source selection logic.
+        Schedule water heating in contiguous blocks with preference for single block.
 
         Args:
             df (pd.DataFrame): DataFrame with prepared data
@@ -189,42 +189,83 @@ class HeliosPlanner:
         """
         from datetime import timedelta
 
-        # Get inputs
-        daily_water_kwh_today = 0.5  # hardcoded
+        # Get configuration
         power_kw = self.water_heating_config.get('power_kw', 3.0)
-        daily_duration_hours = self.water_heating_config.get('daily_duration_hours', 2.0)
-        water_minimum_kwh = power_kw * daily_duration_hours
-        battery_water_margin_sek = self.thresholds.get('battery_water_margin_sek', 0.20)
-        battery_cost = self.state['battery_cost_sek_per_kwh']
+        min_hours_per_day = self.water_heating_config.get('min_hours_per_day', 2.0)
+        min_kwh_per_day = self.water_heating_config.get('min_kwh_per_day', power_kw * min_hours_per_day)
+        max_blocks_per_day = self.water_heating_config.get('max_blocks_per_day', 2)
+        schedule_future_only = self.water_heating_config.get('schedule_future_only', True)
 
-        # Future-day logic
-        is_today_complete = daily_water_kwh_today >= water_minimum_kwh
+        # Calculate required slots per block
+        slot_energy_kwh = power_kw * 0.25  # 15-minute slots
+        slots_per_block = max(1, int(min_kwh_per_day / slot_energy_kwh))
+
+        # Get today's water usage (placeholder - will integrate with HA/sqlite later)
+        daily_water_kwh_today = 0.5  # hardcoded for now
+
+        # Determine if we need to schedule for today or tomorrow
         first_start = df.index[0]
-        future_slots = df[df.index > first_start]
+        is_today_complete = daily_water_kwh_today >= min_kwh_per_day
+
+        if schedule_future_only:
+            # Only schedule future slots
+            available_slots = df[df.index > first_start]
+        else:
+            available_slots = df
 
         if is_today_complete:
+            # Schedule for tomorrow
             tomorrow = first_start.date() + timedelta(days=1)
-            future_slots = future_slots[future_slots.index.date == tomorrow]
+            available_slots = available_slots[available_slots.index.date == tomorrow]
 
-        # Dynamic source selection
-        candidates = []
-        for idx, row in future_slots.iterrows():
-            grid_cost = row['import_price_sek_kwh'] * (power_kw * 0.25)
-            battery_cost_for_heating = battery_cost * (power_kw * 0.25)
-            if row['import_price_sek_kwh'] > battery_cost + battery_water_margin_sek:
-                cost = battery_cost_for_heating
-            else:
-                cost = grid_cost
-            candidates.append({'index': idx, 'cost': cost})
+        # Find contiguous blocks of cheap slots
+        cheap_slots = available_slots[available_slots['is_cheap']].copy()
+        blocks = []
+        selected_blocks = []
 
-        # Schedule heating
-        candidates.sort(key=lambda x: x['cost'])
-        num_slots = int(water_minimum_kwh / (power_kw * 0.25))
-        selected = candidates[:num_slots]
+        if not cheap_slots.empty:
+            # Group into contiguous blocks
+            current_block = {'start': cheap_slots.index[0], 'length': 1}
+            for i in range(1, len(cheap_slots)):
+                current_time = cheap_slots.index[i]
+                prev_time = cheap_slots.index[i-1]
+                if (current_time - prev_time).total_seconds() == 900:  # 15 minutes
+                    current_block['length'] += 1
+                else:
+                    blocks.append(current_block)
+                    current_block = {'start': current_time, 'length': 1}
+            blocks.append(current_block)
 
+            # Filter blocks that are large enough and sort by average price
+            valid_blocks = [b for b in blocks if b['length'] >= slots_per_block]
+            valid_blocks.sort(key=lambda b: available_slots.loc[b['start']:available_slots.index[available_slots.index.get_loc(b['start']) + b['length'] - 1], 'import_price_sek_kwh'].mean())
+
+            # Select blocks (prefer single block, allow up to max_blocks_per_day)
+            selected_blocks = []
+            remaining_energy = min_kwh_per_day
+
+            for block in valid_blocks:
+                if len(selected_blocks) >= max_blocks_per_day:
+                    break
+                block_energy = min(block['length'] * slot_energy_kwh, remaining_energy)
+                if block_energy > 0:
+                    selected_blocks.append({
+                        'start': block['start'],
+                        'slots_needed': min(block['length'], int(block_energy / slot_energy_kwh))
+                    })
+                    remaining_energy -= block_energy
+                    if remaining_energy <= 0:
+                        break
+
+        # Apply scheduling to DataFrame
         df['water_heating_kw'] = 0.0
-        for cand in selected:
-            df.loc[cand['index'], 'water_heating_kw'] = power_kw
+        for block in selected_blocks:
+            start_idx = block['start']
+            slots_needed = block['slots_needed']
+            for i in range(slots_needed):
+                slot_time = start_idx + timedelta(minutes=i * 15)
+                if slot_time in df.index:
+                    df.loc[slot_time, 'water_heating_kw'] = power_kw
 
         return df
         
@@ -473,11 +514,14 @@ class HeliosPlanner:
         projected_soc_kwh = []
         projected_soc_percent = []
         projected_battery_cost = []
+        water_from_pv = []
+        water_from_battery = []
+        water_from_grid = []
 
         for idx, row in df.iterrows():
             pv_kwh = row['adjusted_pv_kwh']
             load_kwh = row['adjusted_load_kwh']
-            water_kwh = row['water_heating_kw'] * 0.25
+            water_kwh_required = row['water_heating_kw'] * 0.25
             charge_kw = row['charge_kw']
             import_price = row['import_price_sek_kwh']
             is_cheap = row['is_cheap']
@@ -486,6 +530,37 @@ class HeliosPlanner:
             cycle_adjusted_cost = avg_cost + self.cycle_cost
 
             action = 'Hold'
+
+            # Water heating source selection: PV surplus → battery (economical) → grid
+            water_from_pv_kwh = 0.0
+            water_from_battery_kwh = 0.0
+            water_from_grid_kwh = 0.0
+
+            if water_kwh_required > 0:
+                # Step 1: Use PV surplus first
+                pv_surplus = max(0.0, pv_kwh - load_kwh)
+                water_from_pv_kwh = min(water_kwh_required, pv_surplus)
+                remaining_water = water_kwh_required - water_from_pv_kwh
+
+                # Step 2: Use battery if economical
+                if remaining_water > 0 and self.discharge_efficiency > 0:
+                    battery_water_threshold = avg_cost + self.cycle_cost + self.thresholds.get('battery_water_margin_sek', 0.20)
+                    if import_price > battery_water_threshold:
+                        max_battery_output = self._battery_output_from_energy(max(0.0, current_kwh - min_soc_kwh))
+                        battery_available = min(remaining_water, max_battery_output)
+                        if battery_available > 0:
+                            water_from_battery_kwh = battery_available
+                            battery_energy_used = self._battery_energy_for_output(battery_available)
+                            total_cost -= avg_cost * battery_energy_used
+                            total_cost = max(0.0, total_cost)
+                            current_kwh -= battery_energy_used
+                            remaining_water -= battery_available
+
+                # Step 3: Use grid for remaining
+                water_from_grid_kwh = remaining_water
+
+            # Calculate net after water heating sources
+            net_kwh = pv_kwh - load_kwh - water_from_pv_kwh - water_from_battery_kwh - water_from_grid_kwh
 
             if charge_kw > 0 and self.charge_efficiency > 0:
                 grid_energy = charge_kw * 0.25
@@ -499,8 +574,6 @@ class HeliosPlanner:
                     total_cost += grid_energy * import_price
                     action = 'Charge'
             else:
-                net_kwh = pv_kwh - load_kwh - water_kwh
-
                 if net_kwh < 0:
                     if not is_cheap and self.discharge_efficiency > 0:
                         discharge_price_threshold = cycle_adjusted_cost + battery_use_margin_sek
@@ -533,11 +606,17 @@ class HeliosPlanner:
             projected_soc_kwh.append(current_kwh)
             projected_soc_percent.append((current_kwh / capacity_kwh) * 100.0 if capacity_kwh else 0.0)
             projected_battery_cost.append(avg_cost)
+            water_from_pv.append(water_from_pv_kwh)
+            water_from_battery.append(water_from_battery_kwh)
+            water_from_grid.append(water_from_grid_kwh)
 
         df['action'] = actions
         df['projected_soc_kwh'] = projected_soc_kwh
         df['projected_soc_percent'] = projected_soc_percent
         df['projected_battery_cost'] = projected_battery_cost
+        df['water_from_pv_kwh'] = water_from_pv
+        df['water_from_battery_kwh'] = water_from_battery
+        df['water_from_grid_kwh'] = water_from_grid
 
         return df
 
