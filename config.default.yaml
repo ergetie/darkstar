@@ -19,35 +19,72 @@ system:
 battery:
   capacity_kwh: 10.0
   min_soc_percent: 15
-  max_soc_percent: 95
+  max_soc_percent: 95            # Planner target ceiling (BMS still enforces absolute limit)
   max_charge_power_kw: 5.0
   max_discharge_power_kw: 5.0
-  efficiency_percent: 95.0
+  efficiency_percent: 95.0       # Legacy field (maintained for backward compatibility)
+  roundtrip_efficiency_percent: 95.0
+
+battery_economics:
+  battery_cycle_cost_kwh: 0.20      # Degradation cost applied per kWh cycled through the battery
 
 # Decision Making Thresholds
 decision_thresholds:
-  battery_use_margin_sek: 0.10      # Use battery if grid > battery_cost + margin
-  export_profit_margin_sek: 0.20    # Export if export_price > battery_cost + margin
+  battery_use_margin_sek: 0.10      # Use battery if grid > battery_cost + wear + margin
+  export_profit_margin_sek: 0.05    # Additional profit required on top of battery cost + wear
   battery_water_margin_sek: 0.20    # Margin for using battery for water heating
 
 # Charging Strategy
 charging_strategy:
   charge_threshold_percentile: 15   # Bottom 15% of prices are considered 'cheap'
   cheap_price_tolerance_sek: 0.10   # Extends 'cheap' category to prices within this tolerance
+  price_smoothing_sek_kwh: 0.05     # Allows grouping of slots slightly above cheapest price for block planning
 
 # Strategic Charging (Floor Price)
 strategic_charging:
   price_threshold_sek: 0.90         # Price below which strategic charging is triggered
   target_soc_percent: 95            # Absolute SoC target for strategic charging
+  carry_forward_tolerance_ratio: 0.10  # Allow next cheap window if its price within tolerance
 
 # Water Heating
 water_heating:
   power_kw: 3.0                     # Power consumption of the water heater
-  daily_duration_hours: 2.0         # Required heating duration per 24 hours
+  min_hours_per_day: 2.0            # Minimum run-time per day
+  min_kwh_per_day: 6.0              # Optional; defaults to power * hours when unset
+  max_blocks_per_day: 2             # Prefer single block, up to two if needed
+  schedule_future_only: true        # Only schedule future slots (skip current slot)
 
-# Safety and Buffers
-safety:
-  s_index_factor_base: 1.05         # Base safety buffer for load forecasts
+# S-Index Configuration
+s_index:
+  mode: "static"                   # Static factor until calculator is implemented
+  static_factor: 1.05               # Base safety multiplier applied to responsibilities
+  max_factor: 1.25                  # Guardrail for future dynamic calculator
+
+# Smoothing / Hysteresis Controls
+smoothing:
+  min_on_slots_charge: 2
+  min_off_slots_charge: 1
+  min_on_slots_discharge: 2
+  min_off_slots_discharge: 1
+  min_on_slots_export: 2
+
+# Arbitrage / Export Settings
+arbitrage:
+  enable_export: true
+  export_fees_sek_per_kwh: 0.0
+  protective_soc_strategy: "gap_based"
+  fixed_protective_soc_percent: 15.0
+
+# Debug & Telemetry
+debug:
+  enable_planner_debug: false
+  sample_size: 30
+
+# Learning Engine
+learning:
+  enable: true
+  sqlite_path: "data/planner_learning.db"
+  sync_interval_minutes: 5
 
 # Nordpool API Configuration
 nordpool:

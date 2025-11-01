@@ -1,6 +1,9 @@
-import yaml
-import pandas as pd
 import json
+import math
+
+import pandas as pd
+import yaml
+
 from inputs import get_all_input_data
 
 class HeliosPlanner:
@@ -14,11 +17,10 @@ class HeliosPlanner:
         # Load config from YAML
         with open(config_path, 'r') as f:
             self.config = yaml.safe_load(f)
-        
-# Initialize internal state
+
+        # Initialize internal state
         self.timezone = self.config.get('timezone', 'Europe/Stockholm')
         self.battery_config = self.config.get('system', {}).get('battery', self.config.get('battery', {}))
-        # Ensure we have a valid battery config
         if not self.battery_config:
             self.battery_config = self.config.get('battery', {})
         self.thresholds = self.config.get('decision_thresholds', {})
@@ -26,6 +28,36 @@ class HeliosPlanner:
         self.strategic_charging = self.config.get('strategic_charging', {})
         self.water_heating_config = self.config.get('water_heating', {})
         self.safety_config = self.config.get('safety', {})
+        self.battery_economics = self.config.get('battery_economics', {})
+
+        roundtrip_percent = self.battery_config.get(
+            'roundtrip_efficiency_percent',
+            self.battery_config.get('efficiency_percent', 95.0),
+        )
+        self.roundtrip_efficiency = max(0.0, min(roundtrip_percent / 100.0, 1.0))
+        if self.roundtrip_efficiency > 0:
+            efficiency_component = math.sqrt(self.roundtrip_efficiency)
+            self.charge_efficiency = efficiency_component
+            self.discharge_efficiency = efficiency_component
+        else:
+            self.charge_efficiency = 0.0
+            self.discharge_efficiency = 0.0
+
+        self.cycle_cost = self.battery_economics.get('battery_cycle_cost_kwh', 0.0)
+
+    def _energy_into_battery(self, source_energy_kwh: float) -> float:
+        """Energy (kWh) stored in the battery after charging losses."""
+        return source_energy_kwh * self.charge_efficiency
+
+    def _battery_energy_for_output(self, required_output_kwh: float) -> float:
+        """Energy (kWh) that must be removed from the battery to deliver output after losses."""
+        if self.discharge_efficiency == 0:
+            return float('inf')
+        return required_output_kwh / self.discharge_efficiency
+
+    def _battery_output_from_energy(self, battery_energy_kwh: float) -> float:
+        """Energy (kWh) delivered after accounting for discharge losses."""
+        return battery_energy_kwh * self.discharge_efficiency
 
     def generate_schedule(self, input_data):
         """
@@ -194,13 +226,12 @@ class HeliosPlanner:
         capacity_kwh = self.battery_config.get('capacity_kwh', 10.0)
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
         max_soc_percent = self.battery_config.get('max_soc_percent', 95)
-        efficiency_percent = self.battery_config.get('efficiency_percent', 95.0)
-        
+
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         battery_use_margin_sek = self.thresholds.get('battery_use_margin_sek', 0.10)
         battery_cost = self.state['battery_cost_sek_per_kwh']
-        efficiency = efficiency_percent / 100.0
+        economic_threshold = battery_cost + self.cycle_cost + battery_use_margin_sek
 
         current_kwh = self.state['battery_kwh']
         soc_list = []
@@ -213,14 +244,18 @@ class HeliosPlanner:
 
             # Case 1: Deficit
             deficit_kwh = adjusted_load + water_kwh - adjusted_pv
-            if deficit_kwh > 0 and import_price > battery_cost + battery_use_margin_sek:
-                discharge_from_battery = deficit_kwh / efficiency
+            if (
+                deficit_kwh > 0
+                and import_price > economic_threshold
+                and self.discharge_efficiency > 0
+            ):
+                discharge_from_battery = self._battery_energy_for_output(deficit_kwh)
                 current_kwh -= discharge_from_battery
 
             # Case 2: Surplus
             surplus_kwh = adjusted_pv - adjusted_load - water_kwh
-            if surplus_kwh > 0:
-                charge_to_battery = surplus_kwh * efficiency
+            if surplus_kwh > 0 and self.charge_efficiency > 0:
+                charge_to_battery = self._energy_into_battery(surplus_kwh)
                 current_kwh += charge_to_battery
 
             # Clamp
@@ -373,16 +408,16 @@ class HeliosPlanner:
             pd.DataFrame: DataFrame with final schedule
         """
         current_kwh = self.state['battery_kwh']
-        current_cost = self.state['battery_cost_sek_per_kwh']
+        starting_avg_cost = self.state.get('battery_cost_sek_per_kwh', 0.0)
+        total_cost = current_kwh * starting_avg_cost
+
         capacity_kwh = self.battery_config.get('capacity_kwh', 10.0)
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
         max_soc_percent = self.battery_config.get('max_soc_percent', 95)
-        efficiency_percent = self.battery_config.get('efficiency_percent', 95.0)
-        
+
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         battery_use_margin_sek = self.thresholds.get('battery_use_margin_sek', 0.10)
-        efficiency = efficiency_percent / 100.0
 
         actions = []
         projected_soc_kwh = []
@@ -397,47 +432,57 @@ class HeliosPlanner:
             import_price = row['import_price_sek_kwh']
             is_cheap = row['is_cheap']
 
-            # Priority 1: Execute Charging Plan
-            if charge_kw > 0:
-                action = 'Charge'
-                charge_kwh = charge_kw * 0.25
-                current_kwh += charge_kwh
-                current_cost = (current_kwh * current_cost + charge_kwh * import_price) / (current_kwh + charge_kwh)
+            avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+            cycle_adjusted_cost = avg_cost + self.cycle_cost
 
+            action = 'Hold'
+
+            if charge_kw > 0 and self.charge_efficiency > 0:
+                grid_energy = charge_kw * 0.25
+                stored_energy = self._energy_into_battery(grid_energy)
+                available_capacity = max(0.0, max_soc_kwh - current_kwh)
+                if stored_energy > available_capacity and self.charge_efficiency > 0:
+                    stored_energy = available_capacity
+                    grid_energy = stored_energy / self.charge_efficiency if self.charge_efficiency > 0 else 0.0
+                if stored_energy > 0:
+                    current_kwh += stored_energy
+                    total_cost += grid_energy * import_price
+                    action = 'Charge'
             else:
-                # Calculate net energy
                 net_kwh = pv_kwh - load_kwh - water_kwh
 
-                # Priority 2: Handle Net Load (Deficit)
                 if net_kwh < 0:
-                    if is_cheap:
-                        action = 'Hold'  # Preserve battery in cheap windows
-                    else:
-                        if import_price > current_cost + battery_use_margin_sek:
-                            action = 'Discharge'
+                    if not is_cheap and self.discharge_efficiency > 0:
+                        discharge_price_threshold = cycle_adjusted_cost + battery_use_margin_sek
+                        if import_price > discharge_price_threshold:
                             deficit_kwh = -net_kwh
-                            discharge_from_battery = deficit_kwh / efficiency
-                            current_kwh -= discharge_from_battery
-                        else:
-                            action = 'Hold'
+                            max_battery_output = self._battery_output_from_energy(max(0.0, current_kwh - min_soc_kwh))
+                            deliverable_kwh = min(deficit_kwh, max_battery_output)
+                            if deliverable_kwh > 0:
+                                battery_energy_used = self._battery_energy_for_output(deliverable_kwh)
+                                total_cost -= avg_cost * battery_energy_used
+                                total_cost = max(0.0, total_cost)
+                                current_kwh -= battery_energy_used
+                                action = 'Discharge'
+                elif net_kwh > 0 and self.charge_efficiency > 0:
+                    stored_energy = self._energy_into_battery(net_kwh)
+                    available_capacity = max(0.0, max_soc_kwh - current_kwh)
+                    stored_energy = min(stored_energy, available_capacity)
+                    if stored_energy > 0:
+                        current_kwh += stored_energy
+                        action = 'PV Charge'
 
-                # Priority 3: Handle Net PV (Surplus)
-                elif net_kwh > 0:
-                    action = 'PV Charge'
-                    surplus_kwh = net_kwh
-                    charge_to_battery = surplus_kwh * efficiency
-                    current_kwh += charge_to_battery
-
-                # Default
-                else:
-                    action = 'Hold'
-
-            # Apply constraints
             current_kwh = max(min_soc_kwh, min(max_soc_kwh, current_kwh))
+            if current_kwh <= 0:
+                current_kwh = 0.0
+                total_cost = 0.0
+
+            avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+
             actions.append(action)
             projected_soc_kwh.append(current_kwh)
-            projected_soc_percent.append((current_kwh / capacity_kwh) * 100.0)
-            projected_battery_cost.append(current_cost)
+            projected_soc_percent.append((current_kwh / capacity_kwh) * 100.0 if capacity_kwh else 0.0)
+            projected_battery_cost.append(avg_cost)
 
         df['action'] = actions
         df['projected_soc_kwh'] = projected_soc_kwh
@@ -510,6 +555,22 @@ def simulate_schedule(df, config, initial_state):
     temp_planner.strategic_charging = config.get('strategic_charging', {})
     temp_planner.water_heating_config = config.get('water_heating', {})
     temp_planner.safety_config = config.get('safety', {})
+    temp_planner.battery_economics = config.get('battery_economics', {})
+
+    roundtrip_percent = temp_planner.battery_config.get(
+        'roundtrip_efficiency_percent',
+        temp_planner.battery_config.get('efficiency_percent', 95.0),
+    )
+    temp_planner.roundtrip_efficiency = max(0.0, min(roundtrip_percent / 100.0, 1.0))
+    if temp_planner.roundtrip_efficiency > 0:
+        efficiency_component = math.sqrt(temp_planner.roundtrip_efficiency)
+        temp_planner.charge_efficiency = efficiency_component
+        temp_planner.discharge_efficiency = efficiency_component
+    else:
+        temp_planner.charge_efficiency = 0.0
+        temp_planner.discharge_efficiency = 0.0
+
+    temp_planner.cycle_cost = temp_planner.battery_economics.get('battery_cycle_cost_kwh', 0.0)
     temp_planner.state = initial_state
     
     # Run the simulation pass

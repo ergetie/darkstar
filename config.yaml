@@ -1,22 +1,5 @@
-battery: {}
-charging_strategy: {}
-decision_thresholds:
-  battery_use_margin_sek: 0.12
-  battery_water_margin_sek: 0.2
-  export_profit_margin_sek: 0.2
-forecasting: {}
-nordpool:
-  currency: SEK
-  price_area: SE4
-  resolution_minutes: 15
-pricing:
-  energy_tax_sek: 0.439
-  grid_transfer_fee_sek: 0.2456
-  vat_percent: 25
-safety: {}
-strategic_charging:
-  price_threshold_sek: 0.9
-  target_soc_percent: 95
+timezone: Europe/Stockholm
+
 system:
   battery:
     capacity_kwh: 34
@@ -33,5 +16,71 @@ system:
     azimuth: 150
     kwp: 9
     tilt: 45
-timezone: Europe/Stockholm
-water_heating: {}
+
+battery:
+  roundtrip_efficiency_percent: 95.0
+  max_soc_percent: 95
+
+battery_economics:
+  battery_cycle_cost_kwh: 0.20
+
+charging_strategy:
+  charge_threshold_percentile: 15
+  cheap_price_tolerance_sek: 0.10
+  price_smoothing_sek_kwh: 0.05
+
+decision_thresholds:
+  battery_use_margin_sek: 0.12
+  battery_water_margin_sek: 0.20
+  export_profit_margin_sek: 0.05
+
+strategic_charging:
+  price_threshold_sek: 0.90
+  target_soc_percent: 95
+  carry_forward_tolerance_ratio: 0.10
+
+water_heating:
+  power_kw: 3.0
+  min_hours_per_day: 2.0
+  min_kwh_per_day: 6.0
+  max_blocks_per_day: 2
+  schedule_future_only: true
+
+s_index:
+  mode: "static"
+  static_factor: 1.05
+  max_factor: 1.25
+
+smoothing:
+  min_on_slots_charge: 2
+  min_off_slots_charge: 1
+  min_on_slots_discharge: 2
+  min_off_slots_discharge: 1
+  min_on_slots_export: 2
+
+arbitrage:
+  enable_export: true
+  export_fees_sek_per_kwh: 0.0
+  protective_soc_strategy: "gap_based"
+  fixed_protective_soc_percent: 15.0
+
+debug:
+  enable_planner_debug: false
+  sample_size: 30
+
+learning:
+  enable: true
+  sqlite_path: "data/planner_learning.db"
+  sync_interval_minutes: 5
+
+forecasting: {}
+
+nordpool:
+  currency: SEK
+  price_area: SE4
+  resolution_minutes: 15
+
+pricing:
+  energy_tax_sek: 0.439
+  grid_transfer_fee_sek: 0.2456
+  vat_percent: 25
