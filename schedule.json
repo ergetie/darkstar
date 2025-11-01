@@ -20,6 +20,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 1
     },
     {
@@ -42,6 +44,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 2
     },
     {
@@ -64,6 +68,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 3
     },
     {
@@ -86,6 +92,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 4
     },
     {
@@ -108,6 +116,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 5
     },
     {
@@ -130,6 +140,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 6
     },
     {
@@ -152,6 +164,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 7
     },
     {
@@ -174,6 +188,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 8
     },
     {
@@ -196,6 +212,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 9
     },
     {
@@ -218,6 +236,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 10
     },
     {
@@ -240,6 +260,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 11
     },
     {
@@ -262,6 +284,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 12
     },
     {
@@ -284,6 +308,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 13
     },
     {
@@ -306,6 +332,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 14
     },
     {
@@ -328,6 +356,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 15
     },
     {
@@ -350,6 +380,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 16
     },
     {
@@ -372,6 +404,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 17
     },
     {
@@ -394,6 +428,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 18
     },
     {
@@ -416,6 +452,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 19
     },
     {
@@ -438,6 +476,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 20
     },
     {
@@ -460,6 +500,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.75,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 21
     },
     {
@@ -482,6 +524,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 22
     },
     {
@@ -504,6 +548,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 23
     },
     {
@@ -526,6 +572,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 24
     },
     {
@@ -548,6 +596,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 25
     },
     {
@@ -570,6 +620,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 26
     },
     {
@@ -592,6 +644,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 27
     },
     {
@@ -614,6 +668,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 28
     },
     {
@@ -636,6 +692,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 29
     },
     {
@@ -658,6 +716,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 30
     },
     {
@@ -680,6 +740,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 31
     },
     {
@@ -702,6 +764,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 32
     },
     {
@@ -724,6 +788,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 33
     },
     {
@@ -746,6 +812,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 34
     },
     {
@@ -768,6 +836,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 35
     },
     {
@@ -790,6 +860,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 36
     },
     {
@@ -812,6 +884,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 37
     },
     {
@@ -834,6 +908,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 38
     },
     {
@@ -856,6 +932,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 39
     },
     {
@@ -878,6 +956,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 40
     },
     {
@@ -900,6 +980,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 41
     },
     {
@@ -922,6 +1004,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 42
     },
     {
@@ -944,6 +1028,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 43
     },
     {
@@ -966,6 +1052,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 44
     },
     {
@@ -988,6 +1076,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 45
     },
     {
@@ -1010,6 +1100,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 46
     },
     {
@@ -1032,6 +1124,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 47
     },
     {
@@ -1054,6 +1148,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 48
     },
     {
@@ -1076,6 +1172,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 49
     },
     {
@@ -1098,6 +1196,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 50
     },
     {
@@ -1120,6 +1220,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 51
     },
     {
@@ -1142,6 +1244,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 52
     },
     {
@@ -1164,6 +1268,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 53
     },
     {
@@ -1186,6 +1292,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 54
     },
     {
@@ -1208,6 +1316,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 55
     },
     {
@@ -1230,6 +1340,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 56
     },
     {
@@ -1252,6 +1364,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 57
     },
     {
@@ -1274,6 +1388,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 58
     },
     {
@@ -1296,6 +1412,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 59
     },
     {
@@ -1318,6 +1436,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 60
     },
     {
@@ -1340,6 +1460,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 61
     },
     {
@@ -1362,6 +1484,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 62
     },
     {
@@ -1384,6 +1508,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 63
     },
     {
@@ -1406,6 +1532,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 64
     },
     {
@@ -1428,6 +1556,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 65
     },
     {
@@ -1450,6 +1580,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 66
     },
     {
@@ -1472,6 +1604,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 67
     },
     {
@@ -1494,6 +1628,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 68
     },
     {
@@ -1516,6 +1652,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 69
     },
     {
@@ -1538,6 +1676,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 70
     },
     {
@@ -1560,6 +1700,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 71
     },
     {
@@ -1582,6 +1724,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 72
     },
     {
@@ -1604,6 +1748,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 73
     },
     {
@@ -1626,6 +1772,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 74
     },
     {
@@ -1648,6 +1796,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 75
     },
     {
@@ -1670,6 +1820,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 76
     },
     {
@@ -1692,6 +1844,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 77
     },
     {
@@ -1714,6 +1868,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 78
     },
     {
@@ -1736,6 +1892,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 79
     },
     {
@@ -1758,6 +1916,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 80
     },
     {
@@ -1780,6 +1940,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 81
     },
     {
@@ -1802,6 +1964,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 82
     },
     {
@@ -1824,6 +1988,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 83
     },
     {
@@ -1846,6 +2012,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 84
     },
     {
@@ -1868,6 +2036,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 85
     },
     {
@@ -1890,6 +2060,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 86
     },
     {
@@ -1898,20 +2070,22 @@
       "import_price_sek_kwh": 1.28,
       "export_price_sek_kwh": 0.34,
       "pv_forecast_kwh": 0.0,
-      "load_forecast_kwh": 0.21,
+      "load_forecast_kwh": 0.23,
       "adjusted_pv_kwh": 0.0,
-      "adjusted_load_kwh": 0.24,
+      "adjusted_load_kwh": 0.25,
       "is_cheap": false,
       "water_heating_kw": 0.0,
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 8.98,
-      "projected_soc_percent": 26.4,
+      "projected_soc_kwh": 8.96,
+      "projected_soc_percent": 26.36,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 87
     },
     {
@@ -1928,12 +2102,14 @@
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 8.62,
-      "projected_soc_percent": 25.35,
+      "projected_soc_kwh": 8.6,
+      "projected_soc_percent": 25.3,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 88
     },
     {
@@ -1950,12 +2126,14 @@
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 8.26,
-      "projected_soc_percent": 24.29,
+      "projected_soc_kwh": 8.24,
+      "projected_soc_percent": 24.25,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 89
     },
     {
@@ -1972,12 +2150,14 @@
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 8.05,
-      "projected_soc_percent": 23.67,
+      "projected_soc_kwh": 8.03,
+      "projected_soc_percent": 23.62,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 90
     },
     {
@@ -1994,12 +2174,14 @@
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 7.84,
-      "projected_soc_percent": 23.06,
+      "projected_soc_kwh": 7.82,
+      "projected_soc_percent": 23.01,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 91
     },
     {
@@ -2016,12 +2198,14 @@
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 7.64,
-      "projected_soc_percent": 22.48,
+      "projected_soc_kwh": 7.63,
+      "projected_soc_percent": 22.43,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 92
     },
     {
@@ -2038,12 +2222,14 @@
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 7.41,
-      "projected_soc_percent": 21.8,
+      "projected_soc_kwh": 7.4,
+      "projected_soc_percent": 21.75,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 93
     },
     {
@@ -2052,20 +2238,22 @@
       "import_price_sek_kwh": 1.24,
       "export_price_sek_kwh": 0.3,
       "pv_forecast_kwh": 0.0,
-      "load_forecast_kwh": 0.17,
+      "load_forecast_kwh": 0.16,
       "adjusted_pv_kwh": 0.0,
-      "adjusted_load_kwh": 0.19,
+      "adjusted_load_kwh": 0.17,
       "is_cheap": false,
       "water_heating_kw": 0.0,
       "simulated_soc_kwh": 5.1,
       "battery_charge_kw": 0.0,
       "classification": "Discharge",
-      "projected_soc_kwh": 7.21,
-      "projected_soc_percent": 21.22,
+      "projected_soc_kwh": 7.22,
+      "projected_soc_percent": 21.23,
       "projected_battery_cost": 0.67,
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 94
     },
     {
@@ -2076,7 +2264,7 @@
       "pv_forecast_kwh": 0.0,
       "load_forecast_kwh": 0.18,
       "adjusted_pv_kwh": 0.0,
-      "adjusted_load_kwh": 0.19,
+      "adjusted_load_kwh": 0.2,
       "is_cheap": false,
       "water_heating_kw": 0.0,
       "simulated_soc_kwh": 5.1,
@@ -2088,6 +2276,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 95
     },
     {
@@ -2110,6 +2300,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 96
     },
     {
@@ -2132,6 +2324,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 97
     },
     {
@@ -2154,6 +2348,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 98
     },
     {
@@ -2176,6 +2372,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 99
     },
     {
@@ -2198,6 +2396,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 100
     },
     {
@@ -2220,6 +2420,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 101
     },
     {
@@ -2242,6 +2444,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 102
     },
     {
@@ -2264,6 +2468,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 103
     },
     {
@@ -2286,6 +2492,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 104
     },
     {
@@ -2308,6 +2516,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 105
     },
     {
@@ -2330,6 +2540,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 106
     },
     {
@@ -2352,6 +2564,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 107
     },
     {
@@ -2374,6 +2588,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 108
     },
     {
@@ -2396,6 +2612,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 109
     },
     {
@@ -2418,6 +2636,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 110
     },
     {
@@ -2440,6 +2660,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 111
     },
     {
@@ -2462,6 +2684,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 112
     },
     {
@@ -2484,6 +2708,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 113
     },
     {
@@ -2506,6 +2732,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 114
     },
     {
@@ -2528,6 +2756,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 115
     },
     {
@@ -2550,6 +2780,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 116
     },
     {
@@ -2572,6 +2804,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 117
     },
     {
@@ -2594,6 +2828,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 118
     },
     {
@@ -2616,6 +2852,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 119
     },
     {
@@ -2638,6 +2876,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 120
     },
     {
@@ -2660,6 +2900,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 121
     },
     {
@@ -2682,6 +2924,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 122
     },
     {
@@ -2704,6 +2948,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 123
     },
     {
@@ -2726,6 +2972,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 124
     },
     {
@@ -2748,6 +2996,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 125
     },
     {
@@ -2770,6 +3020,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 126
     },
     {
@@ -2792,6 +3044,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 127
     },
     {
@@ -2814,6 +3068,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 128
     },
     {
@@ -2836,6 +3092,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 129
     },
     {
@@ -2858,6 +3116,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 130
     },
     {
@@ -2880,6 +3140,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 131
     },
     {
@@ -2902,6 +3164,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 132
     },
     {
@@ -2924,6 +3188,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 133
     },
     {
@@ -2946,6 +3212,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 134
     },
     {
@@ -2968,6 +3236,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 135
     },
     {
@@ -2990,6 +3260,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 136
     },
     {
@@ -3012,6 +3284,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 137
     },
     {
@@ -3034,6 +3308,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 138
     },
     {
@@ -3056,6 +3332,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 139
     },
     {
@@ -3078,6 +3356,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 140
     },
     {
@@ -3100,6 +3380,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 141
     },
     {
@@ -3122,6 +3404,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 142
     },
     {
@@ -3144,6 +3428,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 143
     },
     {
@@ -3166,6 +3452,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 144
     },
     {
@@ -3188,6 +3476,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 145
     },
     {
@@ -3210,6 +3500,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 146
     },
     {
@@ -3232,6 +3524,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 147
     },
     {
@@ -3254,6 +3548,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 148
     },
     {
@@ -3276,6 +3572,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 149
     },
     {
@@ -3298,6 +3596,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 150
     },
     {
@@ -3320,6 +3620,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 151
     },
     {
@@ -3342,6 +3644,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 152
     },
     {
@@ -3364,6 +3668,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 153
     },
     {
@@ -3386,6 +3692,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 154
     },
     {
@@ -3408,6 +3716,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 155
     },
     {
@@ -3430,6 +3740,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 156
     },
     {
@@ -3452,6 +3764,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 157
     },
     {
@@ -3474,6 +3788,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 158
     },
     {
@@ -3496,6 +3812,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 159
     },
     {
@@ -3518,6 +3836,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 160
     },
     {
@@ -3540,6 +3860,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 161
     },
     {
@@ -3562,6 +3884,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 162
     },
     {
@@ -3584,6 +3908,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 163
     },
     {
@@ -3606,6 +3932,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 164
     },
     {
@@ -3628,6 +3956,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 165
     },
     {
@@ -3650,6 +3980,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 166
     },
     {
@@ -3672,6 +4004,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 167
     },
     {
@@ -3694,6 +4028,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 168
     },
     {
@@ -3716,6 +4052,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 169
     },
     {
@@ -3738,6 +4076,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 170
     },
     {
@@ -3760,6 +4100,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 171
     },
     {
@@ -3782,6 +4124,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 172
     },
     {
@@ -3804,6 +4148,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 173
     },
     {
@@ -3826,6 +4172,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 174
     },
     {
@@ -3848,6 +4196,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 175
     },
     {
@@ -3870,6 +4220,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 176
     },
     {
@@ -3892,6 +4244,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 177
     },
     {
@@ -3914,6 +4268,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 178
     },
     {
@@ -3936,6 +4292,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 179
     },
     {
@@ -3958,6 +4316,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 180
     },
     {
@@ -3980,6 +4340,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 181
     },
     {
@@ -4002,6 +4364,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 182
     },
     {
@@ -4010,9 +4374,9 @@
       "import_price_sek_kwh": 1.61,
       "export_price_sek_kwh": 0.6,
       "pv_forecast_kwh": 0.0,
-      "load_forecast_kwh": 0.21,
+      "load_forecast_kwh": 0.23,
       "adjusted_pv_kwh": 0.0,
-      "adjusted_load_kwh": 0.24,
+      "adjusted_load_kwh": 0.25,
       "is_cheap": false,
       "water_heating_kw": 0.0,
       "simulated_soc_kwh": 5.1,
@@ -4024,6 +4388,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 183
     },
     {
@@ -4046,6 +4412,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 184
     },
     {
@@ -4068,6 +4436,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 185
     },
     {
@@ -4090,6 +4460,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 186
     },
     {
@@ -4112,6 +4484,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 187
     },
     {
@@ -4134,6 +4508,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 188
     },
     {
@@ -4156,6 +4532,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 189
     },
     {
@@ -4164,9 +4542,9 @@
       "import_price_sek_kwh": 1.38,
       "export_price_sek_kwh": 0.42,
       "pv_forecast_kwh": 0.0,
-      "load_forecast_kwh": 0.17,
+      "load_forecast_kwh": 0.16,
       "adjusted_pv_kwh": 0.0,
-      "adjusted_load_kwh": 0.19,
+      "adjusted_load_kwh": 0.17,
       "is_cheap": false,
       "water_heating_kw": 0.0,
       "simulated_soc_kwh": 5.1,
@@ -4178,6 +4556,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 190
     },
     {
@@ -4188,7 +4568,7 @@
       "pv_forecast_kwh": 0.0,
       "load_forecast_kwh": 0.18,
       "adjusted_pv_kwh": 0.0,
-      "adjusted_load_kwh": 0.19,
+      "adjusted_load_kwh": 0.2,
       "is_cheap": false,
       "water_heating_kw": 0.0,
       "simulated_soc_kwh": 5.1,
@@ -4200,6 +4580,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 191
     },
     {
@@ -4222,6 +4604,8 @@
       "water_from_pv_kwh": 0.0,
       "water_from_battery_kwh": 0.0,
       "water_from_grid_kwh": 0.0,
+      "export_kwh": 0.0,
+      "export_revenue": 0.0,
       "slot_number": 192
     }
   ]

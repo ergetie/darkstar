@@ -18,14 +18,14 @@
 
 ## Phase Breakdown (Severity-Ordered)
 
-### Phase 1 – Correctness Foundations (Severity 1)
-1. **Round-trip efficiency fix**
+### Phase 1 – Correctness Foundations (Severity 1) ✅ COMPLETED
+1. **Round-trip efficiency fix** ✅
    - Introduce helper functions using `sqrt(roundtrip_efficiency)` for charge/discharge energy conversions.
    - Update `_pass_3`, `_pass_6`, and `simulate_schedule` to use new helpers.
    - Config: add `battery.roundtrip_efficiency_percent` (default 95.0).
    - Tests: verify a full cycle loses expected energy.
 
-2. **Battery cost accounting & wear**
+2. **Battery cost accounting & wear** ✅
    - Maintain `total_kwh` and `total_cost` for battery state; update on charge/discharge/export.
    - Introduce `battery_economics.battery_cycle_cost_kwh` (default 0.20) and include in profitability comparisons.
    - Update decision thresholds (load cover, water, export) to incorporate wear cost.
@@ -56,13 +56,13 @@
    - Integrate HA sensor when provided; otherwise refresh sqlite tracker at midnight.
    - Tests: ensure single/two block scheduling; verify fallback tracker increments.
 
-### Phase 4 – Export & Strategic Enhancements (Severity 5–6)
-7. **Export logic & protective SoC**
+### Phase 4 – Export & Strategic Enhancements (Severity 5–6) ✅ COMPLETED
+7. **Export logic & protective SoC** ✅
    - Config: `arbitrage.enable_export`, `export_fees_sek_per_kwh`, `export_profit_margin_sek`, `protective_soc_strategy`, `fixed_protective_soc_percent`.
    - Compute protective SoC from future responsibilities (gap-based) or fixed fallback.
    - Execute export when profitable and safe; update flows and costs.
 
-8. **Strategic windows and carry-forward**
+8. **Strategic windows and carry-forward** ✅
    - Mark strategic windows for slots below `strategic_charging.price_threshold_sek` when PV deficit predicted.
    - Add `carry_forward_tolerance_ratio` to extend strategic tagging when SoC below target.
    - Ensure strategic target ties to `battery.max_soc_percent` (default 95).
@@ -168,9 +168,23 @@
 - **Peak shaving support** – Integrate demand charge constraints or monthly max power objectives.
 - **Advanced analytics** – Historical rollups, planner telemetry dashboards, anomaly detection.
 
+## Completion Summary
+
+### ✅ Completed Phases
+- **Phase 1 (Correctness Foundations)**: Round-trip efficiency and battery cost accounting implemented
+- **Phase 2 (Realistic Slot Constraints)**: Slot-level power limits and price-aware gap responsibilities implemented
+- **Phase 3 (Water Heating Parity)**: Contiguous block scheduling and source selection implemented
+- **Phase 4 (Export & Strategic Enhancements)**: Export logic with protective SoC and strategic windows implemented
+
+### 🔄 Current Status
+- **Phase 4 (Export & Strategic Enhancements)**: Next phase to implement
+- **Phase 5-6**: Planned for future development
+
 ## Tracking & Delivery Checklist
-- [ ] Phase 1 changes merged with tests.
-- [ ] Config defaults updated in `config.default.yaml` and migrated in `config.yaml`.
+- [x] Phase 1 changes merged with tests.
+- [x] Phase 2 changes merged with tests.
+- [x] Phase 3 changes merged with tests.
+- [x] Config defaults updated in `config.default.yaml` and migrated in `config.yaml`.
 - [ ] Web-app settings updated; manual QA performed.
 - [ ] Docs (README, AGENTS) refreshed.
 - [ ] Planner debug output validated.
@@ -182,4 +196,4 @@
 - Maintain `docs/implementation_plan.md` by ticking completed steps, adding links to PRs, and noting regressions or follow-up tasks.
 
 ---
-_Last updated: 2025-11-01_
+_Last updated: 2025-11-01 (Phase 4 completed)_

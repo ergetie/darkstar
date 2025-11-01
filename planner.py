@@ -412,7 +412,7 @@ class HeliosPlanner:
             })
 
         # Strategic override to absolute target
-        strategic_target_soc_percent = self.strategic_charging.get('target_soc_percent', 95)
+        strategic_target_soc_percent = self.battery_config.get('max_soc_percent', 95)
         strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
         for i in strategic_windows:
             start_idx = windows[i]['start']
@@ -517,6 +517,21 @@ class HeliosPlanner:
         water_from_pv = []
         water_from_battery = []
         water_from_grid = []
+        export_kwh = []
+        export_revenue = []
+
+        # Calculate protective SoC for export
+        arbitrage_config = self.config.get('arbitrage', {})
+        enable_export = arbitrage_config.get('enable_export', True)
+        protective_soc_strategy = arbitrage_config.get('protective_soc_strategy', 'gap_based')
+        fixed_protective_soc_percent = arbitrage_config.get('fixed_protective_soc_percent', 15.0)
+
+        if protective_soc_strategy == 'gap_based':
+            # Calculate protective SoC based on future responsibilities
+            future_responsibilities = sum(resp['total_responsibility_kwh'] for resp in getattr(self, 'window_responsibilities', []))
+            protective_soc_kwh = max(min_soc_kwh, future_responsibilities * 1.1)  # 10% buffer
+        else:
+            protective_soc_kwh = fixed_protective_soc_percent / 100.0 * capacity_kwh
 
         for idx, row in df.iterrows():
             pv_kwh = row['adjusted_pv_kwh']
@@ -524,12 +539,15 @@ class HeliosPlanner:
             water_kwh_required = row['water_heating_kw'] * 0.25
             charge_kw = row['charge_kw']
             import_price = row['import_price_sek_kwh']
+            export_price = row['export_price_sek_kwh']
             is_cheap = row['is_cheap']
 
             avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
             cycle_adjusted_cost = avg_cost + self.cycle_cost
 
             action = 'Hold'
+            slot_export_kwh = 0.0
+            slot_export_revenue = 0.0
 
             # Water heating source selection: PV surplus → battery (economical) → grid
             water_from_pv_kwh = 0.0
@@ -595,6 +613,26 @@ class HeliosPlanner:
                         current_kwh += stored_energy
                         action = 'PV Charge'
 
+            # Export logic: Check for profitable export when safe
+            if enable_export and net_kwh > 0 and current_kwh > protective_soc_kwh:
+                export_fees = arbitrage_config.get('export_fees_sek_per_kwh', 0.0)
+                export_profit_margin = arbitrage_config.get('export_profit_margin_sek', 0.05)
+                net_export_price = export_price - export_fees
+
+                # Only export if profitable (export price > import price + margin)
+                if net_export_price > import_price + export_profit_margin:
+                    # Calculate how much we can export (limited by available energy above protective SoC)
+                    available_for_export = current_kwh - protective_soc_kwh
+                    max_export_kwh = min(net_kwh, available_for_export)
+
+                    if max_export_kwh > 0:
+                        slot_export_kwh = max_export_kwh
+                        slot_export_revenue = slot_export_kwh * net_export_price
+                        current_kwh -= slot_export_kwh
+                        total_cost -= avg_cost * slot_export_kwh  # Reduce cost basis
+                        total_cost = max(0.0, total_cost)
+                        action = 'Export'
+
             current_kwh = max(min_soc_kwh, min(max_soc_kwh, current_kwh))
             if current_kwh <= 0:
                 current_kwh = 0.0
@@ -609,6 +647,8 @@ class HeliosPlanner:
             water_from_pv.append(water_from_pv_kwh)
             water_from_battery.append(water_from_battery_kwh)
             water_from_grid.append(water_from_grid_kwh)
+            export_kwh.append(slot_export_kwh)
+            export_revenue.append(slot_export_revenue)
 
         df['action'] = actions
         df['projected_soc_kwh'] = projected_soc_kwh
@@ -617,6 +657,8 @@ class HeliosPlanner:
         df['water_from_pv_kwh'] = water_from_pv
         df['water_from_battery_kwh'] = water_from_battery
         df['water_from_grid_kwh'] = water_from_grid
+        df['export_kwh'] = export_kwh
+        df['export_revenue'] = export_revenue
 
         return df
 

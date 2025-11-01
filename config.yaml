@@ -61,6 +61,7 @@ smoothing:
 arbitrage:
   enable_export: true
   export_fees_sek_per_kwh: 0.0
+  export_profit_margin_sek: 0.05
   protective_soc_strategy: "gap_based"
   fixed_protective_soc_percent: 15.0
 
