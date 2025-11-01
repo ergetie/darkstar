@@ -1,3 +1,4 @@
+# OUTDATED! SEE IMPLEMENTATION_PLAN.MD!
 
 # Master Project Plan: darkstar Energy Manager (Python Implementation)
 **Version: 3.0 (Authoritative)**

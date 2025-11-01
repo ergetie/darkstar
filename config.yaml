@@ -52,6 +52,7 @@ s_index:
   max_factor: 1.25
 
 smoothing:
+  price_smoothing_sek_kwh: 0.05
   min_on_slots_charge: 2
   min_off_slots_charge: 1
   min_on_slots_discharge: 2
@@ -66,7 +67,7 @@ arbitrage:
   fixed_protective_soc_percent: 15.0
 
 debug:
-  enable_planner_debug: false
+  enable_planner_debug: true
   sample_size: 30
 
 learning:

@@ -62,6 +62,7 @@ s_index:
 
 # Smoothing / Hysteresis Controls
 smoothing:
+  price_smoothing_sek_kwh: 0.05
   min_on_slots_charge: 2
   min_off_slots_charge: 1
   min_on_slots_discharge: 2

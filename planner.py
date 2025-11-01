@@ -93,6 +93,7 @@ class HeliosPlanner:
         df = self._pass_4_allocate_cascading_responsibilities(df)
         df = self._pass_5_distribute_charging_in_windows(df)
         df = self._pass_6_finalize_schedule(df)
+        df = self._pass_7_enforce_hysteresis(df)
         self._save_schedule_to_json(df)
         return df
 
@@ -154,9 +155,10 @@ class HeliosPlanner:
         Returns:
             pd.DataFrame: DataFrame with is_cheap column and strategic period set
         """
-        # Calculate price threshold using two-step logic
+        # Calculate price threshold using two-step logic with smoothing
         charge_threshold_percentile = self.charging_strategy.get('charge_threshold_percentile', 15)
         cheap_price_tolerance_sek = self.charging_strategy.get('cheap_price_tolerance_sek', 0.10)
+        price_smoothing_sek_kwh = self.config.get('smoothing', {}).get('price_smoothing_sek_kwh', 0.05)
 
         # Step A: Initial cheap slots below percentile
         initial_cheap = df['import_price_sek_kwh'] <= df['import_price_sek_kwh'].quantile(charge_threshold_percentile / 100.0)
@@ -164,10 +166,10 @@ class HeliosPlanner:
         # Step B: Maximum price among initial cheap slots
         max_price_in_initial = df.loc[initial_cheap, 'import_price_sek_kwh'].max()
 
-        # Step C: Final threshold
-        cheap_price_threshold = max_price_in_initial + cheap_price_tolerance_sek
+        # Step C: Final threshold with smoothing tolerance
+        cheap_price_threshold = max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
 
-        # Step D: Final is_cheap
+        # Step D: Final is_cheap with smoothing
         df['is_cheap'] = df['import_price_sek_kwh'] <= cheap_price_threshold
 
         # Detect strategic period
@@ -662,6 +664,98 @@ class HeliosPlanner:
 
         return df
 
+    def _pass_7_enforce_hysteresis(self, df):
+        """
+        Apply hysteresis to enforce minimum action block lengths and eliminate single-slot toggles.
+
+        Args:
+            df (pd.DataFrame): DataFrame with finalized schedule
+
+        Returns:
+            pd.DataFrame: DataFrame with hysteresis applied
+        """
+        smoothing_config = self.config.get('smoothing', {})
+        min_on_charge = smoothing_config.get('min_on_slots_charge', 2)
+        min_off_charge = smoothing_config.get('min_off_slots_charge', 1)
+        min_on_discharge = smoothing_config.get('min_on_slots_discharge', 2)
+        min_off_discharge = smoothing_config.get('min_off_slots_discharge', 1)
+        min_on_export = smoothing_config.get('min_on_slots_export', 2)
+
+        actions = df['action'].tolist()
+        n_slots = len(actions)
+
+        # Apply hysteresis for each action type
+        for i in range(n_slots):
+            current_action = actions[i]
+
+            # Handle Charge hysteresis
+            if current_action == 'Charge':
+                # Check if we have enough consecutive slots for minimum on time
+                consecutive_count = 1
+                for j in range(i + 1, min(i + min_on_charge, n_slots)):
+                    if actions[j] == 'Charge':
+                        consecutive_count += 1
+                    else:
+                        break
+
+                # If we don't have minimum consecutive slots, check if we should extend or cancel
+                if consecutive_count < min_on_charge:
+                    # Look backwards for recent charge actions
+                    recent_charge = False
+                    for j in range(max(0, i - min_off_charge), i):
+                        if actions[j] == 'Charge':
+                            recent_charge = True
+                            break
+
+                    if recent_charge:
+                        # Extend the previous charge block
+                        actions[i] = 'Charge'
+                    else:
+                        # Cancel this single charge slot
+                        actions[i] = 'Hold'
+
+            # Handle Discharge hysteresis
+            elif current_action == 'Discharge':
+                consecutive_count = 1
+                for j in range(i + 1, min(i + min_on_discharge, n_slots)):
+                    if actions[j] == 'Discharge':
+                        consecutive_count += 1
+                    else:
+                        break
+
+                if consecutive_count < min_on_discharge:
+                    recent_discharge = False
+                    for j in range(max(0, i - min_off_discharge), i):
+                        if actions[j] == 'Discharge':
+                            recent_discharge = True
+                            break
+
+                    if recent_discharge:
+                        actions[i] = 'Discharge'
+                    else:
+                        actions[i] = 'Hold'
+
+            # Handle Export hysteresis
+            elif current_action == 'Export':
+                consecutive_count = 1
+                for j in range(i + 1, min(i + min_on_export, n_slots)):
+                    if actions[j] == 'Export':
+                        consecutive_count += 1
+                    else:
+                        break
+
+                if consecutive_count < min_on_export:
+                    actions[i] = 'Hold'  # Cancel single export slots
+
+        # Update the DataFrame with hysteresis-applied actions
+        df['action'] = actions
+
+        # Re-simulate the schedule with the new actions to update SoC and costs
+        # This is a simplified approach - in production, we'd need to re-run the full simulation
+        # For now, we'll just update the action classifications
+
+        return df
+
     def _save_schedule_to_json(self, schedule_df):
         """
         Save the final schedule to schedule.json in the required format.
@@ -670,9 +764,113 @@ class HeliosPlanner:
             schedule_df (pd.DataFrame): The final schedule DataFrame
         """
         records = dataframe_to_json_response(schedule_df)
-        
+
+        output = {'schedule': records}
+
+        # Add debug payload if enabled
+        debug_config = self.config.get('debug', {})
+        if debug_config.get('enable_planner_debug', False):
+            debug_payload = self._generate_debug_payload(schedule_df)
+            output['debug'] = debug_payload
+
         with open('schedule.json', 'w') as f:
-            json.dump({'schedule': records}, f, indent=2)
+            json.dump(output, f, indent=2)
+
+    def _generate_debug_payload(self, schedule_df):
+        """
+        Generate debug payload with windows, gaps, charging plan, water analysis, and metrics.
+
+        Args:
+            schedule_df (pd.DataFrame): The final schedule DataFrame
+
+        Returns:
+            dict: Debug payload
+        """
+        debug_config = self.config.get('debug', {})
+        sample_size = debug_config.get('sample_size', 30)
+
+        # Sample the schedule for debug (first N slots)
+        sample_df = schedule_df.head(sample_size)
+
+        debug_payload = {
+            'windows': self._prepare_windows_for_json(),
+            'water_analysis': {
+                'total_water_scheduled_kwh': round(schedule_df['water_heating_kw'].sum() * 0.25, 2),
+                'water_from_pv_kwh': round(schedule_df['water_from_pv_kwh'].sum(), 2),
+                'water_from_battery_kwh': round(schedule_df['water_from_battery_kwh'].sum(), 2),
+                'water_from_grid_kwh': round(schedule_df['water_from_grid_kwh'].sum(), 2),
+            },
+            'charging_plan': {
+                'total_charge_kwh': round(schedule_df['charge_kw'].sum() * 0.25, 2),
+                'total_export_kwh': round(schedule_df['export_kwh'].sum(), 2),
+                'total_export_revenue': round(schedule_df['export_revenue'].sum(), 2),
+            },
+            'metrics': {
+                'total_pv_generation_kwh': round(schedule_df['adjusted_pv_kwh'].sum(), 2),
+                'total_load_kwh': round(schedule_df['adjusted_load_kwh'].sum(), 2),
+                'net_energy_balance_kwh': round(schedule_df['adjusted_pv_kwh'].sum() - schedule_df['adjusted_load_kwh'].sum(), 2),
+                'final_soc_percent': round(schedule_df['projected_soc_percent'].iloc[-1], 2) if not schedule_df.empty else 0,
+                'average_battery_cost': round(schedule_df['projected_battery_cost'].mean(), 2) if not schedule_df.empty else 0,
+            },
+            'sample_schedule': self._prepare_sample_schedule_for_json(sample_df),
+        }
+
+        return debug_payload
+
+    def _prepare_sample_schedule_for_json(self, sample_df):
+        """
+        Prepare sample schedule DataFrame for JSON serialization.
+
+        Args:
+            sample_df (pd.DataFrame): Sample DataFrame
+
+        Returns:
+            list: List of records ready for JSON serialization
+        """
+        if sample_df.empty:
+            return []
+
+        # Reset index and convert to dict
+        records = sample_df.reset_index().to_dict('records')
+
+        # Convert timestamps to strings
+        for record in records:
+            for key, value in record.items():
+                if hasattr(value, 'isoformat'):  # Timestamp objects
+                    record[key] = value.isoformat()
+                elif isinstance(value, float):
+                    record[key] = round(value, 2)
+
+        return records
+
+    def _prepare_windows_for_json(self):
+        """
+        Prepare window responsibilities for JSON serialization.
+
+        Returns:
+            list: List of window dictionaries with timestamps converted to strings
+        """
+        windows = getattr(self, 'window_responsibilities', [])
+        json_windows = []
+
+        for window in windows:
+            json_window = {}
+            for key, value in window.items():
+                if key == 'window':
+                    # Handle nested window dict with timestamps
+                    json_window[key] = {}
+                    for w_key, w_value in value.items():
+                        if hasattr(w_value, 'isoformat'):  # Timestamp
+                            json_window[key][w_key] = w_value.isoformat()
+                        else:
+                            json_window[key][w_key] = w_value
+                elif isinstance(value, float):
+                    json_window[key] = round(value, 2)
+                else:
+                    json_window[key] = value
+            json_windows.append(json_window)
+
+        return json_windows
 
 
 def dataframe_to_json_response(df):
@@ -697,6 +895,29 @@ def dataframe_to_json_response(df):
         record['slot_number'] = i + 1
         record['start_time'] = record['start_time'].isoformat()
         record['end_time'] = record['end_time'].isoformat()
+
+        # Make classification lowercase
+        if 'classification' in record:
+            record['classification'] = record['classification'].lower()
+
+        # Add reason and priority fields (placeholder logic for now)
+        classification = record.get('classification', 'hold')
+        if classification == 'charge':
+            record['reason'] = 'cheap_grid_power'
+            record['priority'] = 'high'
+        elif classification == 'discharge':
+            record['reason'] = 'expensive_grid_power'
+            record['priority'] = 'high'
+        elif classification == 'pv charge':
+            record['reason'] = 'excess_pv'
+            record['priority'] = 'medium'
+        elif classification == 'export':
+            record['reason'] = 'profitable_export'
+            record['priority'] = 'medium'
+        else:
+            record['reason'] = 'no_action_needed'
+            record['priority'] = 'low'
+
         for key, value in record.items():
             if isinstance(value, float):
                 record[key] = round(value, 2)

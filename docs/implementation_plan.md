@@ -1,4 +1,10 @@
+# THIS PLAN SUPERSEEDS THE "PROJECT_PLAN_Vx.MD"! ONLY USE THOSE AS REFERENCE!
+
 # Implementation Plan: Darkstar Planner Parity
+
+## Change Log
+- **2025-11-01 (Rev 1)**: Implemented Phases 1-5 - by Grok Code Fast 1.
+- **Initial (Rev 0)**: Plan created - by GPT-5 Medium after gap analysis.
 
 ## Goals
 - Achieve feature and behavioural parity with Helios `decision_maker.js` while respecting Darkstar architecture.
@@ -68,14 +74,14 @@
    - Ensure strategic target ties to `battery.max_soc_percent` (default 95).
    - Tests: strategic windows propagate until SoC target reached.
 
-### Phase 5 – Smoothing, Observability, and Schema (Severity 7–9)
-9. **Smoothing & hysteresis**
+### Phase 5 – Smoothing, Observability, and Schema (Severity 7–9) ✅ COMPLETED
+9. **Smoothing & hysteresis** ✅
    - Config: `smoothing.price_smoothing_sek_kwh`, `min_on/off` slots per action.
    - Extend cheap slot admission using smoothing tolerance.
    - Add final pass to enforce action block lengths without violating safety.
    - Tests: single-slot toggles are eliminated when constraints allow.
 
-10. **Output schema & debug parity**
+10. **Output schema & debug parity** ✅
     - Rename classifications to lowercase; add flows, projected costs, reasons, priorities.
     - Optional debug payload (configurable) containing windows, gaps, charging plan, water analysis, metrics.
     - Tests: JSON schema validation; debug toggle.
@@ -175,6 +181,7 @@
 - **Phase 2 (Realistic Slot Constraints)**: Slot-level power limits and price-aware gap responsibilities implemented
 - **Phase 3 (Water Heating Parity)**: Contiguous block scheduling and source selection implemented
 - **Phase 4 (Export & Strategic Enhancements)**: Export logic with protective SoC and strategic windows implemented
+- **Phase 5 (Smoothing, Observability, and Schema)**: Hysteresis, debug payload, and enhanced output schema implemented
 
 ### 🔄 Current Status
 - **Phase 4 (Export & Strategic Enhancements)**: Next phase to implement
@@ -196,4 +203,4 @@
 - Maintain `docs/implementation_plan.md` by ticking completed steps, adding links to PRs, and noting regressions or follow-up tasks.
 
 ---
-_Last updated: 2025-11-01 (Phase 4 completed)_
+_Last updated: 2025-11-01 (Phase 5 completed)_

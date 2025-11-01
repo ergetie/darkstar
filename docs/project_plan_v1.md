@@ -1,3 +1,5 @@
+# OUTDATED! SEE PLAN V3!
+
 # Project Plan: Helios Energy Manager in Python
 
 ## 1. Project Goal
