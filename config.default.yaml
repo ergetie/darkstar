@@ -1,0 +1,67 @@
+# General System Settings
+timezone: "Europe/Stockholm"
+
+# System Parameters
+system:
+  location:
+    latitude: 59.3293
+    longitude: 18.0686
+  solar_array:
+    kwp: 8.5
+    azimuth: 180
+    tilt: 35
+  inverter:
+    max_power_kw: 10.0
+  grid:
+    max_power_kw: 25.0
+
+# Battery Specifications
+battery:
+  capacity_kwh: 10.0
+  min_soc_percent: 15
+  max_soc_percent: 95
+  max_charge_power_kw: 5.0
+  max_discharge_power_kw: 5.0
+  efficiency_percent: 95.0
+
+# Decision Making Thresholds
+decision_thresholds:
+  battery_use_margin_sek: 0.10      # Use battery if grid > battery_cost + margin
+  export_profit_margin_sek: 0.20    # Export if export_price > battery_cost + margin
+  battery_water_margin_sek: 0.20    # Margin for using battery for water heating
+
+# Charging Strategy
+charging_strategy:
+  charge_threshold_percentile: 15   # Bottom 15% of prices are considered 'cheap'
+  cheap_price_tolerance_sek: 0.10   # Extends 'cheap' category to prices within this tolerance
+
+# Strategic Charging (Floor Price)
+strategic_charging:
+  price_threshold_sek: 0.90         # Price below which strategic charging is triggered
+  target_soc_percent: 95            # Absolute SoC target for strategic charging
+
+# Water Heating
+water_heating:
+  power_kw: 3.0                     # Power consumption of the water heater
+  daily_duration_hours: 2.0         # Required heating duration per 24 hours
+
+# Safety and Buffers
+safety:
+  s_index_factor_base: 1.05         # Base safety buffer for load forecasts
+
+# Nordpool API Configuration
+nordpool:
+  price_area: "SE4"
+  currency: "SEK"
+  resolution_minutes: 15
+
+# Pricing Configuration
+pricing:
+  vat_percent: 25.0
+  grid_transfer_fee_sek: 0.2456
+  energy_tax_sek: 0.439
+
+# Forecasting Adjustments
+forecasting:
+  pv_confidence_percent: 90.0
+  load_safety_margin_percent: 110.0

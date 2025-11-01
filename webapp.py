@@ -1,0 +1,152 @@
+from flask import Flask, jsonify, render_template, request
+import json
+import yaml
+import shutil
+import pandas as pd
+from planner import HeliosPlanner, dataframe_to_json_response, simulate_schedule
+from inputs import get_all_input_data, _get_load_profile_from_ha
+
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/api/schedule')
+def get_schedule():
+    with open('schedule.json', 'r') as f:
+        data = json.load(f)
+    return jsonify(data)
+
+@app.route('/api/config', methods=['GET'])
+def get_config():
+    with open('config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
+    return jsonify(config)
+
+@app.route('/api/initial_state', methods=['GET'])
+def get_initial_state():
+    try:
+        from inputs import get_initial_state
+        initial_state = get_initial_state()
+        return jsonify(initial_state)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/config/save', methods=['POST'])
+def save_config():
+    # Load current config first
+    with open('config.yaml', 'r') as f:
+        current_config = yaml.safe_load(f)
+    
+    # Get the new config data from the request
+    new_config = request.get_json()
+    
+    # Deep merge the new config into the current config
+    def deep_merge(current, new):
+        for key, value in new.items():
+            if key in current and isinstance(current[key], dict) and isinstance(value, dict):
+                deep_merge(current[key], value)
+            else:
+                current[key] = value
+        return current
+    
+    merged_config = deep_merge(current_config, new_config)
+    
+    # Ensure critical defaults are preserved
+    if 'nordpool' not in merged_config:
+        merged_config['nordpool'] = {}
+    if 'resolution_minutes' not in merged_config['nordpool']:
+        merged_config['nordpool']['resolution_minutes'] = 15
+    if 'price_area' not in merged_config['nordpool']:
+        merged_config['nordpool']['price_area'] = 'SE4'
+    if 'currency' not in merged_config['nordpool']:
+        merged_config['nordpool']['currency'] = 'SEK'
+    
+    with open('config.yaml', 'w') as f:
+        yaml.dump(merged_config, f, default_flow_style=False)
+    return jsonify({'status': 'success'})
+
+@app.route('/api/config/reset', methods=['POST'])
+def reset_config():
+    shutil.copy('config.default.yaml', 'config.yaml')
+    return jsonify({'status': 'success'})
+
+@app.route('/api/run_planner', methods=['POST'])
+def run_planner():
+    try:
+        input_data = get_all_input_data()
+        planner = HeliosPlanner("config.yaml")
+        planner.generate_schedule(input_data)
+        return jsonify({"status": "success", "message": "Planner run completed successfully."})
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"An error occurred: {str(e)}"}), 500
+
+@app.route('/api/ha/average', methods=['GET'])
+def ha_average():
+    try:
+        with open('config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+        profile = _get_load_profile_from_ha(config)
+        daily_kwh = round(sum(profile), 2)
+        avg_kw = round(daily_kwh / 24.0, 2)
+        return jsonify({"daily_kwh": daily_kwh, "average_load_kw": avg_kw})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/simulate', methods=['POST'])
+def simulate():
+    print("--- SIMULATION ENDPOINT TRIGGERED ---")
+    try:
+        # Step A: Get a base DataFrame with all necessary data
+        input_data = get_all_input_data()
+        
+        # Load config manually
+        with open('config.yaml', 'r') as f:
+            config_data = yaml.safe_load(f)
+            
+        initial_state = input_data['initial_state']
+        
+        # Create the full DataFrame
+        planner = HeliosPlanner("config.yaml") # Create a temporary planner to use its methods
+        df = planner._prepare_data_frame(input_data)
+        df = planner._pass_0_apply_safety_margins(df) # Apply safety margins
+        df = planner._pass_1_identify_windows(df) # Identify cheap windows (creates is_cheap column)
+
+        # Step B: Clear the schedule-related columns to create a clean slate
+        df['charge_kw'] = 0.0
+        df['water_heating_kw'] = 0.0
+        
+        # Step C: "Paint" the user's manual plan onto the DataFrame
+        manual_plan = request.get_json()
+        print(f"Received manual plan with {len(manual_plan)} items.")
+
+        for item in manual_plan:
+            action = item.get('content')
+            start_time = pd.to_datetime(item.get('start')).tz_convert(config_data['timezone'])
+            end_time = pd.to_datetime(item.get('end')).tz_convert(config_data['timezone'])
+
+            # Find the rows in the DataFrame that fall within this action's time range
+            mask = (df.index >= start_time) & (df.index < end_time)
+            
+            if action == 'Charge':
+                df.loc[mask, 'charge_kw'] = config_data['system']['battery']['max_charge_power_kw']
+            elif action == 'Water Heating':
+                df.loc[mask, 'water_heating_kw'] = config_data['water_heating'].get('power_kw', 3.0)
+
+        # Step D: Run the simulation
+        print("Running simulation with the user's manual plan...")
+        simulated_df = simulate_schedule(df, config_data, initial_state)
+        print("Simulation completed successfully.")
+
+        # Step E: Return the full, simulated result
+        json_response = dataframe_to_json_response(simulated_df)
+        
+        return jsonify({"schedule": json_response})
+
+    except Exception as e:
+        # This is the critical error handling that was missing
+        import traceback
+        print("---! SIMULATION FAILED !---")
+        print(traceback.format_exc())
+        return jsonify({"status": "error", "message": f"Simulation failed: {str(e)}"}), 500

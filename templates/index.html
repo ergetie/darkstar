@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Helios Energy Schedule</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/styles/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
+    <script src="https://cdn.jsdelivr.net/npm/vis-timeline@7.7.3/standalone/umd/vis-timeline-graph2d.min.js"></script>
+</head>
+<body>
+    <header>
+        <nav class="tabs">
+            <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+            <button class="tab-button" data-tab="settings">Settings</button>
+            <button class="tab-button" data-tab="system">System</button>
+        </nav>
+    </header>
+    <main>
+        <pre id="ascii-logo">
+█▀▄ ▄▀█ █▀█ █▄▀ █▀ ▀█▀ ▄▀█ █▀█
+█▄▀ █▀█ █▀▄ █░█ ▄█ ░█░ █▀█ █▀▄
+        </pre>
+        <div class="subtitle">energy manager v0.1</div>
+        <div id="dashboard" class="tab-content active">
+            <div class="stats-group">
+              <fieldset class="stats-box">
+                <legend>Stats</legend>
+                <div id="stats-content">
+                  <!-- This will be populated by JavaScript -->
+                </div>
+              </fieldset>
+            </div>
+            <canvas id="scheduleChart"></canvas>
+            <div id="timeline-container"></div>
+            <div class="timeline-controls">
+                <button id="applyChangesBtn">> Apply Manual Changes</button>
+                <button id="resetChangesBtn">> Reset to Optimal</button>
+                <button id="addChargeBtn" class="action-add btn-charge">> add charge</button>
+                <button id="addWaterBtn" class="action-add btn-water">> add water heating</button>
+            </div>
+            <div class="control-panel">
+                <button id="runPlannerBtn">> run planner</button>
+                <span id="plannerStatus"></span>
+            </div>
+        </div>
+        <div id="settings" class="tab-content">
+            <form id="settings-form">
+                <fieldset>
+                    <legend>Decision Thresholds</legend>
+                    <label>Battery Use Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.battery_use_margin_sek"></label>
+                    <label>Export Profit Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.export_profit_margin_sek"></label>
+                    <label>Battery Water Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.battery_water_margin_sek"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Strategic Charging</legend>
+                    <label>Price Threshold (SEK): <input type="number" step="0.01" name="strategic_charging.price_threshold_sek"></label>
+                    <label>Target SoC (%): <input type="number" name="strategic_charging.target_soc_percent"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Pricing</legend>
+                    <label>VAT (%): <input type="number" step="0.1" name="pricing.vat_percent"></label>
+                    <label>Grid Transfer Fee (SEK): <input type="number" step="0.0001" name="pricing.grid_transfer_fee_sek"></label>
+                    <label>Energy Tax (SEK): <input type="number" step="0.001" name="pricing.energy_tax_sek"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Nordpool Settings</legend>
+                    <label>Price Area: <input type="text" name="nordpool.price_area"></label>
+                    <label>Currency: <input type="text" name="nordpool.currency"></label>
+                    <label>Resolution (minutes): <input type="number" name="nordpool.resolution_minutes"></label>
+                </fieldset>
+            </form>
+            <div class="actions">
+                <button id="save-changes">Save Changes</button>
+                <button id="reset-defaults">Reset to Defaults</button>
+            </div>
+        </div>
+        <div id="system" class="tab-content">
+            <form id="system-form">
+                <fieldset>
+                    <legend>Battery</legend>
+                    <label>Capacity (kWh): <input type="number" step="0.1" name="system.battery.capacity_kwh"></label>
+                    <label>Max Charge Power (kW): <input type="number" step="0.1" name="system.battery.max_charge_power_kw"></label>
+                    <label>Max Discharge Power (kW): <input type="number" step="0.1" name="system.battery.max_discharge_power_kw"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Location</legend>
+                    <label>Latitude: <input type="number" step="0.0001" name="system.location.latitude"></label>
+                    <label>Longitude: <input type="number" step="0.0001" name="system.location.longitude"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Solar Array</legend>
+                    <label>KWp: <input type="number" step="0.1" name="system.solar_array.kwp"></label>
+                    <label>Azimuth: <input type="number" name="system.solar_array.azimuth"></label>
+                    <label>Tilt: <input type="number" name="system.solar_array.tilt"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Inverter</legend>
+                    <label>Max Power (kW): <input type="number" step="0.1" name="system.inverter.max_power_kw"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Grid</legend>
+                    <label>Max Power (kW): <input type="number" step="0.1" name="system.grid.max_power_kw"></label>
+                </fieldset>
+            </form>
+            <div class="actions">
+                <button id="save-changes">Save Changes</button>
+                <button id="reset-defaults">Reset to Defaults</button>
+            </div>
+        </div>
+    </main>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

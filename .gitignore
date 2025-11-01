@@ -1,0 +1,13 @@
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Secrets file
+secrets.yaml
+
+# IDE / Editor specific files
+.vscode/
+.idea/

@@ -1,0 +1,94 @@
+# AGENTS.md - Development Guidelines for Darkstar Energy Manager
+
+## Build & Test Commands
+
+### Python Environment
+- **Python version**: 3.12.0 (see .python-version)
+- **Virtual environment**: Located in `venv/` directory
+- **Install dependencies**: `pip install -r requirements.txt` (if available) or install packages individually
+- **Run main planner**: `python planner.py`
+- **Test inputs module**: `python inputs.py`
+- **Run single test**: `python -m pytest tests/test_module.py::test_function -v` (if pytest is used)
+
+### Key Dependencies
+- `pandas` - Data manipulation and analysis
+- `pyyaml` - YAML configuration file parsing
+- `nordpool` - Electricity price data fetching
+- `pytz` - Timezone handling
+
+## Code Style Guidelines
+
+### Imports
+- Group imports: standard library, third-party, local modules
+- Use explicit imports: `import yaml` not `from yaml import *`
+- Order alphabetically within groups
+- Example:
+```python
+import json
+from datetime import datetime, timedelta
+
+import pandas as pd
+import pytz
+import yaml
+
+from inputs import get_all_input_data
+```
+
+### Formatting & Types
+- Use 4 spaces for indentation (no tabs)
+- Maximum line length: 88 characters (Black default)
+- Use type hints for function signatures and return types
+- Follow PEP 8 naming conventions:
+  - `snake_case` for variables and functions
+  - `PascalCase` for classes
+  - `UPPER_CASE` for constants
+
+### Error Handling
+- Use specific exceptions: `except ValueError:` not `except:`
+- Handle external API calls with try/except blocks
+- Log errors with context information
+- Fail gracefully with meaningful error messages
+
+### Configuration
+- All user-configurable parameters in `config.yaml`
+- Use nested structure with logical groupings (battery, thresholds, etc.)
+- Provide default values in code for missing config keys
+- Validate configuration values on startup
+
+### Data Processing
+- Use pandas DataFrames for time-series data
+- Apply timezone-aware datetime handling
+- Process data in logical passes (see planner.py structure)
+- Maintain data immutability where possible
+
+### Testing & Validation
+- Test edge cases (empty data, missing config, API failures)
+- Validate output JSON schema matches expected format
+- Test with realistic data ranges
+- Verify timezone handling across daylight saving transitions
+
+### Documentation
+- Use docstrings for all public functions and classes
+- Include parameter types and return value descriptions
+- Add inline comments for complex business logic
+- Maintain README with setup and usage instructions
+
+### Project Structure
+- `config.yaml` - Master configuration file
+- `inputs.py` - Data fetching and external API integration
+- `planner.py` - Core MPC scheduling logic
+- `schedule.json` - Generated output schedule
+- `decision_maker.js` - Reference implementation (JavaScript)
+
+### Key Business Logic
+- Multi-pass Model Predictive Control (MPC) approach
+- Strategic charging during low-price periods
+- Cascading responsibility between time windows
+- Integrated water heating scheduling
+- "Hold in cheap windows" principle to preserve battery
+
+### Output Requirements
+- Generate `schedule.json` with proper schema
+- Include slot numbers, timestamps, classifications
+- Round numerical values to 2 decimal places
+- Ensure timezone-aware ISO format timestamps
