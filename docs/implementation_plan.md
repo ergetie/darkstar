@@ -3,7 +3,7 @@
 # Implementation Plan: Darkstar Planner Parity
 
 ## Change Log
-- **2025-11-02 (Rev 7)**: Updated SoC clamp semantics (no forced drop), expanded water-heating horizon (next midnight + deferral), added charge block consolidation with tolerance/gap controls, fixed timeline block length, added UI SoC validation, and extended tests (46 pass, 4 skipped).
+- **2025-11-02 (Rev 7)** *(Model: GPT-5 Codex)*: Updated SoC clamp semantics (no forced drop), expanded water-heating horizon (next midnight + deferral), added charge block consolidation with tolerance/gap controls, fixed timeline block length, refreshed dashboard/timeline styling, added UI SoC validation, and extended tests (46 pass, 4 skipped).
 - **2025-11-02 (Rev 6)**: UI theme system implemented — scan `/themes`, expose Appearance dropdown, persist selection, apply CSS variables/palette to charts & buttons, add tests.
 - **2025-11-02 (Rev 5 — Plan)**: Upcoming fixes: grid-only water heating in cheap windows, remove PV export planning, peak-only battery export with responsibility guard, configurable export percentile, disable battery-for-water in cheap windows, extend PV + weather forecast horizon to 4 days, UI settings and chart export series.
 - **2025-11-02 (Rev 4)**: Integrated Home Assistant SoC + water stats, dynamic S-index (PV deficit & temperature), web UI updates, and new HA/test coverage.
@@ -374,6 +374,7 @@ Highlights
 - Charging consolidation rewrites window allocation to favour contiguous blocks while preserving total energy and slot-level limits. New config keys: `charging_strategy.block_consolidation_tolerance_sek` (default fallback to smoothing tolerance) and `charging_strategy.consolidation_max_gap_slots` (default 0).
 - Timeline bars now use the block’s true end time, so multi-slot Charge/Water actions render at full duration.
 - UI validation prevents invalid SoC limits (Min/Max % relationship) before saving; backend logs a warning if current SoC exceeds configured max.
+- UI polish: primary controls now sit on one row, buttons render lowercase, and the timeline adopts the accent colour for borders/grid.
 
 Testing
 - Added `tests/test_rev7_behaviour.py` covering SoC clamp behaviour, water-horizon deferral, and charge consolidation contiguity.

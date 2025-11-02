@@ -1396,6 +1396,7 @@ class HeliosPlanner:
 
         actions = df['action'].tolist()
         n_slots = len(actions)
+        cancelled_charge_indices: set[int] = set()
 
         # Apply hysteresis for each action type
         for i in range(n_slots):
@@ -1426,6 +1427,7 @@ class HeliosPlanner:
                     else:
                         # Cancel this single charge slot
                         actions[i] = 'Hold'
+                        cancelled_charge_indices.add(i)
 
             # Handle Discharge hysteresis
             elif current_action == 'Discharge':
@@ -1447,6 +1449,7 @@ class HeliosPlanner:
                         actions[i] = 'Discharge'
                     else:
                         actions[i] = 'Hold'
+                        cancelled_charge_indices.add(i)
 
             # Handle Export hysteresis
             elif current_action == 'Export':
@@ -1462,6 +1465,12 @@ class HeliosPlanner:
 
         # Update the DataFrame with hysteresis-applied actions
         df['action'] = actions
+        if cancelled_charge_indices:
+            charge_cols = [col for col in ('charge_kw', 'battery_charge_kw') if col in df.columns]
+            if charge_cols:
+                for idx in cancelled_charge_indices:
+                    for col in charge_cols:
+                        df.iat[idx, df.columns.get_loc(col)] = 0.0
 
         # Re-simulate the schedule with the new actions to update SoC and costs
         # This is a simplified approach - in production, we'd need to re-run the full simulation

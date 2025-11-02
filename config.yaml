@@ -15,7 +15,7 @@ battery_economics:
   battery_cycle_cost_kwh: 0.2
 charging_strategy:
   block_consolidation_tolerance_sek: 0.05
-  charge_threshold_percentile: 15
+  charge_threshold_percentile: 17
   cheap_price_tolerance_sek: 0.1
   consolidation_max_gap_slots: 0
   price_smoothing_sek_kwh: 0.08
@@ -78,7 +78,7 @@ system:
     longitude: 13.110502
   solar_array:
     azimuth: 150
-    kwp: 9
+    kwp: 8
     tilt: 45
 timezone: Europe/Stockholm
 ui:

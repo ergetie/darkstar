@@ -92,6 +92,9 @@ main {
 
 .control-panel {
     margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 button {
@@ -224,10 +227,10 @@ label {
 /* Timeline controls: no-borders, uniform size */
 .timeline-controls {
     display: flex;
-    gap: 8px;
+    gap: 12px;
     align-items: center;
     flex-wrap: wrap;
-    margin-top: 8px;
+    margin-top: 12px;
 }
 .timeline-controls button {
     border: none; /* no border on any buttons here */
@@ -235,6 +238,23 @@ label {
     padding: 8px 16px;
     font-family: 'Fira Code', monospace;
     font-weight: 500;
+}
+
+.vis-timeline {
+    border: 1px solid var(--ds-accent) !important;
+}
+
+.vis-panel.vis-center,
+.vis-panel.vis-left,
+.vis-panel.vis-right,
+.vis-panel.vis-top,
+.vis-panel.vis-bottom {
+    border-color: var(--ds-accent) !important;
+}
+
+.vis-time-axis .vis-grid.vis-vertical,
+.vis-time-axis .vis-grid.vis-horizontal {
+    border-color: var(--ds-accent) !important;
 }
 
 /* Match action colors */
@@ -292,4 +312,11 @@ label {
 .chartjs-axis-label,
 .chartjs-tick-label {
     color: var(--ds-foreground);
+}
+.control-panel button,
+.timeline-controls button,
+.tabs .tab-button,
+.actions button,
+.timeline-controls .action-add {
+    text-transform: lowercase;
 }
