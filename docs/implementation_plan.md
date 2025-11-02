@@ -3,6 +3,7 @@
 # Implementation Plan: Darkstar Planner Parity
 
 ## Change Log
+- **2025-11-02 (Rev 4)**: Integrated Home Assistant SoC + water stats, dynamic S-index (PV deficit & temperature), web UI updates, and new HA/test coverage.
 - **2025-11-02 (Rev 3)**: Future-only MPC with water deferral window; removed price duplication; S-index surfaced in UI; HA timestamp fixes; discharge/export rate limits; planner telemetry debug persisted to sqlite; tests updated (42 pass).
 - **2025-11-01 (Rev 1)**: Implemented Phases 1-5 - by Grok Code Fast 1.
 - **Initial (Rev 0)**: Plan created - by GPT-5 Medium after gap analysis.
@@ -208,24 +209,26 @@ _Last updated: 2025-11-01 (Phase 6 validated with telemetry + export fixes)_
 
 ## Plan: HA + Stats + Dynamic S-Index (Upcoming)
 
+Status: ✅ Completed 2025-11-02
+
 Scope: Implement real SoC and water usage tracking from Home Assistant, expand Stats panel, and add a dynamic S-index that adapts to PV/load deficit and temperature forecasts.
 
 Requirements
-- HA SoC
+- [x] HA SoC
   - Source entity: `sensor.inverter_battery` (percentage).
   - Use as preferred source in `initial_state`: set `battery_soc_percent` and derive `battery_kwh` via capacity.
   - Fallback to existing config/state when HA unavailable.
 
-- Water usage today
+- [x] Water usage today
   - Source entity: `sensor.vvb_energy_daily` (kWh).
   - Add API endpoint to expose today’s kWh; fallback to sqlite `daily_water.used_kwh` when HA not available.
   - Show “Water Heater Today” in Stats.
 
-- Stats panel
+- [x] Stats panel
   - Show current SoC (from HA if available) and battery capacity.
   - Show S-index (mode/value/max). When dynamic mode is on, show computed value from planner debug payload.
 
-- Dynamic S-index
+- [x] Dynamic S-index
   - Config additions under `s_index`:
     - `mode: dynamic | static` (dynamic enabled by user).
     - `base_factor` (default 1.05), `max_factor` (cap, e.g., 1.50).
@@ -241,15 +244,15 @@ Requirements
   - Integration: Use dynamic factor in Pass 4 where S-index is applied; fallback to static if data missing or mode=static.
 
 Acceptance Criteria
-- Planner uses HA SoC when available; Stats shows current SoC.
-- Stats shows “Water Heater Today: X.XX kWh” (HA or sqlite fallback).
-- S-index in Stats reflects mode/value; dynamic value matches computed factor.
-- Configurable deferral for water is preserved; planning remains future-only; no duplicated prices.
+- Planner uses HA SoC when available; Stats shows current SoC. ✅
+- Stats shows “Water Heater Today: X.XX kWh” (HA or sqlite fallback). ✅
+- S-index in Stats reflects mode/value; dynamic value matches computed factor. ✅
+- Configurable deferral for water is preserved; planning remains future-only; no duplicated prices. ✅
 
 Deliverables
-- Code: inputs (HA reads), planner (dynamic S-index), webapp API for water usage today, stats UI tweaks.
-- Docs: Update README + AGENTS if needed; expand config.default.yaml with new s_index keys.
-- Tests: Unit tests for dynamic S-index calculation and HA integrations (mocked).
+- Code: inputs (HA reads), planner (dynamic S-index), webapp API for water usage today, stats UI tweaks. ✅
+- Docs: Update README + AGENTS if needed; expand config.default.yaml with new s_index keys. ✅
+- Tests: Unit tests for dynamic S-index calculation and HA integrations (mocked). ✅
 
 Changelog/Versioning
 - Suggested commit: `feat(planner): Rev 3 — future-only MPC, water deferral, no price duplication, S-index in UI`

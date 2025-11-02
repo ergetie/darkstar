@@ -174,58 +174,88 @@ function updateStats(data, config) {
     // Calculate PV total for today
     const schedule = data.schedule || [];
     const today = new Date();
-    let pvToday = 0;
-
-    schedule.forEach(slot => {
+    const todayKey = today.toDateString();
+    const pvToday = schedule.reduce((total, slot) => {
         const slotDate = new Date(slot.start_time);
-        if (slotDate.toDateString() === today.toDateString()) {
-            pvToday += slot.pv_forecast_kwh || 0;
+        return slotDate.toDateString() === todayKey
+            ? total + (slot.pv_forecast_kwh || 0)
+            : total;
+    }, 0);
+
+    // Get battery capacity from config (system override > legacy battery block)
+    const batteryCapacity =
+        config.system?.battery?.capacity_kwh ??
+        config.battery?.capacity_kwh ??
+        0;
+
+    const sIndexCfg = config.s_index || {};
+    const fallbackSummary = [
+        sIndexCfg.mode || 'static',
+        sIndexCfg.static_factor != null ? Number(sIndexCfg.static_factor).toFixed(2) : null,
+        sIndexCfg.max_factor != null ? `max ${Number(sIndexCfg.max_factor).toFixed(2)}` : null
+    ]
+        .filter(Boolean)
+        .join(' • ');
+    let sIndexSummary = fallbackSummary || '—';
+
+    const debugSIndex = data.debug?.s_index;
+    if (debugSIndex && typeof debugSIndex === 'object') {
+        const pieces = [];
+        if (debugSIndex.mode) {
+            pieces.push(String(debugSIndex.mode));
         }
-    });
-
-    // Get battery capacity from config
-    const batteryCapacity = config.system?.battery?.capacity_kwh || 0;
-
-    // Get current SoC - we'll need to fetch this separately
-    let currentSoC = 0;
-
-    // S-index (from config; static for now)
-    const sIndex = config.s_index || {};
-    const sMode = sIndex.mode || 'static';
-    const sFactor = (sIndex.static_factor != null) ? sIndex.static_factor : '';
-    const sMax = (sIndex.max_factor != null) ? sIndex.max_factor : '';
+        if (typeof debugSIndex.factor === 'number') {
+            pieces.push(Number(debugSIndex.factor).toFixed(2));
+        } else if (typeof debugSIndex.base_factor === 'number') {
+            pieces.push(Number(debugSIndex.base_factor).toFixed(2));
+        }
+        if (typeof debugSIndex.max_factor === 'number') {
+            pieces.push(`max ${Number(debugSIndex.max_factor).toFixed(2)}`);
+        }
+        if (debugSIndex.fallback) {
+            pieces.push(`fallback: ${debugSIndex.fallback}`);
+        }
+        if (pieces.length) {
+            sIndexSummary = pieces.join(' • ');
+        }
+    }
 
     // Generate stats HTML
     const statsHTML = `
         <div class="stat-row">
             <span class="stat-key">├</span>
             <span class="stat-label">Total PV Today:</span>
-            <span class="stat-value">${pvToday.toFixed(1)} kWh</span>
+            <span class="stat-value" id="stat-pv-today">${pvToday.toFixed(1)} kWh</span>
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
             <span class="stat-label">Current SoC:</span>
-            <span class="stat-value">${currentSoC}%</span>
+            <span class="stat-value" id="stat-current-soc">loading…</span>
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
             <span class="stat-label">Battery Capacity:</span>
-            <span class="stat-value">${batteryCapacity.toFixed(1)} kWh</span>
+            <span class="stat-value" id="stat-battery-capacity">${batteryCapacity.toFixed(1)} kWh</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-key">├</span>
+            <span class="stat-label">Water Heater Today:</span>
+            <span class="stat-value" id="stat-water-today">loading…</span>
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
             <span class="stat-label">Avg Load (HA):</span>
-            <span class="stat-value" id="avg-load-ha">calculating…</span>
+            <span class="stat-value" id="stat-avg-load-ha">calculating…</span>
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
             <span class="stat-label">HA data:</span>
-            <span class="stat-value" id="ha-daily-average">25.55 kWh/day average</span>
+            <span class="stat-value" id="stat-ha-daily-average">–</span>
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
             <span class="stat-label">S-index:</span>
-            <span class="stat-value">${sMode} / ${sFactor}${sMax !== '' ? ' / ' + sMax : ''}</span>
+            <span class="stat-value" id="stat-s-index">${sIndexSummary || '—'}</span>
         </div>
     `;
 
@@ -244,7 +274,7 @@ function updateStats(data, config) {
             }
         });
         const fallbackAvg = count ? (sumKw / count) : 0;
-        const avgEl = document.getElementById('avg-load-ha');
+        const avgEl = document.getElementById('stat-avg-load-ha');
         if (avgEl) avgEl.textContent = `${fallbackAvg.toFixed(1)} kW`;
     } catch {}
 
@@ -254,12 +284,12 @@ function updateStats(data, config) {
         .then(data => {
             const avgKw = Number(data.average_load_kw);
             if (!Number.isNaN(avgKw)) {
-                const avgEl = document.getElementById('avg-load-ha');
+                const avgEl = document.getElementById('stat-avg-load-ha');
                 if (avgEl) avgEl.textContent = `${avgKw.toFixed(1)} kW`;
             }
             const daily = Number(data.daily_kwh);
             if (!Number.isNaN(daily)) {
-                const dailyEl = document.getElementById('ha-daily-average');
+                const dailyEl = document.getElementById('stat-ha-daily-average');
                 if (dailyEl) dailyEl.textContent = `${daily.toFixed(2)} kWh/day average`;
             }
         })
@@ -269,14 +299,32 @@ function updateStats(data, config) {
     fetch('/api/initial_state')
         .then(response => response.json())
         .then(initialState => {
-            const socValue = Math.round(initialState.battery_soc_percent || 0);
-            const socElement = statsContent.querySelector('.stat-row:nth-child(2) .stat-value');
-            if (socElement) {
-                socElement.textContent = `${socValue}%`;
+            const socValue = Number(initialState.battery_soc_percent);
+            const socElement = document.getElementById('stat-current-soc');
+            if (socElement && !Number.isNaN(socValue)) {
+                socElement.textContent = `${socValue.toFixed(0)}%`;
             }
         })
         .catch(e => {
             console.warn('Could not load initial state:', e);
+        });
+
+    // Fetch water usage today
+    fetch('/api/ha/water_today')
+        .then(response => response.json())
+        .then(payload => {
+            const waterElement = document.getElementById('stat-water-today');
+            if (!waterElement) return;
+
+            if (payload && typeof payload.water_kwh_today === 'number') {
+                waterElement.textContent = `${payload.water_kwh_today.toFixed(2)} kWh`;
+            } else {
+                waterElement.textContent = '—';
+            }
+        })
+        .catch(() => {
+            const waterElement = document.getElementById('stat-water-today');
+            if (waterElement) waterElement.textContent = '—';
         });
 }
 
@@ -375,8 +423,8 @@ async function renderChart(data, config) {
                 importPrices.push(slot.import_price_sek_kwh ?? null);
                 pvForecasts.push(slot.pv_forecast_kwh ?? 0);
                 loadForecasts.push(slot.load_forecast_kwh ?? 0);
-                batteryCharge.push(slot.battery_charge_kw ?? 0);
-                batteryDischarge.push(slot.classification === 'Discharge' ? ((slot.adjusted_load_kwh ?? 0) * 4) : 0);
+                batteryCharge.push((slot.battery_charge_kw ?? slot.charge_kw ?? 0));
+                batteryDischarge.push((slot.battery_discharge_kw ?? 0));
                 projectedSoC.push(slot.projected_soc_percent ?? null);
                 waterHeating.push(slot.water_heating_kw ?? 0);
             } else {
@@ -764,6 +812,9 @@ function populateForms(config) {
 
         if (control.type === 'checkbox') {
             control.checked = Boolean(value);
+        } else if (Array.isArray(value)) {
+            // Display arrays (e.g., days_ahead_for_sindex) as comma-separated
+            control.value = value.join(', ');
         } else {
             control.value = value;
         }
@@ -794,6 +845,11 @@ async function saveConfig() {
             } else {
                 return;
             }
+        } else if (control.name.endsWith('days_ahead_for_sindex')) {
+            // Convert comma-separated list to array of integers
+            const parts = control.value.split(',').map(s => s.trim()).filter(Boolean);
+            const arr = parts.map(p => Number(p)).filter(n => !Number.isNaN(n));
+            value = arr;
         } else {
             if (control.value === '') {
                 return;

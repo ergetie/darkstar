@@ -77,6 +77,7 @@ All system parameters are configurable via `config.yaml`:
 - **Charging strategy**: percentile thresholds, price tolerances
 - **Strategic charging**: floor price triggers, target SoC
 - **Water heating**: power requirements, daily duration
+- **S-index**: static or dynamic safety factors (base factor, PV deficit weight, temperature weight, day offsets)
 - **Nordpool API**: price area, currency, resolution
 - **Pricing**: VAT, fees, taxes
 
@@ -126,6 +127,22 @@ See `AGENTS.md` for comprehensive development guidelines including:
 - `pyyaml` - Configuration file parsing
 - `nordpool` - Electricity price data fetching
 - `pytz` - Timezone handling
+- `flask` - Web UI and diagnostics API layer
+
+## Home Assistant Integration
+
+Configure `secrets.yaml` with:
+
+```yaml
+home_assistant:
+  url: "http://homeassistant.local:8123"
+  token: "<long-lived-access-token>"
+  battery_soc_entity_id: "sensor.inverter_battery"
+  water_heater_daily_entity_id: "sensor.vvb_energy_daily"
+```
+
+- Planner initial state prefers the `battery_soc_entity_id` value, falling back to config defaults when unavailable.
+- Dashboard stats show current SoC, dynamic S-index factor, and today's water heater consumption (HA first, sqlite tracker fallback).
 
 ## License
 

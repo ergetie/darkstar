@@ -3,8 +3,11 @@ import math
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 import pandas as pd
+import pytz
+import requests
 import yaml
 
 from inputs import get_all_input_data
@@ -233,6 +236,185 @@ class HeliosPlanner:
                 (timestamp, date_key),
             )
             conn.commit()
+
+    def _fetch_temperature_forecast(self, days_ahead: list[int], tz) -> dict[int, float]:
+        """Fetch mean daily temperatures for the requested day offsets."""
+        if not days_ahead:
+            return {}
+
+        location = self.config.get('system', {}).get('location', {})
+        latitude = location.get('latitude')
+        longitude = location.get('longitude')
+        if latitude is None or longitude is None:
+            return {}
+
+        try:
+            today = datetime.now(tz).date()
+        except Exception:
+            today = datetime.now(timezone.utc).date()
+
+        max_offset = max(days_ahead)
+        params = {
+            'latitude': latitude,
+            'longitude': longitude,
+            'daily': 'temperature_2m_mean',
+            'timezone': self.timezone,
+            'forecast_days': max(1, max_offset + 1),
+        }
+
+        try:
+            response = requests.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params=params,
+                timeout=10,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException as exc:
+            print(f"Warning: Failed to fetch temperature forecast: {exc}")
+            return {}
+
+        daily = payload.get('daily', {})
+        dates = daily.get('time', [])
+        temps = daily.get('temperature_2m_mean', [])
+
+        result: dict[int, float] = {}
+        for date_str, temp in zip(dates, temps):
+            try:
+                date_obj = datetime.fromisoformat(date_str).date()
+            except ValueError:
+                continue
+            offset = (date_obj - today).days
+            if offset in days_ahead:
+                try:
+                    result[offset] = float(temp)
+                except (TypeError, ValueError):
+                    continue
+
+        return result
+
+    def _calculate_dynamic_s_index(
+        self,
+        df: pd.DataFrame,
+        s_index_cfg: dict,
+        max_factor: float,
+    ) -> tuple[Optional[float], dict]:
+        """Compute dynamic S-index factor based on PV/load deficit and temperature."""
+        base_factor = float(s_index_cfg.get('base_factor', s_index_cfg.get('static_factor', 1.05)))
+        pv_weight = float(s_index_cfg.get('pv_deficit_weight', 0.0))
+        temp_weight = float(s_index_cfg.get('temp_weight', 0.0))
+        temp_baseline = float(s_index_cfg.get('temp_baseline_c', 20.0))
+        temp_cold = float(s_index_cfg.get('temp_cold_c', -15.0))
+
+        day_offsets = s_index_cfg.get('days_ahead_for_sindex', [2, 3, 4])
+        if not isinstance(day_offsets, (list, tuple)):
+            day_offsets = [2, 3, 4]
+
+        normalized_days: list[int] = []
+        for offset in day_offsets:
+            try:
+                offset_int = int(offset)
+            except (TypeError, ValueError):
+                continue
+            if offset_int > 0:
+                normalized_days.append(offset_int)
+
+        normalized_days = sorted(set(normalized_days))
+        if not normalized_days:
+            return None, {
+                'base_factor': base_factor,
+                'reason': 'no_valid_days',
+            }
+
+        tz = pytz.timezone(self.timezone)
+        try:
+            local_index = df.index.tz_convert(tz)
+        except TypeError:
+            local_index = df.index.tz_localize(tz)
+        local_dates = pd.Series(local_index.date, index=df.index)
+        today = datetime.now(tz).date()
+
+        deficits: list[float] = []
+        considered_days: list[int] = []
+        for offset in normalized_days:
+            target_date = today + timedelta(days=offset)
+            mask = local_dates == target_date
+            if not mask.any():
+                continue
+
+            considered_days.append(offset)
+            load_sum = float(df.loc[mask, 'adjusted_load_kwh'].sum())
+            pv_sum = float(df.loc[mask, 'adjusted_pv_kwh'].sum())
+
+            if load_sum <= 0:
+                deficits.append(0.0)
+            else:
+                ratio = max(0.0, (load_sum - pv_sum) / max(load_sum, 1e-6))
+                deficits.append(ratio)
+
+        if not considered_days:
+            # Fallback: use the next available future dates present in df (e.g., D+1)
+            unique_future_dates = []
+            seen = set()
+            for d in local_dates.unique().tolist():
+                if d > today and d not in seen:
+                    unique_future_dates.append(d)
+                    seen.add(d)
+            # Take as many days as originally requested, if available
+            if unique_future_dates:
+                deficits = []
+                considered_days = []
+                for d in unique_future_dates[: len(normalized_days) or 1]:
+                    mask = local_dates == d
+                    load_sum = float(df.loc[mask, 'adjusted_load_kwh'].sum())
+                    pv_sum = float(df.loc[mask, 'adjusted_pv_kwh'].sum())
+                    offset = (d - today).days
+                    considered_days.append(offset)
+                    if load_sum <= 0:
+                        deficits.append(0.0)
+                    else:
+                        ratio = max(0.0, (load_sum - pv_sum) / max(load_sum, 1e-6))
+                        deficits.append(ratio)
+            else:
+                return None, {
+                    'base_factor': base_factor,
+                    'reason': 'insufficient_forecast_data',
+                    'requested_days': normalized_days,
+                }
+
+        avg_deficit = sum(deficits) / len(deficits) if deficits else 0.0
+
+        temps_map: dict[int, float] = {}
+        mean_temp = None
+        temp_adjustment = 0.0
+        if temp_weight > 0:
+            temps_map = self._fetch_temperature_forecast(considered_days, tz)
+            temperature_values = [temps_map.get(offset) for offset in considered_days if temps_map.get(offset) is not None]
+            if temperature_values:
+                mean_temp = sum(temperature_values) / len(temperature_values)
+                span = temp_baseline - temp_cold
+                if span <= 0:
+                    span = 1.0
+                temp_adjustment = max(0.0, min(1.0, (temp_baseline - mean_temp) / span))
+
+        raw_factor = base_factor + (pv_weight * avg_deficit) + (temp_weight * temp_adjustment)
+        factor = min(max_factor, max(0.0, raw_factor))
+
+        debug_data = {
+            'mode': 'dynamic',
+            'base_factor': round(base_factor, 4),
+            'avg_deficit': round(avg_deficit, 4),
+            'pv_deficit_weight': round(pv_weight, 4),
+            'temp_weight': round(temp_weight, 4),
+            'temp_adjustment': round(temp_adjustment, 4),
+            'mean_temperature_c': round(mean_temp, 2) if mean_temp is not None else None,
+            'considered_days': considered_days,
+            'requested_days': normalized_days,
+            'temperatures': {str(k): v for k, v in temps_map.items()} if temps_map else None,
+            'factor_unclamped': round(raw_factor, 4),
+        }
+
+        return factor, debug_data
 
     def _record_debug_payload(self, payload: dict) -> None:
         """Persist planner debug payloads for observability."""
@@ -617,12 +799,32 @@ class HeliosPlanner:
             if self.is_strategic_period and (window_prices < strategic_price_threshold_sek).any():
                 strategic_windows.append(i)
 
-        # S-index factor
+        # S-index factor (static or dynamic)
         s_index_cfg = self.config.get('s_index', {})
-        s_index_mode = s_index_cfg.get('mode', 'static')
-        s_index_factor = s_index_cfg.get('static_factor', 1.05)
-        s_index_max = s_index_cfg.get('max_factor', 1.25)
-        s_index_factor = min(s_index_factor, s_index_max)
+        s_index_mode = (s_index_cfg.get('mode') or 'static').lower()
+        s_index_max = float(s_index_cfg.get('max_factor', 1.50))
+        static_factor = float(s_index_cfg.get('static_factor', 1.05))
+        base_factor = float(s_index_cfg.get('base_factor', static_factor))
+
+        s_index_factor = min(static_factor, s_index_max)
+        s_index_debug = {
+            'mode': s_index_mode,
+            'static_factor': round(static_factor, 4),
+            'base_factor': round(base_factor, 4),
+            'max_factor': round(s_index_max, 4),
+        }
+
+        if s_index_mode == 'dynamic':
+            dynamic_factor, dynamic_debug = self._calculate_dynamic_s_index(df, s_index_cfg, s_index_max)
+            if dynamic_factor is not None:
+                s_index_factor = dynamic_factor
+                s_index_debug.update(dynamic_debug)
+            else:
+                s_index_factor = min(static_factor, s_index_max)
+                s_index_debug['fallback'] = 'static'
+
+        s_index_debug['factor'] = round(s_index_factor, 4)
+        self.s_index_debug = s_index_debug
 
         # Calculate price-aware gap responsibilities
         self.window_responsibilities = []
@@ -770,6 +972,9 @@ class HeliosPlanner:
         water_from_grid = []
         export_kwh = []
         export_revenue = []
+        # Battery power telemetry (kW)
+        battery_charge_kw_series = []
+        battery_discharge_kw_series = []
 
         # Calculate protective SoC for export
         arbitrage_config = self.config.get('arbitrage', {})
@@ -797,6 +1002,8 @@ class HeliosPlanner:
                 water_from_grid.append(0.0)
                 export_kwh.append(0.0)
                 export_revenue.append(0.0)
+                battery_charge_kw_series.append(0.0)
+                battery_discharge_kw_series.append(0.0)
                 continue
             pv_kwh = row['adjusted_pv_kwh']
             load_kwh = row['adjusted_load_kwh']
@@ -851,6 +1058,10 @@ class HeliosPlanner:
             # Calculate net after water heating sources
             net_kwh = pv_kwh - load_kwh - water_from_pv_kwh - water_from_battery_kwh - water_from_grid_kwh
 
+            # Track per-slot battery in/out
+            slot_batt_charge_kwh = 0.0
+            slot_batt_discharge_kwh = 0.0
+
             if charge_kw > 0 and self.charge_efficiency > 0:
                 grid_energy = charge_kw * 0.25
                 stored_energy = self._energy_into_battery(grid_energy)
@@ -864,6 +1075,7 @@ class HeliosPlanner:
                     avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
                     cycle_adjusted_cost = avg_cost + self.cycle_cost
                     action = 'Charge'
+                    slot_batt_charge_kwh += stored_energy
             else:
                 if net_kwh < 0:
                     if not is_cheap and self.discharge_efficiency > 0:
@@ -881,6 +1093,7 @@ class HeliosPlanner:
                                 avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
                                 cycle_adjusted_cost = avg_cost + self.cycle_cost
                                 action = 'Discharge'
+                                slot_batt_discharge_kwh += deliverable_kwh
                 elif net_kwh > 0 and self.charge_efficiency > 0:
                     stored_energy = self._energy_into_battery(net_kwh)
                     available_capacity = max(0.0, max_soc_kwh - current_kwh)
@@ -890,6 +1103,7 @@ class HeliosPlanner:
                         pv_energy_used = stored_energy / self.charge_efficiency if self.charge_efficiency > 0 else 0.0
                         net_kwh = max(0.0, net_kwh - pv_energy_used)
                         action = 'PV Charge'
+                        slot_batt_charge_kwh += stored_energy
 
             # Export logic: Check for profitable export when safe
             if enable_export:
@@ -926,6 +1140,7 @@ class HeliosPlanner:
                             discharge_budget_kwh = max(0.0, discharge_budget_kwh - export_from_battery)
                             avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
                             cycle_adjusted_cost = avg_cost + self.cycle_cost
+                            slot_batt_discharge_kwh += export_from_battery
                         total_cost = max(0.0, total_cost)
                         net_kwh = max(0.0, net_kwh - export_from_pv)
                         action = 'Export'
@@ -937,6 +1152,10 @@ class HeliosPlanner:
 
             avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
 
+            # Include battery for water-from-battery
+            if water_from_battery_kwh > 0:
+                slot_batt_discharge_kwh += water_from_battery_kwh
+
             actions.append(action)
             projected_soc_kwh.append(current_kwh)
             projected_soc_percent.append((current_kwh / capacity_kwh) * 100.0 if capacity_kwh else 0.0)
@@ -946,6 +1165,8 @@ class HeliosPlanner:
             water_from_grid.append(water_from_grid_kwh)
             export_kwh.append(slot_export_kwh)
             export_revenue.append(slot_export_revenue)
+            battery_charge_kw_series.append(slot_batt_charge_kwh / 0.25)
+            battery_discharge_kw_series.append(slot_batt_discharge_kwh / 0.25)
 
         df['action'] = actions
         df['projected_soc_kwh'] = projected_soc_kwh
@@ -956,6 +1177,8 @@ class HeliosPlanner:
         df['water_from_grid_kwh'] = water_from_grid
         df['export_kwh'] = export_kwh
         df['export_revenue'] = export_revenue
+        df['battery_charge_kw'] = battery_charge_kw_series
+        df['battery_discharge_kw'] = battery_discharge_kw_series
 
         return df
 
@@ -1108,6 +1331,7 @@ class HeliosPlanner:
                 'final_soc_percent': round(schedule_df['projected_soc_percent'].iloc[-1], 2) if not schedule_df.empty else 0,
                 'average_battery_cost': round(schedule_df['projected_battery_cost'].mean(), 2) if not schedule_df.empty else 0,
             },
+            's_index': getattr(self, 's_index_debug', None),
             'sample_schedule': self._prepare_sample_schedule_for_json(sample_df),
         }
 
@@ -1180,10 +1404,7 @@ def dataframe_to_json_response(df):
         list: List of dictionaries ready for JSON response
     """
     df_copy = df.reset_index().copy()
-    df_copy.rename(columns={
-        'action': 'classification',
-        'charge_kw': 'battery_charge_kw'
-    }, inplace=True)
+    df_copy.rename(columns={'action': 'classification'}, inplace=True)
 
     records = df_copy.to_dict('records')
 
@@ -1191,6 +1412,12 @@ def dataframe_to_json_response(df):
         record['slot_number'] = i + 1
         record['start_time'] = record['start_time'].isoformat()
         record['end_time'] = record['end_time'].isoformat()
+
+        # Prefer explicit battery power fields; fallback to legacy
+        if 'battery_charge_kw' not in record and 'charge_kw' in record:
+            record['battery_charge_kw'] = record.get('charge_kw', 0.0)
+        if 'battery_discharge_kw' not in record:
+            record['battery_discharge_kw'] = 0.0
 
         # Make classification lowercase
         if 'classification' in record:

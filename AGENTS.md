@@ -16,6 +16,8 @@
 - `pyyaml` - YAML configuration file parsing
 - `nordpool` - Electricity price data fetching
 - `pytz` - Timezone handling
+- `requests` - REST clients for Home Assistant and forecasts
+- `flask` - Web UI and diagnostics API layer
 
 ## Code Style Guidelines
 
@@ -57,6 +59,8 @@ from inputs import get_all_input_data
 - Validate configuration values on startup
 - `charging_strategy.price_smoothing_sek_kwh` controls price tolerance (smoothing block now covers only hysteresis settings)
 - `learning.sqlite_path` stores planner telemetry (ensure parent directory exists before running)
+- `s_index` supports `mode` (`static` or `dynamic`), `base_factor`, `max_factor`, `pv_deficit_weight`, `temp_weight`, `temp_baseline_c`, `temp_cold_c`, and `days_ahead_for_sindex`
+- `secrets.yaml` must include Home Assistant sensor IDs: `battery_soc_entity_id` and `water_heater_daily_entity_id`
 
 ### Data Processing
 - Use pandas DataFrames for time-series data

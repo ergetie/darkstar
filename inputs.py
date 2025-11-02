@@ -1,11 +1,74 @@
 from datetime import datetime, timedelta, date
+import math
+import asyncio
+from typing import Any, Dict, Optional
+
+import pytz
+import requests
 import yaml
 from nordpool.elspot import Prices
-import pytz
-import math
-import requests
-import asyncio
 from open_meteo_solar_forecast import OpenMeteoSolarForecast
+
+
+def load_home_assistant_config() -> Dict[str, Any]:
+    """Read Home Assistant configuration from secrets.yaml."""
+    try:
+        with open('secrets.yaml', 'r') as file:
+            secrets = yaml.safe_load(file) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:  # pragma: no cover - defensive logging
+        print(f"Warning: Could not load secrets.yaml: {exc}")
+        return {}
+
+    ha_config = secrets.get('home_assistant')
+    if not isinstance(ha_config, dict):
+        return {}
+    return ha_config
+
+
+def _make_ha_headers(token: str) -> Dict[str, str]:
+    """Return headers for Home Assistant REST calls."""
+    return {
+        'Authorization': f'Bearer {token}',
+        'Content-Type': 'application/json',
+    }
+
+
+def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> Optional[Dict[str, Any]]:
+    """Fetch a single entity state from Home Assistant."""
+    ha_config = load_home_assistant_config()
+    url = ha_config.get('url')
+    token = ha_config.get('token')
+
+    if not url or not token or not entity_id:
+        return None
+
+    endpoint = f"{url.rstrip('/')}/api/states/{entity_id}"
+    try:
+        response = requests.get(endpoint, headers=_make_ha_headers(token), timeout=timeout)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as exc:
+        print(f"Warning: Failed to fetch Home Assistant entity '{entity_id}': {exc}")
+        return None
+
+
+def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> Optional[float]:
+    """Return the numeric state of a Home Assistant sensor if available."""
+    state = _get_ha_entity_state(entity_id, timeout=timeout)
+    if not state:
+        return None
+
+    raw_value = state.get('state')
+    if raw_value in (None, 'unknown', 'unavailable'):
+        return None
+
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        print(f"Warning: Non-numeric value '{raw_value}' for Home Assistant entity '{entity_id}'")
+        return None
 
 def get_nordpool_data(config_path="config.yaml"):
     """
@@ -260,8 +323,18 @@ def get_initial_state(config_path="config.yaml"):
     battery_config = config.get('system', {}).get('battery', config.get('battery', {}))
     capacity_kwh = battery_config.get('capacity_kwh', 10.0)
     battery_soc_percent = 50.0
-    battery_kwh = capacity_kwh * battery_soc_percent / 100.0
     battery_cost_sek_per_kwh = 0.20
+
+    # Prefer Home Assistant SoC when available
+    ha_config = load_home_assistant_config()
+    soc_entity_id = ha_config.get('battery_soc_entity_id', 'sensor.inverter_battery')
+    ha_soc = get_home_assistant_sensor_float(soc_entity_id) if soc_entity_id else None
+
+    if ha_soc is not None:
+        battery_soc_percent = ha_soc
+
+    battery_soc_percent = max(0.0, min(100.0, battery_soc_percent))
+    battery_kwh = capacity_kwh * battery_soc_percent / 100.0
 
     return {
         'battery_soc_percent': battery_soc_percent,
@@ -300,32 +373,20 @@ def get_all_input_data(config_path="config.yaml"):
 
 def _get_load_profile_from_ha(config: dict) -> list[float]:
     """Fetch actual load profile from Home Assistant historical data."""
-    import json
     from datetime import timedelta
-    
-    # Load secrets
-    try:
-        with open('secrets.yaml', 'r') as f:
-            secrets = yaml.safe_load(f)
-    except Exception as e:
-        print(f"Warning: Could not load secrets.yaml: {e}")
-        return _get_dummy_load_profile(config)
-    
-    ha_config = secrets.get('home_assistant', {})
+
+    ha_config = load_home_assistant_config()
     url = ha_config.get('url')
     token = ha_config.get('token')
     entity_id = ha_config.get('consumption_entity_id')
-    
+
     if not all([url, token, entity_id]):
-        print("Warning: Missing Home Assistant configuration in secrets.yaml")
+        print("Warning: Missing Home Assistant configuration for load profile")
         return _get_dummy_load_profile(config)
-    
+
     # Set up headers and API URL
-    headers = {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
-    }
-    
+    headers = _make_ha_headers(token)
+
     # Calculate time range for last 7 days
     end_time = datetime.now(pytz.UTC)
     start_time = end_time - timedelta(days=7)

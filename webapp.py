@@ -1,10 +1,21 @@
-from flask import Flask, jsonify, render_template, request
+from datetime import datetime
 import json
-import yaml
+import os
 import shutil
+import sqlite3
+
 import pandas as pd
+import pytz
+import yaml
+from flask import Flask, jsonify, render_template, request
+
 from planner import HeliosPlanner, dataframe_to_json_response, simulate_schedule
-from inputs import get_all_input_data, _get_load_profile_from_ha
+from inputs import (
+    get_all_input_data,
+    _get_load_profile_from_ha,
+    get_home_assistant_sensor_float,
+    load_home_assistant_config,
+)
 
 app = Flask(__name__)
 
@@ -93,6 +104,84 @@ def ha_average():
         return jsonify({"daily_kwh": daily_kwh, "average_load_kw": avg_kw})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/forecast/horizon', methods=['GET'])
+def forecast_horizon():
+    """Return information about the forecast horizon based on current schedule.json."""
+    try:
+        with open('schedule.json', 'r') as f:
+            data = json.load(f)
+        schedule = data.get('schedule', [])
+        tz = pytz.timezone('Europe/Stockholm')
+        dates = set()
+        pv_dates = set()
+        load_dates = set()
+        for slot in schedule:
+            dt = datetime.fromisoformat(slot['start_time'])
+            if dt.tzinfo is None:
+                dt = tz.localize(dt)
+            else:
+                dt = dt.astimezone(tz)
+            d = dt.date().isoformat()
+            dates.add(d)
+            if (slot.get('pv_forecast_kwh') or 0) is not None:
+                pv_dates.add(d)
+            if (slot.get('load_forecast_kwh') or 0) is not None:
+                load_dates.add(d)
+
+        debug = data.get('debug', {})
+        s_index = debug.get('s_index', {})
+        considered_days = s_index.get('considered_days')
+
+        return jsonify({
+            'total_days_in_schedule': len(dates),
+            'days_list': sorted(list(dates)),
+            'pv_days': len(pv_dates),
+            'load_days': len(load_dates),
+            's_index_considered_days': considered_days,
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/ha/water_today', methods=['GET'])
+def ha_water_today():
+    """Return today's water heater energy usage from HA or sqlite fallback."""
+    try:
+        ha_config = load_home_assistant_config()
+        entity_id = ha_config.get('water_heater_daily_entity_id', 'sensor.vvb_energy_daily')
+        ha_value = get_home_assistant_sensor_float(entity_id) if entity_id else None
+
+        if ha_value is not None:
+            return jsonify({
+                "water_kwh_today": round(ha_value, 2)
+            })
+
+        with open('config.yaml', 'r') as f:
+            config = yaml.safe_load(f)
+
+        learning_cfg = config.get('learning', {})
+        sqlite_path = learning_cfg.get('sqlite_path', 'data/planner_learning.db')
+        timezone_name = config.get('timezone', 'Europe/Stockholm')
+        tz = pytz.timezone(timezone_name)
+        today_key = datetime.now(tz).date().isoformat()
+
+        if os.path.exists(sqlite_path):
+            with sqlite3.connect(sqlite_path) as conn:
+                cur = conn.execute(
+                    "SELECT used_kwh FROM daily_water WHERE date = ?",
+                    (today_key,),
+                )
+                row = cur.fetchone()
+                if row and row[0] is not None:
+                    return jsonify({
+                        "water_kwh_today": round(float(row[0]), 2)
+                    })
+
+        return jsonify({"water_kwh_today": None})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 @app.route('/api/simulate', methods=['POST'])
 def simulate():
