@@ -3,6 +3,7 @@
 # Implementation Plan: Darkstar Planner Parity
 
 ## Change Log
+- **2025-11-02 (Rev 7)**: Updated SoC clamp semantics (no forced drop), expanded water-heating horizon (next midnight + deferral), added charge block consolidation with tolerance/gap controls, fixed timeline block length, added UI SoC validation, and extended tests (46 pass, 4 skipped).
 - **2025-11-02 (Rev 6)**: UI theme system implemented — scan `/themes`, expose Appearance dropdown, persist selection, apply CSS variables/palette to charts & buttons, add tests.
 - **2025-11-02 (Rev 5 — Plan)**: Upcoming fixes: grid-only water heating in cheap windows, remove PV export planning, peak-only battery export with responsibility guard, configurable export percentile, disable battery-for-water in cheap windows, extend PV + weather forecast horizon to 4 days, UI settings and chart export series.
 - **2025-11-02 (Rev 4)**: Integrated Home Assistant SoC + water stats, dynamic S-index (PV deficit & temperature), web UI updates, and new HA/test coverage.
@@ -112,6 +113,8 @@
 | `battery_economics` | `battery_cycle_cost_kwh` | 0.20 | Wear cost per discharged kWh. |
 | `decision_thresholds` | `export_profit_margin_sek` | 0.05 | Minimum extra profit for export. |
 | `charging_strategy` | `price_smoothing_sek_kwh` | 0.05 | Smoothing tolerance for blocks. |
+|  | `block_consolidation_tolerance_sek` | 0.05 | Additional tolerance for merging charge blocks (falls back to smoothing when unset). |
+|  | `consolidation_max_gap_slots` | 0 | Number of zero-capacity slots allowed while treating a block as contiguous. |
 | `strategic_charging` | `carry_forward_tolerance_ratio` | 0.10 | For strategic propagation. |
 | `water_heating` | `min_hours_per_day` | 2.0 | Required runtime per day. |
 |  | `min_kwh_per_day` | derived | Falls back to `min_hours_per_day × power_kw` when unset. |
@@ -363,3 +366,19 @@ Changelog/Versioning
 - Suggested commit: `feat(ui): Rev 6 — theme system with Appearance settings and palette application`
 - Suggested tag: `v0.6.0`
 
+## Rev 7 – SoC + Water Horizon + Charge Consolidation (Completed 2025-11-02)
+
+Highlights
+- SoC handling now respects the live state: charging is capped at `max_soc_percent`, but we no longer force an immediate clamp-down when the current SoC is higher (useful when HA reports > config max). Passes 3 & 6 only enforce the lower bound; pass 6 emits a warning when configs lag reality.
+- Water heating uses a horizon of `next local midnight + defer_up_to_hours`, enabling scheduling into early tomorrow once prices are known. With `defer_up_to_hours = 0`, only today’s slots are considered.
+- Charging consolidation rewrites window allocation to favour contiguous blocks while preserving total energy and slot-level limits. New config keys: `charging_strategy.block_consolidation_tolerance_sek` (default fallback to smoothing tolerance) and `charging_strategy.consolidation_max_gap_slots` (default 0).
+- Timeline bars now use the block’s true end time, so multi-slot Charge/Water actions render at full duration.
+- UI validation prevents invalid SoC limits (Min/Max % relationship) before saving; backend logs a warning if current SoC exceeds configured max.
+
+Testing
+- Added `tests/test_rev7_behaviour.py` covering SoC clamp behaviour, water-horizon deferral, and charge consolidation contiguity.
+- Full suite: `PYTHONPATH=. python -m pytest -q` → **46 passed, 4 skipped**.
+
+Changelog/Versioning
+- Suggested commit: `feat(planner): Rev 7 — SoC clamp semantics, water horizon to next midnight, charge consolidation, timeline grouping fix`
+- Suggested tag: `v0.7.0`

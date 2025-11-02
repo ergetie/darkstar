@@ -14,9 +14,11 @@ battery:
 battery_economics:
   battery_cycle_cost_kwh: 0.2
 charging_strategy:
+  block_consolidation_tolerance_sek: 0.05
   charge_threshold_percentile: 15
   cheap_price_tolerance_sek: 0.1
-  price_smoothing_sek_kwh: 0.05
+  consolidation_max_gap_slots: 0
+  price_smoothing_sek_kwh: 0.08
 debug:
   enable_planner_debug: true
   sample_size: 30
@@ -65,7 +67,8 @@ system:
     capacity_kwh: 34
     max_charge_power_kw: 8
     max_discharge_power_kw: 8
-    max_soc_percent: 55.493084
+    max_soc_percent: 95
+    min_soc_percent: 15
   grid:
     max_power_kw: 11
   inverter:
@@ -80,6 +83,7 @@ system:
 timezone: Europe/Stockholm
 ui:
   theme: Material Design Colors
+  theme_accent_index: 6
 water_heating:
   defer_up_to_hours: 3
   max_blocks_per_day: 2

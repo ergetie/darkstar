@@ -58,6 +58,8 @@ from inputs import get_all_input_data
 - Provide default values in code for missing config keys
 - Validate configuration values on startup
 - `charging_strategy.price_smoothing_sek_kwh` controls price tolerance (smoothing block now covers only hysteresis settings)
+- `charging_strategy.block_consolidation_tolerance_sek` allows merging adjacent charge slots when price spread is within tolerance (fallback to smoothing when unset)
+- `charging_strategy.consolidation_max_gap_slots` caps how many zero-capacity slots can exist inside a consolidated block
 - `learning.sqlite_path` stores planner telemetry (ensure parent directory exists before running)
 - `s_index` supports `mode` (`static` or `dynamic`), `base_factor`, `max_factor`, `pv_deficit_weight`, `temp_weight`, `temp_baseline_c`, `temp_cold_c`, and `days_ahead_for_sindex`
 - `secrets.yaml` must include Home Assistant sensor IDs: `battery_soc_entity_id` and `water_heater_daily_entity_id`
@@ -80,6 +82,9 @@ from inputs import get_all_input_data
 - Include parameter types and return value descriptions
 - Add inline comments for complex business logic
 - Maintain README with setup and usage instructions
+
+### Process Policy
+- Before implementing any newly drafted revision/plan section (e.g., after we agree on a fix plan), switch to the designated implementation model. Planning and discussion should happen first; code changes should only be made after switching models.
 
 ### Project Structure
 - `config.yaml` - Master configuration file

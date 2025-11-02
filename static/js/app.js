@@ -875,7 +875,7 @@ function renderTimeline(data) {
                             id: startSlot.slot_number,
                             content: currentAction,
                             start: startSlot.start_time,
-                            end: startSlot.end_time,
+                            end: endSlot.end_time,
                             style: themeStyleForAction(currentAction)
                         });
                     }
@@ -891,7 +891,7 @@ function renderTimeline(data) {
                         id: startSlot.slot_number,
                         content: currentAction,
                         start: startSlot.start_time,
-                        end: startSlot.end_time,
+                        end: endSlot.end_time,
                         style: themeStyleForAction(currentAction)
                     });
                     currentAction = null;
@@ -905,7 +905,7 @@ function renderTimeline(data) {
                 id: startSlot.slot_number,
                 content: currentAction,
                 start: startSlot.start_time,
-                end: startSlot.end_time,
+                end: endSlot.end_time,
                 style: themeStyleForAction(currentAction)
             });
         }
@@ -1014,6 +1014,24 @@ function populateForms(config) {
 
 async function saveConfig() {
     const config = {};
+    const minSocField = document.querySelector('input[name="system.battery.min_soc_percent"]');
+    const maxSocField = document.querySelector('input[name="system.battery.max_soc_percent"]');
+    const minSocValue = minSocField && minSocField.value !== '' ? Number(minSocField.value) : null;
+    const maxSocValue = maxSocField && maxSocField.value !== '' ? Number(maxSocField.value) : null;
+    if (
+        minSocValue !== null
+        && maxSocValue !== null
+        && (
+            Number.isNaN(minSocValue)
+            || Number.isNaN(maxSocValue)
+            || minSocValue < 0
+            || maxSocValue > 100
+            || minSocValue > maxSocValue
+        )
+    ) {
+        alert('Max SoC (%) must be between Min SoC (%) and 100. Please adjust the values.');
+        return;
+    }
     const controls = document.querySelectorAll('[name]');
     controls.forEach(control => {
         const keys = control.name.split('.');

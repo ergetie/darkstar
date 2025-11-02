@@ -39,6 +39,8 @@ charging_strategy:
   charge_threshold_percentile: 15   # Bottom 15% of prices are considered 'cheap'
   cheap_price_tolerance_sek: 0.10   # Extends 'cheap' category to prices within this tolerance
   price_smoothing_sek_kwh: 0.05     # Allows grouping of slots slightly above cheapest price for block planning
+  block_consolidation_tolerance_sek: 0.05  # Optional extra tolerance for consolidating charge blocks
+  consolidation_max_gap_slots: 0     # Allow bridging up to N zero-capacity slots when consolidating
 
 # Strategic Charging (Floor Price)
 strategic_charging:

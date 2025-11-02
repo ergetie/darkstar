@@ -74,7 +74,7 @@ All system parameters are configurable via `config.yaml`:
 
 - **Battery specifications**: capacity, charge/discharge limits, efficiency
 - **Decision thresholds**: margins for battery use, export, water heating
-- **Charging strategy**: percentile thresholds, price tolerances
+- **Charging strategy**: percentile thresholds, price tolerances, block consolidation tolerance, gap allowance
 - **Strategic charging**: floor price triggers, target SoC
 - **Water heating**: power requirements, daily duration
 - **Export controls**: enable export, fees, profit margin, percentile threshold, peak-only toggle, future price guard

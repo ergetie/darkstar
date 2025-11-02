@@ -58,6 +58,7 @@ class HeliosPlanner:
             self.discharge_efficiency = 0.0
 
         self.cycle_cost = self.battery_economics.get('battery_cycle_cost_kwh', 0.0)
+        self._max_soc_warning_emitted = False
 
     def _validate_config(self) -> None:
         """Validate critical configuration values and raise descriptive errors."""
@@ -475,6 +476,23 @@ class HeliosPlanner:
         """
         df = self._prepare_data_frame(input_data)
         self.state = input_data['initial_state']
+        max_soc_percent = self.battery_config.get('max_soc_percent')
+        current_soc = self.state.get('battery_soc_percent')
+        try:
+            if (
+                current_soc is not None
+                and max_soc_percent is not None
+                and float(current_soc) > float(max_soc_percent) + 0.1
+                and not self._max_soc_warning_emitted
+            ):
+                print(
+                    f"Warning: current battery SoC ({float(current_soc):.2f}%) exceeds configured "
+                    f"max_soc_percent ({float(max_soc_percent):.2f}%). "
+                    "Planner will respect the live SoC and prevent further charging above the configured limit."
+                )
+                self._max_soc_warning_emitted = True
+        except (TypeError, ValueError):
+            pass
         self.daily_pv_forecast = input_data.get('daily_pv_forecast', {})
         self.daily_load_forecast = input_data.get('daily_load_forecast', {})
         # Compute 'now' rounded up to next 15-minute slot in configured timezone
@@ -622,10 +640,23 @@ class HeliosPlanner:
         else:
             available_slots = df[df.index >= now_slot]
 
-        # Allow deferring into early tomorrow up to configured hours
-        if defer_up_to_hours > 0:
-            horizon_end = min(df.index.max(), now_slot + timedelta(hours=defer_up_to_hours))
-            available_slots = available_slots[(available_slots.index >= now_slot) & (available_slots.index <= horizon_end)]
+        # Allow scheduling up to next local midnight plus optional deferral hours (capped by known data horizon)
+        try:
+            now_local = now_slot.tz_convert(timezone_name)
+        except TypeError:
+            now_local = now_slot.tz_localize(timezone_name)
+        next_midnight_local = (now_local.normalize() + pd.Timedelta(days=1))
+        horizon_end_local = next_midnight_local + pd.Timedelta(hours=max(0.0, defer_up_to_hours))
+        # Convert back to df index timezone (assumed same tz as df)
+        try:
+            horizon_end = horizon_end_local.tz_convert(df.index.tz)
+        except AttributeError:
+            horizon_end = horizon_end_local.tz_localize(df.index.tz) if df.index.tz is not None else horizon_end_local
+        except TypeError:
+            horizon_end = horizon_end_local.tz_localize(df.index.tz) if df.index.tz is not None else horizon_end_local
+
+        horizon_end = min(df.index.max(), horizon_end)
+        available_slots = available_slots[(available_slots.index >= now_slot) & (available_slots.index <= horizon_end)]
 
         # Find contiguous blocks of cheap slots
         cheap_slots = available_slots[available_slots['is_cheap']].copy()
@@ -754,10 +785,14 @@ class HeliosPlanner:
             surplus_kwh = adjusted_pv - adjusted_load - water_kwh
             if surplus_kwh > 0 and self.charge_efficiency > 0:
                 charge_to_battery = self._energy_into_battery(surplus_kwh)
-                current_kwh += charge_to_battery
+                available_capacity = max(0.0, max_soc_kwh - current_kwh)
+                charge_to_battery = min(charge_to_battery, available_capacity)
+                if charge_to_battery > 0:
+                    current_kwh += charge_to_battery
 
-            # Clamp
-            current_kwh = max(min_soc_kwh, min(max_soc_kwh, current_kwh))
+            # Lower bound only; allow SoC to remain above configured max if current state is already there.
+            if current_kwh < min_soc_kwh:
+                current_kwh = min_soc_kwh
             soc_list.append(current_kwh)
 
         df['simulated_soc_kwh'] = soc_list
@@ -931,20 +966,134 @@ class HeliosPlanner:
         """
         df['charge_kw'] = 0.0
         max_charge_power_kw = self.battery_config.get('max_charge_power_kw', 5.0)
+        tolerance = self.charging_strategy.get('block_consolidation_tolerance_sek')
+        if tolerance is None:
+            tolerance = self.charging_strategy.get('price_smoothing_sek_kwh', 0.05)
+        max_gap_slots = int(self.charging_strategy.get('consolidation_max_gap_slots', 0) or 0)
+        now_slot = getattr(self, 'now_slot', df.index[0])
 
         for resp in self.window_responsibilities:
             window = resp['window']
-            total_responsibility_kwh = resp['total_responsibility_kwh']
-            window_df = df.loc[window['start']:window['end']].sort_values('import_price_sek_kwh')
+            total_responsibility_kwh = float(resp['total_responsibility_kwh'])
+            if total_responsibility_kwh <= 0:
+                continue
 
+            window_df = df.loc[window['start']:window['end']]
+            window_df = window_df[window_df.index >= now_slot]
+            if window_df.empty:
+                continue
+
+            indices = list(window_df.index)
+            slot_capacities = []
+            slot_prices = []
             for idx, row in window_df.iterrows():
-                if total_responsibility_kwh > 0:
-                    available_kw = self._available_charge_power_kw(row)
-                    charge_kw_for_slot = min(available_kw, max_charge_power_kw)
-                    charge_kwh_for_slot = charge_kw_for_slot * 0.25
-                    if idx >= getattr(self, 'now_slot', df.index[0]):
-                        df.loc[idx, 'charge_kw'] = charge_kw_for_slot
-                    total_responsibility_kwh -= charge_kwh_for_slot
+                available_kw = min(self._available_charge_power_kw(row), max_charge_power_kw)
+                slot_capacities.append(max(0.0, available_kw * 0.25))
+                slot_prices.append(row['import_price_sek_kwh'])
+
+            best_segment = None
+            fallback_segment = None
+            n = len(indices)
+            for left in range(n):
+                if slot_capacities[left] <= 0:
+                    continue
+                total_cap = 0.0
+                weighted_price = 0.0
+                min_price = slot_prices[left]
+                max_price = slot_prices[left]
+                gap_streak = 0
+                for right in range(left, n):
+                    capacity = slot_capacities[right]
+                    if capacity <= 0:
+                        gap_streak += 1
+                        if gap_streak > max_gap_slots:
+                            break
+                        continue
+
+                    gap_streak = 0
+                    total_cap += capacity
+                    weighted_price += capacity * slot_prices[right]
+                    min_price = min(min_price, slot_prices[right])
+                    max_price = max(max_price, slot_prices[right])
+
+                    if total_cap + 1e-9 >= total_responsibility_kwh:
+                        avg_price = weighted_price / total_cap if total_cap > 0 else float('inf')
+                        price_span = max_price - min_price
+                        candidate = {
+                            'left': left,
+                            'right': right,
+                            'avg_price': avg_price,
+                            'total_capacity': total_cap,
+                            'price_span': price_span,
+                        }
+                        if price_span <= tolerance:
+                            if (
+                                best_segment is None
+                                or avg_price < best_segment['avg_price'] - 1e-9
+                                or (
+                                    abs(avg_price - best_segment['avg_price']) < 1e-9
+                                    and (right - left) < (best_segment['right'] - best_segment['left'])
+                                )
+                            ):
+                                best_segment = candidate
+                        if (
+                            fallback_segment is None
+                            or avg_price < fallback_segment['avg_price'] - 1e-9
+                        ):
+                            fallback_segment = candidate
+                        break
+
+            chosen_segment = best_segment or fallback_segment
+            if chosen_segment is None:
+                # Fallback to original price-sorted allocation if no segment could be found
+                window_sorted = window_df.sort_values('import_price_sek_kwh')
+                remaining = total_responsibility_kwh
+                for idx, row in window_sorted.iterrows():
+                    if idx < now_slot:
+                        continue
+                    available_kw = min(self._available_charge_power_kw(row), max_charge_power_kw)
+                    charge_kwh_for_slot = min(available_kw * 0.25, remaining)
+                    if charge_kwh_for_slot <= 0:
+                        continue
+                    df.loc[idx, 'charge_kw'] = charge_kwh_for_slot / 0.25
+                    remaining -= charge_kwh_for_slot
+                    if remaining <= 1e-6:
+                        break
+                continue
+
+            remaining = total_responsibility_kwh
+            for pos in range(chosen_segment['left'], chosen_segment['right'] + 1):
+                idx = indices[pos]
+                capacity_kwh = slot_capacities[pos]
+                if capacity_kwh <= 0:
+                    continue
+                charge_kwh_for_slot = min(capacity_kwh, remaining)
+                if charge_kwh_for_slot <= 0:
+                    continue
+                df.loc[idx, 'charge_kw'] = charge_kwh_for_slot / 0.25
+                remaining -= charge_kwh_for_slot
+                if remaining <= 1e-6:
+                    break
+
+            if remaining > 1e-6:
+                # Fill any residual energy using price order without disturbing existing assignments
+                window_sorted = window_df.sort_values('import_price_sek_kwh')
+                for idx, row in window_sorted.iterrows():
+                    if idx < now_slot:
+                        continue
+                    available_kw = min(self._available_charge_power_kw(row), max_charge_power_kw)
+                    max_kwh = available_kw * 0.25
+                    already_assigned_kwh = df.loc[idx, 'charge_kw'] * 0.25
+                    remaining_capacity = max(0.0, max_kwh - already_assigned_kwh)
+                    if remaining_capacity <= 0:
+                        continue
+                    charge_kwh_for_slot = min(remaining_capacity, remaining)
+                    if charge_kwh_for_slot <= 0:
+                        continue
+                    df.loc[idx, 'charge_kw'] = (already_assigned_kwh + charge_kwh_for_slot) / 0.25
+                    remaining -= charge_kwh_for_slot
+                    if remaining <= 1e-6:
+                        break
 
         return df
 
@@ -1190,7 +1339,8 @@ class HeliosPlanner:
             if pv_surplus_remaining > 0:
                 net_kwh = 0.0
 
-            current_kwh = max(min_soc_kwh, min(max_soc_kwh, current_kwh))
+            if current_kwh < min_soc_kwh:
+                current_kwh = min_soc_kwh
             if current_kwh <= 0:
                 current_kwh = 0.0
                 total_cost = 0.0
