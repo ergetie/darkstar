@@ -26,6 +26,10 @@ class TestEnergyConversions:
         self.planner.config = config
         self.planner.battery_config = config['battery']
         self.planner.battery_economics = config['battery_economics']
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
 
         # Initialize efficiency values
         roundtrip_percent = self.planner.battery_config.get('roundtrip_efficiency_percent', 95.0)

@@ -3,6 +3,8 @@
 # Implementation Plan: Darkstar Planner Parity
 
 ## Change Log
+- **2025-11-02 (Rev 6 — Plan)**: Upcoming UI theme system: scan `/themes` on app start, add "Appearance" section with theme selector, persist selection, apply palette to charts and buttons, adopt CSS variables for foreground/background.
+- **2025-11-02 (Rev 5 — Plan)**: Upcoming fixes: grid-only water heating in cheap windows, remove PV export planning, peak-only battery export with responsibility guard, configurable export percentile, disable battery-for-water in cheap windows, extend PV + weather forecast horizon to 4 days, UI settings and chart export series.
 - **2025-11-02 (Rev 4)**: Integrated Home Assistant SoC + water stats, dynamic S-index (PV deficit & temperature), web UI updates, and new HA/test coverage.
 - **2025-11-02 (Rev 3)**: Future-only MPC with water deferral window; removed price duplication; S-index surfaced in UI; HA timestamp fixes; discharge/export rate limits; planner telemetry debug persisted to sqlite; tests updated (42 pass).
 - **2025-11-01 (Rev 1)**: Implemented Phases 1-5 - by Grok Code Fast 1.
@@ -206,6 +208,140 @@
 
 ---
 _Last updated: 2025-11-01 (Phase 6 validated with telemetry + export fixes)_
+
+## Rev 5 Plan: Cheap-Window Water + Export Guards + Forecast Horizon
+
+Status: Pending implementation
+
+Summary: Strengthen MPC behavior around cheap windows, export decisions, and forecast coverage. Align export behavior with long-term savings by reserving energy for future needs and peak prices. Ensure 4-day horizons for PV and weather forecasts.
+
+Scope of Changes
+- Water heating source policy
+  - In cheap windows, heat from Grid (not Battery). PV still used first when available.
+  - Disable battery-for-water during cheap windows; grid covers the residual. Align with “hold in cheap windows”.
+
+- Export policy
+  - Remove explicit PV export planning. PV surplus still increases SoC; export happens only when battery is full due to physical constraints.
+  - Battery export allowed only when ALL of the following are true:
+    - Responsibilities fully covered to horizon (or SoC ≥ strategic target SoC), and
+    - Slot price is in top X% (configurable export percentile), and
+    - Net export price > (avg battery cost + wear + export margin), and
+    - Optional guard: current export price ≥ max remaining import price in horizon − small buffer.
+
+- Forecast horizon
+  - Ensure PV forecast covers ≥ 4 days; otherwise fallback/dummy to fill coverage.
+  - Fetch weather mean temperature for ≥ 4 days (Open‑Meteo daily); wire to dynamic S-index.
+  - Stats panel shows “PV forecast: N days”, “Weather forecast: N days” (already added).
+
+- UI
+  - Add settings field: `arbitrage.export_percentile_threshold` (e.g., top 10–15%).
+  - Add export series to chart so visible when export occurs.
+  - Water-today label simplified (already done).
+
+Config Additions
+- `arbitrage.export_percentile_threshold` (default 15)
+- Optional: `arbitrage.enable_peak_only_export` (default true)
+- Optional: `arbitrage.export_future_price_guard` (bool) and `arbitrage.future_price_guard_buffer_sek` (default 0.0)
+
+Implementation Tasks
+- Planner (water heating):
+  - In Pass 6, if `is_cheap` and `water_heating_kw > 0`: forbid battery contribution to water; use PV first, then grid.
+  - Ensure net and SoC math reflects PV → battery → grid flows accurately.
+
+- Planner (export):
+  - Remove PV export planning path. Keep only battery export path.
+  - Add peak-only export gate using `export_percentile_threshold` over horizon prices.
+  - Add responsibilities/strategic coverage check (sum of `window_responsibilities` or current SoC ≥ target).
+  - Optional forward-price guard as described.
+  - Keep protective SoC as a lower bound; do not export below it.
+
+- Forecast horizon:
+  - PV: request or synthesize ≥ 4 days to map to all price slots in horizon.
+  - Weather: fetch Open‑Meteo daily mean temperature for the full horizon (≥ 4 days). Use for dynamic S-index.
+
+- UI/Settings:
+  - Add `arbitrage.export_percentile_threshold` to Settings; persist on save.
+  - Add “Export (kW)” series to chart.
+
+Acceptance Criteria
+- Water heating in cheap windows uses grid (PV first), never battery.
+- No planned PV export actions; PV surplus only raises SoC. Exports still occur when battery is full (physical), but not planned.
+- Battery export happens only in top-X% price slots and only when responsibilities covered (or SoC ≥ strategic target) and price thresholds hold. No midday export unless it is an actual local price peak and future needs are fully covered.
+- Dynamic S-index still functions; export behavior respects protective SoC.
+- Stats show PV/Weather forecast days ≥ 4 when upstream is healthy.
+- Chart shows export bars/line when export occurs (so no “mystery” SoC drops).
+
+Testing
+- Unit tests:
+  - Water heating source selection in cheap vs non-cheap windows; battery disallowed in cheap.
+  - Export gating: peak-only, responsibilities satisfied, guard on price, and protective SoC.
+  - No PV export planning; PV surplus storage only.
+  - Forecast horizon reporting ≥ 4 days (mocked).
+- Integration tests:
+  - End-to-end scenarios: negative price day with PV; midday PV surplus with evening high price; check no battery export midday unless peak + reserved.
+
+Changelog/Versioning
+- Suggested commit after implementation: `feat(planner): Rev 5 — grid water in cheap windows, peak-only battery export, remove PV export planning, 4-day PV+weather horizon, UI settings and export series`
+- Suggested tag: `v0.5.0`
+
+## Rev 6 Plan: UI Theme System
+
+Status: Pending implementation
+
+Summary: Add a lightweight theme system that scans `/themes` at web-app startup, exposes available themes in a new "Appearance" section (Settings), lets the user select a theme, persists the selection, and applies colors across the UI (foreground/background) and the chart/button palettes.
+
+Theme Files
+- Location: `/themes` folder (more can be added later).
+- Format: JSON or YAML per-file (auto-detect by extension), with keys:
+  - `foreground` (hex), `background` (hex)
+  - `accent` (optional hex), `muted` (optional hex)
+  - `palette`: array or map of 16 hex values
+    - Index 0–7: action colors for charts (Charge, Water, Discharge, PV, Export, etc.)
+    - Index 8–15: corresponding button colors (0↔8, 1↔9, etc.)
+- Validation: ensure 16 palette values; provide defaults for missing keys; names derived from filename.
+
+Backend (webapp.py)
+- On startup, scan `/themes` for `*.json` and `*.yaml|*.yml` and parse.
+- Add endpoints:
+  - `GET /api/themes` → `{ current: string, themes: [{ name, colors, palette }] }`
+  - `POST /api/theme` body `{ name: string }` to set current theme; persists to `config.yaml` under `ui.theme` or a new `ui.json` file.
+  - Optionally serve a generated CSS at `/static/theme.css` (or inline via `/api/theme/css`).
+- Persistence priority: `config.yaml.ui.theme` if present, otherwise default to first theme or a built-in fallback.
+
+Frontend (templates/index.html, static/js/app.js)
+- Add "Appearance" section at the bottom of Settings:
+  - Dropdown listing available themes from `GET /api/themes`.
+  - Save button posts `POST /api/theme`.
+- On load and on change, apply theme by setting CSS variables on `:root`:
+  - `--ds-foreground`, `--ds-background`, `--ds-accent`, `--ds-muted`
+  - `--ds-palette-0`..`--ds-palette-15`
+- Update chart to use palette indices for datasets:
+  - Actions: map to 0–7 (e.g., Charge=0, Water=1, Discharge=2, PV=3, Export=4, Load=5, Price line color distinct)
+  - Buttons: style using 8–15 (matching pairs for actions).
+- Ensure theme applies to existing components (tabs, headers, cards) via CSS variables.
+
+CSS (static/css/style.css)
+- Replace hard-coded colors with CSS variables; provide a base fallback theme.
+- Respect theme variables for text, background, borders, and hover states.
+
+Config
+- `ui.theme`: selected theme name (string). Default to first valid theme found or "Default".
+
+Acceptance Criteria
+- Themes in `/themes` are discovered on app start and listed in the Appearance dropdown.
+- Selecting a theme updates the entire UI (foreground/background) and chart + button colors according to the palette mapping.
+- Palette pairing honored: 0↔8, 1↔9, …, 7↔15.
+- Persisted theme survives reload; resetting config reverts to default theme.
+- Robust to malformed theme files (ignored with warning).
+
+Testing
+- Unit: theme parser validates and normalizes theme structure; palette length=16.
+- API: `/api/themes` lists themes; `/api/theme` persists selection and returns updated current.
+- UI: manual QA to verify dropdown selection applies colors and chart/bars.
+
+Changelog/Versioning
+- Suggested commit: `feat(ui): Rev 6 — theme system with Appearance settings and palette application to chart/buttons`
+- Suggested tag: `v0.6.0`
 
 ## Plan: HA + Stats + Dynamic S-Index (Upcoming)
 

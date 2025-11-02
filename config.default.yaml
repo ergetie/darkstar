@@ -82,6 +82,10 @@ arbitrage:
   export_profit_margin_sek: 0.05
   protective_soc_strategy: "gap_based"
   fixed_protective_soc_percent: 15.0
+  export_percentile_threshold: 15        # Top X% of prices eligible for export
+  enable_peak_only_export: true
+  export_future_price_guard: true
+  future_price_guard_buffer_sek: 0.00
 
 # Debug & Telemetry
 debug:

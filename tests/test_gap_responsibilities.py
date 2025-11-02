@@ -44,6 +44,10 @@ class TestGapResponsibilities:
         self.planner = HeliosPlanner.__new__(HeliosPlanner)
         self.planner.config = config
         self.planner.charging_strategy = config['charging_strategy']
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
         # Config is accessed through self.planner.config
 
         # Initialize state

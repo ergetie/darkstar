@@ -23,6 +23,10 @@ class TestHysteresis:
         }
         self.planner = HeliosPlanner.__new__(HeliosPlanner)
         self.planner.config = config
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
 
     def test_charge_hysteresis_enforcement(self):
         """Test that single charge slots are eliminated or extended."""

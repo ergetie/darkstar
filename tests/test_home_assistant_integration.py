@@ -130,6 +130,10 @@ def test_calculate_dynamic_s_index(monkeypatch):
         }
     }
     planner_instance.timezone = "Europe/Stockholm"
+    planner_instance.daily_pv_forecast = {}
+    planner_instance.daily_load_forecast = {}
+    planner_instance._last_temperature_forecast = {}
+    planner_instance.forecast_meta = {}
 
     # Avoid real API calls
     def fake_temperature_forecast(days, tz):

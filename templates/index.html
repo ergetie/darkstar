@@ -105,6 +105,7 @@
                     </label>
                     <label>Export Fees (SEK/kWh): <input type="number" step="0.01" name="arbitrage.export_fees_sek_per_kwh"></label>
                     <label>Export Profit Margin (SEK): <input type="number" step="0.01" name="arbitrage.export_profit_margin_sek"></label>
+                    <label>Export Percentile Threshold (%): <input type="number" step="1" name="arbitrage.export_percentile_threshold"></label>
                     <label>Protective Strategy:
                         <select name="arbitrage.protective_soc_strategy">
                             <option value="gap_based">gap_based</option>
@@ -112,6 +113,15 @@
                         </select>
                     </label>
                     <label>Fixed Protective SoC (%): <input type="number" step="0.1" name="arbitrage.fixed_protective_soc_percent"></label>
+                    <label>
+                        <input type="checkbox" name="arbitrage.enable_peak_only_export">
+                        Peak-only Export
+                    </label>
+                    <label>
+                        <input type="checkbox" name="arbitrage.export_future_price_guard">
+                        Future Price Guard
+                    </label>
+                    <label>Future Price Guard Buffer (SEK): <input type="number" step="0.01" name="arbitrage.future_price_guard_buffer_sek"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Smoothing / Hysteresis</legend>

@@ -4,6 +4,10 @@ arbitrage:
   export_profit_margin_sek: 0.05
   fixed_protective_soc_percent: 15
   protective_soc_strategy: gap_based
+  export_percentile_threshold: 15
+  enable_peak_only_export: true
+  export_future_price_guard: true
+  future_price_guard_buffer_sek: 0.0
 battery:
   max_soc_percent: 95
   roundtrip_efficiency_percent: 95
@@ -44,7 +48,7 @@ s_index:
   pv_deficit_weight: 0.3
   static_factor: 1.05
   temp_baseline_c: 20
-  temp_cold_c: -15
+  temp_cold_c: 0
   temp_weight: 0.2
 smoothing:
   min_off_slots_charge: 1

@@ -199,108 +199,124 @@ async def get_forecast_data(price_slots, config):
         config (dict): Configuration dictionary containing system parameters
 
     Returns:
-        list: List of dictionaries with:
-            - pv_forecast_kwh (float): PV generation in kWh for the slot
-            - load_forecast_kwh (float): Load consumption in kWh for the slot
+        dict: {
+            'slots': [ { 'pv_forecast_kwh': float, 'load_forecast_kwh': float } ... ],
+            'daily_pv_forecast': { iso_date: kwh },
+            'daily_load_forecast': { iso_date: kwh }
+        }
     """
-    # Read system parameters from config
     system_config = config.get('system', {})
     latitude = system_config.get('location', {}).get('latitude', 59.3)
     longitude = system_config.get('location', {}).get('longitude', 18.1)
     kwp = system_config.get('solar_array', {}).get('kwp', 5.0)
     azimuth = system_config.get('solar_array', {}).get('azimuth', 180)
-    # Map tilt to declination parameter for the library
     tilt = system_config.get('solar_array', {}).get('tilt', 30)
-    
-# Try to get real PV forecast from Open-Meteo Solar Forecast library
-    pv_kwh_forecast = []
+    timezone = config.get('timezone', 'Europe/Stockholm')
+    local_tz = pytz.timezone(timezone)
+
+    pv_kwh_forecast: list[float] = []
+    daily_pv_forecast: dict[str, float] = {}
+    resolution_hours = 0.25
+
     try:
-        # Initialize the forecast with system parameters using async with for proper resource management
         async def _fetch_forecast():
             async with OpenMeteoSolarForecast(
                 latitude=latitude,
                 longitude=longitude,
-                declination=tilt,  # Correct mapping
+                declination=tilt,
                 azimuth=azimuth,
-                dc_kwp=kwp         # Correct parameter name
+                dc_kwp=kwp
             ) as forecast:
                 estimate = await forecast.estimate()
-                
-                # Get the datetime keys and power values
-                solar_data_dict = estimate.watts
-                
-                # We need to map this data to our price slots
-                # Return the raw dictionary so we can map it properly in the main function
-                return solar_data_dict
-        
-        # Run the async function
+                return estimate.watts
+
         solar_data_dict = await _fetch_forecast()
-        
-        # Map solar data to our price slots
-        for i, slot in enumerate(price_slots):
-            slot_time = slot['start_time']
-            
-            # Find the closest 15-minute timestamp in the solar data
-            # Round to the nearest 15 minutes
-            rounded_time = slot_time.replace(minute=(slot_time.minute // 15) * 15, second=0, microsecond=0)
-            
-            # Find exact match by iterating through keys (to avoid dictionary collision issues)
-            power_watts = 0
-            for solar_time, solar_power in solar_data_dict.items():
-                if solar_time == rounded_time:
-                    power_watts = solar_power
-                    break
-            
-            
-            
-            
-            # Convert watts to kWh for 15-minute periods: (watts * 0.25 hours) / 1000
-            pv_kwh = power_watts * 0.25 / 1000
-            
-            pv_kwh_forecast.append(pv_kwh)
-            
-    except Exception as e:
-        print(f"Warning: Open-Meteo Solar Forecast library call failed: {e}")
+        if solar_data_dict:
+            sorted_times = sorted(solar_data_dict.keys())
+            if len(sorted_times) > 1:
+                delta_seconds = abs((sorted_times[1] - sorted_times[0]).total_seconds())
+                resolution_hours = max(delta_seconds / 3600.0, 0.0001)
+            for dt in sorted_times:
+                value = solar_data_dict[dt]
+                dt_obj = dt
+                if dt_obj.tzinfo is None:
+                    dt_obj = pytz.UTC.localize(dt_obj)
+                local_date = dt_obj.astimezone(local_tz).date().isoformat()
+                energy_kwh = value * resolution_hours / 1000.0
+                daily_pv_forecast[local_date] = daily_pv_forecast.get(local_date, 0.0) + energy_kwh
+
+            # Map PV forecast to price slots (15 min resolution assumed)
+            for slot in price_slots:
+                slot_time = slot['start_time']
+                rounded_time = slot_time.replace(minute=(slot_time.minute // 15) * 15, second=0, microsecond=0)
+                power_watts = 0.0
+                for solar_time, solar_power in solar_data_dict.items():
+                    if solar_time == rounded_time:
+                        power_watts = solar_power
+                        break
+                pv_kwh_forecast.append(power_watts * 0.25 / 1000.0)
+    except Exception as exc:
+        print(f"Warning: Open-Meteo Solar Forecast library call failed: {exc}")
         print("Falling back to dummy PV forecast")
-        
-        # Fallback: generate dummy PV forecast using sine wave
+        daily_pv_forecast = {}
         for slot in price_slots:
-            start_time = slot['start_time']
+            start_time = slot['start_time'].astimezone(local_tz)
             hour = start_time.hour + start_time.minute / 60.0
-            pv_kwh = max(0, math.sin(math.pi * (hour - 6) / 12)) * 1.25  # Peak 1.25 kWh per 15 min
+            pv_kwh = max(0, math.sin(math.pi * (hour - 6) / 12)) * 1.25
             pv_kwh_forecast.append(pv_kwh)
-    
-    # Get load forecast from Home Assistant or fallback to dummy
+            daily_iso = start_time.date().isoformat()
+            daily_pv_forecast[daily_iso] = daily_pv_forecast.get(daily_iso, 0.0) + pv_kwh
+
+    # Ensure we have at least four daily PV entries by extending with last known value
+    if price_slots:
+        first_date = price_slots[0]['start_time'].astimezone(local_tz).date()
+        last_value = None
+        for offset in range(4):
+            target_date = (first_date + timedelta(days=offset)).isoformat()
+            if target_date in daily_pv_forecast:
+                last_value = daily_pv_forecast[target_date]
+            elif last_value is not None:
+                daily_pv_forecast[target_date] = last_value
+
     try:
         load_profile = _get_load_profile_from_ha(config)
-    except Exception as e:
-        print(f"Warning: Failed to get HA load profile, using dummy: {e}")
+    except Exception as exc:
+        print(f"Warning: Failed to get HA load profile, using dummy: {exc}")
         load_profile = _get_dummy_load_profile(config)
-    
-    # Apply load profile to each slot
-    load_kwh_forecast = []
+
+    daily_load_total = sum(load_profile)
+    daily_load_forecast: dict[str, float] = {}
+
+    load_kwh_forecast: list[float] = []
     for slot in price_slots:
-        start_time = slot['start_time']
-        hour = start_time.hour + start_time.minute / 60.0
-        slot_of_day = int((start_time.hour * 60 + start_time.minute) // 15)
-        
-        # Use the HA load profile for the corresponding 15-minute slot
-        load_kwh = load_profile[slot_of_day]
+        slot_time = slot['start_time']
+        slot_index = int((slot_time.hour * 60 + slot_time.minute) // 15)
+        load_kwh = load_profile[slot_index]
         load_kwh_forecast.append(load_kwh)
-    
-    # Combine forecasts into final format
+        local_date = slot_time.astimezone(local_tz).date().isoformat()
+        daily_load_forecast[local_date] = daily_load_total
+
+    if price_slots:
+        first_date = price_slots[0]['start_time'].astimezone(local_tz).date()
+        for offset in range(4):
+            target_date = (first_date + timedelta(days=offset)).isoformat()
+            daily_load_forecast.setdefault(target_date, daily_load_total)
+
     forecast_data = []
-    for i in range(len(price_slots)):
-        # Use real PV forecast if available, otherwise use dummy
-        pv_kwh = pv_kwh_forecast[i] if i < len(pv_kwh_forecast) else 0.0
-        load_kwh = load_kwh_forecast[i] if i < len(load_kwh_forecast) else 0.0
-        
+    total_slots = len(price_slots)
+    for idx in range(total_slots):
+        pv_kwh = pv_kwh_forecast[idx] if idx < len(pv_kwh_forecast) else 0.0
+        load_kwh = load_kwh_forecast[idx] if idx < len(load_kwh_forecast) else 0.0
         forecast_data.append({
             'pv_forecast_kwh': pv_kwh,
             'load_forecast_kwh': load_kwh
         })
 
-    return forecast_data
+    return {
+        'slots': forecast_data,
+        'daily_pv_forecast': daily_pv_forecast,
+        'daily_load_forecast': daily_load_forecast
+    }
 
 
 def get_initial_state(config_path="config.yaml"):
@@ -361,13 +377,16 @@ def get_all_input_data(config_path="config.yaml"):
     
     # Run the async forecast function
     import asyncio
-    forecast_data = asyncio.run(get_forecast_data(price_data, config))
+    forecast_result = asyncio.run(get_forecast_data(price_data, config))
+    forecast_data = forecast_result.get('slots', [])
     initial_state = get_initial_state(config_path)
 
     return {
         'price_data': price_data,
         'forecast_data': forecast_data,
-        'initial_state': initial_state
+        'initial_state': initial_state,
+        'daily_pv_forecast': forecast_result.get('daily_pv_forecast', {}),
+        'daily_load_forecast': forecast_result.get('daily_load_forecast', {})
     }
 
 

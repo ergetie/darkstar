@@ -61,6 +61,10 @@ def tmp_planner(tmp_path, monkeypatch):
     planner.battery_economics = config['battery_economics']
     planner.learning_config = config['learning']
     planner._learning_schema_initialized = False
+    planner.daily_pv_forecast = {}
+    planner.daily_load_forecast = {}
+    planner._last_temperature_forecast = {}
+    planner.forecast_meta = {}
 
     roundtrip_percent = planner.battery_config['roundtrip_efficiency_percent'] / 100.0
     efficiency_component = math.sqrt(roundtrip_percent)

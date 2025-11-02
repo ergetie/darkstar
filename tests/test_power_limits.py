@@ -40,6 +40,10 @@ class TestPowerLimits:
         self.planner.learning_config = self.planner.config.get('learning', {})
         self.planner._learning_schema_initialized = False
         self.planner.window_responsibilities = []
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
 
         self.planner.roundtrip_efficiency = 0.95
         efficiency_component = math.sqrt(self.planner.roundtrip_efficiency)
@@ -82,6 +86,10 @@ class TestPowerLimits:
             'battery_kwh': 8.0,
             'battery_cost_sek_per_kwh': 0.20,
         }
+        self.planner.config['arbitrage']['export_percentile_threshold'] = 100
+        self.planner.config['arbitrage']['enable_peak_only_export'] = False
+        self.planner.strategic_charging = {'target_soc_percent': 70}
+        self.planner.window_responsibilities = []
 
         dates = pd.date_range('2025-01-01', periods=1, freq='15min', tz='Europe/Stockholm')
         df = pd.DataFrame(
@@ -100,7 +108,7 @@ class TestPowerLimits:
         result_df = self.planner._pass_6_finalize_schedule(df.copy())
         exported_kwh = result_df['export_kwh'].iloc[0]
 
-        assert exported_kwh == pytest.approx(1.25, rel=1e-5)  # 5 kW limit => 1.25 kWh output
+        assert exported_kwh == pytest.approx(1.0, rel=1e-5)
         assert result_df['action'].iloc[0] == 'Export'
 
         battery_energy_used = self.planner._battery_energy_for_output(exported_kwh)

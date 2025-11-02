@@ -61,6 +61,7 @@ from inputs import get_all_input_data
 - `learning.sqlite_path` stores planner telemetry (ensure parent directory exists before running)
 - `s_index` supports `mode` (`static` or `dynamic`), `base_factor`, `max_factor`, `pv_deficit_weight`, `temp_weight`, `temp_baseline_c`, `temp_cold_c`, and `days_ahead_for_sindex`
 - `secrets.yaml` must include Home Assistant sensor IDs: `battery_soc_entity_id` and `water_heater_daily_entity_id`
+- `arbitrage` adds peak export controls: `export_percentile_threshold`, `enable_peak_only_export`, `export_future_price_guard`, `future_price_guard_buffer_sek`
 
 ### Data Processing
 - Use pandas DataFrames for time-series data
@@ -86,6 +87,7 @@ from inputs import get_all_input_data
 - `planner.py` - Core MPC scheduling logic
 - `schedule.json` - Generated output schedule
 - `decision_maker.js` - Reference implementation (JavaScript)
+- `themes/` - UI theme files (JSON/YAML) scanned at startup
 
 ### Key Business Logic
 - Multi-pass Model Predictive Control (MPC) approach

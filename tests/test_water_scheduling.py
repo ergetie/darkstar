@@ -1,6 +1,7 @@
 """
 Test water heating block scheduling functionality.
 """
+import math
 import pytest
 import pandas as pd
 from datetime import datetime, timedelta
@@ -30,6 +31,15 @@ class TestWaterScheduling:
         self.planner.config = config
         self.planner.water_heating_config = config['water_heating']
         self.planner.charging_strategy = config['charging_strategy']
+        self.planner.strategic_charging = {'target_soc_percent': 95}
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
         # smoothing_config is accessed through config
 
     def test_contiguous_block_identification(self):
@@ -64,6 +74,50 @@ class TestWaterScheduling:
         # Should have 2 blocks of 6 slots each
         assert len(blocks) == 2
         assert all(block['length'] == 6 for block in blocks)
+
+    def test_water_heating_cheap_window_uses_grid(self):
+        planner = self.planner
+        planner.battery_config = {
+            'capacity_kwh': 10.0,
+            'min_soc_percent': 15,
+            'max_soc_percent': 95,
+            'max_charge_power_kw': 5.0,
+            'max_discharge_power_kw': 5.0,
+            'roundtrip_efficiency_percent': 95.0,
+        }
+        planner.thresholds = {
+            'battery_use_margin_sek': 0.10,
+            'battery_water_margin_sek': 0.20,
+        }
+        planner.battery_economics = {'battery_cycle_cost_kwh': 0.20}
+        efficiency_component = math.sqrt(0.95)
+        planner.roundtrip_efficiency = 0.95
+        planner.charge_efficiency = efficiency_component
+        planner.discharge_efficiency = efficiency_component
+        planner.cycle_cost = 0.20
+        planner.state = {
+            'battery_kwh': 6.0,
+            'battery_cost_sek_per_kwh': 0.20,
+        }
+        planner.window_responsibilities = []
+
+        dates = pd.date_range('2025-01-01 07:00', periods=1, freq='15min', tz='Europe/Stockholm')
+        df = pd.DataFrame({
+            'adjusted_pv_kwh': [0.0],
+            'adjusted_load_kwh': [0.0],
+            'water_heating_kw': [planner.water_heating_config['power_kw']],
+            'charge_kw': [0.0],
+            'import_price_sek_kwh': [0.12],
+            'export_price_sek_kwh': [0.10],
+            'is_cheap': [True],
+        }, index=dates)
+
+        planner.now_slot = dates[0]
+        result = planner._pass_6_finalize_schedule(df.copy())
+
+        slot = result.iloc[0]
+        assert slot['water_from_battery_kwh'] == pytest.approx(0.0)
+        assert slot['water_from_grid_kwh'] == pytest.approx(planner.water_heating_config['power_kw'] * 0.25)
 
     def test_single_block_preference(self):
         """Test that single block is preferred when possible."""

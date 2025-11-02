@@ -77,6 +77,7 @@ All system parameters are configurable via `config.yaml`:
 - **Charging strategy**: percentile thresholds, price tolerances
 - **Strategic charging**: floor price triggers, target SoC
 - **Water heating**: power requirements, daily duration
+- **Export controls**: enable export, fees, profit margin, percentile threshold, peak-only toggle, future price guard
 - **S-index**: static or dynamic safety factors (base factor, PV deficit weight, temperature weight, day offsets)
 - **Nordpool API**: price area, currency, resolution
 - **Pricing**: VAT, fees, taxes
@@ -143,6 +144,15 @@ home_assistant:
 
 - Planner initial state prefers the `battery_soc_entity_id` value, falling back to config defaults when unavailable.
 - Dashboard stats show current SoC, dynamic S-index factor, and today's water heater consumption (HA first, sqlite tracker fallback).
+
+## UI Themes
+
+- Place theme files in the `themes/` directory. Supported formats: JSON (`.json`) and YAML (`.yaml`/`.yml`).
+- Each theme defines:
+  - `foreground`, `background` (hex colors)
+  - optional `accent`, `muted`
+  - `palette`: 16 hex colors; indices 0–7 for chart actions, 8–15 for corresponding buttons (0↔8, 1↔9, …).
+- The web-app scans the folder on startup. Select themes under Settings → Appearance.
 
 ## License
 

@@ -20,6 +20,10 @@ class TestJsonSchema:
         }
         self.planner = HeliosPlanner.__new__(HeliosPlanner)
         self.planner.config = config
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
 
     def test_basic_schedule_schema(self):
         """Test that basic schedule JSON has required fields."""

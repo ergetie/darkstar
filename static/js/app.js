@@ -229,6 +229,16 @@ function updateStats(data, config) {
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
+            <span class="stat-label">PV Forecast:</span>
+            <span class="stat-value" id="stat-pv-days">–</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-key">├</span>
+            <span class="stat-label">Weather Forecast:</span>
+            <span class="stat-value" id="stat-weather-days">–</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-key">├</span>
             <span class="stat-label">Current SoC:</span>
             <span class="stat-value" id="stat-current-soc">loading…</span>
         </div>
@@ -326,6 +336,30 @@ function updateStats(data, config) {
             const waterElement = document.getElementById('stat-water-today');
             if (waterElement) waterElement.textContent = '—';
         });
+
+    // Fetch forecast horizon info (days available)
+    fetch('/api/forecast/horizon')
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(h => {
+            const pvDaysEl = document.getElementById('stat-pv-days');
+            const pvDays = h?.pv_forecast_days ?? h?.pv_days_schedule ?? h?.pv_days;
+            if (pvDaysEl && typeof pvDays === 'number') {
+                pvDaysEl.textContent = `${pvDays} days`;
+            }
+
+            const weatherEl = document.getElementById('stat-weather-days');
+            let weatherDays = h?.weather_forecast_days;
+            if (typeof weatherDays !== 'number') {
+                const debugSIndex = data.debug?.s_index;
+                if (debugSIndex && debugSIndex.temperatures) {
+                    weatherDays = Object.keys(debugSIndex.temperatures).length;
+                }
+            }
+            if (weatherEl && typeof weatherDays === 'number') {
+                weatherEl.textContent = `${weatherDays} days`;
+            }
+        })
+        .catch(() => {/* ignore */});
 }
 
 function getTodayWindow() {
@@ -409,6 +443,7 @@ async function renderChart(data, config) {
         const batteryDischarge = [];
         const projectedSoC = [];
         const waterHeating = [];
+        const exportPower = [];
 
         for (let i = 0; i < 192; i++) {
             const slotTime = new Date(startOfToday.getTime() + i * 15 * 60 * 1000);
@@ -427,6 +462,7 @@ async function renderChart(data, config) {
                 batteryDischarge.push((slot.battery_discharge_kw ?? 0));
                 projectedSoC.push(slot.projected_soc_percent ?? null);
                 waterHeating.push(slot.water_heating_kw ?? 0);
+                exportPower.push(slot.export_kwh != null ? slot.export_kwh * 4 : 0);
             } else {
                 importPrices.push(null);
                 pvForecasts.push(0);
@@ -435,6 +471,7 @@ async function renderChart(data, config) {
                 batteryDischarge.push(0);
                 projectedSoC.push(null);
                 waterHeating.push(0);
+                exportPower.push(0);
             }
         }
 
@@ -538,6 +575,15 @@ async function renderChart(data, config) {
                         label: 'Water Heating (kW)',
                         data: waterHeating,
                         backgroundColor: '#DCBD7F',
+                        yAxisID: 'y1',
+                        barPercentage: 1.0,
+                        categoryPercentage: 1.0
+                    },
+                    {
+                        type: 'bar',
+                        label: 'Export (kW)',
+                        data: exportPower,
+                        backgroundColor: 'rgba(204, 102, 153, 0.6)',
                         yAxisID: 'y1',
                         barPercentage: 1.0,
                         categoryPercentage: 1.0

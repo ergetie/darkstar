@@ -125,20 +125,24 @@ def forecast_horizon():
                 dt = dt.astimezone(tz)
             d = dt.date().isoformat()
             dates.add(d)
-            if (slot.get('pv_forecast_kwh') or 0) is not None:
+            if slot.get('pv_forecast_kwh') is not None:
                 pv_dates.add(d)
-            if (slot.get('load_forecast_kwh') or 0) is not None:
+            if slot.get('load_forecast_kwh') is not None:
                 load_dates.add(d)
 
         debug = data.get('debug', {})
         s_index = debug.get('s_index', {})
         considered_days = s_index.get('considered_days')
 
+        forecast_meta = data.get('meta', {}).get('forecast', {})
+
         return jsonify({
             'total_days_in_schedule': len(dates),
             'days_list': sorted(list(dates)),
-            'pv_days': len(pv_dates),
-            'load_days': len(load_dates),
+            'pv_days_schedule': len(pv_dates),
+            'load_days_schedule': len(load_dates),
+            'pv_forecast_days': forecast_meta.get('pv_forecast_days'),
+            'weather_forecast_days': forecast_meta.get('weather_forecast_days'),
             's_index_considered_days': considered_days,
         })
     except Exception as e:

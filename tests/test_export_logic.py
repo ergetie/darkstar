@@ -1,6 +1,7 @@
 """
 Test export logic with protective SoC calculations.
 """
+import math
 import pytest
 import pandas as pd
 from datetime import datetime, timedelta
@@ -18,7 +19,10 @@ class TestExportLogic:
                 'export_fees_sek_per_kwh': 0.0,
                 'export_profit_margin_sek': 0.05,
                 'protective_soc_strategy': 'gap_based',
-                'fixed_protective_soc_percent': 15.0
+                'fixed_protective_soc_percent': 15.0,
+                'export_percentile_threshold': 50,
+                'enable_peak_only_export': True,
+                'export_future_price_guard': False,
             },
             'battery': {
                 'capacity_kwh': 10.0,
@@ -27,13 +31,55 @@ class TestExportLogic:
             },
             'battery_economics': {
                 'battery_cycle_cost_kwh': 0.20
+            },
+            'strategic_charging': {
+                'target_soc_percent': 90,
+                'price_threshold_sek': 0.9,
+                'carry_forward_tolerance_ratio': 0.10,
+            },
+            'decision_thresholds': {
+                'battery_use_margin_sek': 0.10,
+                'battery_water_margin_sek': 0.20,
             }
         }
         self.planner = HeliosPlanner.__new__(HeliosPlanner)
         self.planner.config = config
-        self.planner.arbitrage_config = config['arbitrage']
         self.planner.battery_config = config['battery']
         self.planner.battery_economics = config['battery_economics']
+        self.planner.thresholds = config['decision_thresholds']
+        self.planner.strategic_charging = config['strategic_charging']
+        self.planner.charging_strategy = {'charge_threshold_percentile': 15, 'cheap_price_tolerance_sek': 0.10}
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
+        self.planner.window_responsibilities = []
+
+        efficiency_component = math.sqrt(0.95)
+        self.planner.roundtrip_efficiency = 0.95
+        self.planner.charge_efficiency = efficiency_component
+        self.planner.discharge_efficiency = efficiency_component
+        self.planner.cycle_cost = config['battery_economics']['battery_cycle_cost_kwh']
+
+    def _build_export_df(self, import_prices, export_prices):
+        dates = pd.date_range('2025-01-01 12:00', periods=len(import_prices), freq='15min', tz='Europe/Stockholm')
+        df = pd.DataFrame(
+            {
+                'adjusted_pv_kwh': [0.0] * len(import_prices),
+                'adjusted_load_kwh': [0.0] * len(import_prices),
+                'water_heating_kw': [0.0] * len(import_prices),
+                'charge_kw': [0.0] * len(import_prices),
+                'import_price_sek_kwh': import_prices,
+                'export_price_sek_kwh': export_prices,
+                'is_cheap': [False] * len(import_prices),
+            },
+            index=dates,
+        )
+        return df
+        self.planner.daily_pv_forecast = {}
+        self.planner.daily_load_forecast = {}
+        self.planner._last_temperature_forecast = {}
+        self.planner.forecast_meta = {}
 
         # Initialize state
         self.planner.state = {
@@ -69,87 +115,37 @@ class TestExportLogic:
 
         assert abs(protective_soc_kwh - expected_protective_soc_kwh) < 0.001
 
-    def test_profitable_export_decision(self):
-        """Test export profitability thresholds for PV and battery sources."""
-        # Test scenarios
-        test_cases = [
-            # (import_price, export_price, expect_pv_export, expect_battery_export)
-            (0.20, 0.28, True, False),   # PV export only (battery below wear threshold)
-            (0.20, 0.24, False, False),  # Price below both thresholds
-            (0.20, 0.50, True, True),    # High price allows both PV and battery export
+    def test_export_blocked_when_not_peak(self):
+        """Exports should be blocked when price is below percentile threshold."""
+        df = self._build_export_df([0.30, 0.80], [0.60, 0.90])
+        self.planner.state = {
+            'battery_kwh': 9.5,
+            'battery_cost_sek_per_kwh': 0.20,
+        }
+        self.planner.now_slot = df.index[0]
+        result = self.planner._pass_6_finalize_schedule(df.copy())
+
+        assert result.loc[df.index[0], 'export_kwh'] == pytest.approx(0.0)
+        assert result.loc[df.index[1], 'export_kwh'] > 0
+
+    def test_export_blocked_when_responsibilities_pending(self):
+        """Responsibilities prevent exports even during peak slots."""
+        df = self._build_export_df([0.70, 0.90], [1.00, 1.10])
+        self.planner.state = {
+            'battery_kwh': 9.5,
+            'battery_cost_sek_per_kwh': 0.20,
+        }
+        # Responsibility anchored at future slot
+        self.planner.window_responsibilities = [
+            {
+                'window': {'start': df.index[1]},
+                'total_responsibility_kwh': 3.0,
+            }
         ]
+        self.planner.now_slot = df.index[0]
+        result = self.planner._pass_6_finalize_schedule(df.copy())
 
-        export_fees = 0.0
-        export_profit_margin = 0.05
-        avg_cost = 0.20
-        cycle_cost = 0.20
-
-        for import_price, export_price, expect_pv, expect_battery in test_cases:
-            net_export_price = export_price - export_fees
-            pv_threshold = import_price + export_profit_margin
-            battery_threshold = avg_cost + cycle_cost + export_profit_margin
-
-            can_export_pv = net_export_price > pv_threshold
-            can_export_battery = net_export_price > battery_threshold
-
-            assert can_export_pv == expect_pv
-            assert can_export_battery == expect_battery
-
-    def test_export_with_fees(self):
-        """Test export profitability calculation with fees for PV vs battery."""
-        import_price = 0.20
-        export_price = 0.25
-        export_fees = 0.02
-        export_profit_margin = 0.05
-        avg_cost = 0.20
-        cycle_cost = 0.20
-
-        net_export_price = export_price - export_fees
-        pv_threshold = import_price + export_profit_margin
-        battery_threshold = avg_cost + cycle_cost + export_profit_margin
-
-        pv_profitable = net_export_price > pv_threshold
-        battery_profitable = net_export_price > battery_threshold
-
-        # 0.25 - 0.02 = 0.23, which is > 0.20 + 0.05 = 0.25? No: 0.23 > 0.25 is False
-        assert not pv_profitable
-        assert not battery_profitable
-
-        # Test with higher export price
-        export_price = 0.28
-        net_export_price = export_price - export_fees
-        pv_profitable = net_export_price > pv_threshold
-        battery_profitable = net_export_price > battery_threshold
-        # 0.28 - 0.02 = 0.26 (> 0.25) enables PV export, but still below battery threshold (0.45)
-        assert pv_profitable
-        assert not battery_profitable
-
-    def test_export_respects_protective_soc(self):
-        """Test that export doesn't occur below protective SoC."""
-        protective_soc_kwh = 2.0
-        current_soc_kwh = 1.5  # Below protective
-        available_surplus = 1.0  # kWh available for export
-
-        # Should not export when below protective SoC
-        can_export = current_soc_kwh > protective_soc_kwh
-        assert not can_export
-
-        # Test when above protective SoC
-        current_soc_kwh = 3.0  # Above protective
-        can_export = current_soc_kwh > protective_soc_kwh
-        assert can_export
-
-    def test_export_energy_limits(self):
-        """Test that export is limited by available energy above protective SoC."""
-        protective_soc_kwh = 2.0
-        current_soc_kwh = 5.0
-        surplus_energy = 2.0  # kWh available for export
-
-        # Available for export = current - protective
-        available_for_export = current_soc_kwh - protective_soc_kwh
-        max_export = min(surplus_energy, available_for_export)
-
-        assert max_export == 2.0  # Limited by surplus energy available
+        assert result['export_kwh'].max() == pytest.approx(0.0)
 
     def test_export_updates_battery_state(self):
         """Test that export properly updates battery SoC and cost basis."""

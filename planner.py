@@ -37,6 +37,10 @@ class HeliosPlanner:
         self.battery_economics = self.config.get('battery_economics', {})
         self.learning_config = self.config.get('learning', {})
         self._learning_schema_initialized = False
+        self.daily_pv_forecast: dict[str, float] = {}
+        self.daily_load_forecast: dict[str, float] = {}
+        self._last_temperature_forecast: dict[int, float] = {}
+        self.forecast_meta: dict[str, float] = {}
 
         self._validate_config()
 
@@ -334,17 +338,25 @@ class HeliosPlanner:
         local_dates = pd.Series(local_index.date, index=df.index)
         today = datetime.now(tz).date()
 
+        daily_pv_map = getattr(self, 'daily_pv_forecast', {}) or {}
+        daily_load_map = getattr(self, 'daily_load_forecast', {}) or {}
+
         deficits: list[float] = []
         considered_days: list[int] = []
         for offset in normalized_days:
             target_date = today + timedelta(days=offset)
             mask = local_dates == target_date
-            if not mask.any():
-                continue
-
-            considered_days.append(offset)
-            load_sum = float(df.loc[mask, 'adjusted_load_kwh'].sum())
-            pv_sum = float(df.loc[mask, 'adjusted_pv_kwh'].sum())
+            if mask.any():
+                considered_days.append(offset)
+                load_sum = float(df.loc[mask, 'adjusted_load_kwh'].sum())
+                pv_sum = float(df.loc[mask, 'adjusted_pv_kwh'].sum())
+            else:
+                key = target_date.isoformat()
+                load_sum = float(daily_load_map.get(key, 0.0))
+                pv_sum = float(daily_pv_map.get(key, 0.0))
+                if load_sum <= 0 and pv_sum <= 0:
+                    continue
+                considered_days.append(offset)
 
             if load_sum <= 0:
                 deficits.append(0.0)
@@ -353,34 +365,11 @@ class HeliosPlanner:
                 deficits.append(ratio)
 
         if not considered_days:
-            # Fallback: use the next available future dates present in df (e.g., D+1)
-            unique_future_dates = []
-            seen = set()
-            for d in local_dates.unique().tolist():
-                if d > today and d not in seen:
-                    unique_future_dates.append(d)
-                    seen.add(d)
-            # Take as many days as originally requested, if available
-            if unique_future_dates:
-                deficits = []
-                considered_days = []
-                for d in unique_future_dates[: len(normalized_days) or 1]:
-                    mask = local_dates == d
-                    load_sum = float(df.loc[mask, 'adjusted_load_kwh'].sum())
-                    pv_sum = float(df.loc[mask, 'adjusted_pv_kwh'].sum())
-                    offset = (d - today).days
-                    considered_days.append(offset)
-                    if load_sum <= 0:
-                        deficits.append(0.0)
-                    else:
-                        ratio = max(0.0, (load_sum - pv_sum) / max(load_sum, 1e-6))
-                        deficits.append(ratio)
-            else:
-                return None, {
-                    'base_factor': base_factor,
-                    'reason': 'insufficient_forecast_data',
-                    'requested_days': normalized_days,
-                }
+            return None, {
+                'base_factor': base_factor,
+                'reason': 'insufficient_forecast_data',
+                'requested_days': normalized_days,
+            }
 
         avg_deficit = sum(deficits) / len(deficits) if deficits else 0.0
 
@@ -396,6 +385,8 @@ class HeliosPlanner:
                 if span <= 0:
                     span = 1.0
                 temp_adjustment = max(0.0, min(1.0, (temp_baseline - mean_temp) / span))
+
+        self._last_temperature_forecast = temps_map or {}
 
         raw_factor = base_factor + (pv_weight * avg_deficit) + (temp_weight * temp_adjustment)
         factor = min(max_factor, max(0.0, raw_factor))
@@ -433,6 +424,15 @@ class HeliosPlanner:
                 (timestamp, json.dumps(payload)),
             )
             conn.commit()
+
+    def _remaining_responsibility_after(self, idx) -> float:
+        """Return remaining responsibility energy (kWh) for windows at or after idx."""
+        total = 0.0
+        for entry in getattr(self, 'window_responsibilities', []):
+            start = entry.get('window', {}).get('start')
+            if start is not None and start >= idx:
+                total += float(entry.get('total_responsibility_kwh', 0.0))
+        return total
 
     def _energy_into_battery(self, source_energy_kwh: float) -> float:
         """Energy (kWh) stored in the battery after charging losses."""
@@ -475,6 +475,8 @@ class HeliosPlanner:
         """
         df = self._prepare_data_frame(input_data)
         self.state = input_data['initial_state']
+        self.daily_pv_forecast = input_data.get('daily_pv_forecast', {})
+        self.daily_load_forecast = input_data.get('daily_load_forecast', {})
         # Compute 'now' rounded up to next 15-minute slot in configured timezone
         try:
             now_slot = pd.Timestamp.now(tz=self.timezone).ceil('15min')
@@ -700,6 +702,8 @@ class HeliosPlanner:
         capacity_kwh = self.battery_config.get('capacity_kwh', 10.0)
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
         max_soc_percent = self.battery_config.get('max_soc_percent', 95)
+        strategic_target_soc_percent = self.strategic_charging.get('target_soc_percent', max_soc_percent)
+        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
 
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
@@ -831,6 +835,10 @@ class HeliosPlanner:
         capacity_kwh = self.battery_config.get('capacity_kwh', 10.0)
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
         max_soc_percent = self.battery_config.get('max_soc_percent', 95)
+        strategic_target_soc_percent = self.strategic_charging.get(
+            'target_soc_percent', max_soc_percent
+        )
+        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
 
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
@@ -958,6 +966,9 @@ class HeliosPlanner:
         min_soc_percent = self.battery_config.get('min_soc_percent', 15)
         max_soc_percent = self.battery_config.get('max_soc_percent', 95)
 
+        strategic_target_soc_percent = self.strategic_charging.get('target_soc_percent', max_soc_percent)
+        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
+
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         battery_use_margin_sek = self.thresholds.get('battery_use_margin_sek', 0.10)
@@ -981,6 +992,17 @@ class HeliosPlanner:
         enable_export = arbitrage_config.get('enable_export', True)
         protective_soc_strategy = arbitrage_config.get('protective_soc_strategy', 'gap_based')
         fixed_protective_soc_percent = arbitrage_config.get('fixed_protective_soc_percent', 15.0)
+        export_percentile_threshold = float(arbitrage_config.get('export_percentile_threshold', 15.0))
+        export_peak_only = arbitrage_config.get('enable_peak_only_export', True)
+        export_future_price_guard = arbitrage_config.get('export_future_price_guard', False)
+        future_price_guard_buffer = float(arbitrage_config.get('future_price_guard_buffer_sek', 0.0))
+
+        peak_price_threshold = None
+        if export_peak_only and 0 < export_percentile_threshold < 100:
+            quantile = max(0.0, min(1.0, 1.0 - (export_percentile_threshold / 100.0)))
+            peak_price_threshold = df['import_price_sek_kwh'].quantile(quantile)
+            if pd.isna(peak_price_threshold):
+                peak_price_threshold = None
 
         if protective_soc_strategy == 'gap_based':
             # Calculate protective SoC based on future responsibilities
@@ -1037,7 +1059,8 @@ class HeliosPlanner:
                 remaining_water = water_kwh_required - water_from_pv_kwh
 
                 # Step 2: Use battery if economical
-                if remaining_water > 0 and self.discharge_efficiency > 0:
+                battery_allowed_for_water = not is_cheap
+                if remaining_water > 0 and battery_allowed_for_water and self.discharge_efficiency > 0:
                     battery_water_threshold = avg_cost + self.cycle_cost + self.thresholds.get('battery_water_margin_sek', 0.20)
                     if import_price > battery_water_threshold:
                         battery_available = min(remaining_water, discharge_budget_kwh)
@@ -1051,9 +1074,11 @@ class HeliosPlanner:
                             discharge_budget_kwh = max(0.0, discharge_budget_kwh - battery_available)
                             avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
                             cycle_adjusted_cost = avg_cost + self.cycle_cost
+            else:
+                remaining_water = 0.0
 
-                # Step 3: Use grid for remaining
-                water_from_grid_kwh = remaining_water
+            # Step 3: Use grid for remaining
+            water_from_grid_kwh = remaining_water
 
             # Calculate net after water heating sources
             net_kwh = pv_kwh - load_kwh - water_from_pv_kwh - water_from_battery_kwh - water_from_grid_kwh
@@ -1061,6 +1086,10 @@ class HeliosPlanner:
             # Track per-slot battery in/out
             slot_batt_charge_kwh = 0.0
             slot_batt_discharge_kwh = 0.0
+            slot_export_kwh = 0.0
+            slot_export_revenue = 0.0
+
+            pv_surplus_remaining = max(0.0, net_kwh)
 
             if charge_kw > 0 and self.charge_efficiency > 0:
                 grid_energy = charge_kw * 0.25
@@ -1119,31 +1148,47 @@ class HeliosPlanner:
                     )
                 else:
                     battery_export_capacity = 0.0
-                pv_surplus_remaining = max(0.0, net_kwh)
-                pv_threshold = import_price + export_profit_margin
+
                 battery_threshold = cycle_adjusted_cost + export_profit_margin
-                can_export_pv = net_export_price > pv_threshold
-                can_export_battery = net_export_price > battery_threshold
 
-                export_from_pv = pv_surplus_remaining if can_export_pv else 0.0
-                export_from_battery = battery_export_capacity if can_export_battery else 0.0
-                slot_export_kwh = export_from_pv + export_from_battery
+                can_export_battery = (
+                    battery_export_capacity > 0 and
+                    net_export_price > battery_threshold
+                )
 
-                if slot_export_kwh > 0:
+                if can_export_battery and export_peak_only and peak_price_threshold is not None:
+                    can_export_battery = import_price >= peak_price_threshold
 
-                    if slot_export_kwh > 0:
+                if can_export_battery and export_future_price_guard:
+                    future_prices = df.loc[idx:, 'import_price_sek_kwh']
+                    future_max_price = future_prices.max()
+                    if future_max_price is not None:
+                        can_export_battery = net_export_price >= (future_max_price - future_price_guard_buffer)
+
+                if can_export_battery:
+                    remaining_resp = self._remaining_responsibility_after(idx)
+                    responsibilities_met = remaining_resp <= 0.01
+                    strategic_ready = current_kwh >= strategic_target_kwh
+                    guard_floor = max(protective_soc_kwh, strategic_target_kwh)
+                    available_for_export = max(0.0, current_kwh - guard_floor)
+                    export_from_battery = min(battery_export_capacity, available_for_export)
+
+                    if export_from_battery > 0 and responsibilities_met and strategic_ready:
+                        slot_export_kwh = export_from_battery
                         slot_export_revenue = slot_export_kwh * net_export_price
-                        if export_from_battery > 0:
-                            battery_energy_used = self._battery_energy_for_output(export_from_battery)
-                            current_kwh -= battery_energy_used
-                            total_cost -= avg_cost * battery_energy_used
-                            discharge_budget_kwh = max(0.0, discharge_budget_kwh - export_from_battery)
-                            avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
-                            cycle_adjusted_cost = avg_cost + self.cycle_cost
-                            slot_batt_discharge_kwh += export_from_battery
+                        battery_energy_used = self._battery_energy_for_output(export_from_battery)
+                        current_kwh -= battery_energy_used
+                        total_cost -= avg_cost * battery_energy_used
+                        discharge_budget_kwh = max(0.0, discharge_budget_kwh - export_from_battery)
+                        avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                        cycle_adjusted_cost = avg_cost + self.cycle_cost
+                        slot_batt_discharge_kwh += export_from_battery
                         total_cost = max(0.0, total_cost)
-                        net_kwh = max(0.0, net_kwh - export_from_pv)
                         action = 'Export'
+
+            # Spill remaining PV surplus without explicit export planning
+            if pv_surplus_remaining > 0:
+                net_kwh = 0.0
 
             current_kwh = max(min_soc_kwh, min(max_soc_kwh, current_kwh))
             if current_kwh <= 0:
@@ -1283,7 +1328,18 @@ class HeliosPlanner:
         """
         records = dataframe_to_json_response(schedule_df)
 
-        output = {'schedule': records}
+        forecast_meta = {
+            'pv_forecast_days': len(getattr(self, 'daily_pv_forecast', {}) or {}),
+            'weather_forecast_days': len(getattr(self, '_last_temperature_forecast', {}) or {}),
+        }
+        self.forecast_meta = forecast_meta
+
+        output = {
+            'schedule': records,
+            'meta': {
+                'forecast': forecast_meta
+            }
+        }
 
         # Add debug payload if enabled
         debug_config = self.config.get('debug', {})
@@ -1473,6 +1529,10 @@ def simulate_schedule(df, config, initial_state):
     temp_planner.battery_economics = config.get('battery_economics', {})
     temp_planner.learning_config = config.get('learning', {})
     temp_planner._learning_schema_initialized = False
+    temp_planner.daily_pv_forecast = {}
+    temp_planner.daily_load_forecast = {}
+    temp_planner._last_temperature_forecast = {}
+    temp_planner.forecast_meta = {}
     temp_planner._validate_config()
 
     roundtrip_percent = temp_planner.battery_config.get(
