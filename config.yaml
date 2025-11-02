@@ -45,6 +45,7 @@ water_heating:
   min_kwh_per_day: 6.0
   max_blocks_per_day: 2
   schedule_future_only: true
+  defer_up_to_hours: 3
 
 s_index:
   mode: "static"
@@ -52,7 +53,6 @@ s_index:
   max_factor: 1.25
 
 smoothing:
-  price_smoothing_sek_kwh: 0.05
   min_on_slots_charge: 2
   min_off_slots_charge: 1
   min_on_slots_discharge: 2

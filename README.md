@@ -31,7 +31,12 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-3. **Run the planner:**
+3. **Create planner data directory (for sqlite telemetry):**
+```bash
+mkdir -p data
+```
+
+4. **Run the planner:**
 ```bash
 python planner.py
 ```
@@ -41,6 +46,11 @@ This will generate `schedule.json` with the optimal energy management plan.
 ### Test Data Fetching
 ```bash
 python inputs.py
+```
+
+### Run Tests
+```bash
+PYTHONPATH=. python -m pytest -q
 ```
 
 ## Project Structure
@@ -53,8 +63,8 @@ darkstar/
 ├── decision_maker.js        # Reference JavaScript implementation
 ├── schedule.json            # Generated output schedule
 ├── requirements.txt         # Python dependencies
-├── AGENTS.md              # Development guidelines for contributors
-├── project_plan_v3.md     # **Authoritative system architecture**
+├── AGENTS.md                # Development guidelines for contributors
+├── project_plan_v3.md       # **Authoritative system architecture**
 └── README.md              # This file
 ```
 
@@ -72,7 +82,7 @@ All system parameters are configurable via `config.yaml`:
 
 ## Architecture & Algorithm
 
-**⚠️ Important**: `project_plan_v3.md` is the single source of truth for system architecture and detailed implementation specifications.
+**⚠️ Important**: `project_plan_v3.md` is the main source of truth for system architecture. Later the `gap_analysis.md` has been added and `implementation_plan.md` is the working document.
 
 ### Multi-Pass MPC Logic
 

@@ -189,6 +189,12 @@ function updateStats(data, config) {
     // Get current SoC - we'll need to fetch this separately
     let currentSoC = 0;
 
+    // S-index (from config; static for now)
+    const sIndex = config.s_index || {};
+    const sMode = sIndex.mode || 'static';
+    const sFactor = (sIndex.static_factor != null) ? sIndex.static_factor : '';
+    const sMax = (sIndex.max_factor != null) ? sIndex.max_factor : '';
+
     // Generate stats HTML
     const statsHTML = `
         <div class="stat-row">
@@ -215,6 +221,11 @@ function updateStats(data, config) {
             <span class="stat-key">├</span>
             <span class="stat-label">HA data:</span>
             <span class="stat-value" id="ha-daily-average">25.55 kWh/day average</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-key">├</span>
+            <span class="stat-label">S-index:</span>
+            <span class="stat-value">${sMode} / ${sFactor}${sMax !== '' ? ' / ' + sMax : ''}</span>
         </div>
     `;
 
@@ -740,30 +751,57 @@ async function loadConfig() {
 }
 
 function populateForms(config) {
-    const inputs = document.querySelectorAll('input[name]');
-    inputs.forEach(input => {
-        const keys = input.name.split('.');
+    const controls = document.querySelectorAll('[name]');
+    controls.forEach(control => {
+        const keys = control.name.split('.');
         let value = config;
         for (const key of keys) {
-            value = value && value[key];
+            value = value != null ? value[key] : undefined;
         }
-        if (value !== undefined) {
-            input.value = value;
+        if (value === undefined) {
+            return;
+        }
+
+        if (control.type === 'checkbox') {
+            control.checked = Boolean(value);
+        } else {
+            control.value = value;
         }
     });
 }
 
 async function saveConfig() {
     const config = {};
-    const inputs = document.querySelectorAll('input[name]');
-    inputs.forEach(input => {
-        const keys = input.name.split('.');
+    const controls = document.querySelectorAll('[name]');
+    controls.forEach(control => {
+        const keys = control.name.split('.');
         let obj = config;
         for (let i = 0; i < keys.length - 1; i++) {
             if (!obj[keys[i]]) obj[keys[i]] = {};
             obj = obj[keys[i]];
         }
-        obj[keys[keys.length - 1]] = parseFloat(input.value) || input.value;
+
+        let value;
+        if (control.type === 'checkbox') {
+            value = control.checked;
+        } else if (control.type === 'number') {
+            if (control.value === '') {
+                return;
+            }
+            const parsed = Number(control.value);
+            if (!Number.isNaN(parsed)) {
+                value = parsed;
+            } else {
+                return;
+            }
+        } else {
+            if (control.value === '') {
+                return;
+            }
+            value = control.value;
+        }
+
+        obj[keys[keys.length - 1]] = value;
     });
 
     try {

@@ -1,5 +1,8 @@
 import json
 import math
+import os
+import sqlite3
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import yaml
@@ -29,6 +32,10 @@ class HeliosPlanner:
         self.water_heating_config = self.config.get('water_heating', {})
         self.safety_config = self.config.get('safety', {})
         self.battery_economics = self.config.get('battery_economics', {})
+        self.learning_config = self.config.get('learning', {})
+        self._learning_schema_initialized = False
+
+        self._validate_config()
 
         roundtrip_percent = self.battery_config.get(
             'roundtrip_efficiency_percent',
@@ -44,6 +51,206 @@ class HeliosPlanner:
             self.discharge_efficiency = 0.0
 
         self.cycle_cost = self.battery_economics.get('battery_cycle_cost_kwh', 0.0)
+
+    def _validate_config(self) -> None:
+        """Validate critical configuration values and raise descriptive errors."""
+        errors: list[str] = []
+
+        def _ensure_positive(name: str, value: float) -> None:
+            if value is None or value <= 0:
+                errors.append(f"{name} must be positive (got {value!r})")
+
+        capacity = self.battery_config.get('capacity_kwh')
+        _ensure_positive('battery.capacity_kwh', capacity if capacity is not None else 0)
+
+        min_soc = self.battery_config.get('min_soc_percent', 0)
+        max_soc = self.battery_config.get('max_soc_percent', 100)
+        if not (0 <= min_soc <= max_soc <= 100):
+            errors.append(
+                f"battery min/max SoC must satisfy 0 ≤ min ≤ max ≤ 100 (got {min_soc}, {max_soc})"
+            )
+
+        max_charge_kw = self.battery_config.get('max_charge_power_kw', 0)
+        max_discharge_kw = self.battery_config.get('max_discharge_power_kw', 0)
+        _ensure_positive('battery.max_charge_power_kw', max_charge_kw)
+        _ensure_positive('battery.max_discharge_power_kw', max_discharge_kw)
+
+        inverter_kw = self.config.get('system', {}).get('inverter', {}).get('max_power_kw', 0)
+        grid_kw = self.config.get('system', {}).get('grid', {}).get('max_power_kw', 0)
+        if inverter_kw:
+            _ensure_positive('system.inverter.max_power_kw', inverter_kw)
+        if grid_kw:
+            _ensure_positive('system.grid.max_power_kw', grid_kw)
+
+        price_smoothing = self.charging_strategy.get('price_smoothing_sek_kwh', 0.0)
+        if price_smoothing < 0:
+            errors.append("charging_strategy.price_smoothing_sek_kwh must be ≥ 0")
+
+        smoothing_cfg = self.config.get('smoothing', {})
+        for key in (
+            'min_on_slots_charge',
+            'min_off_slots_charge',
+            'min_on_slots_discharge',
+            'min_off_slots_discharge',
+            'min_on_slots_export',
+        ):
+            value = smoothing_cfg.get(key, 0)
+            if value < 0:
+                errors.append(f"smoothing.{key} must be ≥ 0")
+
+        if errors:
+            raise ValueError("Invalid planner configuration:\n - " + "\n - ".join(errors))
+
+    def _learning_enabled(self) -> bool:
+        """Return True when learning/sqlite features should be used."""
+        learning_cfg = getattr(self, 'learning_config', {})
+        return bool(learning_cfg.get('enable', False) and learning_cfg.get('sqlite_path'))
+
+    def _learning_db_path(self) -> str:
+        """Return the sqlite path, ensuring directory creation."""
+        learning_cfg = getattr(self, 'learning_config', {})
+        path = learning_cfg.get('sqlite_path', 'data/planner_learning.db')
+        directory = os.path.dirname(path)
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        return path
+
+    def _ensure_learning_schema(self) -> None:
+        """Create sqlite tables when learning is enabled."""
+        if not self._learning_enabled():
+            return
+        if getattr(self, '_learning_schema_initialized', False):
+            return
+
+        path = self._learning_db_path()
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schedule_planned (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    date TEXT NOT NULL,
+                    planned_kwh REAL NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_schedule_planned_date ON schedule_planned(date)"
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS realized_energy (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    slot_start TEXT NOT NULL,
+                    slot_end TEXT NOT NULL,
+                    action TEXT,
+                    energy_kwh REAL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS daily_water (
+                    date TEXT PRIMARY KEY,
+                    used_kwh REAL NOT NULL DEFAULT 0,
+                    updated_at TEXT NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS planner_debug (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    created_at TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                )
+                """
+            )
+            conn.commit()
+
+        self._learning_schema_initialized = True
+
+    def _get_daily_water_usage_kwh(self, target_date) -> float:
+        """Retrieve recorded water usage for the specified date."""
+        if not self._learning_enabled():
+            return 0.0
+
+        self._ensure_learning_schema()
+        if hasattr(target_date, 'to_pydatetime'):
+            target_date = target_date.to_pydatetime().date()
+        elif isinstance(target_date, datetime):
+            target_date = target_date.date()
+        date_key = target_date.isoformat()
+        path = self._learning_db_path()
+        with sqlite3.connect(path) as conn:
+            cur = conn.execute("SELECT used_kwh FROM daily_water WHERE date = ?", (date_key,))
+            row = cur.fetchone()
+            if row is not None and row[0] is not None:
+                return float(row[0])
+
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO daily_water (date, used_kwh, updated_at)
+                VALUES (?, 0, ?)
+                """,
+                (date_key, datetime.now(timezone.utc).isoformat()),
+            )
+            conn.commit()
+
+        return 0.0
+
+    def _record_planned_water_energy(self, target_date, planned_kwh: float) -> None:
+        """Persist planned water heating energy for later reconciliation."""
+        if not self._learning_enabled() or planned_kwh <= 0:
+            return
+
+        self._ensure_learning_schema()
+        if hasattr(target_date, 'to_pydatetime'):
+            target_date = target_date.to_pydatetime().date()
+        elif isinstance(target_date, datetime):
+            target_date = target_date.date()
+        date_key = target_date.isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
+        path = self._learning_db_path()
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                """
+                INSERT INTO schedule_planned (date, planned_kwh, created_at)
+                VALUES (?, ?, ?)
+                """,
+                (date_key, planned_kwh, timestamp),
+            )
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO daily_water (date, used_kwh, updated_at)
+                VALUES (?, 0, ?)
+                """,
+                (date_key, timestamp),
+            )
+            conn.execute(
+                "UPDATE daily_water SET updated_at = ? WHERE date = ?",
+                (timestamp, date_key),
+            )
+            conn.commit()
+
+    def _record_debug_payload(self, payload: dict) -> None:
+        """Persist planner debug payloads for observability."""
+        if not self._learning_enabled():
+            return
+
+        self._ensure_learning_schema()
+        timestamp = datetime.now(timezone.utc).isoformat()
+        path = self._learning_db_path()
+        with sqlite3.connect(path) as conn:
+            conn.execute(
+                """
+                INSERT INTO planner_debug (created_at, payload)
+                VALUES (?, ?)
+                """,
+                (timestamp, json.dumps(payload)),
+            )
+            conn.commit()
 
     def _energy_into_battery(self, source_energy_kwh: float) -> float:
         """Energy (kWh) stored in the battery after charging losses."""
@@ -86,6 +293,12 @@ class HeliosPlanner:
         """
         df = self._prepare_data_frame(input_data)
         self.state = input_data['initial_state']
+        # Compute 'now' rounded up to next 15-minute slot in configured timezone
+        try:
+            now_slot = pd.Timestamp.now(tz=self.timezone).ceil('15min')
+        except Exception:
+            now_slot = pd.Timestamp.now(tz='Europe/Stockholm').ceil('15min')
+        self.now_slot = now_slot
         df = self._pass_0_apply_safety_margins(df)
         df = self._pass_1_identify_windows(df)
         df = self._pass_2_schedule_water_heating(df)
@@ -158,7 +371,7 @@ class HeliosPlanner:
         # Calculate price threshold using two-step logic with smoothing
         charge_threshold_percentile = self.charging_strategy.get('charge_threshold_percentile', 15)
         cheap_price_tolerance_sek = self.charging_strategy.get('cheap_price_tolerance_sek', 0.10)
-        price_smoothing_sek_kwh = self.config.get('smoothing', {}).get('price_smoothing_sek_kwh', 0.05)
+        price_smoothing_sek_kwh = self.charging_strategy.get('price_smoothing_sek_kwh', 0.05)
 
         # Step A: Initial cheap slots below percentile
         initial_cheap = df['import_price_sek_kwh'] <= df['import_price_sek_kwh'].quantile(charge_threshold_percentile / 100.0)
@@ -189,36 +402,46 @@ class HeliosPlanner:
         Returns:
             pd.DataFrame: Updated DataFrame with water heating schedule
         """
-        from datetime import timedelta
+        df = df.copy()
 
-        # Get configuration
+        timezone_name = getattr(self, 'timezone', 'Europe/Stockholm')
+
         power_kw = self.water_heating_config.get('power_kw', 3.0)
         min_hours_per_day = self.water_heating_config.get('min_hours_per_day', 2.0)
         min_kwh_per_day = self.water_heating_config.get('min_kwh_per_day', power_kw * min_hours_per_day)
         max_blocks_per_day = self.water_heating_config.get('max_blocks_per_day', 2)
         schedule_future_only = self.water_heating_config.get('schedule_future_only', True)
+        defer_up_to_hours = float(self.water_heating_config.get('defer_up_to_hours', 0))
+
+        # Build local date mapping for scheduling decisions
+        try:
+            local_datetimes = df.index.tz_convert(timezone_name)
+        except TypeError:
+            local_datetimes = df.index.tz_localize(timezone_name)
+        local_dates = pd.Series(local_datetimes.date, index=df.index)
+        first_local_date = local_dates.iloc[0]
 
         # Calculate required slots per block
         slot_energy_kwh = power_kw * 0.25  # 15-minute slots
         slots_per_block = max(1, int(min_kwh_per_day / slot_energy_kwh))
 
-        # Get today's water usage (placeholder - will integrate with HA/sqlite later)
-        daily_water_kwh_today = 0.5  # hardcoded for now
+        # Fetch today's water usage from learning tracker (fallback to 0 if unavailable)
+        daily_water_kwh_today = self._get_daily_water_usage_kwh(first_local_date)
 
         # Determine if we need to schedule for today or tomorrow
-        first_start = df.index[0]
+        now_slot = getattr(self, 'now_slot', df.index[0])
         is_today_complete = daily_water_kwh_today >= min_kwh_per_day
 
+        # Only consider future slots beyond 'now'
         if schedule_future_only:
-            # Only schedule future slots
-            available_slots = df[df.index > first_start]
+            available_slots = df[df.index > now_slot]
         else:
-            available_slots = df
+            available_slots = df[df.index >= now_slot]
 
-        if is_today_complete:
-            # Schedule for tomorrow
-            tomorrow = first_start.date() + timedelta(days=1)
-            available_slots = available_slots[available_slots.index.date == tomorrow]
+        # Allow deferring into early tomorrow up to configured hours
+        if defer_up_to_hours > 0:
+            horizon_end = min(df.index.max(), now_slot + timedelta(hours=defer_up_to_hours))
+            available_slots = available_slots[(available_slots.index >= now_slot) & (available_slots.index <= horizon_end)]
 
         # Find contiguous blocks of cheap slots
         cheap_slots = available_slots[available_slots['is_cheap']].copy()
@@ -267,7 +490,17 @@ class HeliosPlanner:
             for i in range(slots_needed):
                 slot_time = start_idx + timedelta(minutes=i * 15)
                 if slot_time in df.index:
-                    df.loc[slot_time, 'water_heating_kw'] = power_kw
+                    if slot_time >= now_slot:
+                        df.loc[slot_time, 'water_heating_kw'] = power_kw
+
+        # Persist planned water heating energy for each scheduled day
+        if df['water_heating_kw'].sum() > 0:
+            scheduled_slots = df[df['water_heating_kw'] > 0]
+            scheduled_dates = local_dates.reindex(scheduled_slots.index)
+            for target_date in scheduled_dates.unique():
+                day_mask = scheduled_dates == target_date
+                planned_kwh = scheduled_slots.loc[day_mask, 'water_heating_kw'].sum() * 0.25
+                self._record_planned_water_energy(target_date, planned_kwh)
 
         return df
         
@@ -289,14 +522,21 @@ class HeliosPlanner:
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         battery_use_margin_sek = self.thresholds.get('battery_use_margin_sek', 0.10)
+        max_discharge_power_kw = self.battery_config.get('max_discharge_power_kw', 5.0)
         battery_cost = self.state['battery_cost_sek_per_kwh']
         economic_threshold = battery_cost + self.cycle_cost + battery_use_margin_sek
+        max_discharge_power_kw = self.battery_config.get('max_discharge_power_kw', 5.0)
 
         current_kwh = self.state['battery_kwh']
         soc_list = []
         window_start_states = []
 
+        now_slot = getattr(self, 'now_slot', df.index[0])
         for idx, row in df.iterrows():
+            if idx < now_slot:
+                # Keep SoC unchanged before 'now' as initial_state already reflects history
+                soc_list.append(current_kwh)
+                continue
             # Record window start state
             if row.get('is_cheap', False):
                 window_start_states.append({
@@ -317,8 +557,12 @@ class HeliosPlanner:
                 and import_price > economic_threshold
                 and self.discharge_efficiency > 0
             ):
-                discharge_from_battery = self._battery_energy_for_output(deficit_kwh)
-                current_kwh -= discharge_from_battery
+                rate_limited_output = max_discharge_power_kw * 0.25
+                available_output = self._battery_output_from_energy(max(0.0, current_kwh - min_soc_kwh))
+                deliverable_kwh = min(deficit_kwh, rate_limited_output, available_output)
+                if deliverable_kwh > 0:
+                    discharge_from_battery = self._battery_energy_for_output(deliverable_kwh)
+                    current_kwh -= discharge_from_battery
 
             # Case 2: Surplus
             surplus_kwh = adjusted_pv - adjusted_load - water_kwh
@@ -344,10 +588,13 @@ class HeliosPlanner:
         Returns:
             pd.DataFrame: Original DataFrame (responsibilities stored in instance attribute)
         """
-        # Group slots into windows
+        # Group future slots into windows only (skip past)
         windows = []
         current_window = None
+        now_slot = getattr(self, 'now_slot', df.index[0])
         for idx, row in df.iterrows():
+            if idx < now_slot:
+                continue
             if row['is_cheap']:
                 if current_window is None:
                     current_window = {'start': idx, 'end': idx}
@@ -485,7 +732,8 @@ class HeliosPlanner:
                     available_kw = self._available_charge_power_kw(row)
                     charge_kw_for_slot = min(available_kw, max_charge_power_kw)
                     charge_kwh_for_slot = charge_kw_for_slot * 0.25
-                    df.loc[idx, 'charge_kw'] = charge_kw_for_slot
+                    if idx >= getattr(self, 'now_slot', df.index[0]):
+                        df.loc[idx, 'charge_kw'] = charge_kw_for_slot
                     total_responsibility_kwh -= charge_kwh_for_slot
 
         return df
@@ -511,6 +759,7 @@ class HeliosPlanner:
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         battery_use_margin_sek = self.thresholds.get('battery_use_margin_sek', 0.10)
+        max_discharge_power_kw = self.battery_config.get('max_discharge_power_kw', 5.0)
 
         actions = []
         projected_soc_kwh = []
@@ -535,7 +784,20 @@ class HeliosPlanner:
         else:
             protective_soc_kwh = fixed_protective_soc_percent / 100.0 * capacity_kwh
 
+        now_slot = getattr(self, 'now_slot', df.index[0])
         for idx, row in df.iterrows():
+            # Do not modify or simulate past slots; preserve initial SoC/cost at 'now'
+            if idx < now_slot:
+                actions.append('Hold')
+                projected_soc_kwh.append(current_kwh)
+                projected_soc_percent.append((current_kwh / capacity_kwh) * 100.0 if capacity_kwh else 0.0)
+                projected_battery_cost.append(total_cost / current_kwh if current_kwh > 0 else 0.0)
+                water_from_pv.append(0.0)
+                water_from_battery.append(0.0)
+                water_from_grid.append(0.0)
+                export_kwh.append(0.0)
+                export_revenue.append(0.0)
+                continue
             pv_kwh = row['adjusted_pv_kwh']
             load_kwh = row['adjusted_load_kwh']
             water_kwh_required = row['water_heating_kw'] * 0.25
@@ -543,6 +805,11 @@ class HeliosPlanner:
             import_price = row['import_price_sek_kwh']
             export_price = row['export_price_sek_kwh']
             is_cheap = row['is_cheap']
+
+            discharge_rate_limit_kwh = max_discharge_power_kw * 0.25
+            available_battery_energy = max(0.0, current_kwh - min_soc_kwh)
+            available_output_kwh = self._battery_output_from_energy(available_battery_energy)
+            discharge_budget_kwh = min(discharge_rate_limit_kwh, available_output_kwh)
 
             avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
             cycle_adjusted_cost = avg_cost + self.cycle_cost
@@ -566,8 +833,7 @@ class HeliosPlanner:
                 if remaining_water > 0 and self.discharge_efficiency > 0:
                     battery_water_threshold = avg_cost + self.cycle_cost + self.thresholds.get('battery_water_margin_sek', 0.20)
                     if import_price > battery_water_threshold:
-                        max_battery_output = self._battery_output_from_energy(max(0.0, current_kwh - min_soc_kwh))
-                        battery_available = min(remaining_water, max_battery_output)
+                        battery_available = min(remaining_water, discharge_budget_kwh)
                         if battery_available > 0:
                             water_from_battery_kwh = battery_available
                             battery_energy_used = self._battery_energy_for_output(battery_available)
@@ -575,6 +841,9 @@ class HeliosPlanner:
                             total_cost = max(0.0, total_cost)
                             current_kwh -= battery_energy_used
                             remaining_water -= battery_available
+                            discharge_budget_kwh = max(0.0, discharge_budget_kwh - battery_available)
+                            avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                            cycle_adjusted_cost = avg_cost + self.cycle_cost
 
                 # Step 3: Use grid for remaining
                 water_from_grid_kwh = remaining_water
@@ -592,6 +861,8 @@ class HeliosPlanner:
                 if stored_energy > 0:
                     current_kwh += stored_energy
                     total_cost += grid_energy * import_price
+                    avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                    cycle_adjusted_cost = avg_cost + self.cycle_cost
                     action = 'Charge'
             else:
                 if net_kwh < 0:
@@ -599,13 +870,16 @@ class HeliosPlanner:
                         discharge_price_threshold = cycle_adjusted_cost + battery_use_margin_sek
                         if import_price > discharge_price_threshold:
                             deficit_kwh = -net_kwh
-                            max_battery_output = self._battery_output_from_energy(max(0.0, current_kwh - min_soc_kwh))
-                            deliverable_kwh = min(deficit_kwh, max_battery_output)
+                            deliverable_kwh = min(deficit_kwh, discharge_budget_kwh)
                             if deliverable_kwh > 0:
                                 battery_energy_used = self._battery_energy_for_output(deliverable_kwh)
                                 total_cost -= avg_cost * battery_energy_used
                                 total_cost = max(0.0, total_cost)
                                 current_kwh -= battery_energy_used
+                                discharge_budget_kwh = max(0.0, discharge_budget_kwh - deliverable_kwh)
+                                net_kwh += deliverable_kwh
+                                avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                                cycle_adjusted_cost = avg_cost + self.cycle_cost
                                 action = 'Discharge'
                 elif net_kwh > 0 and self.charge_efficiency > 0:
                     stored_energy = self._energy_into_battery(net_kwh)
@@ -613,26 +887,47 @@ class HeliosPlanner:
                     stored_energy = min(stored_energy, available_capacity)
                     if stored_energy > 0:
                         current_kwh += stored_energy
+                        pv_energy_used = stored_energy / self.charge_efficiency if self.charge_efficiency > 0 else 0.0
+                        net_kwh = max(0.0, net_kwh - pv_energy_used)
                         action = 'PV Charge'
 
             # Export logic: Check for profitable export when safe
-            if enable_export and net_kwh > 0 and current_kwh > protective_soc_kwh:
+            if enable_export:
                 export_fees = arbitrage_config.get('export_fees_sek_per_kwh', 0.0)
                 export_profit_margin = arbitrage_config.get('export_profit_margin_sek', 0.05)
                 net_export_price = export_price - export_fees
 
-                # Only export if profitable (export price > import price + margin)
-                if net_export_price > import_price + export_profit_margin:
-                    # Calculate how much we can export (limited by available energy above protective SoC)
-                    available_for_export = current_kwh - protective_soc_kwh
-                    max_export_kwh = min(net_kwh, available_for_export)
+                protective_headroom_stored = max(0.0, current_kwh - protective_soc_kwh)
+                if charge_kw <= 0:
+                    battery_export_capacity = min(
+                        discharge_budget_kwh,
+                        self._battery_output_from_energy(protective_headroom_stored),
+                    )
+                else:
+                    battery_export_capacity = 0.0
+                pv_surplus_remaining = max(0.0, net_kwh)
+                pv_threshold = import_price + export_profit_margin
+                battery_threshold = cycle_adjusted_cost + export_profit_margin
+                can_export_pv = net_export_price > pv_threshold
+                can_export_battery = net_export_price > battery_threshold
 
-                    if max_export_kwh > 0:
-                        slot_export_kwh = max_export_kwh
+                export_from_pv = pv_surplus_remaining if can_export_pv else 0.0
+                export_from_battery = battery_export_capacity if can_export_battery else 0.0
+                slot_export_kwh = export_from_pv + export_from_battery
+
+                if slot_export_kwh > 0:
+
+                    if slot_export_kwh > 0:
                         slot_export_revenue = slot_export_kwh * net_export_price
-                        current_kwh -= slot_export_kwh
-                        total_cost -= avg_cost * slot_export_kwh  # Reduce cost basis
+                        if export_from_battery > 0:
+                            battery_energy_used = self._battery_energy_for_output(export_from_battery)
+                            current_kwh -= battery_energy_used
+                            total_cost -= avg_cost * battery_energy_used
+                            discharge_budget_kwh = max(0.0, discharge_budget_kwh - export_from_battery)
+                            avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                            cycle_adjusted_cost = avg_cost + self.cycle_cost
                         total_cost = max(0.0, total_cost)
+                        net_kwh = max(0.0, net_kwh - export_from_pv)
                         action = 'Export'
 
             current_kwh = max(min_soc_kwh, min(max_soc_kwh, current_kwh))
@@ -772,6 +1067,7 @@ class HeliosPlanner:
         if debug_config.get('enable_planner_debug', False):
             debug_payload = self._generate_debug_payload(schedule_df)
             output['debug'] = debug_payload
+            self._record_debug_payload(debug_payload)
 
         with open('schedule.json', 'w') as f:
             json.dump(output, f, indent=2)
@@ -801,7 +1097,7 @@ class HeliosPlanner:
                 'water_from_grid_kwh': round(schedule_df['water_from_grid_kwh'].sum(), 2),
             },
             'charging_plan': {
-                'total_charge_kwh': round(schedule_df['charge_kw'].sum() * 0.25, 2),
+                'total_charge_kwh': round((schedule_df.get('charge_kw', schedule_df.get('battery_charge_kw', pd.Series([0]))).sum()) * 0.25, 2),
                 'total_export_kwh': round(schedule_df['export_kwh'].sum(), 2),
                 'total_export_revenue': round(schedule_df['export_revenue'].sum(), 2),
             },
@@ -948,6 +1244,9 @@ def simulate_schedule(df, config, initial_state):
     temp_planner.water_heating_config = config.get('water_heating', {})
     temp_planner.safety_config = config.get('safety', {})
     temp_planner.battery_economics = config.get('battery_economics', {})
+    temp_planner.learning_config = config.get('learning', {})
+    temp_planner._learning_schema_initialized = False
+    temp_planner._validate_config()
 
     roundtrip_percent = temp_planner.battery_config.get(
         'roundtrip_efficiency_percent',

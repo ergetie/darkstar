@@ -53,6 +53,7 @@ water_heating:
   min_kwh_per_day: 6.0              # Optional; defaults to power * hours when unset
   max_blocks_per_day: 2             # Prefer single block, up to two if needed
   schedule_future_only: true        # Only schedule future slots (skip current slot)
+  defer_up_to_hours: 3              # Allow deferring into early tomorrow up to N hours if cheaper
 
 # S-Index Configuration
 s_index:
@@ -62,7 +63,6 @@ s_index:
 
 # Smoothing / Hysteresis Controls
 smoothing:
-  price_smoothing_sek_kwh: 0.05
   min_on_slots_charge: 2
   min_off_slots_charge: 1
   min_on_slots_discharge: 2

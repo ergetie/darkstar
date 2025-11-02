@@ -53,9 +53,67 @@
                     <label>Battery Water Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.battery_water_margin_sek"></label>
                 </fieldset>
                 <fieldset>
+                    <legend>Battery Economics</legend>
+                    <label>Cycle Cost (SEK/kWh): <input type="number" step="0.01" name="battery_economics.battery_cycle_cost_kwh"></label>
+                    <label>Round-trip Efficiency (%): <input type="number" step="0.1" name="battery.roundtrip_efficiency_percent"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Charging Strategy</legend>
+                    <label>Cheap Percentile (%): <input type="number" step="1" name="charging_strategy.charge_threshold_percentile"></label>
+                    <label>Cheap Price Tolerance (SEK): <input type="number" step="0.01" name="charging_strategy.cheap_price_tolerance_sek"></label>
+                    <label>Price Smoothing (SEK/kWh): <input type="number" step="0.01" name="charging_strategy.price_smoothing_sek_kwh"></label>
+                </fieldset>
+                <fieldset>
                     <legend>Strategic Charging</legend>
                     <label>Price Threshold (SEK): <input type="number" step="0.01" name="strategic_charging.price_threshold_sek"></label>
                     <label>Target SoC (%): <input type="number" name="strategic_charging.target_soc_percent"></label>
+                    <label>Carry-forward Tolerance Ratio: <input type="number" step="0.01" name="strategic_charging.carry_forward_tolerance_ratio"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>S-Index Safety</legend>
+                    <label>Mode:
+                        <select name="s_index.mode">
+                            <option value="static">static</option>
+                            <option value="dynamic">dynamic</option>
+                        </select>
+                    </label>
+                    <label>Static Factor: <input type="number" step="0.01" name="s_index.static_factor"></label>
+                    <label>Max Factor: <input type="number" step="0.01" name="s_index.max_factor"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Water Heating</legend>
+                    <label>Power (kW): <input type="number" step="0.1" name="water_heating.power_kw"></label>
+                    <label>Min Hours/Day: <input type="number" step="0.1" name="water_heating.min_hours_per_day"></label>
+                    <label>Min kWh/Day: <input type="number" step="0.1" name="water_heating.min_kwh_per_day"></label>
+                    <label>Max Blocks/Day: <input type="number" step="1" name="water_heating.max_blocks_per_day"></label>
+                    <label>
+                        <input type="checkbox" name="water_heating.schedule_future_only">
+                        Schedule Future Slots Only
+                    </label>
+                </fieldset>
+                <fieldset>
+                    <legend>Arbitrage &amp; Export</legend>
+                    <label>
+                        <input type="checkbox" name="arbitrage.enable_export">
+                        Enable Export
+                    </label>
+                    <label>Export Fees (SEK/kWh): <input type="number" step="0.01" name="arbitrage.export_fees_sek_per_kwh"></label>
+                    <label>Export Profit Margin (SEK): <input type="number" step="0.01" name="arbitrage.export_profit_margin_sek"></label>
+                    <label>Protective Strategy:
+                        <select name="arbitrage.protective_soc_strategy">
+                            <option value="gap_based">gap_based</option>
+                            <option value="fixed">fixed</option>
+                        </select>
+                    </label>
+                    <label>Fixed Protective SoC (%): <input type="number" step="0.1" name="arbitrage.fixed_protective_soc_percent"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Smoothing / Hysteresis</legend>
+                    <label>Min On Slots (Charge): <input type="number" step="1" name="smoothing.min_on_slots_charge"></label>
+                    <label>Min Off Slots (Charge): <input type="number" step="1" name="smoothing.min_off_slots_charge"></label>
+                    <label>Min On Slots (Discharge): <input type="number" step="1" name="smoothing.min_on_slots_discharge"></label>
+                    <label>Min Off Slots (Discharge): <input type="number" step="1" name="smoothing.min_off_slots_discharge"></label>
+                    <label>Min On Slots (Export): <input type="number" step="1" name="smoothing.min_on_slots_export"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Pricing</legend>
@@ -68,6 +126,20 @@
                     <label>Price Area: <input type="text" name="nordpool.price_area"></label>
                     <label>Currency: <input type="text" name="nordpool.currency"></label>
                     <label>Resolution (minutes): <input type="number" name="nordpool.resolution_minutes"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Debug &amp; Telemetry</legend>
+                    <label>
+                        <input type="checkbox" name="debug.enable_planner_debug">
+                        Enable Planner Debug
+                    </label>
+                    <label>Debug Sample Size: <input type="number" step="1" name="debug.sample_size"></label>
+                    <label>
+                        <input type="checkbox" name="learning.enable">
+                        Enable Learning Telemetry
+                    </label>
+                    <label>SQLite Path: <input type="text" name="learning.sqlite_path"></label>
+                    <label>Sync Interval (minutes): <input type="number" step="1" name="learning.sync_interval_minutes"></label>
                 </fieldset>
             </form>
             <div class="actions">
@@ -82,6 +154,8 @@
                     <label>Capacity (kWh): <input type="number" step="0.1" name="system.battery.capacity_kwh"></label>
                     <label>Max Charge Power (kW): <input type="number" step="0.1" name="system.battery.max_charge_power_kw"></label>
                     <label>Max Discharge Power (kW): <input type="number" step="0.1" name="system.battery.max_discharge_power_kw"></label>
+                    <label>Min SoC (%): <input type="number" step="0.1" name="system.battery.min_soc_percent"></label>
+                    <label>Max SoC (%): <input type="number" step="0.1" name="system.battery.max_soc_percent"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Location</legend>

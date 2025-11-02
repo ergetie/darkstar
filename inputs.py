@@ -55,21 +55,8 @@ def get_nordpool_data(config_path="config.yaml"):
     if tomorrow_data and tomorrow_data.get('areas') and tomorrow_data['areas'].get(price_area):
         tomorrow_values = tomorrow_data['areas'][price_area].get('values', [])
     
+    # Use only known market data (do not duplicate unknown future)
     all_entries = today_values + tomorrow_values
-
-    # If we don't have enough data for 48 hours, extend with today's pattern
-    # This ensures we always have 192 slots (48 hours * 4 slots per hour)
-    target_slots = 192  # 48 hours * 4 slots per hour
-    current_slots = len(all_entries)
-    
-    if current_slots < target_slots:
-        print(f"Warning: Only have {current_slots} price slots, extending to {target_slots} for 48-hour planning")
-        # Repeat today's pattern to fill the gap
-        repeat_pattern = today_values[:min(96, target_slots - current_slots)]  # Use up to 24 hours of today's data
-        all_entries.extend(repeat_pattern)
-    
-    # Ensure we don't exceed target
-    all_entries = all_entries[:target_slots]
 
     # Process the data into the required format
     result = _process_nordpool_data(all_entries, config, today_values)
@@ -375,9 +362,14 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
         prev_state = None
         prev_time = None
         
+        start_time_local = start_time.astimezone(local_tz)
+
         for state in states:
             try:
-                current_time = datetime.fromisoformat(state['last_changed']).replace(tzinfo=pytz.UTC).astimezone(local_tz)
+                current_time = datetime.fromisoformat(state['last_changed'])
+                if current_time.tzinfo is None:
+                    current_time = current_time.replace(tzinfo=pytz.UTC)
+                current_time = current_time.astimezone(local_tz)
                 current_value = float(state['state'])
                 
                 if prev_state is not None and prev_time is not None:
@@ -392,7 +384,7 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
                         # Calculate which 15-minute buckets this spans
                         start_slot = int((prev_time.hour * 60 + prev_time.minute) // 15)
                         end_slot = int((current_time.hour * 60 + current_time.minute) // 15)
-                        day_offset = int((prev_time - start_time.replace(tzinfo=local_tz)).total_seconds() / (24 * 3600))
+                        day_offset = int((prev_time - start_time_local).total_seconds() / (24 * 3600))
 
                         # Time-weighted distribution: calculate how much time each slot gets
                         slot_duration = 15.0  # minutes per slot

@@ -123,8 +123,18 @@ def simulate():
 
         for item in manual_plan:
             action = item.get('content')
-            start_time = pd.to_datetime(item.get('start')).tz_convert(config_data['timezone'])
-            end_time = pd.to_datetime(item.get('end')).tz_convert(config_data['timezone'])
+            start_time = pd.to_datetime(item.get('start'))
+            end_time = pd.to_datetime(item.get('end'))
+
+            if start_time.tzinfo is None:
+                start_time = start_time.tz_localize(config_data['timezone'])
+            else:
+                start_time = start_time.tz_convert(config_data['timezone'])
+
+            if end_time.tzinfo is None:
+                end_time = end_time.tz_localize(config_data['timezone'])
+            else:
+                end_time = end_time.tz_convert(config_data['timezone'])
 
             # Find the rows in the DataFrame that fall within this action's time range
             mask = (df.index >= start_time) & (df.index < end_time)

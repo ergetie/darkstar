@@ -8,6 +8,7 @@
 - **Install dependencies**: `pip install -r requirements.txt` (if available) or install packages individually
 - **Run main planner**: `python planner.py`
 - **Test inputs module**: `python inputs.py`
+- **Run full test suite**: `PYTHONPATH=. python -m pytest -q`
 - **Run single test**: `python -m pytest tests/test_module.py::test_function -v` (if pytest is used)
 
 ### Key Dependencies
@@ -54,6 +55,8 @@ from inputs import get_all_input_data
 - Use nested structure with logical groupings (battery, thresholds, etc.)
 - Provide default values in code for missing config keys
 - Validate configuration values on startup
+- `charging_strategy.price_smoothing_sek_kwh` controls price tolerance (smoothing block now covers only hysteresis settings)
+- `learning.sqlite_path` stores planner telemetry (ensure parent directory exists before running)
 
 ### Data Processing
 - Use pandas DataFrames for time-series data
