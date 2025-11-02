@@ -1,13 +1,13 @@
 arbitrage:
   enable_export: true
+  enable_peak_only_export: true
   export_fees_sek_per_kwh: 0
+  export_future_price_guard: true
+  export_percentile_threshold: 15
   export_profit_margin_sek: 0.05
   fixed_protective_soc_percent: 15
+  future_price_guard_buffer_sek: 0
   protective_soc_strategy: gap_based
-  export_percentile_threshold: 15
-  enable_peak_only_export: true
-  export_future_price_guard: true
-  future_price_guard_buffer_sek: 0.0
 battery:
   max_soc_percent: 95
   roundtrip_efficiency_percent: 95
@@ -78,6 +78,8 @@ system:
     kwp: 9
     tilt: 45
 timezone: Europe/Stockholm
+ui:
+  theme: Material Design Colors
 water_heating:
   defer_up_to_hours: 3
   max_blocks_per_day: 2

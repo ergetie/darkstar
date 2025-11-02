@@ -1,6 +1,175 @@
 let chart;
 let timelineItems = new vis.DataSet();
 let currentDragAction = null;
+let themeCatalog = [];
+let currentTheme = null;
+let currentAccentIndex = null;
+let latestScheduleData = null;
+let latestConfigData = null;
+let timelineInstance = null;
+
+function getCssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function hexToRgba(hex, alpha = 1) {
+    const sanitized = hex.replace('#', '');
+    const value = sanitized.length === 3
+        ? sanitized.split('').map(ch => ch + ch).join('')
+        : sanitized;
+    const num = parseInt(value, 16);
+    const r = (num >> 16) & 255;
+    const g = (num >> 8) & 255;
+    const b = num & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function getThemeColours() {
+    const palette = Array.from({ length: 16 }, (_, idx) => {
+        const value = getCssVar(`--ds-palette-${idx}`);
+        return value || '#000000';
+    });
+    return {
+        palette,
+        foreground: getCssVar('--ds-foreground') || '#ffffff',
+        background: getCssVar('--ds-background') || '#000000',
+        accent: getCssVar('--ds-accent') || palette[9] || '#ffffff',
+        border: getCssVar('--ds-border') || palette[7] || '#ffffff'
+    };
+}
+
+function themeStyleForAction(action) {
+    if (action === 'Charge') {
+        return 'background-color: var(--ds-palette-8); color: var(--ds-background); border: 1px solid var(--ds-border);';
+    }
+    if (action === 'Water Heating') {
+        return 'background-color: var(--ds-palette-9); color: var(--ds-background); border: 1px solid var(--ds-border);';
+    }
+    return '';
+}
+
+function applyThemeVariables(theme, accentIndex) {
+    if (!theme) return;
+    const root = document.documentElement;
+    root.style.setProperty('--ds-background', theme.background);
+    root.style.setProperty('--ds-foreground', theme.foreground);
+    theme.palette.forEach((colour, index) => {
+        root.style.setProperty(`--ds-palette-${index}`, colour);
+    });
+    const accent = theme.palette[accentIndex] || theme.palette[9] || theme.palette[1] || theme.foreground;
+    const muted = theme.palette[7] || theme.foreground;
+    root.style.setProperty('--ds-accent', accent);
+    root.style.setProperty('--ds-muted', muted);
+    root.style.setProperty('--ds-border', muted);
+}
+
+async function persistThemeSelection(themeName, accentIndex) {
+    if (!themeName) return;
+    try {
+        const response = await fetch('/api/theme', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ theme: themeName, accent_index: accentIndex })
+        });
+        if (!response.ok) {
+            const details = await response.json().catch(() => ({}));
+            throw new Error(details.error || `HTTP ${response.status}`);
+        }
+    } catch (error) {
+        console.error('Error persisting theme:', error);
+        alert('Failed to save theme selection.');
+    }
+}
+
+function applyTheme(theme, { persist = false, accentIndex = null } = {}) {
+    if (!theme) return;
+    currentTheme = theme;
+    if (typeof accentIndex === 'number' && accentIndex >= 0 && accentIndex <= 15) {
+        currentAccentIndex = accentIndex;
+    } else if (currentAccentIndex == null) {
+        currentAccentIndex = 9;
+    }
+    applyThemeVariables(theme, currentAccentIndex);
+    const accentSelect = document.getElementById('themeAccentSelect');
+    if (accentSelect) {
+        accentSelect.value = String(currentAccentIndex);
+    }
+    const accentInput = document.getElementById('themeAccentInput');
+    if (accentInput) {
+        accentInput.value = String(currentAccentIndex);
+    }
+    if (persist) {
+        persistThemeSelection(theme.name, currentAccentIndex);
+    }
+    if (latestScheduleData && latestConfigData) {
+        renderChart(latestScheduleData, latestConfigData);
+    }
+}
+
+async function loadThemes() {
+    const select = document.getElementById('themeSelect');
+    const accentSelect = document.getElementById('themeAccentSelect');
+    const accentInput = document.getElementById('themeAccentInput');
+    if (!select) return;
+    try {
+        const response = await fetch('/api/themes');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const data = await response.json();
+        themeCatalog = data.themes || [];
+        select.innerHTML = '';
+        if (accentSelect && !accentSelect.dataset.initialised) {
+            accentSelect.innerHTML = '';
+            for (let i = 0; i < 16; i += 1) {
+                const option = document.createElement('option');
+                option.value = String(i);
+                option.textContent = `Palette ${i}`;
+                accentSelect.appendChild(option);
+            }
+            accentSelect.dataset.initialised = 'true';
+        }
+        themeCatalog.forEach(theme => {
+            const option = document.createElement('option');
+            option.value = theme.name;
+            option.textContent = theme.name;
+            select.appendChild(option);
+        });
+        const current = themeCatalog.find(t => t.name === data.current) || themeCatalog[0];
+        currentAccentIndex = typeof data.accent_index === 'number' ? data.accent_index : 9;
+        if (accentSelect) {
+            accentSelect.value = String(currentAccentIndex);
+        }
+        if (accentInput) {
+            accentInput.value = String(currentAccentIndex);
+        }
+        if (current) {
+            select.value = current.name;
+            applyTheme(current, { persist: false, accentIndex: currentAccentIndex });
+        }
+        if (!select.dataset.bound) {
+            select.addEventListener('change', () => {
+                const chosen = themeCatalog.find(t => t.name === select.value);
+                if (chosen) {
+                    const selectedAccent = accentSelect ? Number(accentSelect.value) : currentAccentIndex;
+                    if (accentInput) accentInput.value = String(selectedAccent);
+                    applyTheme(chosen, { persist: false, accentIndex: selectedAccent });
+                }
+            });
+            select.dataset.bound = 'true';
+        }
+        if (accentSelect && !accentSelect.dataset.bound) {
+            accentSelect.addEventListener('change', () => {
+                const newIndex = Number(accentSelect.value);
+                if (accentInput) accentInput.value = String(newIndex);
+                applyTheme(currentTheme, { persist: false, accentIndex: newIndex });
+            });
+            accentSelect.dataset.bound = 'true';
+        }
+    } catch (error) {
+        console.error('Error loading themes:', error);
+    }
+}
 
 async function main() {
     try {
@@ -18,6 +187,8 @@ async function main() {
 
         const scheduleData = await scheduleResponse.json();
         const configData = await configResponse.json();
+        latestScheduleData = scheduleData;
+        latestConfigData = configData;
         
         console.log('main() loaded data:', {
             scheduleSlots: scheduleData.schedule?.length || 0,
@@ -52,6 +223,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load config and populate forms
     loadConfig();
+    loadThemes();
 
     // Save changes
     document.querySelectorAll('#save-changes').forEach(button => {
@@ -392,16 +564,12 @@ function addActionBlock(action) {
     }
     const end = new Date(start.getTime() + oneHourMs);
 
-    let style = '';
-    if (action === 'Charge') style = 'background-color: #7EBBB2;';
-    else if (action === 'Water Heating') style = 'background-color: #DCBD7F;';
-
     timelineItems.add({
         id: 'manual-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         content: action,
         start,
         end,
-        style
+        style: themeStyleForAction(action)
     });
 }
 
@@ -488,38 +656,34 @@ async function renderChart(data, config) {
             chart.destroy();
         }
 
-        // Create gradients
-        const gradientPV = ctx.createLinearGradient(0, 0, 0, 400);
-        gradientPV.addColorStop(0, 'rgba(169, 193, 126, 0.5)');
-        gradientPV.addColorStop(1, 'rgba(169, 193, 126, 0)');
+        const theme = getThemeColours();
+        const palette = theme.palette;
+        const colours = {
+            price: palette[6] || theme.accent,
+            pv: palette[4] || theme.accent,
+            load: palette[5] || theme.accent,
+            charge: palette[0] || theme.accent,
+            water: palette[1] || theme.accent,
+            export: palette[2] || theme.accent,
+            discharge: palette[3] || theme.accent,
+            soc: theme.foreground
+        };
 
-        const gradientLoad = ctx.createLinearGradient(0, 0, 0, 400);
-        gradientLoad.addColorStop(0, 'rgba(220, 189, 127, 0.5)');
-        gradientLoad.addColorStop(1, 'rgba(220, 189, 127, 0)');
-
-        const gradientPrice = function(context) {
-            const chart = context.chart;
-            const {ctx, chartArea} = chart;
+        const gradientFactory = (colour, startAlpha = 0.55, endAlpha = 0.05) => (context) => {
+            const { chart } = context;
+            const { ctx: chartCtx, chartArea } = chart;
             if (!chartArea) {
-                return 'transparent';
+                return hexToRgba(colour, startAlpha);
             }
-            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-            gradient.addColorStop(0, 'rgba(232, 125, 129, 0.5)');
-            gradient.addColorStop(1, 'rgba(232, 125, 129, 0)');
+            const gradient = chartCtx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            gradient.addColorStop(0, hexToRgba(colour, startAlpha));
+            gradient.addColorStop(1, hexToRgba(colour, endAlpha));
             return gradient;
         };
 
-        const gradientBattery = function(context) {
-            const chart = context.chart;
-            const {ctx, chartArea} = chart;
-            if (!chartArea) {
-                return 'transparent';
-            }
-            const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
-            gradient.addColorStop(0, 'rgba(126, 187, 178, 0.7)');
-            gradient.addColorStop(1, 'rgba(126, 187, 178, 0.2)');
-            return gradient;
-        };
+        const chargeFill = hexToRgba(colours.charge, 0.65);
+        const waterFill = hexToRgba(colours.water, 0.65);
+        const exportFill = hexToRgba(colours.export, 0.6);
 
         chart = new Chart(ctx, {
             type: 'bar',
@@ -530,8 +694,8 @@ async function renderChart(data, config) {
                         type: 'line',
                         label: 'Import Price (SEK/kWh)',
                         data: importPrices,
-                        borderColor: '#E87D81',
-                        backgroundColor: gradientPrice,
+                        borderColor: colours.price,
+                        backgroundColor: gradientFactory(colours.price, 0.6, 0.05),
                         tension: 0,
                         pointRadius: 0,
                         stepped: true,
@@ -543,8 +707,8 @@ async function renderChart(data, config) {
                         type: 'line',
                         label: 'PV Forecast (kWh)',
                         data: pvForecasts,
-                        borderColor: '#A9C17E',
-                        backgroundColor: gradientPV,
+                        borderColor: colours.pv,
+                        backgroundColor: gradientFactory(colours.pv, 0.4, 0.05),
                         tension: 0.4,
                         pointRadius: 0,
                         fill: true,
@@ -554,8 +718,8 @@ async function renderChart(data, config) {
                         type: 'line',
                         label: 'Load Forecast (kWh)',
                         data: loadForecasts,
-                        borderColor: '#DCBD7F',
-                        backgroundColor: gradientLoad,
+                        borderColor: colours.load,
+                        backgroundColor: gradientFactory(colours.load, 0.4, 0.05),
                         tension: 0.4,
                         pointRadius: 0,
                         fill: true,
@@ -565,7 +729,7 @@ async function renderChart(data, config) {
                         type: 'bar',
                         label: 'Battery Charge (kW)',
                         data: batteryCharge,
-                        backgroundColor: gradientBattery,
+                        backgroundColor: chargeFill,
                         yAxisID: 'y1',
                         barPercentage: 1.0,
                         categoryPercentage: 1.0
@@ -574,7 +738,7 @@ async function renderChart(data, config) {
                         type: 'bar',
                         label: 'Water Heating (kW)',
                         data: waterHeating,
-                        backgroundColor: '#DCBD7F',
+                        backgroundColor: waterFill,
                         yAxisID: 'y1',
                         barPercentage: 1.0,
                         categoryPercentage: 1.0
@@ -583,7 +747,7 @@ async function renderChart(data, config) {
                         type: 'bar',
                         label: 'Export (kW)',
                         data: exportPower,
-                        backgroundColor: 'rgba(204, 102, 153, 0.6)',
+                        backgroundColor: exportFill,
                         yAxisID: 'y1',
                         barPercentage: 1.0,
                         categoryPercentage: 1.0
@@ -592,7 +756,7 @@ async function renderChart(data, config) {
                         type: 'line',
                         label: 'Battery Discharge (kW)',
                         data: batteryDischarge,
-                        borderColor: '#D699B4',
+                        borderColor: colours.discharge,
                         backgroundColor: 'transparent',
                         tension: 0.4,
                         pointRadius: 0,
@@ -603,7 +767,7 @@ async function renderChart(data, config) {
                         type: 'line',
                         label: 'Projected SoC (%)',
                         data: projectedSoC,
-                        borderColor: '#D1D0CC',
+                        borderColor: colours.soc,
                         backgroundColor: 'transparent',
                         yAxisID: 'y2',
                         fill: false,
@@ -630,7 +794,7 @@ async function renderChart(data, config) {
                             display: false
                         },
                         ticks: {
-                            color: '#D1D0CC'
+                            color: theme.foreground
                         }
                     },
                     y: {
@@ -650,13 +814,15 @@ async function renderChart(data, config) {
                 plugins: {
                     legend: {
                         labels: {
-                            color: '#D1D0CC'
+                            color: theme.foreground
                         }
                     },
                     tooltip: {
-                        backgroundColor: '#262C31',
-                        titleColor: '#D1D0CC',
-                        bodyColor: '#D1D0CC'
+                        backgroundColor: hexToRgba(theme.background || '#000000', 0.95),
+                        titleColor: theme.foreground,
+                        bodyColor: theme.foreground,
+                        borderColor: theme.border,
+                        borderWidth: 1
                     }
                 }
             }
@@ -685,11 +851,11 @@ function renderTimeline(data) {
         let currentAction = null;
         let startSlot = null;
         let endSlot = null;
-
         filtered.forEach(slot => {
             let action = null;
 
-            if (slot.classification === 'Charge') {
+            const classification = (slot.classification || '').toString().toLowerCase();
+            if (classification === 'charge' || classification === 'battery_charge') {
                 action = 'Charge';
             } else if (slot.water_heating_kw > 0) {
                 action = 'Water Heating';
@@ -705,18 +871,12 @@ function renderTimeline(data) {
                 } else {
                     // Finish the previous group if it exists
                     if (currentAction !== null) {
-                        let style = '';
-                        if (currentAction === 'Charge') {
-                            style = 'background-color: #7EBBB2;';
-                        } else if (currentAction === 'Water Heating') {
-                            style = 'background-color: #DCBD7F;';
-                        }
                         timelineItems.add({
                             id: startSlot.slot_number,
                             content: currentAction,
                             start: startSlot.start_time,
                             end: startSlot.end_time,
-                            style: style
+                            style: themeStyleForAction(currentAction)
                         });
                     }
                     // Start a new group
@@ -727,18 +887,12 @@ function renderTimeline(data) {
             } else {
                 // Finish the previous group if it exists
                 if (currentAction !== null) {
-                    let style = '';
-                    if (currentAction === 'Charge') {
-                        style = 'background-color: #7EBBB2;';
-                    } else if (currentAction === 'Water Heating') {
-                        style = 'background-color: #DCBD7F;';
-                    }
                     timelineItems.add({
                         id: startSlot.slot_number,
                         content: currentAction,
                         start: startSlot.start_time,
                         end: startSlot.end_time,
-                        style: style
+                        style: themeStyleForAction(currentAction)
                     });
                     currentAction = null;
                 }
@@ -747,19 +901,13 @@ function renderTimeline(data) {
 
         // Finish any remaining group
         if (currentAction !== null) {
-            let style = '';
-            if (currentAction === 'Charge') {
-                style = 'background-color: #7EBBB2;';
-            } else if (currentAction === 'Water Heating') {
-                style = 'background-color: #DCBD7F;';
-            }
-timelineItems.add({
-                            id: startSlot.slot_number,
-                            content: currentAction,
-                            start: startSlot.start_time,
-                            end: startSlot.end_time,
-                            style: style
-                        });
+            timelineItems.add({
+                id: startSlot.slot_number,
+                content: currentAction,
+                start: startSlot.start_time,
+                end: startSlot.end_time,
+                style: themeStyleForAction(currentAction)
+            });
         }
 
         const container = document.getElementById('timeline-container');
@@ -781,10 +929,14 @@ timelineItems.add({
             height: '200px'
         };
 
-        const timeline = new vis.Timeline(container, timelineItems, options);
+        if (timelineInstance) {
+            timelineInstance.destroy();
+        }
+
+        timelineInstance = new vis.Timeline(container, timelineItems, options);
 
         // Allow external drag targets to be dropped
-        timeline.on('dragover', (props) => {
+        timelineInstance.on('dragover', (props) => {
             if (props && props.event && props.event.preventDefault) {
                 props.event.preventDefault();
                 if (props.event.dataTransfer) {
@@ -794,7 +946,7 @@ timelineItems.add({
         });
 
         // Handle drop: create a 1-hour block at the drop time
-        timeline.on('drop', (props) => {
+        timelineInstance.on('drop', (props) => {
             try {
                 const evt = props && props.event;
                 const dt = evt && evt.dataTransfer;
@@ -804,19 +956,12 @@ timelineItems.add({
                 const startDate = new Date(start);
                 const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
 
-                let style = '';
-                if (action === 'Charge') {
-                    style = 'background-color: #7EBBB2;';
-                } else if (action === 'Water Heating') {
-                    style = 'background-color: #DCBD7F;';
-                }
-
                 timelineItems.add({
                     id: 'manual-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
                     content: action,
                     start: startDate,
                     end: endDate,
-                    style
+                    style: themeStyleForAction(action)
                 });
             } catch (e) {
                 console.error('Drop error:', e);
@@ -906,6 +1051,15 @@ async function saveConfig() {
         obj[keys[keys.length - 1]] = value;
     });
 
+    if (config.ui && Object.prototype.hasOwnProperty.call(config.ui, 'theme_accent_index')) {
+        const parsed = Number(config.ui.theme_accent_index);
+        if (!Number.isNaN(parsed)) {
+            config.ui.theme_accent_index = parsed;
+        } else {
+            delete config.ui.theme_accent_index;
+        }
+    }
+
     try {
         const response = await fetch('/api/config/save', {
             method: 'POST',
@@ -914,7 +1068,18 @@ async function saveConfig() {
             },
             body: JSON.stringify(config)
         });
-        const result = await response.json();
+        await response.json();
+        const themeSelect = document.getElementById('themeSelect');
+        const accentSelect = document.getElementById('themeAccentSelect');
+        if (themeSelect) {
+            const selected = themeCatalog.find(t => t.name === themeSelect.value);
+            const accentIndex = accentSelect ? Number(accentSelect.value) : currentAccentIndex;
+            if (selected) {
+                applyTheme(selected, { persist: true, accentIndex });
+            } else if (themeSelect.value) {
+                persistThemeSelection(themeSelect.value, accentIndex);
+            }
+        }
         alert('Configuration saved successfully!');
     } catch (error) {
         console.error('Error saving config:', error);
@@ -931,6 +1096,7 @@ async function resetConfig() {
             const result = await response.json();
             alert('Configuration reset to defaults!');
             loadConfig(); // Re-load the config to update the forms
+            loadThemes();
         } catch (error) {
             console.error('Error resetting config:', error);
             alert('Error resetting configuration.');

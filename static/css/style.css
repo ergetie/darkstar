@@ -1,9 +1,33 @@
 @import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap');
 
+:root {
+    --ds-background: #1F2326;
+    --ds-foreground: #D1D0CC;
+    --ds-muted: #A9C17E;
+    --ds-accent: #82C094;
+    --ds-border: #D1D0CC;
+    --ds-palette-0: #7EBBB2;
+    --ds-palette-1: #DC6C8F;
+    --ds-palette-2: #A9C17E;
+    --ds-palette-3: #DCBD7F;
+    --ds-palette-4: #91C7F2;
+    --ds-palette-5: #D29FE4;
+    --ds-palette-6: #6BD0CE;
+    --ds-palette-7: #D1D0CC;
+    --ds-palette-8: #767676;
+    --ds-palette-9: #DC6C8F;
+    --ds-palette-10: #A9C17E;
+    --ds-palette-11: #DCBD7F;
+    --ds-palette-12: #91C7F2;
+    --ds-palette-13: #D29FE4;
+    --ds-palette-14: #6BD0CE;
+    --ds-palette-15: #D1D0CC;
+}
+
 body {
     font-family: 'Fira Code', monospace;
-    background-color: #1F2326;
-    color: #D1D0CC;
+    background-color: var(--ds-background);
+    color: var(--ds-foreground);
     margin: 0;
     padding: 0;
     line-height: 1.4;
@@ -21,8 +45,8 @@ header {
 }
 
 .tab-button {
-    background-color: #1F2326;
-    color: #D1D0CC;
+    background-color: var(--ds-background);
+    color: var(--ds-foreground);
     border: none;
     padding: 8px 16px;
     cursor: pointer;
@@ -31,8 +55,8 @@ header {
 }
 
 .tab-button.active {
-    background-color: #82C094;
-    color: #1F2326;
+    background-color: var(--ds-accent);
+    color: var(--ds-background);
 }
 
 .tab-content {
@@ -59,7 +83,7 @@ main {
     margin-bottom: 2rem;
 
     /* Gradient Magic */
-    background: linear-gradient(to bottom, #82C094, #7EBBB2); /* GreenBlue to Blue */
+    background: linear-gradient(to bottom, var(--ds-accent), var(--ds-palette-0));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -71,8 +95,8 @@ main {
 }
 
 button {
-    background-color: #82C094;
-    color: #1F2326;
+    background-color: var(--ds-accent);
+    color: var(--ds-background);
     border: none;
     padding: 8px 16px;
     cursor: pointer;
@@ -82,31 +106,32 @@ button {
 }
 
 button:hover {
-    background-color: #D1D0CC;
+    background-color: var(--ds-foreground);
+    color: var(--ds-background);
 }
 
 input {
-    background-color: #1F2326;
-    color: #D1D0CC;
-    border: 1px solid #D1D0CC;
+    background-color: var(--ds-background);
+    color: var(--ds-foreground);
+    border: 1px solid var(--ds-border);
     padding: 4px 8px;
     font-family: 'Fira Code', monospace;
 }
 
 fieldset {
-    border: 1px solid #D1D0CC;
+    border: 1px solid var(--ds-border);
     padding: 15px;
     margin-bottom: 20px;
     position: relative;
-    background-color: #1F2326;
+    background-color: var(--ds-background);
 }
 
 legend {
-    color: #D2C6AD;
+    color: var(--ds-accent);
     font-weight: 500;
     padding: 0 10px;
     position: relative;
-    background-color: #1F2326;
+    background-color: var(--ds-background);
     margin-left: 10px;
 }
 
@@ -115,7 +140,7 @@ legend::before {
     position: absolute;
     left: -10px;
     top: 0;
-    color: #D1D0CC;
+    color: var(--ds-foreground);
 }
 
 legend::after {
@@ -123,7 +148,7 @@ legend::after {
     position: absolute;
     right: -10px;
     top: 0;
-    color: #D1D0CC;
+    color: var(--ds-foreground);
 }
 
 label {
@@ -142,7 +167,7 @@ label {
 
 #plannerStatus {
     margin-left: 10px;
-    color: #D2C6AD;
+    color: var(--ds-accent);
 }
 
 /* Stats Group Styling */
@@ -152,13 +177,13 @@ label {
 }
 
 .stats-box {
-    border: 1px solid #82C094;
+    border: 1px solid var(--ds-accent);
     margin: 0;
     padding: 0 10px;
 }
 
 .stats-box legend {
-    color: #82C094;
+    color: var(--ds-accent);
     font-size: 14px;
     padding: 0 10px;
 }
@@ -178,19 +203,19 @@ label {
 }
 
 .stat-key {
-    color: #82C094;
+    color: var(--ds-accent);
     margin-right: 10px;
     min-width: 20px;
 }
 
 .stat-label {
-    color: #D1D0CC;
+    color: var(--ds-foreground);
     margin-right: 10px;
     flex: 1;
 }
 
 .stat-value {
-    color: #A9C17E;
+    color: var(--ds-muted);
     font-weight: 500;
     text-align: right;
     min-width: 80px;
@@ -213,8 +238,8 @@ label {
 }
 
 /* Match action colors */
-.btn-charge { background-color: #7EBBB2; color: #1F2326; }
-.btn-water  { background-color: #DCBD7F; color: #1F2326; }
+.btn-charge { background-color: var(--ds-palette-8); color: var(--ds-background); }
+.btn-water  { background-color: var(--ds-palette-9); color: var(--ds-background); }
 
 /* Action Palette */
 .action-palette {
@@ -226,9 +251,9 @@ label {
 }
 
 .action-item {
-    border: 1px solid #D1D0CC;
-    background-color: #262C31;
-    color: #D1D0CC;
+    border: 1px solid var(--ds-border);
+    background-color: var(--ds-background);
+    color: var(--ds-foreground);
     padding: 8px 12px;
     border-radius: 4px;
     cursor: grab;
@@ -238,7 +263,7 @@ label {
 }
 
 .action-item:hover {
-    background-color: #2B3237;
+    background-color: var(--ds-palette-10);
 }
 
 .action-item:active {
@@ -247,7 +272,7 @@ label {
 }
 
 .subtitle {
-    color: #D2C6AD;
+    color: var(--ds-accent);
     margin: -8px 0 16px;
     font-family: 'Fira Code', monospace;
     font-size: 14px;
@@ -261,10 +286,10 @@ label {
 
 /* Chart.js overrides */
 .chartjs-legend {
-    color: #D1D0CC;
+    color: var(--ds-foreground);
 }
 
 .chartjs-axis-label,
 .chartjs-tick-label {
-    color: #D1D0CC;
+    color: var(--ds-foreground);
 }

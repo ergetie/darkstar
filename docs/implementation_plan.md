@@ -3,7 +3,7 @@
 # Implementation Plan: Darkstar Planner Parity
 
 ## Change Log
-- **2025-11-02 (Rev 6 — Plan)**: Upcoming UI theme system: scan `/themes` on app start, add "Appearance" section with theme selector, persist selection, apply palette to charts and buttons, adopt CSS variables for foreground/background.
+- **2025-11-02 (Rev 6)**: UI theme system implemented — scan `/themes`, expose Appearance dropdown, persist selection, apply CSS variables/palette to charts & buttons, add tests.
 - **2025-11-02 (Rev 5 — Plan)**: Upcoming fixes: grid-only water heating in cheap windows, remove PV export planning, peak-only battery export with responsibility guard, configurable export percentile, disable battery-for-water in cheap windows, extend PV + weather forecast horizon to 4 days, UI settings and chart export series.
 - **2025-11-02 (Rev 4)**: Integrated Home Assistant SoC + water stats, dynamic S-index (PV deficit & temperature), web UI updates, and new HA/test coverage.
 - **2025-11-02 (Rev 3)**: Future-only MPC with water deferral window; removed price duplication; S-index surfaced in UI; HA timestamp fixes; discharge/export rate limits; planner telemetry debug persisted to sqlite; tests updated (42 pass).
@@ -209,9 +209,60 @@
 ---
 _Last updated: 2025-11-01 (Phase 6 validated with telemetry + export fixes)_
 
+## Rev 4 Plan: HA + Stats + Dynamic S-Index
+
+Status: ✅ Completed 2025-11-02
+
+Scope: Implement real SoC and water usage tracking from Home Assistant, expand Stats panel, and add a dynamic S-index that adapts to PV/load deficit and temperature forecasts.
+
+Requirements
+- [x] HA SoC
+  - Source entity: `sensor.inverter_battery` (percentage).
+  - Use as preferred source in `initial_state`: set `battery_soc_percent` and derive `battery_kwh` via capacity.
+  - Fallback to existing config/state when HA unavailable.
+
+- [x] Water usage today
+  - Source entity: `sensor.vvb_energy_daily` (kWh).
+  - Add API endpoint to expose today’s kWh; fallback to sqlite `daily_water.used_kwh` when HA not available.
+  - Show “Water Heater Today” in Stats.
+
+- [x] Stats panel
+  - Show current SoC (from HA if available) and battery capacity.
+  - Show S-index (mode/value/max). When dynamic mode is on, show computed value from planner debug payload.
+
+- [x] Dynamic S-index
+  - Config additions under `s_index`:
+    - `mode: dynamic | static` (dynamic enabled by user).
+    - `base_factor` (default 1.05), `max_factor` (cap, e.g., 1.50).
+    - `pv_deficit_weight` (e.g., 0.30), `temp_weight` (e.g., 0.20).
+    - `temp_baseline_c` (default 20), `temp_cold_c` (default -15).
+    - `days_ahead_for_sindex`: list of day offsets to evaluate (default [2,3,4]).
+  - Data: Use existing PV/load forecasts; fetch mean temp for D+2..D+4 from Open‑Meteo.
+  - Algorithm (per day d in D+2..D+4):
+    - Daily PV sum `pv_d`; daily load sum `load_d`; `def_d = max(0, (load_d - pv_d)/max(load_d, ε))`.
+    - Average `avg_def = mean(def_d)`.
+    - Temperature term: `temp_adj = clamp01((temp_baseline_c - t_mean)/ (temp_baseline_c - temp_cold_c))` (0 at baseline or warmer; 1 at/below cold).
+    - Factor: `factor = base_factor + pv_deficit_weight*avg_def + temp_weight*temp_adj`, clamped to `max_factor`.
+  - Integration: Use dynamic factor in Pass 4 where S-index is applied; fallback to static if data missing or mode=static.
+
+Acceptance Criteria
+- Planner uses HA SoC when available; Stats shows current SoC. ✅
+- Stats shows “Water Heater Today: X.XX kWh” (HA or sqlite fallback). ✅
+- S-index in Stats reflects mode/value; dynamic value matches computed factor. ✅
+- Configurable deferral for water is preserved; planning remains future-only; no duplicated prices. ✅
+
+Deliverables
+- Code: inputs (HA reads), planner (dynamic S-index), webapp API for water usage today, stats UI tweaks. ✅
+- Docs: Update README + AGENTS if needed; expand config.default.yaml with new s_index keys. ✅
+- Tests: Unit tests for dynamic S-index calculation and HA integrations (mocked). ✅
+
+Changelog/Versioning
+- Suggested commit: `feat(planner): Rev 3 — future-only MPC, water deferral, no price duplication, S-index in UI`
+- Suggested tag: `v0.3.0`
+
 ## Rev 5 Plan: Cheap-Window Water + Export Guards + Forecast Horizon
 
-Status: Pending implementation
+Status: ✅ Completed 2025-11-02
 
 Summary: Strengthen MPC behavior around cheap windows, export decisions, and forecast coverage. Align export behavior with long-term savings by reserving energy for future needs and peak prices. Ensure 4-day horizons for PV and weather forecasts.
 
@@ -284,112 +335,31 @@ Changelog/Versioning
 - Suggested commit after implementation: `feat(planner): Rev 5 — grid water in cheap windows, peak-only battery export, remove PV export planning, 4-day PV+weather horizon, UI settings and export series`
 - Suggested tag: `v0.5.0`
 
-## Rev 6 Plan: UI Theme System
-
-Status: Pending implementation
-
-Summary: Add a lightweight theme system that scans `/themes` at web-app startup, exposes available themes in a new "Appearance" section (Settings), lets the user select a theme, persists the selection, and applies colors across the UI (foreground/background) and the chart/button palettes.
-
-Theme Files
-- Location: `/themes` folder (more can be added later).
-- Format: JSON or YAML per-file (auto-detect by extension), with keys:
-  - `foreground` (hex), `background` (hex)
-  - `accent` (optional hex), `muted` (optional hex)
-  - `palette`: array or map of 16 hex values
-    - Index 0–7: action colors for charts (Charge, Water, Discharge, PV, Export, etc.)
-    - Index 8–15: corresponding button colors (0↔8, 1↔9, etc.)
-- Validation: ensure 16 palette values; provide defaults for missing keys; names derived from filename.
-
-Backend (webapp.py)
-- On startup, scan `/themes` for `*.json` and `*.yaml|*.yml` and parse.
-- Add endpoints:
-  - `GET /api/themes` → `{ current: string, themes: [{ name, colors, palette }] }`
-  - `POST /api/theme` body `{ name: string }` to set current theme; persists to `config.yaml` under `ui.theme` or a new `ui.json` file.
-  - Optionally serve a generated CSS at `/static/theme.css` (or inline via `/api/theme/css`).
-- Persistence priority: `config.yaml.ui.theme` if present, otherwise default to first theme or a built-in fallback.
-
-Frontend (templates/index.html, static/js/app.js)
-- Add "Appearance" section at the bottom of Settings:
-  - Dropdown listing available themes from `GET /api/themes`.
-  - Save button posts `POST /api/theme`.
-- On load and on change, apply theme by setting CSS variables on `:root`:
-  - `--ds-foreground`, `--ds-background`, `--ds-accent`, `--ds-muted`
-  - `--ds-palette-0`..`--ds-palette-15`
-- Update chart to use palette indices for datasets:
-  - Actions: map to 0–7 (e.g., Charge=0, Water=1, Discharge=2, PV=3, Export=4, Load=5, Price line color distinct)
-  - Buttons: style using 8–15 (matching pairs for actions).
-- Ensure theme applies to existing components (tabs, headers, cards) via CSS variables.
-
-CSS (static/css/style.css)
-- Replace hard-coded colors with CSS variables; provide a base fallback theme.
-- Respect theme variables for text, background, borders, and hover states.
-
-Config
-- `ui.theme`: selected theme name (string). Default to first valid theme found or "Default".
-
-Acceptance Criteria
-- Themes in `/themes` are discovered on app start and listed in the Appearance dropdown.
-- Selecting a theme updates the entire UI (foreground/background) and chart + button colors according to the palette mapping.
-- Palette pairing honored: 0↔8, 1↔9, …, 7↔15.
-- Persisted theme survives reload; resetting config reverts to default theme.
-- Robust to malformed theme files (ignored with warning).
-
-Testing
-- Unit: theme parser validates and normalizes theme structure; palette length=16.
-- API: `/api/themes` lists themes; `/api/theme` persists selection and returns updated current.
-- UI: manual QA to verify dropdown selection applies colors and chart/bars.
-
-Changelog/Versioning
-- Suggested commit: `feat(ui): Rev 6 — theme system with Appearance settings and palette application to chart/buttons`
-- Suggested tag: `v0.6.0`
-
-## Plan: HA + Stats + Dynamic S-Index (Upcoming)
+## Rev 6 – UI Theme System (Completed 2025-11-02)
 
 Status: ✅ Completed 2025-11-02
 
-Scope: Implement real SoC and water usage tracking from Home Assistant, expand Stats panel, and add a dynamic S-index that adapts to PV/load deficit and temperature forecasts.
+Highlights
+- Theme discovery now scans `/themes` for JSON, YAML, or legacy key/value files. Invalid palettes are skipped with a console notice, and filenames (spaces preserved) become the display name.
+- `GET /api/themes` returns `{ current, themes[] }`, and `POST /api/theme` persists the selected name under `ui.theme` inside `config.yaml`.
+- Settings gained an “Appearance” fieldset with a dropdown sourced from `/api/themes`. Selection applies immediately (via CSS variables) and persists when saving configuration.
+- Added palette accent selector (0–15) with persistence (`ui.theme_accent_index`) so the main colour used for tabs, stats borders, ASCII art, etc. can be tuned per theme.
+- CSS moved to `--ds-*` variables for foreground/background, accents, and a 16-slot palette. Buttons use palette indices 8–15; charts/timeline actions draw from 0–7.
+- Chart.js datasets derive colors from the active palette; gradients dynamically use theme colours, and tooltips adopt themed backgrounds. Timeline/manual blocks read CSS variables so theme swaps do not wipe manual edits.
+- Timeline creation reuses a single vis.js instance (no duplicate charts on planner reruns) and auto-populates charge/water slots even when classifications are lowercased.
 
-Requirements
-- [x] HA SoC
-  - Source entity: `sensor.inverter_battery` (percentage).
-  - Use as preferred source in `initial_state`: set `battery_soc_percent` and derive `battery_kwh` via capacity.
-  - Fallback to existing config/state when HA unavailable.
+Implementation Notes
+- `webapp.py`: added `_parse_legacy_theme_format`, `_normalise_theme`, and directory scanning helpers; injected `GET /api/themes` and `POST /api/theme` endpoints with config persistence.
+- `templates/index.html`: appended the Appearance section and theme dropdown.
+- `static/css/style.css`: replaced literal colours with `var(--ds-...)` references and provided a fallback palette for bootstrapping.
+- `static/js/app.js`: introduced theme helpers (`applyThemeVariables`, `loadThemes`), wired dropdown events, re-coloured datasets, timeline styles, and ensured persisted selection survives resets.
+- `tests/test_theme_system.py`: validates palette parsing/normalisation and confirms the API writes the chosen theme to `config.yaml` (restored post-test).
 
-- [x] Water usage today
-  - Source entity: `sensor.vvb_energy_daily` (kWh).
-  - Add API endpoint to expose today’s kWh; fallback to sqlite `daily_water.used_kwh` when HA not available.
-  - Show “Water Heater Today” in Stats.
-
-- [x] Stats panel
-  - Show current SoC (from HA if available) and battery capacity.
-  - Show S-index (mode/value/max). When dynamic mode is on, show computed value from planner debug payload.
-
-- [x] Dynamic S-index
-  - Config additions under `s_index`:
-    - `mode: dynamic | static` (dynamic enabled by user).
-    - `base_factor` (default 1.05), `max_factor` (cap, e.g., 1.50).
-    - `pv_deficit_weight` (e.g., 0.30), `temp_weight` (e.g., 0.20).
-    - `temp_baseline_c` (default 20), `temp_cold_c` (default -15).
-    - `days_ahead_for_sindex`: list of day offsets to evaluate (default [2,3,4]).
-  - Data: Use existing PV/load forecasts; fetch mean temp for D+2..D+4 from Open‑Meteo.
-  - Algorithm (per day d in D+2..D+4):
-    - Daily PV sum `pv_d`; daily load sum `load_d`; `def_d = max(0, (load_d - pv_d)/max(load_d, ε))`.
-    - Average `avg_def = mean(def_d)`.
-    - Temperature term: `temp_adj = clamp01((temp_baseline_c - t_mean)/ (temp_baseline_c - temp_cold_c))` (0 at baseline or warmer; 1 at/below cold).
-    - Factor: `factor = base_factor + pv_deficit_weight*avg_def + temp_weight*temp_adj`, clamped to `max_factor`.
-  - Integration: Use dynamic factor in Pass 4 where S-index is applied; fallback to static if data missing or mode=static.
-
-Acceptance Criteria
-- Planner uses HA SoC when available; Stats shows current SoC. ✅
-- Stats shows “Water Heater Today: X.XX kWh” (HA or sqlite fallback). ✅
-- S-index in Stats reflects mode/value; dynamic value matches computed factor. ✅
-- Configurable deferral for water is preserved; planning remains future-only; no duplicated prices. ✅
-
-Deliverables
-- Code: inputs (HA reads), planner (dynamic S-index), webapp API for water usage today, stats UI tweaks. ✅
-- Docs: Update README + AGENTS if needed; expand config.default.yaml with new s_index keys. ✅
-- Tests: Unit tests for dynamic S-index calculation and HA integrations (mocked). ✅
+Testing
+- Automated: `PYTHONPATH=. python -m pytest -q` → 43 passed, 4 skipped (theme system coverage included).
+- Manual: Verified theme swap updates tabs, stats, buttons, chart datasets, timeline, and persists across reload + reset.
 
 Changelog/Versioning
-- Suggested commit: `feat(planner): Rev 3 — future-only MPC, water deferral, no price duplication, S-index in UI`
-- Suggested tag: `v0.3.0`
+- Suggested commit: `feat(ui): Rev 6 — theme system with Appearance settings and palette application`
+- Suggested tag: `v0.6.0`
+

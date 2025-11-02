@@ -1,8 +1,8 @@
-from datetime import datetime
 import json
 import os
 import shutil
 import sqlite3
+from datetime import datetime
 
 import pandas as pd
 import pytz
@@ -19,9 +19,208 @@ from inputs import (
 
 app = Flask(__name__)
 
+THEME_DIR = os.path.join(os.path.dirname(__file__), "themes")
+
+
+def _parse_legacy_theme_format(text: str) -> dict:
+    """Parse simple key/value themes with `palette = index=#hex` lines."""
+    palette = [None] * 16
+    data = {}
+
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+
+        if "=" in line:
+            key, value = line.split("=", 1)
+        elif ":" in line:
+            key, value = line.split(":", 1)
+        else:
+            continue
+
+        key = key.strip()
+        value = value.strip()
+
+        if key.lower() == "palette":
+            if "=" in value:
+                idx_str, color = value.split("=", 1)
+                idx = int(idx_str.strip())
+                color = color.strip()
+            else:
+                # Allow sequential palette entries without explicit index.
+                try:
+                    idx = palette.index(None)
+                except ValueError as exc:
+                    raise ValueError("Too many palette entries") from exc
+                color = value
+
+            if idx < 0 or idx > 15:
+                raise ValueError(f"Palette index {idx} out of range 0-15")
+            palette[idx] = color
+        else:
+            data[key.lower().replace("-", "_")] = value
+
+    if any(swatch is None for swatch in palette):
+        raise ValueError("Palette must define 16 colours (indices 0-15)")
+
+    data["palette"] = palette
+    return data
+
+
+def _normalise_theme(name: str, raw_data: dict) -> dict:
+    """Ensure theme dictionaries contain the expected keys."""
+    if not isinstance(raw_data, dict):
+        raise ValueError("Theme data must be a mapping")
+
+    palette = raw_data.get("palette")
+    if not isinstance(palette, (list, tuple)) or len(palette) != 16:
+        raise ValueError("Palette must contain exactly 16 colours")
+
+    def _clean_colour(value, key):
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string")
+        value = value.strip()
+        if not value.startswith("#"):
+            raise ValueError(f"{key} must be a hex colour starting with #")
+        return value
+
+    palette = [_clean_colour(colour, f"palette[{idx}]") for idx, colour in enumerate(palette)]
+    foreground = _clean_colour(raw_data.get("foreground", "#ffffff"), "foreground")
+    background = _clean_colour(raw_data.get("background", "#000000"), "background")
+
+    return {
+        "name": name,
+        "foreground": foreground,
+        "background": background,
+        "palette": palette,
+    }
+
+
+def _load_theme_file(path: str) -> dict:
+    """Load a single theme file supporting JSON, YAML, and legacy key/value formats."""
+    with open(path, "r") as handle:
+        text = handle.read()
+
+    filename = os.path.basename(path)
+    try:
+
+        if filename.lower().endswith(".json"):
+            raw_data = json.loads(text)
+        elif filename.lower().endswith((".yaml", ".yml")):
+            raw_data = yaml.safe_load(text)
+        else:
+            raw_data = _parse_legacy_theme_format(text)
+    except Exception as exc:
+        raise ValueError(f"Failed to parse theme '{filename}': {exc}") from exc
+
+    return _normalise_theme(os.path.splitext(filename)[0] or filename, raw_data)
+
+
+def load_themes(theme_dir: str = THEME_DIR) -> dict:
+    """Scan the themes directory and load all available themes."""
+    themes = {}
+    if not os.path.isdir(theme_dir):
+        return themes
+
+    for entry in sorted(os.listdir(theme_dir)):
+        path = os.path.join(theme_dir, entry)
+        if not os.path.isfile(path):
+            continue
+        try:
+            theme = _load_theme_file(path)
+        except Exception as exc:
+            # Skip invalid themes but log to stdout for operator visibility.
+            print(f"[theme] Skipping '{entry}': {exc}")
+            continue
+        themes[theme["name"]] = theme
+    return themes
+
+
+AVAILABLE_THEMES = load_themes()
+
+
+def get_current_theme_name() -> str:
+    """Return the theme stored in config.yaml if available."""
+    try:
+        with open("config.yaml", "r") as handle:
+            config = yaml.safe_load(handle) or {}
+    except FileNotFoundError:
+        config = {}
+    ui_section = config.get("ui", {})
+    selected = ui_section.get("theme")
+    if selected in AVAILABLE_THEMES:
+        return selected
+    return next(iter(AVAILABLE_THEMES.keys()), None)
+
 @app.route('/')
 def index():
     return render_template('index.html')
+
+
+@app.route('/api/themes', methods=['GET'])
+def list_themes():
+    """Return all available themes and the currently selected theme."""
+    global AVAILABLE_THEMES
+    AVAILABLE_THEMES = load_themes()
+    current_name = get_current_theme_name()
+    accent_index = None
+    try:
+        with open("config.yaml", "r") as handle:
+            config = yaml.safe_load(handle) or {}
+            accent_index = config.get("ui", {}).get("theme_accent_index")
+    except FileNotFoundError:
+        pass
+    try:
+        accent_index = int(accent_index)
+    except (TypeError, ValueError):
+        accent_index = None
+    return jsonify({
+        "current": current_name,
+        "accent_index": accent_index,
+        "themes": list(AVAILABLE_THEMES.values()),
+    })
+
+
+@app.route('/api/theme', methods=['POST'])
+def select_theme():
+    """Persist a selected theme to config.yaml."""
+    global AVAILABLE_THEMES
+    AVAILABLE_THEMES = load_themes()
+
+    payload = request.get_json(silent=True) or {}
+    theme_name = payload.get("theme")
+    if theme_name not in AVAILABLE_THEMES:
+        return jsonify({"error": f"Theme '{theme_name}' not found"}), 404
+    accent_index = payload.get("accent_index")
+    try:
+        accent_index = int(accent_index) if accent_index is not None else None
+    except (TypeError, ValueError):
+        accent_index = None
+    if accent_index is not None and not 0 <= accent_index <= 15:
+        return jsonify({"error": "accent_index must be between 0 and 15"}), 400
+
+    try:
+        with open("config.yaml", "r") as handle:
+            config = yaml.safe_load(handle) or {}
+    except FileNotFoundError:
+        config = {}
+
+    ui_section = config.setdefault("ui", {})
+    ui_section["theme"] = theme_name
+    if accent_index is not None:
+        ui_section["theme_accent_index"] = accent_index
+
+    with open("config.yaml", "w") as handle:
+        yaml.safe_dump(config, handle, default_flow_style=False)
+
+    return jsonify({
+        "status": "success",
+        "current": theme_name,
+        "accent_index": accent_index,
+        "theme": AVAILABLE_THEMES[theme_name],
+    })
+
 
 @app.route('/api/schedule')
 def get_schedule():

@@ -157,6 +157,20 @@
                     <label>SQLite Path: <input type="text" name="learning.sqlite_path"></label>
                     <label>Sync Interval (minutes): <input type="number" step="1" name="learning.sync_interval_minutes"></label>
                 </fieldset>
+                <fieldset>
+                    <legend>Appearance</legend>
+                    <label>Theme:
+                        <select id="themeSelect">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </label>
+                    <label>Main color index:
+                        <select id="themeAccentSelect">
+                            <!-- Populated dynamically -->
+                        </select>
+                    </label>
+                    <input type="hidden" name="ui.theme_accent_index" id="themeAccentInput" value="">
+                </fieldset>
             </form>
             <div class="actions">
                 <button id="save-changes">Save Changes</button>
