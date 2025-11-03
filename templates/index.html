@@ -179,6 +179,17 @@
                     <label>Export Guard Buffer Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.future_price_guard_buffer_sek"></label>
                 </fieldset>
                 <fieldset>
+                    <legend>Automation</legend>
+                    <label>
+                        <input type="checkbox" name="automation.enable_scheduler">
+                        enable automatic planner (08–22)
+                    </label>
+                    <label>
+                        <input type="checkbox" name="automation.write_to_mariadb">
+                        write schedules to mariadb
+                    </label>
+                </fieldset>
+                <fieldset>
                     <legend>Manual Planning</legend>
                     <label>Charge Target (%):
                         <input type="number" step="1" min="0" max="100" name="manual_planning.charge_target_percent">

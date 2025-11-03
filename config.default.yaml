@@ -100,6 +100,11 @@ debug:
   enable_planner_debug: false
   sample_size: 30
 
+# Automation (Scheduler + DB writer)
+automation:
+  enable_scheduler: false
+  write_to_mariadb: false
+
 # Learning Engine
 learning:
   enable: true

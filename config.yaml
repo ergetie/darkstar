@@ -104,6 +104,9 @@ timezone: Europe/Stockholm
 ui:
   theme: Material Design Colors
   theme_accent_index: 6
+automation:
+  enable_scheduler: false
+  write_to_mariadb: false
 water_heating:
   defer_up_to_hours: 3
   max_blocks_per_day: 2
