@@ -568,3 +568,22 @@ def learning_loops():
         
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/debug', methods=['GET'])
+def debug_data():
+    """Return comprehensive planner debug data from schedule.json."""
+    try:
+        with open('schedule.json', 'r') as f:
+            data = json.load(f)
+        
+        debug_section = data.get('debug', {})
+        if not debug_section:
+            return jsonify({"error": "No debug data available. Enable debug mode in config.yaml with enable_planner_debug: true"}), 404
+        
+        return jsonify(debug_section)
+        
+    except FileNotFoundError:
+        return jsonify({"error": "schedule.json not found. Run the planner first."}), 404
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500

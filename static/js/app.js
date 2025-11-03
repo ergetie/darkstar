@@ -247,6 +247,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     refreshBtn.dataset.bound = 'true';
                 }
             }
+            
+            if (tab === 'debug') {
+                // Populate debug dashboard on first view and refresh
+                loadDebugData();
+
+                const refreshBtn = document.getElementById('refresh-debug-btn');
+                if (refreshBtn && !refreshBtn.dataset.bound) {
+                    refreshBtn.addEventListener('click', async () => {
+                        await loadDebugData();
+                    });
+                    refreshBtn.dataset.bound = 'true';
+                }
+            }
         });
     });
 
@@ -1434,6 +1447,187 @@ async function runLearningNow() {
             status.textContent = '';
         }, 5000);
     }
+}
+
+// Debug Dashboard Functions
+async function loadDebugData() {
+    try {
+        const response = await fetch('/api/debug');
+        const debugData = await response.json();
+        updateDebugMetrics(debugData.metrics || {});
+        updateDebugCharging(debugData.charging_plan || {});
+        updateDebugSIndex(debugData.s_index || {});
+        updateDebugWindows(debugData.windows || {});
+        updateDebugExport(debugData.export_guard || {});
+        updateDebugETL(debugData.etl || {});
+        updateDebugSamples(debugData.sample_schedule || []);
+    } catch (error) {
+        console.error('Error loading debug data:', error);
+        document.getElementById('debug-metrics-content').innerHTML = 
+            '<div class="error">Error loading debug data</div>';
+        document.getElementById('debug-refresh-status').textContent = 'Error loading debug data';
+        setTimeout(() => {
+            document.getElementById('debug-refresh-status').textContent = '';
+        }, 3000);
+    }
+}
+
+function updateDebugMetrics(metrics) {
+    const metricsHtml = `
+        <div class="debug-metric">
+            <span>Average Battery Cost:</span>
+            <span>${metrics.average_battery_cost?.toFixed(2) || 'N/A'} SEK/kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Final SoC:</span>
+            <span>${metrics.final_soc_percent?.toFixed(1) || 'N/A'}%</span>
+        </div>
+        <div class="debug-metric">
+            <span>Net Energy Balance:</span>
+            <span>${metrics.net_energy_balance_kwh?.toFixed(2) || 'N/A'} kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Total Load:</span>
+            <span>${metrics.total_load_kwh?.toFixed(2) || 'N/A'} kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Total PV Generation:</span>
+            <span>${metrics.total_pv_generation_kwh?.toFixed(2) || 'N/A'} kWh</span>
+        </div>
+    `;
+    document.getElementById('debug-metrics-content').innerHTML = metricsHtml;
+}
+
+function updateDebugCharging(chargingPlan) {
+    const chargingHtml = `
+        <div class="debug-metric">
+            <span>Total Charge:</span>
+            <span>${chargingPlan.total_charge_kwh?.toFixed(2) || 'N/A'} kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Total Export:</span>
+            <span>${chargingPlan.total_export_kwh?.toFixed(2) || 'N/A'} kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Export Revenue:</span>
+            <span>${chargingPlan.total_export_revenue?.toFixed(2) || 'N/A'} SEK</span>
+        </div>
+    `;
+    document.getElementById('debug-charging-content').innerHTML = chargingHtml;
+}
+
+function updateDebugSIndex(sIndex) {
+    const sIndexHtml = `
+        <div class="debug-metric">
+            <span>Mode:</span>
+            <span>${sIndex.mode || 'N/A'}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Factor:</span>
+            <span>${sIndex.factor?.toFixed(4) || 'N/A'}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Base Factor:</span>
+            <span>${sIndex.base_factor?.toFixed(2) || 'N/A'}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Avg Deficit:</span>
+            <span>${sIndex.avg_deficit?.toFixed(4) || 'N/A'} kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Considered Days:</span>
+            <span>${sIndex.considered_days ? sIndex.considered_days.join(', ') : 'N/A'}</span>
+        </div>
+    `;
+    document.getElementById('debug-sindex-content').innerHTML = sIndexHtml;
+}
+
+function updateDebugSamples(samples) {
+    if (!samples || samples.length === 0) {
+        document.getElementById('debug-samples-content').innerHTML = 
+            '<div class="debug-metric"><span>No debug samples available</span></div>';
+        return;
+    }
+    
+    const samplesHtml = samples.slice(0, 10).map((sample, index) => `
+        <div class="debug-sample-item">
+            <div class="sample-index">Sample ${index + 1}</div>
+            <div class="sample-details">
+                <span>Price: ${sample.price_sek_kwh?.toFixed(2) || 'N/A'} SEK/kWh</span>
+                <span>Load: ${sample.load_forecast_kwh?.toFixed(2) || 'N/A'} kWh</span>
+                <span>PV: ${sample.pv_forecast_kwh?.toFixed(2) || 'N/A'} kWh</span>
+                <span>SoC: ${sample.soc_percent?.toFixed(1) || 'N/A'}%</span>
+            </div>
+        </div>
+    `).join('');
+    
+    document.getElementById('debug-samples-content').innerHTML = samplesHtml;
+}
+
+function updateDebugWindows(windows) {
+    const windowsHtml = `
+        <div class="debug-metric">
+            <span>Cheap Threshold:</span>
+            <span>${windows.cheap_threshold_sek_kwh?.toFixed(2) || 'N/A'} SEK/kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Smoothing Tolerance:</span>
+            <span>${windows.smoothing_tolerance_sek_kwh?.toFixed(2) || 'N/A'} SEK/kWh</span>
+        </div>
+        <div class="debug-metric">
+            <span>Cheap Slots:</span>
+            <span>${windows.cheap_slot_count || 0}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Non-Cheap Slots:</span>
+            <span>${windows.non_cheap_slot_count || 0}</span>
+        </div>
+    `;
+    document.getElementById('debug-windows-content').innerHTML = windowsHtml;
+}
+
+function updateDebugExport(exportGuard) {
+    const exportHtml = `
+        <div class="debug-metric">
+            <span>Export Guard Buffer:</span>
+            <span>${exportGuard.buffer_sek?.toFixed(2) || 'N/A'} SEK</span>
+        </div>
+        <div class="debug-metric">
+            <span>Recent Export Events:</span>
+            <span>${exportGuard.recent_export_events || 0}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Premature Export Detections:</span>
+            <span>${exportGuard.premature_export_detections || 0}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Export Guard Active:</span>
+            <span>${exportGuard.active ? 'Yes' : 'No'}</span>
+        </div>
+    `;
+    document.getElementById('debug-export-content').innerHTML = exportHtml;
+}
+
+function updateDebugETL(etl) {
+    const etlHtml = `
+        <div class="debug-metric">
+            <span>Price Coverage:</span>
+            <span>${etl.price_coverage_ratio != null ? (etl.price_coverage_ratio * 100).toFixed(1) + '%' : 'N/A'}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Reset Events:</span>
+            <span>${etl.reset_events || 0}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Gap Events:</span>
+            <span>${etl.gap_events || 0}</span>
+        </div>
+        <div class="debug-metric">
+            <span>Last Slot Timestamp:</span>
+            <span>${etl.last_slot_timestamp ? new Date(etl.last_slot_timestamp).toLocaleString() : 'N/A'}</span>
+        </div>
+    `;
+    document.getElementById('debug-etl-content').innerHTML = etlHtml;
 }
 
 async function refreshLearningData() {

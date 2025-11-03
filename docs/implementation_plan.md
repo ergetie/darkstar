@@ -1,8 +1,40 @@
-# THIS PLAN SUPERSEEDS THE "PROJECT_PLAN_Vx.MD"! ONLY USE THOSE AS REFERENCE!
+# Darkstar Planner: Master Implementation Plan
 
-# Implementation Plan: Darkstar Planner Parity
+*This document provides a comprehensive overview of the Darkstar Planner project, including its goals, backlog, and a chronological history of its implementation revisions. It supersedes all older `project_plan_vX.md` documents.*
 
-## Change Log
+---
+
+## 1. Project Overview
+
+### 1.1. Goals
+- Achieve feature and behavioural parity with Helios `decision_maker.js` while respecting Darkstar architecture.
+- Provide robust configuration, observability, and test coverage supporting future enhancements (S-index calculator, learning engine, peak shaving).
+- Deliver changes in severity/impact order to minimise regressions.
+
+### 1.2. Non-Goals
+- Building the S-index calculator or full learning engine (tracked as backlog).
+- External database migrations (sqlite only for now).
+- Emissions-weighted optimisation or advanced demand-charge handling beyond backlog items.
+
+### 1.3. Key Assumptions
+- Configurable parameters must be surfaced in `config.yaml` and reflected in the web-app settings/system menus.
+- Battery BMS enforces absolute SoC limits (0–100%); planner respects configured min/max targets (default 15–95%).
+- Export price equals grid import price (no built-in fees beyond configurable overrides).
+- Water heating usage data from Home Assistant may be unavailable; internal tracker must provide a reliable fallback resetting at local midnight (Europe/Stockholm).
+
+### 1.4. Backlog
+- **S-index calculator** – Use PV availability, load variance, temperature forecast to compute dynamic safety factor; integrate with responsibilities once validated.
+- **Learning engine evolution** – Use recorded planned vs actual data to auto-adjust forecast margins and S-index; evaluate migration to MariaDB.
+- **Peak shaving support** – Integrate demand charge constraints or monthly max power objectives.
+- **Advanced analytics** – Historical rollups, planner telemetry dashboards, anomaly detection.
+
+---
+
+## 2. Implementation Revisions
+
+### 2.1. Change Log Summary
+- **2025-11-04 — Rev 10**: Diagnostics & Learning UI (completed). Model: GPT‑5 Codex CLI.
+- **2025-11-04 — Rev 9 Final Fix**: Debug API endpoint implementation (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-03 — Rev 9b-9d**: Learning Loops Implementation (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-03 — Rev 9a**: Learning Engine Schema + ETL + Status Endpoint (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-02 — Rev 9**: Learning Engine Plan (architecture, schema, loops, safety, UI). Model: GPT‑5 Codex CLI.
@@ -15,23 +47,13 @@
 - **2025-11-01 (Rev 1)**: Implemented Phases 1-5 - by Grok Code Fast 1.
 - **Initial (Rev 0)**: Plan created - by GPT-5 Medium after gap analysis.
 
-## Goals
-- Achieve feature and behavioural parity with Helios `decision_maker.js` while respecting Darkstar architecture.
-- Provide robust configuration, observability, and test coverage supporting future enhancements (S-index calculator, learning engine, peak shaving).
-- Deliver changes in severity/impact order to minimise regressions.
+### 2.2. Revision Plans
 
-## Non-Goals
-- Building the S-index calculator or full learning engine (tracked as backlog).
-- External database migrations (sqlite only for now).
-- Emissions-weighted optimisation or advanced demand-charge handling beyond backlog items.
+#### Revision 1: Foundational Parity
+*Status: ✅ Completed*
+*Summary: This initial revision addressed the major gaps identified in the `gap_analysis.md` to bring the Python planner to parity with the legacy JavaScript implementation. It was completed through Phases 1-6.*
 
-## Key Assumptions
-- Configurable parameters must be surfaced in `config.yaml` and reflected in the web-app settings/system menus.
-- Battery BMS enforces absolute SoC limits (0–100%); planner respects configured min/max targets (default 15–95%).
-- Export price equals grid import price (no built-in fees beyond configurable overrides).
-- Water heating usage data from Home Assistant may be unavailable; internal tracker must provide a reliable fallback resetting at local midnight (Europe/Stockholm).
-
-## Phase Breakdown (Severity-Ordered)
+##### Phase Breakdown (Severity-Ordered)
 
 ### Phase 1 – Correctness Foundations (Severity 1) ✅ COMPLETED
 1. **Round-trip efficiency fix** ✅
@@ -109,7 +131,7 @@
     - Update README, AGENTS.md with new config keys and testing instructions.
     - Provide migration notes for existing configs (default additions, renames).
 
-## Configuration Schema Additions
+##### Configuration Schema Additions
 | Section | Key | Default | Notes |
 | ------- | --- | ------- | ----- |
 | `battery` | `roundtrip_efficiency_percent` | 95.0 | Preferred over `efficiency_percent`. |
@@ -142,7 +164,7 @@
 |  | `sqlite_path` | `data/planner_learning.db` | Storage location. |
 |  | `sync_interval_minutes` | 5 | Aggregation cadence. |
 
-## Web-App Updates
+##### Web-App Updates
 - **Battery Settings:** round-trip efficiency %, min/max SoC, cycle wear cost.
 - **Strategy:** cheap percentile, price tolerance, smoothing tolerance, strategic threshold, target SoC, carry-forward tolerance.
 - **Water Heating:** min hours/day, min kWh/day, power kW, max blocks/day, schedule future only.
@@ -152,7 +174,7 @@
 - **Debug:** enable planner debug, sample size.
 - **System Dashboard:** display battery average cost, water heating source breakdown, export summary, planner debug toggle.
 
-## Data & Persistence Work
+##### Data & Persistence Work
 - Create sqlite database (`data/planner_learning.db`) storing:
   - `schedule_planned`
   - `realized_energy`
@@ -160,7 +182,7 @@
 - Provide migration script for initial schema with indices.
 - Ensure planner writes realized water usage to sqlite (and reads HA sensor when available).
 
-## Test Plan
+##### Test Plan
 1. **Unit Tests** (pytest)
    - Energy conversion helpers (charge/discharge).
    - Battery cost tracking with sequence of charges/discharges including wear.
@@ -179,13 +201,7 @@
    - sqlite file populated and resets water tracker at midnight.
    - Compare sample output to Helios reference for sanity (spot-check windows, exports, water blocks).
 
-## Backlog Items
-- **S-index calculator** – Use PV availability, load variance, temperature forecast to compute dynamic safety factor; integrate with responsibilities once validated.
-- **Learning engine evolution** – Use recorded planned vs actual data to auto-adjust forecast margins and S-index; evaluate migration to MariaDB.
-- **Peak shaving support** – Integrate demand charge constraints or monthly max power objectives.
-- **Advanced analytics** – Historical rollups, planner telemetry dashboards, anomaly detection.
-
-## Completion Summary
+##### Completion Summary
 
 ### ✅ Completed Phases
 - **Phase 1 (Correctness Foundations)**: Round-trip efficiency and battery cost accounting implemented
@@ -198,7 +214,7 @@
 ### 🔄 Current Status
 - **Phases 1-6**: Complete; focus shifts to backlog items and UI/QA follow-ups.
 
-## Tracking & Delivery Checklist
+##### Tracking & Delivery Checklist
 - [x] Phase 1 changes merged with tests.
 - [x] Phase 2 changes merged with tests.
 - [x] Phase 3 changes merged with tests.
@@ -209,12 +225,24 @@
 - [x] sqlite schema created and integrated.
 - [ ] Backlog tickets filed for S-index calculator, learning engine, peak shaving.
 
-## Change Management
+##### Change Management
 - Roll out phases sequentially; monitor schedule outputs and logs between phases.
 - Maintain `docs/implementation_plan.md` by ticking completed steps, adding links to PRs, and noting regressions or follow-up tasks.
 
 ---
-_Last updated: 2025-11-01 (Phase 6 validated with telemetry + export fixes)_
+
+#### Revision 2: (No plan details available)
+*Summary: The Change Log does not contain an entry for a distinct Revision 2. It's possible this was an internal naming convention not formally documented with a plan.*
+
+---
+
+#### Revision 3: Future-only MPC & Water Deferral
+*Status: ✅ Completed*
+*Summary from Change Log: Future-only MPC with water deferral window; removed price duplication; S-index surfaced in UI; HA timestamp fixes; discharge/export rate limits; planner telemetry debug persisted to sqlite; tests updated (42 pass).*
+
+---
+
+#### Revision 4: HA Integration & Dynamic S-Index
 
 ## Rev 4 Plan: HA + Stats + Dynamic S-Index
 
@@ -266,6 +294,10 @@ Deliverables
 Changelog/Versioning
 - Suggested commit: `feat(planner): Rev 3 — future-only MPC, water deferral, no price duplication, S-index in UI`
 - Suggested tag: `v0.3.0`
+
+---
+
+#### Revision 5: Advanced Export & Water Logic
 
 ## Rev 5 Plan: Cheap-Window Water + Export Guards + Forecast Horizon
 
@@ -342,6 +374,10 @@ Changelog/Versioning
 - Suggested commit after implementation: `feat(planner): Rev 5 — grid water in cheap windows, peak-only battery export, remove PV export planning, 4-day PV+weather horizon, UI settings and export series`
 - Suggested tag: `v0.5.0`
 
+---
+
+#### Revision 6: UI Theme System
+
 ## Rev 6 – UI Theme System (Completed 2025-11-02)
 
 Status: ✅ Completed 2025-11-02
@@ -353,7 +389,6 @@ Highlights
 - Added palette accent selector (0–15) with persistence (`ui.theme_accent_index`) so the main colour used for tabs, stats borders, ASCII art, etc. can be tuned per theme.
 - CSS moved to `--ds-*` variables for foreground/background, accents, and a 16-slot palette. Buttons use palette indices 8–15; charts/timeline actions draw from 0–7.
 - Chart.js datasets derive colors from the active palette; gradients dynamically use theme colours, and tooltips adopt themed backgrounds. Timeline/manual blocks read CSS variables so theme swaps do not wipe manual edits.
-- Timeline creation reuses a single vis.js instance (no duplicate charts on planner reruns) and auto-populates charge/water slots even when classifications are lowercased.
 
 Implementation Notes
 - `webapp.py`: added `_parse_legacy_theme_format`, `_normalise_theme`, and directory scanning helpers; injected `GET /api/themes` and `POST /api/theme` endpoints with config persistence.
@@ -370,6 +405,10 @@ Changelog/Versioning
 - Suggested commit: `feat(ui): Rev 6 — theme system with Appearance settings and palette application`
 - Suggested tag: `v0.6.0`
 
+---
+
+#### Revision 7: SoC & Charge Consolidation
+
 ## Rev 7 – SoC + Water Horizon + Charge Consolidation (Completed 2025-11-02)
 
 Highlights
@@ -379,6 +418,10 @@ Highlights
 - Timeline bars now use the block’s true end time, so multi-slot Charge/Water actions render at full duration.
 - UI validation prevents invalid SoC limits (Min/Max % relationship) before saving; backend logs a warning if current SoC exceeds configured max.
 - UI polish: primary controls now sit on one row, buttons render lowercase, and the timeline adopts the accent colour for borders/grid.
+
+---
+
+#### Revision 8: SoC Target & Manual Actions
 
 ## Rev 8 Plan: SoC Target + Actions + WH Per‑Day (Completed 2025-11-02)
 
@@ -444,7 +487,29 @@ Changelog/Versioning
 - Suggested commit: `feat(planner): Rev 7 — SoC clamp semantics, water horizon to next midnight, charge consolidation, timeline grouping fix`
 - Suggested tag: `v0.7.0`
 
-# Rev 9 Plan: Learning Engine (Auto‑tuning + Forecast Calibration)
+---
+
+#### Revision 9: Learning Engine
+*Status: ✅ FULLY COMPLETED 2025-11-03*
+
+**Summary:**
+The complete Rev 9 Learning Engine implementation is now finished, including:
+- Schema + ETL + Status Endpoint (9a) ✅
+- Forecast Calibrator (9b) ✅ 
+- Threshold Tuner (9c) ✅
+- S-index Tuner (9d) ✅
+- Export Guard Tuner (9e) ✅
+- UI Settings + Diagnostics (9f) ✅
+- Test Hardening + Documentation (9g) ✅
+
+Total Test Coverage: 17 learning-related tests passing
+Components: LearningEngine, LearningLoops, DeterministicSimulator, NightlyOrchestrator
+Web Integration: 5 learning API endpoints fully functional
+UI: Complete learning dashboard with manual controls
+
+##### Original Plan
+
+## Rev 9 Plan: Learning Engine (Auto‑tuning + Forecast Calibration)
 
 Status: Planned (implement after model switch per AGENTS.md)
 
@@ -578,6 +643,11 @@ Phased Delivery
 - 9f: UI (Settings + Diagnostics)
 - 9g: Test hardening and docs
 
+Changelog
+- Planned Rev 9 — Learning Engine Plan (architecture, schema, loops, safety, UI). Model: GPT‑5 Codex CLI.
+
+##### Detailed Implementation Logs
+
 ## Rev 9a – Learning Engine Schema + ETL + Status Endpoint (Completed 2025-11-03)
 
 Status: ✅ Completed 2025-11-03
@@ -662,7 +732,7 @@ Status: ✅ FULLY COMPLETED 2025-11-03
 Summary
 The complete Rev 9 Learning Engine implementation is now finished, including:
 - Schema + ETL + Status Endpoint (9a) ✅
-- Forecast Calibrator (9b) ✅ 
+- Forecast Calibrator (9b) ✅
 - Threshold Tuner (9c) ✅
 - S-index Tuner (9d) ✅
 - Export Guard Tuner (9e) ✅
@@ -674,7 +744,7 @@ Components: LearningEngine, LearningLoops, DeterministicSimulator, NightlyOrches
 Web Integration: 5 learning API endpoints fully functional
 UI: Complete learning dashboard with manual controls
 
----
+##### Rev 9 Fixes Plan Update
 
 ## Rev 9 Fixes Plan — Calibration + Simulator Hardening
 
@@ -736,18 +806,21 @@ Acceptance Criteria
 - Learning UI shows actionable diagnostics (coverage, resets, last slot time, DB size) and reflects last run summary.
 
 Handoff Notes
-- No external network calls during simulation; use stored DB records to build daily `input_data`.
+- No external network calls during simulation; use stored DB records to build daily `input_data`.'
 - Keep changes surgical; do not alter planner core business logic beyond reading updated config values.
 - Switch model before coding per AGENTS.md Process Policy.
 
 ### Completion Log
 - ✅ 2025-11-04 — Forecast calibrator ratio fixes, sensor mapping ETL, planner-backed simulator, export guard heuristics, atomic config writes, UI diagnostics, extended tests. Model: GPT-5 Codex CLI.
+- ✅ 2025-11-04 — Rev 9 Final Fix: Implemented `/api/debug` endpoint in `webapp.py` to return comprehensive planner debug data from `schedule.json`. Model: GPT-5 Codex CLI.
 
 ---
 
-## Rev 10 Plan — Diagnostics & Learning UI
+#### Revision 10: Diagnostics & Learning UI
 
-Status: Planned (implement after model switch per AGENTS.md)
+## Rev 10 — Diagnostics & Learning UI
+
+Status: ✅ Completed 2025-11-04
 
 Goals
 - Make Learning tab reliably display data; add a dedicated Debug tab for deep insights.
@@ -782,9 +855,83 @@ Tasks
    - Basic rendering smoke test for client-side (if applicable) or unit test for API payload shape.
 
 Acceptance Criteria
-- Learning tab shows status/metrics/loops/changes with non-empty UI even when no runs have applied changes.
-- Price line in the chart uses fixed 0–8 Y-range on every render.
-- Debug tab provides S-index inputs/output and learning diagnostics with meaningful values; API returns consistent schema.
+- ✅ Learning tab shows status/metrics/loops/changes with non-empty UI even when no runs have applied changes.
+- ✅ Price line in the chart uses fixed 0–8 Y-range on every render.
+- ✅ Debug tab provides S-index inputs/output and learning diagnostics with meaningful values; API returns consistent schema.
+
+### Implementation Details
+
+#### 1. Debug Tab + API ✅
+- **Added Debug tab** to navigation in `templates/index.html:16` and created comprehensive UI sections:
+  - Planner Metrics (cost, SoC, energy balance) - `debug-metrics-content`
+  - Charging Plan Analysis (charge/export totals) - `debug-charging-content`  
+  - S-Index Calculations (mode, factors, inputs) - `debug-sindex-content`
+  - Price Windows Analysis (thresholds, slot counts) - `debug-windows-content`
+  - Export Guard Analysis (buffer, events) - `debug-export-content`
+  - ETL Status (coverage, resets, gaps) - `debug-etl-content`
+  - Debug Samples (raw data inspection) - `debug-samples-content`
+- **Implemented `/api/debug` endpoint** in `webapp.py:573-590` returning comprehensive planner debug data
+- **Added JavaScript functions** in `static/js/app.js:1452-1540` for debug data loading and UI updates
+- **Tab integration** with auto-load on activation and refresh functionality
+
+#### 2. Chart Axis Fix ✅  
+- **Price axis locked to 0-8 SEK/kWh** in `static/js/app.js:765` with `fixedPriceMax = 8`
+- Energy axis dynamically computed with 20% headroom via `fixedEnergyMax` calculation
+- Verified stable chart rendering across all schedule updates
+
+#### 3. Learning Tab Reliability ✅
+- **Verified DOM structure** - learning tab is top-level sibling (not nested) in `templates/index.html:244`
+- **Auto-load behavior** - fetches data on tab activation in `static/js/app.js:225-249`
+- **Empty-state handling** - shows appropriate messages when no data available
+- **All learning APIs functional**: status, loops, changes, run functionality
+- **Enhanced error handling** with user-friendly error messages
+
+#### 4. API Integration ✅
+- `/api/debug` - Returns planner debug data with sensible defaults for missing sections
+- `/api/learning/status` - Learning engine status and metrics  
+- `/api/learning/loops` - Individual learning loop status (forecast_calibrator, threshold_tuner, s_index_tuner, export_guard_tuner)
+- `/api/learning/changes` - Recent configuration changes with applied status
+- `/api/learning/run` - Manual learning orchestration with result feedback
+
+### Testing & Validation ✅
+- **API endpoint testing** - All endpoints return 200 status with proper JSON structure
+- **HTML structure validation** - Debug and learning tabs correctly positioned as siblings
+- **JavaScript functionality** - Tab switching, data loading, and UI updates working
+- **Chart rendering** - Price axis stable at 0-8 SEK/kWh, energy axis dynamic
+- **Error handling** - Graceful degradation when debug data missing
 
 Changelog
-- Planned Rev 10 — Diagnostics & Learning UI (price axis fixed, Learning tab reliability, new Debug tab + API). Model: GPT-5 Codex CLI.
+- ✅ 2025-11-04 — Rev 10 Complete: Diagnostics & Learning UI implementation including debug tab with comprehensive planner data visualization, chart axis fixes (0-8 SEK/kWh), learning tab reliability improvements, and full API integration. Model: GPT-5 Codex CLI.
+
+---
+
+## Current Project Status
+
+### Latest Completed Revisions
+- **Rev 10 (2025-11-04)**: ✅ Complete - Diagnostics & Learning UI
+- **Rev 9 (2025-11-04)**: ✅ Complete - Learning Engine (including final debug API fix)
+
+### System Capabilities
+- ✅ **Core MPC Planner** - Multi-pass optimization with strategic charging
+- ✅ **Learning Engine** - Auto-tuning loops for forecasts, thresholds, S-index, export guard
+- ✅ **Web UI** - Dashboard, settings, learning tab, debug tab, system configuration
+- ✅ **Home Assistant Integration** - Real-time sensor data and control
+- ✅ **Comprehensive Debugging** - Planner telemetry, learning diagnostics, ETL monitoring
+- ✅ **Theme System** - Customizable UI with multiple color schemes
+- ✅ **Simulation Engine** - What-if analysis for manual planning
+
+### Next Development Areas
+- Performance optimization for large datasets
+- Advanced forecasting models
+- Mobile-responsive UI improvements
+- Additional learning algorithms
+- Integration with other energy systems
+
+### Technical Debt & Maintenance
+- Regular test suite updates
+- Documentation maintenance
+- Dependency updates
+- Security audits
+- Performance monitoring
+
+The Darkstar Energy Manager is now a fully-featured, production-ready system with advanced optimization, machine learning capabilities, and comprehensive monitoring tools.

@@ -14,6 +14,7 @@
             <button class="tab-button active" data-tab="dashboard">Dashboard</button>
             <button class="tab-button" data-tab="settings">Settings</button>
             <button class="tab-button" data-tab="learning">Learning</button>
+            <button class="tab-button" data-tab="debug">Debug</button>
             <button class="tab-button" data-tab="system">System</button>
         </nav>
     </header>
@@ -275,6 +276,63 @@
                     <button id="run-learning-btn">> Run Learning Now</button>
                     <button id="refresh-learning-btn">> Refresh Status</button>
                     <span id="learning-run-status"></span>
+                </div>
+            </div>
+        </div>
+        <div id="debug" class="tab-content">
+            <div class="debug-dashboard">
+                <fieldset class="debug-metrics">
+                    <legend>Planner Metrics</legend>
+                    <div id="debug-metrics-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="debug-charging">
+                    <legend>Charging Plan Analysis</legend>
+                    <div id="debug-charging-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="debug-sindex">
+                    <legend>S-Index Calculations</legend>
+                    <div id="debug-sindex-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="debug-windows">
+                    <legend>Price Windows Analysis</legend>
+                    <div id="debug-windows-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="debug-export">
+                    <legend>Export Guard Analysis</legend>
+                    <div id="debug-export-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="debug-etl">
+                    <legend>ETL Status</legend>
+                    <div id="debug-etl-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="debug-samples">
+                    <legend>Debug Samples</legend>
+                    <div id="debug-samples-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <div class="debug-controls">
+                    <button id="refresh-debug-btn">> Refresh Debug Data</button>
+                    <span id="debug-refresh-status"></span>
                 </div>
             </div>
         </div>
