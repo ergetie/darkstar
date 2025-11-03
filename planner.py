@@ -699,65 +699,208 @@ class HeliosPlanner:
             if cheap_slots.empty:
                 continue
 
-            cheap_slots = cheap_slots.sort_index()
-            contiguous_blocks = []
-            block_start = cheap_slots.index[0]
-            block_length = 1
-            for i in range(1, len(cheap_slots)):
-                current_time = cheap_slots.index[i]
-                previous_time = cheap_slots.index[i - 1]
-                if (current_time - previous_time) == slot_duration:
-                    block_length += 1
-                else:
-                    contiguous_blocks.append((block_start, block_length))
-                    block_start = current_time
-                    block_length = 1
-            contiguous_blocks.append((block_start, block_length))
-
-            valid_blocks = []
-            for start, length in contiguous_blocks:
-                if length <= 0:
-                    continue
-                block_index = day_slots.loc[start:start + slot_duration * (length - 1)]
-                average_price = block_index['import_price_sek_kwh'].mean()
-                valid_blocks.append({
-                    'start': start,
-                    'length': length,
-                    'average_price': average_price
-                })
-
-            valid_blocks = [b for b in valid_blocks if b['length'] >= 1]
-            valid_blocks.sort(key=lambda b: b['average_price'])
-
-            selected_blocks: list[tuple[pd.Timestamp, int]] = []
-            slots_needed = required_slots
-
-            for block in valid_blocks:
-                if slots_needed <= 0 or len(selected_blocks) >= max_blocks_per_day:
-                    break
-                take_slots = min(block['length'], slots_needed)
-                if take_slots <= 0:
-                    continue
-                selected_blocks.append((block['start'], take_slots))
-                slots_needed -= take_slots
-
-            if slots_needed > 0:
+            # Step 1: Sort cheap slots by price (cheapest first) - NOT by time!
+            cheap_slots_sorted = cheap_slots.sort_values('import_price_sek_kwh')
+            
+            # Step 2: Select optimal slots with contiguity preference
+            selected_slots = self._select_optimal_water_slots(
+                cheap_slots_sorted, required_slots, max_blocks_per_day, slot_duration
+            )
+            
+            if len(selected_slots) == 0:
                 # Not enough capacity to satisfy the requirement for this day; skip scheduling.
                 continue
 
-            for block_start, slot_count in selected_blocks:
-                for i in range(slot_count):
-                    slot_time = block_start + slot_duration * i
-                    if slot_time not in df.index:
-                        continue
-                    df.loc[slot_time, 'water_heating_kw'] = power_kw
-                    local_date = local_dates.loc[slot_time]
-                    planned_energy_by_date[local_date] = planned_energy_by_date.get(local_date, 0.0) + slot_energy_kwh
+            # Step 3: Apply selected slots to DataFrame
+            for slot_time in selected_slots:
+                if slot_time not in df.index:
+                    continue
+                df.loc[slot_time, 'water_heating_kw'] = power_kw
+                local_date = local_dates.loc[slot_time]
+                planned_energy_by_date[local_date] = planned_energy_by_date.get(local_date, 0.0) + slot_energy_kwh
 
         for target_date, planned_kwh in planned_energy_by_date.items():
             self._record_planned_water_energy(target_date, planned_kwh)
 
         return df
+    
+    def _select_optimal_water_slots(self, cheap_slots_sorted, slots_needed, max_blocks_per_day, slot_duration):
+        """
+        Select optimal water heating slots prioritizing cheapest prices while 
+        preferring contiguity where it doesn't significantly increase cost.
+        
+        Args:
+            cheap_slots_sorted (pd.DataFrame): Cheap slots sorted by price (cheapest first)
+            slots_needed (int): Number of slots required
+            max_blocks_per_day (int): Maximum number of blocks allowed
+            slot_duration (pd.Timedelta): Duration of each slot
+            
+        Returns:
+            list[pd.Timestamp]: Selected slot times
+        """
+        selected_slots = []
+        remaining_slots = slots_needed
+        
+        # Greedy selection with contiguity preference
+        for _, slot in cheap_slots_sorted.iterrows():
+            if remaining_slots <= 0:
+                break
+                
+            slot_time = slot.name
+            
+            # Check if this slot extends an existing block
+            extends_existing = any(
+                abs((slot_time - existing_time) == slot_duration)
+                for existing_time in selected_slots
+            )
+            
+            # Always select cheapest slots, but prefer contiguity when possible
+            # The contiguity preference is handled in the consolidation phase
+            selected_slots.append(slot_time)
+            remaining_slots -= 1
+        
+        # If we have more than max_blocks, consolidate to cheapest blocks
+        if len(selected_slots) > 0:
+            selected_slots = self._consolidate_to_blocks(
+                selected_slots, max_blocks_per_day, slot_duration, cheap_slots_sorted
+            )
+        
+        return selected_slots
+    
+    def _consolidate_to_blocks(self, selected_slots, max_blocks, slot_duration, cheap_slots_sorted):
+        """
+        Group selected slots into up to max_blocks contiguous groups.
+        If too many blocks, merge the ones with minimal cost penalty.
+        
+        Args:
+            selected_slots (list): List of selected slot times
+            max_blocks (int): Maximum number of blocks allowed
+            slot_duration (pd.Timedelta): Duration of each slot
+            cheap_slots_sorted (pd.DataFrame): Cheap slots with price data
+            
+        Returns:
+            list[pd.Timestamp]: Consolidated slot times
+        """
+        if len(selected_slots) <= 1:
+            return selected_slots
+        
+        # Sort by time for block creation
+        selected_slots_sorted = sorted(selected_slots)
+        
+        # Create initial blocks
+        blocks = []
+        current_block = [selected_slots_sorted[0]]
+        
+        for slot_time in selected_slots_sorted[1:]:
+            if len(current_block) > 0 and (slot_time - current_block[-1]) == slot_duration:
+                current_block.append(slot_time)
+            else:
+                blocks.append(current_block)
+                current_block = [slot_time]
+        
+        blocks.append(current_block)
+        
+        # If we have too many blocks, merge the ones with minimal cost penalty
+        while len(blocks) > max_blocks:
+            merge_idx = self._find_best_merge(blocks, cheap_slots_sorted, slot_duration)
+            if merge_idx is not None:
+                blocks = self._merge_blocks(blocks, merge_idx)
+            else:
+                break
+        
+        # Flatten blocks back to slot list
+        consolidated_slots = []
+        for block in blocks:
+            consolidated_slots.extend(block)
+        
+        return consolidated_slots
+    
+    def _find_best_merge(self, blocks, cheap_slots_sorted, slot_duration):
+        """
+        Find the best pair of blocks to merge with minimal cost penalty.
+        
+        Args:
+            blocks (list): List of blocks (each block is list of slot times)
+            cheap_slots_sorted (pd.DataFrame): Cheap slots with price data
+            slot_duration (pd.Timedelta): Duration of each slot
+            
+        Returns:
+            int: Index of first block to merge (None if no good merge found)
+        """
+        if len(blocks) < 2:
+            return None
+        
+        best_merge_idx = None
+        best_merge_cost = float('inf')
+        
+        for i in range(len(blocks) - 1):
+            block1 = blocks[i]
+            block2 = blocks[i + 1]
+            
+            # Calculate cost of current arrangement
+            current_cost = self._calculate_block_cost(block1, cheap_slots_sorted) + \
+                        self._calculate_block_cost(block2, cheap_slots_sorted)
+            
+            # Calculate cost if merged (would need to fill gap)
+            gap_start = block1[-1] + slot_duration
+            gap_end = block2[0]
+            gap_slots_needed = int((gap_end - gap_start) / slot_duration)
+            
+            # Find cheapest slots to fill the gap
+            gap_cost = 0
+            if gap_slots_needed > 0:
+                gap_slots = cheap_slots_sorted[
+                    (cheap_slots_sorted.index >= gap_start) & 
+                    (cheap_slots_sorted.index < gap_end)
+                ].head(gap_slots_needed)
+                gap_cost = gap_slots['import_price_sek_kwh'].sum()
+            
+            merged_cost = current_cost + gap_cost
+            
+            if merged_cost < best_merge_cost:
+                best_merge_cost = merged_cost
+                best_merge_idx = i
+        
+        return best_merge_idx
+    
+    def _merge_blocks(self, blocks, merge_idx):
+        """
+        Merge two adjacent blocks at the specified index.
+        
+        Args:
+            blocks (list): List of blocks
+            merge_idx (int): Index of first block to merge
+            
+        Returns:
+            list: Updated blocks list
+        """
+        if merge_idx >= len(blocks) - 1:
+            return blocks
+        
+        # Merge block at merge_idx with merge_idx + 1
+        merged_block = blocks[merge_idx] + blocks[merge_idx + 1]
+        
+        # Create new blocks list
+        new_blocks = blocks[:merge_idx] + [merged_block] + blocks[merge_idx + 2:]
+        
+        return new_blocks
+    
+    def _calculate_block_cost(self, block, cheap_slots_sorted):
+        """
+        Calculate total cost of a block using price data.
+        
+        Args:
+            block (list): List of slot times in block
+            cheap_slots_sorted (pd.DataFrame): Cheap slots with price data
+            
+        Returns:
+            float: Total cost of the block
+        """
+        if not block:
+            return 0.0
+        
+        block_prices = cheap_slots_sorted.loc[block]['import_price_sek_kwh']
+        return block_prices.sum()
         
     def _pass_3_simulate_baseline_depletion(self, df):
         """
