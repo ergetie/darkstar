@@ -33,15 +33,17 @@
             </div>
             <canvas id="scheduleChart"></canvas>
             <div id="timeline-container"></div>
+            <div class="timeline-controls">
+                <button id="addChargeBtn" class="action-add btn-charge">> add charge</button>
+                <button id="addWaterBtn" class="action-add btn-water">> add water heating</button>
+                <button id="addHoldBtn" class="action-add btn-hold">> add hold</button>
+                <button id="addExportBtn" class="action-add btn-export">> add export</button>
+            </div>
             <div class="control-panel">
                 <button id="runPlannerBtn">> run planner</button>
                 <button id="applyChangesBtn">> apply manual changes</button>
                 <button id="resetChangesBtn">> reset to optimal</button>
                 <span id="plannerStatus"></span>
-            </div>
-            <div class="timeline-controls">
-                <button id="addChargeBtn" class="action-add btn-charge">> add charge</button>
-                <button id="addWaterBtn" class="action-add btn-water">> add water heating</button>
             </div>
         </div>
         <div id="settings" class="tab-content">
@@ -156,6 +158,15 @@
                     </label>
                     <label>SQLite Path: <input type="text" name="learning.sqlite_path"></label>
                     <label>Sync Interval (minutes): <input type="number" step="1" name="learning.sync_interval_minutes"></label>
+                </fieldset>
+                <fieldset>
+                    <legend>Manual Planning</legend>
+                    <label>Charge Target (%):
+                        <input type="number" step="1" min="0" max="100" name="manual_planning.charge_target_percent">
+                    </label>
+                    <label>Export Target (%):
+                        <input type="number" step="1" min="0" max="100" name="manual_planning.export_target_percent">
+                    </label>
                 </fieldset>
                 <fieldset>
                     <legend>Appearance</legend>

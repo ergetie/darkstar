@@ -408,6 +408,7 @@ def simulate():
         # Step B: Clear the schedule-related columns to create a clean slate
         df['charge_kw'] = 0.0
         df['water_heating_kw'] = 0.0
+        df['manual_action'] = None
         
         # Step C: "Paint" the user's manual plan onto the DataFrame
         manual_plan = request.get_json()
@@ -435,6 +436,12 @@ def simulate():
                 df.loc[mask, 'charge_kw'] = config_data['system']['battery']['max_charge_power_kw']
             elif action == 'Water Heating':
                 df.loc[mask, 'water_heating_kw'] = config_data['water_heating'].get('power_kw', 3.0)
+            elif action in ('Hold', 'Export'):
+                # No direct power assignment, but tag manual intent
+                pass
+
+            if action:
+                df.loc[mask, 'manual_action'] = action
 
         # Step D: Run the simulation
         print("Running simulation with the user's manual plan...")

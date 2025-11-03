@@ -90,7 +90,12 @@ main {
     text-fill-color: transparent;
 }
 
+#timeline-container {
+    margin-bottom: 8px;
+}
+
 .control-panel {
+    margin-top: 16px;
     margin-bottom: 20px;
     display: flex;
     flex-wrap: wrap;
@@ -241,7 +246,7 @@ label {
 }
 
 .vis-timeline {
-    border: 1px solid var(--ds-accent) !important;
+    border: 1px solid var(--ds-border) !important;
 }
 
 .vis-panel.vis-center,
@@ -249,17 +254,19 @@ label {
 .vis-panel.vis-right,
 .vis-panel.vis-top,
 .vis-panel.vis-bottom {
-    border-color: var(--ds-accent) !important;
+    border-color: var(--ds-border) !important;
 }
 
 .vis-time-axis .vis-grid.vis-vertical,
 .vis-time-axis .vis-grid.vis-horizontal {
-    border-color: var(--ds-accent) !important;
+    border-color: var(--ds-border) !important;
 }
 
 /* Match action colors */
 .btn-charge { background-color: var(--ds-palette-8); color: var(--ds-background); }
 .btn-water  { background-color: var(--ds-palette-9); color: var(--ds-background); }
+.btn-hold   { background-color: var(--ds-palette-11); color: var(--ds-background); }
+.btn-export { background-color: var(--ds-palette-10); color: var(--ds-background); }
 
 /* Action Palette */
 .action-palette {

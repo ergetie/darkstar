@@ -3,6 +3,8 @@
 # Implementation Plan: Darkstar Planner Parity
 
 ## Change Log
+- **2025-11-02 — Rev 9**: Learning Engine Plan (architecture, schema, loops, safety, UI). Model: GPT‑5 Codex CLI.
+- **2025-11-02 (Rev 8)** *(Model: GPT-5 Codex)*: Added SoC target signal (stepped line), HOLD/EXPORT manual controls (planner + simulation), per-day water heating scheduling within 48h horizon, UI control ordering, theme-aligned buttons/series, and extended coverage (47 passed, 4 skipped).
 - **2025-11-02 (Rev 7)** *(Model: GPT-5 Codex)*: Updated SoC clamp semantics (no forced drop), expanded water-heating horizon (next midnight + deferral), added charge block consolidation with tolerance/gap controls, fixed timeline block length, refreshed dashboard/timeline styling, added UI SoC validation, and extended tests (46 pass, 4 skipped).
 - **2025-11-02 (Rev 6)**: UI theme system implemented — scan `/themes`, expose Appearance dropdown, persist selection, apply CSS variables/palette to charts & buttons, add tests.
 - **2025-11-02 (Rev 5 — Plan)**: Upcoming fixes: grid-only water heating in cheap windows, remove PV export planning, peak-only battery export with responsibility guard, configurable export percentile, disable battery-for-water in cheap windows, extend PV + weather forecast horizon to 4 days, UI settings and chart export series.
@@ -376,10 +378,200 @@ Highlights
 - UI validation prevents invalid SoC limits (Min/Max % relationship) before saving; backend logs a warning if current SoC exceeds configured max.
 - UI polish: primary controls now sit on one row, buttons render lowercase, and the timeline adopts the accent colour for borders/grid.
 
+## Rev 8 Plan: SoC Target + Actions + WH Per‑Day (Completed 2025-11-02)
+
+Status: Implemented
+
+Scope
+- Add `soc_target_percent` to every slot and render a stepped line on the right axis in the chart.
+- Surface HOLD and EXPORT as first‑class manual actions (buttons + simulate), with clear semantics.
+- Water heating: plan per day (today/tomorrow only) when prices are known, staying within the 48‑hour schedule window.
+- Minor UI layout update for controls and spacing.
+
+Design Details
+- SoC Target
+  - Serialization: `soc_target_percent` only (0–100). No kWh field is required.
+  - Rendering: Stepped line (Option B) on SoC axis; themed colour.
+  - Slot logic:
+    - Discharge/normal use: set to `min_soc_percent`.
+    - HOLD: set to the “current” SoC for that slot (the projected SoC entering the slot) — acts as a local floor preventing discharge.
+    - EXPORT: set to the export guard floor (max(protective SoC, min SoC)); manual EXPORT slots clamp to the configurable manual planning export target and keep that same value across the entire export block.
+    - GRID CHARGE: set to the target SoC for the whole charge block (the block’s final projected SoC), applied constant across the block (manual charge blocks clamp to the manual planning charge target).
+    - WATER HEATING: if energy drawn from battery, set to `min_soc_percent`; if from grid, set to the “current” SoC of the block’s starting slot (constant across that WH block).
+
+- Manual Actions (Timeline + Simulate)
+  - Add buttons: `add export`, `add hold` to the action row.
+  - HOLD semantics: disallow battery discharge and grid charge in those slots; PV can still charge naturally (PV→battery permitted).
+  - EXPORT semantics: mark slots as export‑preferred; still respect profitability and safety gates (no forced export unless we add a separate “force” toggle later).
+  - Backend: extend `/api/simulate` to accept HOLD/EXPORT blocks and apply above constraints; return updated series including `soc_target_percent`.
+  - Manual Planning config: expose `manual_planning.charge_target_percent` and `manual_planning.export_target_percent` in Settings → Manual Planning to cap manual charge/export SoC targets.
+
+- Water Heating Per‑Day (48h horizon)
+  - Iterate per day for today and tomorrow only; never schedule beyond the current 48‑hour horizon.
+  - Today: if daily minimum already met (via telemetry), do not schedule more.
+  - Tomorrow: if prices are known, schedule the minimum in the cheapest contiguous block(s) within “midnight→midnight+defer_hours” for that day.
+  - Config: add `water_heating.plan_days_ahead: 1` (max 1) and honor `water_heating.defer_up_to_hours` for each day. Maintain `require_known_prices: true` behaviour.
+
+- UI layout
+  - Move the action buttons row above the run/apply/reset row.
+  - Add vertical margin between the run row and Gantt chart.
+
+Implementation Notes
+- Planner computes entry SoC per slot and applies block-aware targets, exporting `soc_target_percent` in schedule and simulations.
+- Manual HOLD/EXPORT controls write `manual_action` metadata that the planner honours while still enforcing safety/price checks.
+- Water heating scheduler iterates today + `plan_days_ahead` (capped at 1) with full-price availability checks before planning tomorrow.
+- Frontend renders new SoC target line, adds HOLD/EXPORT buttons, keeps timeline deduped, and aligns colours with theme palette (0–7 actions, 8–15 buttons).
+
+Acceptance Criteria
+- `soc_target_percent` present for all slots and plotted as a stepped line; targets match rules above (block‑constant for grid charge/export; slot “current” for HOLD; min SoC for discharge/WH battery; block‑start SoC for WH grid).
+- Timeline supports adding HOLD/EXPORT blocks; simulate endpoint honors semantics without violating safety/price guards.
+- Water heating plans tomorrow’s minimum when prices are known and today is already satisfied; no scheduling beyond 48 hours.
+- UI control rows order and spacing match the spec.
+
 Testing
-- Added `tests/test_rev7_behaviour.py` covering SoC clamp behaviour, water-horizon deferral, and charge consolidation contiguity.
-- Full suite: `PYTHONPATH=. python -m pytest -q` → **46 passed, 4 skipped**.
+- Added `tests/test_soc_targets.py` for SoC target mapping and manual HOLD/EXPORT semantics.
+- Expanded `tests/test_water_scheduling.py` to cover per-day/tomorrow scheduling horizon logic.
+- Full suite: `PYTHONPATH=. python -m pytest -q` → **47 passed, 4 skipped**.
+
+Docs/Config
+- README updated to describe SoC target overlay and new manual actions.
+- `config.default.yaml`/`config.yaml` expose `water_heating.plan_days_ahead` (max 1 for 48h horizon) and manual planning targets for charge/export SoC caps.
+- Change Log updated with Rev 8 entry (Model: GPT-5 Codex).
 
 Changelog/Versioning
 - Suggested commit: `feat(planner): Rev 7 — SoC clamp semantics, water horizon to next midnight, charge consolidation, timeline grouping fix`
 - Suggested tag: `v0.7.0`
+
+# Rev 9 Plan: Learning Engine (Auto‑tuning + Forecast Calibration)
+
+Status: Planned (implement after model switch per AGENTS.md)
+
+Goals
+- Reduce daily energy cost while preserving safety and comfort.
+- Calibrate PV/load forecasts, tune S-index weights, and right-size decision margins.
+- Make small, auditable, auto-applied adjustments with clear guardrails and rollback.
+
+Scope
+- Data ingestion from cumulative HA sensors (delta processing to 15-min slots).
+- SQLite schema to store observations, forecasts, and learning runs/metrics.
+- Four incremental learning loops:
+  1) Forecast Calibrator (PV/load bias + variance → safety margins)
+  2) Threshold Tuner (battery_use_margin_sek, export_profit_margin_sek)
+  3) S-index Tuner (base_factor, pv_deficit_weight, temp_weight)
+  4) Export Guard Tuner (future_price_guard_buffer)
+- Nightly orchestration to propose/apply changes with constraints and versioning.
+- UI: Learning settings and a diagnostics panel (later in the rev sequence).
+
+Assumptions
+- HA provides cumulative (increasing) counters for grid import/export, PV, load, water, and SoC; we compute slot deltas.
+- Learning runs in LXC (Proxmox) without resource constraints; planner binary acts as deterministic simulator.
+- Auto-apply is allowed within small change caps.
+
+Architecture
+- ETL → SQLite → Simulator → Param Search → Candidate Selection → Versioning → Apply
+- Deterministic re-simulation uses historical inputs (prices, forecasts, weather) and recorded initial state per day.
+
+SQLite Schema (additions)
+- slot_observations
+  - slot_start (tz-aware text), slot_end (text)
+  - import_kwh, export_kwh, pv_kwh, load_kwh, water_kwh
+  - batt_charge_kwh, batt_discharge_kwh (when directly measured; else null)
+  - soc_start_percent, soc_end_percent
+  - import_price_sek_kwh, export_price_sek_kwh
+  - executed_action (Charge/Discharge/Hold/Export/Water)
+- slot_forecasts
+  - slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version
+- config_versions
+  - id, created_at, yaml_blob, reason, metrics_json
+- learning_runs
+  - id, started_at, horizon_days, params_json, status, result_metrics_json
+- learning_metrics
+  - date, metric, value (e.g., mae_pv, mae_load, cost_delta, breach_count)
+- daily_water (existing; keep)
+
+ETL (Cumulative → 15-min deltas)
+- For each cumulative sensor: compute delta per slot (guard against resets and negative deltas by zeroing those intervals).
+- Align to local timezone (Europe/Stockholm) with DST-safe resampling.
+- Persist slot_observations; tag quality flags when flows are inferred (via SoC delta + net grid).
+
+Learning Loops
+1) Forecast Calibrator (daily)
+   - Compute PV and load bias/variance by hour-of-day with 14–28 day rolling EWMA.
+   - Outputs (clamped, small steps):
+     - forecasting.pv_confidence_percent: clamp 75–98%; step ≤ 1 pp/day.
+     - forecasting.load_safety_margin_percent: clamp 100–118%; step ≤ 1 pp/day.
+   - Objective: minimize realized forecast error while preventing undercoverage during peaks.
+
+2) Threshold Tuner (every 1–2 days)
+   - Parameters: decision_thresholds.battery_use_margin_sek, decision_thresholds.export_profit_margin_sek.
+   - Search: small grid around current value (±0.01–0.02 SEK); bounds [0.00, 0.30].
+   - Objective (last N=7–14 days via simulator): minimize cost (SEK) + wear, penalize min-SoC breaches and unmet WH.
+   - Apply best candidate if improvement ≥ 1.5% and within daily step cap.
+
+3) S-index Tuner (weekly or on drift)
+   - Parameters: s_index.base_factor (±0.05), pv_deficit_weight (±0.05), temp_weight (±0.05). Clamp to max_factor.
+   - Objective: reduce peak buying/shortages without creating excessive unused charge; same penalty structure as above.
+
+4) Export Guard Tuner (weekly)
+   - Parameter: arbitrage.future_price_guard_buffer_sek (±0.05 SEK, bounds [0.00, 0.50]).
+   - Heuristic metrics: count “premature export” events (later higher prices) vs “missed profit”. Adjust accordingly.
+
+Orchestration
+- Nightly job:
+  1) ETL last 48–96 hours; refresh forecasts for those days from stored inputs.
+  2) Compute metrics; run loops (1→4).
+  3) For each candidate: simulate horizon; compare metrics; apply if passes thresholds.
+  4) Record config_versions (before/after + rationale/metrics) and learning_runs.
+- Rollback: if next-day KPIs degrade beyond threshold (cost +5% or breach count up), revert previous change.
+
+Safety & Guardrails
+- Small daily caps; strict bounds per parameter.
+- Warm-up: collect 3–7 days of observations before first application.
+- Auto-apply enabled by default; write-only “suggest” mode available.
+
+UI & API (later in Rev 9 sequence)
+- Settings → Learning
+  - learning.enable (bool)
+  - learning.horizon_days (default 7)
+  - learning.min_improvement_threshold (default 0.015)
+  - learning.max_daily_param_change (default map per param)
+  - learning.auto_apply (bool; default true)
+- Dashboard → Learning
+  - Last run timestamp, PV/Load MAE, cost delta, changes applied.
+  - Link to config_versions diff.
+- API endpoints (read-only):
+  - GET /api/learning/status → summary + metrics
+  - GET /api/learning/changes → last N config changes
+
+Defaults & Bounds (initial)
+- pv_confidence_percent: 90% (75–98; step ≤1 pp/day)
+- load_safety_margin_percent: 110% (100–118; step ≤1 pp/day)
+- battery_use_margin_sek: 0.10 (0.00–0.30; step ≤0.02)
+- export_profit_margin_sek: 0.05 (0.00–0.30; step ≤0.02)
+- s_index.base_factor: 1.05 (0.9–1.5; step ≤0.05)
+- s_index.pv_deficit_weight: 0.30 (0.0–0.6; step ≤0.05)
+- s_index.temp_weight: 0.20 (0.0–0.5; step ≤0.05)
+- future_price_guard_buffer_sek: 0.00 (0.00–0.50; step ≤0.05)
+
+Testing Plan
+- ETL: delta computation with resets/negative deltas; DST transition correctness.
+- Simulator: determinism across days; matches baseline outputs with fixed config.
+- Loop unit tests: each tuner modifies params within caps and improves synthetic scenarios.
+- Integration: end-to-end nightly run in dry-run (suggest-only) with recorded inputs.
+
+Acceptance Criteria
+- ETL produces consistent 15-min observations over ≥14 days; no negative deltas; timezone-correct.
+- Nightly runner updates at most one parameter per loop; never exceeds bounds; logs versioned changes.
+- Forecast calibrator demonstrably reduces PV/load MAE over the last week (vs prior baseline) OR stays neutral when already good.
+- Threshold and S-index tuners apply changes only when improvement ≥ 1.5%; otherwise no-ops.
+- Export guard tuner reduces “premature export” events without increasing missed profits.
+- UI displays last run metrics and recent changes; Settings expose the learning toggles.
+
+Phased Delivery
+- 9a: Schema + ETL + status endpoint (no tuning applied; metrics only)
+- 9b: Forecast Calibrator (auto-apply enabled)
+- 9c: Threshold Tuner (battery/export margins)
+- 9d: S-index Tuner (base/weights)
+- 9e: Export Guard Tuner
+- 9f: UI (Settings + Diagnostics)
+- 9g: Test hardening and docs

@@ -56,6 +56,7 @@ water_heating:
   max_blocks_per_day: 2             # Prefer single block, up to two if needed
   schedule_future_only: true        # Only schedule future slots (skip current slot)
   defer_up_to_hours: 3              # Allow deferring into early tomorrow up to N hours if cheaper
+  plan_days_ahead: 1                # Plan at most today + 1 day (tomorrow) within 48h horizon
 
 # S-Index Configuration
 s_index:
@@ -88,6 +89,11 @@ arbitrage:
   enable_peak_only_export: true
   export_future_price_guard: true
   future_price_guard_buffer_sek: 0.00
+
+# Manual Planning Defaults
+manual_planning:
+  charge_target_percent: 95              # Cap for manual charge slots
+  export_target_percent: 35              # Floor target when manually scheduling export
 
 # Debug & Telemetry
 debug:

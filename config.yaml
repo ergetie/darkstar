@@ -31,6 +31,9 @@ learning:
   enable: true
   sqlite_path: data/planner_learning.db
   sync_interval_minutes: 5
+manual_planning:
+  charge_target_percent: 95
+  export_target_percent: 40
 nordpool:
   currency: SEK
   price_area: SE4
@@ -89,5 +92,6 @@ water_heating:
   max_blocks_per_day: 2
   min_hours_per_day: 2
   min_kwh_per_day: 6
+  plan_days_ahead: 1
   power_kw: 3
   schedule_future_only: true

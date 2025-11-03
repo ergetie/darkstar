@@ -35,6 +35,7 @@ class HeliosPlanner:
         self.water_heating_config = self.config.get('water_heating', {})
         self.safety_config = self.config.get('safety', {})
         self.battery_economics = self.config.get('battery_economics', {})
+        self.manual_planning = self.config.get('manual_planning', {}) or {}
         self.learning_config = self.config.get('learning', {})
         self._learning_schema_initialized = False
         self.daily_pv_forecast: dict[str, float] = {}
@@ -105,6 +106,19 @@ class HeliosPlanner:
             value = smoothing_cfg.get(key, 0)
             if value < 0:
                 errors.append(f"smoothing.{key} must be ≥ 0")
+
+        manual_cfg = self.config.get('manual_planning', {}) or {}
+        for key in ('charge_target_percent', 'export_target_percent'):
+            value = manual_cfg.get(key)
+            if value is not None:
+                try:
+                    value = float(value)
+                except (TypeError, ValueError):
+                    errors.append(f"manual_planning.{key} must be a number (got {value!r})")
+                    continue
+                if not (0.0 <= value <= 100.0):
+                    errors.append(f"manual_planning.{key} must be between 0 and 100 (got {value})")
+
 
         if errors:
             raise ValueError("Invalid planner configuration:\n - " + "\n - ".join(errors))
@@ -509,6 +523,7 @@ class HeliosPlanner:
         df = self._pass_5_distribute_charging_in_windows(df)
         df = self._pass_6_finalize_schedule(df)
         df = self._pass_7_enforce_hysteresis(df)
+        df = self._apply_soc_target_percent(df)
         self._save_schedule_to_json(df)
         return df
 
@@ -596,7 +611,7 @@ class HeliosPlanner:
 
     def _pass_2_schedule_water_heating(self, df):
         """
-        Schedule water heating in contiguous blocks with preference for single block.
+        Schedule water heating in contiguous blocks per day (today + limited days ahead).
 
         Args:
             df (pd.DataFrame): DataFrame with prepared data
@@ -607,6 +622,7 @@ class HeliosPlanner:
         df = df.copy()
 
         timezone_name = getattr(self, 'timezone', 'Europe/Stockholm')
+        tz = pytz.timezone(timezone_name)
 
         power_kw = self.water_heating_config.get('power_kw', 3.0)
         min_hours_per_day = self.water_heating_config.get('min_hours_per_day', 2.0)
@@ -614,108 +630,132 @@ class HeliosPlanner:
         max_blocks_per_day = self.water_heating_config.get('max_blocks_per_day', 2)
         schedule_future_only = self.water_heating_config.get('schedule_future_only', True)
         defer_up_to_hours = float(self.water_heating_config.get('defer_up_to_hours', 0))
+        plan_days_ahead = int(self.water_heating_config.get('plan_days_ahead', 1))
+        plan_days_ahead = max(0, min(plan_days_ahead, 1))  # Horizon limited to tomorrow
 
-        # Build local date mapping for scheduling decisions
+        slot_minutes = self.config.get('nordpool', {}).get('resolution_minutes', 15) or 15
+        slot_duration = pd.Timedelta(minutes=slot_minutes)
+        slot_energy_kwh = power_kw * (slot_duration.total_seconds() / 3600.0)
+        slots_per_block = max(1, math.ceil(min_kwh_per_day / slot_energy_kwh))
+
+        # Build local datetime mapping for scheduling decisions
         try:
-            local_datetimes = df.index.tz_convert(timezone_name)
+            local_datetimes = df.index.tz_convert(tz)
         except TypeError:
-            local_datetimes = df.index.tz_localize(timezone_name)
+            local_datetimes = df.index.tz_localize(tz)
         local_dates = pd.Series(local_datetimes.date, index=df.index)
-        first_local_date = local_dates.iloc[0]
 
-        # Calculate required slots per block
-        slot_energy_kwh = power_kw * 0.25  # 15-minute slots
-        slots_per_block = max(1, int(min_kwh_per_day / slot_energy_kwh))
-
-        # Fetch today's water usage from learning tracker (fallback to 0 if unavailable)
-        daily_water_kwh_today = self._get_daily_water_usage_kwh(first_local_date)
-
-        # Determine if we need to schedule for today or tomorrow
         now_slot = getattr(self, 'now_slot', df.index[0])
-        is_today_complete = daily_water_kwh_today >= min_kwh_per_day
+        df['water_heating_kw'] = 0.0
+        planned_energy_by_date: dict[datetime.date, float] = {}
 
-        # Only consider future slots beyond 'now'
-        if schedule_future_only:
-            available_slots = df[df.index > now_slot]
-        else:
-            available_slots = df[df.index >= now_slot]
-
-        # Allow scheduling up to next local midnight plus optional deferral hours (capped by known data horizon)
         try:
-            now_local = now_slot.tz_convert(timezone_name)
+            now_local = now_slot.tz_convert(tz)
         except TypeError:
-            now_local = now_slot.tz_localize(timezone_name)
-        next_midnight_local = (now_local.normalize() + pd.Timedelta(days=1))
-        horizon_end_local = next_midnight_local + pd.Timedelta(hours=max(0.0, defer_up_to_hours))
-        # Convert back to df index timezone (assumed same tz as df)
-        try:
-            horizon_end = horizon_end_local.tz_convert(df.index.tz)
-        except AttributeError:
-            horizon_end = horizon_end_local.tz_localize(df.index.tz) if df.index.tz is not None else horizon_end_local
-        except TypeError:
-            horizon_end = horizon_end_local.tz_localize(df.index.tz) if df.index.tz is not None else horizon_end_local
+            now_local = now_slot.tz_localize(tz)
+        today_local = now_local.normalize()
+        global_limit_local = today_local + pd.Timedelta(hours=48)
 
-        horizon_end = min(df.index.max(), horizon_end)
-        available_slots = available_slots[(available_slots.index >= now_slot) & (available_slots.index <= horizon_end)]
+        daily_water_kwh_today = self._get_daily_water_usage_kwh(today_local.date())
 
-        # Find contiguous blocks of cheap slots
-        cheap_slots = available_slots[available_slots['is_cheap']].copy()
-        blocks = []
-        selected_blocks = []
+        def _has_full_price_day(start_local: pd.Timestamp) -> bool:
+            base_end = start_local + pd.Timedelta(days=1)
+            base_mask = (local_datetimes >= start_local) & (local_datetimes < base_end)
+            expected_slots = int(round((base_end - start_local) / slot_duration))
+            return base_mask.sum() >= expected_slots
 
-        if not cheap_slots.empty:
-            # Group into contiguous blocks
-            current_block = {'start': cheap_slots.index[0], 'length': 1}
+        for day_offset in range(0, plan_days_ahead + 1):
+            day_start_local = today_local + pd.Timedelta(days=day_offset)
+            if day_start_local >= global_limit_local:
+                break
+
+            base_end_local = day_start_local + pd.Timedelta(days=1)
+            day_horizon_local = min(base_end_local + pd.Timedelta(hours=max(0.0, defer_up_to_hours)), global_limit_local)
+
+            day_mask = (local_datetimes >= day_start_local) & (local_datetimes < day_horizon_local)
+            day_slots = df.loc[day_mask]
+            if day_slots.empty:
+                continue
+
+            if day_offset > 0 and not _has_full_price_day(day_start_local):
+                continue  # skip if tomorrow's prices are not yet known
+
+            if schedule_future_only:
+                day_slots = day_slots[day_slots.index > now_slot]
+                if day_slots.empty:
+                    continue
+
+            if day_offset == 0:
+                remaining_energy = max(0.0, min_kwh_per_day - daily_water_kwh_today)
+            else:
+                remaining_energy = min_kwh_per_day
+
+            if remaining_energy <= 0:
+                continue
+
+            required_slots = max(1, math.ceil(remaining_energy / slot_energy_kwh))
+
+            cheap_slots = day_slots[day_slots['is_cheap']].copy()
+            if cheap_slots.empty:
+                continue
+
+            cheap_slots = cheap_slots.sort_index()
+            contiguous_blocks = []
+            block_start = cheap_slots.index[0]
+            block_length = 1
             for i in range(1, len(cheap_slots)):
                 current_time = cheap_slots.index[i]
-                prev_time = cheap_slots.index[i-1]
-                if (current_time - prev_time).total_seconds() == 900:  # 15 minutes
-                    current_block['length'] += 1
+                previous_time = cheap_slots.index[i - 1]
+                if (current_time - previous_time) == slot_duration:
+                    block_length += 1
                 else:
-                    blocks.append(current_block)
-                    current_block = {'start': current_time, 'length': 1}
-            blocks.append(current_block)
+                    contiguous_blocks.append((block_start, block_length))
+                    block_start = current_time
+                    block_length = 1
+            contiguous_blocks.append((block_start, block_length))
 
-            # Filter blocks that are large enough and sort by average price
-            valid_blocks = [b for b in blocks if b['length'] >= slots_per_block]
-            valid_blocks.sort(key=lambda b: available_slots.loc[b['start']:available_slots.index[available_slots.index.get_loc(b['start']) + b['length'] - 1], 'import_price_sek_kwh'].mean())
+            valid_blocks = []
+            for start, length in contiguous_blocks:
+                if length <= 0:
+                    continue
+                block_index = day_slots.loc[start:start + slot_duration * (length - 1)]
+                average_price = block_index['import_price_sek_kwh'].mean()
+                valid_blocks.append({
+                    'start': start,
+                    'length': length,
+                    'average_price': average_price
+                })
 
-            # Select blocks (prefer single block, allow up to max_blocks_per_day)
-            selected_blocks = []
-            remaining_energy = min_kwh_per_day
+            valid_blocks = [b for b in valid_blocks if b['length'] >= 1]
+            valid_blocks.sort(key=lambda b: b['average_price'])
+
+            selected_blocks: list[tuple[pd.Timestamp, int]] = []
+            slots_needed = required_slots
 
             for block in valid_blocks:
-                if len(selected_blocks) >= max_blocks_per_day:
+                if slots_needed <= 0 or len(selected_blocks) >= max_blocks_per_day:
                     break
-                block_energy = min(block['length'] * slot_energy_kwh, remaining_energy)
-                if block_energy > 0:
-                    selected_blocks.append({
-                        'start': block['start'],
-                        'slots_needed': min(block['length'], int(block_energy / slot_energy_kwh))
-                    })
-                    remaining_energy -= block_energy
-                    if remaining_energy <= 0:
-                        break
+                take_slots = min(block['length'], slots_needed)
+                if take_slots <= 0:
+                    continue
+                selected_blocks.append((block['start'], take_slots))
+                slots_needed -= take_slots
 
-        # Apply scheduling to DataFrame
-        df['water_heating_kw'] = 0.0
-        for block in selected_blocks:
-            start_idx = block['start']
-            slots_needed = block['slots_needed']
-            for i in range(slots_needed):
-                slot_time = start_idx + timedelta(minutes=i * 15)
-                if slot_time in df.index:
-                    if slot_time >= now_slot:
-                        df.loc[slot_time, 'water_heating_kw'] = power_kw
+            if slots_needed > 0:
+                # Not enough capacity to satisfy the requirement for this day; skip scheduling.
+                continue
 
-        # Persist planned water heating energy for each scheduled day
-        if df['water_heating_kw'].sum() > 0:
-            scheduled_slots = df[df['water_heating_kw'] > 0]
-            scheduled_dates = local_dates.reindex(scheduled_slots.index)
-            for target_date in scheduled_dates.unique():
-                day_mask = scheduled_dates == target_date
-                planned_kwh = scheduled_slots.loc[day_mask, 'water_heating_kw'].sum() * 0.25
-                self._record_planned_water_energy(target_date, planned_kwh)
+            for block_start, slot_count in selected_blocks:
+                for i in range(slot_count):
+                    slot_time = block_start + slot_duration * i
+                    if slot_time not in df.index:
+                        continue
+                    df.loc[slot_time, 'water_heating_kw'] = power_kw
+                    local_date = local_dates.loc[slot_time]
+                    planned_energy_by_date[local_date] = planned_energy_by_date.get(local_date, 0.0) + slot_energy_kwh
+
+        for target_date, planned_kwh in planned_energy_by_date.items():
+            self._record_planned_water_energy(target_date, planned_kwh)
 
         return df
         
@@ -1146,6 +1186,29 @@ class HeliosPlanner:
         export_future_price_guard = arbitrage_config.get('export_future_price_guard', False)
         future_price_guard_buffer = float(arbitrage_config.get('future_price_guard_buffer_sek', 0.0))
 
+        manual_cfg = getattr(self, 'manual_planning', None)
+        if not manual_cfg:
+            manual_cfg = self.config.get('manual_planning', {}) or {}
+            self.manual_planning = manual_cfg
+        def _clamp_manual(value: Optional[float], fallback: float) -> float:
+            if value is None:
+                return fallback
+            try:
+                val = float(value)
+            except (TypeError, ValueError):
+                return fallback
+            return max(min_soc_percent, min(max_soc_percent, val))
+
+        manual_charge_target_percent = _clamp_manual(
+            manual_cfg.get('charge_target_percent'),
+            max_soc_percent,
+        )
+        manual_export_target_percent = _clamp_manual(
+            manual_cfg.get('export_target_percent'),
+            min_soc_percent,
+        )
+        manual_export_target_kwh = manual_export_target_percent / 100.0 * capacity_kwh
+
         peak_price_threshold = None
         if export_peak_only and 0 < export_percentile_threshold < 100:
             quantile = max(0.0, min(1.0, 1.0 - (export_percentile_threshold / 100.0)))
@@ -1161,8 +1224,13 @@ class HeliosPlanner:
             protective_soc_kwh = fixed_protective_soc_percent / 100.0 * capacity_kwh
 
         now_slot = getattr(self, 'now_slot', df.index[0])
+        entry_soc_kwh_series: list[float] = []
+        entry_soc_percent_series: list[float] = []
+        manual_request_series: list[Optional[str]] = []
         for idx, row in df.iterrows():
             # Do not modify or simulate past slots; preserve initial SoC/cost at 'now'
+            entry_soc_kwh_series.append(current_kwh)
+            entry_soc_percent_series.append((current_kwh / capacity_kwh) * 100.0 if capacity_kwh else 0.0)
             if idx < now_slot:
                 actions.append('Hold')
                 projected_soc_kwh.append(current_kwh)
@@ -1175,6 +1243,7 @@ class HeliosPlanner:
                 export_revenue.append(0.0)
                 battery_charge_kw_series.append(0.0)
                 battery_discharge_kw_series.append(0.0)
+                manual_request_series.append(None)
                 continue
             pv_kwh = row['adjusted_pv_kwh']
             load_kwh = row['adjusted_load_kwh']
@@ -1183,6 +1252,11 @@ class HeliosPlanner:
             import_price = row['import_price_sek_kwh']
             export_price = row['export_price_sek_kwh']
             is_cheap = row['is_cheap']
+            manual_action_raw = row.get('manual_action')
+            manual_action = None
+            if isinstance(manual_action_raw, str):
+                manual_action = manual_action_raw.strip().lower()
+            manual_request_series.append(manual_action)
 
             discharge_rate_limit_kwh = max_discharge_power_kw * 0.25
             available_battery_energy = max(0.0, current_kwh - min_soc_kwh)
@@ -1201,6 +1275,13 @@ class HeliosPlanner:
             water_from_battery_kwh = 0.0
             water_from_grid_kwh = 0.0
 
+            manual_hold = manual_action == 'hold'
+            if manual_hold:
+                charge_kw = 0.0
+            manual_export_requested = manual_action == 'export'
+            if manual_export_requested:
+                charge_kw = 0.0
+
             if water_kwh_required > 0:
                 # Step 1: Use PV surplus first
                 pv_surplus = max(0.0, pv_kwh - load_kwh)
@@ -1208,7 +1289,7 @@ class HeliosPlanner:
                 remaining_water = water_kwh_required - water_from_pv_kwh
 
                 # Step 2: Use battery if economical
-                battery_allowed_for_water = not is_cheap
+                battery_allowed_for_water = not is_cheap and not manual_hold
                 if remaining_water > 0 and battery_allowed_for_water and self.discharge_efficiency > 0:
                     battery_water_threshold = avg_cost + self.cycle_cost + self.thresholds.get('battery_water_margin_sek', 0.20)
                     if import_price > battery_water_threshold:
@@ -1256,7 +1337,7 @@ class HeliosPlanner:
                     slot_batt_charge_kwh += stored_energy
             else:
                 if net_kwh < 0:
-                    if not is_cheap and self.discharge_efficiency > 0:
+                    if not is_cheap and self.discharge_efficiency > 0 and not manual_hold:
                         discharge_price_threshold = cycle_adjusted_cost + battery_use_margin_sek
                         if import_price > discharge_price_threshold:
                             deficit_kwh = -net_kwh
@@ -1284,11 +1365,37 @@ class HeliosPlanner:
                         slot_batt_charge_kwh += stored_energy
 
             # Export logic: Check for profitable export when safe
-            if enable_export:
+            manual_export_applied = False
+            if manual_export_requested:
+                export_fees = arbitrage_config.get('export_fees_sek_per_kwh', 0.0)
+                net_export_price = export_price - export_fees
+                manual_floor_kwh = max(min_soc_kwh, manual_export_target_kwh)
+                available_manual_energy = max(0.0, current_kwh - manual_floor_kwh)
+                if available_manual_energy > 0 and discharge_budget_kwh > 0:
+                    manual_output_cap = min(
+                        discharge_budget_kwh,
+                        self._battery_output_from_energy(available_manual_energy),
+                    )
+                    if manual_output_cap > 0:
+                        export_from_battery = manual_output_cap
+                        slot_export_kwh = export_from_battery
+                        slot_export_revenue = slot_export_kwh * net_export_price
+                        battery_energy_used = self._battery_energy_for_output(export_from_battery)
+                        battery_energy_used = min(battery_energy_used, available_manual_energy)
+                        current_kwh = max(min_soc_kwh, current_kwh - battery_energy_used)
+                        total_cost -= avg_cost * battery_energy_used
+                        discharge_budget_kwh = max(0.0, discharge_budget_kwh - export_from_battery)
+                        avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                        cycle_adjusted_cost = avg_cost + self.cycle_cost
+                        slot_batt_discharge_kwh += export_from_battery
+                        total_cost = max(0.0, total_cost)
+                        action = 'Export'
+                        manual_export_applied = True
+
+            if enable_export and not manual_export_applied:
                 export_fees = arbitrage_config.get('export_fees_sek_per_kwh', 0.0)
                 export_profit_margin = arbitrage_config.get('export_profit_margin_sek', 0.05)
                 net_export_price = export_price - export_fees
-
                 protective_headroom_stored = max(0.0, current_kwh - protective_soc_kwh)
                 if charge_kw <= 0:
                     battery_export_capacity = min(
@@ -1334,6 +1441,8 @@ class HeliosPlanner:
                         slot_batt_discharge_kwh += export_from_battery
                         total_cost = max(0.0, total_cost)
                         action = 'Export'
+                if manual_export_requested and action != 'Export':
+                    action = 'Export'
 
             # Spill remaining PV surplus without explicit export planning
             if pv_surplus_remaining > 0:
@@ -1374,6 +1483,13 @@ class HeliosPlanner:
         df['export_revenue'] = export_revenue
         df['battery_charge_kw'] = battery_charge_kw_series
         df['battery_discharge_kw'] = battery_discharge_kw_series
+        df['manual_action'] = manual_request_series
+        df['_entry_soc_percent'] = entry_soc_percent_series
+        df['_entry_soc_kwh'] = entry_soc_kwh_series
+        self._last_protective_soc_kwh = protective_soc_kwh
+        self._last_strategic_target_kwh = strategic_target_kwh
+        self._slot_entry_soc_percent = pd.Series(entry_soc_percent_series, index=df.index)
+        self._slot_entry_soc_kwh = pd.Series(entry_soc_kwh_series, index=df.index)
 
         return df
 
@@ -1475,6 +1591,177 @@ class HeliosPlanner:
         # Re-simulate the schedule with the new actions to update SoC and costs
         # This is a simplified approach - in production, we'd need to re-run the full simulation
         # For now, we'll just update the action classifications
+
+        return df
+
+    def _apply_soc_target_percent(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Derive the per-slot SoC target signal based on planner actions and configuration.
+
+        Args:
+            df (pd.DataFrame): Schedule dataframe after hysteresis adjustments.
+
+        Returns:
+            pd.DataFrame: DataFrame with ``soc_target_percent`` column applied.
+        """
+        if df is None or df.empty:
+            df['soc_target_percent'] = []
+            return df
+
+        entry_series = df.get('_entry_soc_percent')
+        if entry_series is None:
+            df['soc_target_percent'] = df.get('projected_soc_percent', pd.Series([None] * len(df)))
+            return df
+
+        entry_list = entry_series.tolist()
+        actions = df['action'].tolist() if 'action' in df else ['Hold'] * len(df)
+        projected = df.get('projected_soc_percent', pd.Series([None] * len(df))).tolist()
+        water_kw = df.get('water_heating_kw', pd.Series([0.0] * len(df))).tolist()
+        water_from_grid = df.get('water_from_grid_kwh', pd.Series([0.0] * len(df))).tolist()
+        water_from_battery = df.get('water_from_battery_kwh', pd.Series([0.0] * len(df))).tolist()
+        manual_series = df.get('manual_action', pd.Series([None] * len(df)))
+        manual_actions = [
+            m.strip().lower() if isinstance(m, str) else None
+            for m in manual_series.tolist()
+        ]
+
+        min_soc_percent = float(self.battery_config.get('min_soc_percent', 15.0))
+        max_soc_percent = float(self.battery_config.get('max_soc_percent', 100.0))
+        manual_cfg = getattr(self, 'manual_planning', {}) or {}
+        def _clamp_manual(value: Optional[float], fallback: float) -> float:
+            if value is None:
+                return fallback
+            try:
+                val = float(value)
+            except (TypeError, ValueError):
+                return fallback
+            return max(min_soc_percent, min(max_soc_percent, val))
+
+        capacity_kwh = float(self.battery_config.get('capacity_kwh', 0.0))
+        protective_soc_kwh = getattr(self, '_last_protective_soc_kwh', None)
+
+        def _pct(value: Optional[float]) -> float:
+            if value is None or capacity_kwh <= 0:
+                return min_soc_percent
+            return max(0.0, min(100.0, (value / capacity_kwh) * 100.0))
+
+        guard_floor_percent = max(
+            min_soc_percent,
+            _pct(protective_soc_kwh),
+        )
+
+        manual_charge_target_percent = _clamp_manual(
+            manual_cfg.get('charge_target_percent'),
+            max_soc_percent,
+        )
+        manual_export_target_percent = _clamp_manual(
+            manual_cfg.get('export_target_percent'),
+            guard_floor_percent,
+        )
+
+        targets = [min_soc_percent for _ in range(len(df))]
+        index_list = list(df.index)
+        now_slot = getattr(self, 'now_slot', index_list[0])
+        try:
+            now_pos = index_list.index(now_slot)
+        except ValueError:
+            now_pos = -1
+
+        # Preserve historical SoC targets using entry values
+        if now_pos >= 0:
+            for i in range(now_pos + 1):
+                entry = entry_list[i]
+                if entry is not None:
+                    targets[i] = float(entry)
+
+        # Action-specific overrides for future slots
+        start_idx = max(now_pos + 1, 0)
+        for i in range(start_idx, len(df)):
+            action = actions[i]
+            entry = entry_list[i]
+            if action == 'Hold' and entry is not None:
+                targets[i] = float(entry)
+            elif action == 'Export':
+                if manual_actions[i] == 'export':
+                    targets[i] = manual_export_target_percent
+                else:
+                    targets[i] = guard_floor_percent
+            elif action == 'Discharge':
+                targets[i] = min_soc_percent
+
+        # Apply block-level adjustments for charge and export
+        i = start_idx
+        while i < len(df):
+            if actions[i] == 'Charge':
+                start = i
+                manual_block = manual_actions[i] == 'charge'
+                while i + 1 < len(df) and actions[i + 1] == 'Charge':
+                    i += 1
+                    if manual_actions[i] == 'charge':
+                        manual_block = True
+                end = i
+                block_target = projected[end]
+                if block_target is None:
+                    block_target = projected[start]
+                if block_target is None and entry_list[start] is not None:
+                    block_target = entry_list[start]
+                block_value = float(block_target) if block_target is not None else targets[start]
+                block_value = max(min_soc_percent, min(max_soc_percent, block_value))
+                if manual_block:
+                    block_value = min(block_value, manual_charge_target_percent)
+                for j in range(start, end + 1):
+                    targets[j] = block_value
+                i += 1
+            else:
+                i += 1
+
+        i = start_idx
+        while i < len(df):
+            if actions[i] == 'Export':
+                start = i
+                manual_block = manual_actions[i] == 'export'
+                while i + 1 < len(df) and actions[i + 1] == 'Export':
+                    i += 1
+                    if manual_actions[i] == 'export':
+                        manual_block = True
+                end = i
+                block_value = manual_export_target_percent if manual_block else guard_floor_percent
+                for j in range(start, end + 1):
+                    targets[j] = block_value
+                i += 1
+            else:
+                i += 1
+
+        # Water heating blocks: differentiate battery vs grid supply
+        i = start_idx
+        while i < len(df):
+            if water_kw[i] > 0:
+                start = i
+                has_battery = water_from_battery[i] > 0
+                has_grid = water_from_grid[i] > 0
+                while i + 1 < len(df) and water_kw[i + 1] > 0:
+                    i += 1
+                    has_battery = has_battery or water_from_battery[i] > 0
+                    has_grid = has_grid or water_from_grid[i] > 0
+                end = i
+                if has_battery:
+                    for j in range(start, end + 1):
+                        targets[j] = min_soc_percent
+                elif has_grid:
+                    block_entry = entry_list[start]
+                    block_value = float(block_entry) if block_entry is not None else targets[start]
+                    for j in range(start, end + 1):
+                        targets[j] = block_value
+                i += 1
+            else:
+                i += 1
+
+        df['soc_target_percent'] = [round(float(val), 4) for val in targets]
+
+        drop_candidates = ['_entry_soc_percent', '_entry_soc_kwh', 'manual_action']
+        existing = [col for col in drop_candidates if col in df.columns]
+        if existing:
+            df = df.drop(columns=existing)
 
         return df
 
@@ -1686,6 +1973,7 @@ def simulate_schedule(df, config, initial_state):
     temp_planner.water_heating_config = config.get('water_heating', {})
     temp_planner.safety_config = config.get('safety', {})
     temp_planner.battery_economics = config.get('battery_economics', {})
+    temp_planner.manual_planning = config.get('manual_planning', {}) or {}
     temp_planner.learning_config = config.get('learning', {})
     temp_planner._learning_schema_initialized = False
     temp_planner.daily_pv_forecast = {}
@@ -1710,8 +1998,10 @@ def simulate_schedule(df, config, initial_state):
     temp_planner.cycle_cost = temp_planner.battery_economics.get('battery_cycle_cost_kwh', 0.0)
     temp_planner.state = initial_state
     
-    # Run the simulation pass
-    return temp_planner._pass_6_finalize_schedule(df)
+    # Run the simulation pass and apply SoC targets
+    simulated_df = temp_planner._pass_6_finalize_schedule(df)
+    simulated_df = temp_planner._apply_soc_target_percent(simulated_df)
+    return simulated_df
 
 
 if __name__ == "__main__":

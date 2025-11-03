@@ -45,6 +45,7 @@ class TestJsonSchema:
             'action': ['Hold', 'Hold'],
             'projected_soc_kwh': [5.0, 5.0],
             'projected_soc_percent': [50.0, 50.0],
+            'soc_target_percent': [45.0, 45.0],
             'projected_battery_cost': [0.20, 0.20],
             'water_from_pv_kwh': [0.0, 0.0],
             'water_from_battery_kwh': [0.0, 0.0],
@@ -65,7 +66,7 @@ class TestJsonSchema:
         required_fields = [
             'slot_number', 'start_time', 'end_time', 'classification',
             'import_price_sek_kwh', 'export_price_sek_kwh',
-            'projected_soc_percent', 'projected_battery_cost'
+            'projected_soc_percent', 'soc_target_percent', 'projected_battery_cost'
         ]
 
         for field in required_fields:
@@ -90,6 +91,7 @@ class TestJsonSchema:
             'action': ['Charge', 'Discharge', 'PV Charge'],
             'projected_soc_kwh': [5.0, 5.0, 5.0],
             'projected_soc_percent': [50.0, 50.0, 50.0],
+            'soc_target_percent': [45.0, 40.0, 55.0],
             'projected_battery_cost': [0.20, 0.20, 0.20],
             'water_from_pv_kwh': [0.0, 0.0, 0.0],
             'water_from_battery_kwh': [0.0, 0.0, 0.0],
@@ -124,6 +126,7 @@ class TestJsonSchema:
             'action': ['Charge', 'Discharge', 'Export', 'Hold'],
             'projected_soc_kwh': [5.0, 5.0, 5.0, 5.0],
             'projected_soc_percent': [50.0, 50.0, 50.0, 50.0],
+            'soc_target_percent': [45.0, 35.0, 30.0, 55.0],
             'projected_battery_cost': [0.20, 0.20, 0.20, 0.20],
             'water_from_pv_kwh': [0.0, 0.0, 0.0, 0.0],
             'water_from_battery_kwh': [0.0, 0.0, 0.0, 0.0],
@@ -159,6 +162,7 @@ class TestJsonSchema:
             'action': ['Hold'],
             'projected_soc_kwh': [5.123456],
             'projected_soc_percent': [50.987654],
+            'soc_target_percent': [52.2222],
             'projected_battery_cost': [0.198765],
             'water_from_pv_kwh': [0.0],
             'water_from_battery_kwh': [0.0],
@@ -177,6 +181,7 @@ class TestJsonSchema:
         assert record['projected_soc_kwh'] == 5.12
         assert record['projected_soc_percent'] == 50.99
         assert record['projected_battery_cost'] == 0.20
+        assert record['soc_target_percent'] == 52.22
 
     def test_debug_payload_structure(self):
         """Test that debug payload has correct structure when enabled."""
@@ -195,6 +200,7 @@ class TestJsonSchema:
             'action': ['Hold', 'Hold', 'Hold'],
             'projected_soc_kwh': [5.0, 5.0, 5.0],
             'projected_soc_percent': [50.0, 50.0, 50.0],
+            'soc_target_percent': [45.0, 45.0, 45.0],
             'projected_battery_cost': [0.20, 0.20, 0.20],
             'water_from_pv_kwh': [0.0, 0.0, 0.0],
             'water_from_battery_kwh': [0.0, 0.0, 0.0],

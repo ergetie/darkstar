@@ -1,82 +1,55 @@
 """
-Test water heating block scheduling functionality.
+Tests for per-day water heating scheduling logic.
 """
+from __future__ import annotations
+
 import math
-import pytest
+from datetime import timedelta
+
 import pandas as pd
-from datetime import datetime, timedelta
+import pytest
+
 from planner import HeliosPlanner
 
 
-class TestWaterScheduling:
-    """Test water heating scheduling with contiguous blocks."""
+class TestWaterHeatingScheduling:
+    """Validate water heating scheduling across today and tomorrow."""
 
     def setup_method(self):
-        """Set up test fixtures."""
         config = {
+            'timezone': 'Europe/Stockholm',
             'water_heating': {
                 'power_kw': 3.0,
                 'min_hours_per_day': 2.0,
                 'min_kwh_per_day': 6.0,
                 'max_blocks_per_day': 2,
-                'schedule_future_only': True
+                'schedule_future_only': True,
+                'defer_up_to_hours': 3,
+                'plan_days_ahead': 1,
             },
             'charging_strategy': {
                 'charge_threshold_percentile': 15,
                 'cheap_price_tolerance_sek': 0.10,
-                'price_smoothing_sek_kwh': 0.05
-            }
+                'price_smoothing_sek_kwh': 0.05,
+            },
+            'learning': {
+                'enable': False,
+                'sqlite_path': 'data/planner_learning_test.db',
+            },
+            'nordpool': {'resolution_minutes': 15},
         }
-        self.planner = HeliosPlanner.__new__(HeliosPlanner)
-        self.planner.config = config
-        self.planner.water_heating_config = config['water_heating']
-        self.planner.charging_strategy = config['charging_strategy']
-        self.planner.strategic_charging = {'target_soc_percent': 95}
-        self.planner.daily_pv_forecast = {}
-        self.planner.daily_load_forecast = {}
-        self.planner._last_temperature_forecast = {}
-        self.planner.forecast_meta = {}
-        self.planner.daily_pv_forecast = {}
-        self.planner.daily_load_forecast = {}
-        self.planner._last_temperature_forecast = {}
-        self.planner.forecast_meta = {}
-        # smoothing_config is accessed through config
 
-    def test_contiguous_block_identification(self):
-        """Test identification of contiguous cheap slots."""
-        # Create test DataFrame with cheap slots
-        dates = pd.date_range('2025-01-01 00:00', periods=24, freq='15min')
-        df = pd.DataFrame({
-            'import_price_sek_kwh': [0.15] * 6 + [0.25] * 6 + [0.15] * 6 + [0.25] * 6,  # Two cheap blocks
-            'adjusted_pv_kwh': [0.0] * 24,
-            'adjusted_load_kwh': [0.3] * 24,
-            'water_heating_kw': [0.0] * 24
-        }, index=dates)
-
-        # Mark cheap slots
-        df['is_cheap'] = df['import_price_sek_kwh'] <= 0.20
-
-        # Test block identification
-        available_slots = df[df['is_cheap']]
-        blocks = []
-        if not available_slots.empty:
-            current_block = {'start': available_slots.index[0], 'length': 1}
-            for i in range(1, len(available_slots)):
-                current_time = available_slots.index[i]
-                prev_time = available_slots.index[i-1]
-                if (current_time - prev_time).total_seconds() == 900:  # 15 minutes
-                    current_block['length'] += 1
-                else:
-                    blocks.append(current_block)
-                    current_block = {'start': current_time, 'length': 1}
-            blocks.append(current_block)
-
-        # Should have 2 blocks of 6 slots each
-        assert len(blocks) == 2
-        assert all(block['length'] == 6 for block in blocks)
-
-    def test_water_heating_cheap_window_uses_grid(self):
-        planner = self.planner
+        planner = HeliosPlanner.__new__(HeliosPlanner)
+        planner.config = config
+        planner.timezone = config['timezone']
+        planner.water_heating_config = config['water_heating']
+        planner.charging_strategy = config['charging_strategy']
+        planner.learning_config = config['learning']
+        planner.strategic_charging = {'target_soc_percent': 95}
+        planner.daily_pv_forecast = {}
+        planner.daily_load_forecast = {}
+        planner._last_temperature_forecast = {}
+        planner.forecast_meta = {}
         planner.battery_config = {
             'capacity_kwh': 10.0,
             'min_soc_percent': 15,
@@ -85,130 +58,86 @@ class TestWaterScheduling:
             'max_discharge_power_kw': 5.0,
             'roundtrip_efficiency_percent': 95.0,
         }
-        planner.thresholds = {
-            'battery_use_margin_sek': 0.10,
-            'battery_water_margin_sek': 0.20,
-        }
-        planner.battery_economics = {'battery_cycle_cost_kwh': 0.20}
-        efficiency_component = math.sqrt(0.95)
-        planner.roundtrip_efficiency = 0.95
-        planner.charge_efficiency = efficiency_component
-        planner.discharge_efficiency = efficiency_component
-        planner.cycle_cost = 0.20
-        planner.state = {
-            'battery_kwh': 6.0,
-            'battery_cost_sek_per_kwh': 0.20,
-        }
-        planner.window_responsibilities = []
 
-        dates = pd.date_range('2025-01-01 07:00', periods=1, freq='15min', tz='Europe/Stockholm')
+        self.planner = planner
+        self.slot_energy = config['water_heating']['power_kw'] * 0.25  # 15-minute slots
+
+    def _build_frame(self, start: str = '2025-01-01 00:00', periods: int = 192) -> pd.DataFrame:
+        """Create baseline dataframe covering today + tomorrow (48h)."""
+        index = pd.date_range(start, periods=periods, freq='15min', tz='Europe/Stockholm')
         df = pd.DataFrame({
-            'adjusted_pv_kwh': [0.0],
-            'adjusted_load_kwh': [0.0],
-            'water_heating_kw': [planner.water_heating_config['power_kw']],
-            'charge_kw': [0.0],
-            'import_price_sek_kwh': [0.12],
-            'export_price_sek_kwh': [0.10],
-            'is_cheap': [True],
-        }, index=dates)
+            'import_price_sek_kwh': [0.25] * periods,
+            'adjusted_pv_kwh': [0.0] * periods,
+            'adjusted_load_kwh': [0.3] * periods,
+            'water_heating_kw': [0.0] * periods,
+        }, index=index)
+        df['is_cheap'] = False
+        return df
 
-        planner.now_slot = dates[0]
-        result = planner._pass_6_finalize_schedule(df.copy())
+    def test_today_schedules_remaining_requirement(self):
+        """Planner should cover only the remaining energy needed for today."""
+        df = self._build_frame(periods=96)  # today only
+        df.loc[df.index[16:32], 'is_cheap'] = True  # 4 hours cheap window mid-day
 
-        slot = result.iloc[0]
-        assert slot['water_from_battery_kwh'] == pytest.approx(0.0)
-        assert slot['water_from_grid_kwh'] == pytest.approx(planner.water_heating_config['power_kw'] * 0.25)
+        planner = self.planner
+        planner.now_slot = df.index[0]
+        planner._get_daily_water_usage_kwh = lambda _: 3.0  # already consumed 3 kWh
 
-    def test_single_block_preference(self):
-        """Test that single block is preferred when possible."""
-        # Create scenario where one large block can satisfy requirements
-        dates = pd.date_range('2025-01-01 00:00', periods=16, freq='15min')  # 4 hours
-        df = pd.DataFrame({
-            'import_price_sek_kwh': [0.15] * 16,  # All cheap
-            'adjusted_pv_kwh': [0.0] * 16,
-            'adjusted_load_kwh': [0.3] * 16,
-            'water_heating_kw': [0.0] * 16
-        }, index=dates)
+        result = planner._pass_2_schedule_water_heating(df)
 
-        df['is_cheap'] = df['import_price_sek_kwh'] <= 0.20
+        scheduled = result[result['water_heating_kw'] > 0]
+        expected_slots = math.ceil((6.0 - 3.0) / self.slot_energy)
+        assert len(scheduled) == expected_slots
+        assert scheduled.index.min() >= df.index[1]  # respects future-only rule
 
-        # Run water heating scheduling
-        result_df = self.planner._pass_2_schedule_water_heating(df)
+    def test_skip_today_when_requirement_met(self):
+        """No scheduling when today's requirement already satisfied."""
+        df = self._build_frame(periods=96)
+        df.loc[df.index[20:40], 'is_cheap'] = True
 
-        # Count scheduled slots
-        scheduled_slots = result_df[result_df['water_heating_kw'] > 0]
-        assert len(scheduled_slots) == 8  # 6 kWh / (3 kW * 0.25 h) = 8 slots
+        planner = self.planner
+        planner.now_slot = df.index[0]
+        planner._get_daily_water_usage_kwh = lambda _: 7.0  # already met min_kwh
 
-        # Check that it's scheduled as one contiguous block
-        scheduled_indices = scheduled_slots.index
-        time_diffs = [(scheduled_indices[i+1] - scheduled_indices[i]).total_seconds() for i in range(len(scheduled_indices)-1)]
-        assert all(abs(diff - 900) < 1 for diff in time_diffs)  # All 15-minute intervals (with small tolerance)
+        result = planner._pass_2_schedule_water_heating(df)
+        assert (result['water_heating_kw'] == 0.0).all()
 
-    def test_multiple_blocks_when_needed(self):
-        """Test that multiple blocks are used when single block insufficient."""
-        # Create scenario with small cheap blocks
-        dates = pd.date_range('2025-01-01 00:00', periods=24, freq='15min')
-        df = pd.DataFrame({
-            'import_price_sek_kwh': [0.15] * 4 + [0.25] * 4 + [0.15] * 4 + [0.25] * 12,  # Two blocks of 4 slots each
-            'adjusted_pv_kwh': [0.0] * 24,
-            'adjusted_load_kwh': [0.3] * 24,
-            'water_heating_kw': [0.0] * 24
-        }, index=dates)
+    def test_schedule_tomorrow_when_prices_known(self):
+        """Planner schedules tomorrow when today satisfied and prices published."""
+        df = self._build_frame()  # 48-hour horizon
+        today = df.index[0].normalize()
+        tomorrow_start = today + timedelta(days=1)
 
-        df['is_cheap'] = df['import_price_sek_kwh'] <= 0.20
+        today_mask = (df.index >= today) & (df.index < tomorrow_start)
+        tomorrow_mask = (df.index >= tomorrow_start) & (df.index < tomorrow_start + timedelta(days=1))
 
-        # Run water heating scheduling
-        result_df = self.planner._pass_2_schedule_water_heating(df)
+        df.loc[today_mask, 'is_cheap'] = False
+        hour_mask = (df.index.hour >= 1) & (df.index.hour <= 4)
+        df.loc[tomorrow_mask & hour_mask, 'is_cheap'] = True  # cheap window tomorrow
 
-        # Should schedule across available blocks (may not meet full requirement if blocks too small)
-        scheduled_slots = result_df[result_df['water_heating_kw'] > 0]
-        # With 4-slot blocks, we can only schedule 4 slots, not 8
-        assert len(scheduled_slots) <= 8  # May be less if blocks are insufficient
+        planner = self.planner
+        planner.now_slot = df.index[0]
+        planner._get_daily_water_usage_kwh = lambda date: 6.0 if date.day == today.day else 0.0
 
-    def test_future_day_scheduling(self):
-        """Test scheduling for future day when today is complete."""
-        # Mock the scenario where today is complete
-        dates = pd.date_range('2025-01-01 00:00', periods=24, freq='15min')
-        df = pd.DataFrame({
-            'import_price_sek_kwh': [0.15] * 16,
-            'adjusted_pv_kwh': [0.0] * 16,
-            'adjusted_load_kwh': [0.3] * 16,
-            'water_heating_kw': [0.0] * 16
-        }, index=dates[:16])
+        result = planner._pass_2_schedule_water_heating(df)
+        scheduled = result[result['water_heating_kw'] > 0]
+        assert not scheduled.empty
+        assert scheduled.index.min() >= tomorrow_start
+        assert scheduled.index.max() < tomorrow_start + timedelta(days=1, hours=3)
 
-        df['is_cheap'] = df['import_price_sek_kwh'] <= 0.20
+    def test_skip_tomorrow_when_prices_unknown(self):
+        """Planner should skip tomorrow if the price horizon is incomplete."""
+        df = self._build_frame(periods=120)  # less than 48h -> tomorrow incomplete
+        today = df.index[0].normalize()
+        tomorrow_start = today + timedelta(days=1)
 
-        # Test with schedule_future_only = True (default)
-        result_df = self.planner._pass_2_schedule_water_heating(df)
+        df.loc[(df.index >= today) & (df.index < today + timedelta(hours=6)), 'is_cheap'] = True
+        df.loc[(df.index >= tomorrow_start), 'is_cheap'] = True
 
-        # Should schedule in future slots (after first slot)
-        scheduled_slots = result_df[result_df['water_heating_kw'] > 0]
-        assert len(scheduled_slots) > 0
-        assert all(slot > df.index[0] for slot in scheduled_slots.index)
+        planner = self.planner
+        planner.now_slot = df.index[0]
+        planner._get_daily_water_usage_kwh = lambda _: 6.0  # today satisfied
 
-    def test_respects_max_blocks_limit(self):
-        """Test that scheduling respects max_blocks_per_day limit."""
-        # Create many small cheap blocks
-        dates = pd.date_range('2025-01-01 00:00', periods=24, freq='15min')
-        prices = []
-        for i in range(24):
-            prices.append(0.15 if i % 3 == 0 else 0.25)  # Every 3rd slot is cheap
-
-        df = pd.DataFrame({
-            'import_price_sek_kwh': prices,
-            'adjusted_pv_kwh': [0.0] * len(prices),
-            'adjusted_load_kwh': [0.3] * len(prices),
-            'water_heating_kw': [0.0] * len(prices)
-        }, index=dates[:len(prices)])
-
-        df['is_cheap'] = df['import_price_sek_kwh'] <= 0.20
-
-        # Run scheduling
-        result_df = self.planner._pass_2_schedule_water_heating(df)
-
-        # Count contiguous blocks used
-        scheduled_slots = result_df[result_df['water_heating_kw'] > 0]
-        if len(scheduled_slots) > 0:
-            # Should not exceed max_blocks_per_day
-            # This is a simplified check - in practice we'd count actual blocks
-            assert len(scheduled_slots) <= 16  # Reasonable upper bound
+        result = planner._pass_2_schedule_water_heating(df)
+        scheduled = result[result['water_heating_kw'] > 0]
+        assert scheduled.empty

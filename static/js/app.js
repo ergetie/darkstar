@@ -39,13 +39,19 @@ function getThemeColours() {
 }
 
 function themeStyleForAction(action) {
-    if (action === 'Charge') {
-        return 'background-color: var(--ds-palette-8); color: var(--ds-background); border: 1px solid var(--ds-border);';
+    const base = 'color: var(--ds-background); border: none;';
+    switch (action) {
+        case 'Charge':
+            return `${base} background-color: var(--ds-palette-0);`;
+        case 'Water Heating':
+            return `${base} background-color: var(--ds-palette-1);`;
+        case 'Export':
+            return `${base} background-color: var(--ds-palette-2);`;
+        case 'Hold':
+            return `${base} background-color: var(--ds-palette-3);`;
+        default:
+            return '';
     }
-    if (action === 'Water Heating') {
-        return 'background-color: var(--ds-palette-9); color: var(--ds-background); border: 1px solid var(--ds-border);';
-    }
-    return '';
 }
 
 function applyThemeVariables(theme, accentIndex) {
@@ -302,6 +308,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // We need the current config to render the chart properly
             return fetch('/api/config').then(configResponse => {
                 return configResponse.json().then(configData => {
+                    renderTimeline(simulatedData);
                     renderChart(simulatedData, configData);
                 });
             });
@@ -333,8 +340,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Add-click buttons to create blocks
     const addChargeBtn = document.getElementById('addChargeBtn');
     const addWaterBtn  = document.getElementById('addWaterBtn');
+    const addHoldBtn   = document.getElementById('addHoldBtn');
+    const addExportBtn = document.getElementById('addExportBtn');
     if (addChargeBtn) addChargeBtn.addEventListener('click', () => addActionBlock('Charge'));
     if (addWaterBtn)  addWaterBtn.addEventListener('click',  () => addActionBlock('Water Heating'));
+    if (addHoldBtn)   addHoldBtn.addEventListener('click',   () => addActionBlock('Hold'));
+    if (addExportBtn) addExportBtn.addEventListener('click', () => addActionBlock('Export'));
 
 
 });
@@ -612,6 +623,7 @@ async function renderChart(data, config) {
         const projectedSoC = [];
         const waterHeating = [];
         const exportPower = [];
+        const socTarget = [];
 
         for (let i = 0; i < 192; i++) {
             const slotTime = new Date(startOfToday.getTime() + i * 15 * 60 * 1000);
@@ -631,6 +643,7 @@ async function renderChart(data, config) {
                 projectedSoC.push(slot.projected_soc_percent ?? null);
                 waterHeating.push(slot.water_heating_kw ?? 0);
                 exportPower.push(slot.export_kwh != null ? slot.export_kwh * 4 : 0);
+                socTarget.push(slot.soc_target_percent ?? null);
             } else {
                 importPrices.push(null);
                 pvForecasts.push(0);
@@ -640,6 +653,7 @@ async function renderChart(data, config) {
                 projectedSoC.push(null);
                 waterHeating.push(0);
                 exportPower.push(0);
+                socTarget.push(null);
             }
         }
 
@@ -666,7 +680,8 @@ async function renderChart(data, config) {
             water: palette[1] || theme.accent,
             export: palette[2] || theme.accent,
             discharge: palette[3] || theme.accent,
-            soc: theme.foreground
+            soc: theme.foreground,
+            socTarget: palette[7] || theme.accent
         };
 
         const gradientFactory = (colour, startAlpha = 0.55, endAlpha = 0.05) => (context) => {
@@ -773,6 +788,19 @@ async function renderChart(data, config) {
                         fill: false,
                         pointRadius: 0,
                         spanGaps: false  // Don't connect lines across null values
+                    },
+                    {
+                        type: 'line',
+                        label: 'SoC Target (%)',
+                        data: socTarget,
+                        borderColor: colours.socTarget,
+                        backgroundColor: 'transparent',
+                        yAxisID: 'y2',
+                        fill: false,
+                        pointRadius: 0,
+                        stepped: true,
+                        borderDash: [6, 4],
+                        spanGaps: false
                     }
                 ]
             },
@@ -855,10 +883,14 @@ function renderTimeline(data) {
             let action = null;
 
             const classification = (slot.classification || '').toString().toLowerCase();
-            if (classification === 'charge' || classification === 'battery_charge') {
-                action = 'Charge';
-            } else if (slot.water_heating_kw > 0) {
+            if (slot.water_heating_kw > 0) {
                 action = 'Water Heating';
+            } else if (classification === 'charge' || classification === 'battery_charge' || classification === 'pv charge') {
+                action = 'Charge';
+            } else if (classification === 'export') {
+                action = 'Export';
+            } else if (classification === 'hold') {
+                action = 'Hold';
             }
 
             if (action !== null) {
