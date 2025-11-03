@@ -13,6 +13,7 @@
         <nav class="tabs">
             <button class="tab-button active" data-tab="dashboard">Dashboard</button>
             <button class="tab-button" data-tab="settings">Settings</button>
+            <button class="tab-button" data-tab="learning">Learning</button>
             <button class="tab-button" data-tab="system">System</button>
         </nav>
     </header>
@@ -158,6 +159,23 @@
                     </label>
                     <label>SQLite Path: <input type="text" name="learning.sqlite_path"></label>
                     <label>Sync Interval (minutes): <input type="number" step="1" name="learning.sync_interval_minutes"></label>
+                    <label>Horizon Days: <input type="number" step="1" name="learning.horizon_days"></label>
+                    <label>Min Improvement Threshold: <input type="number" step="0.001" name="learning.min_improvement_threshold"></label>
+                    <label>
+                        <input type="checkbox" name="learning.auto_apply">
+                        Auto-apply Changes
+                    </label>
+                </fieldset>
+                <fieldset>
+                    <legend>Learning Parameter Limits</legend>
+                    <label>PV Confidence Daily Change (%): <input type="number" step="0.1" name="learning.max_daily_param_change.pv_confidence_percent"></label>
+                    <label>Load Safety Margin Daily Change (%): <input type="number" step="0.1" name="learning.max_daily_param_change.load_safety_margin_percent"></label>
+                    <label>Battery Use Margin Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.battery_use_margin_sek"></label>
+                    <label>Export Profit Margin Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.export_profit_margin_sek"></label>
+                    <label>S-index Base Factor Daily Change: <input type="number" step="0.001" name="learning.max_daily_param_change.s_index_base_factor"></label>
+                    <label>S-index PV Deficit Weight Daily Change: <input type="number" step="0.001" name="learning.max_daily_param_change.s_index_pv_deficit_weight"></label>
+                    <label>S-index Temperature Weight Daily Change: <input type="number" step="0.001" name="learning.max_daily_param_change.s_index_temp_weight"></label>
+                    <label>Export Guard Buffer Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.future_price_guard_buffer_sek"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Manual Planning</legend>
@@ -221,6 +239,43 @@
             <div class="actions">
                 <button id="save-changes">Save Changes</button>
                 <button id="reset-defaults">Reset to Defaults</button>
+            </div>
+        </div>
+        <div id="learning" class="tab-content">
+            <div class="learning-dashboard">
+                <fieldset class="learning-status">
+                    <legend>Learning Engine Status</legend>
+                    <div id="learning-status-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="learning-metrics">
+                    <legend>Performance Metrics</legend>
+                    <div id="learning-metrics-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="learning-loops">
+                    <legend>Learning Loops Status</legend>
+                    <div id="learning-loops-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <fieldset class="learning-changes">
+                    <legend>Recent Configuration Changes</legend>
+                    <div id="learning-changes-content">
+                        <!-- Populated by JavaScript -->
+                    </div>
+                </fieldset>
+                
+                <div class="learning-controls">
+                    <button id="run-learning-btn">> Run Learning Now</button>
+                    <button id="refresh-learning-btn">> Refresh Status</button>
+                    <span id="learning-run-status"></span>
+                </div>
             </div>
         </div>
     </main>

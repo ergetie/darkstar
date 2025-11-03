@@ -27,25 +27,22 @@ decision_thresholds:
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
 forecasting:
-  load_safety_margin_percent: 105.0
-  pv_confidence_percent: 95.0
+  load_safety_margin_percent: 108.0
+  pv_confidence_percent: 92.0
 learning:
   auto_apply: true
-  default_battery_cost_sek_per_kwh: 0.2
   enable: true
   horizon_days: 7
   max_daily_param_change:
     battery_use_margin_sek: 0.02
     export_profit_margin_sek: 0.02
     future_price_guard_buffer_sek: 0.05
-    load_safety_margin_percent: 1
-    pv_confidence_percent: 1
+    load_safety_margin_percent: 1.0
+    pv_confidence_percent: 1.0
     s_index_base_factor: 0.05
     s_index_pv_deficit_weight: 0.05
     s_index_temp_weight: 0.05
   min_improvement_threshold: 0.015
-  min_sample_threshold: 36
-  sensor_map: {}
   sqlite_path: data/planner_learning.db
   sync_interval_minutes: 5
 manual_planning:
@@ -60,18 +57,18 @@ pricing:
   grid_transfer_fee_sek: 0.2456
   vat_percent: 25
 s_index:
-  base_factor: 1.05
+  base_factor: 1.1
   days_ahead_for_sindex:
   - 2
   - 3
   - 4
   max_factor: 1.5
   mode: dynamic
-  pv_deficit_weight: 0.3
+  pv_deficit_weight: 0.25
   static_factor: 1.05
   temp_baseline_c: 20
   temp_cold_c: 0
-  temp_weight: 0.2
+  temp_weight: 0.15000000000000002
 smoothing:
   min_off_slots_charge: 1
   min_off_slots_discharge: 1

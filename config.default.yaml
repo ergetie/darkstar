@@ -105,6 +105,21 @@ learning:
   enable: true
   sqlite_path: "data/planner_learning.db"
   sync_interval_minutes: 5
+  horizon_days: 7
+  min_improvement_threshold: 0.015
+  auto_apply: true
+  min_sample_threshold: 36
+  default_battery_cost_sek_per_kwh: 0.20
+  sensor_map: {}
+  max_daily_param_change:
+    pv_confidence_percent: 1.0
+    load_safety_margin_percent: 1.0
+    battery_use_margin_sek: 0.02
+    export_profit_margin_sek: 0.02
+    s_index_base_factor: 0.05
+    s_index_pv_deficit_weight: 0.05
+    s_index_temp_weight: 0.05
+    future_price_guard_buffer_sek: 0.05
 
 # Nordpool API Configuration
 nordpool:

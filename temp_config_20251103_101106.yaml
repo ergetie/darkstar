@@ -1,0 +1,31 @@
+arbitrage:
+  future_price_guard_buffer_sek: 0.0
+decision_thresholds:
+  battery_use_margin_sek: 0.1
+  export_profit_margin_sek: 0.05
+forecasting:
+  load_safety_margin_percent: 110.0
+  pv_confidence_percent: 90.0
+learning:
+  auto_apply: false
+  enable: false
+  horizon_days: 7
+  max_daily_param_change:
+    battery_use_margin_sek: 0.02
+    export_profit_margin_sek: 0.02
+    future_price_guard_buffer_sek: 0.05
+    load_safety_margin_percent: 1.0
+    pv_confidence_percent: 1.0
+    s_index_base_factor: 0.05
+    s_index_pv_deficit_weight: 0.05
+    s_index_temp_weight: 0.05
+  min_improvement_threshold: 0.015
+  sqlite_path: /tmp/tmpls9l6hc7.db
+s_index:
+  base_factor: 1.05
+  max_factor: 1.5
+  pv_deficit_weight: 0.3
+  temp_weight: 0.2
+test:
+  param: 1.0
+timezone: Europe/Stockholm

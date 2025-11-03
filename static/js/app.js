@@ -221,6 +221,32 @@ document.addEventListener('DOMContentLoaded', () => {
             tabContents.forEach(content => content.classList.remove('active'));
             button.classList.add('active');
             document.getElementById(tab).classList.add('active');
+
+            if (tab === 'learning') {
+                // Populate learning dashboard on first view and refresh
+                loadLearningStatus();
+                loadLearningMetrics();
+                loadLearningLoops();
+                loadLearningChanges();
+
+                const runBtn = document.getElementById('run-learning-btn');
+                const refreshBtn = document.getElementById('refresh-learning-btn');
+                if (runBtn && !runBtn.dataset.bound) {
+                    runBtn.addEventListener('click', runLearningNow);
+                    runBtn.dataset.bound = 'true';
+                }
+                if (refreshBtn && !refreshBtn.dataset.bound) {
+                    refreshBtn.addEventListener('click', async () => {
+                        await Promise.all([
+                            loadLearningStatus(),
+                            loadLearningMetrics(),
+                            loadLearningLoops(),
+                            loadLearningChanges()
+                        ]);
+                    });
+                    refreshBtn.dataset.bound = 'true';
+                }
+            }
         });
     });
 
@@ -342,11 +368,33 @@ document.addEventListener('DOMContentLoaded', () => {
     const addWaterBtn  = document.getElementById('addWaterBtn');
     const addHoldBtn   = document.getElementById('addHoldBtn');
     const addExportBtn = document.getElementById('addExportBtn');
-    if (addChargeBtn) addChargeBtn.addEventListener('click', () => addActionBlock('Charge'));
+if (addChargeBtn) addChargeBtn.addEventListener('click', () => addActionBlock('Charge'));
     if (addWaterBtn)  addWaterBtn.addEventListener('click',  () => addActionBlock('Water Heating'));
     if (addHoldBtn)   addHoldBtn.addEventListener('click',   () => addActionBlock('Hold'));
     if (addExportBtn) addExportBtn.addEventListener('click', () => addActionBlock('Export'));
 
+    // Learning tab event listeners
+    const runLearningBtn = document.getElementById('run-learning-btn');
+    const refreshLearningBtn = document.getElementById('refresh-learning-btn');
+    
+    if (runLearningBtn) {
+        runLearningBtn.addEventListener('click', runLearningNow);
+    }
+    
+    if (refreshLearningBtn) {
+        refreshLearningBtn.addEventListener('click', refreshLearningData);
+    }
+    
+    // Load learning data when learning tab is activated
+    const learningTabButton = document.querySelector('[data-tab="learning"]');
+    if (learningTabButton) {
+        learningTabButton.addEventListener('click', () => {
+            // Load learning data when tab is opened
+            setTimeout(() => {
+                refreshLearningData();
+            }, 100);
+        });
+    }
 
 });
 
@@ -700,6 +748,20 @@ async function renderChart(data, config) {
         const waterFill = hexToRgba(colours.water, 0.65);
         const exportFill = hexToRgba(colours.export, 0.6);
 
+        // Fixed axes: price 0–8 SEK/kWh; energy scaled to series
+        const fixedPriceMax = 8; // SEK/kWh
+
+        const energySeries = [
+            ...pvForecasts,
+            ...loadForecasts,
+            ...batteryCharge,
+            ...batteryDischarge,
+            ...waterHeating,
+            ...exportPower,
+        ].map(v => (typeof v === 'number' && !Number.isNaN(v) ? v : 0));
+        const maxEnergy = energySeries.length ? Math.max(...energySeries) : 0;
+        const fixedEnergyMax = Number.isFinite(maxEnergy) && maxEnergy > 0 ? Math.ceil(maxEnergy * 1.2) : 10;
+
         chart = new Chart(ctx, {
             type: 'bar',
             data: {
@@ -827,11 +889,15 @@ async function renderChart(data, config) {
                     },
                     y: {
                         display: false,
+                        beginAtZero: true,
                         min: 0,
-                        max: 10
+                        max: fixedPriceMax
                     },
                     y1: {
-                        display: false
+                        display: false,
+                        beginAtZero: true,
+                        min: 0,
+                        max: fixedEnergyMax
                     },
                     y2: {
                         display: false,
@@ -1152,4 +1218,229 @@ async function resetConfig() {
             alert('Error resetting configuration.');
         }
     }
+}
+
+// Learning Dashboard Functions
+async function loadLearningStatus() {
+    try {
+        const response = await fetch('/api/learning/status');
+        const status = await response.json();
+        updateLearningStatus(status);
+    } catch (error) {
+        console.error('Error loading learning status:', error);
+        document.getElementById('learning-status-content').innerHTML = 
+            '<div class="error">Error loading learning status</div>';
+    }
+}
+
+async function loadLearningMetrics() {
+    try {
+        const response = await fetch('/api/learning/status');
+        const status = await response.json();
+        updateLearningMetrics(status.metrics || {});
+    } catch (error) {
+        console.error('Error loading learning metrics:', error);
+        document.getElementById('learning-metrics-content').innerHTML = 
+            '<div class="error">Error loading learning metrics</div>';
+    }
+}
+
+async function loadLearningLoops() {
+    try {
+        const response = await fetch('/api/learning/loops');
+        const loops = await response.json();
+        updateLearningLoops(loops);
+    } catch (error) {
+        console.error('Error loading learning loops:', error);
+        document.getElementById('learning-loops-content').innerHTML = 
+            '<div class="error">Error loading learning loops status</div>';
+    }
+}
+
+async function loadLearningChanges() {
+    try {
+        const response = await fetch('/api/learning/changes');
+        const data = await response.json();
+        updateLearningChanges(data.changes || []);
+    } catch (error) {
+        console.error('Error loading learning changes:', error);
+        document.getElementById('learning-changes-content').innerHTML = 
+            '<div class="error">Error loading learning changes</div>';
+    }
+}
+
+function updateLearningStatus(status) {
+    const metrics = status.metrics || {};
+    const dbSizeBytes = metrics.db_size_bytes;
+    const dbSizeDisplay = typeof dbSizeBytes === 'number'
+        ? `${(dbSizeBytes / 1024).toFixed(1)} KiB`
+        : 'N/A';
+    const lastObservation = metrics.last_observation
+        ? new Date(metrics.last_observation).toLocaleString()
+        : 'N/A';
+
+    const statusHtml = `
+        <div class="learning-metric">
+            <span>Enabled:</span>
+            <span>${status.enabled ? 'Yes' : 'No'}</span>
+        </div>
+        <div class="learning-metric">
+            <span>SQLite Path:</span>
+            <span>${status.sqlite_path || 'N/A'}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Sync Interval:</span>
+            <span>${status.sync_interval_minutes || 'N/A'} minutes</span>
+        </div>
+        <div class="learning-metric">
+            <span>Last Updated:</span>
+            <span>${status.last_updated ? new Date(status.last_updated).toLocaleString() : 'N/A'}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Days with Data:</span>
+            <span>${metrics.days_with_data || 0}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Last Slot:</span>
+            <span>${lastObservation}</span>
+        </div>
+        <div class="learning-metric">
+            <span>DB Size:</span>
+            <span>${dbSizeDisplay}</span>
+        </div>
+    `;
+    document.getElementById('learning-status-content').innerHTML = statusHtml;
+}
+
+function updateLearningMetrics(metrics) {
+    const metricsHtml = `
+        <div class="learning-metric">
+            <span>Total Slots:</span>
+            <span>${metrics.total_slots || 0}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Total Import (kWh):</span>
+            <span>${(metrics.total_import_kwh || 0).toFixed(2)}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Total Export (kWh):</span>
+            <span>${(metrics.total_export_kwh || 0).toFixed(2)}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Total PV (kWh):</span>
+            <span>${(metrics.total_pv_kwh || 0).toFixed(2)}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Total Load (kWh):</span>
+            <span>${(metrics.total_load_kwh || 0).toFixed(2)}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Learning Runs:</span>
+            <span>${metrics.total_learning_runs || 0}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Completed Runs:</span>
+            <span>${metrics.completed_learning_runs || 0}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Failed Runs:</span>
+            <span>${metrics.failed_learning_runs || 0}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Price Coverage:</span>
+            <span>${metrics.price_coverage_ratio != null ? (metrics.price_coverage_ratio * 100).toFixed(1) + '%' : 'N/A'}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Reset Events:</span>
+            <span>${metrics.quality_reset_events || 0}</span>
+        </div>
+        <div class="learning-metric">
+            <span>Gap Events:</span>
+            <span>${metrics.quality_gap_events || 0}</span>
+        </div>
+    `;
+    document.getElementById('learning-metrics-content').innerHTML = metricsHtml;
+}
+
+function updateLearningLoops(loops) {
+    const loopsHtml = Object.entries(loops).map(([loopName, loopData]) => `
+        <div class="learning-loop-status">
+            <span>${formatLoopName(loopName)}</span>
+            <span class="loop-status-indicator loop-status-${loopData.status}">
+                ${loopData.status === 'has_changes' ? 'Has Changes' : 'No Changes'}
+            </span>
+        </div>
+    `).join('');
+    document.getElementById('learning-loops-content').innerHTML = loopsHtml;
+}
+
+function updateLearningChanges(changes) {
+    if (changes.length === 0) {
+        document.getElementById('learning-changes-content').innerHTML = 
+            '<div class="learning-metric"><span>No recent changes</span></div>';
+        return;
+    }
+    
+    const changesHtml = changes.map(change => `
+        <div class="learning-change-item">
+            <div class="change-date">${new Date(change.created_at).toLocaleString()}</div>
+            <div class="change-reason">${change.reason || 'No reason provided'}</div>
+            <div class="change-metrics">
+                Applied: ${change.applied ? 'Yes' : 'No'}
+                ${change.metrics ? ` | Metrics: ${JSON.stringify(change.metrics)}` : ''}
+            </div>
+        </div>
+    `).join('');
+    document.getElementById('learning-changes-content').innerHTML = changesHtml;
+}
+
+function formatLoopName(loopName) {
+    return loopName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+}
+
+async function runLearningNow() {
+    const btn = document.getElementById('run-learning-btn');
+    const status = document.getElementById('learning-run-status');
+    
+    btn.disabled = true;
+    status.textContent = 'Running learning...';
+    
+    try {
+        const response = await fetch('/api/learning/run', {
+            method: 'POST'
+        });
+        const result = await response.json();
+        
+        if (result.status === 'completed') {
+            status.textContent = `Completed: ${result.changes_applied} changes applied`;
+            // Refresh all learning data
+            await Promise.all([
+                loadLearningStatus(),
+                loadLearningMetrics(),
+                loadLearningLoops(),
+                loadLearningChanges()
+            ]);
+        } else if (result.status === 'failed') {
+            status.textContent = `Failed: ${result.error || 'Unknown error'}`;
+        } else {
+            status.textContent = `Skipped: ${result.reason || 'Unknown reason'}`;
+        }
+    } catch (error) {
+        console.error('Error running learning:', error);
+        status.textContent = 'Error running learning';
+    } finally {
+        btn.disabled = false;
+        setTimeout(() => {
+            status.textContent = '';
+        }, 5000);
+    }
+}
+
+async function refreshLearningData() {
+    await Promise.all([
+        loadLearningStatus(),
+        loadLearningMetrics(),
+        loadLearningLoops(),
+        loadLearningChanges()
+    ]);
 }

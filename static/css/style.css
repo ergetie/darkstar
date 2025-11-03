@@ -327,3 +327,141 @@ label {
 .timeline-controls .action-add {
     text-transform: lowercase;
 }
+
+/* Learning Dashboard Styles */
+.learning-dashboard {
+    display: grid;
+    gap: 20px;
+    grid-template-columns: 1fr;
+}
+
+.learning-status,
+.learning-metrics,
+.learning-loops,
+.learning-changes {
+    background-color: var(--ds-background);
+    border: 1px solid var(--ds-border);
+    border-radius: 4px;
+    padding: 15px;
+}
+
+.learning-status legend,
+.learning-metrics legend,
+.learning-loops legend,
+.learning-changes legend {
+    color: var(--ds-accent);
+    font-weight: 500;
+    margin-bottom: 10px;
+}
+
+#learning-status-content,
+#learning-metrics-content,
+#learning-loops-content,
+#learning-changes-content {
+    display: grid;
+    gap: 10px;
+}
+
+.learning-metric {
+    display: flex;
+    justify-content: space-between;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--ds-border);
+}
+
+.learning-metric:last-child {
+    border-bottom: none;
+}
+
+.learning-loop-status {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--ds-border);
+}
+
+.learning-loop-status:last-child {
+    border-bottom: none;
+}
+
+.loop-status-indicator {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 0.8em;
+    font-weight: 500;
+}
+
+.loop-status-has-changes {
+    background-color: var(--ds-palette-2);
+    color: var(--ds-background);
+}
+
+.loop-status-no-changes {
+    background-color: var(--ds-palette-8);
+    color: var(--ds-foreground);
+}
+
+.learning-change-item {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--ds-border);
+}
+
+.learning-change-item:last-child {
+    border-bottom: none;
+}
+
+.change-date {
+    color: var(--ds-muted);
+    font-size: 0.9em;
+}
+
+.change-reason {
+    margin: 5px 0;
+    font-style: italic;
+}
+
+.change-metrics {
+    font-size: 0.8em;
+    color: var(--ds-muted);
+}
+
+.learning-controls {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 20px;
+}
+
+#run-learning-btn,
+#refresh-learning-btn {
+    background-color: var(--ds-accent);
+    color: var(--ds-background);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Fira Code', monospace;
+    text-transform: lowercase;
+}
+
+#run-learning-btn:hover,
+#refresh-learning-btn:hover {
+    opacity: 0.8;
+}
+
+#learning-run-status {
+    color: var(--ds-muted);
+    font-size: 0.9em;
+}
+
+@media (min-width: 768px) {
+    .learning-dashboard {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .learning-status {
+        grid-column: 1 / -1;
+    }
+}

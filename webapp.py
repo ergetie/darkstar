@@ -16,6 +16,7 @@ from inputs import (
     get_home_assistant_sensor_float,
     load_home_assistant_config,
 )
+from learning import get_learning_engine
 
 app = Flask(__name__)
 
@@ -358,6 +359,7 @@ def ha_water_today():
 
         if ha_value is not None:
             return jsonify({
+                "source": "home_assistant",
                 "water_kwh_today": round(ha_value, 2)
             })
 
@@ -379,10 +381,11 @@ def ha_water_today():
                 row = cur.fetchone()
                 if row and row[0] is not None:
                     return jsonify({
+                        "source": "sqlite",
                         "water_kwh_today": round(float(row[0]), 2)
                     })
 
-        return jsonify({"water_kwh_today": None})
+        return jsonify({"source": "unknown", "water_kwh_today": None})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
 
@@ -459,3 +462,109 @@ def simulate():
         print("---! SIMULATION FAILED !---")
         print(traceback.format_exc())
         return jsonify({"status": "error", "message": f"Simulation failed: {str(e)}"}), 500
+
+
+@app.route('/api/learning/status', methods=['GET'])
+def learning_status():
+    """Return learning engine status and metrics."""
+    try:
+        engine = get_learning_engine()
+        status = engine.get_status()
+        return jsonify(status)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/learning/changes', methods=['GET'])
+def learning_changes():
+    """Return recent learning configuration changes."""
+    try:
+        engine = get_learning_engine()
+        
+        # Get recent config changes
+        with sqlite3.connect(engine.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id, created_at, reason, applied, metrics_json
+                FROM config_versions
+                ORDER BY created_at DESC
+                LIMIT 10
+            """)
+            
+            changes = []
+            for row in cursor.fetchall():
+                change = {
+                    'id': row[0],
+                    'created_at': row[1],
+                    'reason': row[2],
+                    'applied': bool(row[3]),
+                    'metrics': json.loads(row[4]) if row[4] else None
+                }
+                changes.append(change)
+        
+        return jsonify({'changes': changes})
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/learning/run', methods=['POST'])
+def learning_run():
+    """Trigger learning orchestration manually."""
+    try:
+        engine = get_learning_engine()
+        from learning import NightlyOrchestrator
+        
+        orchestrator = NightlyOrchestrator(engine)
+        result = orchestrator.run_nightly_job()
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/learning/loops', methods=['GET'])
+def learning_loops():
+    """Get status of individual learning loops."""
+    try:
+        engine = get_learning_engine()
+        from learning import LearningLoops
+        
+        loops = LearningLoops(engine)
+        
+        # Test each loop
+        results = {}
+        
+        # Forecast calibrator
+        fc_result = loops.forecast_calibrator()
+        results['forecast_calibrator'] = {
+            'status': 'has_changes' if fc_result else 'no_changes',
+            'result': fc_result
+        }
+        
+        # Threshold tuner
+        tt_result = loops.threshold_tuner()
+        results['threshold_tuner'] = {
+            'status': 'has_changes' if tt_result else 'no_changes',
+            'result': tt_result
+        }
+        
+        # S-index tuner
+        si_result = loops.s_index_tuner()
+        results['s_index_tuner'] = {
+            'status': 'has_changes' if si_result else 'no_changes',
+            'result': si_result
+        }
+        
+        # Export guard tuner
+        eg_result = loops.export_guard_tuner()
+        results['export_guard_tuner'] = {
+            'status': 'has_changes' if eg_result else 'no_changes',
+            'result': eg_result
+        }
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
