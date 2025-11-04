@@ -43,6 +43,8 @@
             </div>
             <div class="control-panel">
                 <button id="runPlannerBtn">> run planner</button>
+                <button id="reloadServerBtn">> load server plan</button>
+                <button id="pushDbBtn">> push to db</button>
                 <button id="applyChangesBtn">> apply manual changes</button>
                 <button id="resetChangesBtn">> reset to optimal</button>
                 <span id="plannerStatus"></span>
@@ -196,6 +198,18 @@
                     </label>
                     <label>Export Target (%):
                         <input type="number" step="1" min="0" max="100" name="manual_planning.export_target_percent">
+                    </label>
+                    <label>
+                        <input type="checkbox" name="manual_planning.override_hold_in_cheap">
+                        override hold in cheap windows (manual apply)
+                    </label>
+                    <label>
+                        <input type="checkbox" name="manual_planning.force_discharge_on_deficit">
+                        force discharge on deficit (manual apply)
+                    </label>
+                    <label>
+                        <input type="checkbox" name="manual_planning.ignore_protective_guard">
+                        ignore protective target guard (manual apply)
                     </label>
                 </fieldset>
                 <fieldset>

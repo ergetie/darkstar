@@ -94,6 +94,9 @@ arbitrage:
 manual_planning:
   charge_target_percent: 95              # Cap for manual charge slots
   export_target_percent: 35              # Floor target when manually scheduling export
+  override_hold_in_cheap: true           # Ignore cheap-window hold while simulating manual plan
+  force_discharge_on_deficit: true       # If deficit, allow discharge even if price/cheap guards would block
+  ignore_protective_guard: true          # Do not raise SoC target floor above min_soc during manual plan
 
 # Debug & Telemetry
 debug:

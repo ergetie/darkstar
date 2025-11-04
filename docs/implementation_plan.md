@@ -55,6 +55,43 @@
 - **2025-11-01 (Rev 1)**: Implemented Phases 1-5 - by Grok Code Fast 1.
 - **Initial (Rev 0)**: Plan created - by GPT-5 Medium after gap analysis.
 
+—
+
+• 2025-11-04 — Rev 12: Server Plan Loader + Ops Docs + HA Avg Fix (Model: GPT‑5 Codex CLI)
+  - Backend: Added `GET /api/db/current_schedule` to load the executing plan from MariaDB and map fields to the UI schema (15‑min export kW → kWh conversion handled).
+  - Backend: Added `GET /api/status` to report last local plan (`schedule.json` meta) and last DB plan (`plan_history`) with `planned_at` and `planner_version`.
+  - UI: Dashboard button “> load server plan” to fetch and render current DB plan; Stats now show “Local Plan” and “Server Plan” with time + version.
+  - Data Quality: Fixed Home Assistant daily average calculation (divide by 7 across all days, eliminating inflated daily kWh).
+  - Docs: README updated with GitHub → server flow, tmux basics, systemd timer setup (08–22 Europe/Stockholm), secrets layout, and verification commands.
+  - Acceptance: Able to click “load server plan” and see current_schedule from DB; Stats show both local and DB plan timestamps/versions; HA daily kWh matches expectation; `/api/status` returns both sources.
+
+• 2025-11-04 — Rev 12a: Manual Planning Persistence + DB Push UX (Model: GPT‑5 Codex CLI)
+  - Simulator now saves the simulated plan to `schedule.json` server-side as part of `/api/simulate` (stamps `planned_at` + `planner_version`).
+  - Added `POST /api/schedule/save` endpoint (kept for compatibility; simulator write makes it optional).
+  - “> push to db” auto-refreshes by loading the server plan and re-rendering chart/timeline/stats for visual confirmation.
+  - `db_writer`: clears `current_schedule` before insert; normalizes `slot_start` to local naive DATETIME; populates `planner_version` for both CLI + UI paths.
+  - UI: After Apply Manual Changes, timeline retains user-drawn blocks; the chart updates from the simulated plan (source of truth), avoiding the appearance of a reset.
+  - Acceptance: Manual changes survive Apply; push writes the same plan to DB; timeline remains with user blocks until reset or server plan is loaded.
+
+• 2025-11-04 — Rev 13: Manual Mode Overrides (Apply Only) (Model: GPT‑5 Codex CLI)
+  - Goal: When the user clicks “Apply manual changes”, their actions override planner protections for that simulation only. Full planner runs (button/cron) keep normal protections.
+  - Semantics (manual mode = /api/simulate path):
+    - Ignore cheap-window hold: allow discharge in "cheap" slots when manual mode is active.
+    - Force discharge on deficit: if net deficit (load > PV after water), permit battery discharge up to slot budget even if price guard would block it.
+    - Ignore protective guard for targets: SoC target floors are not lifted above `min_soc` by protective/guard logic during manual mode; discharge slots drop to `min_soc`.
+    - Explicit blocks still win: Charge/Water/Export/Hold behave as-is (manual Export still respects export target guard; manual Charge capped by manual charge target).
+  - Config (applies only to manual mode):
+    - `manual_planning.override_hold_in_cheap` (bool, default true)
+    - `manual_planning.force_discharge_on_deficit` (bool, default true)
+    - `manual_planning.ignore_protective_guard` (bool, default true)
+  - UI: Settings → Manual Planning adds three toggles to control the above.
+  - Implementation:
+    - planner.py simulate path adjusts discharge gates and sets guard floor to `min_soc` when enabled; planner’s normal generate path unchanged.
+  - Acceptance:
+    - Removing a previously held block allows discharge in those slots under manual apply.
+    - SoC target in those slots drops to `min_soc` (unless user set an explicit target).
+    - Planner runs (button/cron) still hold in cheap windows unless overridden by pricing/strategy.
+
 ### 2.2. Revision Plans
 
 #### Revision 1: Foundational Parity

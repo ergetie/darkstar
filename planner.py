@@ -1351,6 +1351,9 @@ class HeliosPlanner:
             min_soc_percent,
         )
         manual_export_target_kwh = manual_export_target_percent / 100.0 * capacity_kwh
+        # Manual-mode toggles
+        override_hold_in_cheap = bool(manual_cfg.get('override_hold_in_cheap', True))
+        force_discharge_on_deficit = bool(manual_cfg.get('force_discharge_on_deficit', True))
 
         peak_price_threshold = None
         if export_peak_only and 0 < export_percentile_threshold < 100:
@@ -1479,23 +1482,46 @@ class HeliosPlanner:
                     action = 'Charge'
                     slot_batt_charge_kwh += stored_energy
             else:
-                if net_kwh < 0:
-                    if not is_cheap and self.discharge_efficiency > 0 and not manual_hold:
-                        discharge_price_threshold = cycle_adjusted_cost + battery_use_margin_sek
-                        if import_price > discharge_price_threshold:
-                            deficit_kwh = -net_kwh
-                            deliverable_kwh = min(deficit_kwh, discharge_budget_kwh)
-                            if deliverable_kwh > 0:
-                                battery_energy_used = self._battery_energy_for_output(deliverable_kwh)
-                                total_cost -= avg_cost * battery_energy_used
-                                total_cost = max(0.0, total_cost)
-                                current_kwh -= battery_energy_used
-                                discharge_budget_kwh = max(0.0, discharge_budget_kwh - deliverable_kwh)
-                                net_kwh += deliverable_kwh
-                                avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
-                                cycle_adjusted_cost = avg_cost + self.cycle_cost
-                                action = 'Discharge'
-                                slot_batt_discharge_kwh += deliverable_kwh
+                if net_kwh < 0 and self.discharge_efficiency > 0 and not manual_hold:
+                    # Determine if manual mode is active (any manual_action provided in input df)
+                    try:
+                        manual_mode_active = df['manual_action'].notna().any()
+                    except Exception:
+                        manual_mode_active = False
+
+                    if manual_mode_active and force_discharge_on_deficit:
+                        # Force discharge up to the slot budget regardless of cheap/price guards
+                        deficit_kwh = -net_kwh
+                        deliverable_kwh = min(deficit_kwh, discharge_budget_kwh)
+                        if deliverable_kwh > 0:
+                            battery_energy_used = self._battery_energy_for_output(deliverable_kwh)
+                            total_cost -= avg_cost * battery_energy_used
+                            total_cost = max(0.0, total_cost)
+                            current_kwh -= battery_energy_used
+                            discharge_budget_kwh = max(0.0, discharge_budget_kwh - deliverable_kwh)
+                            net_kwh += deliverable_kwh
+                            avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                            cycle_adjusted_cost = avg_cost + self.cycle_cost
+                            action = 'Discharge'
+                            slot_batt_discharge_kwh += deliverable_kwh
+                    else:
+                        cheap_guard_ok = (not is_cheap) or (manual_mode_active and override_hold_in_cheap)
+                        if cheap_guard_ok:
+                            discharge_price_threshold = cycle_adjusted_cost + battery_use_margin_sek
+                            if import_price > discharge_price_threshold:
+                                deficit_kwh = -net_kwh
+                                deliverable_kwh = min(deficit_kwh, discharge_budget_kwh)
+                                if deliverable_kwh > 0:
+                                    battery_energy_used = self._battery_energy_for_output(deliverable_kwh)
+                                    total_cost -= avg_cost * battery_energy_used
+                                    total_cost = max(0.0, total_cost)
+                                    current_kwh -= battery_energy_used
+                                    discharge_budget_kwh = max(0.0, discharge_budget_kwh - deliverable_kwh)
+                                    net_kwh += deliverable_kwh
+                                    avg_cost = total_cost / current_kwh if current_kwh > 0 else 0.0
+                                    cycle_adjusted_cost = avg_cost + self.cycle_cost
+                                    action = 'Discharge'
+                                    slot_batt_discharge_kwh += deliverable_kwh
                 elif net_kwh > 0 and self.charge_efficiency > 0:
                     stored_energy = self._energy_into_battery(net_kwh)
                     available_capacity = max(0.0, max_soc_kwh - current_kwh)
@@ -1792,6 +1818,10 @@ class HeliosPlanner:
             min_soc_percent,
             _pct(protective_soc_kwh),
         )
+        # In manual mode, optionally ignore protective guard (let targets drop to min)
+        ignore_guard = bool(manual_cfg.get('ignore_protective_guard', True))
+        if ignore_guard and any(a is not None for a in manual_actions):
+            guard_floor_percent = min_soc_percent
 
         manual_charge_target_percent = _clamp_manual(
             manual_cfg.get('charge_target_percent'),

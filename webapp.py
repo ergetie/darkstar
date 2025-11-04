@@ -8,8 +8,11 @@ import pandas as pd
 import pytz
 import yaml
 from flask import Flask, jsonify, render_template, request
+import pymysql
+import subprocess
 
 from planner import HeliosPlanner, dataframe_to_json_response, simulate_schedule
+from db_writer import write_schedule_to_db
 from inputs import (
     get_all_input_data,
     _get_load_profile_from_ha,
@@ -228,6 +231,185 @@ def get_schedule():
     with open('schedule.json', 'r') as f:
         data = json.load(f)
     return jsonify(data)
+
+
+def _load_yaml(path: str) -> dict:
+    try:
+        with open(path, 'r') as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+
+
+def _db_connect_from_secrets():
+    secrets = _load_yaml('secrets.yaml')
+    db = secrets.get('mariadb', {})
+    if not db:
+        raise RuntimeError('MariaDB credentials not found in secrets.yaml')
+    return pymysql.connect(
+        host=db.get('host', '127.0.0.1'),
+        port=int(db.get('port', 3306)),
+        user=db.get('user'),
+        password=db.get('password'),
+        database=db.get('database'),
+        charset='utf8mb4',
+        autocommit=True,
+        cursorclass=pymysql.cursors.DictCursor,
+    )
+
+
+@app.route('/api/status', methods=['GET'])
+def planner_status():
+    """Return last plan info from local schedule.json and MariaDB plan_history if available."""
+    status = {
+        'local': None,
+        'db': None,
+    }
+    # Local schedule.json
+    try:
+        with open('schedule.json', 'r') as f:
+            payload = json.load(f)
+        meta = payload.get('meta', {})
+        status['local'] = {
+            'planned_at': meta.get('planned_at'),
+            'planner_version': meta.get('planner_version'),
+        }
+    except Exception:
+        pass
+
+    # Database last plan
+    try:
+        with _db_connect_from_secrets() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT planned_at, planner_version FROM plan_history ORDER BY planned_at DESC LIMIT 1"
+                )
+                row = cur.fetchone()
+                if row:
+                    status['db'] = {
+                        'planned_at': row.get('planned_at').isoformat() if row.get('planned_at') else None,
+                        'planner_version': row.get('planner_version'),
+                    }
+    except Exception as exc:
+        status['db'] = {'error': str(exc)}
+
+    return jsonify(status)
+
+
+@app.route('/api/db/current_schedule', methods=['GET'])
+def db_current_schedule():
+    """Return the current_schedule from MariaDB in the same shape used by the UI."""
+    try:
+        config = _load_yaml('config.yaml')
+        resolution_minutes = int(config.get('nordpool', {}).get('resolution_minutes', 15))
+
+        with _db_connect_from_secrets() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT slot_number, slot_start, charge_kw, export_kw, water_kw,
+                           planned_load_kwh, planned_pv_kwh,
+                           soc_target, soc_projected, classification, planner_version
+                    FROM current_schedule
+                    ORDER BY slot_number ASC
+                    """
+                )
+                rows = cur.fetchall() or []
+
+        schedule = []
+        for r in rows:
+            start = r['slot_start']
+            # slot_start is DATETIME; compute end_time from resolution
+            try:
+                end = start + pd.Timedelta(minutes=resolution_minutes)
+            except Exception:
+                # Fallback if not datetime (string), try parse
+                start_dt = datetime.fromisoformat(str(start))
+                end = start_dt + pd.Timedelta(minutes=resolution_minutes)
+                start = start_dt
+
+            record = {
+                'slot_number': r.get('slot_number'),
+                'start_time': start.isoformat(),
+                'end_time': end.isoformat(),
+                'battery_charge_kw': round(float(r.get('charge_kw') or 0.0), 2),
+                # DB stores export in kW; UI expects export_kwh (15-min → kWh = kW/4)
+                'export_kwh': round(float(r.get('export_kw') or 0.0) / 4.0, 4),
+                'water_heating_kw': round(float(r.get('water_kw') or 0.0), 2),
+                'load_forecast_kwh': round(float(r.get('planned_load_kwh') or 0.0), 4),
+                'pv_forecast_kwh': round(float(r.get('planned_pv_kwh') or 0.0), 4),
+                'soc_target_percent': round(float(r.get('soc_target') or 0.0), 2),
+                'projected_soc_percent': round(float(r.get('soc_projected') or 0.0), 2),
+                'classification': str(r.get('classification') or 'hold').lower(),
+            }
+            schedule.append(record)
+
+        meta = {
+            'source': 'mariadb',
+            'planner_version': rows[0]['planner_version'] if rows else None,
+        }
+        return jsonify({'schedule': schedule, 'meta': meta})
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/db/push_current', methods=['POST'])
+def db_push_current():
+    """Write the current local schedule.json to MariaDB regardless of automation toggles."""
+    try:
+        config = _load_yaml('config.yaml')
+        secrets = _load_yaml('secrets.yaml')
+        # Determine a sensible planner_version fallback for when meta is missing
+        fallback_version = config.get('version')
+        if not fallback_version:
+            try:
+                # Prefer tags, else short SHA; mark dirty if needed
+                fallback_version = subprocess.check_output(
+                    ['git', 'describe', '--tags', '--always', '--dirty'],
+                    stderr=subprocess.DEVNULL
+                ).decode().strip()
+            except Exception:
+                fallback_version = 'dev'
+
+        inserted = write_schedule_to_db('schedule.json', fallback_version, config, secrets)
+        return jsonify({'status': 'success', 'rows': inserted})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+
+@app.route('/api/schedule/save', methods=['POST'])
+def save_schedule_json():
+    """Persist a provided schedule payload to schedule.json with meta."""
+    try:
+        payload = request.get_json(silent=True) or {}
+        schedule = payload.get('schedule') if isinstance(payload, dict) else None
+        if schedule is None and isinstance(payload, list):
+            schedule = payload
+        if not isinstance(schedule, list):
+            return jsonify({'status': 'error', 'error': 'Invalid schedule payload'}), 400
+
+        # Build meta with version + timestamp
+        try:
+            version = subprocess.check_output(
+                ['git', 'describe', '--tags', '--always', '--dirty'],
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            version = 'dev'
+
+        out = {
+            'schedule': schedule,
+            'meta': {
+                'planned_at': datetime.now().isoformat(),
+                'planner_version': version,
+            }
+        }
+        with open('schedule.json', 'w', encoding='utf-8') as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
@@ -451,9 +633,25 @@ def simulate():
         simulated_df = simulate_schedule(df, config_data, initial_state)
         print("Simulation completed successfully.")
 
-        # Step E: Return the full, simulated result
+        # Step E: Persist and return the full, simulated result
         json_response = dataframe_to_json_response(simulated_df)
-        
+        # Save immediately so subsequent actions and DB push see the updated plan
+        try:
+            version = subprocess.check_output(
+                ['git', 'describe', '--tags', '--always', '--dirty'],
+                stderr=subprocess.DEVNULL
+            ).decode().strip()
+        except Exception:
+            version = 'dev'
+        with open('schedule.json', 'w', encoding='utf-8') as f:
+            json.dump({
+                'schedule': json_response,
+                'meta': {
+                    'planned_at': datetime.now().isoformat(),
+                    'planner_version': version,
+                }
+            }, f, ensure_ascii=False, indent=2)
+
         return jsonify({"schedule": json_response})
 
     except Exception as e:

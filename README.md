@@ -132,6 +132,151 @@ The Flask dashboard provides:
 - Planner controls (`run planner`, `apply manual changes`, `reset to optimal`) arranged for quick workflows.
 - Appearance settings that read all themes from `themes/` and allow selecting a palette accent.
 
+## Deployment & Ops
+
+This is a concise end-to-end workflow used in production with a Proxmox LXC.
+
+### 1) GitHub flow (local dev → GitHub → server)
+
+- Local (developer machine):
+  - One-time: `git remote add origin git@github.com:<you>/darkstar.git`
+  - Commit/push:
+    ```bash
+    git add -A
+    git commit -m "feat: <your change>"
+    git push -u origin main
+    ```
+
+- Server (LXC): use SSH key auth for Git:
+  ```bash
+  cd /opt
+  git clone git@github.com:<you>/darkstar.git
+  cd darkstar
+  python3 -m venv venv
+  source venv/bin/activate
+  pip install -r requirements.txt
+  ```
+
+- Update on server after new commits:
+  ```bash
+  cd /opt/darkstar
+  git pull --rebase
+  source venv/bin/activate
+  pip install -r requirements.txt
+  ```
+
+### 2) Tmux cheat‑sheet (keep apps running)
+
+```bash
+tmux new -s darkstar
+# inside tmux
+cd /opt/darkstar
+source venv/bin/activate
+FLASK_APP=webapp flask run --host 127.0.0.1 --port 5000
+# detach: Ctrl-b then d
+# reattach later: tmux attach -t darkstar
+```
+
+You can run the planner in another pane/window:
+
+```bash
+tmux new-window -t darkstar:2
+cd /opt/darkstar && source venv/bin/activate
+python -m bin.run_planner
+```
+
+### 3) Scheduler automation (systemd timer)
+
+We recommend a systemd timer over cron. Example units (adjust paths):
+
+`/etc/systemd/system/darkstar-planner.service`
+```
+[Unit]
+Description=Darkstar planner run
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/darkstar
+ExecStart=/opt/darkstar/venv/bin/python -m bin.run_planner
+User=root
+Group=root
+``` 
+
+`/etc/systemd/system/darkstar-planner.timer`
+```
+[Unit]
+Description=Run Darkstar planner hourly (08–22 Europe/Stockholm)
+
+[Timer]
+OnCalendar=*-*-* 08..22:00:00
+Persistent=true
+Unit=darkstar-planner.service
+
+[Install]
+WantedBy=timers.target
+```
+
+Enable and verify:
+
+```bash
+systemctl daemon-reload
+systemctl enable --now darkstar-planner.timer
+systemctl list-timers | grep darkstar
+systemctl status darkstar-planner.timer
+journalctl -u darkstar-planner.service -n 100 -f
+```
+
+### 4) Secrets and DB
+
+Create `/opt/darkstar/secrets.yaml` (not committed):
+
+```yaml
+mariadb:
+  host: 192.168.0.110
+  port: 3306
+  database: helios
+  user: darkstar
+  password: "<password>"
+
+home_assistant:
+  url: "http://homeassistant.local:8123"
+  token: "<long-lived-token>"
+  battery_soc_entity_id: "sensor.inverter_battery"
+  water_heater_daily_entity_id: "sensor.vvb_energy_daily"
+  consumption_entity_id: "sensor.inverter_total_load_consumption"
+```
+
+Enable writing plans to MariaDB in `config.yaml`:
+
+```yaml
+automation:
+  enable_scheduler: true
+  write_to_mariadb: true
+```
+
+### 5) Verifying the last plan
+
+- In the UI Stats (Dashboard), you’ll see both:
+  - Local Plan: time/version from `schedule.json`
+  - Server Plan: time/version from MariaDB `plan_history`
+
+- From the API:
+  ```bash
+  curl http://127.0.0.1:5000/api/status | jq
+  ```
+
+- Load and view the executing plan (from MariaDB) directly in the UI:
+  - Use the “load server plan” button (Dashboard).
+  - Or API: `GET /api/db/current_schedule`.
+
+### 6) Common ops tasks
+
+- Update & restart web UI (tmux): pull changes, `Ctrl-b d` to detach, reattach with `tmux attach -t darkstar`.
+- Check planner runs: `journalctl -u darkstar-planner.service -f`.
+- Confirm DB writes: query `current_schedule` and `plan_history` tables.
+
+
 ## Development
 
 See `AGENTS.md` for comprehensive development guidelines including:

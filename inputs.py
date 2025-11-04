@@ -391,7 +391,14 @@ def get_all_input_data(config_path="config.yaml"):
 
 
 def _get_load_profile_from_ha(config: dict) -> list[float]:
-    """Fetch actual load profile from Home Assistant historical data."""
+    """Fetch actual load profile from Home Assistant historical data.
+
+    Notes on averaging logic:
+    - We build a 7-day matrix of 15-min buckets (7 x 96) and distribute kWh deltas.
+    - The per-slot daily profile is the average across all 7 days, dividing by 7
+      (not by the count of non-zero days), to avoid inflating totals when some
+      slots are zero for certain days.
+    """
     from datetime import timedelta
 
     ha_config = load_home_assistant_config()
@@ -498,28 +505,22 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
                 print(f"Warning: Skipping invalid state data: {e}")
                 continue
         
-        # Create average daily profile from the 7 days of data
+        # Create average daily profile from the 7 days of data (divide by 7 days)
         daily_profile = [0.0] * 96
-        daily_counts = [0] * 96
-        
-        for day in range(7):
-            for slot in range(96):
-                bucket_idx = day * 96 + slot
-                if bucket_idx < len(time_buckets) and time_buckets[bucket_idx] > 0:
-                    daily_profile[slot] += time_buckets[bucket_idx]
-                    daily_counts[slot] += 1
-        
-        # Calculate averages
         for slot in range(96):
-            if daily_counts[slot] > 0:
-                daily_profile[slot] /= daily_counts[slot]
+            slot_sum = 0.0
+            for day in range(7):
+                bucket_idx = day * 96 + slot
+                if 0 <= bucket_idx < len(time_buckets):
+                    slot_sum += time_buckets[bucket_idx]
+            daily_profile[slot] = slot_sum / 7.0
         
         # Validate and clean the profile
         total_daily = sum(daily_profile)
         if total_daily <= 0:
             print("Warning: No valid energy consumption data found")
             return _get_dummy_load_profile(config)
-        
+
         print(f"Successfully loaded HA data: {total_daily:.2f} kWh/day average")
         
         # Ensure all values are positive and reasonable

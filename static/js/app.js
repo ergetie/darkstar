@@ -282,6 +282,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Run planner
     const runPlannerBtn = document.getElementById('runPlannerBtn');
+    const reloadServerBtn = document.getElementById('reloadServerBtn');
+    const pushDbBtn = document.getElementById('pushDbBtn');
     const plannerStatus = document.getElementById('plannerStatus');
 
     runPlannerBtn.addEventListener('click', () => {
@@ -310,6 +312,72 @@ document.addEventListener('DOMContentLoaded', () => {
             runPlannerBtn.disabled = false;
         });
     });
+
+    // Load current plan from MariaDB and render
+    if (reloadServerBtn) {
+        reloadServerBtn.addEventListener('click', async () => {
+            try {
+                reloadServerBtn.disabled = true;
+                plannerStatus.textContent = 'Loading server plan...';
+                const [dbResp, cfgResp] = await Promise.all([
+                    fetch('/api/db/current_schedule'),
+                    fetch('/api/config')
+                ]);
+                if (!dbResp.ok) throw new Error(`DB API ${dbResp.status}`);
+                if (!cfgResp.ok) throw new Error(`Config API ${cfgResp.status}`);
+                const dbData = await dbResp.json();
+                const cfgData = await cfgResp.json();
+                latestScheduleData = dbData;
+                latestConfigData = cfgData;
+                updateStats(dbData, cfgData);
+                renderChart(dbData, cfgData);
+                renderTimeline(dbData);
+                plannerStatus.textContent = 'Loaded server plan';
+                setTimeout(() => { plannerStatus.textContent = ''; }, 2000);
+            } catch (e) {
+                console.error('Failed to load server plan:', e);
+                plannerStatus.textContent = 'Failed to load server plan';
+            } finally {
+                reloadServerBtn.disabled = false;
+            }
+        });
+    }
+
+    // Manually push current local schedule.json to MariaDB
+    if (pushDbBtn) {
+        pushDbBtn.addEventListener('click', async () => {
+            try {
+                pushDbBtn.disabled = true;
+                plannerStatus.textContent = 'Pushing to DB...';
+                const resp = await fetch('/api/db/push_current', { method: 'POST' });
+                const payload = await resp.json();
+                if (!resp.ok || payload.status !== 'success') {
+                    throw new Error(payload.error || `HTTP ${resp.status}`);
+                }
+                plannerStatus.textContent = `Pushed ${payload.rows} rows`;
+                // Auto-load server plan for visual confirmation
+                const [dbResp, cfgResp] = await Promise.all([
+                    fetch('/api/db/current_schedule'),
+                    fetch('/api/config')
+                ]);
+                if (dbResp.ok && cfgResp.ok) {
+                    const dbData = await dbResp.json();
+                    const cfgData = await cfgResp.json();
+                    latestScheduleData = dbData;
+                    latestConfigData = cfgData;
+                    renderTimeline(dbData);
+                    renderChart(dbData, cfgData);
+                    updateStats(dbData, cfgData);
+                }
+                setTimeout(() => { plannerStatus.textContent = ''; }, 1500);
+            } catch (e) {
+                console.error('Failed to push to DB:', e);
+                plannerStatus.textContent = 'Failed to push to DB';
+            } finally {
+                pushDbBtn.disabled = false;
+            }
+        });
+    }
 
     // Schedule midnight auto-refresh to keep views aligned with today/tomorrow
     (function scheduleMidnightRefresh() {
@@ -342,15 +410,28 @@ document.addEventListener('DOMContentLoaded', () => {
             body: JSON.stringify(simplifiedSchedule)
         })
         .then(response => response.json())
-        .then(simulatedData => {
-            // Handle the Response - update the main chart with new data
-            // We need the current config to render the chart properly
-            return fetch('/api/config').then(configResponse => {
-                return configResponse.json().then(configData => {
-                    renderTimeline(simulatedData);
-                    renderChart(simulatedData, configData);
+        .then(async (simulatedData) => {
+            // Persist simulated schedule to schedule.json so a later push uses it
+            try {
+                const saveResp = await fetch('/api/schedule/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ schedule: simulatedData.schedule })
                 });
-            });
+                if (!saveResp.ok) {
+                    const details = await saveResp.json().catch(() => ({}));
+                    console.warn('Failed to save simulated schedule:', details.error || saveResp.status);
+                }
+            } catch (e) { console.warn('Save schedule failed:', e); }
+
+            latestScheduleData = simulatedData;
+            // Handle the Response - update the main chart with new data
+            const configResponse = await fetch('/api/config');
+            const configData = await configResponse.json();
+            latestConfigData = configData;
+            // Keep current manual blocks visible; do not rebuild timeline from computed plan here
+            renderChart(simulatedData, configData);
+            updateStats(simulatedData, configData);
         })
         .catch(error => {
             console.error('Error applying manual changes:', error);
@@ -473,6 +554,16 @@ function updateStats(data, config) {
         </div>
         <div class="stat-row">
             <span class="stat-key">├</span>
+            <span class="stat-label">Local Plan:</span>
+            <span class="stat-value" id="stat-local-plan">–</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-key">├</span>
+            <span class="stat-label">Server Plan:</span>
+            <span class="stat-value" id="stat-db-plan">–</span>
+        </div>
+        <div class="stat-row">
+            <span class="stat-key">├</span>
             <span class="stat-label">PV Forecast:</span>
             <span class="stat-value" id="stat-pv-days">–</span>
         </div>
@@ -514,6 +605,31 @@ function updateStats(data, config) {
     `;
 
     statsContent.innerHTML = statsHTML;
+
+    // Planned at/version info
+    try {
+        const localMeta = data.meta || {};
+        const localEl = document.getElementById('stat-local-plan');
+        if (localEl && (localMeta.planned_at || localMeta.planner_version)) {
+            const when = localMeta.planned_at ? new Date(localMeta.planned_at).toLocaleString() : '—';
+            const ver = localMeta.planner_version || '—';
+            localEl.textContent = `${when} (v ${ver})`;
+        }
+    } catch {}
+    fetch('/api/status')
+        .then(r => r.ok ? r.json() : Promise.reject())
+        .then(status => {
+            const db = status.db;
+            const dbEl = document.getElementById('stat-db-plan');
+            if (dbEl && db && !db.error) {
+                const when = db.planned_at ? new Date(db.planned_at).toLocaleString() : '—';
+                const ver = db.planner_version || '—';
+                dbEl.textContent = `${when} (v ${ver})`;
+            } else if (dbEl && db && db.error) {
+                dbEl.textContent = `error: ${db.error}`;
+            }
+        })
+        .catch(() => { /* ignore */ });
 
     // Fallback Avg Load from schedule (today, kW)
     try {
