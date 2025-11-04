@@ -33,6 +33,14 @@
 ## 2. Implementation Revisions
 
 ### 2.1. Change Log Summary
+- **2025-11-04 — Rev 11b**: Water Heating Price Priority Fix (completed). Model: GPT‑5 Codex CLI.
+  - Fixed water heating algorithm to prioritize price over time contiguity
+  - Replaced time-based sorting (`sort_index()`) with price-based sorting (`sort_values('import_price_sek_kwh')`)
+  - Added comprehensive slot selection algorithm with intelligent contiguity preference
+  - Implemented block consolidation with minimal cost penalty merging
+  - Maintains all existing constraints (max_blocks_per_day, slots_needed, etc.)
+  - All 68 tests pass, verified with custom price-priority test
+  - Water heating now behaves like battery charging - always finding optimal price combinations
 - **2025-11-04 — Rev 10**: Diagnostics & Learning UI (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-04 — Rev 9 Final Fix**: Debug API endpoint implementation (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-03 — Rev 9b-9d**: Learning Loops Implementation (completed). Model: GPT‑5 Codex CLI.
@@ -902,6 +910,46 @@ Acceptance Criteria
 
 Changelog
 - ✅ 2025-11-04 — Rev 10 Complete: Diagnostics & Learning UI implementation including debug tab with comprehensive planner data visualization, chart axis fixes (0-8 SEK/kWh), learning tab reliability improvements, and full API integration. Model: GPT-5 Codex CLI.
+
+---
+
+---
+
+## Rev 11 — Deployment & Ops (Planner LXC + DB Writer)
+
+Status: ✅ Completed 2025-11-04
+
+Goals
+- Run planner on Proxmox LXC; provide safe toggles; write to MariaDB with version stamping; keep Web UI for validation.
+
+Highlights
+- Private GitHub repo set up; LXC pulls via SSH.
+- DB writer (PyMySQL) writes `current_schedule` (REPLACE) and `plan_history` (INSERT) with `planner_version`.
+- Planner wrapper adds automation toggles and version stamping to schedule.json meta and DB.
+- Web UI running on LXC; price axis locked to 0–8 SEK/kWh.
+
+DB Schema
+- Added `planner_version VARCHAR(32)` to `current_schedule` and `plan_history`.
+
+Config & Secrets
+- `automation.enable_scheduler` and `automation.write_to_mariadb` (both default false).
+- `secrets.yaml` single mapping with `mariadb` + `home_assistant` subsections.
+
+Scheduling (Europe/Stockholm)
+- systemd timer: `OnCalendar=*-*-* 08..22:00:00`, `Persistent=true`.
+- If scheduler disabled → exit early; if DB disabled → only write schedule.json.
+
+Ops Runbook
+- Update: `cd /opt/darkstar && git pull && source venv/bin/activate && pip install -r requirements.txt`
+- Manual run: `python -m bin.run_planner`
+- Timer: `systemctl enable --now darkstar-planner.timer`
+- Logs: `journalctl -u darkstar-planner.service -n 100 --no-pager`
+
+Acceptance
+- Planner/Flask running on LXC; plan generation visible in UI; DB writes succeed when enabled; version stamping present.
+
+Changelog
+- ✅ 2025-11-04 — Rev 11 Complete: LXC deploy, DB writer, automation toggles, version stamping, chart axis fix. Model: GPT‑5 Codex CLI.
 
 ---
 
