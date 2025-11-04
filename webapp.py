@@ -302,6 +302,8 @@ def db_current_schedule():
     try:
         config = _load_yaml('config.yaml')
         resolution_minutes = int(config.get('nordpool', {}).get('resolution_minutes', 15))
+        tz_name = config.get('timezone', 'Europe/Stockholm')
+        tz = pytz.timezone(tz_name)
 
         with _db_connect_from_secrets() as conn:
             with conn.cursor() as cur:
@@ -315,6 +317,21 @@ def db_current_schedule():
                     """
                 )
                 rows = cur.fetchall() or []
+
+        # Build a price map keyed by local naive start time so DB rows get price overlays
+        price_map = {}
+        try:
+            from inputs import get_nordpool_data
+            price_slots = get_nordpool_data('config.yaml')
+            for p in price_slots:
+                st = p['start_time']
+                if st.tzinfo is None:
+                    st_local_naive = tz.localize(st).replace(tzinfo=None)
+                else:
+                    st_local_naive = st.astimezone(tz).replace(tzinfo=None)
+                price_map[st_local_naive] = float(p.get('import_price_sek_kwh') or 0.0)
+        except Exception as exc:
+            print(f"[api/db/current_schedule] price overlay unavailable: {exc}")
 
         schedule = []
         for r in rows:
@@ -342,6 +359,14 @@ def db_current_schedule():
                 'projected_soc_percent': round(float(r.get('soc_projected') or 0.0), 2),
                 'classification': str(r.get('classification') or 'hold').lower(),
             }
+            # Overlay import price if available
+            try:
+                local_naive = start if start.tzinfo is None else start.astimezone(tz).replace(tzinfo=None)
+                price = price_map.get(local_naive)
+                if price is not None:
+                    record['import_price_sek_kwh'] = round(price, 4)
+            except Exception:
+                pass
             schedule.append(record)
 
         meta = {
