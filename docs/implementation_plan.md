@@ -41,6 +41,14 @@
   - Maintains all existing constraints (max_blocks_per_day, slots_needed, etc.)
   - All 68 tests pass, verified with custom price-priority test
   - Water heating now behaves like battery charging - always finding optimal price combinations
+- **2025-11-04 — Rev 11b**: Water Heating Price Priority Fix (completed). Model: GPT‑5 Codex CLI.
+  - Fixed water heating algorithm to prioritize price over time contiguity
+  - Replaced time-based sorting (`sort_index()`) with price-based sorting (`sort_values('import_price_sek_kwh')`)
+  - Added comprehensive slot selection algorithm with intelligent contiguity preference
+  - Implemented block consolidation with minimal cost penalty merging
+  - Maintains all existing constraints (max_blocks_per_day, slots_needed, etc.)
+  - All 68 tests pass, verified with custom price-priority test
+  - Water heating now behaves like battery charging - always finding optimal price combinations
 - **2025-11-04 — Rev 10**: Diagnostics & Learning UI (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-04 — Rev 9 Final Fix**: Debug API endpoint implementation (completed). Model: GPT‑5 Codex CLI.
 - **2025-11-03 — Rev 9b-9d**: Learning Loops Implementation (completed). Model: GPT‑5 Codex CLI.
