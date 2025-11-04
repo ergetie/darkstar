@@ -172,7 +172,7 @@ tmux new -s darkstar
 # inside tmux
 cd /opt/darkstar
 source venv/bin/activate
-FLASK_APP=webapp flask run --host 127.0.0.1 --port 5000
+FLASK_APP=webapp flask run --host 0.0.0.0 --port 8000
 # detach: Ctrl-b then d
 # reattach later: tmux attach -t darkstar
 ```

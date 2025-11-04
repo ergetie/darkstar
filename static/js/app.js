@@ -7,6 +7,7 @@ let currentAccentIndex = null;
 let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
+let nowShowingSource = 'local';
 
 function getCssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -36,6 +37,14 @@ function getThemeColours() {
         accent: getCssVar('--ds-accent') || palette[9] || '#ffffff',
         border: getCssVar('--ds-border') || palette[7] || '#ffffff'
     };
+}
+
+function setNowShowing(source) {
+    nowShowingSource = source === 'server' ? 'server' : 'local';
+    const el = document.getElementById('now-showing');
+    if (el) {
+        el.textContent = `now showing: ${nowShowingSource} plan`;
+    }
 }
 
 function themeStyleForAction(action) {
@@ -204,6 +213,7 @@ async function main() {
         updateStats(scheduleData, configData);
         renderChart(scheduleData, configData);
         renderTimeline(scheduleData);
+        setNowShowing('local');
     } catch (error) {
         console.error('Error loading data:', error);
     }
@@ -332,6 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateStats(dbData, cfgData);
                 renderChart(dbData, cfgData);
                 renderTimeline(dbData);
+                setNowShowing('server');
                 plannerStatus.textContent = 'Loaded server plan';
                 setTimeout(() => { plannerStatus.textContent = ''; }, 2000);
             } catch (e) {
@@ -368,6 +379,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     renderTimeline(dbData);
                     renderChart(dbData, cfgData);
                     updateStats(dbData, cfgData);
+                    setNowShowing('server');
                 }
                 setTimeout(() => { plannerStatus.textContent = ''; }, 1500);
             } catch (e) {
@@ -432,6 +444,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Keep current manual blocks visible; do not rebuild timeline from computed plan here
             renderChart(simulatedData, configData);
             updateStats(simulatedData, configData);
+            setNowShowing('local');
         })
         .catch(error => {
             console.error('Error applying manual changes:', error);
@@ -449,6 +462,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         // Re-render both the timeline and the chart with the optimal schedule
                         renderTimeline(scheduleData);
                         renderChart(scheduleData, configData);
+                        setNowShowing('local');
                     });
                 });
             })
