@@ -57,15 +57,15 @@ PYTHONPATH=. python -m pytest -q
 
 ```
 darkstar/
-├── config.yaml              # Master configuration file
-├── inputs.py                # External data fetching (Nordpool API, forecasts)
-├── planner.py               # Core MPC scheduling logic
-├── decision_maker.js        # Reference JavaScript implementation
-├── schedule.json            # Generated output schedule
-├── requirements.txt         # Python dependencies
-├── AGENTS.md                # Development guidelines for contributors
-├── project_plan_v3.md       # **Authoritative system architecture**
-└── README.md              # This file
+├── config.yaml                   # Master configuration file
+├── inputs.py                     # External data fetching (Nordpool API, forecasts)
+├── planner.py                    # Core MPC scheduling logic
+├── decision_maker.js             # Ref erence JavaScript implementation
+├── schedule.json                 # Generated output schedule
+├── requirements.txt              # Python dependencies
+├── AGENTS.md                     # Development guidelines for contributors
+├── /docs/implementation_plan.md  # Project plan and history
+└── README.md                     # This file
 ```
 
 ## Configuration
@@ -275,6 +275,36 @@ automation:
 - Update & restart web UI (tmux): pull changes, `Ctrl-b d` to detach, reattach with `tmux attach -t darkstar`.
 - Check planner runs: `journalctl -u darkstar-planner.service -f`.
 - Confirm DB writes: query `current_schedule` and `plan_history` tables.
+
+### 7) One-command release (semi-automated)
+
+Create a tagged release and push with a single command:
+
+```bash
+# Patch bump (default): vX.Y.(Z+1)
+python -m bin.release -m "fix: <short message>"
+
+# Minor/major bump
+python -m bin.release --bump minor -m "feat: <short message>"
+python -m bin.release --bump major -m "chore: major release"
+
+# Or set explicit version
+python -m bin.release --version v0.13.2 -m "release notes"
+```
+
+What it does:
+- Ensures you’re on `main` and rebased on `origin/main`.
+- Commits staged/untracked changes with your message (if any changes present).
+- Creates an annotated tag (vX.Y.Z) and pushes `main` and tags.
+
+Server update (applies the new release):
+
+```bash
+cd /opt/darkstar
+git fetch --all && git reset --hard origin/main
+source venv/bin/activate && pip install -r requirements.txt
+FLASK_APP=webapp flask run --host 0.0.0.0 --port 8000
+```
 
 
 ## Development
