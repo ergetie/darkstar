@@ -8,6 +8,7 @@ let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
 let nowShowingSource = 'local';
+let isRenderingChart = false;
 
 function getCssVar(name) {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -534,8 +535,8 @@ function updateStats(data, config) {
         sIndexCfg.max_factor != null ? `max ${Number(sIndexCfg.max_factor).toFixed(2)}` : null
     ]
         .filter(Boolean)
-        .join(' • ');
-    let sIndexSummary = fallbackSummary || '—';
+        .join(' - ');
+    let sIndexSummary = fallbackSummary || '-';
 
     const debugSIndex = data.debug?.s_index;
     if (debugSIndex && typeof debugSIndex === 'object') {
@@ -555,66 +556,66 @@ function updateStats(data, config) {
             pieces.push(`fallback: ${debugSIndex.fallback}`);
         }
         if (pieces.length) {
-            sIndexSummary = pieces.join(' • ');
+            sIndexSummary = pieces.join(' - ');
         }
     }
 
     // Generate stats HTML
     const statsHTML = `
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Total PV Today:</span>
             <span class="stat-value" id="stat-pv-today">${pvToday.toFixed(1)} kWh</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Local Plan:</span>
-            <span class="stat-value" id="stat-local-plan">–</span>
+            <span class="stat-value" id="stat-local-plan">-</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Server Plan:</span>
-            <span class="stat-value" id="stat-db-plan">–</span>
+            <span class="stat-value" id="stat-db-plan">-</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">PV Forecast:</span>
-            <span class="stat-value" id="stat-pv-days">–</span>
+            <span class="stat-value" id="stat-pv-days">-</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Weather Forecast:</span>
-            <span class="stat-value" id="stat-weather-days">–</span>
+            <span class="stat-value" id="stat-weather-days">-</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Current SoC:</span>
-            <span class="stat-value" id="stat-current-soc">loading…</span>
+            <span class="stat-value" id="stat-current-soc">loading...</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Battery Capacity:</span>
             <span class="stat-value" id="stat-battery-capacity">${batteryCapacity.toFixed(1)} kWh</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Water Heater Today:</span>
-            <span class="stat-value" id="stat-water-today">loading…</span>
+            <span class="stat-value" id="stat-water-today">loading...</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">Avg Load (HA):</span>
-            <span class="stat-value" id="stat-avg-load-ha">calculating…</span>
+            <span class="stat-value" id="stat-avg-load-ha">calculating...</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">HA data:</span>
-            <span class="stat-value" id="stat-ha-daily-average">–</span>
+            <span class="stat-value" id="stat-ha-daily-average">-</span>
         </div>
         <div class="stat-row">
-            <span class="stat-key">├</span>
+            <span class="stat-key">+</span>
             <span class="stat-label">S-index:</span>
-            <span class="stat-value" id="stat-s-index">${sIndexSummary || '—'}</span>
+            <span class="stat-value" id="stat-s-index">${sIndexSummary || '-'}</span>
         </div>
     `;
 
@@ -625,8 +626,8 @@ function updateStats(data, config) {
         const localMeta = data.meta || {};
         const localEl = document.getElementById('stat-local-plan');
         if (localEl && (localMeta.planned_at || localMeta.planner_version)) {
-            const when = localMeta.planned_at ? new Date(localMeta.planned_at).toLocaleString() : '—';
-            const ver = localMeta.planner_version || '—';
+            const when = localMeta.planned_at ? new Date(localMeta.planned_at).toLocaleString() : '-';
+            const ver = localMeta.planner_version || '-';
             localEl.textContent = `${when} (v ${ver})`;
         }
     } catch {}
@@ -636,8 +637,8 @@ function updateStats(data, config) {
             const db = status.db;
             const dbEl = document.getElementById('stat-db-plan');
             if (dbEl && db && !db.error) {
-                const when = db.planned_at ? new Date(db.planned_at).toLocaleString() : '—';
-                const ver = db.planner_version || '—';
+                const when = db.planned_at ? new Date(db.planned_at).toLocaleString() : '-';
+                const ver = db.planner_version || '-';
                 dbEl.textContent = `${when} (v ${ver})`;
             } else if (dbEl && db && db.error) {
                 dbEl.textContent = `error: ${db.error}`;
@@ -703,12 +704,12 @@ function updateStats(data, config) {
             if (payload && typeof payload.water_kwh_today === 'number') {
                 waterElement.textContent = `${payload.water_kwh_today.toFixed(2)} kWh`;
             } else {
-                waterElement.textContent = '—';
+                waterElement.textContent = '-';
             }
         })
         .catch(() => {
             const waterElement = document.getElementById('stat-water-today');
-            if (waterElement) waterElement.textContent = '—';
+            if (waterElement) waterElement.textContent = '-';
         });
 
     // Fetch forecast horizon info (days available)
@@ -778,6 +779,13 @@ function addActionBlock(action) {
 async function renderChart(data, config) {
     try {
         console.log('Rendering chart...');
+        
+        // Prevent concurrent chart rendering
+        if (isRenderingChart) {
+            console.log('Chart already rendering, skipping...');
+            return;
+        }
+        isRenderingChart = true;
 
         // Get solar array kWp from config
         const kwp = config.system?.solar_array?.kwp || 5.0;
@@ -785,6 +793,60 @@ async function renderChart(data, config) {
         // Calculate PV totals and build datasets for the dynamic 48-hour window
         const schedule = data.schedule || [];
         const { startOfToday, endOfTomorrow } = getTodayWindow();
+
+        // Find first index within the window
+        let startIndex = schedule.findIndex(s => new Date(s.start_time).getTime() >= startOfToday.getTime());
+        if (startIndex === -1) startIndex = 0;
+        const windowSlice = schedule.slice(startIndex, startIndex + 192);
+
+        // Fetch additional SoC data for Rev 14 features
+        let currentSoCPoint = null;
+        let historicSoCLine = [];
+        
+        try {
+            const [statusResponse, historicResponse] = await Promise.allSettled([
+                fetch('/api/status'),
+                fetch('/api/history/soc?date=today')
+            ]);
+            
+            // Extract current SoC point from status API
+            if (statusResponse.status === 'fulfilled' && statusResponse.value.ok) {
+                try {
+                    const statusData = await statusResponse.value.json();
+                    if (statusData.current_soc && statusData.current_soc.value !== undefined) {
+                        currentSoCPoint = {
+                            x: statusData.current_soc.timestamp || new Date().toISOString(),
+                            y: statusData.current_soc.value
+                        };
+                        
+                        console.log(`[chart] Current SoC point: x=${currentSoCPoint.x}, y=${statusData.current_soc.value}`);
+                    }
+                } catch (e) {
+                    console.warn('Could not parse current SoC from status:', e);
+                }
+            }
+            
+            // Extract historic SoC line from history API
+            if (historicResponse.status === 'fulfilled' && historicResponse.value.ok) {
+                try {
+                    const historicData = await historicResponse.value.json();
+                    if (historicData.slots && Array.isArray(historicData.slots)) {
+                        historicSoCLine = historicData.slots.map(slot => ({
+                            x: slot.timestamp,
+                            y: slot.soc_percent
+                        }));
+                        console.log(`[chart] Historic SoC line: ${historicSoCLine.length} points`);
+                    }
+                } catch (e) {
+                    console.warn('Could not parse historic SoC data:', e);
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to fetch additional SoC data:', e);
+        }
+        
+        // Small delay to ensure SoC data is processed before chart rendering
+        await new Promise(resolve => setTimeout(resolve, 100));
 
         let pvToday = 0;
         let pvTomorrow = 0;
@@ -799,67 +861,149 @@ async function renderChart(data, config) {
             if (slotDate.toDateString() === tomorrowStr) pvTomorrow += pvKwh;
         });
 
-        // Find first index within the window
-        let startIndex = schedule.findIndex(s => new Date(s.start_time).getTime() >= startOfToday.getTime());
-        if (startIndex === -1) startIndex = 0;
-        const windowSlice = schedule.slice(startIndex, startIndex + 192);
-
-        // Build 48-hour grid from startOfToday
-        const labels = [];
+        // Build 48-hour time-based datasets
         const importPrices = [];
         const pvForecasts = [];
         const loadForecasts = [];
         const batteryCharge = [];
+        const batteryChargeHistorical = [];  // Track historical charge separately
         const batteryDischarge = [];
+        const batteryDischargeHistorical = [];  // Track historical discharge separately
         const projectedSoC = [];
         const waterHeating = [];
         const exportPower = [];
         const socTarget = [];
 
         for (let i = 0; i < 192; i++) {
-            const slotTime = new Date(startOfToday.getTime() + i * 15 * 60 * 1000);
-            if (i % 4 === 0) {
-                labels.push(slotTime.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }));
-            } else {
-                labels.push('');
-            }
-
             const slot = windowSlice[i];
             if (slot) {
-                importPrices.push(slot.import_price_sek_kwh ?? null);
-                pvForecasts.push(slot.pv_forecast_kwh ?? 0);
-                loadForecasts.push(slot.load_forecast_kwh ?? 0);
-                batteryCharge.push((slot.battery_charge_kw ?? slot.charge_kw ?? 0));
-                batteryDischarge.push((slot.battery_discharge_kw ?? 0));
-                projectedSoC.push(slot.projected_soc_percent ?? null);
-                waterHeating.push(slot.water_heating_kw ?? 0);
-                exportPower.push(slot.export_kwh != null ? slot.export_kwh * 4 : 0);
-                socTarget.push(slot.soc_target_percent ?? null);
-            } else {
-                importPrices.push(null);
-                pvForecasts.push(0);
-                loadForecasts.push(0);
-                batteryCharge.push(0);
-                batteryDischarge.push(0);
-                projectedSoC.push(null);
-                waterHeating.push(0);
-                exportPower.push(0);
-                socTarget.push(null);
+                const slotTime = new Date(slot.start_time);
+                
+                importPrices.push({
+                    x: slotTime.toISOString(),
+                    y: slot.import_price_sek_kwh ?? null
+                });
+                pvForecasts.push({
+                    x: slotTime.toISOString(),
+                    y: slot.pv_forecast_kwh ?? 0
+                });
+                loadForecasts.push({
+                    x: slotTime.toISOString(),
+                    y: slot.load_forecast_kwh ?? 0
+                });
+                
+                // Separate historical vs current battery actions
+                const chargeKw = (slot.battery_charge_kw ?? slot.charge_kw ?? 0);
+                const dischargeKw = (slot.battery_discharge_kw ?? 0);
+                
+                if (slot.is_historical) {
+                    // Historical slots - show in separate dataset with different styling
+                    batteryCharge.push({
+                        x: slotTime.toISOString(),
+                        y: 0
+                    });
+                    batteryChargeHistorical.push({
+                        x: slotTime.toISOString(),
+                        y: chargeKw
+                    });
+                    batteryDischarge.push({
+                        x: slotTime.toISOString(),
+                        y: 0
+                    });
+                    batteryDischargeHistorical.push({
+                        x: slotTime.toISOString(),
+                        y: dischargeKw
+                    });
+                } else {
+                    // Current/future slots - normal display
+                    batteryCharge.push({
+                        x: slotTime.toISOString(),
+                        y: chargeKw
+                    });
+                    batteryChargeHistorical.push({
+                        x: slotTime.toISOString(),
+                        y: 0
+                    });
+                    batteryDischarge.push({
+                        x: slotTime.toISOString(),
+                        y: dischargeKw
+                    });
+                    batteryDischargeHistorical.push({
+                        x: slotTime.toISOString(),
+                        y: 0
+                    });
+                }
+                
+                projectedSoC.push({
+                    x: slotTime.toISOString(),
+                    y: slot.projected_soc_percent ?? null
+                });
+                waterHeating.push({
+                    x: slotTime.toISOString(),
+                    y: slot.water_heating_kw ?? 0
+                });
+                exportPower.push({
+                    x: slotTime.toISOString(),
+                    y: slot.export_kwh != null ? slot.export_kwh * 4 : 0
+                });
+                socTarget.push({
+                    x: slotTime.toISOString(),
+                    y: slot.soc_target_percent ?? null
+                });
             }
         }
 
+        // Get canvas element
         const canvas = document.getElementById('scheduleChart');
         if (!canvas) {
             console.error('Chart canvas not found!');
             return;
         }
 
-        const ctx = canvas.getContext('2d');
-
         // Destroy previous chart if exists
         if (chart) {
-            chart.destroy();
+            try {
+                chart.destroy();
+                chart = null;
+            } catch (e) {
+                console.warn('Error destroying previous chart:', e);
+            }
         }
+
+        // Clear canvas completely
+        const ctx = canvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        // Fixed axes: price 0-8 SEK/kWh; energy scaled to series
+        const fixedPriceMax = 8; // SEK/kWh
+
+        const energySeries = [
+            ...pvForecasts,
+            ...loadForecasts,
+            ...batteryCharge,
+            ...batteryDischarge,
+            ...waterHeating,
+            ...exportPower,
+        ].map(v => (typeof v === 'number' && !Number.isNaN(v) ? v : 0));
+        const maxEnergy = energySeries.length ? Math.max(...energySeries) : 0;
+        const fixedEnergyMax = Number.isFinite(maxEnergy) && maxEnergy > 0 ? Math.ceil(maxEnergy * 1.2) : 10;
+
+        console.log('Chart data summary:', {
+            hasPriceData: importPrices.some(v => v.y !== null),
+            hasSoCData: projectedSoC.some(v => v.y !== null),
+            hasCurrentSoC: currentSoCPoint !== null,
+            historicSoCCount: historicSoCLine.length,
+            samplePrices: importPrices.slice(0, 10),
+            sampleSoC: projectedSoC.slice(0, 10),
+            scheduleLength: schedule.length,
+            windowSliceLength: windowSlice.length,
+            maxEnergy: fixedEnergyMax,
+            maxPrice: fixedPriceMax
+        });
+
+
+
+
 
         const theme = getThemeColours();
         const palette = theme.palette;
@@ -872,7 +1016,10 @@ async function renderChart(data, config) {
             export: palette[2] || theme.accent,
             discharge: palette[3] || theme.accent,
             soc: theme.foreground,
-            socTarget: palette[7] || theme.accent
+            socTarget: palette[7] || theme.accent,
+            // Rev 14: Additional colors for current and historic SoC
+            currentSoc: '#FF1493',  // Deep pink for current real SoC
+            historicSoc: '#FF69B4'  // Hot pink for historic SoC line
         };
 
         const gradientFactory = (colour, startAlpha = 0.55, endAlpha = 0.05) => (context) => {
@@ -891,24 +1038,9 @@ async function renderChart(data, config) {
         const waterFill = hexToRgba(colours.water, 0.65);
         const exportFill = hexToRgba(colours.export, 0.6);
 
-        // Fixed axes: price 0–8 SEK/kWh; energy scaled to series
-        const fixedPriceMax = 8; // SEK/kWh
-
-        const energySeries = [
-            ...pvForecasts,
-            ...loadForecasts,
-            ...batteryCharge,
-            ...batteryDischarge,
-            ...waterHeating,
-            ...exportPower,
-        ].map(v => (typeof v === 'number' && !Number.isNaN(v) ? v : 0));
-        const maxEnergy = energySeries.length ? Math.max(...energySeries) : 0;
-        const fixedEnergyMax = Number.isFinite(maxEnergy) && maxEnergy > 0 ? Math.ceil(maxEnergy * 1.2) : 10;
-
         chart = new Chart(ctx, {
             type: 'bar',
             data: {
-                labels: labels,
                 datasets: [
                     {
                         type: 'line',
@@ -920,8 +1052,7 @@ async function renderChart(data, config) {
                         pointRadius: 0,
                         stepped: true,
                         fill: true,
-                        yAxisID: 'y',
-                        spanGaps: false  // Don't connect lines across null values
+                        yAxisID: 'y'
                     },
                     {
                         type: 'line',
@@ -992,7 +1123,7 @@ async function renderChart(data, config) {
                         yAxisID: 'y2',
                         fill: false,
                         pointRadius: 0,
-                        spanGaps: false  // Don't connect lines across null values
+                        borderDash: [3, 3]
                     },
                     {
                         type: 'line',
@@ -1004,8 +1135,32 @@ async function renderChart(data, config) {
                         fill: false,
                         pointRadius: 0,
                         stepped: true,
-                        borderDash: [6, 4],
-                        spanGaps: false
+                        borderDash: [6, 4]
+                    },
+                    // Rev 14: Current real SoC point and historic SoC line
+                    {
+                        type: 'scatter',
+                        label: 'Current SoC (Real)',
+                        data: currentSoCPoint ? [currentSoCPoint] : [],
+                        backgroundColor: colours.currentSoc,  // Deep pink for current
+                        borderColor: colours.currentSoc,
+                        pointRadius: 8,
+                        pointHoverRadius: 10,
+                        yAxisID: 'y2',
+                        showLine: false,
+                        order: 0  // Ensure it renders on top
+                    },
+                    {
+                        type: 'line', 
+                        label: 'Historic SoC (Today)',
+                        data: historicSoCLine.length > 0 ? historicSoCLine : [],
+                        borderColor: colours.historicSoc,  // Hot pink for historic
+                        backgroundColor: 'transparent',
+                        borderWidth: 2,
+                        tension: 0.1,
+                        pointRadius: 0,
+                        fill: false,
+                        yAxisID: 'y2'
                     }
                 ]
             },
@@ -1023,11 +1178,23 @@ async function renderChart(data, config) {
                 },
                 scales: {
                     x: {
+                        type: 'time',
+                        time: {
+                            unit: 'hour',
+                            stepSize: 1,
+                            displayFormats: {
+                                hour: 'HH:mm'
+                            },
+                            tooltipFormat: 'HH:mm'
+                        },
                         grid: {
                             display: false
                         },
                         ticks: {
-                            color: theme.foreground
+                            color: theme.foreground,
+                            maxRotation: 0,
+                            autoSkip: true,
+                            maxTicksLimit: 24
                         }
                     },
                     y: {
@@ -1059,7 +1226,19 @@ async function renderChart(data, config) {
                         titleColor: theme.foreground,
                         bodyColor: theme.foreground,
                         borderColor: theme.border,
-                        borderWidth: 1
+                        borderWidth: 1,
+                        mode: 'index',
+                        intersect: false,
+                        callbacks: {
+                            title: function(context) {
+                                if (context[0] && context[0].dataset) {
+                                    const datasetLabel = context[0].dataset.label;
+                                    const time = new Date(context[0].parsed.x);
+                                    return `${datasetLabel} - ${time.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`;
+                                }
+                                return '';
+                            }
+                        }
                     }
                 }
             }
@@ -1069,6 +1248,8 @@ async function renderChart(data, config) {
     } catch (error) {
         console.error('Error rendering chart:', error);
         console.error('Error details:', error.stack);
+    } finally {
+        isRenderingChart = false;
     }
 }
 

@@ -158,7 +158,7 @@ def _process_nordpool_data(all_entries, config, today_values=None):
             end_time = entry['end'].astimezone(local_tz)
         else:
             # Extended entries - calculate timestamps based on position
-            if today_values is not None:
+            if today_values is not None and len(today_values) > 0:
                 base_start = today_values[0]['start'].astimezone(local_tz)
                 slot_duration = today_values[0]['end'] - today_values[0]['start']
                 start_time = base_start + (slot_duration * i)
