@@ -1,23 +1,14 @@
+[auto-observation] Started automatic observation recording thread
  * Serving Flask app 'webapp'
  * Debug mode: off
 [31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
  * Running on http://127.0.0.1:5000
+ * Running on http://192.168.0.3:5000
 [33mPress CTRL+C to quit[0m
-127.0.0.1 - - [30/Oct/2025 23:45:32] "GET /api/schedule HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:45:46] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:14] "GET / HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:15] "[36mGET /static/css/style.css HTTP/1.1[0m" 304 -
-127.0.0.1 - - [30/Oct/2025 23:47:15] "GET /static/js/app.js HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:15] "GET /api/config HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:15] "GET /api/schedule HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:15] "GET /api/config HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:15] "GET /api/initial_state HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:18] "POST /api/run_planner HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:18] "GET /api/schedule HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:18] "GET /api/config HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:18] "GET /api/initial_state HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:47:51] "POST /api/config/save HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:48:00] "POST /api/run_planner HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:48:00] "GET /api/schedule HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:48:00] "GET /api/config HTTP/1.1" 200 -
-127.0.0.1 - - [30/Oct/2025 23:48:00] "GET /api/initial_state HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 15:46:12] "GET /api/history/soc?date=today HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 15:46:24] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:04:57] "GET /static/js/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:05:23] "GET /static/js/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:06:44] "GET /static/js/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:07:30] "GET /api/status HTTP/1.1" 200 -

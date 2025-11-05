@@ -10,7 +10,7 @@ arbitrage:
   protective_soc_strategy: gap_based
 automation:
   enable_scheduler: true
-  write_to_mariadb: true
+  write_to_mariadb: false
 battery:
   max_soc_percent: 95
   roundtrip_efficiency_percent: 95
@@ -54,6 +54,9 @@ learning:
 manual_planning:
   charge_target_percent: 95
   export_target_percent: 40
+  force_discharge_on_deficit: false
+  ignore_protective_guard: false
+  override_hold_in_cheap: false
 nordpool:
   currency: SEK
   price_area: SE4

@@ -39,11 +39,11 @@ def write_schedule_json(df, out_path='schedule.json'):
 
 
 def write_to_mariadb(schedule_path, config_path='config.yaml', secrets_path='secrets.yaml'):
-    from db_writer import write_schedule_to_db
+    from db_writer import write_schedule_to_db_with_preservation
     config = load_yaml(config_path)
     secrets = load_yaml(secrets_path)
     planner_version = get_version_string()
-    return write_schedule_to_db(schedule_path, planner_version, config, secrets)
+    return write_schedule_to_db_with_preservation(schedule_path, planner_version, config, secrets)
 
 
 def main():

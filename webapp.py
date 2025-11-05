@@ -264,6 +264,7 @@ def planner_status():
     status = {
         'local': None,
         'db': None,
+        'current_soc': None,
     }
     # Local schedule.json
     try:
@@ -274,6 +275,19 @@ def planner_status():
             'planned_at': meta.get('planned_at'),
             'planner_version': meta.get('planner_version'),
         }
+    except Exception:
+        pass
+    
+    # Current SoC from Home Assistant
+    try:
+        from inputs import get_initial_state
+        initial_state = get_initial_state()
+        if initial_state and 'battery_soc_percent' in initial_state:
+            status['current_soc'] = {
+                'value': initial_state['battery_soc_percent'],
+                'timestamp': datetime.now().isoformat(),
+                'source': 'home_assistant'
+            }
     except Exception:
         pass
 
@@ -808,5 +822,184 @@ def debug_data():
         
     except FileNotFoundError:
         return jsonify({"error": "schedule.json not found. Run the planner first."}), 404
+
+
+
+
+@app.route('/api/history/soc', methods=['GET'])
+def historic_soc():
+    """Return historic SoC data for today from learning database."""
+    try:
+        date_param = request.args.get('date', 'today')
+        
+        # Determine target date
+        if date_param == 'today':
+            target_date = datetime.now(pytz.timezone('Europe/Stockholm')).date()
+        else:
+            try:
+                target_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+            except ValueError:
+                return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD or "today"'}), 400
+        
+        # Get learning engine and query historic SoC data
+        engine = get_learning_engine()
+        
+        with sqlite3.connect(engine.db_path) as conn:
+            query = """
+                SELECT slot_start, soc_end_percent, quality_flags
+                FROM slot_observations
+                WHERE DATE(slot_start) = ?
+                  AND soc_end_percent IS NOT NULL
+                ORDER BY slot_start ASC
+            """
+            rows = conn.execute(query, (target_date.isoformat(),)).fetchall()
+        
+        if not rows:
+            return jsonify({
+                'date': target_date.isoformat(),
+                'slots': [],
+                'message': 'No historical SoC data available for this date'
+            })
+        
+        # Convert to JSON format
+        slots = []
+        for row in rows:
+            slots.append({
+                'timestamp': row[0],
+                'soc_percent': row[1],
+                'quality_flags': row[2] or ''
+            })
+        
+        return jsonify({
+            'date': target_date.isoformat(),
+            'slots': slots,
+            'count': len(slots)
+        })
+        
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': f'Failed to fetch historical SoC data: {str(e)}'}), 500
+
+
+def record_observation_from_current_state():
+    """Record current system state as observation for learning engine."""
+    try:
+        from learning import get_learning_engine
+        import pandas as pd
+        from datetime import datetime, timedelta
+        import pytz
+        
+        engine = get_learning_engine()
+        if not engine.learning_config.get('enable', False):
+            return  # Learning disabled
+        
+        # Get current time in local timezone
+        tz = pytz.timezone(engine.config.get('timezone', 'Europe/Stockholm'))
+        now = datetime.now(tz)
+        
+        # Get current system state
+        try:
+            from inputs import get_initial_state
+            initial_state = get_initial_state()
+            
+            if not initial_state:
+                return  # No data available
+            
+            # Create observation record
+            current_slot_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+            current_slot_end = current_slot_start + timedelta(minutes=15)
+            
+            # Check if observation already exists for this slot
+            with sqlite3.connect(engine.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT COUNT(*) FROM slot_observations 
+                    WHERE slot_start = ? AND soc_end_percent IS NOT NULL
+                """, (current_slot_start.isoformat(),))
+                existing_count = cursor.fetchone()[0]
+                
+                if existing_count > 0:
+                    print(f"[learning] Observation already exists for slot {current_slot_start.isoformat()}")
+                    return  # Skip if already recorded
+                
+            observation = {
+                'slot_start': current_slot_start.isoformat(),
+                'slot_end': current_slot_end.isoformat(),
+                'import_kwh': 0.0,
+                'export_kwh': 0.0,
+                'pv_kwh': 0.0,
+                'load_kwh': 0.0,
+                'water_kwh': 0.0,
+                'batt_charge_kwh': 0.0,
+                'batt_discharge_kwh': 0.0,
+                'soc_start_percent': initial_state.get('battery_soc_percent', 0),
+                'soc_end_percent': initial_state.get('battery_soc_percent', 0),
+                'import_price_sek_kwh': 0.0,
+                'export_price_sek_kwh': 0.0,
+                'quality_flags': 'auto_recorded'
+            }
+            
+            # Create DataFrame and store observation
+            observations_df = pd.DataFrame([observation])
+            engine.store_slot_observations(observations_df)
+            print(f"[learning] Recorded observation for slot {current_slot_start.isoformat()}: {initial_state.get('battery_soc_percent', 0)}%")
+            
+            print(f"[learning] Recorded observation for slot {current_slot_start.isoformat()}")
+            
+        except Exception as e:
+            print(f"[learning] Failed to record observation: {e}")
+            
+    except Exception as e:
+        print(f"[learning] Error in record_observation_from_current_state: {e}")
+
+
+@app.route('/api/learning/record_observation', methods=['POST'])
+def record_observation():
+    """Trigger observation recording from current system state."""
+    try:
+        record_observation_from_current_state()
+        return jsonify({'status': 'success', 'message': 'Observation recorded'})
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+# Set up automatic observation recording
+import threading
+
+def setup_auto_observation_recording():
+    """Set up automatic observation recording every 15 minutes."""
+    def record_observation_loop():
+        while True:
+            try:
+                record_observation_from_current_state()
+            except Exception as e:
+                print(f"[auto-observation] Error in recording loop: {e}")
+            # Sleep for 15 minutes (900 seconds)
+            import time
+            time.sleep(900)
+    
+    # Start the recording thread
+    recording_thread = threading.Thread(target=record_observation_loop, daemon=True)
+    recording_thread.start()
+    print("[auto-observation] Started automatic observation recording thread")
+
+@app.route('/debug-log', methods=['POST'])
+def debug_log():
+    """Receive debug logs from browser for troubleshooting."""
+    try:
+        data = request.get_json()
+        message = data.get('message', '')
+        timestamp = data.get('timestamp', '')
+        
+        # Log to console and file
+        log_message = f"[Browser Debug] {timestamp}: {message}"
+        print(log_message)
+        
+        # Also append to debug log file
+        with open('browser_debug.log', 'a') as f:
+            f.write(log_message + '\n')
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Start automatic recording when webapp starts
+setup_auto_observation_recording()

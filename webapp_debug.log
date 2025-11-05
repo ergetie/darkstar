@@ -1,0 +1,77 @@
+[auto-observation] Started automatic observation recording thread
+ * Serving Flask app 'webapp'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5000
+ * Running on http://192.168.0.3:5000
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+127.0.0.1 - - [05/Nov/2025 16:49:07] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:49:10] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:53:59] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:54:42] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 16:54:44] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:01:43] "GET /static/js/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:01:54] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:02:01] "GET /api/config HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:02:25] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:02:38] "GET /api/history/soc?date=today HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:03:00] "GET /static/js/app.js HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:03:07] "[31m[1mGET /debug-log HTTP/1.1[0m" 405 -
+127.0.0.1 - - [05/Nov/2025 18:04:06] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:07:29] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:07:38] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:17:42] "GET /api/history/soc?date=today HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:17:53] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:19:58] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:20:06] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:27:35] "GET /api/history/soc?date=today HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:30:44] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:30:47] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:33:12] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:33:18] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:33:27] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:36:58] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:37:01] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:38:22] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:38:36] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:38:41] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:47:13] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:47:16] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:47:19] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:49:33] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:49:36] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:49:38] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:53:08] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 18:53:10] "GET / HTTP/1.1" 200 -
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/inputs.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T16:45:00+01:00
+[learning] Observation already exists for slot 2025-11-05T17:00:00+01:00
+[learning] Observation already exists for slot 2025-11-05T17:15:00+01:00
+[learning] Observation already exists for slot 2025-11-05T17:30:00+01:00
+[learning] Observation already exists for slot 2025-11-05T17:45:00+01:00
+[learning] Observation already exists for slot 2025-11-05T18:00:00+01:00
+[learning] Recorded observation for slot 2025-11-05T18:15:00+01:00: 69.0%
+[learning] Recorded observation for slot 2025-11-05T18:15:00+01:00
+[learning] Recorded observation for slot 2025-11-05T18:30:00+01:00: 68.0%
+[learning] Recorded observation for slot 2025-11-05T18:30:00+01:00
+[learning] Observation already exists for slot 2025-11-05T18:45:00+01:00
+[learning] Observation already exists for slot 2025-11-05T19:00:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+127.0.0.1 - - [05/Nov/2025 19:11:21] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:11:25] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:23:03] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:24:47] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:25:36] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:29:56] "GET /api/history/soc?date=today HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:29:59] "GET /api/status HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:31:08] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:31:37] "GET /api/schedule HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:32:50] "GET / HTTP/1.1" 200 -
+127.0.0.1 - - [05/Nov/2025 19:34:13] "GET / HTTP/1.1" 200 -

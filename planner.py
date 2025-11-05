@@ -1941,11 +1941,64 @@ class HeliosPlanner:
     def _save_schedule_to_json(self, schedule_df):
         """
         Save the final schedule to schedule.json in the required format.
+        Preserves past hours from existing schedule when regenerating.
 
         Args:
             schedule_df (pd.DataFrame): The final schedule DataFrame
         """
-        records = dataframe_to_json_response(schedule_df)
+        # Generate new future schedule
+        new_future_records = dataframe_to_json_response(schedule_df)
+        
+        # Add is_historical: false to new slots
+        for record in new_future_records:
+            record['is_historical'] = False
+
+        # Preserve past slots from existing schedule
+        existing_past_slots = []
+        try:
+            if os.path.exists('schedule.json'):
+                with open('schedule.json', 'r') as f:
+                    existing_data = json.load(f)
+                    existing_schedule = existing_data.get('schedule', [])
+                
+                # Get current time in local timezone
+                tz_name = self.config.get('timezone', 'Europe/Stockholm')
+                tz = pytz.timezone(tz_name)
+                now = datetime.now(tz)
+                today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                
+                # Remove duplicates from existing schedule first
+                seen_times = set()
+                unique_existing_schedule = []
+                for slot in existing_schedule:
+                    if slot['start_time'] not in seen_times:
+                        seen_times.add(slot['start_time'])
+                        unique_existing_schedule.append(slot)
+                
+                for slot in unique_existing_schedule:
+                    # Parse ISO format time, handling timezone offset
+                    slot_time_str = slot['start_time'].replace('+01:00', '+0100')
+                    slot_time = datetime.fromisoformat(slot_time_str)
+                    
+                    # Only preserve slots from today that are in the past
+                    if (slot_time < now and 
+                        slot_time.date() == now.date() and 
+                        slot_time >= today_start):
+                        # Mark as historical and preserve
+                        slot['is_historical'] = True
+                        existing_past_slots.append(slot)
+                        
+        except Exception as e:
+            print(f"[planner] Warning: Could not preserve past slots: {e}")
+
+        # Merge: preserved past + new future (avoid duplicates by time)
+        seen_times = set(slot['start_time'] for slot in existing_past_slots)
+        unique_future_records = []
+        for record in new_future_records:
+            if record['start_time'] not in seen_times:
+                unique_future_records.append(record)
+        
+        merged_schedule = existing_past_slots + unique_future_records
 
         forecast_meta = {
             'pv_forecast_days': len(getattr(self, 'daily_pv_forecast', {}) or {}),
@@ -1954,7 +2007,7 @@ class HeliosPlanner:
         self.forecast_meta = forecast_meta
 
         output = {
-            'schedule': records,
+            'schedule': merged_schedule,
             'meta': {
                 'forecast': forecast_meta
             }
@@ -2115,6 +2168,9 @@ def dataframe_to_json_response(df):
         else:
             record['reason'] = 'no_action_needed'
             record['priority'] = 'low'
+
+        # Add is_historical flag for preserved past slots (default to False for new slots)
+        record['is_historical'] = record.get('is_historical', False)
 
         for key, value in record.items():
             if isinstance(value, float):

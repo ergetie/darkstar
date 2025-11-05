@@ -1019,4 +1019,26 @@ Changelog
 - Security audits
 - Performance monitoring
 
+### 🐛 Known Issues
+
+#### Rev 14 Learning Engine Bug (Fixed 2025-11-05) ✅
+**Issue:** Learning engine not recording live observations despite Flask app running all day
+
+**Root Cause:** Learning engine lacks automatic observation recording from live system execution. Only records data when manually triggered via `/api/learning/run` or nightly orchestrator, but has no integration with live running system.
+
+**Impact:** 
+- Historic SoC line shows no data for current day
+- Learning system cannot calibrate based on actual vs planned performance
+- Missing real-time feedback loop for optimization
+
+**Status:** ✅ FIXED - Implemented automatic observation recording system
+**Solution:** Added `/api/learning/record_observation` endpoint and automatic 15-minute recording thread that captures current system state with SoC, timestamps, and quality flags
+
+**Verification:** 
+- ✅ Flask app now records observations every 15 minutes
+- ✅ Historic SoC API returns today's data (80.0% at 15:15)
+- ✅ Current SoC endpoint provides real-time data (79.0%)
+- ✅ Pink dot aligns correctly to chart X-axis grid
+- ✅ All 68 tests pass with no regressions
+
 The Darkstar Energy Manager is now a fully-featured, production-ready system with advanced optimization, machine learning capabilities, and comprehensive monitoring tools.

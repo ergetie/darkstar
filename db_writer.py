@@ -51,6 +51,83 @@ def _normalise_start(value: Any, tz_name: str = 'Europe/Stockholm') -> datetime:
     return dt.replace(tzinfo=None)
 
 
+def _get_preserved_slots(today_start: datetime, now: datetime, secrets: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Get past slots from today that should be preserved."""
+    if not secrets or not secrets.get('mariadb'):
+        return []
+    
+    try:
+        with _connect_mysql(secrets) as conn:
+            with conn.cursor() as cur:
+                query = """
+                    SELECT slot_number, slot_start, charge_kw, export_kw, water_kw, 
+                           planned_load_kwh, planned_pv_kwh, soc_target, soc_projected, 
+                           classification, planner_version
+                    FROM current_schedule 
+                    WHERE slot_start >= ? AND slot_start < ?
+                    ORDER BY slot_number ASC
+                """
+                cur.execute(query, (today_start.replace(tzinfo=None), 
+                                   now.replace(tzinfo=None)))
+                rows = cur.fetchall()
+        
+        # Convert to dict format matching schedule structure
+        preserved = []
+        for row in rows:
+            preserved.append({
+                'slot_number': row[0],
+                'start_time': row[1].isoformat() + '+01:00',  # Add timezone back
+                'battery_charge_kw': row[2],
+                'export_kwh': row[3] / 4.0,  # Convert export_kw back to kWh
+                'water_heating_kw': row[4],
+                'load_forecast_kwh': row[5],
+                'pv_forecast_kwh': row[6],
+                'soc_target_percent': row[7],
+                'projected_soc_percent': row[8],
+                'classification': row[9],
+                'is_historical': True  # Mark as historical/preserved slot
+            })
+        return preserved
+    except Exception as e:
+        print(f"[db_writer] Warning: Could not preserve past slots: {e}")
+        return []
+
+
+def _write_merged_schedule(merged_rows: List[Dict[str, Any]], planner_version: str, 
+                          config: Dict[str, Any], secrets: Dict[str, Any]) -> int:
+    """Write merged schedule without deleting past hours."""
+    
+    pv = planner_version  # Use version directly since we don't have a path
+    tz_name = config.get('timezone', 'Europe/Stockholm')
+    mapped = [_map_row(i, slot, tz_name=tz_name) for i, slot in enumerate(merged_rows)]
+    
+    with _connect_mysql(secrets) as conn:
+        with conn.cursor() as cur:
+            # Delete only FUTURE slots, preserve past
+            now_naive = datetime.now(pytz.timezone(tz_name)).replace(tzinfo=None)
+            cur.execute("DELETE FROM current_schedule WHERE slot_start >= ?", (now_naive,))
+            
+            # Insert merged schedule
+            insert_sql = (
+                "INSERT INTO current_schedule "
+                "(slot_number, slot_start, charge_kw, export_kw, water_kw, planned_load_kwh, planned_pv_kwh, "
+                " soc_target, soc_projected, classification, planner_version) "
+                "VALUES (" + ",".join(["%s"] * 11) + ")"
+            )
+            cur.executemany(insert_sql, [r + (pv,) for r in mapped])
+            
+            # Also append to plan_history for audit trail
+            insert_history_sql = (
+                "INSERT INTO plan_history "
+                "(planned_at, slot_number, slot_start, charge_kw, export_kw, water_kw, soc_target, planned_load_kwh, planned_pv_kwh, "
+                " soc_projected, classification, planner_version) "
+                "VALUES (CURRENT_TIMESTAMP, " + ",".join(["%s"] * 11) + ")"
+            )
+            cur.executemany(insert_history_sql, [r + (pv,) for r in mapped])
+    
+    return len(mapped)
+
+
 def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = 'Europe/Stockholm') -> Tuple:
     slot_number = slot.get('slot_number', idx + 1)
     slot_start_raw = slot.get('start_time') or slot.get('slot_datetime')
@@ -86,10 +163,50 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = 'Europe/Stockholm
     )
 
 
+def write_schedule_to_db_with_preservation(schedule_path: str, planner_version: str, 
+                                         config: Dict[str, Any], secrets: Dict[str, Any]) -> int:
+    """Write schedule preserving past hours (slots < now) for today only."""
+    
+    # Load new schedule
+    new_rows = _load_schedule(schedule_path)
+    if not new_rows:
+        return 0
+    
+    # If no DB secrets, fall back to regular write
+    if not secrets or not secrets.get('mariadb'):
+        return write_schedule_to_db(schedule_path, planner_version, config, secrets)
+    
+    # Get current time in local timezone
+    tz_name = config.get('timezone', 'Europe/Stockholm')
+    tz = pytz.timezone(tz_name)
+    now = datetime.now(tz)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    
+    # Preserve past slots from today only
+    preserved_slots = _get_preserved_slots(today_start, now, secrets)
+    
+    # Filter new schedule to future slots only
+    future_rows = []
+    for slot in new_rows:
+        slot_time = _normalise_start(slot.get('start_time'), tz_name)
+        if slot_time >= now.replace(tzinfo=None):  # Future slots only
+            future_rows.append(slot)
+    
+    # Merge preserved + future
+    merged_rows = preserved_slots + future_rows
+    
+    # Write merged schedule
+    return _write_merged_schedule(merged_rows, planner_version, config, secrets)
+
+
 def write_schedule_to_db(schedule_path: str, planner_version: str, config: Dict[str, Any], secrets: Dict[str, Any]) -> int:
     rows = _load_schedule(schedule_path)
     if not rows:
         return 0
+
+    # If no DB secrets, just return the count without writing
+    if not secrets or not secrets.get('mariadb'):
+        return len(rows)
 
     pv = _planner_version_from_meta(schedule_path, planner_version)
     tz_name = (config or {}).get('timezone', 'Europe/Stockholm')
