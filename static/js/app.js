@@ -799,9 +799,9 @@ async function renderChart(data, config) {
         if (startIndex === -1) startIndex = 0;
         const windowSlice = schedule.slice(startIndex, startIndex + 192);
 
-        // Fetch additional SoC data for Rev 14 features
-        let currentSoCPoint = null;
-        let historicSoCLine = [];
+        // Fetch additional SoC data for Rev 14 features - create time-aligned arrays
+        let currentSoCArray = [];
+        let historicSoCArray = [];
         
         try {
             const [statusResponse, historicResponse] = await Promise.allSettled([
@@ -809,17 +809,25 @@ async function renderChart(data, config) {
                 fetch('/api/history/soc?date=today')
             ]);
             
+            // Initialize arrays with nulls for all 192 slots
+            currentSoCArray = new Array(192).fill(null);
+            historicSoCArray = new Array(192).fill(null);
+            
             // Extract current SoC point from status API
             if (statusResponse.status === 'fulfilled' && statusResponse.value.ok) {
                 try {
                     const statusData = await statusResponse.value.json();
                     if (statusData.current_soc && statusData.current_soc.value !== undefined) {
-                        currentSoCPoint = {
-                            x: statusData.current_soc.timestamp || new Date().toISOString(),
-                            y: statusData.current_soc.value
-                        };
+                        const currentTimestamp = new Date(statusData.current_soc.timestamp || new Date());
                         
-                        console.log(`[chart] Current SoC point: x=${currentSoCPoint.x}, y=${statusData.current_soc.value}`);
+                        // Find the index in our 192-slot array (15-minute intervals from startOfToday)
+                        const msFromStart = currentTimestamp.getTime() - startOfToday.getTime();
+                        const index = Math.floor(msFromStart / (15 * 60 * 1000));
+                        
+                        if (index >= 0 && index < 192) {
+                            currentSoCArray[index] = statusData.current_soc.value;
+                            console.log(`[chart] Current SoC: index=${index}, value=${statusData.current_soc.value}, time=${currentTimestamp.toISOString()}`);
+                        }
                     }
                 } catch (e) {
                     console.warn('Could not parse current SoC from status:', e);
@@ -831,11 +839,18 @@ async function renderChart(data, config) {
                 try {
                     const historicData = await historicResponse.value.json();
                     if (historicData.slots && Array.isArray(historicData.slots)) {
-                        historicSoCLine = historicData.slots.map(slot => ({
-                            x: slot.timestamp,
-                            y: slot.soc_percent
-                        }));
-                        console.log(`[chart] Historic SoC line: ${historicSoCLine.length} points`);
+                        historicData.slots.forEach(slot => {
+                            const slotTime = new Date(slot.timestamp);
+                            const msFromStart = slotTime.getTime() - startOfToday.getTime();
+                            const index = Math.floor(msFromStart / (15 * 60 * 1000));
+                            
+                            if (index >= 0 && index < 192) {
+                                historicSoCArray[index] = slot.soc_percent;
+                            }
+                        });
+                        
+                        const nonNullCount = historicSoCArray.filter(v => v !== null).length;
+                        console.log(`[chart] Historic SoC: ${nonNullCount} points mapped to array indices`);
                     }
                 } catch (e) {
                     console.warn('Could not parse historic SoC data:', e);
@@ -873,6 +888,10 @@ async function renderChart(data, config) {
         const waterHeating = [];
         const exportPower = [];
         const socTarget = [];
+        
+        // Convert SoC arrays to time-object format
+        const currentSoCData = [];
+        const historicSoCData = [];
 
         for (let i = 0; i < 192; i++) {
             const slot = windowSlice[i];
@@ -951,6 +970,22 @@ async function renderChart(data, config) {
                     y: slot.soc_target_percent ?? null
                 });
             }
+        }
+        
+        // Convert SoC arrays to time-object format
+        for (let i = 0; i < 192; i++) {
+            const slotTime = new Date(startOfToday.getTime() + i * 15 * 60 * 1000);
+            const timeStr = slotTime.toISOString();
+            
+            currentSoCData.push({
+                x: timeStr,
+                y: currentSoCArray[i] ?? null
+            });
+            
+            historicSoCData.push({
+                x: timeStr,
+                y: historicSoCArray[i] ?? null
+            });
         }
 
         // Get canvas element
@@ -1140,30 +1175,32 @@ async function renderChart(data, config) {
                         borderDash: [6, 4],
                         spanGaps: false
                     },
-                    // Rev 14: Current real SoC point and historic SoC line
+                    // Rev 14: Current real SoC point and historic SoC line (time-aligned)
                     {
-                        type: 'scatter',
+                        type: 'line',
                         label: 'Current SoC (Real)',
-                        data: currentSoCPoint ? [currentSoCPoint] : [],
+                        data: currentSoCData,
                         backgroundColor: colours.currentSoc,  // Deep pink for current
                         borderColor: colours.currentSoc,
                         pointRadius: 8,
                         pointHoverRadius: 10,
-                        yAxisID: 'y2',
                         showLine: false,
-                        order: 0  // Ensure it renders on top
+                        yAxisID: 'y2',
+                        order: 0,  // Ensure it renders on top
+                        spanGaps: false
                     },
                     {
                         type: 'line', 
                         label: 'Historic SoC (Today)',
-                        data: historicSoCLine.length > 0 ? historicSoCLine : [],
+                        data: historicSoCData,
                         borderColor: colours.historicSoc,  // Hot pink for historic
                         backgroundColor: 'transparent',
                         borderWidth: 2,
                         tension: 0.1,
                         pointRadius: 0,
                         fill: false,
-                        yAxisID: 'y2'
+                        yAxisID: 'y2',
+                        spanGaps: false
                     }
                 ]
             },
@@ -1190,8 +1227,6 @@ async function renderChart(data, config) {
                             },
                             tooltipFormat: 'HH:mm'
                         },
-                        min: startOfToday.toISOString(),
-                        max: new Date(startOfToday.getTime() + 48 * 60 * 60 * 1000).toISOString(),
                         grid: {
                             display: false
                         },
