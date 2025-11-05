@@ -36,20 +36,28 @@
 - **Rev [X] — [YYYY-MM-DD]**: [Concise Title] *(Status: ✅ Completed/🔄 In Progress/📋 Planned)*
   - **Model**: [AI Model Used]
   - **Summary**: [One-line overview]
+  - **Started**: [Date/Time work began]
+  - **Last Updated**: [Date/Time of last progress]
   
   **Plan:**
-  - **Goals**: [Primary objectives]
-  - **Scope**: [What's included/excluded]
+  - **Goals**: [Primary objectives with success criteria]
+  - **Scope**: [What's included/excluded with boundaries]
+  - **Dependencies**: [What must be completed first]
+  - **Acceptance Criteria**: [Specific, measurable completion conditions]
   
   **Implementation:**
-  - **Changes**: [Technical changes made]
-  - **Files Modified**: [List of key files]
-  - **Configuration**: [Config changes if any]
+  - **Completed**: [✅ List of finished items with dates]
+  - **In Progress**: [🔄 Current work items with status]
+  - **Blocked**: [🚫 Items with blockers and reasons]
+  - **Next Steps**: [→ Immediate next actions]
+  - **Technical Decisions**: [Key architectural choices with rationale]
+  - **Files Modified**: [List with change descriptions]
+  - **Configuration**: [Config changes with impact analysis]
   
   **Verification:**
-  - **Acceptance Criteria**: [How we know it's done]
-  - **Test Results**: [Test outcomes]
-  - **Known Issues**: [Any remaining issues]
+  - **Tests Status**: [Pass/Fail counts, specific test results]
+  - **Known Issues**: [Current problems with workarounds]
+  - **Rollback Plan**: [If needed, how to revert changes]
 
 ---
 
