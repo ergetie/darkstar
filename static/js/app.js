@@ -1052,7 +1052,8 @@ async function renderChart(data, config) {
                         pointRadius: 0,
                         stepped: true,
                         fill: true,
-                        yAxisID: 'y'
+                        yAxisID: 'y',
+                        spanGaps: false
                     },
                     {
                         type: 'line',
@@ -1123,7 +1124,8 @@ async function renderChart(data, config) {
                         yAxisID: 'y2',
                         fill: false,
                         pointRadius: 0,
-                        borderDash: [3, 3]
+                        borderDash: [3, 3],
+                        spanGaps: false
                     },
                     {
                         type: 'line',
@@ -1135,7 +1137,8 @@ async function renderChart(data, config) {
                         fill: false,
                         pointRadius: 0,
                         stepped: true,
-                        borderDash: [6, 4]
+                        borderDash: [6, 4],
+                        spanGaps: false
                     },
                     // Rev 14: Current real SoC point and historic SoC line
                     {
@@ -1226,19 +1229,7 @@ async function renderChart(data, config) {
                         titleColor: theme.foreground,
                         bodyColor: theme.foreground,
                         borderColor: theme.border,
-                        borderWidth: 1,
-                        mode: 'index',
-                        intersect: false,
-                        callbacks: {
-                            title: function(context) {
-                                if (context[0] && context[0].dataset) {
-                                    const datasetLabel = context[0].dataset.label;
-                                    const time = new Date(context[0].parsed.x);
-                                    return `${datasetLabel} - ${time.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })}`;
-                                }
-                                return '';
-                            }
-                        }
+                        borderWidth: 1
                     }
                 }
             }
