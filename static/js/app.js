@@ -1184,12 +1184,14 @@ async function renderChart(data, config) {
                         type: 'time',
                         time: {
                             unit: 'hour',
-                            stepSize: 1,
+                            stepSize: 2,
                             displayFormats: {
                                 hour: 'HH:mm'
                             },
                             tooltipFormat: 'HH:mm'
                         },
+                        min: startOfToday.toISOString(),
+                        max: new Date(startOfToday.getTime() + 48 * 60 * 60 * 1000).toISOString(),
                         grid: {
                             display: false
                         },
@@ -1197,7 +1199,7 @@ async function renderChart(data, config) {
                             color: theme.foreground,
                             maxRotation: 0,
                             autoSkip: true,
-                            maxTicksLimit: 24
+                            maxTicksLimit: 12
                         }
                     },
                     y: {
