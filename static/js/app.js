@@ -1026,8 +1026,8 @@ async function renderChart(data, config) {
         console.log('Chart data summary:', {
             hasPriceData: importPrices.some(v => v.y !== null),
             hasSoCData: projectedSoC.some(v => v.y !== null),
-            hasCurrentSoC: currentSoCPoint !== null,
-            historicSoCCount: historicSoCLine.length,
+            hasCurrentSoC: currentSoCArray.some(v => v !== null),
+            historicSoCCount: historicSoCArray.filter(v => v !== null).length,
             samplePrices: importPrices.slice(0, 10),
             sampleSoC: projectedSoC.slice(0, 10),
             scheduleLength: schedule.length,
