@@ -421,4 +421,70 @@
 
 ---
 
+### Rev 16 — 2025-11-06: DB Preservation Bug Fix *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Fixed critical SQL parameter placeholder bug preventing DB preservation in "run planner" flow
+- **Started**: 2025-11-06 13:30
+- **Last Updated**: 2025-11-06 13:45
+
+**Plan:**
+- **Goals**: Resolve Issue #1 - "run planner" should fetch past slots from DB, not recreate them
+- **Scope**: Fix SQL query parameter compatibility for PyMySQL/MySQL
+- **Dependencies**: None (standalone bug fix)
+- **Acceptance Criteria**: "run planner" shows same historical slots as "load server plan"
+
+**Implementation:**
+- **Completed**: 
+  - ✅ Root cause analysis: SQL parameter placeholder mismatch (`?` vs `%s`)
+  - ✅ Fixed `_get_preserved_slots_from_db()` in `db_writer.py` line 69
+  - ✅ Verified DB preservation working (55 slots loaded from database)
+  - ✅ Confirmed merged schedule contains DB past + planner future slots
+  - ✅ Created git commit 861edd7 with proper documentation
+- **In Progress**: None
+- **Blocked**: None
+- **Next Steps**: → Proceed to Issue #2 (soc_target bump fix)
+- **Technical Decisions**: Used PyMySQL-compatible `%s` placeholders instead of `?`
+- **Files Modified**: `db_writer.py` (1 line change: `?` → `%s`)
+- **Configuration**: None
+
+**Verification:**
+- **Tests Status**: Manual verification completed - DB preservation working correctly
+- **Known Issues**: None resolved
+- **Rollback Plan**: Revert `db_writer.py` line 69 from `%s` back to `?`
+
+---
+
+### Rev 17 — 2025-11-06: First Future Slot SoC Target Fix *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Fixed soc_target bump issue where first future slot gets current SoC instead of action-based target
+- **Started**: 2025-11-06 13:50
+- **Last Updated**: 2025-11-06 13:55
+
+**Plan:**
+- **Goals**: Resolve Issue #2 - First future slot should use action-based target, not current SoC
+- **Scope**: Fix historical preservation loop in `_apply_soc_target_percent()` method
+- **Dependencies**: Rev 16 (Issue #1 fix) completed
+- **Acceptance Criteria**: First future discharge slot shows min_soc_percent target (~15%) not current SoC (~76%)
+
+**Implementation:**
+- **Completed**: 
+  - ✅ Root cause analysis: Historical preservation loop includes first future slot
+  - ✅ Identified fix location: `planner.py` line 1846 (`range(now_pos + 1)` → `range(now_pos)`)
+  - ✅ Implemented fix: Changed historical preservation to exclude first future slot
+  - ✅ Tested fix: First future discharge slot now shows 15% target (was 76%)
+  - ✅ Verified other slots unchanged: Second future slot still 15% target
+- **In Progress**: None
+- **Blocked**: None
+- **Next Steps**: → Commit changes to complete Issue #2
+- **Technical Decisions**: Limit historical preservation to actual past slots only
+- **Files Modified**: `planner.py` (1 line change in `_apply_soc_target_percent()`)
+- **Configuration**: None
+
+**Verification:**
+- **Tests Status**: Manual verification completed - first future slot target corrected
+- **Known Issues**: None resolved
+- **Rollback Plan**: Revert `planner.py` line 1846 from `range(now_pos)` back to `range(now_pos + 1)`
+
+---
+
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*

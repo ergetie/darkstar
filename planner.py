@@ -1842,7 +1842,7 @@ class HeliosPlanner:
 
         # Preserve historical SoC targets using entry values
         if now_pos >= 0:
-            for i in range(now_pos + 1):
+            for i in range(now_pos):
                 entry = entry_list[i]
                 if entry is not None:
                     targets[i] = float(entry)
