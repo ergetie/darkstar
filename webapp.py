@@ -452,14 +452,44 @@ def db_push_current():
 
 @app.route('/api/schedule/save', methods=['POST'])
 def save_schedule_json():
-    """Persist a provided schedule payload to schedule.json with meta."""
+    """Persist a provided schedule payload to schedule.json with meta, preserving historical slots."""
     try:
         payload = request.get_json(silent=True) or {}
-        schedule = payload.get('schedule') if isinstance(payload, dict) else None
-        if schedule is None and isinstance(payload, list):
-            schedule = payload
-        if not isinstance(schedule, list):
+        manual_schedule = payload.get('schedule') if isinstance(payload, dict) else None
+        if manual_schedule is None and isinstance(payload, list):
+            manual_schedule = payload
+        if not isinstance(manual_schedule, list):
             return jsonify({'status': 'error', 'error': 'Invalid schedule payload'}), 400
+
+        # Preserve historical slots from database (same logic as planner.py Rev 19)
+        try:
+            from db_writer import get_preserved_slots
+            import pytz
+            
+            tz = pytz.timezone('Europe/Stockholm')
+            now = datetime.now(tz)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            
+            # Load secrets for DB access
+            secrets = _load_yaml('secrets.yaml')
+            existing_past_slots = get_preserved_slots(today_start, now, secrets)
+            
+            # Fix slot number conflicts: ensure manual slots continue from max historical slot number
+            max_historical_slot = 0
+            if existing_past_slots:
+                max_historical_slot = max(slot.get('slot_number', 0) for slot in existing_past_slots)
+            
+            # Reassign slot numbers for manual records to continue from historical max
+            for i, record in enumerate(manual_schedule):
+                record['slot_number'] = max_historical_slot + i + 1
+            
+            # Merge: preserved past + manual (same as planner.py)
+            merged_schedule = existing_past_slots + manual_schedule
+            
+        except Exception as e:
+            print(f"[webapp] Warning: Could not preserve historical slots for manual changes: {e}")
+            # Fallback to manual schedule only if preservation fails
+            merged_schedule = manual_schedule
 
         # Build meta with version + timestamp
         try:
@@ -471,7 +501,7 @@ def save_schedule_json():
             version = 'dev'
 
         out = {
-            'schedule': schedule,
+            'schedule': merged_schedule,
             'meta': {
                 'planned_at': datetime.now().isoformat(),
                 'planner_version': version,

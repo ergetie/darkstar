@@ -607,6 +607,62 @@
 - Remove slot number reassignment logic from planner.py lines 1979-1985
 - Restore original merging: `merged_schedule = existing_past_slots + new_future_records`
 
+### Rev 20 — 2025-11-06: Manual Changes Historical Preservation *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Added historical slot preservation to "apply manual changes" functionality
+- **Started**: 2025-11-06 14:50
+- **Last Updated**: 2025-11-06 14:55
+
+**Plan:**
+- **Goals**: Make "apply manual changes" behave same as "run planner" regarding historical preservation
+- **Scope**: Add historical slot merging to `/api/schedule/save` endpoint
+- **Dependencies**: Rev 19 (Push to DB fix) completed
+- **Acceptance Criteria**: 
+  - "Apply manual changes" preserves historical slots from database
+  - Manual slot numbers continue from max historical slot number
+  - No duplicate slot numbers in final schedule
+
+**Investigation Results:**
+- **Root Cause**: `/api/schedule/save` endpoint bypassed historical slot preservation logic
+  - "Run planner": ✅ Calls `planner.generate_schedule()` → includes historical merging
+  - "Apply manual changes": ❌ Direct save to `schedule.json` → no historical merging
+  - Result: Manual changes overwrote entire schedule, losing historical data
+
+**Implementation:**
+- **Strategy**: Replicate exact Rev 19 logic in `/api/schedule/save` endpoint
+- **Location**: `webapp.py:453-500` (updated `/api/schedule/save` endpoint)
+- **Code Changes**:
+  ```python
+  # Preserve historical slots from database (same logic as planner.py Rev 19)
+  from db_writer import get_preserved_slots
+  existing_past_slots = get_preserved_slots(today_start, now, secrets)
+  
+  # Fix slot number conflicts: ensure manual slots continue from max historical slot number
+  max_historical_slot = 0
+  if existing_past_slots:
+      max_historical_slot = max(slot.get('slot_number', 0) for slot in existing_past_slots)
+  
+  # Reassign slot numbers for manual records to continue from historical max
+  for i, record in enumerate(manual_schedule):
+      record['slot_number'] = max_historical_slot + i + 1
+  
+  # Merge: preserved past + manual (same as planner.py)
+  merged_schedule = existing_past_slots + manual_schedule
+  ```
+
+**Files Modified:**
+- `webapp.py`: Added historical preservation logic to `/api/schedule/save` endpoint
+
+**Verification:**
+- **Before Fix**: Manual changes overwrote entire schedule, losing historical slots
+- **After Fix**: Manual changes preserve historical slots (1-133) + continue numbering (134+)
+- **Test Result**: ✅ 3 total slots, 3 unique slot numbers, 1 historical slot preserved
+- **Consistency**: "Apply manual changes" now behaves identically to "run planner" for historical preservation
+
+**Rollback Plan**: 
+- Revert `/api/schedule/save` endpoint to original implementation (lines 453-484)
+- Remove historical slot merging logic
+
 ---
 
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
