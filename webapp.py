@@ -230,6 +230,39 @@ def select_theme():
 def get_schedule():
     with open('schedule.json', 'r') as f:
         data = json.load(f)
+    
+    # Add price overlay for historical slots if missing
+    if 'schedule' in data:
+        # Build price map using same logic as /api/db/current_schedule
+        price_map = {}
+        try:
+            from inputs import get_nordpool_data
+            price_slots = get_nordpool_data('config.yaml')
+            tz = pytz.timezone('Europe/Stockholm')
+            for p in price_slots:
+                st = p['start_time']
+                if st.tzinfo is None:
+                    st_local_naive = tz.localize(st).replace(tzinfo=None)
+                else:
+                    st_local_naive = st.astimezone(tz).replace(tzinfo=None)
+                price_map[st_local_naive] = float(p.get('import_price_sek_kwh') or 0.0)
+        except Exception as exc:
+            print(f"[api/schedule] price overlay unavailable: {exc}")
+        
+        # Overlay prices for slots that don't have them
+        for slot in data['schedule']:
+            if 'import_price_sek_kwh' not in slot:
+                try:
+                    start_str = slot.get('start_time')
+                    if start_str:
+                        start = datetime.fromisoformat(start_str.replace('Z', '+00:00'))
+                        local_naive = start if start.tzinfo is None else start.astimezone(tz).replace(tzinfo=None)
+                        price = price_map.get(local_naive)
+                        if price is not None:
+                            slot['import_price_sek_kwh'] = round(price, 4)
+                except Exception:
+                    pass
+    
     return jsonify(data)
 
 

@@ -1221,20 +1221,21 @@ async function renderChart(data, config) {
                         type: 'time',
                         time: {
                             unit: 'hour',
-                            stepSize: 2,
+                            stepSize: 1,
                             displayFormats: {
                                 hour: 'HH:mm'
                             },
                             tooltipFormat: 'HH:mm'
                         },
                         grid: {
-                            display: false
+                            display: true
                         },
                         ticks: {
                             color: theme.foreground,
-                            maxRotation: 0,
-                            autoSkip: true,
-                            maxTicksLimit: 12
+                            maxRotation: 90,
+                            source: 'data',
+                            autoSkip: false,
+                            maxTicksLimit: 48
                         }
                     },
                     y: {
