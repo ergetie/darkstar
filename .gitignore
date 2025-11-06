@@ -11,3 +11,8 @@ secrets.yaml
 # IDE / Editor specific files
 .vscode/
 .idea/
+
+# Generated files (output)
+schedule.json
+*.log
+webapp*.log
