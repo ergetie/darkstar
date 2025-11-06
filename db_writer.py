@@ -66,7 +66,7 @@ def _get_preserved_slots_from_db(today_start: datetime, now: datetime, secrets: 
                            planned_load_kwh, planned_pv_kwh, soc_target, soc_projected, 
                            classification, planner_version
                     FROM current_schedule 
-                    WHERE slot_start >= ? AND slot_start < ?
+                    WHERE slot_start >= %s AND slot_start < %s
                     ORDER BY slot_number ASC
                 """
                 cur.execute(query, (today_start.replace(tzinfo=None), 
