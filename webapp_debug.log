@@ -75,3 +75,97 @@
 127.0.0.1 - - [05/Nov/2025 19:31:37] "GET /api/schedule HTTP/1.1" 200 -
 127.0.0.1 - - [05/Nov/2025 19:32:50] "GET / HTTP/1.1" 200 -
 127.0.0.1 - - [05/Nov/2025 19:34:13] "GET / HTTP/1.1" 200 -
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/planner.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T19:00:00+01:00
+[learning] Observation already exists for slot 2025-11-05T19:15:00+01:00
+[learning] Observation already exists for slot 2025-11-05T19:30:00+01:00
+[learning] Observation already exists for slot 2025-11-05T19:45:00+01:00
+[learning] Observation already exists for slot 2025-11-05T20:00:00+01:00
+[learning] Observation already exists for slot 2025-11-05T20:15:00+01:00
+[learning] Observation already exists for slot 2025-11-05T20:30:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/planner.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Recorded observation for slot 2025-11-05T20:45:00+01:00: 63.0%
+[learning] Recorded observation for slot 2025-11-05T20:45:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T20:45:00+01:00
+[learning] Recorded observation for slot 2025-11-05T21:00:00+01:00: 62.0%
+[learning] Recorded observation for slot 2025-11-05T21:00:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T21:00:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T21:00:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T21:00:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/planner.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T21:00:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T21:00:00+01:00
+[learning] Observation already exists for slot 2025-11-05T21:15:00+01:00
+[learning] Observation already exists for slot 2025-11-05T21:30:00+01:00
+[learning] Observation already exists for slot 2025-11-05T21:45:00+01:00
+[learning] Observation already exists for slot 2025-11-05T22:00:00+01:00
+[learning] Observation already exists for slot 2025-11-05T22:15:00+01:00
+[learning] Observation already exists for slot 2025-11-05T22:30:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Recorded observation for slot 2025-11-05T22:45:00+01:00: 58.0%
+[learning] Recorded observation for slot 2025-11-05T22:45:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T22:45:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/planner.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T22:45:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/planner.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T22:45:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
+ * Detected change in '/home/s/Nextcloud/documents/projects/darkstar/db_writer.py', reloading
+[auto-observation] Started automatic observation recording thread
+[learning] Observation already exists for slot 2025-11-05T22:45:00+01:00
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 170-758-326
