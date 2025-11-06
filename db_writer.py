@@ -1,7 +1,9 @@
 import json
-from typing import Any, Dict, List, Tuple
+import os
+from typing import Any, Dict, List, Tuple, Optional
 from datetime import datetime
 
+import pandas as pd
 import pytz
 
 import pymysql
@@ -18,7 +20,7 @@ def _connect_mysql(secrets: Dict[str, Any]):
         database=db.get('database'),
         charset='utf8mb4',
         autocommit=True,
-        cursorclass=pymysql.cursors.Cursor,
+        cursorclass=pymysql.cursors.DictCursor,
     )
 
 
@@ -51,8 +53,8 @@ def _normalise_start(value: Any, tz_name: str = 'Europe/Stockholm') -> datetime:
     return dt.replace(tzinfo=None)
 
 
-def _get_preserved_slots(today_start: datetime, now: datetime, secrets: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Get past slots from today that should be preserved."""
+def _get_preserved_slots_from_db(today_start: datetime, now: datetime, secrets: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Get past slots from today that should be preserved from database (source of truth)."""
     if not secrets or not secrets.get('mariadb'):
         return []
     
@@ -71,26 +73,110 @@ def _get_preserved_slots(today_start: datetime, now: datetime, secrets: Dict[str
                                    now.replace(tzinfo=None)))
                 rows = cur.fetchall()
         
-        # Convert to dict format matching schedule structure
+        # Convert to dict format matching schedule structure (same as webapp)
         preserved = []
-        for row in rows:
-            preserved.append({
-                'slot_number': row[0],
-                'start_time': row[1].isoformat() + '+01:00',  # Add timezone back
-                'battery_charge_kw': row[2],
-                'export_kwh': row[3] / 4.0,  # Convert export_kw back to kWh
-                'water_heating_kw': row[4],
-                'load_forecast_kwh': row[5],
-                'pv_forecast_kwh': row[6],
-                'soc_target_percent': row[7],
-                'projected_soc_percent': row[8],
-                'classification': row[9],
+        for r in rows:
+            # Calculate end_time from resolution (15 minutes)
+            start = r['slot_start']
+            end = start + pd.Timedelta(minutes=15)
+            
+            record = {
+                'slot_number': r.get('slot_number'),
+                'start_time': start.isoformat(),
+                'end_time': end.isoformat(),
+                'battery_charge_kw': round(float(r.get('charge_kw') or 0.0), 2),
+                # DB stores export in kW; UI expects export_kwh (15-min → kWh = kW/4)
+                'export_kwh': round(float(r.get('export_kw') or 0.0) / 4.0, 4),
+                'water_heating_kw': round(float(r.get('water_kw') or 0.0), 2),
+                'load_forecast_kwh': round(float(r.get('planned_load_kwh') or 0.0), 4),
+                'pv_forecast_kwh': round(float(r.get('planned_pv_kwh') or 0.0), 4),
+                'soc_target_percent': round(float(r.get('soc_target') or 0.0), 0),  # No decimals
+                'projected_soc_percent': round(float(r.get('soc_projected') or 0.0), 0),  # No decimals
+                'classification': str(r.get('classification') or 'hold').lower(),
                 'is_historical': True  # Mark as historical/preserved slot
-            })
+            }
+            preserved.append(record)
         return preserved
     except Exception as e:
-        print(f"[db_writer] Warning: Could not preserve past slots: {e}")
+        print(f"[db_writer] Warning: Could not preserve past slots from database: {e}")
         return []
+
+
+def _get_preserved_slots_from_local(today_start: datetime, now: datetime) -> List[Dict[str, Any]]:
+    """Get past slots from today that should be preserved from local schedule.json (fallback)."""
+    try:
+        if not os.path.exists('schedule.json'):
+            return []
+        
+        with open('schedule.json', 'r', encoding='utf-8') as f:
+            existing_data = json.load(f)
+            existing_schedule = existing_data.get('schedule', [])
+        
+        # Remove duplicates from existing schedule first
+        seen_times = set()
+        unique_existing_schedule = []
+        for slot in existing_schedule:
+            if slot['start_time'] not in seen_times:
+                seen_times.add(slot['start_time'])
+                unique_existing_schedule.append(slot)
+        
+        preserved = []
+        for slot in unique_existing_schedule:
+            # Parse ISO format time, handling timezone offset
+            slot_time_str = slot['start_time'].replace('+01:00', '+0100')
+            slot_time = datetime.fromisoformat(slot_time_str)
+            
+            # Only preserve slots from today that are in the past
+            if (slot_time < now and 
+                slot_time.date() == now.date() and 
+                slot_time >= today_start):
+                # Mark as historical and preserve
+                slot['is_historical'] = True
+                
+                # Apply same formatting as database logic (integer SOC values)
+                if 'soc_target_percent' in slot and isinstance(slot['soc_target_percent'], float):
+                    slot['soc_target_percent'] = int(round(slot['soc_target_percent'], 0))
+                if 'projected_soc_percent' in slot and isinstance(slot['projected_soc_percent'], float):
+                    slot['projected_soc_percent'] = int(round(slot['projected_soc_percent'], 0))
+                
+                preserved.append(slot)
+        
+        return preserved
+    except Exception as e:
+        print(f"[db_writer] Warning: Could not preserve past slots from local file: {e}")
+        return []
+
+
+def get_preserved_slots(today_start: datetime, now: datetime, secrets: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """
+    Get past slots from today that should be preserved.
+    Tries database first (source of truth), falls back to local schedule.json.
+    
+    Args:
+        today_start: Start of today (datetime)
+        now: Current time (datetime) 
+        secrets: Configuration secrets (optional, for database access)
+        
+    Returns:
+        List of preserved slot dictionaries
+    """
+    # Try database first (source of truth)
+    if secrets and secrets.get('mariadb'):
+        db_slots = _get_preserved_slots_from_db(today_start, now, secrets)
+        if db_slots:
+            print(f"[preservation] Loaded {len(db_slots)} past slots from database")
+            return db_slots
+        else:
+            print(f"[preservation] No past slots found in database, trying local fallback")
+    
+    # Fallback to local schedule.json
+    local_slots = _get_preserved_slots_from_local(today_start, now)
+    if local_slots:
+        print(f"[preservation] Loaded {len(local_slots)} past slots from local schedule.json")
+    else:
+        print(f"[preservation] No past slots found locally")
+    
+    return local_slots
 
 
 def _write_merged_schedule(merged_rows: List[Dict[str, Any]], planner_version: str, 
@@ -183,7 +269,7 @@ def write_schedule_to_db_with_preservation(schedule_path: str, planner_version: 
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Preserve past slots from today only
-    preserved_slots = _get_preserved_slots(today_start, now, secrets)
+    preserved_slots = get_preserved_slots(today_start, now, secrets)
     
     # Filter new schedule to future slots only
     future_rows = []
