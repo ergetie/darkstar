@@ -663,6 +663,100 @@
 - Revert `/api/schedule/save` endpoint to original implementation (lines 453-484)
 - Remove historical slot merging logic
 
+### Rev 21 — 2025-11-06: Gitignore Optimization *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Added generated files to .gitignore to prevent accidental commits
+- **Started**: 2025-11-06 15:05
+- **Last Updated**: 2025-11-06 15:05
+
+**Plan:**
+- **Goals**: Exclude generated output files from git tracking
+- **Scope**: Update .gitignore with schedule.json and log files
+- **Dependencies**: Rev 20 (Manual changes preservation) completed
+- **Acceptance Criteria**: 
+  - Generated files no longer appear in git status
+  - Only source code changes are tracked
+
+**Implementation:**
+- **Files Added to .gitignore**:
+  - `schedule.json` (generated planner output)
+  - `*.log` (log files)
+  - `webapp*.log` (webapp specific logs)
+
+**Rationale:**
+- `schedule.json` is regenerated every time planner runs
+- No need to track generated output in version control
+- Prevents accidental commits of temporary/generated data
+
+**Files Modified:**
+- `.gitignore`: Added generated files exclusions
+
+**Verification:**
+- ✅ `git status` no longer shows schedule.json as modified
+- ✅ Only source code changes appear in git tracking
+- ✅ Generated files are properly excluded
+
+**Rollback Plan**: 
+- Remove added lines from .gitignore
+
+---
+
+### Rev 20 — 2025-11-06: Manual Changes Historical Preservation *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Added historical slot preservation to "apply manual changes" functionality
+- **Started**: 2025-11-06 14:50
+- **Last Updated**: 2025-11-06 15:05
+
+**Plan:**
+- **Goals**: Make "apply manual changes" behave same as "run planner" regarding historical preservation
+- **Scope**: Add historical slot merging to `/api/schedule/save` endpoint
+- **Dependencies**: Rev 19 (Push to DB fix) completed
+- **Acceptance Criteria**: 
+  - "Apply manual changes" preserves historical slots from database
+  - Manual slot numbers continue from max historical slot number
+  - No duplicate slot numbers in final schedule
+
+**Investigation Results:**
+- **Root Cause**: `/api/schedule/save` endpoint bypassed historical slot preservation logic
+  - "Run planner": ✅ Calls `planner.generate_schedule()` → includes historical merging
+  - "Apply manual changes": ❌ Direct save to `schedule.json` → no historical merging
+  - Result: Manual changes overwrote entire schedule, losing historical data
+
+**Implementation:**
+- **Strategy**: Replicate exact Rev 19 logic in `/api/schedule/save` endpoint
+- **Location**: `webapp.py:453-500` (updated `/api/schedule/save` endpoint)
+- **Code Changes**:
+  ```python
+  # Preserve historical slots from database (same logic as planner.py Rev 19)
+  from db_writer import get_preserved_slots
+  existing_past_slots = get_preserved_slots(today_start, now, secrets)
+  
+  # Fix slot number conflicts: ensure manual slots continue from max historical slot number
+  max_historical_slot = 0
+  if existing_past_slots:
+      max_historical_slot = max(slot.get('slot_number', 0) for slot in existing_past_slots)
+  
+  # Reassign slot numbers for manual records to continue from historical max
+  for i, record in enumerate(manual_schedule):
+      record['slot_number'] = max_historical_slot + i + 1
+  
+  # Merge: preserved past + manual (same as planner.py)
+  merged_schedule = existing_past_slots + manual_schedule
+  ```
+
+**Files Modified:**
+- `webapp.py`: Added historical preservation logic to `/api/schedule/save` endpoint
+
+**Verification:**
+- **Before Fix**: Manual changes overwrote entire schedule, losing historical slots
+- **After Fix**: Manual changes preserve historical slots + continue numbering properly
+- **Test Result**: ✅ Historical preservation working, no duplicate slot numbers
+- **Consistency**: "Apply manual changes" now behaves identically to "run planner" for historical preservation
+
+**Rollback Plan**: 
+- Revert `/api/schedule/save` endpoint to original implementation (lines 453-484)
+- Remove historical slot merging logic
+
 ---
 
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
