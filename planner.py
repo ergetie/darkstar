@@ -1976,6 +1976,15 @@ class HeliosPlanner:
         except Exception as e:
             print(f"[planner] Warning: Could not preserve past slots: {e}")
 
+        # Fix slot number conflicts: ensure future slots continue from max historical slot number
+        max_historical_slot = 0
+        if existing_past_slots:
+            max_historical_slot = max(slot.get('slot_number', 0) for slot in existing_past_slots)
+        
+        # Reassign slot numbers for future records to continue from historical max
+        for i, record in enumerate(new_future_records):
+            record['slot_number'] = max_historical_slot + i + 1
+        
         # Merge: preserved past + new future (no duplicates since new_future_records only contains future slots)
         merged_schedule = existing_past_slots + new_future_records
 

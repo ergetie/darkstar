@@ -546,4 +546,67 @@
 
 ---
 
+### Rev 19 — 2025-11-06: Push to DB Primary Key Conflict *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Fixed "push to DB" failure by resolving duplicate slot numbers in schedule.json
+- **Started**: 2025-11-06 14:35
+- **Last Updated**: 2025-11-06 14:45
+
+**Plan:**
+- **Goals**: Fix "push to DB" functionality that fails with 500 error
+- **Scope**: Identify root cause of primary key constraint violation and implement fix
+- **Dependencies**: Rev 18 (Price history & X-axis fixes) completed
+- **Acceptance Criteria**: 
+  - "Push to DB" button succeeds without errors
+  - Schedule data properly written to both current_schedule and plan_history tables
+
+**Investigation Results:**
+- **Root Cause**: Duplicate slot numbers in `schedule.json` causing primary key constraint violation
+  - Total slots: 192, Unique slot numbers: 154
+  - Duplicates found for slot numbers 97-134 (38 duplicate entries)
+  - Error: `(1062, "Duplicate entry '97' for key 'PRIMARY'")`
+  
+- **Why Duplicates Occur**: 
+  - Historical slots (from DB) have slot numbers 97-134
+  - Future planner slots also generate slot numbers 97-134
+  - Merging process creates overlapping slot number ranges
+  - `current_schedule` table has PRIMARY KEY on `slot_number`
+
+- **Evidence**:
+  - Manual single INSERT works fine
+  - `executemany` fails on duplicate primary key
+  - `current_schedule` table is empty before insert (DELETE works)
+  - Schedule.json contains overlapping historical + future slot numbers
+
+**Implementation:**
+- **Fix Strategy**: Ensure future slots continue from max historical slot number
+- **Location**: Fixed slot number generation in planner.py:1979-1985
+- **Code Changes**:
+  ```python
+  # Fix slot number conflicts: ensure future slots continue from max historical slot number
+  max_historical_slot = 0
+  if existing_past_slots:
+      max_historical_slot = max(slot.get('slot_number', 0) for slot in existing_past_slots)
+  
+  # Reassign slot numbers for future records to continue from historical max
+  for i, record in enumerate(new_future_records):
+      record['slot_number'] = max_historical_slot + i + 1
+  ```
+
+**Files Modified:**
+- `planner.py`: Added slot number conflict resolution in merging logic (lines 1979-1985)
+
+**Verification:**
+- **Before Fix**: 192 slots, 154 unique (38 duplicates: 97-134)
+- **After Fix**: 134 slots, 134 unique (0 duplicates)
+- **Slot Number Range**: 97-230 (historical 97-134 + future 135-230)
+- **Push to DB Test**: ✅ SUCCESS: 134 rows written to database
+- **Data Integrity**: ✅ No primary key constraint violations
+
+**Rollback Plan**: 
+- Remove slot number reassignment logic from planner.py lines 1979-1985
+- Restore original merging: `merged_schedule = existing_past_slots + new_future_records`
+
+---
+
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
