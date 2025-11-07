@@ -18,3 +18,4 @@ schedule.json
 webapp*.log
 data/planner_learning.db
 config.yaml
+claude_code_zai_env.sh
