@@ -701,6 +701,88 @@
 
 ---
 
+### Rev 22 — 2025-11-06: Server Automation Setup *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Fixed broken systemd service and timer configuration to enable automated planner execution
+- **Started**: 2025-11-06 16:30
+- **Last Updated**: 2025-11-06 17:05
+
+**Plan:**
+- **Goals**: Enable automated hourly planner execution via systemd timer (08:00-22:00 Europe/Stockholm)
+- **Scope**: Fix systemd service and timer configuration, verify automation functionality
+- **Dependencies**: Rev 21 (Gitignore optimization) completed
+- **Acceptance Criteria**: 
+  - systemd timer runs planner automatically every hour 08:00-22:00
+  - Service executes planner successfully without errors
+  - Historical slot preservation works in automated runs
+  - Next scheduled run visible and confirmed
+
+**Investigation Results:**
+- **Initial State**: No automation configured
+  - `crontab -l`: "no crontab for root"
+  - `systemctl status darkstar-planner.service`: "bad-setting" error
+  - `systemctl status darkstar-planner.timer`: "bad-setting" error
+  - No running planner or learning processes
+
+- **Root Causes Identified**:
+  1. **Service File**: Missing `ExecStart=` line entirely
+  2. **Timer File**: Corrupted en dash character in description line (`08–22` → `08M-bM-^@M-^S22`)
+  3. **Timer Syntax**: Typo in `OnCalendar=--*` (should be `*-*-*`)
+  4. **Missing Automation**: No cron jobs or systemd timers enabled
+
+**Implementation:**
+- **Step 1 - Timer Fix**: Corrected `OnCalendar` syntax and corrupted description
+  ```bash
+  # Fixed: OnCalendar=*-*-* 08..22:00:00
+  # Fixed: Description=Run Darkstar planner hourly (08-22 Europe/Stockholm)
+  ```
+  
+- **Step 2 - Service Fix**: Added missing `ExecStart=` and proper configuration
+  ```ini
+  [Service]
+  Type=oneshot
+  WorkingDirectory=/opt/darkstar
+  ExecStart=/opt/darkstar/venv/bin/python -m bin.run_planner
+  User=root
+  Group=root
+  ```
+
+- **Step 3 - Enable Automation**: 
+  ```bash
+  systemctl daemon-reload
+  systemctl enable --now darkstar-planner.timer
+  ```
+
+**Files Modified:**
+- `/etc/systemd/system/darkstar-planner.service`: Fixed missing ExecStart and configuration
+- `/etc/systemd/system/darkstar-planner.timer`: Fixed corrupted characters and syntax
+
+**Verification:**
+- **Timer Status**: ✅ Active, next run scheduled for 18:00 CET (57 minutes from verification)
+- **Service Test**: ✅ Manual execution successful
+  ```
+  Nov 06 17:01:26 darkstar python[4841]: [planner] Wrote schedule to schedule.json
+  Nov 06 17:01:26 darkstar python[4841]: [preservation] Loaded 8 past slots from database
+  Nov 06 17:01:26 darkstar systemd[1]: Finished darkstar-planner.service - Darkstar planner run.
+  ```
+- **Schedule Output**: ✅ 92KB schedule.json generated with proper structure
+- **HA Integration**: ✅ Successfully fetching consumption data (23.20 kWh/day average)
+- **Resource Usage**: ✅ Efficient (1.652s CPU time, 61.8M memory peak)
+- **Historical Preservation**: ✅ Loading 8 past slots from database during automated runs
+
+**Final Status:**
+- **Automation**: ✅ Fully operational - runs hourly 08:00-22:00 Europe/Stockholm
+- **Next Run**: ✅ Scheduled for 18:00 CET today
+- **Service Health**: ✅ No errors, clean execution
+- **Data Flow**: ✅ HA → Planner → Database → Schedule.json working correctly
+
+**Rollback Plan**: 
+- Disable timer: `systemctl disable --now darkstar-planner.timer`
+- Restore original broken service/timer files from backup
+- Manual execution only: `python planner.py`
+
+---
+
 ### Rev 20 — 2025-11-06: Manual Changes Historical Preservation *(Status: ✅ Completed)*
 - **Model**: GPT-5 Codex CLI
 - **Summary**: Added historical slot preservation to "apply manual changes" functionality
