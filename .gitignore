@@ -16,3 +16,5 @@ secrets.yaml
 schedule.json
 *.log
 webapp*.log
+data/planner_learning.db
+config.yaml
