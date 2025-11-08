@@ -57,6 +57,8 @@ water_heating:
   schedule_future_only: true        # Only schedule future slots (skip current slot)
   defer_up_to_hours: 3              # Allow deferring into early tomorrow up to N hours if cheaper
   plan_days_ahead: 1                # Plan at most today + 1 day (tomorrow) within 48h horizon
+  block_consolidation_tolerance_sek: 0.05
+  consolidation_max_gap_slots: 0
 
 # S-Index Configuration
 s_index:
@@ -77,6 +79,8 @@ smoothing:
   min_on_slots_discharge: 2
   min_off_slots_discharge: 1
   min_on_slots_export: 2
+  charge_power_step_kw: 0.5
+  charge_power_dwell_minutes: 0
 
 # Arbitrage / Export Settings
 arbitrage:

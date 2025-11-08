@@ -107,6 +107,13 @@ class HeliosPlanner:
             if value < 0:
                 errors.append(f"smoothing.{key} must be ≥ 0")
 
+        charge_step = smoothing_cfg.get('charge_power_step_kw')
+        if charge_step is not None and charge_step < 0:
+            errors.append("smoothing.charge_power_step_kw must be ≥ 0")
+        dwell_minutes = smoothing_cfg.get('charge_power_dwell_minutes')
+        if dwell_minutes is not None and dwell_minutes < 0:
+            errors.append("smoothing.charge_power_dwell_minutes must be ≥ 0")
+
         manual_cfg = self.config.get('manual_planning', {}) or {}
         for key in ('charge_target_percent', 'export_target_percent'):
             value = manual_cfg.get(key)
@@ -521,6 +528,7 @@ class HeliosPlanner:
         df = self._pass_3_simulate_baseline_depletion(df)
         df = self._pass_4_allocate_cascading_responsibilities(df)
         df = self._pass_5_distribute_charging_in_windows(df)
+        df = self._pass_5b_smooth_charge_power(df)
         df = self._pass_6_finalize_schedule(df)
         df = self._pass_7_enforce_hysteresis(df)
         df = self._apply_soc_target_percent(df)
@@ -800,6 +808,9 @@ class HeliosPlanner:
         
         blocks.append(current_block)
         
+        # Determine water consolidation parameters (tolerance + max gap slots)
+        tolerance, max_gap_slots = self._get_water_consolidation_params()
+
         # If we have too many blocks, merge the ones with minimal cost penalty
         while len(blocks) > max_blocks:
             merge_idx = self._find_best_merge(blocks, cheap_slots_sorted, slot_duration)
@@ -807,12 +818,15 @@ class HeliosPlanner:
                 blocks = self._merge_blocks(blocks, merge_idx)
             else:
                 break
-        
+
+        # Merge any remaining blocks that are close in price/gap even if under the block limit
+        blocks = self._merge_water_blocks_by_tolerance(blocks, tolerance, max_gap_slots, slot_duration, cheap_slots_sorted)
+
         # Flatten blocks back to slot list
         consolidated_slots = []
         for block in blocks:
             consolidated_slots.extend(block)
-        
+
         return consolidated_slots
     
     def _find_best_merge(self, blocks, cheap_slots_sorted, slot_duration):
@@ -884,6 +898,64 @@ class HeliosPlanner:
         new_blocks = blocks[:merge_idx] + [merged_block] + blocks[merge_idx + 2:]
         
         return new_blocks
+
+    def _get_water_consolidation_params(self):
+        """Return tolerance and gap configuration for water block consolidation."""
+        water_cfg = self.water_heating_config or {}
+        strategy_cfg = self.charging_strategy or {}
+
+        tolerance = water_cfg.get('block_consolidation_tolerance_sek')
+        if tolerance is None:
+            tolerance = strategy_cfg.get('block_consolidation_tolerance_sek', 0.0)
+        try:
+            tolerance = float(tolerance)
+        except (TypeError, ValueError):
+            tolerance = 0.0
+
+        max_gap = water_cfg.get('consolidation_max_gap_slots')
+        if max_gap is None:
+            max_gap = strategy_cfg.get('consolidation_max_gap_slots', 0)
+        try:
+            max_gap = int(max_gap)
+        except (TypeError, ValueError):
+            max_gap = 0
+
+        return max(0.0, tolerance), max(0, max_gap)
+
+    def _merge_water_blocks_by_tolerance(self, blocks, tolerance, max_gap_slots, slot_duration, cheap_slots_sorted):
+        """Merge adjacent blocks when price spread + gap constraints allow it."""
+        if not blocks or len(blocks) < 2:
+            return blocks
+        if tolerance <= 0 and max_gap_slots <= 0:
+            return blocks
+
+        merged_any = True
+        while merged_any and len(blocks) > 1:
+            merged_any = False
+            for idx in range(len(blocks) - 1):
+                if self._should_merge_water_blocks(blocks[idx], blocks[idx + 1], tolerance, max_gap_slots, slot_duration, cheap_slots_sorted):
+                    blocks = self._merge_blocks(blocks, idx)
+                    merged_any = True
+                    break
+        return blocks
+
+    def _should_merge_water_blocks(self, block_a, block_b, tolerance, max_gap_slots, slot_duration, cheap_slots_sorted):
+        """Decide if two blocks should be merged based on price span and gap size."""
+        if not block_a or not block_b:
+            return False
+        delta_seconds = (block_b[0] - block_a[-1]).total_seconds()
+        slot_seconds = slot_duration.total_seconds() if slot_duration.total_seconds() > 0 else 900
+        gap_slots = max(0, int(round(delta_seconds / slot_seconds)) - 1)
+        if gap_slots > max_gap_slots:
+            return False
+
+        combined = block_a + block_b
+        combined_index = pd.Index(combined)
+        prices = cheap_slots_sorted.reindex(combined_index)['import_price_sek_kwh'].dropna()
+        if prices.empty:
+            return False
+        price_span = prices.max() - prices.min()
+        return price_span <= tolerance + 1e-9
     
     def _calculate_block_cost(self, block, cheap_slots_sorted):
         """
@@ -1277,6 +1349,56 @@ class HeliosPlanner:
                     remaining -= charge_kwh_for_slot
                     if remaining <= 1e-6:
                         break
+
+        return df
+
+    def _pass_5b_smooth_charge_power(self, df):
+        """Quantize charge power and optionally enforce dwell time to reduce eeprom chatter."""
+        smoothing_cfg = self.config.get('smoothing', {})
+        step_kw = smoothing_cfg.get('charge_power_step_kw', 0.0)
+        try:
+            step_kw = float(step_kw)
+        except (TypeError, ValueError):
+            step_kw = 0.0
+        if step_kw <= 0:
+            return df
+
+        dwell_minutes = smoothing_cfg.get('charge_power_dwell_minutes', 0)
+        try:
+            dwell_minutes = float(dwell_minutes)
+        except (TypeError, ValueError):
+            dwell_minutes = 0.0
+        slot_minutes = self.config.get('nordpool', {}).get('resolution_minutes') or 15
+        slot_minutes = float(slot_minutes) if slot_minutes else 15.0
+        dwell_slots = max(0, int(round(dwell_minutes / slot_minutes)))
+
+        last_value = None
+        last_change_idx = -dwell_slots - 1
+        for pos, idx in enumerate(df.index):
+            raw_value = df.at[idx, 'charge_kw']
+            try:
+                slot_value = float(raw_value) if raw_value is not None else 0.0
+            except (TypeError, ValueError):
+                slot_value = 0.0
+            if math.isnan(slot_value):
+                slot_value = 0.0
+
+            quantized = 0.0
+            if slot_value > 0:
+                quantized = math.floor(slot_value / step_kw + 1e-9) * step_kw
+                quantized = max(0.0, quantized)
+
+            if last_value is None:
+                last_value = quantized
+                last_change_idx = pos
+            elif abs(quantized - last_value) > 1e-9:
+                if dwell_slots > 0 and (pos - last_change_idx) < dwell_slots:
+                    quantized = last_value
+                else:
+                    last_value = quantized
+                    last_change_idx = pos
+
+            df.at[idx, 'charge_kw'] = round(quantized, 4)
 
         return df
 
@@ -1924,7 +2046,8 @@ class HeliosPlanner:
                     block_entry = entry_list[start]
                     block_value = float(block_entry) if block_entry is not None else targets[start]
                     for j in range(start, end + 1):
-                        targets[j] = block_value
+                        if actions[j] != 'Charge':
+                            targets[j] = max(targets[j], block_value)
                 i += 1
             else:
                 i += 1

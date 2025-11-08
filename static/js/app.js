@@ -7,6 +7,19 @@ let currentAccentIndex = null;
 let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
+const TIMELINE_LANES = [
+    { id: 'battery', content: 'Battery' },
+    { id: 'water', content: 'Water Heating' },
+    { id: 'export', content: 'Export' },
+    { id: 'hold', content: 'Hold' }
+];
+const TIMELINE_LANE_ORDER = TIMELINE_LANES.map(lane => lane.id);
+const ACTION_TO_LANE = {
+    'Charge': 'battery',
+    'Water Heating': 'water',
+    'Export': 'export',
+    'Hold': 'hold'
+};
 let nowShowingSource = 'local';
 let isRenderingChart = false;
 
@@ -757,6 +770,19 @@ function snapToNextQuarterHour(date) {
     return d;
 }
 
+function laneIdForAction(action) {
+    if (!action) return 'battery';
+    const normalized = action.toString().trim();
+    return ACTION_TO_LANE[normalized] || 'battery';
+}
+
+function buildLaneContent(action, value) {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+        return action;
+    }
+    return `${action} ${value.toFixed(2)} kW`;
+}
+
 function addActionBlock(action) {
     const { startOfToday, endOfTomorrow } = getTodayWindow();
     const now = new Date();
@@ -770,6 +796,7 @@ function addActionBlock(action) {
     timelineItems.add({
         id: 'manual-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
         content: action,
+        group: laneIdForAction(action),
         start,
         end,
         style: themeStyleForAction(action)
@@ -1294,72 +1321,137 @@ function renderTimeline(data) {
             const t = new Date(s.start_time).getTime();
             return t >= startOfToday.getTime() && t < endOfTomorrow.getTime();
         });
+        const groupDataset = new vis.DataSet(TIMELINE_LANES);
 
-        let currentAction = null;
-        let startSlot = null;
-        let endSlot = null;
-        filtered.forEach(slot => {
-            let action = null;
+        const toDate = (s) => new Date(s);
+        const slotEndOrDefault = (slot) => slot.end_time ? new Date(slot.end_time) : new Date(new Date(slot.start_time).getTime() + 15 * 60 * 1000);
 
-            const classification = (slot.classification || '').toString().toLowerCase();
-            if (slot.water_heating_kw > 0) {
-                action = 'Water Heating';
-            } else if (classification === 'charge' || classification === 'battery_charge' || classification === 'pv charge') {
-                action = 'Charge';
-            } else if (classification === 'export') {
-                action = 'Export';
-            } else if (classification === 'hold') {
-                action = 'Hold';
-            }
-
-            if (action !== null) {
-                const s = new Date(slot.start_time);
-                const e = new Date(slot.end_time);
-
-                if (currentAction === action) {
-                    // Extend the current group
-                    endSlot = { ...slot, start_time: s, end_time: e };
-                } else {
-                    // Finish the previous group if it exists
-                    if (currentAction !== null) {
-                        timelineItems.add({
-                            id: startSlot.slot_number,
-                            content: currentAction,
-                            start: startSlot.start_time,
-                            end: endSlot.end_time,
-                            style: themeStyleForAction(currentAction)
-                        });
+        function addBlocksForLane(groupId, label, valueAccessor) {
+            let blockStart = null;
+            let blockEnd = null;
+            let firstSlotKey = null;
+            for (let i = 0; i < filtered.length; i += 1) {
+                const slot = filtered[i];
+                const value = Number(valueAccessor(slot) || 0);
+                const active = value > 0;
+                if (active) {
+                    const s = toDate(slot.start_time);
+                    const e = slotEndOrDefault(slot);
+                    if (blockStart === null) {
+                        blockStart = s;
+                        blockEnd = e;
+                        firstSlotKey = slot.slot_number ?? slot.start_time ?? `slot-${groupId}-${i}`;
+                    } else {
+                        // If contiguous, extend; else, flush and start new block
+                        if (blockEnd.getTime() === s.getTime()) {
+                            blockEnd = e;
+                        } else {
+                            timelineItems.add({
+                                id: `${groupId}-${firstSlotKey}-${label.replace(/\s+/g, '-')}`,
+                                group: groupId,
+                                content: buildLaneContent(label, null),
+                                start: blockStart,
+                                end: blockEnd,
+                                style: themeStyleForAction(label)
+                            });
+                            blockStart = s;
+                            blockEnd = e;
+                            firstSlotKey = slot.slot_number ?? slot.start_time ?? `slot-${groupId}-${i}`;
+                        }
                     }
-                    // Start a new group
-                    currentAction = action;
-                    startSlot = { ...slot, start_time: s, end_time: e };
-                    endSlot = { ...slot, start_time: s, end_time: e };
-                }
-            } else {
-                // Finish the previous group if it exists
-                if (currentAction !== null) {
+                } else if (blockStart !== null) {
+                    // Close current block on first inactive
                     timelineItems.add({
-                        id: startSlot.slot_number,
-                        content: currentAction,
-                        start: startSlot.start_time,
-                        end: endSlot.end_time,
-                        style: themeStyleForAction(currentAction)
+                        id: `${groupId}-${firstSlotKey}-${label.replace(/\s+/g, '-')}`,
+                        group: groupId,
+                        content: buildLaneContent(label, null),
+                        start: blockStart,
+                        end: blockEnd,
+                        style: themeStyleForAction(label)
                     });
-                    currentAction = null;
+                    blockStart = null;
+                    blockEnd = null;
+                    firstSlotKey = null;
                 }
             }
-        });
-
-        // Finish any remaining group
-        if (currentAction !== null) {
-            timelineItems.add({
-                id: startSlot.slot_number,
-                content: currentAction,
-                start: startSlot.start_time,
-                end: endSlot.end_time,
-                style: themeStyleForAction(currentAction)
-            });
+            // Flush tail block
+            if (blockStart !== null) {
+                timelineItems.add({
+                    id: `${groupId}-${firstSlotKey}-${label.replace(/\s+/g, '-')}`,
+                    group: groupId,
+                    content: buildLaneContent(label, null),
+                    start: blockStart,
+                    end: blockEnd,
+                    style: themeStyleForAction(label)
+                });
+            }
         }
+
+        // Build blocks per lane
+        addBlocksForLane('battery', 'Charge', (slot) => (slot.battery_charge_kw ?? slot.charge_kw ?? 0));
+        addBlocksForLane('water', 'Water Heating', (slot) => (slot.water_heating_kw ?? 0));
+        addBlocksForLane('export', 'Export', (slot) => ((slot.export_kwh ?? 0) * 4));
+
+        // HOLD lane only for slots with no physical action
+        (function addHoldBlocks() {
+            let blockStart = null;
+            let blockEnd = null;
+            let firstSlotKey = null;
+            for (let i = 0; i < filtered.length; i += 1) {
+                const slot = filtered[i];
+                const classification = (slot.classification || '').toString().toLowerCase();
+                const chargeKw = Number(slot.battery_charge_kw ?? slot.charge_kw ?? 0) || 0;
+                const waterKw = Number(slot.water_heating_kw ?? 0) || 0;
+                const exportKw = Number(slot.export_kwh ?? 0) * 4 || 0;
+                const noPhysical = chargeKw <= 0 && waterKw <= 0 && exportKw <= 0;
+                const isHold = classification === 'hold' && noPhysical;
+                if (isHold) {
+                    const s = toDate(slot.start_time);
+                    const e = slotEndOrDefault(slot);
+                    if (blockStart === null) {
+                        blockStart = s;
+                        blockEnd = e;
+                        firstSlotKey = slot.slot_number ?? slot.start_time ?? `slot-hold-${i}`;
+                    } else if (blockEnd.getTime() === s.getTime()) {
+                        blockEnd = e;
+                    } else {
+                        timelineItems.add({
+                            id: `hold-${firstSlotKey}-Hold`,
+                            group: 'hold',
+                            content: 'Hold',
+                            start: blockStart,
+                            end: blockEnd,
+                            style: themeStyleForAction('Hold')
+                        });
+                        blockStart = s;
+                        blockEnd = e;
+                        firstSlotKey = slot.slot_number ?? slot.start_time ?? `slot-hold-${i}`;
+                    }
+                } else if (blockStart !== null) {
+                    timelineItems.add({
+                        id: `hold-${firstSlotKey}-Hold`,
+                        group: 'hold',
+                        content: 'Hold',
+                        start: blockStart,
+                        end: blockEnd,
+                        style: themeStyleForAction('Hold')
+                    });
+                    blockStart = null;
+                    blockEnd = null;
+                    firstSlotKey = null;
+                }
+            }
+            if (blockStart !== null) {
+                timelineItems.add({
+                    id: `hold-${firstSlotKey}-Hold`,
+                    group: 'hold',
+                    content: 'Hold',
+                    start: blockStart,
+                    end: blockEnd,
+                    style: themeStyleForAction('Hold')
+                });
+            }
+        })();
 
         const container = document.getElementById('timeline-container');
         if (!container) {
@@ -1372,13 +1464,16 @@ function renderTimeline(data) {
 
         const options = {
             editable: { updateTime: true, updateGroup: false, add: false, remove: true },
-            stack: true,
+            stack: false,
             start: startOfToday,
             end: endOfTomorrow,
             min: startOfToday,
             max: endOfTomorrow,
             height: '200px'
         };
+
+        options.groups = groupDataset;
+        options.groupOrder = (a, b) => TIMELINE_LANE_ORDER.indexOf(a.id) - TIMELINE_LANE_ORDER.indexOf(b.id);
 
         if (timelineInstance) {
             timelineInstance.destroy();
@@ -1410,6 +1505,7 @@ function renderTimeline(data) {
                 timelineItems.add({
                     id: 'manual-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
                     content: action,
+                    group: laneIdForAction(action),
                     start: startDate,
                     end: endDate,
                     style: themeStyleForAction(action)
