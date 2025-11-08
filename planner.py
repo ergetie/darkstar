@@ -1966,7 +1966,7 @@ class HeliosPlanner:
                     targets[i] = float(entry)
 
         # Action-specific overrides for future slots
-        start_idx = max(now_pos + 1, 0)
+        start_idx = max(now_pos, 0)
         if 0 <= now_pos < len(df):
             current_entry = entry_list[now_pos]
             if current_entry is not None:
