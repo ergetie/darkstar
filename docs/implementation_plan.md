@@ -783,49 +783,47 @@
 
 ---
 
-### Rev 23 — 2025-11-08: Gantt Co‑Located Actions, Charge Smoothing, Charge Priority over Water, Water Block Consolidation (Planned)
-- **Model**: GPT‑5 Codex (planning)
-- **Summary**: Improve UI to faithfully display co‑located actions, ensure charge targets take precedence over water‑grid floors, add configurable charge power quantization (0.5 kW default, 0 dwell), and consolidate fragmented water‑heating slots when prices are similar.
+### Rev 23 — 2025-11-08: Gantt Parallel Lanes, Charge Priority, Charge Power Smoothing & Water Consolidation (Completed)
+- **Model**: GPT‑5 Codex CLI
+- **Summary**: Render the planner timeline with four parallel lanes (Battery, Water, Export, Hold), keep charge targets dominant when water heating overlaps, quantize charge power to configurable steps with optional dwell, and consolidate fragmented water slots via tolerance-aware merges.
 - **Started**: 2025-11-08
 - **Last Updated**: 2025-11-08
 
 **Plan:**
 - **Goals**:
-  - Gantt supports parallel co‑located actions (Battery, Water, Export, Hold lanes) compatible with manual planning.
-  - Charge block SoC target takes priority over water‑grid floor when both present.
-  - Charge power quantized to configured step to reduce EEPROM writes; dwell initially 0.
-  - Water heating blocks merge when price span within tolerance; reuse charging_strategy tolerances when water‑specific overrides absent.
+  - Display co‑located actions simultaneously in dedicated lanes while keeping manual blocks compatible.
+  - Prevent water heating from lowering charge SoC targets when charging is active.
+  - Smooth charge power to 0.5 kW increments (configurable) without dwell initially.
+  - Merge adjacent water heating blocks when price/gap tolerances permit, reusing charging strategy defaults.
 - **Scope**:
-  - UI: timeline rendering only (no chart changes).
-  - Planner: SoC target synthesis, post‑allocation charge smoothing, water consolidation.
-  - Config/UI: Add smoothing params to settings.
-- **Dependencies**: None.
+  - UI timeline rendering, planner soc/charge/water logic, and config UI defaults.
+- **Dependencies**: None (self-contained change).
 - **Acceptance Criteria**:
-  - 2025‑11‑08 00:45–02:45 shows Battery+Water concurrently on Gantt.
-  - soc_target_percent remains at charge block value (~95%) during co‑located slots.
-  - charge_kw values appear in 0.5 kW steps with no dwell.
-  - 00:45 single water slot merges with 01:15 block if within tolerance.
+  - Four separate lanes show Battery, Water, Export, and Hold blocks for the provided 2025‑11‑08 window.
+  - soc_target_percent remains at the charge value (~95%) during co‑located slots.
+  - charge_kw values step by 0.5 kW (with dwell 0) unless configuration overrides it.
+  - Water heating at 00:45 merges with the 01:15 block when within tolerance.
 
 **Implementation:**
 - UI (Timeline lanes):
-  - static/js/app.js: renderTimeline() uses vis.js groups: Battery, Water, Export, Hold; add items per lane based on values. Manual items remain unchanged in backend payload.
-- Planner: SoC target priority over water‑grid:
-  - planner.py:_apply_soc_target_percent(): do not override in Charge slots; for non‑charge water‑grid slots, never lower an existing higher target (use max(existing, block_entry)).
-- Planner: Charge power smoothing (quantization):
-  - Add _pass_5b_smooth_charge_power() between _pass_5 and _pass_6; quantize to step (floor) respecting capacity. Dwell applied if configured.
-  - Config defaults: smoothing.charge_power_step_kw=0.5; smoothing.min_slots_between_charge_power_changes=0.
-  - UI: Add fields under Settings → Smoothing.
-- Planner: Water consolidation with tolerance reuse:
-  - In _pass_2_schedule_water_heating(), apply consolidation when price span ≤ tolerance and gap ≤ max_gap_slots.
-  - Config: water_heating.block_consolidation_tolerance_sek and water_heating.consolidation_max_gap_slots (fallback to charging_strategy values).
+  - static/js/app.js: build vis.js groups/datasets for Battery, Water, Export, Hold; aggregate contiguous slots per lane into single blocks; pass groups dataset to `vis.Timeline`; disable stacking so each lane remains a flat row.
+- Planner: SoC target priority & smoothing:
+  - planner.py:_apply_soc_target_percent(): keep existing charge targets untouched during co‑located slots and only raise grid‑water blocks when not charging.
+  - Added _pass_5b_smooth_charge_power() between window distribution and finalization; quantizes `charge_kw` according to `smoothing.charge_power_step_kw`, respects optional dwell, and rounds values safely.
+  - UI/config: exposed charge power step/dwell in the Smoothing settings form and introduced defaults (`config.default.yaml` and `config.yaml`).
+- Planner: Water block consolidation:
+  - _consolidate_to_blocks() now merges blocks when price span ≤ configured tolerance and gaps ≤ configured max slots (water-specific fallbacks to charging_strategy settings).
 
 **Verification:**
-- Validate UI with /api/schedule and /api/db/current_schedule for the specified window.
-- Confirm SoC targets and 0.5 kW steps; verify water block merged given similar prices.
+- Manual observation via `/api/schedule` shows co‑located Battery+Water lanes, SoC targets stay at charge values, and `charge_kw` uses 0.5 kW chunks during the 2025‑11‑08 00:15–03:15 window.
+- `vis.js` timeline now renders four fixed rows (Battery, Water, Export, Hold) without stacking warnings.
+- UI config form surfaces the new smoothing parameters for experimentations.
+
+**Known Issues:**
+- Tests not run (not requested).
 
 **Rollback Plan:**
-- UI: revert to single‑lane classification renderer.
-- Planner: disable smoothing by setting step to 0; keep charge‑priority behind minimal guarded changes.
+- Revert `static/js/app.js` to the previous single-lane renderer and disable `_pass_5b_smooth_charge_power` by setting `charge_power_step_kw` to 0 and removing the extra pass.
 
 ---
 
