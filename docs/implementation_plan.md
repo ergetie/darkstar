@@ -827,4 +827,37 @@
 
 ---
 
+### Rev 24 — 2025-11-16: Timeline Layout & Styling Polish (Completed)
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Fine-tuned the Gantt timeline lanes so each action row keeps the same short height, removed stacking artifacts, standardized fonts to the UI, and softened the vis.js grid lines while keeping the new parallel-lane rendering.
+- **Started**: 2025-11-16
+- **Last Updated**: 2025-11-16
+
+**Plan:**
+- **Goals**:
+  - Keep each lane the same fixed height (32px) so Water, Battery, Export, and Hold appear as clean rows instead of stretching with their content.
+  - Align the timeline text size/font with the existing buttons and soften the grid/axis lines for visual consistency.
+- **Scope**: JavaScript timeline rendering tweaks plus CSS overrides targeting vis-timeline.
+- **Dependencies**: None.
+- **Acceptance Criteria**:
+  - All four action lanes display evenly short rows regardless of item content.
+  - Timeline text matches the rest of the UI (same font size/weight) and grid lines are more subdued.
+  - Tests run (`./venv/bin/python -m pytest -q`) pass except for known HA fetch warning.
+
+**Implementation:**
+- `static/js/app.js`: Added per-lane height hints in `TIMELINE_LANES` and kept `groupHeight`/`groupHeightMode` plus tighter margins in the vis options to enforce uniform sizing.
+- `static/css/style.css`: Forced vis-timeline fonts and weights to match global styles, added `vis-group` height overrides, and introduced `!important` grid/label color tweaks for softer lines.
+
+**Verification:**
+- Browser inspection confirms uniform 32px rows for battery/water/export/hold lanes and less prominent grid lines.
+- `./venv/bin/python -m pytest -q` ✅ (88 tests, warning about Home Assistant fetch failure only).
+
+**Known Issues:**
+- Grid line colors still rely on vis defaults in some browsers; `!important` overrides help but may vary.
+
+**Rollback Plan:**
+- Revert the changes to `static/js/app.js` and `static/css/style.css` that enforce the fixed lane heights and font/line overrides.
+
+---
+
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
