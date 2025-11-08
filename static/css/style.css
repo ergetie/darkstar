@@ -94,6 +94,33 @@ main {
     margin-bottom: 8px;
 }
 
+.vis-timeline {
+    font-family: 'Fira Code', monospace;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.vis-timeline .vis-item,
+.vis-timeline .vis-labelset,
+.vis-timeline .vis-label {
+    font-family: 'Fira Code', monospace;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.vis-timeline .vis-group {
+    height: 32px !important;
+}
+
+.vis-timeline .vis-grid .vis-line {
+    stroke: rgba(209, 208, 204, 0.22) !important;
+    stroke-width: 1px !important;
+}
+
+.vis-timeline .vis-grid .vis-text {
+    fill: rgba(209, 208, 204, 0.45) !important;
+}
+
 .control-panel {
     margin-top: 16px;
     margin-bottom: 20px;
