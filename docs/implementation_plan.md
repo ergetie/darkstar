@@ -860,4 +860,35 @@
 
 ---
 
+### Rev 25 — 2025-11-16: Next Slot SoC Target Follows Planned Action (Completed)
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Ensured that `/api/run_planner` returns a schedule whose first slot shows the planned `soc_target_percent` (charge/export) rather than inheriting the live SoC, restoring the Rev 17 fix that regressed.
+- **Started**: 2025-11-16
+- **Last Updated**: 2025-11-16
+
+**Plan:**
+- **Goals**:
+  - Apply the action-based SoC target to the immediately upcoming slot when the planner runs instead of keeping the current SoC value.
+  - Keep historical/past slots sourced from `_entry_soc_percent` untouched.
+- **Scope**: `_apply_soc_target_percent()` in `planner.py`.
+- **Dependencies**: None.
+- **Acceptance Criteria**:
+  - After invoking the planner (e.g., via the UI button), the first record in `schedule.json` / `/api/schedule` shows the action target (~95% for a charge block) not the live SoC.
+  - Historical slots still show their preserved `soc_target_percent` values.
+
+**Implementation:**
+- `planner.py`: `_apply_soc_target_percent()` now sets `start_idx = max(now_pos, 0)` so the very next slot is subject to the charge/export block overrides while still preserving earlier entries.
+
+**Verification:**
+- `./venv/bin/python -m pytest -q` ✅ (88 tests, only the known HA sensor warning).
+- Manual inspection of the regenerated `schedule.json` confirms the first slot’s `soc_target_percent` matches the planned action target rather than the current SoC.
+
+**Known Issues:**
+- None beyond the existing HA fetch warning during tests.
+
+**Rollback Plan:**
+- Revert the change so `start_idx = max(now_pos + 1, 0)` and the first future slot is skipped by the action/charge loops.
+
+---
+
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
