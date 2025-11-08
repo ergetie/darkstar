@@ -8,10 +8,10 @@ let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
 const TIMELINE_LANES = [
-    { id: 'battery', content: 'Battery' },
-    { id: 'water', content: 'Water Heating' },
-    { id: 'export', content: 'Export' },
-    { id: 'hold', content: 'Hold' }
+    { id: 'battery', content: 'Battery', height: 32 },
+    { id: 'water', content: 'Water Heating', height: 32 },
+    { id: 'export', content: 'Export', height: 32 },
+    { id: 'hold', content: 'Hold', height: 32 }
 ];
 const TIMELINE_LANE_ORDER = TIMELINE_LANES.map(lane => lane.id);
 const ACTION_TO_LANE = {
@@ -1469,7 +1469,13 @@ function renderTimeline(data) {
             end: endOfTomorrow,
             min: startOfToday,
             max: endOfTomorrow,
-            height: '200px'
+            height: '200px',
+            groupHeightMode: 'fixed',
+            groupHeight: 32,
+            margin: {
+                axis: 4,
+                item: 2
+            }
         };
 
         options.groupOrder = (a, b) => TIMELINE_LANE_ORDER.indexOf(a.id) - TIMELINE_LANE_ORDER.indexOf(b.id);
