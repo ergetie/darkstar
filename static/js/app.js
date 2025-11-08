@@ -1472,14 +1472,13 @@ function renderTimeline(data) {
             height: '200px'
         };
 
-        options.groups = groupDataset;
         options.groupOrder = (a, b) => TIMELINE_LANE_ORDER.indexOf(a.id) - TIMELINE_LANE_ORDER.indexOf(b.id);
 
         if (timelineInstance) {
             timelineInstance.destroy();
         }
 
-        timelineInstance = new vis.Timeline(container, timelineItems, options);
+        timelineInstance = new vis.Timeline(container, timelineItems, groupDataset, options);
 
         // Allow external drag targets to be dropped
         timelineInstance.on('dragover', (props) => {
