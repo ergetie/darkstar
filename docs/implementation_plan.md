@@ -208,62 +208,6 @@
 
 ---
 
-### Rev 8 — Gantt Co‑Located Actions, Charge Smoothing, Charge Priority over Water, Water Block Consolidation (Planned)
-- **Rev 8 — 2025-11-08**: Visual + Planning Corrections for Co‑located Actions and EEPROM‑friendly Charge Power (Status: 📋 Planned)
-  - **Model**: GPT‑5 Codex (planning)
-  - **Summary**: Improve UI to faithfully display co‑located actions, ensure charge targets take precedence over water‑grid floors, add configurable charge power quantization to reduce inverter EEPROM writes, and consolidate fragmented water‑heating slots when prices are similar.
-  - **Started**: 2025-11-08
-  - **Last Updated**: 2025-11-08
-
-  Plan:
-  - Goals:
-    - Gantt supports parallel co‑located actions (Battery, Water, Export, Hold lanes) and remains compatible with manual planning workflow.
-    - Charge block SoC target takes priority over water‑heating grid floor whenever both are present in a slot (prevents target “yo‑yo”).
-    - Charge power is quantized (default 0.5 kW) with configurable dwell (start at 0) to reduce frequent power changes.
-    - Water heating blocks merge when prices are similar using existing tolerance defaults, avoiding isolated single‑slot + bulk patterns.
-  - Scope:
-    - UI timeline render only (Chart remains unchanged by request).
-    - Planner target synthesis and post‑allocation charge smoothing; water‑heating consolidation extension.
-    - Config/Settings additions for smoothing; reuse existing consolidation tolerance for water unless overridden.
-  - Dependencies:
-    - None beyond current codebase; reuses existing charging_strategy tolerances where water‑specific ones are absent.
-  - Acceptance Criteria:
-    - In the 2025‑11‑08 00:15–03:15 window, co‑located water+charge appear simultaneously on Gantt (Battery and Water lanes).
-    - For co‑located slots, soc_target_percent remains at the charge block target (e.g., ~95%) and is not lowered by water grid overrides.
-    - charge_kw values are quantized to the configured step (default 0.5 kW) with no dwell initially.
-    - The 00:45 single water slot merges with the 01:15 bulk block when price spread within tolerance.
-
-  Implementation:
-  - UI (Timeline parallel lanes):
-    - static/js/app.js: modify renderTimeline() to create vis.js groups for Battery, Water, Export, Hold, and add items per stream per slot if their values > 0; keep manual blocks unaffected and still posted as today via /api/simulate.
-    - Ensure addActionBlock() and drop handler set group visually; payload sent to backend remains {start,end,content}.
-  - Planner: SoC target priority for charge over water‑grid:
-    - planner.py:_apply_soc_target_percent(): during the water‑block phase, skip overriding targets for slots where action == 'Charge'; for non‑charge water‑grid slots, set targets[j] = max(targets[j], block_entry) to avoid lowering charge‑derived targets.
-  - Planner: Charge power smoothing (quantization):
-    - Add _pass_5b_smooth_charge_power(df): after _pass_5_distribute_charging_in_windows and before _pass_6_finalize_schedule, quantize df['charge_kw'] to step size (floor to nearest multiple) while respecting instantaneous capacity (no increase above available power). Optionally, apply dwell if configured.
-    - Configuration keys (with defaults):
-      - smoothing.charge_power_step_kw: 0.5
-      - smoothing.min_slots_between_charge_power_changes: 0
-    - Web UI: add inputs under Settings → Smoothing for these keys; persist via /api/config/save.
-  - Planner: Water‑heating consolidation with tolerance reuse:
-    - In _pass_2_schedule_water_heating, after selecting daily blocks, apply consolidation when the price span between adjacent blocks ≤ tolerance and gap ≤ max_gap_slots.
-    - Config keys (optional, water‑specific):
-      - water_heating.block_consolidation_tolerance_sek (fallback to charging_strategy.block_consolidation_tolerance_sek)
-      - water_heating.consolidation_max_gap_slots (fallback to charging_strategy.consolidation_max_gap_slots)
-
-  Verification:
-  - Load server plan (/api/db/current_schedule) and /api/schedule in UI; confirm:
-    - Gantt shows Battery and Water simultaneously for 00:45–02:45 on 2025‑11‑08.
-    - soc_target_percent does not drop to 74% in co‑located slots; instead holds at charge block value until charge ends.
-    - charge_kw values are multiples of 0.5 kW in cheap window after smoothing.
-    - Water single slot at 00:45 merges with the 01:15 block given similar prices (within configured tolerance).
-  - No change to line chart (intentional per request).
-
-  Rollback Plan:
-  - UI: revert timeline changes to previous single‑lane classification logic.
-  - Planner: guard charge‑priority and smoothing behind config flags if needed; disabling smoothing by setting step_kw to 0 (or None) restores original behavior.
-
-
 ### Rev 8 — SoC Target + Manual Controls
 - **Rev 8 — 2025-11-02**: SoC Target Signal & Manual Controls *(Status: ✅ Completed)*
   - **Model**: GPT-5 Codex
@@ -839,61 +783,49 @@
 
 ---
 
-### Rev 20 — 2025-11-06: Manual Changes Historical Preservation *(Status: ✅ Completed)*
-- **Model**: GPT-5 Codex CLI
-- **Summary**: Added historical slot preservation to "apply manual changes" functionality
-- **Started**: 2025-11-06 14:50
-- **Last Updated**: 2025-11-06 15:05
+### Rev 23 — 2025-11-08: Gantt Co‑Located Actions, Charge Smoothing, Charge Priority over Water, Water Block Consolidation (Planned)
+- **Model**: GPT‑5 Codex (planning)
+- **Summary**: Improve UI to faithfully display co‑located actions, ensure charge targets take precedence over water‑grid floors, add configurable charge power quantization (0.5 kW default, 0 dwell), and consolidate fragmented water‑heating slots when prices are similar.
+- **Started**: 2025-11-08
+- **Last Updated**: 2025-11-08
 
 **Plan:**
-- **Goals**: Make "apply manual changes" behave same as "run planner" regarding historical preservation
-- **Scope**: Add historical slot merging to `/api/schedule/save` endpoint
-- **Dependencies**: Rev 19 (Push to DB fix) completed
-- **Acceptance Criteria**: 
-  - "Apply manual changes" preserves historical slots from database
-  - Manual slot numbers continue from max historical slot number
-  - No duplicate slot numbers in final schedule
-
-**Investigation Results:**
-- **Root Cause**: `/api/schedule/save` endpoint bypassed historical slot preservation logic
-  - "Run planner": ✅ Calls `planner.generate_schedule()` → includes historical merging
-  - "Apply manual changes": ❌ Direct save to `schedule.json` → no historical merging
-  - Result: Manual changes overwrote entire schedule, losing historical data
+- **Goals**:
+  - Gantt supports parallel co‑located actions (Battery, Water, Export, Hold lanes) compatible with manual planning.
+  - Charge block SoC target takes priority over water‑grid floor when both present.
+  - Charge power quantized to configured step to reduce EEPROM writes; dwell initially 0.
+  - Water heating blocks merge when price span within tolerance; reuse charging_strategy tolerances when water‑specific overrides absent.
+- **Scope**:
+  - UI: timeline rendering only (no chart changes).
+  - Planner: SoC target synthesis, post‑allocation charge smoothing, water consolidation.
+  - Config/UI: Add smoothing params to settings.
+- **Dependencies**: None.
+- **Acceptance Criteria**:
+  - 2025‑11‑08 00:45–02:45 shows Battery+Water concurrently on Gantt.
+  - soc_target_percent remains at charge block value (~95%) during co‑located slots.
+  - charge_kw values appear in 0.5 kW steps with no dwell.
+  - 00:45 single water slot merges with 01:15 block if within tolerance.
 
 **Implementation:**
-- **Strategy**: Replicate exact Rev 19 logic in `/api/schedule/save` endpoint
-- **Location**: `webapp.py:453-500` (updated `/api/schedule/save` endpoint)
-- **Code Changes**:
-  ```python
-  # Preserve historical slots from database (same logic as planner.py Rev 19)
-  from db_writer import get_preserved_slots
-  existing_past_slots = get_preserved_slots(today_start, now, secrets)
-  
-  # Fix slot number conflicts: ensure manual slots continue from max historical slot number
-  max_historical_slot = 0
-  if existing_past_slots:
-      max_historical_slot = max(slot.get('slot_number', 0) for slot in existing_past_slots)
-  
-  # Reassign slot numbers for manual records to continue from historical max
-  for i, record in enumerate(manual_schedule):
-      record['slot_number'] = max_historical_slot + i + 1
-  
-  # Merge: preserved past + manual (same as planner.py)
-  merged_schedule = existing_past_slots + manual_schedule
-  ```
-
-**Files Modified:**
-- `webapp.py`: Added historical preservation logic to `/api/schedule/save` endpoint
+- UI (Timeline lanes):
+  - static/js/app.js: renderTimeline() uses vis.js groups: Battery, Water, Export, Hold; add items per lane based on values. Manual items remain unchanged in backend payload.
+- Planner: SoC target priority over water‑grid:
+  - planner.py:_apply_soc_target_percent(): do not override in Charge slots; for non‑charge water‑grid slots, never lower an existing higher target (use max(existing, block_entry)).
+- Planner: Charge power smoothing (quantization):
+  - Add _pass_5b_smooth_charge_power() between _pass_5 and _pass_6; quantize to step (floor) respecting capacity. Dwell applied if configured.
+  - Config defaults: smoothing.charge_power_step_kw=0.5; smoothing.min_slots_between_charge_power_changes=0.
+  - UI: Add fields under Settings → Smoothing.
+- Planner: Water consolidation with tolerance reuse:
+  - In _pass_2_schedule_water_heating(), apply consolidation when price span ≤ tolerance and gap ≤ max_gap_slots.
+  - Config: water_heating.block_consolidation_tolerance_sek and water_heating.consolidation_max_gap_slots (fallback to charging_strategy values).
 
 **Verification:**
-- **Before Fix**: Manual changes overwrote entire schedule, losing historical slots
-- **After Fix**: Manual changes preserve historical slots + continue numbering properly
-- **Test Result**: ✅ Historical preservation working, no duplicate slot numbers
-- **Consistency**: "Apply manual changes" now behaves identically to "run planner" for historical preservation
+- Validate UI with /api/schedule and /api/db/current_schedule for the specified window.
+- Confirm SoC targets and 0.5 kW steps; verify water block merged given similar prices.
 
-**Rollback Plan**: 
-- Revert `/api/schedule/save` endpoint to original implementation (lines 453-484)
-- Remove historical slot merging logic
+**Rollback Plan:**
+- UI: revert to single‑lane classification renderer.
+- Planner: disable smoothing by setting step to 0; keep charge‑priority behind minimal guarded changes.
 
 ---
 
