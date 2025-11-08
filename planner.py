@@ -610,6 +610,11 @@ class HeliosPlanner:
         # Step D: Final is_cheap with smoothing
         df['is_cheap'] = df['import_price_sek_kwh'] <= cheap_price_threshold
 
+        self.cheap_price_threshold = cheap_price_threshold
+        self.price_smoothing_tolerance = price_smoothing_sek_kwh
+        self.cheap_slot_count = int(df['is_cheap'].sum())
+        self.non_cheap_slot_count = len(df) - self.cheap_slot_count
+
         # Detect strategic period
         total_pv = df['adjusted_pv_kwh'].sum()
         total_load = df['adjusted_load_kwh'].sum()
@@ -2111,8 +2116,10 @@ class HeliosPlanner:
         # Merge: preserved past + new future (no duplicates since new_future_records only contains future slots)
         merged_schedule = existing_past_slots + new_future_records
 
+        daily_pv = getattr(self, 'daily_pv_forecast', {}) or {}
+        pv_days = len(daily_pv)
         forecast_meta = {
-            'pv_forecast_days': len(getattr(self, 'daily_pv_forecast', {}) or {}),
+            'pv_forecast_days': min(pv_days, 4),
             'weather_forecast_days': len(getattr(self, '_last_temperature_forecast', {}) or {}),
         }
         self.forecast_meta = forecast_meta
@@ -2150,8 +2157,18 @@ class HeliosPlanner:
         # Sample the schedule for debug (first N slots)
         sample_df = schedule_df.head(sample_size)
 
+        windows_list = self._prepare_windows_for_json()
+        windows_summary = {
+            'cheap_threshold_sek_kwh': getattr(self, 'cheap_price_threshold', None),
+            'smoothing_tolerance_sek_kwh': getattr(self, 'price_smoothing_tolerance', None),
+            'cheap_slot_count': getattr(self, 'cheap_slot_count', 0),
+            'non_cheap_slot_count': getattr(self, 'non_cheap_slot_count', 0)
+        }
         debug_payload = {
-            'windows': self._prepare_windows_for_json(),
+            'windows': {
+                **windows_summary,
+                'list': windows_list
+            },
             'water_analysis': {
                 'total_water_scheduled_kwh': round(schedule_df['water_heating_kw'].sum() * 0.25, 2),
                 'water_from_pv_kwh': round(schedule_df['water_from_pv_kwh'].sum(), 2),

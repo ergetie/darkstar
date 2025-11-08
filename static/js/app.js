@@ -61,6 +61,40 @@ function setNowShowing(source) {
     }
 }
 
+function buildSIndexSummary(config, debugSIndex) {
+    const sIndexCfg = config?.s_index || {};
+    const fallbackPieces = [
+        sIndexCfg.mode || 'static',
+        sIndexCfg.static_factor != null ? Number(sIndexCfg.static_factor).toFixed(2) : null,
+        sIndexCfg.max_factor != null ? `max ${Number(sIndexCfg.max_factor).toFixed(2)}` : null
+    ]
+        .filter(Boolean);
+    let summary = fallbackPieces.length ? fallbackPieces.join(' - ') : '-';
+
+    if (debugSIndex && typeof debugSIndex === 'object') {
+        const pieces = [];
+        if (debugSIndex.mode) {
+            pieces.push(String(debugSIndex.mode));
+        }
+        if (typeof debugSIndex.factor === 'number') {
+            pieces.push(Number(debugSIndex.factor).toFixed(2));
+        } else if (typeof debugSIndex.base_factor === 'number') {
+            pieces.push(Number(debugSIndex.base_factor).toFixed(2));
+        }
+        if (typeof debugSIndex.max_factor === 'number') {
+            pieces.push(`max ${Number(debugSIndex.max_factor).toFixed(2)}`);
+        }
+        if (debugSIndex.fallback) {
+            pieces.push(`fallback: ${debugSIndex.fallback}`);
+        }
+        if (pieces.length) {
+            summary = pieces.join(' - ');
+        }
+    }
+
+    return summary;
+}
+
 function themeStyleForAction(action) {
     const base = 'color: var(--ds-background); border: none;';
     switch (action) {
@@ -541,37 +575,7 @@ function updateStats(data, config) {
         config.battery?.capacity_kwh ??
         0;
 
-    const sIndexCfg = config.s_index || {};
-    const fallbackSummary = [
-        sIndexCfg.mode || 'static',
-        sIndexCfg.static_factor != null ? Number(sIndexCfg.static_factor).toFixed(2) : null,
-        sIndexCfg.max_factor != null ? `max ${Number(sIndexCfg.max_factor).toFixed(2)}` : null
-    ]
-        .filter(Boolean)
-        .join(' - ');
-    let sIndexSummary = fallbackSummary || '-';
-
-    const debugSIndex = data.debug?.s_index;
-    if (debugSIndex && typeof debugSIndex === 'object') {
-        const pieces = [];
-        if (debugSIndex.mode) {
-            pieces.push(String(debugSIndex.mode));
-        }
-        if (typeof debugSIndex.factor === 'number') {
-            pieces.push(Number(debugSIndex.factor).toFixed(2));
-        } else if (typeof debugSIndex.base_factor === 'number') {
-            pieces.push(Number(debugSIndex.base_factor).toFixed(2));
-        }
-        if (typeof debugSIndex.max_factor === 'number') {
-            pieces.push(`max ${Number(debugSIndex.max_factor).toFixed(2)}`);
-        }
-        if (debugSIndex.fallback) {
-            pieces.push(`fallback: ${debugSIndex.fallback}`);
-        }
-        if (pieces.length) {
-            sIndexSummary = pieces.join(' - ');
-        }
-    }
+    const sIndexSummary = buildSIndexSummary(config, data.debug?.s_index);
 
     // Generate stats HTML
     const statsHTML = `
@@ -1040,7 +1044,6 @@ async function renderChart(data, config) {
         const fixedPriceMax = 8; // SEK/kWh
 
         const energySeries = [
-            ...pvForecasts,
             ...loadForecasts,
             ...batteryCharge,
             ...batteryDischarge,
@@ -1049,6 +1052,7 @@ async function renderChart(data, config) {
         ].map(v => (typeof v === 'number' && !Number.isNaN(v) ? v : 0));
         const maxEnergy = energySeries.length ? Math.max(...energySeries) : 0;
         const fixedEnergyMax = Number.isFinite(maxEnergy) && maxEnergy > 0 ? Math.ceil(maxEnergy * 1.2) : 10;
+        const fixedPVMax = 5;
 
         console.log('Chart data summary:', {
             hasPriceData: importPrices.some(v => v.y !== null),
@@ -1119,14 +1123,14 @@ async function renderChart(data, config) {
                     },
                     {
                         type: 'line',
-                        label: 'PV Forecast (kWh)',
+                        label: 'PV Forecast (kW)',
                         data: pvForecasts,
                         borderColor: colours.pv,
                         backgroundColor: gradientFactory(colours.pv, 0.4, 0.05),
                         tension: 0.4,
                         pointRadius: 0,
                         fill: true,
-                        yAxisID: 'y1'
+                        yAxisID: 'yPV'
                     },
                     {
                         type: 'line',
@@ -1276,6 +1280,25 @@ async function renderChart(data, config) {
                         beginAtZero: true,
                         min: 0,
                         max: fixedEnergyMax
+                    },
+                    yPV: {
+                        display: true,
+                        beginAtZero: true,
+                        min: 0,
+                        max: fixedPVMax,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: 'PV (kW)',
+                            color: colours.pv
+                        },
+                        ticks: {
+                            color: colours.pv,
+                            stepSize: 1
+                        },
+                        grid: {
+                            drawOnChartArea: false
+                        }
                     },
                     y2: {
                         display: false,
@@ -1816,6 +1839,23 @@ function updateLearningMetrics(metrics) {
     document.getElementById('learning-metrics-content').innerHTML = metricsHtml;
 }
 
+function formatLoopMetricKey(key) {
+    return key
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function formatLoopMetricValue(key, value) {
+    if (typeof value === 'number') {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('percent')) {
+            return `${(value * 100).toFixed(2)}%`;
+        }
+        return value.toFixed(2);
+    }
+    return String(value);
+}
+
 function updateLearningLoops(loops) {
     const loopsHtml = Object.entries(loops).map(([loopName, loopData]) => `
         <div class="learning-loop-status">
@@ -1823,6 +1863,18 @@ function updateLearningLoops(loops) {
             <span class="loop-status-indicator loop-status-${loopData.status}">
                 ${loopData.status === 'has_changes' ? 'Has Changes' : 'No Changes'}
             </span>
+            <div class="learning-loop-reason">
+                ${loopData.result?.reason || 'No measurable improvements detected'}
+            </div>
+            ${
+                loopData.result?.metrics
+                    ? `<div class="learning-loop-metrics">
+                        ${Object.entries(loopData.result.metrics).map(([key, value]) => `
+                            <span>${formatLoopMetricKey(key)}: ${formatLoopMetricValue(key, value)}</span>
+                        `).join('')}
+                    </div>`
+                    : ''
+            }
         </div>
     `).join('');
     document.getElementById('learning-loops-content').innerHTML = loopsHtml;
@@ -1981,6 +2033,10 @@ function updateDebugSIndex(sIndex) {
         </div>
     `;
     document.getElementById('debug-sindex-content').innerHTML = sIndexHtml;
+    const summaryEl = document.getElementById('stat-s-index');
+    if (summaryEl) {
+        summaryEl.textContent = buildSIndexSummary(latestConfigData, sIndex);
+    }
 }
 
 function updateDebugSamples(samples) {
@@ -2006,25 +2062,80 @@ function updateDebugSamples(samples) {
 }
 
 function updateDebugWindows(windows) {
-    const windowsHtml = `
+    const container = document.getElementById('debug-windows-content');
+    if (!container) return;
+
+    const summary = windows && !Array.isArray(windows) ? windows : {};
+    const windowList = Array.isArray(windows)
+        ? windows
+        : (windows?.list || []);
+
+    const formatCurrency = (value) =>
+        typeof value === 'number' ? `${value.toFixed(2)} SEK/kWh` : 'N/A';
+    const formatCount = (value) =>
+        Number.isInteger(value) ? value : 0;
+
+    const formatTimestamp = (iso) => {
+        if (!iso) return 'N/A';
+        const date = new Date(iso);
+        if (Number.isNaN(date.getTime())) return 'N/A';
+        return date.toLocaleString([], { hour: '2-digit', minute: '2-digit' });
+    };
+
+    const summaryHtml = `
         <div class="debug-metric">
             <span>Cheap Threshold:</span>
-            <span>${windows.cheap_threshold_sek_kwh?.toFixed(2) || 'N/A'} SEK/kWh</span>
+            <span>${formatCurrency(summary.cheap_threshold_sek_kwh)}</span>
         </div>
         <div class="debug-metric">
             <span>Smoothing Tolerance:</span>
-            <span>${windows.smoothing_tolerance_sek_kwh?.toFixed(2) || 'N/A'} SEK/kWh</span>
+            <span>${formatCurrency(summary.smoothing_tolerance_sek_kwh)}</span>
         </div>
         <div class="debug-metric">
             <span>Cheap Slots:</span>
-            <span>${windows.cheap_slot_count || 0}</span>
+            <span>${formatCount(summary.cheap_slot_count)}</span>
         </div>
         <div class="debug-metric">
             <span>Non-Cheap Slots:</span>
-            <span>${windows.non_cheap_slot_count || 0}</span>
+            <span>${formatCount(summary.non_cheap_slot_count)}</span>
         </div>
     `;
-    document.getElementById('debug-windows-content').innerHTML = windowsHtml;
+
+    let listHtml;
+    if (windowList.length) {
+        listHtml = windowList.map((entry, index) => {
+            const windowDetails = entry.window || {};
+            const start = formatTimestamp(windowDetails.start);
+            const end = formatTimestamp(windowDetails.end);
+            const responsibility = typeof entry.total_responsibility_kwh === 'number'
+                ? `${entry.total_responsibility_kwh.toFixed(2)} kWh`
+                : 'N/A';
+            const startSoc = typeof entry.start_soc_kwh === 'number'
+                ? `${entry.start_soc_kwh.toFixed(2)} kWh`
+                : 'N/A';
+            return `
+                <div class="debug-window-item">
+                    <strong>Window ${index + 1}:</strong>
+                    <span>${start} → ${end}</span>
+                    <span>Responsibility: ${responsibility}</span>
+                    <span>Start SoC: ${startSoc}</span>
+                </div>
+            `;
+        }).join('');
+    } else {
+        listHtml = `
+            <div class="debug-metric">
+                <span>No price windows identified yet</span>
+            </div>
+        `;
+    }
+
+    container.innerHTML = `
+        ${summaryHtml}
+        <div class="debug-window-list">
+            ${listHtml}
+        </div>
+    `;
 }
 
 function updateDebugExport(exportGuard) {

@@ -9,7 +9,7 @@ arbitrage:
   future_price_guard_buffer_sek: 0
   protective_soc_strategy: gap_based
 automation:
-  enable_scheduler: true
+  enable_scheduler: false
   write_to_mariadb: true
 battery:
   max_soc_percent: 95
@@ -79,13 +79,13 @@ s_index:
   temp_cold_c: 0
   temp_weight: 0.2
 smoothing:
+  charge_power_dwell_minutes: 0
+  charge_power_step_kw: 0.5
   min_off_slots_charge: 1
   min_off_slots_discharge: 1
   min_on_slots_charge: 2
   min_on_slots_discharge: 2
   min_on_slots_export: 2
-  charge_power_step_kw: 0.5
-  charge_power_dwell_minutes: 0
 strategic_charging:
   carry_forward_tolerance_ratio: 0.1
   price_threshold_sek: 0.9
@@ -113,6 +113,8 @@ ui:
   theme: Material Design Colors
   theme_accent_index: 6
 water_heating:
+  block_consolidation_tolerance_sek: 0.05
+  consolidation_max_gap_slots: 0
   defer_up_to_hours: 3
   max_blocks_per_day: 2
   min_hours_per_day: 2
@@ -120,5 +122,3 @@ water_heating:
   plan_days_ahead: 1
   power_kw: 3
   schedule_future_only: true
-  block_consolidation_tolerance_sek: 0.05
-  consolidation_max_gap_slots: 0
