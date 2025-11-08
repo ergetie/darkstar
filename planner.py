@@ -1428,6 +1428,8 @@ class HeliosPlanner:
             if manual_export_requested:
                 charge_kw = 0.0
 
+            manual_mode_active = manual_action is not None
+
             if water_kwh_required > 0:
                 # Step 1: Use PV surplus first
                 pv_surplus = max(0.0, pv_kwh - load_kwh)
@@ -1483,12 +1485,6 @@ class HeliosPlanner:
                     slot_batt_charge_kwh += stored_energy
             else:
                 if net_kwh < 0 and self.discharge_efficiency > 0 and not manual_hold:
-                    # Determine if manual mode is active (any manual_action provided in input df)
-                    try:
-                        manual_mode_active = df['manual_action'].notna().any()
-                    except Exception:
-                        manual_mode_active = False
-
                     if manual_mode_active and force_discharge_on_deficit:
                         # Force discharge up to the slot budget regardless of cheap/price guards
                         deficit_kwh = -net_kwh
@@ -1849,6 +1845,10 @@ class HeliosPlanner:
 
         # Action-specific overrides for future slots
         start_idx = max(now_pos + 1, 0)
+        if 0 <= now_pos < len(df):
+            current_entry = entry_list[now_pos]
+            if current_entry is not None:
+                targets[now_pos] = float(current_entry)
         for i in range(start_idx, len(df)):
             action = actions[i]
             entry = entry_list[i]
@@ -2126,13 +2126,31 @@ def dataframe_to_json_response(df):
     # Filter to only current and future slots
     import pytz
     from datetime import datetime
-    
+
     tz_name = 'Europe/Stockholm'  # Default timezone
     tz = pytz.timezone(tz_name)
+
+    # Normalize start/end timestamps to the timezone used for the comparison
+    start_series = pd.to_datetime(df_copy['start_time'], errors='coerce')
+    if not start_series.dt.tz:
+        start_series = start_series.dt.tz_localize(tz)
+    else:
+        start_series = start_series.dt.tz_convert(tz)
+    df_copy['start_time'] = start_series
+    end_series = pd.to_datetime(df_copy['end_time'], errors='coerce')
+    if not end_series.dt.tz:
+        end_series = end_series.dt.tz_localize(tz)
+    else:
+        end_series = end_series.dt.tz_convert(tz)
+    df_copy['end_time'] = end_series
+
     now = datetime.now(tz)
-    
+
     # Filter DataFrame to only include slots from current time onwards
-    df_copy = df_copy[df_copy['start_time'] >= now]
+    future_df = df_copy[df_copy['start_time'] >= now]
+    if future_df.empty and not df_copy.empty:
+        future_df = df_copy
+    df_copy = future_df
     
     records = df_copy.to_dict('records')
 
@@ -2174,11 +2192,7 @@ def dataframe_to_json_response(df):
 
         for key, value in record.items():
             if isinstance(value, float):
-                # Round SOC values to whole numbers (as integers), other values to 2 decimals
-                if 'soc' in key.lower():
-                    record[key] = int(round(value, 0))
-                else:
-                    record[key] = round(value, 2)
+                record[key] = round(value, 2)
 
     return records
 
