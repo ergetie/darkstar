@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta, date
 import math
-import asyncio
 from typing import Any, Dict, Optional
 
 import pytz
@@ -89,7 +88,6 @@ def get_nordpool_data(config_path="config.yaml"):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    timezone = config.get("timezone", "Europe/Stockholm")
     nordpool_config = config.get("nordpool", {})
     price_area = nordpool_config.get("price_area", "SE4")
     currency = nordpool_config.get("currency", "SEK")
@@ -490,9 +488,6 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
                             (prev_time - start_time_local).total_seconds() / (24 * 3600)
                         )
 
-                        # Time-weighted distribution: calculate how much time each slot gets
-                        slot_duration = 15.0  # minutes per slot
-
                         # Calculate start and end times for each slot
                         for slot_idx in range(max(0, start_slot), min(96, end_slot + 1)):
                             # Calculate slot start time relative to the day start
@@ -582,9 +577,16 @@ if __name__ == "__main__":
             for i in range(min(5, len(data["price_data"]))):
                 slot = data["price_data"][i]
                 forecast = data["forecast_data"][i]
-                print(
-                    f"Slot {i+1}: {slot['start_time']} - Import: {slot['import_price_sek_kwh']:.3f} SEK/kWh, PV: {forecast['pv_forecast_kwh']:.3f} kWh, Load: {forecast['load_forecast_kwh']:.3f} kWh"
+                slot_time = slot["start_time"]
+                import_price = slot["import_price_sek_kwh"]
+                pv_forecast = forecast["pv_forecast_kwh"]
+                load_forecast = forecast["load_forecast_kwh"]
+                summary = (
+                    f"Slot {i+1}: {slot_time} - Import: {import_price:.3f} SEK/kWh, "
+                    f"PV: {pv_forecast:.3f} kWh, "
+                    f"Load: {load_forecast:.3f} kWh"
                 )
+                print(summary)
 
             if len(data["price_data"]) > 5:
                 print(f"... and {len(data['price_data']) - 5} more slots")

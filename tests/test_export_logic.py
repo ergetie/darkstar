@@ -3,9 +3,8 @@ Test export logic with protective SoC calculations.
 """
 
 import math
-import pytest
 import pandas as pd
-from datetime import datetime, timedelta
+import pytest
 from planner import HeliosPlanner
 
 
@@ -76,8 +75,6 @@ class TestExportLogic:
             index=dates,
         )
         return df
-        self.planner.daily_pv_forecast = {}
-        self.planner.daily_load_forecast = {}
         self.planner._last_temperature_forecast = {}
         self.planner.forecast_meta = {}
 
