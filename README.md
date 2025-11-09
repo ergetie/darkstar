@@ -69,6 +69,8 @@ PYTHONPATH=. python -m pytest -q
    pre-commit run --all-files
    ```
 
+   *Note: The CI hooks download tools from GitHub and write into `~/.cache`, so AI agents running in a sandbox may not be able to complete this step. It’s fine for the human maintainer to skip the hook during AI commits and run `./lint.sh` (or the above commands) manually before pushing.*
+
 3. Keep docstrings/type annotations up to date for public helpers (`planner.prepare_df`, `planner.apply_manual_plan`, `webapp.debug_logs`, etc.) and rely on `black`/`flake8` for consistency.
 
 4. Use `PYTHONPATH=. python -m pytest -q` for regression testing after significant changes.
