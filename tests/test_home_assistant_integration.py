@@ -1,6 +1,7 @@
 """
 Tests covering Home Assistant integrations and dynamic S-index behaviour.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -33,11 +34,15 @@ def test_get_initial_state_prefers_home_assistant(monkeypatch, tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("battery:\n  capacity_kwh: 10.0\n", encoding="utf-8")
 
-    monkeypatch.setattr(inputs, "load_home_assistant_config", lambda: {
-        "url": "http://ha.local:8123",
-        "token": "abc",
-        "battery_soc_entity_id": "sensor.inverter_battery",
-    })
+    monkeypatch.setattr(
+        inputs,
+        "load_home_assistant_config",
+        lambda: {
+            "url": "http://ha.local:8123",
+            "token": "abc",
+            "battery_soc_entity_id": "sensor.inverter_battery",
+        },
+    )
 
     def fake_get(url, headers, timeout):
         assert url.endswith("/api/states/sensor.inverter_battery")
@@ -60,14 +65,20 @@ def _load_webapp():
 def test_water_today_endpoint_ha(monkeypatch):
     """Water endpoint should prefer Home Assistant sensor when available."""
     webapp = _load_webapp()
-    monkeypatch.setattr(webapp, "load_home_assistant_config", lambda: {
-        "water_heater_daily_entity_id": "sensor.vvb_energy_daily"
-    })
+    monkeypatch.setattr(
+        webapp,
+        "load_home_assistant_config",
+        lambda: {"water_heater_daily_entity_id": "sensor.vvb_energy_daily"},
+    )
     monkeypatch.setattr(webapp, "get_home_assistant_sensor_float", lambda entity_id: 4.56)
-    monkeypatch.setattr(webapp.yaml, "safe_load", lambda _: {
-        "learning": {"sqlite_path": "ignored.db"},
-        "timezone": "Europe/Stockholm",
-    })
+    monkeypatch.setattr(
+        webapp.yaml,
+        "safe_load",
+        lambda _: {
+            "learning": {"sqlite_path": "ignored.db"},
+            "timezone": "Europe/Stockholm",
+        },
+    )
 
     client = webapp.app.test_client()
     resp = client.get("/api/ha/water_today")
@@ -99,10 +110,14 @@ def test_water_today_endpoint_sqlite_fallback(monkeypatch, tmp_path):
 
     monkeypatch.setattr(webapp, "load_home_assistant_config", lambda: {})
     monkeypatch.setattr(webapp, "get_home_assistant_sensor_float", lambda entity_id: None)
-    monkeypatch.setattr(webapp.yaml, "safe_load", lambda _: {
-        "learning": {"sqlite_path": str(sqlite_path)},
-        "timezone": "Europe/Stockholm",
-    })
+    monkeypatch.setattr(
+        webapp.yaml,
+        "safe_load",
+        lambda _: {
+            "learning": {"sqlite_path": str(sqlite_path)},
+            "timezone": "Europe/Stockholm",
+        },
+    )
 
     client = webapp.app.test_client()
     resp = client.get("/api/ha/water_today")
@@ -144,10 +159,13 @@ def test_calculate_dynamic_s_index(monkeypatch):
     tz = pytz.timezone("Europe/Stockholm")
     base_date = datetime(2025, 6, 1, tzinfo=tz)
     dates = pd.date_range(base_date + pd.Timedelta(days=2), periods=96 * 3, freq="15min", tz=tz)
-    df = pd.DataFrame({
-        "adjusted_load_kwh": [1.0] * len(dates),
-        "adjusted_pv_kwh": [0.2] * len(dates),
-    }, index=dates)
+    df = pd.DataFrame(
+        {
+            "adjusted_load_kwh": [1.0] * len(dates),
+            "adjusted_pv_kwh": [0.2] * len(dates),
+        },
+        index=dates,
+    )
 
     class FixedDateTime(datetime):
         @classmethod

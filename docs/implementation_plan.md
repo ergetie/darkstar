@@ -958,4 +958,34 @@
 
 ---
 
+### Rev 28 — 2025-11-19: Water Heating Consistency *(Status: 📋 Planned)*
+- **Model**: Codex CLI
+- **Summary**: Address the unexpected water heating bursts by respecting recorded usage, enforcing the tolerance/max-block knobs, and exposing the consolidation controls in the UI.
+
+**Plan:**
+- **Goals**:
+  1. Always honor the Home Assistant `water_heater_daily_entity_id` reading as the source of truth for today’s water-heating energy and stop scheduling once it reports the requirement met.
+  2. Keep `_pass_2_schedule_water_heating` to `min_kwh_per_day`, consolidate the selected slots into ≤ `max_blocks_per_day` blocks, and honor the `block_consolidation_tolerance_sek`/`consolidation_max_gap_slots` thresholds when slots are within tolerance.
+  3. Surface the consolidation and defer parameters in the Settings tab so the operator can tune them without editing YAML.
+- **Scope**: `planner.py` water-heating pass and daily tracker, the Home Assistant/daily-water integration, `templates/index.html` + `webapp.py` settings endpoints, and documentation/tests that prove the behavior.
+- **Dependencies**: Current HA sensor hooks (for `water_heater_daily_entity_id`), sqlite telemetry (daily_water table), and existing lint/test tooling.
+- **Acceptance Criteria**:
+  - Once `_get_daily_water_usage_kwh` reports a fulfilled day, the planner does not add extra water slots for that date.
+  - The generated schedule contains at most `min_kwh_per_day` worth of water energy per date and never more than `max_blocks_per_day` blocks when prices stay within tolerance.
+  - Settings now offer inputs for `water_heating.block_consolidation_tolerance_sek`, `water_heating.consolidation_max_gap_slots`, (optionally `defer_up_to_hours`), and the behavior is documented.
+
+**Implementation:**
+1. Replace the planner’s internal `daily_water.used_kwh` bookkeeping with a direct read of the HA `water_heater_daily_entity_id` sensor (secrets-configured) before `_pass_2_schedule_water_heating`; treat that HA value as the definitive “already heated today,” fall back to sqlite only when HA is unavailable, and stop emitting additional slots once the target is satisfied.
+2. Rework `_select_optimal_water_slots` + `_consolidate_to_blocks` to be time-aware, insert gap slots when `tolerance`/`max_gap_slots` permit, and stop selecting slots once the required count is reached while keeping the block count ≤ `max_blocks_per_day`.
+3. Add the missing consolidation/defer inputs to `templates/index.html`, force `water_heating.schedule_future_only` to true (remove the toggle) so the planner never opts into past slots, propagate the knobs through the settings save API, and mention the behavior in README/AGENTS so users understand the tolerance/defer controls.
+4. Extend `tests/test_water_scheduling.py` (and any relevant regression tests) to assert the “already satisfied” shortcut, the block-limit/tolerance behavior, and that `schedule_future_only` still prevents retroactive slots.
+
+**Verification:** Run `python planner.py`/`generate_schedule` to inspect `schedule.json`, plus targeted `pytest` cases for `_pass_2_schedule_water_heating` and the settings save endpoint; ensure the UI exposes the new knobs and unit tests cover them.
+
+**Known Issues:** HA/live usage may still lag, so sqlite fallback might still report zero; the UI cannot guarantee the database is updated unless the HA sensor record is reliable.
+
+**Rollback Plan:** Revert the water-heating refactor if block consolidation changes break downstream passes or MariaDB/Maria plan writes.
+
+---
+
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*

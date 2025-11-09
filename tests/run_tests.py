@@ -6,15 +6,15 @@ import subprocess
 import sys
 import os
 
+
 def run_pytest():
     """Run pytest on the test suite."""
     test_dir = os.path.dirname(os.path.abspath(__file__))
-    result = subprocess.run([
-        sys.executable, '-m', 'pytest',
-        test_dir,
-        '-v',
-        '--tb=short'
-    ], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", test_dir, "-v", "--tb=short"],
+        capture_output=True,
+        text=True,
+    )
 
     print("STDOUT:")
     print(result.stdout)
@@ -24,15 +24,15 @@ def run_pytest():
 
     return result.returncode
 
+
 def run_specific_test(test_file):
     """Run a specific test file."""
     test_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_file)
-    result = subprocess.run([
-        sys.executable, '-m', 'pytest',
-        test_path,
-        '-v',
-        '--tb=short'
-    ], capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, "-m", "pytest", test_path, "-v", "--tb=short"],
+        capture_output=True,
+        text=True,
+    )
 
     print(f"Running {test_file}:")
     print("STDOUT:")
@@ -43,7 +43,8 @@ def run_specific_test(test_file):
 
     return result.returncode
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     if len(sys.argv) > 1:
         # Run specific test file
         test_file = sys.argv[1]
