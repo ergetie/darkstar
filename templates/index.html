@@ -358,6 +358,20 @@
                     </div>
                 </fieldset>
                 
+                <fieldset class="debug-logs">
+                    <legend>Live Logs</legend>
+                    <div class="debug-log-controls">
+                        <button id="debug-log-refresh-btn">Refresh Logs</button>
+                        <button id="debug-log-clear-btn">Clear</button>
+                        <label class="debug-log-pause">
+                            <input id="debug-log-pause" type="checkbox">
+                            Pause
+                        </label>
+                        <span id="debug-log-status"></span>
+                    </div>
+                    <pre id="debug-log-viewport" class="debug-log-viewport"></pre>
+                </fieldset>
+                
                 <div class="debug-controls">
                     <button id="refresh-debug-btn">> Refresh Debug Data</button>
                     <span id="debug-refresh-status"></span>

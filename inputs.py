@@ -13,7 +13,7 @@ from open_meteo_solar_forecast import OpenMeteoSolarForecast
 def load_home_assistant_config() -> Dict[str, Any]:
     """Read Home Assistant configuration from secrets.yaml."""
     try:
-        with open('secrets.yaml', 'r') as file:
+        with open("secrets.yaml", "r") as file:
             secrets = yaml.safe_load(file) or {}
     except FileNotFoundError:
         return {}
@@ -21,7 +21,7 @@ def load_home_assistant_config() -> Dict[str, Any]:
         print(f"Warning: Could not load secrets.yaml: {exc}")
         return {}
 
-    ha_config = secrets.get('home_assistant')
+    ha_config = secrets.get("home_assistant")
     if not isinstance(ha_config, dict):
         return {}
     return ha_config
@@ -30,16 +30,16 @@ def load_home_assistant_config() -> Dict[str, Any]:
 def _make_ha_headers(token: str) -> Dict[str, str]:
     """Return headers for Home Assistant REST calls."""
     return {
-        'Authorization': f'Bearer {token}',
-        'Content-Type': 'application/json',
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
     }
 
 
 def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> Optional[Dict[str, Any]]:
     """Fetch a single entity state from Home Assistant."""
     ha_config = load_home_assistant_config()
-    url = ha_config.get('url')
-    token = ha_config.get('token')
+    url = ha_config.get("url")
+    token = ha_config.get("token")
 
     if not url or not token or not entity_id:
         return None
@@ -60,8 +60,8 @@ def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> Opt
     if not state:
         return None
 
-    raw_value = state.get('state')
-    if raw_value in (None, 'unknown', 'unavailable'):
+    raw_value = state.get("state")
+    if raw_value in (None, "unknown", "unavailable"):
         return None
 
     try:
@@ -69,6 +69,7 @@ def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> Opt
     except (TypeError, ValueError):
         print(f"Warning: Non-numeric value '{raw_value}' for Home Assistant entity '{entity_id}'")
         return None
+
 
 def get_nordpool_data(config_path="config.yaml"):
     """
@@ -85,21 +86,23 @@ def get_nordpool_data(config_path="config.yaml"):
             - export_price_sek_kwh (float): Export price in SEK per kwh (estimated as 90% of import)
     """
     # Load configuration
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
-    timezone = config.get('timezone', 'Europe/Stockholm')
-    nordpool_config = config.get('nordpool', {})
-    price_area = nordpool_config.get('price_area', 'SE4')
-    currency = nordpool_config.get('currency', 'SEK')
-    resolution_minutes = nordpool_config.get('resolution_minutes', 60)
+    timezone = config.get("timezone", "Europe/Stockholm")
+    nordpool_config = config.get("nordpool", {})
+    price_area = nordpool_config.get("price_area", "SE4")
+    currency = nordpool_config.get("currency", "SEK")
+    resolution_minutes = nordpool_config.get("resolution_minutes", 60)
 
     # Initialize Nordpool Prices client with currency
     prices_client = Prices(currency)
 
     # Fetch today's prices
     try:
-        today_data = prices_client.fetch(end_date=date.today(), areas=[price_area], resolution=resolution_minutes)
+        today_data = prices_client.fetch(
+            end_date=date.today(), areas=[price_area], resolution=resolution_minutes
+        )
     except Exception:
         today_data = {}
 
@@ -111,13 +114,13 @@ def get_nordpool_data(config_path="config.yaml"):
 
     # Combine data
     today_values = []
-    if today_data and today_data.get('areas') and today_data['areas'].get(price_area):
-        today_values = today_data['areas'][price_area].get('values', [])
-    
+    if today_data and today_data.get("areas") and today_data["areas"].get(price_area):
+        today_values = today_data["areas"][price_area].get("values", [])
+
     tomorrow_values = []
-    if tomorrow_data and tomorrow_data.get('areas') and tomorrow_data['areas'].get(price_area):
-        tomorrow_values = tomorrow_data['areas'][price_area].get('values', [])
-    
+    if tomorrow_data and tomorrow_data.get("areas") and tomorrow_data["areas"].get(price_area):
+        tomorrow_values = tomorrow_data["areas"][price_area].get("values", [])
+
     # Use only known market data (do not duplicate unknown future)
     all_entries = today_values + tomorrow_values
 
@@ -141,51 +144,55 @@ def _process_nordpool_data(all_entries, config, today_values=None):
     result = []
 
     # Load pricing configuration
-    pricing_config = config.get('pricing', {})
-    vat_percent = pricing_config.get('vat_percent', 25.0)
-    grid_transfer_fee_sek = pricing_config.get('grid_transfer_fee_sek', 0.2456)
-    energy_tax_sek = pricing_config.get('energy_tax_sek', 0.439)
+    pricing_config = config.get("pricing", {})
+    vat_percent = pricing_config.get("vat_percent", 25.0)
+    grid_transfer_fee_sek = pricing_config.get("grid_transfer_fee_sek", 0.2456)
+    energy_tax_sek = pricing_config.get("energy_tax_sek", 0.439)
 
     # Get local timezone
-    local_tz = pytz.timezone(config.get('timezone', 'Europe/Stockholm'))
+    local_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
 
-# Process the hourly data
+    # Process the hourly data
     for i, entry in enumerate(all_entries):
         # Manual timezone conversion
         if today_values is not None and i < len(today_values):
             # Original entries - use their actual timestamps
-            start_time = entry['start'].astimezone(local_tz)
-            end_time = entry['end'].astimezone(local_tz)
+            start_time = entry["start"].astimezone(local_tz)
+            end_time = entry["end"].astimezone(local_tz)
         else:
             # Extended entries - calculate timestamps based on position
             if today_values is not None and len(today_values) > 0:
-                base_start = today_values[0]['start'].astimezone(local_tz)
-                slot_duration = today_values[0]['end'] - today_values[0]['start']
+                base_start = today_values[0]["start"].astimezone(local_tz)
+                slot_duration = today_values[0]["end"] - today_values[0]["start"]
                 start_time = base_start + (slot_duration * i)
                 end_time = start_time + slot_duration
             else:
                 # Fallback if no today_values available
-                start_time = entry['start'].astimezone(local_tz)
-                end_time = entry['end'].astimezone(local_tz)
+                start_time = entry["start"].astimezone(local_tz)
+                end_time = entry["end"].astimezone(local_tz)
 
         # Calculate base spot price (convert from MWh to kWh)
-        spot_price_sek_kwh = entry['value'] / 1000.0
+        spot_price_sek_kwh = entry["value"] / 1000.0
 
         # Export price is exactly the spot price
         export_price_sek_kwh = spot_price_sek_kwh
 
         # Import price includes all fees and taxes
-        import_price_sek_kwh = (spot_price_sek_kwh + grid_transfer_fee_sek + energy_tax_sek) * (1 + vat_percent / 100.0)
+        import_price_sek_kwh = (spot_price_sek_kwh + grid_transfer_fee_sek + energy_tax_sek) * (
+            1 + vat_percent / 100.0
+        )
 
-        result.append({
-            'start_time': start_time,
-            'end_time': end_time,
-            'import_price_sek_kwh': import_price_sek_kwh,
-            'export_price_sek_kwh': export_price_sek_kwh
-        })
+        result.append(
+            {
+                "start_time": start_time,
+                "end_time": end_time,
+                "import_price_sek_kwh": import_price_sek_kwh,
+                "export_price_sek_kwh": export_price_sek_kwh,
+            }
+        )
 
     # Sort by start time to ensure chronological order
-    result.sort(key=lambda x: x['start_time'])
+    result.sort(key=lambda x: x["start_time"])
 
     return result
 
@@ -205,13 +212,13 @@ async def get_forecast_data(price_slots, config):
             'daily_load_forecast': { iso_date: kwh }
         }
     """
-    system_config = config.get('system', {})
-    latitude = system_config.get('location', {}).get('latitude', 59.3)
-    longitude = system_config.get('location', {}).get('longitude', 18.1)
-    kwp = system_config.get('solar_array', {}).get('kwp', 5.0)
-    azimuth = system_config.get('solar_array', {}).get('azimuth', 180)
-    tilt = system_config.get('solar_array', {}).get('tilt', 30)
-    timezone = config.get('timezone', 'Europe/Stockholm')
+    system_config = config.get("system", {})
+    latitude = system_config.get("location", {}).get("latitude", 59.3)
+    longitude = system_config.get("location", {}).get("longitude", 18.1)
+    kwp = system_config.get("solar_array", {}).get("kwp", 5.0)
+    azimuth = system_config.get("solar_array", {}).get("azimuth", 180)
+    tilt = system_config.get("solar_array", {}).get("tilt", 30)
+    timezone = config.get("timezone", "Europe/Stockholm")
     local_tz = pytz.timezone(timezone)
 
     pv_kwh_forecast: list[float] = []
@@ -219,13 +226,14 @@ async def get_forecast_data(price_slots, config):
     resolution_hours = 0.25
 
     try:
+
         async def _fetch_forecast():
             async with OpenMeteoSolarForecast(
                 latitude=latitude,
                 longitude=longitude,
                 declination=tilt,
                 azimuth=azimuth,
-                dc_kwp=kwp
+                dc_kwp=kwp,
             ) as forecast:
                 estimate = await forecast.estimate()
                 return estimate.watts
@@ -247,8 +255,10 @@ async def get_forecast_data(price_slots, config):
 
             # Map PV forecast to price slots (15 min resolution assumed)
             for slot in price_slots:
-                slot_time = slot['start_time']
-                rounded_time = slot_time.replace(minute=(slot_time.minute // 15) * 15, second=0, microsecond=0)
+                slot_time = slot["start_time"]
+                rounded_time = slot_time.replace(
+                    minute=(slot_time.minute // 15) * 15, second=0, microsecond=0
+                )
                 power_watts = 0.0
                 for solar_time, solar_power in solar_data_dict.items():
                     if solar_time == rounded_time:
@@ -260,7 +270,7 @@ async def get_forecast_data(price_slots, config):
         print("Falling back to dummy PV forecast")
         daily_pv_forecast = {}
         for slot in price_slots:
-            start_time = slot['start_time'].astimezone(local_tz)
+            start_time = slot["start_time"].astimezone(local_tz)
             hour = start_time.hour + start_time.minute / 60.0
             pv_kwh = max(0, math.sin(math.pi * (hour - 6) / 12)) * 1.25
             pv_kwh_forecast.append(pv_kwh)
@@ -269,7 +279,7 @@ async def get_forecast_data(price_slots, config):
 
     # Ensure we have at least four daily PV entries by extending with last known value
     if price_slots:
-        first_date = price_slots[0]['start_time'].astimezone(local_tz).date()
+        first_date = price_slots[0]["start_time"].astimezone(local_tz).date()
         last_value = None
         for offset in range(4):
             target_date = (first_date + timedelta(days=offset)).isoformat()
@@ -289,7 +299,7 @@ async def get_forecast_data(price_slots, config):
 
     load_kwh_forecast: list[float] = []
     for slot in price_slots:
-        slot_time = slot['start_time']
+        slot_time = slot["start_time"]
         slot_index = int((slot_time.hour * 60 + slot_time.minute) // 15)
         load_kwh = load_profile[slot_index]
         load_kwh_forecast.append(load_kwh)
@@ -297,7 +307,7 @@ async def get_forecast_data(price_slots, config):
         daily_load_forecast[local_date] = daily_load_total
 
     if price_slots:
-        first_date = price_slots[0]['start_time'].astimezone(local_tz).date()
+        first_date = price_slots[0]["start_time"].astimezone(local_tz).date()
         for offset in range(4):
             target_date = (first_date + timedelta(days=offset)).isoformat()
             daily_load_forecast.setdefault(target_date, daily_load_total)
@@ -307,15 +317,19 @@ async def get_forecast_data(price_slots, config):
     for idx in range(total_slots):
         pv_kwh = pv_kwh_forecast[idx] if idx < len(pv_kwh_forecast) else 0.0
         load_kwh = load_kwh_forecast[idx] if idx < len(load_kwh_forecast) else 0.0
-        forecast_data.append({
-            'pv_forecast_kwh': pv_kwh,
-            'load_forecast_kwh': load_kwh
-        })
+        slot = price_slots[idx]
+        forecast_data.append(
+            {
+                "start_time": slot["start_time"],
+                "pv_forecast_kwh": pv_kwh,
+                "load_forecast_kwh": load_kwh,
+            }
+        )
 
     return {
-        'slots': forecast_data,
-        'daily_pv_forecast': daily_pv_forecast,
-        'daily_load_forecast': daily_load_forecast
+        "slots": forecast_data,
+        "daily_pv_forecast": daily_pv_forecast,
+        "daily_load_forecast": daily_load_forecast,
     }
 
 
@@ -332,18 +346,18 @@ def get_initial_state(config_path="config.yaml"):
             - battery_kwh (float): Current battery energy in kWh
             - battery_cost_sek_per_kwh (float): Current average battery cost
     """
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     # Use system.battery if available, otherwise fall back to battery
-    battery_config = config.get('system', {}).get('battery', config.get('battery', {}))
-    capacity_kwh = battery_config.get('capacity_kwh', 10.0)
+    battery_config = config.get("system", {}).get("battery", config.get("battery", {}))
+    capacity_kwh = battery_config.get("capacity_kwh", 10.0)
     battery_soc_percent = 50.0
     battery_cost_sek_per_kwh = 0.20
 
     # Prefer Home Assistant SoC when available
     ha_config = load_home_assistant_config()
-    soc_entity_id = ha_config.get('battery_soc_entity_id', 'sensor.inverter_battery')
+    soc_entity_id = ha_config.get("battery_soc_entity_id", "sensor.inverter_battery")
     ha_soc = get_home_assistant_sensor_float(soc_entity_id) if soc_entity_id else None
 
     if ha_soc is not None:
@@ -353,9 +367,9 @@ def get_initial_state(config_path="config.yaml"):
     battery_kwh = capacity_kwh * battery_soc_percent / 100.0
 
     return {
-        'battery_soc_percent': battery_soc_percent,
-        'battery_kwh': battery_kwh,
-        'battery_cost_sek_per_kwh': battery_cost_sek_per_kwh
+        "battery_soc_percent": battery_soc_percent,
+        "battery_kwh": battery_kwh,
+        "battery_cost_sek_per_kwh": battery_cost_sek_per_kwh,
     }
 
 
@@ -370,23 +384,24 @@ def get_all_input_data(config_path="config.yaml"):
         dict: Combined data with price_data, forecast_data, initial_state
     """
     # Load config to pass to get_forecast_data
-    with open(config_path, 'r') as f:
+    with open(config_path, "r") as f:
         config = yaml.safe_load(f)
-    
+
     price_data = get_nordpool_data(config_path)
-    
+
     # Run the async forecast function
     import asyncio
+
     forecast_result = asyncio.run(get_forecast_data(price_data, config))
-    forecast_data = forecast_result.get('slots', [])
+    forecast_data = forecast_result.get("slots", [])
     initial_state = get_initial_state(config_path)
 
     return {
-        'price_data': price_data,
-        'forecast_data': forecast_data,
-        'initial_state': initial_state,
-        'daily_pv_forecast': forecast_result.get('daily_pv_forecast', {}),
-        'daily_load_forecast': forecast_result.get('daily_load_forecast', {})
+        "price_data": price_data,
+        "forecast_data": forecast_data,
+        "initial_state": initial_state,
+        "daily_pv_forecast": forecast_result.get("daily_pv_forecast", {}),
+        "daily_load_forecast": forecast_result.get("daily_load_forecast", {}),
     }
 
 
@@ -402,9 +417,9 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
     from datetime import timedelta
 
     ha_config = load_home_assistant_config()
-    url = ha_config.get('url')
-    token = ha_config.get('token')
-    entity_id = ha_config.get('consumption_entity_id')
+    url = ha_config.get("url")
+    token = ha_config.get("token")
+    entity_id = ha_config.get("consumption_entity_id")
 
     if not all([url, token, entity_id]):
         print("Warning: Missing Home Assistant configuration for load profile")
@@ -416,62 +431,64 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
     # Calculate time range for last 7 days
     end_time = datetime.now(pytz.UTC)
     start_time = end_time - timedelta(days=7)
-    
+
     api_url = f"{url}/api/history/period/{start_time.isoformat()}"
     params = {
-        'filter_entity_id': entity_id,
-        'end_time': end_time.isoformat(),
-        'significant_changes_only': False,
-        'minimal_response': False,
+        "filter_entity_id": entity_id,
+        "end_time": end_time.isoformat(),
+        "significant_changes_only": False,
+        "minimal_response": False,
     }
-    
+
     try:
         print(f"Fetching {entity_id} data from Home Assistant...")
         response = requests.get(api_url, headers=headers, params=params, timeout=30)
         response.raise_for_status()
-        
+
         data = response.json()
         if not data or not data[0]:
             print("Warning: No data received from Home Assistant")
             return _get_dummy_load_profile(config)
-        
+
         # Process state changes into energy deltas
         states = data[0]
         if len(states) < 2:
             print("Warning: Insufficient data points from Home Assistant")
             return _get_dummy_load_profile(config)
-        
+
         # Convert to local timezone for processing
-        local_tz = pytz.timezone('Europe/Stockholm')
-        
+        local_tz = pytz.timezone("Europe/Stockholm")
+
         # Calculate energy consumption between state changes
         time_buckets = [0.0] * (96 * 7)  # 7 days * 96 slots per day
         prev_state = None
         prev_time = None
-        
+
         start_time_local = start_time.astimezone(local_tz)
 
         for state in states:
             try:
-                current_time = datetime.fromisoformat(state['last_changed'])
+                current_time = datetime.fromisoformat(state["last_changed"])
                 if current_time.tzinfo is None:
                     current_time = current_time.replace(tzinfo=pytz.UTC)
                 current_time = current_time.astimezone(local_tz)
-                current_value = float(state['state'])
-                
+                current_value = float(state["state"])
+
                 if prev_state is not None and prev_time is not None:
                     # Calculate energy delta (ensure positive)
                     energy_delta = max(0, current_value - prev_state)
-                    
+
                     # Distribute across time buckets
                     time_diff = current_time - prev_time
                     minutes_diff = time_diff.total_seconds() / 60
-                    
+
                     if minutes_diff > 0 and energy_delta > 0:
                         # Calculate which 15-minute buckets this spans
                         start_slot = int((prev_time.hour * 60 + prev_time.minute) // 15)
                         end_slot = int((current_time.hour * 60 + current_time.minute) // 15)
-                        day_offset = int((prev_time - start_time_local).total_seconds() / (24 * 3600))
+                        day_offset = int(
+                            (prev_time - start_time_local).total_seconds() / (24 * 3600)
+                        )
 
                         # Time-weighted distribution: calculate how much time each slot gets
                         slot_duration = 15.0  # minutes per slot
@@ -487,7 +504,9 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
                             # Calculate overlap between this slot and the energy consumption period
                             overlap_start = max(prev_time, slot_start_time)
                             overlap_end = min(current_time, slot_end_time)
-                            overlap_minutes = max(0, (overlap_end - overlap_start).total_seconds() / 60)
+                            overlap_minutes = max(
+                                0, (overlap_end - overlap_start).total_seconds() / 60
+                            )
 
                             if overlap_minutes > 0:
                                 # Distribute energy proportionally to time overlap
@@ -497,14 +516,14 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
                                 bucket_idx = day_offset * 96 + slot_idx
                                 if 0 <= bucket_idx < len(time_buckets):
                                     time_buckets[bucket_idx] += energy_for_slot
-                
+
                 prev_state = current_value
                 prev_time = current_time
-                
+
             except (ValueError, TypeError, KeyError) as e:
                 print(f"Warning: Skipping invalid state data: {e}")
                 continue
-        
+
         # Create average daily profile from the 7 days of data (divide by 7 days)
         daily_profile = [0.0] * 96
         for slot in range(96):
@@ -514,7 +533,7 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
                 if 0 <= bucket_idx < len(time_buckets):
                     slot_sum += time_buckets[bucket_idx]
             daily_profile[slot] = slot_sum / 7.0
-        
+
         # Validate and clean the profile
         total_daily = sum(daily_profile)
         if total_daily <= 0:
@@ -522,16 +541,16 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
             return _get_dummy_load_profile(config)
 
         print(f"Successfully loaded HA data: {total_daily:.2f} kWh/day average")
-        
+
         # Ensure all values are positive and reasonable
         for i in range(96):
             if daily_profile[i] < 0:
                 daily_profile[i] = 0
             elif daily_profile[i] > 10:  # Cap at 10kW per 15min
                 daily_profile[i] = 10
-        
+
         return daily_profile
-        
+
     except requests.RequestException as e:
         print(f"Warning: Failed to fetch data from Home Assistant: {e}")
         return _get_dummy_load_profile(config)
@@ -543,10 +562,8 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
 def _get_dummy_load_profile(config: dict) -> list[float]:
     """Create a dummy load profile (sine wave pattern)."""
     import math
-    return [
-        0.5 + 0.3 * math.sin(2 * math.pi * i / 96 + math.pi)
-        for i in range(96)
-    ]
+
+    return [0.5 + 0.3 * math.sin(2 * math.pi * i / 96 + math.pi) for i in range(96)]
 
 
 if __name__ == "__main__":
@@ -558,16 +575,18 @@ if __name__ == "__main__":
             data = get_all_input_data(config_path="config.yaml")
             print(f"Price slots: {len(data['price_data'])}")
             print(f"Forecast slots: {len(data['forecast_data'])}")
-            print("Initial state:", data['initial_state'])
+            print("Initial state:", data["initial_state"])
             print()
 
             # Show first 5 slots
-            for i in range(min(5, len(data['price_data']))):
-                slot = data['price_data'][i]
-                forecast = data['forecast_data'][i]
-                print(f"Slot {i+1}: {slot['start_time']} - Import: {slot['import_price_sek_kwh']:.3f} SEK/kWh, PV: {forecast['pv_forecast_kwh']:.3f} kWh, Load: {forecast['load_forecast_kwh']:.3f} kWh")
+            for i in range(min(5, len(data["price_data"]))):
+                slot = data["price_data"][i]
+                forecast = data["forecast_data"][i]
+                print(
+                    f"Slot {i+1}: {slot['start_time']} - Import: {slot['import_price_sek_kwh']:.3f} SEK/kWh, PV: {forecast['pv_forecast_kwh']:.3f} kWh, Load: {forecast['load_forecast_kwh']:.3f} kWh"
+                )
 
-            if len(data['price_data']) > 5:
+            if len(data["price_data"]) > 5:
                 print(f"... and {len(data['price_data']) - 5} more slots")
 
         except Exception as e:

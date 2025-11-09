@@ -2,7 +2,7 @@
 
 *This document provides a comprehensive overview of Darkstar Planner project, including its goals, backlog, and a chronological history of its implementation revisions. It supersedes all older `project_plan_vX.md` documents.*
 
----
+--- 
 
 ## 1. Project Overview
 
@@ -892,3 +892,43 @@
 ---
 
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
+
+---
+
+### Rev 26 — 2025-11-19: DST-Time Safety, Timestamp Joins, Manual Lock, Structured Logging *(Status: ✅ Completed)*
+- **Model**: GPT-5 Codex CLI
+- **Summary**: Completed the Rev 26 checklist: DST-safe preservation, timestamp-joined price/forecast DataFrames, manual-lock enforcement, public planning helpers, numeric reason/priority outputs, structured logging with `/api/debug/logs`, Debug tab log viewer, and repo styling/tooling.
+
+#### Plan
+- **Goals**:
+  1. Keep preserved slots DST-safe across CET/CEST with timezone-aware parsing.
+  2. Join prices and forecasts purely by timestamp while honoring manual plan edits as numeric override signals.
+  3. Emit no `classification`/`action` text—everything is derived from numeric charge/export/discharge/water flows coupled with `reason`/`priority`.
+  4. Provide public `prepare_df`/`apply_manual_plan`, let `/api/simulate` use them, and supply `/api/debug/logs` for the ring-buffer log feed consumed by the Debug tab.
+  5. Introduce `pyproject.toml`, `.flake8`, `.pre-commit-config.yaml`, and README guidance to lock formatting/linting via black/flake8/pre-commit.
+- **Scope**: `db_writer.py`, `planner.py`, `webapp.py`, UI assets, README, repo tooling.
+- **Dependencies**: None; keep the existing suite green.
+- **Acceptance Criteria**:
+  - DST-safe slot preservation is enforced in DB/local merges.
+  - Input feeds align by timestamp, missing slots default safely, and manual actions override automation numerically.
+  - Outputs (JSON + DB) no longer include `classification`/`action`, only numeric flows and `reason`/`priority`.
+  - `/api/debug/logs` delivers ring-buffered lines and the Debug tab renders them with pause/clear controls.
+  - Tooling files/directives exist so formatting and linting are repeatable.
+
+#### Implementation Highlights
+1. `db_writer.py` gained `_localize_to_tz`/`_normalise_start`, timezone-aware preservation, and now ignores the `classification` column when writing/reading MariaDB.
+2. `planner.py` exposes `prepare_df`/`apply_manual_plan`, merges data by timestamp, guards cheap thresholds, enforces manual locks post-hysteresis, and outputs reason/priority metadata; `inputs.py` attaches `start_time` to each forecast slot.
+3. `webapp.py` runs via the public helpers, adds a `RingBufferHandler`, exposes `/api/debug/logs`, swaps prints for logger calls, and the Debug tab + CSS/JS now poll/log pause/clear the viewport.
+4. README documents the new development flow, while `pyproject.toml`, `.flake8`, and `.pre-commit-config.yaml` define formatting/linting expectations.
+
+#### Verification
+- `PYTHONPATH=. python -m pytest -q` ✅ (67 tests; HA fetch warning persists).
+- `PRE_COMMIT_HOME=/tmp/pre-commit pre-commit run --all-files` ✅ once hook repos download (network + timeout dependencies noted).
+- The Debug tab shows the new log viewport and fetches data from `/api/debug/logs` with pause/clear controls.
+
+#### Known Issues
+- Pre-commit hook installs require network access; rerun the command with an increased timeout or use `PRE_COMMIT_HOME=/tmp/pre-commit` if the default cache directory is unwritable.
+- MariaDB still contains the `classification` column but writes now omit it (it stays NULL).
+
+#### Rollback Plan
+- Revert the planner/webapp tracing/numeric-output changes, remove the log viewer, and drop the tooling files if Step 8 needs rollback.

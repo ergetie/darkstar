@@ -309,6 +309,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (tab === 'debug') {
                 // Populate debug dashboard on first view and refresh
                 loadDebugData();
+                loadDebugLogs();
+                startDebugLogPolling();
 
                 const refreshBtn = document.getElementById('refresh-debug-btn');
                 if (refreshBtn && !refreshBtn.dataset.bound) {
@@ -316,6 +318,29 @@ document.addEventListener('DOMContentLoaded', () => {
                         await loadDebugData();
                     });
                     refreshBtn.dataset.bound = 'true';
+                }
+                const logRefreshBtn = document.getElementById('debug-log-refresh-btn');
+                if (logRefreshBtn && !logRefreshBtn.dataset.bound) {
+                    logRefreshBtn.addEventListener('click', async () => {
+                        await loadDebugLogs();
+                    });
+                    logRefreshBtn.dataset.bound = 'true';
+                }
+                const logClearBtn = document.getElementById('debug-log-clear-btn');
+                if (logClearBtn && !logClearBtn.dataset.bound) {
+                    logClearBtn.addEventListener('click', clearDebugLogs);
+                    logClearBtn.dataset.bound = 'true';
+                }
+                const logPauseToggle = document.getElementById('debug-log-pause');
+                if (logPauseToggle && !logPauseToggle.dataset.bound) {
+                    logPauseToggle.addEventListener('change', (event) => {
+                        debugLogPaused = event.target.checked;
+                        const statusEl = document.getElementById('debug-log-status');
+                        if (statusEl) {
+                            statusEl.textContent = debugLogPaused ? 'Paused' : '';
+                        }
+                    });
+                    logPauseToggle.dataset.bound = 'true';
                 }
             }
         });
@@ -1422,12 +1447,12 @@ function renderTimeline(data) {
             let firstSlotKey = null;
             for (let i = 0; i < filtered.length; i += 1) {
                 const slot = filtered[i];
-                const classification = (slot.classification || '').toString().toLowerCase();
+                // The "hold" lane is built from slots with no physical actions.
                 const chargeKw = Number(slot.battery_charge_kw ?? slot.charge_kw ?? 0) || 0;
                 const waterKw = Number(slot.water_heating_kw ?? 0) || 0;
                 const exportKw = Number(slot.export_kwh ?? 0) * 4 || 0;
                 const noPhysical = chargeKw <= 0 && waterKw <= 0 && exportKw <= 0;
-                const isHold = classification === 'hold' && noPhysical;
+                const isHold = noPhysical;
                 if (isHold) {
                     const s = toDate(slot.start_time);
                     const e = slotEndOrDefault(slot);
@@ -1962,6 +1987,61 @@ async function loadDebugData() {
         setTimeout(() => {
             document.getElementById('debug-refresh-status').textContent = '';
         }, 3000);
+    }
+}
+
+let debugLogIntervalId = null;
+let debugLogPaused = false;
+const DEBUG_LOG_LIMIT = 400;
+
+async function loadDebugLogs() {
+    const statusEl = document.getElementById('debug-log-status');
+    try {
+        const response = await fetch('/api/debug/logs');
+        const payload = await response.json();
+        renderDebugLogs(payload.logs || []);
+        if (statusEl) {
+            statusEl.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+        }
+    } catch (error) {
+        console.error('Error loading debug logs:', error);
+        if (statusEl) {
+            statusEl.textContent = 'Error loading logs';
+        }
+    }
+}
+
+function renderDebugLogs(logEntries = []) {
+    const viewport = document.getElementById('debug-log-viewport');
+    if (!viewport) {
+        return;
+    }
+
+    const lines = (logEntries.slice(-DEBUG_LOG_LIMIT) || []).map(entry => {
+        const ts = entry.timestamp || '';
+        const level = entry.level ? entry.level.toUpperCase() : 'INFO';
+        const msg = entry.message || '';
+        return `${ts} [${level}] ${msg}`;
+    });
+    viewport.textContent = lines.join('\n');
+    viewport.scrollTop = viewport.scrollHeight;
+}
+
+function startDebugLogPolling() {
+    if (debugLogIntervalId) {
+        return;
+    }
+    debugLogIntervalId = setInterval(() => {
+        if (!debugLogPaused) {
+            loadDebugLogs();
+        }
+    }, 3000);
+}
+
+function clearDebugLogs() {
+    const viewport = document.getElementById('debug-log-viewport');
+    if (viewport) {
+        viewport.textContent = '';
     }
 }
 

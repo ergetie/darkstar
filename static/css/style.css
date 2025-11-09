@@ -186,6 +186,44 @@ legend::after {
     color: var(--ds-foreground);
 }
 
+.debug-log-controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin-bottom: 8px;
+}
+
+.debug-log-pause {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+}
+
+.debug-log-viewport {
+    background-color: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(209, 208, 204, 0.4);
+    border-radius: 4px;
+    padding: 12px;
+    margin: 0;
+    max-height: 260px;
+    overflow: auto;
+    font-size: 12px;
+    line-height: 1.4;
+    font-family: 'Fira Code', monospace;
+    white-space: pre-wrap;
+}
+
+.debug-log-viewport::-webkit-scrollbar {
+    width: 6px;
+}
+
+.debug-log-viewport::-webkit-scrollbar-thumb {
+    background-color: rgba(209, 208, 204, 0.5);
+    border-radius: 3px;
+}
+
 label {
     display: flex;
     justify-content: space-between;
