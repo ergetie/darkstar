@@ -1086,8 +1086,9 @@ class HeliosPlanner:
         max_gap_slots,
     ):
         """Create slot candidates by combining contiguous segments before falling back."""
+        cheap_slots_by_time = cheap_slots_sorted.sort_index()
         segments = self._build_water_segments(
-            cheap_slots_sorted, slot_duration, max_gap_slots, tolerance
+            cheap_slots_by_time, slot_duration, max_gap_slots, tolerance
         )
         if not segments:
             return []
@@ -1096,8 +1097,6 @@ class HeliosPlanner:
         total_slots = 0
         max_blocks = max(1, int(max_blocks_per_day or 1))
         for segment in segments:
-            if len(selected_segments) >= max_blocks:
-                break
             selected_segments.append(segment)
             total_slots += len(segment["slots"])
             if total_slots >= slots_needed:
@@ -1161,7 +1160,7 @@ class HeliosPlanner:
             avg_price = float(sum(prices) / len(prices)) if prices else float("inf")
             segments.append({"slots": times, "avg_price": avg_price})
 
-        segments.sort(key=lambda seg: (seg["avg_price"], -len(seg["slots"])))
+        segments.sort(key=lambda seg: (seg["avg_price"], seg["slots"][0]))
         return segments
 
     def _consolidate_to_blocks(self, selected_slots, max_blocks, slot_duration, cheap_slots_sorted):
