@@ -136,16 +136,28 @@ class LearningEngine:
 
             # Create indexes for performance
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_slot_observations_start ON slot_observations(slot_start)"
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_slot_observations_start "
+                    "ON slot_observations(slot_start)"
+                )
             )
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_slot_forecasts_start ON slot_forecasts(slot_start)"
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_slot_forecasts_start "
+                    "ON slot_forecasts(slot_start)"
+                )
             )
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_learning_metrics_date ON learning_metrics(date)"
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_learning_metrics_date "
+                    "ON learning_metrics(date)"
+                )
             )
             cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_learning_runs_started ON learning_runs(started_at)"
+                (
+                    "CREATE INDEX IF NOT EXISTS idx_learning_runs_started "
+                    "ON learning_runs(started_at)"
+                )
             )
 
             conn.commit()
@@ -180,12 +192,23 @@ class LearningEngine:
 
                 cursor.execute(
                     """
-                    INSERT INTO slot_observations (slot_start, slot_end, import_price_sek_kwh, export_price_sek_kwh)
+                    INSERT INTO slot_observations (
+                        slot_start,
+                        slot_end,
+                        import_price_sek_kwh,
+                        export_price_sek_kwh
+                    )
                     VALUES (?, ?, ?, ?)
                     ON CONFLICT(slot_start) DO UPDATE SET
-                        slot_end=COALESCE(excluded.slot_end, slot_observations.slot_end),
-                        import_price_sek_kwh=COALESCE(excluded.import_price_sek_kwh, slot_observations.import_price_sek_kwh),
-                        export_price_sek_kwh=COALESCE(excluded.export_price_sek_kwh, slot_observations.export_price_sek_kwh)
+                        slot_end = COALESCE(excluded.slot_end, slot_observations.slot_end),
+                        import_price_sek_kwh = COALESCE(
+                            excluded.import_price_sek_kwh,
+                            slot_observations.import_price_sek_kwh,
+                        ),
+                        export_price_sek_kwh = COALESCE(
+                            excluded.export_price_sek_kwh,
+                            slot_observations.export_price_sek_kwh,
+                        )
                     """,
                     (
                         slot_start,
@@ -358,27 +381,55 @@ class LearningEngine:
 
                 cursor.execute(
                     """
-                    INSERT INTO slot_observations
-                    (slot_start, slot_end, import_kwh, export_kwh, pv_kwh, load_kwh,
-                     water_kwh, batt_charge_kwh, batt_discharge_kwh,
-                     soc_start_percent, soc_end_percent,
-                     import_price_sek_kwh, export_price_sek_kwh,
-                     quality_flags)
+                    INSERT INTO slot_observations (
+                        slot_start,
+                        slot_end,
+                        import_kwh,
+                        export_kwh,
+                        pv_kwh,
+                        load_kwh,
+                        water_kwh,
+                        batt_charge_kwh,
+                        batt_discharge_kwh,
+                        soc_start_percent,
+                        soc_end_percent,
+                        import_price_sek_kwh,
+                        export_price_sek_kwh,
+                        quality_flags
+                    )
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(slot_start) DO UPDATE SET
-                        slot_end=COALESCE(excluded.slot_end, slot_observations.slot_end),
-                        import_kwh=excluded.import_kwh,
-                        export_kwh=excluded.export_kwh,
-                        pv_kwh=excluded.pv_kwh,
-                        load_kwh=excluded.load_kwh,
-                        water_kwh=excluded.water_kwh,
-                        batt_charge_kwh=COALESCE(excluded.batt_charge_kwh, slot_observations.batt_charge_kwh),
-                        batt_discharge_kwh=COALESCE(excluded.batt_discharge_kwh, slot_observations.batt_discharge_kwh),
-                        soc_start_percent=COALESCE(excluded.soc_start_percent, slot_observations.soc_start_percent),
-                        soc_end_percent=COALESCE(excluded.soc_end_percent, slot_observations.soc_end_percent),
-                        import_price_sek_kwh=COALESCE(excluded.import_price_sek_kwh, slot_observations.import_price_sek_kwh),
-                        export_price_sek_kwh=COALESCE(excluded.export_price_sek_kwh, slot_observations.export_price_sek_kwh),
-                        quality_flags=excluded.quality_flags
+                        slot_end = COALESCE(excluded.slot_end, slot_observations.slot_end),
+                        import_kwh = excluded.import_kwh,
+                        export_kwh = excluded.export_kwh,
+                        pv_kwh = excluded.pv_kwh,
+                        load_kwh = excluded.load_kwh,
+                        water_kwh = excluded.water_kwh,
+                        batt_charge_kwh = COALESCE(
+                            excluded.batt_charge_kwh,
+                            slot_observations.batt_charge_kwh,
+                        ),
+                        batt_discharge_kwh = COALESCE(
+                            excluded.batt_discharge_kwh,
+                            slot_observations.batt_discharge_kwh,
+                        ),
+                        soc_start_percent = COALESCE(
+                            excluded.soc_start_percent,
+                            slot_observations.soc_start_percent,
+                        ),
+                        soc_end_percent = COALESCE(
+                            excluded.soc_end_percent,
+                            slot_observations.soc_end_percent,
+                        ),
+                        import_price_sek_kwh = COALESCE(
+                            excluded.import_price_sek_kwh,
+                            slot_observations.import_price_sek_kwh,
+                        ),
+                        export_price_sek_kwh = COALESCE(
+                            excluded.export_price_sek_kwh,
+                            slot_observations.export_price_sek_kwh,
+                        ),
+                        quality_flags = excluded.quality_flags
                     """,
                     (
                         slot_start,
@@ -414,14 +465,15 @@ class LearningEngine:
                 load_forecast = forecast.get("load_forecast_kwh", 0.0)
                 temp_c = forecast.get("temp_c")
 
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO slot_forecasts 
-                    (slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version)
-                    VALUES (?, ?, ?, ?, ?)
-                """,
-                    (slot_start, pv_forecast, load_forecast, temp_c, forecast_version),
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO slot_forecasts (
+                    slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version
                 )
+                VALUES (?, ?, ?, ?, ?)
+            """,
+                (slot_start, pv_forecast, load_forecast, temp_c, forecast_version),
+            )
 
             conn.commit()
 
@@ -434,13 +486,13 @@ class LearningEngine:
 
             # PV forecast accuracy
             pv_query = """
-                SELECT 
+                SELECT
                     AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)) as mae_pv,
                     COUNT(*) as sample_count
                 FROM slot_observations o
                 JOIN slot_forecasts f ON o.slot_start = f.slot_start
                 WHERE DATE(o.slot_start) >= ?
-                AND o.pv_kwh IS NOT NULL AND f.pv_forecast_kwh IS NOT NULL
+                  AND o.pv_kwh IS NOT NULL AND f.pv_forecast_kwh IS NOT NULL
             """
             pv_result = conn.execute(pv_query, (cutoff_date.isoformat(),)).fetchone()
             if pv_result and pv_result[1] > 0:
@@ -449,13 +501,13 @@ class LearningEngine:
 
             # Load forecast accuracy
             load_query = """
-                SELECT 
+                SELECT
                     AVG(ABS(o.load_kwh - f.load_forecast_kwh)) as mae_load,
                     COUNT(*) as sample_count
                 FROM slot_observations o
                 JOIN slot_forecasts f ON o.slot_start = f.slot_start
                 WHERE DATE(o.slot_start) >= ?
-                AND o.load_kwh IS NOT NULL AND f.load_forecast_kwh IS NOT NULL
+                  AND o.load_kwh IS NOT NULL AND f.load_forecast_kwh IS NOT NULL
             """
             load_result = conn.execute(load_query, (cutoff_date.isoformat(),)).fetchone()
             if load_result and load_result[1] > 0:
@@ -482,7 +534,11 @@ class LearningEngine:
 
             # Data coverage and quality diagnostics
             days_result = conn.execute(
-                "SELECT COUNT(DISTINCT DATE(slot_start)) FROM slot_observations WHERE DATE(slot_start) >= ?",
+                (
+                    "SELECT COUNT(DISTINCT DATE(slot_start)) "
+                    "FROM slot_observations "
+                    "WHERE DATE(slot_start) >= ?"
+                ),
                 (cutoff_date.isoformat(),),
             ).fetchone()
             metrics["days_with_data"] = int(days_result[0]) if days_result else 0
@@ -490,7 +546,12 @@ class LearningEngine:
             price_cov = conn.execute(
                 """
                 SELECT COUNT(*) as total_slots,
-                       SUM(CASE WHEN import_price_sek_kwh IS NOT NULL THEN 1 ELSE 0 END) as priced_slots
+                       SUM(
+                           CASE
+                               WHEN import_price_sek_kwh IS NOT NULL THEN 1
+                               ELSE 0
+                           END
+                       ) as priced_slots
                 FROM slot_observations
                 WHERE DATE(slot_start) >= ?
                 """,
@@ -959,7 +1020,7 @@ class LearningLoops:
             with sqlite3.connect(self.engine.db_path) as conn:
                 # Calculate PV bias by hour of day
                 pv_query = """
-                    SELECT 
+                    SELECT
                         strftime('%H', o.slot_start) as hour,
                         AVG(o.pv_kwh - f.pv_forecast_kwh) as bias,
                         AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)) as mae,
@@ -976,7 +1037,7 @@ class LearningLoops:
 
                 # Calculate load bias by hour of day
                 load_query = """
-                    SELECT 
+                    SELECT
                         strftime('%H', o.slot_start) as hour,
                         AVG(o.load_kwh - f.load_forecast_kwh) as bias,
                         AVG(ABS(o.load_kwh - f.load_forecast_kwh)) as mae,
@@ -1087,7 +1148,10 @@ class LearningLoops:
                         "load_samples": load_sample_count,
                         "pv_bias_avg": round(pv_bias_avg, 4),
                     },
-                    "reason": f"PV error ratio {pv_error_ratio:.3f}, Load error ratio {load_error_ratio:.3f}",
+                    "reason": (
+                        f"PV error ratio {pv_error_ratio:.3f}, "
+                        f"Load error ratio {load_error_ratio:.3f}"
+                    ),
                 }
 
             return None
@@ -1426,7 +1490,11 @@ class LearningLoops:
                             "total_exports": total_exports,
                             "avg_missed_profit_sek": round(avg_missed_profit, 3),
                         },
-                        "reason": f"Export guard optimization: {premature_rate:.1%} premature exports, {improvement:.1%} improvement",
+                        "reason": (
+                            "Export guard optimization: "
+                            f"{premature_rate:.1%} premature exports, "
+                            f"{improvement:.1%} improvement"
+                        ),
                     }
 
             return None
@@ -1509,7 +1577,7 @@ class NightlyOrchestrator:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
-                    UPDATE learning_runs 
+                    UPDATE learning_runs
                     SET completed_at = ?, status = ?, result_metrics_json = ?
                     WHERE id = ?
                 """,
@@ -1546,7 +1614,7 @@ class NightlyOrchestrator:
                     cursor = conn.cursor()
                     cursor.execute(
                         """
-                        UPDATE learning_runs 
+                        UPDATE learning_runs
                         SET completed_at = ?, status = 'failed', error_message = ?
                         WHERE id = ?
                     """,

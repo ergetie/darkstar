@@ -1,7 +1,7 @@
 """
 Test energy and cost conversion helpers in the planner.
 """
-import pytest
+
 import math
 from planner import HeliosPlanner
 
@@ -12,32 +12,30 @@ class TestEnergyConversions:
     def setup_method(self):
         """Set up test fixtures."""
         config = {
-            'battery': {
-                'roundtrip_efficiency_percent': 95.0,
-                'capacity_kwh': 10.0,
-                'max_soc_percent': 95,
-                'min_soc_percent': 15
+            "battery": {
+                "roundtrip_efficiency_percent": 95.0,
+                "capacity_kwh": 10.0,
+                "max_soc_percent": 95,
+                "min_soc_percent": 15,
             },
-            'battery_economics': {
-                'battery_cycle_cost_kwh': 0.20
-            }
+            "battery_economics": {"battery_cycle_cost_kwh": 0.20},
         }
         self.planner = HeliosPlanner.__new__(HeliosPlanner)
         self.planner.config = config
-        self.planner.battery_config = config['battery']
-        self.planner.battery_economics = config['battery_economics']
+        self.planner.battery_config = config["battery"]
+        self.planner.battery_economics = config["battery_economics"]
         self.planner.daily_pv_forecast = {}
         self.planner.daily_load_forecast = {}
         self.planner._last_temperature_forecast = {}
         self.planner.forecast_meta = {}
 
         # Initialize efficiency values
-        roundtrip_percent = self.planner.battery_config.get('roundtrip_efficiency_percent', 95.0)
+        roundtrip_percent = self.planner.battery_config.get("roundtrip_efficiency_percent", 95.0)
         self.planner.roundtrip_efficiency = roundtrip_percent / 100.0
         efficiency_component = math.sqrt(self.planner.roundtrip_efficiency)
         self.planner.charge_efficiency = efficiency_component
         self.planner.discharge_efficiency = efficiency_component
-        self.planner.cycle_cost = self.planner.battery_economics.get('battery_cycle_cost_kwh', 0.0)
+        self.planner.cycle_cost = self.planner.battery_economics.get("battery_cycle_cost_kwh", 0.0)
 
     def test_energy_into_battery(self):
         """Test energy stored in battery after charging losses."""
@@ -77,7 +75,7 @@ class TestEnergyConversions:
         assert self.planner._energy_into_battery(5.0) == 0.0
 
         # Test that _battery_energy_for_output returns infinity
-        assert self.planner._battery_energy_for_output(4.0) == float('inf')
+        assert self.planner._battery_energy_for_output(4.0) == float("inf")
 
         # Test that _battery_output_from_energy returns 0
         assert self.planner._battery_output_from_energy(4.5) == 0.0

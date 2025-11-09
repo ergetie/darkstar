@@ -891,10 +891,6 @@
 
 ---
 
-*Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
-
----
-
 ### Rev 26 — 2025-11-19: DST-Time Safety, Timestamp Joins, Manual Lock, Structured Logging *(Status: ✅ Completed)*
 - **Model**: GPT-5 Codex CLI
 - **Summary**: Completed the Rev 26 checklist: DST-safe preservation, timestamp-joined price/forecast DataFrames, manual-lock enforcement, public planning helpers, numeric reason/priority outputs, structured logging with `/api/debug/logs`, Debug tab log viewer, and repo styling/tooling.
@@ -932,3 +928,34 @@
 
 #### Rollback Plan
 - Revert the planner/webapp tracing/numeric-output changes, remove the log viewer, and drop the tooling files if Step 8 needs rollback.
+
+### Rev 27 — 2025-11-19: Lint Clean-up *(Status: ✅ Completed)*
+- **Model**: Codex CLI
+- **Summary**: `./lint.sh` now runs black & flake8. Black passes but flake8 reports 50+ issues (unused imports, trailing whitespace, overly long lines, unused locals, module-level ordering) across `db_writer.py`, `inputs.py`, `learning.py`, `planner.py`, `webapp.py`, `tests/*`, etc. This rev addresses those warnings.
+
+**Plan:**
+- **Goals**:
+  1. Eliminate every unused import/local/variable flagged in the latest `flake8` output.
+  2. Remove trailing whitespace from the listed files.
+  3. Break down or wrap any lines longer than 100 characters per Black/flake8 config.
+- **Scope**: `db_writer.py`, `inputs.py`, `learning.py`, `planner.py`, `webapp.py`, all affected `tests/`, and any supporting helper files that flake8 flagged.
+- **Dependencies**: Requires `black`/`flake8` configs added in Rev 26; rerun `FLAKE8_USE_MULTIPROCESSING=0 ./lint.sh` to verify progress.
+- **Acceptance Criteria**:
+  - `lint.sh` completes without flake8 warnings (with multiprocessing disabled due to sandbox limits).
+  - Code retains existing functionality (regression tests continue to pass).
+  - Documentation mentions these cleanup steps.
+
+**Implementation:**
+1. Patch each file to remove unused imports/locals and trailing whitespace (`db_writer.py`, `inputs.py`, etc.).
+2. Wrap long lines that exceed 100 characters, favouring helper variables or restructuring expressions.
+3. Re-run `FLAKE8_USE_MULTIPROCESSING=0 ./lint.sh` between edits to confirm the flagged list shrinks and eventually clears.
+
+**Verification:** `FLAKE8_USE_MULTIPROCESSING=0 ./lint.sh` ✅ (pass observed on host after cleanup).
+
+**Known Issues:** None besides lengthy cleanup required across multiple legacy modules.
+
+**Rollback Plan:** Revert the cleanup commit if flake8 still fails after exhaustive fixes; revisit approach per file.
+
+---
+
+*Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*

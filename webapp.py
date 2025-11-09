@@ -3,6 +3,7 @@ import logging
 import os
 import shutil
 import sqlite3
+import threading
 from collections import deque
 from datetime import datetime, timezone
 
@@ -382,9 +383,12 @@ def planner_status():
     try:
         with _db_connect_from_secrets() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT planned_at, planner_version FROM plan_history ORDER BY planned_at DESC LIMIT 1"
+                history_query = (
+                    "SELECT planned_at, planner_version "
+                    "FROM plan_history "
+                    "ORDER BY planned_at DESC LIMIT 1"
                 )
+                cur.execute(history_query)
                 row = cur.fetchone()
                 if row:
                     status["db"] = {
@@ -514,7 +518,7 @@ def db_push_current():
 
 @app.route("/api/schedule/save", methods=["POST"])
 def save_schedule_json():
-    """Persist a provided schedule payload to schedule.json with meta, preserving historical slots."""
+    """Persist a provided schedule payload to schedule.json while keeping historical slots."""
     try:
         payload = request.get_json(silent=True) or {}
         manual_schedule = payload.get("schedule") if isinstance(payload, dict) else None
@@ -541,7 +545,8 @@ def save_schedule_json():
                 tz_name=tz.zone if hasattr(tz, "zone") else "Europe/Stockholm",
             )
 
-            # Fix slot number conflicts: ensure manual slots continue from max historical slot number
+            # Fix slot number conflicts:
+            # ensure manual slots continue from max historical slot number
             max_historical_slot = 0
             if existing_past_slots:
                 max_historical_slot = max(
@@ -922,7 +927,10 @@ def debug_data():
             return (
                 jsonify(
                     {
-                        "error": "No debug data available. Enable debug mode in config.yaml with enable_planner_debug: true"
+                        "error": (
+                            "No debug data available. "
+                            "Enable debug mode in config.yaml with enable_planner_debug: true"
+                        )
                     }
                 ),
                 404,
@@ -1029,10 +1037,10 @@ def record_observation_from_current_state():
             with sqlite3.connect(engine.db_path) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
-                    """
-                    SELECT COUNT(*) FROM slot_observations 
-                    WHERE slot_start = ? AND soc_end_percent IS NOT NULL
-                """,
+                    (
+                        "SELECT COUNT(*) FROM slot_observations "
+                        "WHERE slot_start = ? AND soc_end_percent IS NOT NULL"
+                    ),
                     (current_slot_start.isoformat(),),
                 )
                 existing_count = cursor.fetchone()[0]
@@ -1070,10 +1078,10 @@ def record_observation_from_current_state():
                 initial_state.get("battery_soc_percent", 0),
             )
 
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to record learning observation")
 
-    except Exception as e:
+    except Exception:
         logger.exception("Error in record_observation_from_current_state")
 
 
@@ -1088,9 +1096,6 @@ def record_observation():
 
 
 # Set up automatic observation recording
-import threading
-
-
 def setup_auto_observation_recording():
     """Set up automatic observation recording every 15 minutes."""
 
@@ -1098,7 +1103,7 @@ def setup_auto_observation_recording():
         while True:
             try:
                 record_observation_from_current_state()
-            except Exception as e:
+            except Exception:
                 logger.exception("Error in automatic observation recording loop")
             # Sleep for 15 minutes (900 seconds)
             import time

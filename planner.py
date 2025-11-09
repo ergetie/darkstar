@@ -3,7 +3,7 @@ import math
 import os
 import sqlite3
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import pytz
@@ -666,10 +666,7 @@ class HeliosPlanner:
         return battery_energy_kwh * self.discharge_efficiency
 
     def _available_charge_power_kw(self, row) -> float:
-        """
-        Compute realistic available charge power for a slot respecting inverter, grid, water heating, and net load.
-        Returns 0 if constraints prevent charging.
-        """
+        """Compute available charge power respecting inverter, grid, and water loads."""
         inverter_max = self.config.get("system", {}).get("inverter", {}).get("max_power_kw", 10.0)
         grid_max = self.config.get("system", {}).get("grid", {}).get("max_power_kw", 25.0)
         battery_max = self.battery_config.get("max_charge_power_kw", 5.0)
@@ -703,11 +700,13 @@ class HeliosPlanner:
                 and float(current_soc) > float(max_soc_percent) + 0.1
                 and not self._max_soc_warning_emitted
             ):
-                print(
-                    f"Warning: current battery SoC ({float(current_soc):.2f}%) exceeds configured "
+                message = (
+                    "Warning: current battery SoC "
+                    f"({float(current_soc):.2f}%) exceeds configured "
                     f"max_soc_percent ({float(max_soc_percent):.2f}%). "
-                    "Planner will respect the live SoC and prevent further charging above the configured limit."
+                    "Planner will respect the live SoC and prevent further charging."
                 )
+                print(message)
                 self._max_soc_warning_emitted = True
         except (TypeError, ValueError):
             pass
@@ -851,8 +850,6 @@ class HeliosPlanner:
         slot_minutes = self.config.get("nordpool", {}).get("resolution_minutes", 15) or 15
         slot_duration = pd.Timedelta(minutes=slot_minutes)
         slot_energy_kwh = power_kw * (slot_duration.total_seconds() / 3600.0)
-        slots_per_block = max(1, math.ceil(min_kwh_per_day / slot_energy_kwh))
-
         # Build local datetime mapping for scheduling decisions
         try:
             local_datetimes = df.index.tz_convert(tz)
@@ -970,11 +967,6 @@ class HeliosPlanner:
             slot_time = slot.name
 
             # Check if this slot extends an existing block
-            extends_existing = any(
-                abs((slot_time - existing_time) == slot_duration)
-                for existing_time in selected_slots
-            )
-
             # Always select cheapest slots, but prefer contiguity when possible
             # The contiguity preference is handled in the consolidation phase
             selected_slots.append(slot_time)
@@ -1214,11 +1206,6 @@ class HeliosPlanner:
         capacity_kwh = self.battery_config.get("capacity_kwh", 10.0)
         min_soc_percent = self.battery_config.get("min_soc_percent", 15)
         max_soc_percent = self.battery_config.get("max_soc_percent", 95)
-        strategic_target_soc_percent = self.strategic_charging.get(
-            "target_soc_percent", max_soc_percent
-        )
-        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
-
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         battery_use_margin_sek = self.thresholds.get("battery_use_margin_sek", 0.10)
@@ -1277,7 +1264,8 @@ class HeliosPlanner:
                 if charge_to_battery > 0:
                     current_kwh += charge_to_battery
 
-            # Lower bound only; allow SoC to remain above configured max if current state is already there.
+            # Lower bound only; allow SoC to remain above configured max
+            # if current state is already there.
             if current_kwh < min_soc_kwh:
                 current_kwh = min_soc_kwh
             soc_list.append(current_kwh)
@@ -1357,15 +1345,6 @@ class HeliosPlanner:
         # Calculate price-aware gap responsibilities
         self.window_responsibilities = []
         capacity_kwh = self.battery_config.get("capacity_kwh", 10.0)
-        min_soc_percent = self.battery_config.get("min_soc_percent", 15)
-        max_soc_percent = self.battery_config.get("max_soc_percent", 95)
-        strategic_target_soc_percent = self.strategic_charging.get(
-            "target_soc_percent", max_soc_percent
-        )
-        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
-
-        min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
-        max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
         max_charge_power_kw = self.battery_config.get("max_charge_power_kw", 5.0)
 
         for i, window in enumerate(windows):
@@ -1734,10 +1713,6 @@ class HeliosPlanner:
                 return fallback
             return max(min_soc_percent, min(max_soc_percent, val))
 
-        manual_charge_target_percent = _clamp_manual(
-            manual_cfg.get("charge_target_percent"),
-            max_soc_percent,
-        )
         manual_export_target_percent = _clamp_manual(
             manual_cfg.get("export_target_percent"),
             min_soc_percent,
@@ -2457,7 +2432,7 @@ class HeliosPlanner:
         for i, record in enumerate(new_future_records):
             record["slot_number"] = max_historical_slot + i + 1
 
-        # Merge: preserved past + new future (no duplicates since new_future_records only contains future slots)
+        # Merge: preserved past + new future pulls, ensuring no duplicates
         merged_schedule = existing_past_slots + new_future_records
 
         daily_pv = getattr(self, "daily_pv_forecast", {}) or {}

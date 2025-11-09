@@ -2,9 +2,6 @@
 Test JSON schema validation and output format.
 """
 
-import pytest
-import json
-import os
 from planner import HeliosPlanner, dataframe_to_json_response
 
 

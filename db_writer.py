@@ -9,7 +9,6 @@ import pytz
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 
 import pymysql
-import yaml
 
 
 def _connect_mysql(secrets: Dict[str, Any]):
@@ -78,10 +77,10 @@ def _get_preserved_slots_from_db(
         with _connect_mysql(secrets) as conn:
             with conn.cursor() as cur:
                 query = """
-                    SELECT slot_number, slot_start, charge_kw, export_kw, water_kw, 
-                           planned_load_kwh, planned_pv_kwh, soc_target, soc_projected, 
+                    SELECT slot_number, slot_start, charge_kw, export_kw, water_kw,
+                           planned_load_kwh, planned_pv_kwh, soc_target, soc_projected,
                            planner_version
-                    FROM current_schedule 
+                    FROM current_schedule
                     WHERE slot_start >= %s AND slot_start < %s
                     ORDER BY slot_number ASC
                 """
@@ -195,14 +194,14 @@ def get_preserved_slots(
             print(f"[preservation] Loaded {len(db_slots)} past slots from database")
             return db_slots
         else:
-            print(f"[preservation] No past slots found in database, trying local fallback")
+            print("[preservation] No past slots found in database, trying local fallback")
 
     # Fallback to local schedule.json
     local_slots = _get_preserved_slots_from_local(today_start, now, tz_name)
     if local_slots:
         print(f"[preservation] Loaded {len(local_slots)} past slots from local schedule.json")
     else:
-        print(f"[preservation] No past slots found locally")
+        print("[preservation] No past slots found locally")
 
     return local_slots
 
@@ -226,20 +225,42 @@ def _write_merged_schedule(
             cur.execute("DELETE FROM current_schedule WHERE slot_start >= ?", (now_naive,))
 
             # Insert merged schedule
-            insert_sql = (
-                "INSERT INTO current_schedule "
-                "(slot_number, slot_start, charge_kw, export_kw, water_kw, planned_load_kwh, planned_pv_kwh, "
-                " soc_target, soc_projected, planner_version) "
-                "VALUES (" + ",".join(["%s"] * 10) + ")"
-            )
+            schedule_columns = [
+                "slot_number",
+                "slot_start",
+                "charge_kw",
+                "export_kw",
+                "water_kw",
+                "planned_load_kwh",
+                "planned_pv_kwh",
+                "soc_target",
+                "soc_projected",
+                "planner_version",
+            ]
+            columns_str = ", ".join(schedule_columns)
+            values_str = ", ".join(["%s"] * len(schedule_columns))
+            insert_sql = "INSERT INTO current_schedule " f"({columns_str}) VALUES ({values_str})"
             cur.executemany(insert_sql, [r + (pv,) for r in mapped])
 
             # Also append to plan_history for audit trail
+            history_columns = [
+                "planned_at",
+                "slot_number",
+                "slot_start",
+                "charge_kw",
+                "export_kw",
+                "water_kw",
+                "soc_target",
+                "planned_load_kwh",
+                "planned_pv_kwh",
+                "soc_projected",
+                "planner_version",
+            ]
+            history_cols_str = ", ".join(history_columns)
+            history_vals = ", ".join(["%s"] * (len(history_columns) - 1))
             insert_history_sql = (
                 "INSERT INTO plan_history "
-                "(planned_at, slot_number, slot_start, charge_kw, export_kw, water_kw, soc_target, planned_load_kwh, planned_pv_kwh, "
-                " soc_projected, planner_version) "
-                "VALUES (CURRENT_TIMESTAMP, " + ",".join(["%s"] * 10) + ")"
+                f"({history_cols_str}) VALUES (CURRENT_TIMESTAMP, {history_vals})"
             )
             cur.executemany(insert_history_sql, [r + (pv,) for r in mapped])
 
@@ -331,17 +352,39 @@ def write_schedule_to_db(
     mapped = [_map_row(i, slot, tz_name=tz_name) for i, slot in enumerate(rows)]
 
     # Build REPLACE for current_schedule and INSERT for plan_history
+    current_columns = [
+        "slot_number",
+        "slot_start",
+        "charge_kw",
+        "export_kw",
+        "water_kw",
+        "planned_load_kwh",
+        "planned_pv_kwh",
+        "soc_target",
+        "soc_projected",
+        "planner_version",
+    ]
+    values_str = ", ".join(["%s"] * len(current_columns))
     insert_current_sql = (
-        "INSERT INTO current_schedule "
-        "(slot_number, slot_start, charge_kw, export_kw, water_kw, planned_load_kwh, planned_pv_kwh, "
-        " soc_target, soc_projected, planner_version) "
-        "VALUES (" + ",".join(["%s"] * 10) + ")"
+        "INSERT INTO current_schedule " f"({', '.join(current_columns)}) VALUES ({values_str})"
     )
+    history_columns = [
+        "planned_at",
+        "slot_number",
+        "slot_start",
+        "charge_kw",
+        "export_kw",
+        "water_kw",
+        "soc_target",
+        "planned_load_kwh",
+        "planned_pv_kwh",
+        "soc_projected",
+        "planner_version",
+    ]
+    history_values = ", ".join(["%s"] * (len(history_columns) - 1))
     insert_sql = (
         "INSERT INTO plan_history "
-        "(planned_at, slot_number, slot_start, charge_kw, export_kw, water_kw, soc_target, planned_load_kwh, planned_pv_kwh, "
-        " soc_projected, planner_version) "
-        "VALUES (CURRENT_TIMESTAMP, " + ",".join(["%s"] * 10) + ")"
+        f"({', '.join(history_columns)}) VALUES (CURRENT_TIMESTAMP, {history_values})"
     )
 
     with _connect_mysql(secrets) as conn:
