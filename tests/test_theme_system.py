@@ -41,7 +41,9 @@ def test_theme_api_list_and_select_updates_config():
 
     selected_name = payload["themes"][0]["name"]
     desired_index = 5
-    post_response = client.post("/api/theme", json={"theme": selected_name, "accent_index": desired_index})
+    post_response = client.post(
+        "/api/theme", json={"theme": selected_name, "accent_index": desired_index}
+    )
     assert post_response.status_code == 200
     result_payload = post_response.get_json()
     assert result_payload["accent_index"] == desired_index

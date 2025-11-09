@@ -33,9 +33,12 @@ def bump(tag: str, kind: str) -> str:
     else:
         major, minor, patch = map(int, m.groups())
     if kind == "major":
-        major += 1; minor = 0; patch = 0
+        major += 1
+        minor = 0
+        patch = 0
     elif kind == "minor":
-        minor += 1; patch = 0
+        minor += 1
+        patch = 0
     else:
         patch += 1
     return f"v{major}.{minor}.{patch}"
@@ -92,4 +95,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
