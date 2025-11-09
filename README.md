@@ -53,6 +53,26 @@ python inputs.py
 PYTHONPATH=. python -m pytest -q
 ```
 
+## Development
+
+1. Install the formatter/linter/runtime helpers:
+
+   ```bash
+   source venv/bin/activate
+   pip install black flake8 pre-commit
+   ```
+
+2. Hook the repo and format/lint:
+
+   ```bash
+   pre-commit install
+   pre-commit run --all-files
+   ```
+
+3. Keep docstrings/type annotations up to date for public helpers (`planner.prepare_df`, `planner.apply_manual_plan`, `webapp.debug_logs`, etc.) and rely on `black`/`flake8` for consistency.
+
+4. Use `PYTHONPATH=. python -m pytest -q` for regression testing after significant changes.
+
 ## Project Structure
 
 ```
@@ -104,7 +124,7 @@ The planner executes a series of logical passes to build the optimal schedule. A
 4.  **Pass 3: Simulate Baseline Depletion**: Simulates the battery's state of charge over the planning horizon assuming **no grid charging**. This creates a realistic "worst-case" baseline, accounting for the load from the scheduled water heating.
 5.  **Pass 4: Allocate Cascading Responsibilities**: The core of the MPC. It calculates the charging `total_responsibility_kwh` for each cheap window. This accounts for future energy gaps, the window's realistic charging capacity (considering load and water heating), strategic carry-forward logic, and applies a dynamic `S-index` safety factor based on PV deficit and temperature forecasts.
 6.  **Pass 5: Distribute Charging in Windows**: Takes the responsibilities from Pass 4 and assigns `charge_kw` to the cheapest slots within each window. This pass features **charge block consolidation**, which favors creating longer, contiguous charging blocks by merging adjacent charge slots within a price tolerance, improving battery health.
-7.  **Pass 6: Finalize Schedule**: Performs the final, detailed simulation. It crucially enforces the **"Hold in Cheap Windows"** principle, where the battery is not discharged for load during cheap periods. It assigns the final action `classification` for each slot (e.g., 'Charge', 'Discharge', 'Hold', 'Export') and calculates the projected state of charge, cost, and a target SoC for each slot.
+7.  **Pass 6: Finalize Schedule**: Performs the final, detailed simulation. It crucially enforces the **"Hold in Cheap Windows"** principle, where the battery is not discharged for load during cheap periods. It records the final SoC projection, cost evolution, and per-slot numeric power allocations (charge, discharge, export, water heating) along with a derived `reason`/`priority` signal so the UI can infer the intended action.
 
 ### Key Concepts
 
@@ -117,8 +137,7 @@ The planner executes a series of logical passes to build the optimal schedule. A
 
 The system generates `schedule.json` containing:
 - 15-minute time slots with timezone-aware timestamps
-- Energy classifications (Charge, Discharge, Hold, pv_charge)
-- Power allocations (battery, grid, export, water heating)
+- Numeric power allocations (battery charge/discharge, export, water heating) plus derived `reason`/`priority`
 - Projected battery state and cost evolution
 - `soc_target_percent` stepped signal indicating desired SoC floor/target per slot
 - Price and forecast data
