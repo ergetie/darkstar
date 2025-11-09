@@ -105,6 +105,10 @@ All system parameters are configurable via `config.yaml`:
 - **Nordpool API**: price area, currency, resolution
 - **Pricing**: VAT, fees, taxes
 
+### Water Heating Scheduler
+
+The planner treats `water_heating.min_kwh_per_day` as the minimum energy consumption that must be met each 24 h, but `water_heating.min_hours_per_day` still defines how long the heater should run when the energy target has not yet been satisfied. Every run the planner first checks the HA sensor defined by `water_heater_daily_entity_id`; if that sensor already reports at least `min_kwh_per_day`, no new slots are scheduled. Otherwise the scheduler picks enough cheap slots to cover `min_hours_per_day` (respecting `max_blocks_per_day`/tolerance), and after reserving those slots it adds more if the projected energy still falls short of `min_kwh_per_day`. This way the HA sensor remains the source of truth, the minimum runtime ensures a window for heating even when energy usage is low, and any shortfall in energy automatically triggers additional slots.
+
 ## Architecture & Algorithm
 
 The system is designed for clarity, testability, and separation of concerns. For a detailed history of changes and the implementation rationale, please see the [implementation plan](docs/implementation_plan.md).
