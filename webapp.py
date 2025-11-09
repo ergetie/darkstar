@@ -447,6 +447,19 @@ def db_current_schedule():
             # slot_start is DATETIME; compute end_time from resolution
             try:
                 end = start + pd.Timedelta(minutes=resolution_minutes)
+                record = {
+                    "slot_number": r.get("slot_number"),
+                    "start_time": start.isoformat(),
+                    "end_time": end.isoformat(),
+                    "battery_charge_kw": round(float(r.get("charge_kw") or 0.0), 2),
+                    # DB stores export in kW; UI expects export_kwh (15-min → kWh = kW/4)
+                    "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
+                    "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
+                    "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
+                    "pv_forecast_kwh": round(float(r.get("planned_pv_kwh") or 0.0), 4),
+                    "soc_target_percent": round(float(r.get("soc_target") or 0.0), 2),
+                    "projected_soc_percent": round(float(r.get("soc_projected") or 0.0), 2),
+                }
             except Exception:
                 # Fallback if not datetime (string), try parse
                 start_dt = datetime.fromisoformat(str(start))
@@ -458,7 +471,6 @@ def db_current_schedule():
                     "start_time": start.isoformat(),
                     "end_time": end.isoformat(),
                     "battery_charge_kw": round(float(r.get("charge_kw") or 0.0), 2),
-                    # DB stores export in kW; UI expects export_kwh (15-min → kWh = kW/4)
                     "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
                     "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
                     "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
