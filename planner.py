@@ -2,7 +2,7 @@ import json
 import math
 import os
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -11,7 +11,11 @@ from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 import requests
 import yaml
 
-from inputs import get_all_input_data
+from inputs import (
+    get_all_input_data,
+    get_home_assistant_sensor_float,
+    load_home_assistant_config,
+)
 
 
 def _normalize_timestamp(value: Any, tz_name: str) -> pd.Timestamp:
@@ -252,6 +256,8 @@ class HeliosPlanner:
 
         self.cycle_cost = self.battery_economics.get("battery_cycle_cost_kwh", 0.0)
         self._max_soc_warning_emitted = False
+        self._home_assistant_water_today: Optional[float] = None
+        self._home_assistant_water_checked = False
 
     def _validate_config(self) -> None:
         """Validate critical configuration values and raise descriptive errors."""
@@ -391,17 +397,73 @@ class HeliosPlanner:
 
         self._learning_schema_initialized = True
 
+    def _get_home_assistant_water_heating_today(self) -> Optional[float]:
+        """Return today's water heating consumption according to Home Assistant."""
+        if self._home_assistant_water_checked:
+            return self._home_assistant_water_today
+
+        self._home_assistant_water_checked = True
+        ha_config = load_home_assistant_config()
+        entity_id = ha_config.get("water_heater_daily_entity_id")
+        if not entity_id:
+            self._home_assistant_water_today = None
+            return None
+
+        try:
+            self._home_assistant_water_today = get_home_assistant_sensor_float(entity_id)
+        except Exception:
+            self._home_assistant_water_today = None
+        return self._home_assistant_water_today
+
+    def _local_today_date(self) -> date:
+        """Return the current date in the planner timezone."""
+        try:
+            tz = pytz.timezone(self.timezone)
+        except Exception:
+            tz = pytz.timezone("Europe/Stockholm")
+
+        now_slot = getattr(self, "now_slot", None)
+        if isinstance(now_slot, pd.Timestamp):
+            try:
+                localized = now_slot.tz_convert(tz)
+            except Exception:
+                localized = now_slot.tz_localize(tz)
+            return localized.normalize().date()
+
+        return datetime.now(tz).date()
+
+    def _date_from_value(self, value: Any) -> Optional[date]:
+        """Normalize various datetime-like objects to a date."""
+        if value is None:
+            return None
+        if isinstance(value, date) and not isinstance(value, datetime):
+            return value
+        if hasattr(value, "to_pydatetime"):
+            try:
+                return value.to_pydatetime().date()
+            except Exception:
+                return None
+        if isinstance(value, datetime):
+            return value.date()
+        return None
+
     def _get_daily_water_usage_kwh(self, target_date) -> float:
         """Retrieve recorded water usage for the specified date."""
+        normalized_date = self._date_from_value(target_date)
+        if normalized_date is None:
+            return 0.0
+
+        today = self._local_today_date()
+        if normalized_date == today:
+            ha_value = self._get_home_assistant_water_heating_today()
+            if ha_value is not None:
+                return max(0.0, ha_value)
+
         if not self._learning_enabled():
             return 0.0
 
         self._ensure_learning_schema()
-        if hasattr(target_date, "to_pydatetime"):
-            target_date = target_date.to_pydatetime().date()
-        elif isinstance(target_date, datetime):
-            target_date = target_date.date()
-        date_key = target_date.isoformat()
+        date_key = normalized_date.isoformat()
         path = self._learning_db_path()
         with sqlite3.connect(path) as conn:
             cur = conn.execute("SELECT used_kwh FROM daily_water WHERE date = ?", (date_key,))
@@ -842,7 +904,7 @@ class HeliosPlanner:
             "min_kwh_per_day", power_kw * min_hours_per_day
         )
         max_blocks_per_day = self.water_heating_config.get("max_blocks_per_day", 2)
-        schedule_future_only = self.water_heating_config.get("schedule_future_only", True)
+        schedule_future_only = True
         defer_up_to_hours = float(self.water_heating_config.get("defer_up_to_hours", 0))
         plan_days_ahead = int(self.water_heating_config.get("plan_days_ahead", 1))
         plan_days_ahead = max(0, min(plan_days_ahead, 1))  # Horizon limited to tomorrow
@@ -850,6 +912,11 @@ class HeliosPlanner:
         slot_minutes = self.config.get("nordpool", {}).get("resolution_minutes", 15) or 15
         slot_duration = pd.Timedelta(minutes=slot_minutes)
         slot_energy_kwh = power_kw * (slot_duration.total_seconds() / 3600.0)
+        slots_for_min_hours = (
+            max(1, math.ceil(min_hours_per_day * 60.0 / slot_minutes))
+            if min_hours_per_day > 0
+            else 0
+        )
         # Build local datetime mapping for scheduling decisions
         try:
             local_datetimes = df.index.tz_convert(tz)
@@ -900,14 +967,21 @@ class HeliosPlanner:
                     continue
 
             if day_offset == 0:
-                remaining_energy = max(0.0, min_kwh_per_day - daily_water_kwh_today)
+                day_consumed = daily_water_kwh_today
             else:
-                remaining_energy = min_kwh_per_day
+                day_consumed = self._get_daily_water_usage_kwh(day_start_local.date())
+
+            remaining_energy = max(0.0, min_kwh_per_day - day_consumed)
 
             if remaining_energy <= 0:
                 continue
 
-            required_slots = max(1, math.ceil(remaining_energy / slot_energy_kwh))
+            energy_slots = (
+                math.ceil(remaining_energy / slot_energy_kwh)
+                if slot_energy_kwh > 0
+                else 0
+            )
+            required_slots = max(slots_for_min_hours, energy_slots, 1)
 
             cheap_slots = day_slots[day_slots["is_cheap"]].copy()
             if cheap_slots.empty:
@@ -915,10 +989,16 @@ class HeliosPlanner:
 
             # Step 1: Sort cheap slots by price (cheapest first) - NOT by time!
             cheap_slots_sorted = cheap_slots.sort_values("import_price_sek_kwh")
+            tolerance, max_gap_slots = self._get_water_consolidation_params()
 
             # Step 2: Select optimal slots with contiguity preference
             selected_slots = self._select_optimal_water_slots(
-                cheap_slots_sorted, required_slots, max_blocks_per_day, slot_duration
+                cheap_slots_sorted,
+                required_slots,
+                max_blocks_per_day,
+                slot_duration,
+                tolerance,
+                max_gap_slots,
             )
 
             if len(selected_slots) == 0:
@@ -941,44 +1021,148 @@ class HeliosPlanner:
         return df
 
     def _select_optimal_water_slots(
-        self, cheap_slots_sorted, slots_needed, max_blocks_per_day, slot_duration
+        self,
+        cheap_slots_sorted,
+        slots_needed,
+        max_blocks_per_day,
+        slot_duration,
+        tolerance,
+        max_gap_slots,
     ):
         """
-        Select optimal water heating slots prioritizing cheapest prices while
-        preferring contiguity where it doesn't significantly increase cost.
+        Select optimal water heating slots prioritizing cheap, contiguous sequences
+        while capping the number of blocks.
 
         Args:
             cheap_slots_sorted (pd.DataFrame): Cheap slots sorted by price (cheapest first)
             slots_needed (int): Number of slots required
             max_blocks_per_day (int): Maximum number of blocks allowed
             slot_duration (pd.Timedelta): Duration of each slot
+            tolerance (float): Price tolerance for merging segments
+            max_gap_slots (int): Maximum allowed gap slots when chaining segments
 
         Returns:
             list[pd.Timestamp]: Selected slot times
         """
-        selected_slots = []
-        remaining_slots = slots_needed
+        if slots_needed <= 0 or cheap_slots_sorted.empty:
+            return []
 
-        # Greedy selection with contiguity preference
-        for _, slot in cheap_slots_sorted.iterrows():
-            if remaining_slots <= 0:
+        candidate_slots = self._select_slots_from_segments(
+            cheap_slots_sorted,
+            slots_needed,
+            max_blocks_per_day,
+            slot_duration,
+            tolerance,
+            max_gap_slots,
+        )
+
+        if candidate_slots:
+            selected_slots = candidate_slots[:slots_needed]
+        else:
+            selected_slots = []
+            for _, slot in cheap_slots_sorted.iterrows():
+                selected_slots.append(slot.name)
+                if len(selected_slots) >= slots_needed:
+                    break
+            selected_slots = selected_slots[:slots_needed]
+
+        if not selected_slots:
+            return []
+
+        ordered_slots = sorted(dict.fromkeys(selected_slots))
+        limited_slots = ordered_slots[:slots_needed]
+
+        return self._consolidate_to_blocks(
+            limited_slots, max_blocks_per_day, slot_duration, cheap_slots_sorted
+        )
+
+    def _select_slots_from_segments(
+        self,
+        cheap_slots_sorted,
+        slots_needed,
+        max_blocks_per_day,
+        slot_duration,
+        tolerance,
+        max_gap_slots,
+    ):
+        """Create slot candidates by combining contiguous segments before falling back."""
+        segments = self._build_water_segments(
+            cheap_slots_sorted, slot_duration, max_gap_slots, tolerance
+        )
+        if not segments:
+            return []
+
+        selected_segments = []
+        total_slots = 0
+        max_blocks = max(1, int(max_blocks_per_day or 1))
+        for segment in segments:
+            if len(selected_segments) >= max_blocks:
+                break
+            selected_segments.append(segment)
+            total_slots += len(segment["slots"])
+            if total_slots >= slots_needed:
                 break
 
-            slot_time = slot.name
+        if total_slots < slots_needed:
+            return []
 
-            # Check if this slot extends an existing block
-            # Always select cheapest slots, but prefer contiguity when possible
-            # The contiguity preference is handled in the consolidation phase
-            selected_slots.append(slot_time)
-            remaining_slots -= 1
+        combined = []
+        for segment in selected_segments:
+            combined.extend(segment["slots"])
+        return sorted(combined)
 
-        # If we have more than max_blocks, consolidate to cheapest blocks
-        if len(selected_slots) > 0:
-            selected_slots = self._consolidate_to_blocks(
-                selected_slots, max_blocks_per_day, slot_duration, cheap_slots_sorted
-            )
+    def _build_water_segments(
+        self,
+        cheap_slots_sorted,
+        slot_duration,
+        max_gap_slots,
+        tolerance,
+    ):
+        """Break cheap slots into contiguous segments respecting tolerance/gap."""
+        slots = []
+        max_gap = max(0, int(max_gap_slots or 0))
+        allowed_gap = slot_duration * max(1, max_gap + 1)
+        tolerance = max(0.0, tolerance or 0.0)
 
-        return selected_slots
+        current_segment: list[tuple[pd.Timestamp, float]] = []
+        prev_slot_time = None
+        current_min = None
+        current_max = None
+
+        for slot_time, row in cheap_slots_sorted.iterrows():
+            slot_price = float(row["import_price_sek_kwh"])
+            if not current_segment:
+                current_segment = [(slot_time, slot_price)]
+                current_min = slot_price
+                current_max = slot_price
+            else:
+                gap = slot_time - prev_slot_time
+                candidate_min = min(current_min, slot_price)
+                candidate_max = max(current_max, slot_price)
+                price_span = candidate_max - candidate_min
+                if gap <= allowed_gap and price_span <= tolerance:
+                    current_segment.append((slot_time, slot_price))
+                    current_min = candidate_min
+                    current_max = candidate_max
+                else:
+                    slots.append(current_segment)
+                    current_segment = [(slot_time, slot_price)]
+                    current_min = slot_price
+                    current_max = slot_price
+            prev_slot_time = slot_time
+
+        if current_segment:
+            slots.append(current_segment)
+
+        segments = []
+        for block in slots:
+            times = [entry[0] for entry in block]
+            prices = [entry[1] for entry in block]
+            avg_price = float(sum(prices) / len(prices)) if prices else float("inf")
+            segments.append({"slots": times, "avg_price": avg_price})
+
+        segments.sort(key=lambda seg: (seg["avg_price"], -len(seg["slots"])))
+        return segments
 
     def _consolidate_to_blocks(self, selected_slots, max_blocks, slot_duration, cheap_slots_sorted):
         """
@@ -1000,21 +1184,23 @@ class HeliosPlanner:
         # Sort by time for block creation
         selected_slots_sorted = sorted(selected_slots)
 
-        # Create initial blocks
+        # Determine water consolidation parameters (tolerance + max gap slots)
+        tolerance, max_gap_slots = self._get_water_consolidation_params()
+
+        # Create initial blocks (allow small gaps per consolidation config)
         blocks = []
         current_block = [selected_slots_sorted[0]]
+        allowed_gap = slot_duration * max(1, max_gap_slots + 1)
 
         for slot_time in selected_slots_sorted[1:]:
-            if len(current_block) > 0 and (slot_time - current_block[-1]) == slot_duration:
+            gap = slot_time - current_block[-1]
+            if len(current_block) > 0 and gap <= allowed_gap:
                 current_block.append(slot_time)
             else:
                 blocks.append(current_block)
                 current_block = [slot_time]
 
         blocks.append(current_block)
-
-        # Determine water consolidation parameters (tolerance + max gap slots)
-        tolerance, max_gap_slots = self._get_water_consolidation_params()
 
         # If we have too many blocks, merge the ones with minimal cost penalty
         while len(blocks) > max_blocks:

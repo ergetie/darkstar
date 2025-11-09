@@ -990,4 +990,34 @@
 
 ---
 
+### Rev 29 — 2025-11-09: Hours-first Water Heating *(Status: 📋 Planned)*
+- **Model**: Codex CLI
+- **Summary**: Restrict the water-heating pass so the HA energy sensor is still the source of truth, but we always reserve `min_hours_per_day` whenever that sensor reports less than `min_kwh_per_day`, and only add extra cheap slots if the projected energy remains short.
+
+**Plan:**
+- **Goals**:
+  1. Document the “energy check first, hours as a trigger” flow so the operator understands why we sometimes schedule fewer than `min_hours_per_day`.
+  2. Update `_pass_2_schedule_water_heating` to first claim a block of `min_hours_per_day` slots whenever the HA daily value is below `min_kwh_per_day`, then append more slots until the energy target is met.
+  3. Keep the HA sensor consistent: when it reports ≥ `min_kwh_per_day`, the planner stops scheduling even if the previous plan requested hours.
+- **Scope**: `planner.py` water-heating routine, HA telemetry glue, tests, and documentation.
+- **Dependencies**: The HA sensor (`water_heater_daily_entity_id`) and existing slotselection helpers (`min_hours_per_day`, `max_blocks_per_day`, tolerance settings).
+- **Acceptance Criteria**:
+  - HA energy above the minimum short-circuits scheduling.
+  - When HA energy is insufficient, the planner schedules at least `min_hours_per_day` worth of slots (respecting block/tolerance constraints) before adding more to satisfy `min_kwh_per_day`.
+  - Fixture tests confirm the HA sensor stops scheduling after the threshold and that hours are enforced when needed.
+
+**Implementation:**
+1. Confirm the README text above describes the intended behavior (energy is the authority; hours are scheduled only when energy is missing).
+2. Refactor `_pass_2_schedule_water_heating` so it first selects enough slots to cover `min_hours_per_day` (using the same price/tolerance helpers) and then extends the selection only if the HA energy reading still falls below `min_kwh_per_day`.
+3. Update `tests/test_water_scheduling.py` with cases showing the HA sensor shortcut and the hours-first scheduling under the tolerance/gap rules.
+4. Leave the code untouched until we receive approval to proceed.
+
+**Verification:** Run `PYTHONPATH=. ./venv/bin/python -m pytest tests/test_water_scheduling.py` after implementing the logic to ensure HA overrides and hours enforcement behave as expected.
+
+**Known Issues:** HA energy data may lag; keep the fallback to sqlite and guard against running redundant hours when the energy sensor resets.
+
+**Rollback Plan:** Revert the planner changes if the new hours-first scheduling over-commits slots or violates the existing block/tolerance constraints.
+
+---
+
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
