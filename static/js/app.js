@@ -1052,7 +1052,7 @@ async function renderChart(data, config) {
         ].map(v => (typeof v === 'number' && !Number.isNaN(v) ? v : 0));
         const maxEnergy = energySeries.length ? Math.max(...energySeries) : 0;
         const fixedEnergyMax = Number.isFinite(maxEnergy) && maxEnergy > 0 ? Math.ceil(maxEnergy * 1.2) : 10;
-        const fixedPVMax = 5;
+        const fixedPVMax = 3;
 
         console.log('Chart data summary:', {
             hasPriceData: importPrices.some(v => v.y !== null),
@@ -1282,7 +1282,7 @@ async function renderChart(data, config) {
                         max: fixedEnergyMax
                     },
                     yPV: {
-                        display: true,
+                        display: false,
                         beginAtZero: true,
                         min: 0,
                         max: fixedPVMax,
