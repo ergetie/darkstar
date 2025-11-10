@@ -1128,3 +1128,275 @@
 
 **Rollback Plan:**
 - Revert the changes to `_map_row`, `_get_preserved_slots_from_db`, and `/api/db/current_schedule` if the UI still misbehaves or if the split logic introduces rounding issues in the preserved slots.
+
+
+---
+
+## Rev 34 — 2025-11-10: Responsive Layout and Mobile-Friendly Graphs *(Status: 📋 Planned)*
+
+* **Model**: GPT-5-Chat
+* **Summary**:
+  Improve mobile usability and layout responsiveness for the Darkstar web interface.
+  Adjust `index.html`, `app.js`, and `style.css` to support dynamic scaling for all devices.
+  Ensure both Chart.js (scheduleChart) and vis-timeline (timeline-container) resize automatically on phones and tablets while preserving current desktop behavior.
+
+---
+
+### Goals
+
+* 🧩 **Responsive charts**: Chart.js and vis-timeline graphs should automatically scale to screen width and adjust font sizes for readability.
+* 📱 **Mobile-friendly layout**: Proper stacking of elements, no horizontal scroll, and good spacing on phones and tablets.
+* 🧠 **No regression**: Desktop layout remains visually identical.
+* 🔄 **Dynamic resizing**: Redraw charts and timeline when window resizes or screen rotates.
+
+---
+
+### Scope
+
+**Files to edit:**
+
+* `/templates/index.html`
+* `/static/js/app.js`
+* `/static/css/style.css`
+
+No changes to backend (`webapp.py`) or database are needed.
+
+---
+
+### Implementation Steps
+
+#### 1️⃣ Update HTML viewport tag
+
+**File:** `/templates/index.html`
+**Action:**
+Ensure the `<head>` section includes this tag (insert if missing):
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1">
+```
+
+This allows proper scaling on mobile browsers.
+
+---
+
+#### 2️⃣ Make Chart.js graph responsive
+
+**File:** `/static/js/app.js`
+**Locate:**
+The code that creates the schedule chart (example: `new Chart(ctx, { ... })`).
+
+**Modify:**
+
+* Add or update `options` section as follows:
+
+```js
+options: {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: {
+      labels: {
+        font: {
+          size: window.innerWidth < 768 ? 10 : 12
+        }
+      }
+    }
+  },
+  scales: {
+    x: {
+      ticks: {
+        maxRotation: 45,
+        minRotation: 0,
+        font: {
+          size: window.innerWidth < 768 ? 9 : 11
+        }
+      }
+    },
+    y: {
+      ticks: {
+        font: {
+          size: window.innerWidth < 768 ? 9 : 11
+        }
+      }
+    }
+  }
+}
+```
+
+**Ensure:**
+The chart initialization uses this syntax:
+
+```js
+const ctx = document.getElementById("scheduleChart").getContext("2d");
+window.myScheduleChart = new Chart(ctx, chartConfig);
+```
+
+*(The global variable allows resize triggers later.)*
+
+---
+
+#### 3️⃣ Enable vis-timeline auto resizing
+
+**File:** `/static/js/app.js`
+**Locate:**
+The line initializing the vis timeline (example: `new vis.Timeline(container, items, options)`).
+
+**Modify/extend options:**
+
+```js
+const options = {
+  ...,
+  autoResize: true,
+  height: "auto",
+  width: "100%",
+  margin: { item: 8, axis: 5 }
+};
+```
+
+Ensure the container width is `100%` and auto-resizes.
+
+---
+
+#### 4️⃣ Add resize listeners
+
+**File:** `/static/js/app.js`
+**Append this code** near the bottom of the file:
+
+```js
+window.addEventListener("resize", () => {
+  if (window.myScheduleChart) {
+    window.myScheduleChart.resize();
+  }
+  if (typeof timeline !== "undefined" && timeline) {
+    timeline.redraw();
+  }
+});
+```
+
+This ensures charts and timelines react to window resizes and device rotations.
+
+---
+
+#### 5️⃣ Update CSS for flexible sizing
+
+**File:** `/static/css/style.css`
+
+**Add or modify the following blocks:**
+
+```css
+/* General responsive sizes */
+#scheduleChart {
+  width: 100%;
+  height: 60vh;
+  max-height: 500px;
+}
+
+#timeline-container {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+/* Mobile-specific layout tweaks */
+@media (max-width: 768px) {
+  body {
+    font-size: 0.9rem;
+  }
+
+  #timeline-container {
+    height: 50vh !important;
+    margin: 0;
+  }
+
+  #scheduleChart {
+    height: 45vh !important;
+  }
+
+  .controls,
+  .sidebar,
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .graph-wrapper {
+    padding: 0.5rem;
+  }
+}
+```
+
+This gives fluid scaling and adjusts layout for smaller screens.
+
+---
+
+#### 6️⃣ Verify graph containers in HTML
+
+**File:** `/templates/index.html`
+**Check that elements exist**:
+
+```html
+<canvas id="scheduleChart"></canvas>
+<div id="timeline-container"></div>
+```
+
+If they have hardcoded width attributes, remove them:
+
+```html
+<canvas id="scheduleChart"></canvas> <!-- No width="1200" etc -->
+```
+
+---
+
+#### 7️⃣ Testing and verification
+
+* Open the web UI on a desktop → layout unchanged.
+* Resize browser → charts and timelines resize smoothly.
+* Open on a phone or tablet:
+
+  * No horizontal scroll.
+  * Graphs readable and filling width.
+  * Text scales correctly.
+* Rotate device → both graphs reflow automatically.
+
+---
+
+### Verification Checklist
+
+| Test               | Expected Result                       |
+| ------------------ | ------------------------------------- |
+| View on desktop    | Layout unchanged, fully functional    |
+| View on mobile     | Graphs scale to screen width          |
+| Rotate phone       | Graphs redraw and stay centered       |
+| No scrollbars      | Layout adapts, no horizontal overflow |
+| Chart readability  | Fonts and labels resize dynamically   |
+| Timeline usability | Fully visible, pinch-zoom works       |
+
+---
+
+### Files Modified
+
+| File                   | Change                                                                  |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `templates/index.html` | Add viewport tag, ensure flexible canvas containers                     |
+| `static/js/app.js`     | Add responsive settings for Chart.js & vis-timeline, add resize handler |
+| `static/css/style.css` | Add responsive and mobile media-query styles                            |
+
+---
+
+### Rollback Plan
+
+If mobile changes cause any layout issues:
+
+1. Revert changes in `style.css` (remove new media queries).
+2. Restore original chart/timeline options.
+3. Disable resize listener in `app.js`.
+
+---
+
+### Next Steps After Implementation
+
+* Test across iPhone, Android, and desktop browsers.
+* Collect screenshots for before/after comparison.
+* If desired, add a mobile navigation toggle in Rev 29.
+
+
