@@ -99,10 +99,10 @@
                     <label>Min Hours/Day: <input type="number" step="0.1" name="water_heating.min_hours_per_day"></label>
                     <label>Min kWh/Day: <input type="number" step="0.1" name="water_heating.min_kwh_per_day"></label>
                     <label>Max Blocks/Day: <input type="number" step="1" name="water_heating.max_blocks_per_day"></label>
-                    <label>
-                        <input type="checkbox" name="water_heating.schedule_future_only">
-                        Schedule Future Slots Only
-                    </label>
+                    <label>Block Price Tolerance (SEK): <input type="number" step="0.01" name="water_heating.block_consolidation_tolerance_sek"></label>
+                    <label>Max Gap Slots: <input type="number" step="1" name="water_heating.consolidation_max_gap_slots"></label>
+                    <label>Defer Up To (hours): <input type="number" step="0.5" name="water_heating.defer_up_to_hours"></label>
+                    <p class="note">Water heating always schedules future slots only.</p>
                 </fieldset>
                 <fieldset>
                     <legend>Arbitrage &amp; Export</legend>

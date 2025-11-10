@@ -1469,6 +1469,8 @@ class HeliosPlanner:
         Returns:
             pd.DataFrame: Original DataFrame (responsibilities stored in instance attribute)
         """
+        slot_minutes = self.config.get("nordpool", {}).get("resolution_minutes", 15) or 15
+        slot_duration = pd.Timedelta(minutes=slot_minutes)
         # Group future slots into windows only (skip past)
         windows = []
         current_window = None
@@ -1487,6 +1489,19 @@ class HeliosPlanner:
                     current_window = None
         if current_window is not None:
             windows.append(current_window)
+
+        if windows:
+            horizon_end = df.index[-1] + slot_duration
+            gap_bounds: list[tuple[pd.Timestamp, pd.Timestamp]] = []
+            for idx in range(len(windows)):
+                gap_start = windows[idx]["end"] + slot_duration
+                if idx + 1 < len(windows):
+                    gap_end = max(gap_start, windows[idx + 1]["start"])
+                else:
+                    gap_end = horizon_end
+                gap_bounds.append((gap_start, gap_end))
+        else:
+            gap_bounds = []
 
         # Identify strategic windows
         strategic_windows = []
@@ -1527,6 +1542,10 @@ class HeliosPlanner:
         s_index_debug["factor"] = round(s_index_factor, 4)
         self.s_index_debug = s_index_debug
 
+        responsibility_only_above_threshold = bool(
+            self.charging_strategy.get("responsibility_only_above_threshold", False)
+        )
+
         # Calculate price-aware gap responsibilities
         self.window_responsibilities = []
         capacity_kwh = self.battery_config.get("capacity_kwh", 10.0)
@@ -1557,14 +1576,23 @@ class HeliosPlanner:
                 + self.cycle_cost
                 + self.thresholds.get("battery_use_margin_sek", 0.10)
             )
-            gap_slots = window_df[window_df["import_price_sek_kwh"] > economic_threshold]
-            gap_energy_kwh = (
-                gap_slots["adjusted_load_kwh"].sum() - gap_slots["adjusted_pv_kwh"].sum()
+            gap_start, gap_end = gap_bounds[i]
+            gap_mask = (
+                (df.index >= gap_start)
+                & (df.index < gap_end)
+                & (~df["is_cheap"])
             )
-            gap_energy_kwh = max(0.0, gap_energy_kwh)
+            gap_df = df.loc[gap_mask]
+            if responsibility_only_above_threshold:
+                gap_df = gap_df[gap_df["import_price_sek_kwh"] > economic_threshold]
+
+            gap_net_load_kwh = (
+                gap_df["adjusted_load_kwh"].sum() - gap_df["adjusted_pv_kwh"].sum()
+            )
+            gap_net_load_kwh = max(0.0, gap_net_load_kwh)
 
             # Apply S-index safety factor
-            total_responsibility_kwh = gap_energy_kwh * s_index_factor
+            total_responsibility_kwh = gap_net_load_kwh * s_index_factor
 
             self.window_responsibilities.append(
                 {

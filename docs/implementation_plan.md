@@ -990,7 +990,7 @@
 
 ---
 
-### Rev 29 — 2025-11-09: Hours-first Water Heating *(Status: 📋 Planned)*
+### Rev 29 — 2025-11-09: Hours-first Water Heating *(Status: ✅ Completed)*
 - **Model**: Codex CLI
 - **Summary**: Restrict the water-heating pass so the HA energy sensor is still the source of truth, but we always reserve `min_hours_per_day` whenever that sensor reports less than `min_kwh_per_day`, and only add extra cheap slots if the projected energy remains short.
 
@@ -1019,5 +1019,84 @@
 **Rollback Plan:** Revert the planner changes if the new hours-first scheduling over-commits slots or violates the existing block/tolerance constraints.
 
 ---
+
+### Rev 30 — 2025-11-10: Block-contiguous Water Heating *(Status: ✅ Completed)*
+- **Model**: Codex CLI
+- **Summary**: Reordered the water-heating slot collection so the merged segments stay contiguous whenever the tolerance/gap settings allow it, preventing chopped blocks in the final schedule.
+
+**Plan:**
+- **Goals**:
+  1. Sort `cheap_slots_sorted` by timestamp before building segments to preserve contiguous windows.
+  2. Collect segments until the required slot count is reached and leave block-limiting to `_consolidate_to_blocks`.
+- **Implementation:**
+  1. Send time-ordered slots to `_build_water_segments`.
+  2. Remove the early `max_blocks_per_day` break inside `_select_slots_from_segments`.
+  3. Let `_consolidate_to_blocks` collapse the slots into at most `max_blocks_per_day` blocks.
+- **Verification:** `PYTHONPATH=. ./venv/bin/python -m pytest tests/test_water_scheduling.py`.
+
+**Known Issues:** None beyond the known HA sensor lag.
+
+**Rollback Plan:** Revert the reordering changes if the block-count/tolerance behavior regresses.
+
+---
+
+### Rev 31 — 2025-11-10: Charge Responsibility From Expensive Gaps *(Status: ✅ Completed)*
+- **Model**: Codex CLI
+- **Summary**: Charge responsibilities now derive from the expensive gap that follows each cheap window, ensuring the battery fills for the next high-price period while preserving S-index/cascading semantics.
+
+**Plan:**
+- **Goals**:
+  1. Make long cheap windows cover the next expensive interval’s demand instead of starving the battery by calculating each responsibility from the following non-cheap gap.
+  2. Keep the existing S-index scaling, strategic carry-forward, and realistic capacity/cascading intact.
+  3. Provide a hidden `charging_strategy.responsibility_only_above_threshold` toggle so operators can limit responsibilities to slots above the economic threshold when desired.
+- **Scope**: `planner.py` `_pass_4_allocate_cascading_responsibilities`, focused tests, and README docs.
+- **Dependencies**: Window detection from `Pass 1`, S-index config, and current cascading/smoothing infrastructure.
+
+**Implementation:**
+1. Pass 4 now constructs explicit gap intervals and computes responsibilities from the following non-cheap range, multiplying that net load by the configured S-index factor so cheap windows always cover the next expensive stretch before cascading.
+2. Added the hidden `charging_strategy.responsibility_only_above_threshold` toggle (default `false`) to optionally restrict gap energy to expensive slots while leaving strategic overrides untouched.
+3. Verified the behavior with dedicated gap-responsibility tests comparing computed responsibilities to the following gap’s net load and ensuring the price guard can zero them out when nothing exceeds the economic threshold.
+
+**Verification:**
+- `./venv/bin/python -m pytest tests/test_gap_responsibilities.py`
+
+**Rollback Plan:** Revert `_pass_4_allocate_cascading_responsibilities` if the new gap-focused responsibilities cause regressions or overcharging beyond configured caps.
+
+---
+
+### Rev 32 — 2025-11-10: Hold SoC / Manual Apply Reliability *(Status: 📝 Planned)*
+- **Model**: Codex CLI (planning only; implementation awaits approval)
+- **Summary**: 
+  1. Ensure “Hold” slots keep the real SoC of their entry point so the Gantt lane shows hold only when there is no battery action and the SoC target matches reality.
+  2. Stop `/api/simulate` from collapsing into an empty DataFrame (and returning 500) when live feeds are missing and harden the UI so it only renders successful simulations.
+
+**Plan:**
+- **Goals**:
+  1. Detect the first hold/action slot when the planner is keeping the battery idle (usually because `soc_min` is active) and keep its `soc_target_percent` equal to the current SoC, preventing the UI from redrawing it as an unintended “Hold” block.
+  2. Guard `/api/simulate` against empty input data by reusing the last saved `schedule.json` (or returning a controlled error) before running `_pass_6_finalize_schedule`.
+  3. Make the manual-apply flow in `static/js/app.js` check `response.ok` before persisting or rendering simulated results so the chart stays populated only with valid schedules.
+- **Scope**: `planner.py` finalization logic (SoC tracking + `schedule.json` writes), `webapp.py` `/api/simulate` error handling/persistence, `static/js/app.js` manual-save render path, and any helper modules that share `soc_target_percent` with the UI.
+- **Dependencies**: `simulate_schedule` remains the central helper; we rely on the existing `schedule.json` schema, `dataframe_to_json_response`, and timeline plotting expectations.
+- **Acceptance Criteria**:
+  - The first future slot marked “Hold” now has `soc_target_percent` equal to the `current_kwh` entry point, and the Gantt chart shows it in the hold lane only when no charge/discharge/export/water flow exists.
+  - `/api/simulate` never raises `IndexError` when live feeds are missing: it either continues with the last saved schedule or returns `400/422` with a descriptive message.
+  - Manual apply includes UI-side validation of the simulation response; the line chart no longer disappears after a failed apply attempt.
+
+**Implementation:**
+1. Update `_pass_6_finalize_schedule` (or `_apply_soc_target_percent`) so any slot where the planner forgoes discharge and leaves `action == "Hold"` while `current_kwh` equals the entry SoC preserves that SoC as its `soc_target_percent`; ensure the serialized schedule retains this value for the UI and timeline lanes.
+2. Strengthen `/api/simulate` to detect empty/invalid DF before entering `_pass_6_finalize_schedule`. If no rows are available, load `schedule.json` as a fallback plan (or short-circuit with a user-friendly error) instead of crashing.
+3. In `static/js/app.js`, before calling `/api/schedule/save`, inspect `simulatedData` to confirm `simulatedData.schedule` is present and `response.ok` was true; otherwise log the error and keep the existing chart data instead of wiping it.
+4. Add a short regression test or script that mimics the manual apply path with stale/no live input data to ensure the backend/UI no longer drop the chart.
+
+**Verification:**
+- `PYTHONPATH=. ./venv/bin/python -m pytest -q` (target the gazette of any failing tests).
+- Trigger the manual “Apply changes” flow in the UI (or via curl) while the feeds are disabled; confirm the line chart stays populated and the log records a meaningful 4xx/5xx message instead of a 500 that clears the UI.
+- Inspect the generated `schedule.json` to ensure the first hold slot’s `soc_target_percent` equals the `projected_soc_percent`/current SoC at that step.
+
+**Known Issues:**
+- If the saved `schedule.json` becomes stale, the manual apply fallback may still show older projections; this is acceptable until live feeds recover.
+
+**Rollback Plan:**
+- Revert the changes to `_pass_6_finalize_schedule`, `/api/simulate`, and `static/js/app.js` if the new guard logic cannot reliably represent hold SoC or causes false positives during manual applies.
 
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
