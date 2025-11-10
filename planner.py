@@ -2588,6 +2588,14 @@ class HeliosPlanner:
             else:
                 i += 1
 
+        # Ensure every "Hold" slot keeps the entry SoC target so the UI lane shows the
+        # actual current SoC rather than being forced to the minimum.
+        for i in range(len(df)):
+            if actions[i] == "Hold":
+                entry = entry_list[i]
+                if entry is not None:
+                    targets[i] = float(entry)
+
         df["soc_target_percent"] = [round(float(val), 4) for val in targets]
 
         drop_candidates = ["_entry_soc_percent", "_entry_soc_kwh", "manual_action"]
@@ -2937,6 +2945,8 @@ def simulate_schedule(df, config, initial_state):
     temp_planner.state = initial_state
 
     # Run the simulation pass and apply SoC targets
+    df = temp_planner._pass_0_apply_safety_margins(df)
+    df = temp_planner._pass_1_identify_windows(df)
     simulated_df = temp_planner._pass_6_finalize_schedule(df)
     simulated_df = temp_planner._apply_soc_target_percent(simulated_df)
     return simulated_df
