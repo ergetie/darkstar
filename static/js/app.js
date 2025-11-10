@@ -7,6 +7,7 @@ let currentAccentIndex = null;
 let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
+const MIN_TIMELINE_HEIGHT = 220;
 const TIMELINE_LANES = [
     { id: 'battery', content: 'Battery', height: 32 },
     { id: 'water', content: 'Water Heating', height: 32 },
@@ -1089,6 +1090,8 @@ async function renderChart(data, config) {
         const maxEnergy = energySeries.length ? Math.max(...energySeries) : 0;
         const fixedEnergyMax = Number.isFinite(maxEnergy) && maxEnergy > 0 ? Math.ceil(maxEnergy * 1.2) : 10;
         const fixedPVMax = 3;
+        const responsiveLegendFontSize = window.innerWidth < 768 ? 10 : 12;
+        const responsiveTickFontSize = window.innerWidth < 768 ? 9 : 11;
 
         console.log('Chart data summary:', {
             hasPriceData: importPrices.some(v => v.y !== null),
@@ -1273,6 +1276,7 @@ async function renderChart(data, config) {
             },
             options: {
                 responsive: true,
+                maintainAspectRatio: false,
                 interaction: {
                     mode: 'index',
                     intersect: false,
@@ -1302,20 +1306,33 @@ async function renderChart(data, config) {
                             maxRotation: 90,
                             source: 'data',
                             autoSkip: false,
-                            maxTicksLimit: 48
+                            maxTicksLimit: 48,
+                            font: {
+                                size: responsiveTickFontSize
+                            }
                         }
                     },
                     y: {
                         display: false,
                         beginAtZero: true,
                         min: 0,
-                        max: fixedPriceMax
+                        max: fixedPriceMax,
+                        ticks: {
+                            font: {
+                                size: responsiveTickFontSize
+                            }
+                        }
                     },
                     y1: {
                         display: false,
                         beginAtZero: true,
                         min: 0,
-                        max: fixedEnergyMax
+                        max: fixedEnergyMax,
+                        ticks: {
+                            font: {
+                                size: responsiveTickFontSize
+                            }
+                        }
                     },
                     yPV: {
                         display: false,
@@ -1330,7 +1347,10 @@ async function renderChart(data, config) {
                         },
                         ticks: {
                             color: colours.pv,
-                            stepSize: 1
+                            stepSize: 1,
+                            font: {
+                                size: responsiveTickFontSize
+                            }
                         },
                         grid: {
                             drawOnChartArea: false
@@ -1339,13 +1359,21 @@ async function renderChart(data, config) {
                     y2: {
                         display: false,
                         min: 0,
-                        max: 100
+                        max: 100,
+                        ticks: {
+                            font: {
+                                size: responsiveTickFontSize
+                            }
+                        }
                     }
                 },
                 plugins: {
                     legend: {
                         labels: {
-                            color: theme.foreground
+                            color: theme.foreground,
+                            font: {
+                                size: responsiveLegendFontSize
+                            }
                         }
                     },
                     tooltip: {
@@ -1358,6 +1386,7 @@ async function renderChart(data, config) {
                 }
             }
         });
+        window.myScheduleChart = chart;
 
         console.log('Chart created successfully');
     } catch (error) {
@@ -1368,7 +1397,7 @@ async function renderChart(data, config) {
     }
 }
 
-function renderTimeline(data) {
+function renderTimeline(data, attempt = 0) {
     try {
         const schedule = data.schedule || [];
 
@@ -1519,6 +1548,24 @@ function renderTimeline(data) {
             console.error('Timeline container not found!');
             return;
         }
+        const { clientHeight, clientWidth, offsetWidth } = container;
+        if ((clientHeight === 0 || clientWidth === 0) && attempt < 10) {
+            console.warn('Timeline container not ready yet, retrying...', {
+                attempt,
+                clientHeight,
+                clientWidth
+            });
+            requestAnimationFrame(() => renderTimeline(data, attempt + 1));
+            return;
+        }
+        const measuredHeight = clientHeight || container.offsetHeight || MIN_TIMELINE_HEIGHT;
+        const timelineHeight = Math.max(measuredHeight, MIN_TIMELINE_HEIGHT);
+        const measuredWidth = clientWidth || offsetWidth || container.scrollWidth || 0;
+        console.log('Rendering timeline (attempt)', attempt, {
+            timelineHeight,
+            measuredWidth
+        });
+        container.style.visibility = 'visible';
 
         // Use dynamic time window like the chart - always show today and tomorrow
         // using existing startOfToday/endOfTomorrow
@@ -1530,12 +1577,13 @@ function renderTimeline(data) {
             end: endOfTomorrow,
             min: startOfToday,
             max: endOfTomorrow,
-            height: '200px',
+            height: `${timelineHeight}px`,
+            width: '100%',
+            autoResize: true,
             groupHeightMode: 'fixed',
-            groupHeight: 32,
             margin: {
-                axis: 4,
-                item: 2
+                axis: 5,
+                item: 8
             }
         };
 
@@ -1546,6 +1594,14 @@ function renderTimeline(data) {
         }
 
         timelineInstance = new vis.Timeline(container, timelineItems, groupDataset, options);
+        requestAnimationFrame(() => {
+            if (timelineInstance) {
+                timelineInstance.redraw();
+                if (typeof timelineInstance.fit === 'function') {
+                    timelineInstance.fit({ animation: false });
+                }
+            }
+        });
 
         // Allow external drag targets to be dropped
         timelineInstance.on('dragover', (props) => {
@@ -2283,3 +2339,12 @@ async function refreshLearningData() {
         loadLearningChanges()
     ]);
 }
+
+window.addEventListener('resize', () => {
+    if (window.myScheduleChart && typeof window.myScheduleChart.resize === 'function') {
+        window.myScheduleChart.resize();
+    }
+    if (timelineInstance && typeof timelineInstance.redraw === 'function') {
+        timelineInstance.redraw();
+    }
+});
