@@ -22,6 +22,7 @@
     --ds-palette-13: #D29FE4;
     --ds-palette-14: #6BD0CE;
     --ds-palette-15: #D1D0CC;
+    --timeline-lane-height: 50px;
 }
 
 body {
@@ -103,9 +104,33 @@ main {
 #timeline-container {
     margin-bottom: 8px;
     width: 100%;
+    max-width: 100vw;
     overflow-x: hidden;
     border: 1px solid var(--ds-border);
-    background-color: rgba(0, 0, 0, 0.1);
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+#timeline-container .vis-labelset .vis-label {
+    min-height: var(--timeline-lane-height);
+}
+
+#timeline-container .vis-labelset .vis-label .vis-inner {
+    display: flex;
+    align-items: center;
+    min-height: var(--timeline-lane-height);
+}
+
+.vis-item.lane-spacer {
+    background: transparent !important;
+    border: none !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+}
+
+@media (max-width: 768px) {
+    :root {
+        --timeline-lane-height: 40px;
+    }
 }
 
 .vis-timeline {

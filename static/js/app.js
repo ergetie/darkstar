@@ -8,10 +8,10 @@ let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
 const TIMELINE_LANES = [
-    { id: 'battery', content: '', title: 'battery', height: 32 },
-    { id: 'water', content: '', title: 'water heating', height: 32 },
-    { id: 'export', content: '', title: 'export', height: 32 },
-    { id: 'hold', content: '', title: 'hold', height: 32 }
+    { id: 'battery', content: '', title: 'battery' },
+    { id: 'water', content: '', title: 'water heating' },
+    { id: 'export', content: '', title: 'export' },
+    { id: 'hold', content: '', title: 'hold' }
 ];
 const TIMELINE_LANE_ORDER = TIMELINE_LANES.map(lane => lane.id);
 const ACTION_TO_LANE = {
@@ -843,6 +843,31 @@ function buildLaneContent() {
     return '';
 }
 
+function upsertLaneSpacers(range) {
+    if (!range || !range.start || !range.end) {
+        return;
+    }
+    const { start, end } = range;
+    TIMELINE_LANES.forEach(({ id }) => {
+        const spacerId = `lane-spacer-${id}`;
+        const base = {
+            id: spacerId,
+            group: id,
+            start,
+            end,
+            type: 'background',
+            content: '',
+            selectable: false,
+            className: 'lane-spacer'
+        };
+        if (timelineItems.get(spacerId)) {
+            timelineItems.update({ id: spacerId, start, end });
+        } else {
+            timelineItems.add(base);
+        }
+    });
+}
+
 function addActionBlock(action) {
     const { startOfToday, endOfTomorrow } = getTodayWindow();
     const now = new Date();
@@ -1429,7 +1454,11 @@ function renderTimeline(data) {
             const t = new Date(s.start_time).getTime();
             return t >= startOfToday.getTime() && t < endOfTomorrow.getTime();
         });
-        const groupDataset = new vis.DataSet(TIMELINE_LANES);
+        const groupDataset = new vis.DataSet(
+            TIMELINE_LANES.map(lane => ({
+                ...lane
+            }))
+        );
 
         const toDate = (s) => new Date(s);
         const slotEndOrDefault = (slot) => slot.end_time ? new Date(slot.end_time) : new Date(new Date(slot.start_time).getTime() + 15 * 60 * 1000);
@@ -1571,13 +1600,11 @@ function renderTimeline(data) {
             console.error('Timeline container not found!');
             return;
         }
-        const laneBaseHeight = TIMELINE_LANES.reduce((sum, lane) => sum + (lane.height || 32), 0);
-        const laneGap = 8;
-        const timelineHeight = laneBaseHeight + Math.max(0, TIMELINE_LANES.length - 1) * laneGap + 24;
-
+        upsertLaneSpacers({ start: startOfToday, end: endOfTomorrow });
         // Use dynamic time window like the chart - always show today and tomorrow
         // using existing startOfToday/endOfTomorrow
 
+        // Fixed lane height configuration: groupHeightMode fixed keeps each lane stable; label min-height drives visual size.
         const options = {
             editable: { updateTime: true, updateGroup: false, add: false, remove: true },
             stack: false,
@@ -1585,15 +1612,24 @@ function renderTimeline(data) {
             end: endOfTomorrow,
             min: startOfToday,
             max: endOfTomorrow,
-            height: `${timelineHeight}px`,
-            width: '100%',
             autoResize: true,
+            width: '100%',
+            height: 'auto',
             groupHeightMode: 'fixed',
+            minHeight: '400px',
             margin: {
-                axis: 5,
-                item: 8
+                item: { horizontal: 8, vertical: 8 },
+                axis: 5
             }
         };
+
+        const timelineVersion = (vis && vis.Timeline && (vis.Timeline.VERSION || vis.Timeline.version)) || 'unknown';
+        try {
+            console.log('[timeline] vis version', timelineVersion);
+            console.log('[timeline] options before init', JSON.parse(JSON.stringify(options)));
+        } catch (logError) {
+            console.log('[timeline] options logging failed', logError);
+        }
 
         options.groupOrder = (a, b) => TIMELINE_LANE_ORDER.indexOf(a.id) - TIMELINE_LANE_ORDER.indexOf(b.id);
 
@@ -1602,6 +1638,22 @@ function renderTimeline(data) {
         }
 
         timelineInstance = new vis.Timeline(container, timelineItems, groupDataset, options);
+
+        const logAndSyncRange = (props = {}) => {
+            const mode = timelineInstance && timelineInstance.options && timelineInstance.options.groupHeightMode;
+            console.log('[timeline] rangechanged, groupHeightMode=', mode);
+            const range = (props.start && props.end)
+                ? { start: props.start, end: props.end }
+                : (timelineInstance && typeof timelineInstance.getWindow === 'function' ? timelineInstance.getWindow() : null);
+            if (range) {
+                upsertLaneSpacers(range);
+            }
+        };
+
+        timelineInstance.on('rangechanged', (props) => {
+            logAndSyncRange(props);
+        });
+        logAndSyncRange({ start: startOfToday, end: endOfTomorrow });
         requestAnimationFrame(() => {
             if (timelineInstance) {
                 timelineInstance.redraw();
