@@ -110,14 +110,21 @@ main {
     background-color: rgba(0, 0, 0, 0.05);
 }
 
-#timeline-container .vis-labelset .vis-label {
+#timeline-container .vis-labelset .vis-label,
+#timeline-container .vis-labelset .vis-label .vis-inner {
     min-height: var(--timeline-lane-height);
 }
 
 #timeline-container .vis-labelset .vis-label .vis-inner {
     display: flex;
     align-items: center;
-    min-height: var(--timeline-lane-height);
+}
+
+
+@media (max-width: 768px) {
+    :root {
+        --timeline-lane-height: 40px;
+    }
 }
 
 .vis-item.lane-spacer {
@@ -125,12 +132,6 @@ main {
     border: none !important;
     box-shadow: none !important;
     pointer-events: none !important;
-}
-
-@media (max-width: 768px) {
-    :root {
-        --timeline-lane-height: 40px;
-    }
 }
 
 .vis-timeline {

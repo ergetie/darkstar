@@ -843,14 +843,19 @@ function buildLaneContent() {
     return '';
 }
 
-function upsertLaneSpacers(range) {
+function ensureLaneSpacers(range) {
     if (!range || !range.start || !range.end) {
         return;
     }
     const { start, end } = range;
     TIMELINE_LANES.forEach(({ id }) => {
         const spacerId = `lane-spacer-${id}`;
-        const base = {
+        const existing = timelineItems.get(spacerId);
+        if (existing) {
+            timelineItems.update({ id: spacerId, start, end });
+            return;
+        }
+        timelineItems.add({
             id: spacerId,
             group: id,
             start,
@@ -859,12 +864,7 @@ function upsertLaneSpacers(range) {
             content: '',
             selectable: false,
             className: 'lane-spacer'
-        };
-        if (timelineItems.get(spacerId)) {
-            timelineItems.update({ id: spacerId, start, end });
-        } else {
-            timelineItems.add(base);
-        }
+        });
     });
 }
 
@@ -1600,11 +1600,16 @@ function renderTimeline(data) {
             console.error('Timeline container not found!');
             return;
         }
-        upsertLaneSpacers({ start: startOfToday, end: endOfTomorrow });
+        ensureLaneSpacers({ start: startOfToday, end: endOfTomorrow });
         // Use dynamic time window like the chart - always show today and tomorrow
         // using existing startOfToday/endOfTomorrow
 
-        // Fixed lane height configuration: groupHeightMode fixed keeps each lane stable; label min-height drives visual size.
+        const LANE_PX = 50;
+        const AXIS_PX = 40;
+        const EXTRA_MARGIN = 8;
+        const groupCount = TIMELINE_LANES.length;
+        const desiredPx = (groupCount * LANE_PX) + AXIS_PX + EXTRA_MARGIN;
+
         const options = {
             editable: { updateTime: true, updateGroup: false, add: false, remove: true },
             stack: false,
@@ -1614,22 +1619,27 @@ function renderTimeline(data) {
             max: endOfTomorrow,
             autoResize: true,
             width: '100%',
-            height: 'auto',
+            height: `${desiredPx}px`,
+            minHeight: `${desiredPx}px`,
+            maxHeight: `${desiredPx}px`,
             groupHeightMode: 'fixed',
-            minHeight: '400px',
+            orientation: 'bottom',
+            showCurrentTime: true,
+            selectable: true,
+            zoomable: true,
+            moveable: true,
             margin: {
-                item: { horizontal: 8, vertical: 8 },
+                item: 8,
                 axis: 5
-            }
+            },
+            onInitialDrawComplete: () => console.log('[timeline] rendered OK')
         };
-
-        const timelineVersion = (vis && vis.Timeline && (vis.Timeline.VERSION || vis.Timeline.version)) || 'unknown';
-        try {
-            console.log('[timeline] vis version', timelineVersion);
-            console.log('[timeline] options before init', JSON.parse(JSON.stringify(options)));
-        } catch (logError) {
-            console.log('[timeline] options logging failed', logError);
-        }
+        console.log('[timeline] desiredPx', desiredPx, 'groups', groupCount);
+        setTimeout(() => {
+            const center = document.querySelector('#timeline-container .vis-panel.vis-center');
+            const itemset = document.querySelector('#timeline-container .vis-itemset');
+            console.log('[timeline] sizes center=', center?.style?.height, 'itemset=', itemset?.style?.height);
+        }, 0);
 
         options.groupOrder = (a, b) => TIMELINE_LANE_ORDER.indexOf(a.id) - TIMELINE_LANE_ORDER.indexOf(b.id);
 
@@ -1638,22 +1648,11 @@ function renderTimeline(data) {
         }
 
         timelineInstance = new vis.Timeline(container, timelineItems, groupDataset, options);
-
-        const logAndSyncRange = (props = {}) => {
-            const mode = timelineInstance && timelineInstance.options && timelineInstance.options.groupHeightMode;
-            console.log('[timeline] rangechanged, groupHeightMode=', mode);
-            const range = (props.start && props.end)
-                ? { start: props.start, end: props.end }
-                : (timelineInstance && typeof timelineInstance.getWindow === 'function' ? timelineInstance.getWindow() : null);
-            if (range) {
-                upsertLaneSpacers(range);
+        timelineInstance.on('rangechanged', () => {
+            if (timelineInstance && typeof timelineInstance.getWindow === 'function') {
+                ensureLaneSpacers(timelineInstance.getWindow());
             }
-        };
-
-        timelineInstance.on('rangechanged', (props) => {
-            logAndSyncRange(props);
         });
-        logAndSyncRange({ start: startOfToday, end: endOfTomorrow });
         requestAnimationFrame(() => {
             if (timelineInstance) {
                 timelineInstance.redraw();
