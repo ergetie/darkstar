@@ -8,10 +8,10 @@ let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
 const TIMELINE_LANES = [
-    { id: 'battery', content: 'bat', title: 'battery', height: 32 },
-    { id: 'water', content: 'wat', title: 'water heating', height: 32 },
-    { id: 'export', content: 'exp', title: 'export', height: 32 },
-    { id: 'hold', content: 'hld', title: 'hold', height: 32 }
+    { id: 'battery', content: '', title: 'battery', height: 32 },
+    { id: 'water', content: '', title: 'water heating', height: 32 },
+    { id: 'export', content: '', title: 'export', height: 32 },
+    { id: 'hold', content: '', title: 'hold', height: 32 }
 ];
 const TIMELINE_LANE_ORDER = TIMELINE_LANES.map(lane => lane.id);
 const ACTION_TO_LANE = {
