@@ -22,7 +22,7 @@
     --ds-palette-13: #D29FE4;
     --ds-palette-14: #6BD0CE;
     --ds-palette-15: #D1D0CC;
-    --timeline-lane-height: 50px;
+    --timeline-lane-height: 36px;
 }
 
 body {
@@ -123,7 +123,7 @@ main {
 
 @media (max-width: 768px) {
     :root {
-        --timeline-lane-height: 40px;
+        --timeline-lane-height: 30px;
     }
 }
 
