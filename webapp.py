@@ -70,6 +70,19 @@ if not any(isinstance(h, RingBufferHandler) for h in logger.handlers):
 logger.propagate = False
 
 
+def _get_git_version() -> str:
+    try:
+        return (
+            subprocess.check_output(
+                ["git", "describe", "--tags", "--always", "--dirty"], stderr=subprocess.DEVNULL
+            )
+            .decode()
+            .strip()
+        )
+    except Exception:
+        return "dev"
+
+
 def _parse_legacy_theme_format(text: str) -> dict:
     """Parse simple key/value themes with `palette = index=#hex` lines."""
     palette = [None] * 16
@@ -403,6 +416,11 @@ def planner_status():
     return jsonify(status)
 
 
+@app.route("/api/version", methods=["GET"])
+def api_version():
+    return jsonify({"version": _get_git_version()})
+
+
 @app.route("/api/db/current_schedule", methods=["GET"])
 def db_current_schedule():
     """Return the current_schedule from MariaDB in the same shape used by the UI."""
@@ -582,16 +600,7 @@ def save_schedule_json():
             merged_schedule = manual_schedule
 
         # Build meta with version + timestamp
-        try:
-            version = (
-                subprocess.check_output(
-                    ["git", "describe", "--tags", "--always", "--dirty"], stderr=subprocess.DEVNULL
-                )
-                .decode()
-                .strip()
-            )
-        except Exception:
-            version = "dev"
+        version = _get_git_version()
 
         out = {
             "schedule": merged_schedule,

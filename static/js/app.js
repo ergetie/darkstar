@@ -7,12 +7,11 @@ let currentAccentIndex = null;
 let latestScheduleData = null;
 let latestConfigData = null;
 let timelineInstance = null;
-const MIN_TIMELINE_HEIGHT = 220;
 const TIMELINE_LANES = [
-    { id: 'battery', content: 'Battery', height: 32 },
-    { id: 'water', content: 'Water Heating', height: 32 },
-    { id: 'export', content: 'Export', height: 32 },
-    { id: 'hold', content: 'Hold', height: 32 }
+    { id: 'battery', content: 'bat', title: 'battery', height: 32 },
+    { id: 'water', content: 'wat', title: 'water heating', height: 32 },
+    { id: 'export', content: 'exp', title: 'export', height: 32 },
+    { id: 'hold', content: 'hld', title: 'hold', height: 32 }
 ];
 const TIMELINE_LANE_ORDER = TIMELINE_LANES.map(lane => lane.id);
 const ACTION_TO_LANE = {
@@ -59,6 +58,28 @@ function setNowShowing(source) {
     const el = document.getElementById('now-showing');
     if (el) {
         el.textContent = `now showing: ${nowShowingSource} plan`;
+    }
+}
+
+function setAppVersion(version) {
+    const versionEl = document.getElementById('app-version');
+    if (!versionEl) {
+        return;
+    }
+    const normalized = version ? `v ${version}` : 'v dev';
+    versionEl.textContent = normalized;
+}
+
+async function loadAppVersion() {
+    try {
+        const response = await fetch('/api/version');
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        const payload = await response.json();
+        setAppVersion(payload.version);
+    } catch {
+        setAppVersion('dev');
     }
 }
 
@@ -349,6 +370,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Load initial data
     main();
+    loadAppVersion();
 
     // Load config and populate forms
     loadConfig();
@@ -817,11 +839,8 @@ function laneIdForAction(action) {
     return ACTION_TO_LANE[normalized] || 'battery';
 }
 
-function buildLaneContent(action, value) {
-    if (typeof value !== 'number' || Number.isNaN(value)) {
-        return action;
-    }
-    return `${action} ${value.toFixed(2)} kW`;
+function buildLaneContent() {
+    return '';
 }
 
 function addActionBlock(action) {
@@ -836,8 +855,9 @@ function addActionBlock(action) {
 
     timelineItems.add({
         id: 'manual-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
-        content: action,
+        content: '',
         group: laneIdForAction(action),
+        title: action,
         start,
         end,
         style: themeStyleForAction(action)
@@ -1397,7 +1417,7 @@ async function renderChart(data, config) {
     }
 }
 
-function renderTimeline(data, attempt = 0) {
+function renderTimeline(data) {
     try {
         const schedule = data.schedule || [];
 
@@ -1508,7 +1528,8 @@ function renderTimeline(data, attempt = 0) {
                         timelineItems.add({
                             id: `hold-${firstSlotKey}-Hold`,
                             group: 'hold',
-                            content: 'Hold',
+                            content: '',
+                            title: 'hold',
                             start: blockStart,
                             end: blockEnd,
                             style: themeStyleForAction('Hold')
@@ -1521,7 +1542,8 @@ function renderTimeline(data, attempt = 0) {
                     timelineItems.add({
                         id: `hold-${firstSlotKey}-Hold`,
                         group: 'hold',
-                        content: 'Hold',
+                        content: '',
+                        title: 'hold',
                         start: blockStart,
                         end: blockEnd,
                         style: themeStyleForAction('Hold')
@@ -1535,7 +1557,8 @@ function renderTimeline(data, attempt = 0) {
                 timelineItems.add({
                     id: `hold-${firstSlotKey}-Hold`,
                     group: 'hold',
-                    content: 'Hold',
+                    content: '',
+                    title: 'hold',
                     start: blockStart,
                     end: blockEnd,
                     style: themeStyleForAction('Hold')
@@ -1548,24 +1571,9 @@ function renderTimeline(data, attempt = 0) {
             console.error('Timeline container not found!');
             return;
         }
-        const { clientHeight, clientWidth, offsetWidth } = container;
-        if ((clientHeight === 0 || clientWidth === 0) && attempt < 10) {
-            console.warn('Timeline container not ready yet, retrying...', {
-                attempt,
-                clientHeight,
-                clientWidth
-            });
-            requestAnimationFrame(() => renderTimeline(data, attempt + 1));
-            return;
-        }
-        const measuredHeight = clientHeight || container.offsetHeight || MIN_TIMELINE_HEIGHT;
-        const timelineHeight = Math.max(measuredHeight, MIN_TIMELINE_HEIGHT);
-        const measuredWidth = clientWidth || offsetWidth || container.scrollWidth || 0;
-        console.log('Rendering timeline (attempt)', attempt, {
-            timelineHeight,
-            measuredWidth
-        });
-        container.style.visibility = 'visible';
+        const laneBaseHeight = TIMELINE_LANES.reduce((sum, lane) => sum + (lane.height || 32), 0);
+        const laneGap = 8;
+        const timelineHeight = laneBaseHeight + Math.max(0, TIMELINE_LANES.length - 1) * laneGap + 24;
 
         // Use dynamic time window like the chart - always show today and tomorrow
         // using existing startOfToday/endOfTomorrow
@@ -1626,7 +1634,8 @@ function renderTimeline(data, attempt = 0) {
 
                 timelineItems.add({
                     id: 'manual-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
-                    content: action,
+                    content: '',
+                    title: action,
                     group: laneIdForAction(action),
                     start: startDate,
                     end: endDate,
@@ -1641,7 +1650,6 @@ function renderTimeline(data, attempt = 0) {
             }
         });
 
-        console.log('Timeline created successfully with', timelineItems.length, 'items');
     } catch (error) {
         console.error('Error rendering timeline:', error);
     }
