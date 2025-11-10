@@ -1100,3 +1100,31 @@
 - Revert the changes to `_pass_6_finalize_schedule`, `/api/simulate`, and `static/js/app.js` if the new guard logic cannot reliably represent hold SoC or causes false positives during manual applies.
 
 *Document maintained by AI agents using revision template above. All implementations should preserve existing information while adding new entries in chronological order.*
+
+### Rev 33 — 2025-11-11: DB Charge Sign & Timeline Coherence *(Status: ✅ Completed)*
+- **Model**: Codex CLI
+- **Summary**: Ensure the database/stats path keeps charging/discharging information so the UI shows discharge blocks instead of sprawling hold segments once a plan is saved to MariaDB.
+
+**Plan:**
+- **Goals**:
+  1. Make the DB writer store net battery power (charge minus discharge) while still retaining the ability to reconstruct both positive (charging) and negative (discharging) contributions when the UI reads `current_schedule`.
+  2. Adjust `/api/db/current_schedule` so it exposes `battery_charge_kw` and `battery_discharge_kw` fields derived from the stored net power, keeping the timeline renderer aligned with the planner's actual action.
+- **Scope**: `db_writer.py` preservation+write helpers, `/api/db/current_schedule` response shaping, any downstream consumers expecting the new fields.
+- **Dependencies**: Existing `current_schedule` schema stores `charge_kw` as signed kilowatts; no schema migration was required because we still insert a single column.
+- **Acceptance Criteria**:
+  - In the `current_schedule`/`plan_history` tables we write `charge_kw = battery_charge_kw - battery_discharge_kw` so the DB always stores signed net battery flow.
+  - The `/api/db/current_schedule` endpoint (and preservation helpers) derive both `battery_charge_kw` and `battery_discharge_kw` and include them in the JSON returned to the UI; no hold slot should turn into a discharge slot when the same plan is read back from the DB.
+
+**Implementation:**
+1. `_map_row` now subtracts reconstructed `battery_discharge_kw` from the `battery_charge_kw` fields before storing to `charge_kw`, ensuring the DB sees the signed net value it already expects.
+2. Preservation helpers and `/api/db/current_schedule` parse the stored `charge_kw`, split it back into positive/negative parts, and expose both `battery_charge_kw` and `battery_discharge_kw` fields so the UI timeline lane can recognize discharging blocks instead of treating them as holds.
+3. The DB writer still writes to `current_schedule` and `plan_history` method as before, meaning no schema change or collation adjustments were needed.
+
+**Verification:**
+- Manual UI test: run the planner, push to DB, and load the timeline. The hold lane now stops spanning the rest of the day because the discharge slots are correctly rehydrated from the rebuilt `battery_discharge_kw`.
+
+**Known Issues:**
+- None beyond what has already been resolved; the timeline now matches the planner's decision path.
+
+**Rollback Plan:**
+- Revert the changes to `_map_row`, `_get_preserved_slots_from_db`, and `/api/db/current_schedule` if the UI still misbehaves or if the split logic introduces rounding issues in the preserved slots.
