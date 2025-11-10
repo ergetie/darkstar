@@ -92,6 +92,12 @@ main {
 
 #timeline-container {
     margin-bottom: 8px;
+    width: 100%;
+    max-width: 100vw;
+    overflow-x: hidden;
+    border: 1px solid var(--ds-border);
+    background-color: rgba(0, 0, 0, 0.1);
+    min-height: 220px;
 }
 
 .vis-timeline {
@@ -106,10 +112,6 @@ main {
     font-family: 'Fira Code', monospace;
     font-size: 14px;
     font-weight: 500;
-}
-
-.vis-timeline .vis-group {
-    height: 32px !important;
 }
 
 .vis-timeline .vis-grid .vis-line {
@@ -376,10 +378,16 @@ label {
 .vis-selected { border: none !important; box-shadow: none !important; }
 .vis-item .vis-item-overflow { border: none !important; }
 
-/* Chart.js overrides */
+/* General responsive sizes */
+#scheduleChart,
+#timeline-container {
+    box-sizing: border-box;
+}
+
 #scheduleChart {
     width: 100% !important;
-    height: 600px !important;
+    height: 60vh;
+    max-height: 500px;
     border: 1px solid var(--ds-border);
     background-color: var(--ds-background);
     display: block !important;
@@ -527,6 +535,44 @@ label {
 #learning-run-status {
     color: var(--ds-muted);
     font-size: 0.9em;
+}
+
+@media (max-width: 768px) {
+    body {
+        font-size: 0.9rem;
+    }
+
+    #timeline-container {
+        height: 50vh !important;
+        margin: 0;
+        border-radius: 4px;
+    }
+
+    #scheduleChart {
+        height: 45vh !important;
+    }
+
+    .control-panel,
+    .timeline-controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .controls,
+    .sidebar,
+    .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .graph-wrapper {
+        padding: 0.5rem;
+    }
+
+    .timeline-controls button,
+    .control-panel button {
+        width: 100%;
+    }
 }
 
 @media (min-width: 768px) {
