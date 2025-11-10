@@ -94,11 +94,15 @@ def _get_preserved_slots_from_db(
             start = r["slot_start"]
             end = start + pd.Timedelta(minutes=15)
 
+            stored_charge = float(r.get("charge_kw") or 0.0)
+            battery_charge = max(stored_charge, 0.0)
+            battery_discharge = max(-stored_charge, 0.0)
             record = {
                 "slot_number": r.get("slot_number"),
                 "start_time": start.isoformat(),
                 "end_time": end.isoformat(),
-                "battery_charge_kw": round(float(r.get("charge_kw") or 0.0), 2),
+                "battery_charge_kw": round(battery_charge, 2),
+                "battery_discharge_kw": round(battery_discharge, 2),
                 # DB stores export in kW; UI expects export_kwh (15-min → kWh = kW/4)
                 "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
                 "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
@@ -272,7 +276,7 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
     slot_start_raw = slot.get("start_time") or slot.get("slot_datetime")
     slot_start = _normalise_start(slot_start_raw, tz_name)
 
-    charge_kw = float(slot.get("battery_charge_kw", slot.get("charge_kw", 0.0)) or 0.0)
+    battery_charge_kw = float(slot.get("battery_charge_kw", slot.get("charge_kw", 0.0)) or 0.0)
     # export_kwh -> export_kw (kW) with 15-min slots (kWh * 4)
     export_kw = float(slot.get("export_kwh", 0.0) or 0.0) * 4.0
     water_kw = float(slot.get("water_heating_kw", 0.0) or 0.0)
@@ -286,10 +290,12 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
     soc_target_i = int(round(soc_target))
     soc_projected_i = int(round(soc_projected))
 
+    battery_discharge_kw = float(slot.get("battery_discharge_kw", slot.get("discharge_kw", 0.0)) or 0.0)
+    net_battery_kw = battery_charge_kw - battery_discharge_kw
     return (
         slot_number,
         slot_start,
-        charge_kw,
+        net_battery_kw,
         export_kw,
         water_kw,
         planned_load_kwh,

@@ -447,11 +447,13 @@ def db_current_schedule():
             # slot_start is DATETIME; compute end_time from resolution
             try:
                 end = start + pd.Timedelta(minutes=resolution_minutes)
+                stored_charge = float(r.get("charge_kw") or 0.0)
                 record = {
                     "slot_number": r.get("slot_number"),
                     "start_time": start.isoformat(),
                     "end_time": end.isoformat(),
-                    "battery_charge_kw": round(float(r.get("charge_kw") or 0.0), 2),
+                    "battery_charge_kw": round(max(stored_charge, 0.0), 2),
+                    "battery_discharge_kw": round(max(-stored_charge, 0.0), 2),
                     # DB stores export in kW; UI expects export_kwh (15-min → kWh = kW/4)
                     "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
                     "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
@@ -466,11 +468,13 @@ def db_current_schedule():
                 end = start_dt + pd.Timedelta(minutes=resolution_minutes)
                 start = start_dt
 
+                stored_charge = float(r.get("charge_kw") or 0.0)
                 record = {
                     "slot_number": r.get("slot_number"),
                     "start_time": start.isoformat(),
                     "end_time": end.isoformat(),
-                    "battery_charge_kw": round(float(r.get("charge_kw") or 0.0), 2),
+                    "battery_charge_kw": round(max(stored_charge, 0.0), 2),
+                    "battery_discharge_kw": round(max(-stored_charge, 0.0), 2),
                     "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
                     "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
                     "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
