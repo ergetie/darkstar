@@ -1604,7 +1604,7 @@ function renderTimeline(data) {
         // Use dynamic time window like the chart - always show today and tomorrow
         // using existing startOfToday/endOfTomorrow
 
-        const LANE_PX = 50;
+        const LANE_PX = 36;
         const AXIS_PX = 40;
         const EXTRA_MARGIN = 8;
         const groupCount = TIMELINE_LANES.length;
