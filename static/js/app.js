@@ -478,14 +478,12 @@ document.addEventListener('DOMContentLoaded', () => {
     applyChangesBtn.addEventListener('click', () => {
         // Get Manual Plan
         const manualItems = timelineItems.get();
-        
-        // Construct the "Simplified Schedule"
         const simplifiedSchedule = manualItems.map(item => ({
             start: item.start,
             end: item.end,
             content: item.content
         }));
-        
+
         // Send to Backend API
         fetch('/api/simulate', {
             method: 'POST',
@@ -494,7 +492,20 @@ document.addEventListener('DOMContentLoaded', () => {
             },
             body: JSON.stringify(simplifiedSchedule)
         })
-        .then(response => response.json())
+        .then(async (response) => {
+            const payload = await response.json().catch(() => null);
+            if (!response.ok) {
+                const message =
+                    payload?.message ||
+                    payload?.error ||
+                    `Simulation failed with status ${response.status}`;
+                throw new Error(message);
+            }
+            if (!payload || !Array.isArray(payload.schedule)) {
+                throw new Error('Simulation response did not contain a valid schedule.');
+            }
+            return payload;
+        })
         .then(async (simulatedData) => {
             // Persist simulated schedule to schedule.json so a later push uses it
             try {
@@ -1449,9 +1460,11 @@ function renderTimeline(data) {
                 const slot = filtered[i];
                 // The "hold" lane is built from slots with no physical actions.
                 const chargeKw = Number(slot.battery_charge_kw ?? slot.charge_kw ?? 0) || 0;
+                const dischargeKw = Number(slot.battery_discharge_kw ?? slot.discharge_kw ?? 0) || 0;
                 const waterKw = Number(slot.water_heating_kw ?? 0) || 0;
                 const exportKw = Number(slot.export_kwh ?? 0) * 4 || 0;
-                const noPhysical = chargeKw <= 0 && waterKw <= 0 && exportKw <= 0;
+                const hasBatteryAction = chargeKw > 0 || dischargeKw > 0;
+                const noPhysical = !hasBatteryAction && waterKw <= 0 && exportKw <= 0;
                 const isHold = noPhysical;
                 if (isHold) {
                     const s = toDate(slot.start_time);

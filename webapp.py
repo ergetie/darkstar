@@ -781,6 +781,19 @@ def simulate():
         manual_plan_payload = request.get_json(silent=True)
         df = apply_manual_plan(df, manual_plan_payload, config_data)
 
+        if df.empty:
+            logger.warning("Simulation aborted: no schedule slots available after applying manual plan.")
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "message": "Unable to simulate because no input slots are available. "
+                        "Please try again later when new price/forecast data is present.",
+                    }
+                ),
+                400,
+            )
+
         logger.info("Running simulation with the user's manual plan...")
         simulated_df = simulate_schedule(df, config_data, initial_state)
         logger.info("Simulation completed successfully.")
