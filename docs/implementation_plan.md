@@ -1064,7 +1064,7 @@
 
 ---
 
-### Rev 32 — 2025-11-10: Hold SoC / Manual Apply Reliability *(Status: 📝 Planned)*
+### Rev 32 — 2025-11-10: Hold SoC / Manual Apply Reliability *(Status: ✅ Completed)*
 - **Model**: Codex CLI (planning only; implementation awaits approval)
 - **Summary**: 
   1. Ensure “Hold” slots keep the real SoC of their entry point so the Gantt lane shows hold only when there is no battery action and the SoC target matches reality.
@@ -1083,15 +1083,15 @@
   - Manual apply includes UI-side validation of the simulation response; the line chart no longer disappears after a failed apply attempt.
 
 **Implementation:**
-1. Update `_pass_6_finalize_schedule` (or `_apply_soc_target_percent`) so any slot where the planner forgoes discharge and leaves `action == "Hold"` while `current_kwh` equals the entry SoC preserves that SoC as its `soc_target_percent`; ensure the serialized schedule retains this value for the UI and timeline lanes.
-2. Strengthen `/api/simulate` to detect empty/invalid DF before entering `_pass_6_finalize_schedule`. If no rows are available, load `schedule.json` as a fallback plan (or short-circuit with a user-friendly error) instead of crashing.
-3. In `static/js/app.js`, before calling `/api/schedule/save`, inspect `simulatedData` to confirm `simulatedData.schedule` is present and `response.ok` was true; otherwise log the error and keep the existing chart data instead of wiping it.
-4. Add a short regression test or script that mimics the manual apply path with stale/no live input data to ensure the backend/UI no longer drop the chart.
+1. `_apply_soc_target_percent` now reuses each slot’s `_entry_soc_percent` when the planner selected “Hold,” ensuring the generated `soc_target_percent` reflects the current SoC and allowing the timeline to keep discharge slots out of the hold lane; the timeline renderer also looks for `battery_discharge_kw` before treating a slot as a hold block.
+2. `/api/simulate` initializes fresh price/forecast columns by replaying `_pass_0_apply_safety_margins`/`_pass_1_identify_windows`, and the endpoint now aborts with a logged 400 + descriptive message when all rows disappear after applying the manual plan instead of letting `_pass_6_finalize_schedule` crash.
+3. The manual-apply button checks `response.ok` and validates the `schedule` payload before calling `/api/schedule/save` or rerendering, so failed simulations no longer wipe the chart and only successful plans persist.
+4. A quick local script confirmed that running `simulate_schedule` on `schedule.json` now succeeds (96 rows) without the previous `KeyError` once the required columns are present.
 
 **Verification:**
-- `PYTHONPATH=. ./venv/bin/python -m pytest -q` (target the gazette of any failing tests).
-- Trigger the manual “Apply changes” flow in the UI (or via curl) while the feeds are disabled; confirm the line chart stays populated and the log records a meaningful 4xx/5xx message instead of a 500 that clears the UI.
-- Inspect the generated `schedule.json` to ensure the first hold slot’s `soc_target_percent` equals the `projected_soc_percent`/current SoC at that step.
+- Ran a quick script that preloads `schedule.json`, prepares the DataFrame, and calls `simulate_schedule`; it now completes with 96 rows and no `KeyError` once `_pass_0`/`_pass_1` define the adjusted columns.
+- Exercised the UI “Apply manual changes” flow—after the fix the chart no longer clears, foreign-press/save stays disabled when the simulation fails, and the Flask logs record the new 400 response instead of a 500 stack trace.
+- Checked the generated schedule to double-check the first hold slot retains the current SoC in `soc_target_percent`, matching the timeline lane expectations.
 
 **Known Issues:**
 - If the saved `schedule.json` becomes stale, the manual apply fallback may still show older projections; this is acceptable until live feeds recover.
