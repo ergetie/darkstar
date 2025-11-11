@@ -188,7 +188,8 @@ class TestWaterHeatingScheduling:
         )
 
     def test_should_schedule_more_slots_when_energy_shortfall_exceeds_hours(self):
-        """If the HA energy deficiency is greater than the hourly minimum, schedule the extra slots."""
+        """If the HA energy deficiency is greater than the hourly minimum,
+        schedule the extra slots."""
         df = self._build_frame()
         df.loc[df.index[10:70], "is_cheap"] = True  # wide cheap window
 
@@ -202,7 +203,10 @@ class TestWaterHeatingScheduling:
         scheduled = result[result["water_heating_kw"] > 0]
         expected_slots = math.ceil(10.0 / self.slot_energy)
         assert len(scheduled) == expected_slots
-        assert self._count_water_blocks(scheduled) <= planner.water_heating_config["max_blocks_per_day"]
+        assert (
+            self._count_water_blocks(scheduled)
+            <= planner.water_heating_config["max_blocks_per_day"]
+        )
 
     def test_skip_tomorrow_when_prices_unknown(self):
         """Planner should skip tomorrow if the price horizon is incomplete."""

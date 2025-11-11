@@ -163,10 +163,7 @@ def apply_manual_plan(
 
     if isinstance(manual_plan, dict):
         manual_items = (
-            manual_plan.get("plan")
-            or manual_plan.get("schedule")
-            or manual_plan.get("items")
-            or []
+            manual_plan.get("plan") or manual_plan.get("schedule") or manual_plan.get("items") or []
         )
     elif isinstance(manual_plan, list):
         manual_items = manual_plan
@@ -245,7 +242,6 @@ def apply_manual_plan(
             working_df.loc[mask, "manual_action"] = "Hold"
 
     return working_df
-
 
 
 class HeliosPlanner:
@@ -1019,9 +1015,7 @@ class HeliosPlanner:
                 continue
 
             energy_slots = (
-                math.ceil(remaining_energy / slot_energy_kwh)
-                if slot_energy_kwh > 0
-                else 0
+                math.ceil(remaining_energy / slot_energy_kwh) if slot_energy_kwh > 0 else 0
             )
             required_slots = max(slots_for_min_hours, energy_slots, 1)
 
@@ -1137,7 +1131,6 @@ class HeliosPlanner:
 
         selected_segments = []
         total_slots = 0
-        max_blocks = max(1, int(max_blocks_per_day or 1))
         for segment in segments:
             selected_segments.append(segment)
             total_slots += len(segment["slots"])
@@ -1596,8 +1589,6 @@ class HeliosPlanner:
         for i, window in enumerate(windows):
             start_idx = window["start"]
             end_idx = window["end"]
-            window_df = df.loc[start_idx:end_idx]
-
             # Find the window start state (SoC and avg cost)
             start_state = next(
                 (s for s in getattr(self, "window_start_states", []) if s["start"] == start_idx),
@@ -1619,18 +1610,12 @@ class HeliosPlanner:
                 + self.thresholds.get("battery_use_margin_sek", 0.10)
             )
             gap_start, gap_end = gap_bounds[i]
-            gap_mask = (
-                (df.index >= gap_start)
-                & (df.index < gap_end)
-                & (~df["is_cheap"])
-            )
+            gap_mask = (df.index >= gap_start) & (df.index < gap_end) & (~df["is_cheap"])
             gap_df = df.loc[gap_mask]
             if responsibility_only_above_threshold:
                 gap_df = gap_df[gap_df["import_price_sek_kwh"] > economic_threshold]
 
-            gap_net_load_kwh = (
-                gap_df["adjusted_load_kwh"].sum() - gap_df["adjusted_pv_kwh"].sum()
-            )
+            gap_net_load_kwh = gap_df["adjusted_load_kwh"].sum() - gap_df["adjusted_pv_kwh"].sum()
             gap_net_load_kwh = max(0.0, gap_net_load_kwh)
 
             # Apply S-index safety factor
