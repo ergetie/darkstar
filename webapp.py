@@ -811,9 +811,37 @@ def simulate():
         simulated_df = simulate_schedule(df, config_data, initial_state)
         logger.info("Simulation completed successfully.")
 
-        # Step E: Persist and return the full, simulated result
+        # Step E: Persist and return the full, simulated result WITH preserved history
         json_response = dataframe_to_json_response(simulated_df)
-        # Save immediately so subsequent actions and DB push see the updated plan
+
+        # --- Preserve historical slots (reuse logic from save endpoint) ---
+        try:
+            from db_writer import get_preserved_slots
+            import pytz as _pytz
+
+            tz = _pytz.timezone("Europe/Stockholm")
+            now = datetime.now(tz)
+            today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+            secrets = _load_yaml("secrets.yaml")
+            existing_past_slots = get_preserved_slots(
+                today_start,
+                now,
+                secrets,
+                tz_name=tz.zone if hasattr(tz, "zone") else "Europe/Stockholm",
+            )
+
+            # Continue slot_number from the preserved past
+            max_hist_slot = max([s.get("slot_number", 0) for s in existing_past_slots], default=0)
+            for i, rec in enumerate(json_response):
+                rec["slot_number"] = max_hist_slot + i + 1
+
+            merged_schedule = existing_past_slots + json_response
+        except Exception as _e:
+            logger.warning("Could not preserve historical slots in /api/simulate: %s", _e)
+            merged_schedule = json_response
+
+        # Build meta and save
         try:
             version = (
                 subprocess.check_output(
@@ -824,21 +852,19 @@ def simulate():
             )
         except Exception:
             version = "dev"
-        with open("schedule.json", "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "schedule": json_response,
-                    "meta": {
-                        "planned_at": datetime.now().isoformat(),
-                        "planner_version": version,
-                    },
-                },
-                f,
-                ensure_ascii=False,
-                indent=2,
-            )
 
-        return jsonify({"schedule": json_response})
+        out = {
+            "schedule": merged_schedule,
+            "meta": {
+                "planned_at": datetime.now().isoformat(),
+                "planner_version": version,
+            },
+        }
+        with open("schedule.json", "w", encoding="utf-8") as f:
+            json.dump(out, f, ensure_ascii=False, indent=2)
+
+        # ✅ Return the merged schedule so the UI keeps history immediately
+        return jsonify(out)
 
     except Exception as e:
         logger.exception("Simulation failed")

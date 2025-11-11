@@ -54,9 +54,9 @@ learning:
 manual_planning:
   charge_target_percent: 95
   export_target_percent: 40
-  force_discharge_on_deficit: false
-  ignore_protective_guard: false
-  override_hold_in_cheap: false
+  force_discharge_on_deficit: true
+  ignore_protective_guard: true
+  override_hold_in_cheap: true
 nordpool:
   currency: SEK
   price_area: SE4

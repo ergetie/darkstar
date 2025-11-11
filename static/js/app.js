@@ -499,15 +499,43 @@ document.addEventListener('DOMContentLoaded', () => {
     const resetChangesBtn = document.getElementById('resetChangesBtn');
 
     applyChangesBtn.addEventListener('click', () => {
-        // Get Manual Plan
-        const manualItems = timelineItems.get();
-        const simplifiedSchedule = manualItems.map(item => ({
-            start: item.start,
-            end: item.end,
-            content: item.content
-        }));
+        // Get only REAL manual tiles (exclude lane spacers / backgrounds)
+        const manualItems = timelineItems.get({
+            filter: (item) => {
+                const id = String(item.id || '');
+                if (item.type === 'background') return false;
+                if (id.startsWith('lane-spacer-')) return false;
+                return true;
+            }
+        });
+
+        // Helper to map lane -> default action when the tile/content is absent
+        const laneDefaultAction = {
+            battery: 'Charge',
+            water: 'Water Heating',
+            export: 'Export',
+            hold: 'Hold'
+        };
+
+        const simplifiedSchedule = manualItems.map(item => {
+            const action =
+                (item.title && String(item.title).trim()) ||
+                (item.content && String(item.content).trim()) ||
+                laneDefaultAction[String(item.group || '').toLowerCase()] ||
+                null;
+
+            return {
+                id: item.id || null,
+                group: item.group || null,
+                title: item.title || null,
+                action,               // explicit
+                start: item.start,
+                end: item.end
+            };
+        });
 
         // Send to Backend API
+        console.log('manualItems->payload preview', manualItems.slice(0,3));
         fetch('/api/simulate', {
             method: 'POST',
             headers: {
@@ -543,14 +571,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } catch (e) { console.warn('Save schedule failed:', e); }
 
-            latestScheduleData = simulatedData;
-            // Handle the Response - update the main chart with new data
-            const configResponse = await fetch('/api/config');
-            const configData = await configResponse.json();
+            // We just saved the plan on the server; now reload the canonical, merged schedule
+            const [schedResp, configResp] = await Promise.all([
+                fetch('/api/schedule'),
+                fetch('/api/config')
+            ]);
+
+            const mergedSchedule = await schedResp.json();
+            const configData = await configResp.json();
+
+            latestScheduleData = mergedSchedule;
             latestConfigData = configData;
-            // Keep current manual blocks visible; do not rebuild timeline from computed plan here
-            renderChart(simulatedData, configData);
-            updateStats(simulatedData, configData);
+
+            // Keep manual blocks visible on the timeline; only re-render chart/stats
+            renderChart(mergedSchedule, configData);
+            updateStats(mergedSchedule, configData);
             setNowShowing('local');
         })
         .catch(error => {
