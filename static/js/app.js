@@ -121,13 +121,13 @@ function themeStyleForAction(action) {
     const base = 'color: var(--ds-background); border: none;';
     switch (action) {
         case 'Charge':
-            return `${base} background-color: var(--ds-palette-0);`;
+            return `${base} background-color: var(--ds-palette-8);`;
         case 'Water Heating':
-            return `${base} background-color: var(--ds-palette-1);`;
+            return `${base} background-color: var(--ds-palette-9);`;
         case 'Export':
-            return `${base} background-color: var(--ds-palette-2);`;
+            return `${base} background-color: var(--ds-palette-10);`;
         case 'Hold':
-            return `${base} background-color: var(--ds-palette-3);`;
+            return `${base} background-color: var(--ds-palette-11);`;
         default:
             return '';
     }
