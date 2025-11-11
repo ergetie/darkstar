@@ -37,12 +37,16 @@
               </fieldset>
             </div>
             <canvas id="scheduleChart"></canvas>
-            <div id="timeline-container"></div>
-            <div class="timeline-controls">
-                <button id="addChargeBtn" class="action-add btn-charge">+ chg</button>
-                <button id="addWaterBtn" class="action-add btn-water">+ wtr</button>
-                <button id="addHoldBtn" class="action-add btn-hold">+ hld</button>
-                <button id="addExportBtn" class="action-add btn-export">+ exp</button>
+            <div class="timeline-layout">
+                <div class="timeline-actions">
+                    <button id="addChargeBtn" class="action-add btn-charge">+ chg</button>
+                    <button id="addWaterBtn" class="action-add btn-water">+ wtr</button>
+                    <button id="addHoldBtn" class="action-add btn-hold">+ hld</button>
+                    <button id="addExportBtn" class="action-add btn-export">+ exp</button>
+                </div>
+                <div class="timeline-area">
+                    <div id="timeline-container"></div>
+                </div>
             </div>
             <div class="control-panel">
                 <button id="runPlannerBtn">> run planner</button>

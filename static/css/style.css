@@ -23,6 +23,7 @@
     --ds-palette-14: #6BD0CE;
     --ds-palette-15: #D1D0CC;
     --timeline-lane-height: 36px;
+    --timeline-axis-height: 40px;
     --timeline-grid-color: rgba(126, 187, 178, 0.2);
 }
 
@@ -350,20 +351,36 @@ label {
     min-width: 80px;
 }
 
-/* Timeline controls: no-borders, uniform size */
-.timeline-controls {
+.timeline-layout {
     display: flex;
     gap: 12px;
-    align-items: center;
-    flex-wrap: wrap;
-    margin-top: 12px;
+    align-items: flex-start;
+    margin-bottom: 8px;
 }
-.timeline-controls button {
-    border: none; /* no border on any buttons here */
-    font-size: 14px; /* uniform font size */
-    padding: 8px 16px;
+
+.timeline-area {
+    flex: 1;
+}
+
+.timeline-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: var(--timeline-axis-height);
+    min-width: 70px;
+}
+
+.timeline-actions button {
+    border: none;
+    font-size: 13px;
+    padding: 0 8px;
+    height: var(--timeline-lane-height);
+    width: 70px;
     font-family: 'Fira Code', monospace;
     font-weight: 500;
+    border-radius: 6px;
+    text-transform: lowercase;
+    cursor: pointer;
 }
 
 .vis-timeline {
@@ -470,10 +487,9 @@ label {
     color: var(--ds-foreground);
 }
 .control-panel button,
-.timeline-controls button,
+.timeline-actions button,
 .tabs .tab-button,
-.actions button,
-.timeline-controls .action-add {
+.actions button {
     text-transform: lowercase;
 }
 
@@ -621,7 +637,7 @@ label {
     }
 
     .control-panel,
-    .timeline-controls {
+    .timeline-actions {
         flex-direction: column;
         align-items: stretch;
     }
@@ -637,9 +653,27 @@ label {
         padding: 0.5rem;
     }
 
-    .timeline-controls button,
+    .timeline-actions button,
     .control-panel button {
         width: 100%;
+    }
+
+    .timeline-layout {
+        flex-direction: column;
+    }
+
+    .timeline-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+        padding-top: 0;
+        min-width: auto;
+        justify-content: space-between;
+    }
+
+    .timeline-actions button {
+        width: calc(50% - 6px);
+        height: auto;
+        padding: 8px 0;
     }
 }
 
