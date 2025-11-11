@@ -151,12 +151,29 @@ main {
 }
 
 .vis-timeline .vis-grid .vis-line {
-    stroke: rgba(209, 208, 204, 0.22) !important;
+    stroke: var(--ds-border) !important;
     stroke-width: 1px !important;
 }
 
 .vis-timeline .vis-grid .vis-text {
     fill: rgba(209, 208, 204, 0.45) !important;
+}
+
+.vis-panel.vis-background .vis-grid {
+    border-color: var(--ds-border) !important;
+    background-color: transparent !important;
+}
+
+.vis-panel.vis-background.vis-horizontal .vis-grid.vis-horizontal {
+    border-bottom-color: var(--ds-border) !important;
+}
+.vis-panel.vis-background.vis-horizontal .vis-grid.vis-minor,
+.vis-panel.vis-background.vis-horizontal .vis-grid.vis-major,
+.vis-panel.vis-background.vis-horizontal .vis-grid.vis-block {
+    border-color: var(--ds-border) !important;
+}
+.vis-panel.vis-background.vis-vertical .vis-grid.vis-vertical {
+    border-left-color: var(--ds-border) !important;
 }
 
 .control-panel {
@@ -418,6 +435,14 @@ label {
 }
 .vis-selected { border: none !important; box-shadow: none !important; }
 .vis-item .vis-item-overflow { border: none !important; }
+
+/* Horizontal lane separators (center foreground groups and left labels) */
+#timeline-container .vis-foreground .vis-group {
+    border-bottom-color: var(--ds-palette-0) !important;
+}
+#timeline-container .vis-labelset .vis-label {
+    border-bottom-color: var(--ds-palette-0) !important;
+}
 
 /* General responsive sizes */
 #scheduleChart,
