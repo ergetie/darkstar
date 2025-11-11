@@ -1399,4 +1399,40 @@ If mobile changes cause any layout issues:
 * Collect screenshots for before/after comparison.
 * If desired, add a mobile navigation toggle in Rev 29.
 
+---
+
+### Rev 35 — 2025-11-21: Manual Apply History & Chart Integrity *(Status: ✅ Completed)*
+- **Model**: Codex CLI
+- **Summary**: Resolved the manual plan “Apply changes” regression by keeping `/api/simulate`/`/api/schedule/save` writes aligned, deduplicating overlapping slots, and preventing Chart.js from drawing artifacts from duplicated timestamps.
+
+**Plan:**
+- **Goals**:
+  1. Prevent `/api/simulate` from inducing duplicate historical slots that cause line-chart truncation and phantom “now” lines.
+  2. Ensure `/api/schedule/save` remains idempotent by only persisting future slots plus preserved history, and deduplicate by start times.
+  3. Keep the chart/timeline rendering window intact (48h) even if duplicated slots leak in, and avoid Chart.js connecting through null segments.
+- **Scope**: Backend `/api/simulate`+`/api/schedule/save`, plus `static/js/app.js` chart rendering logic.
+- **Dependencies**: Prior manual planning and historical preservation logic (Rev 20/21/33) must remain intact.
+- **Acceptance Criteria**:
+  - Manual “Apply changes” applies blocks without flattening history and returns `/api/schedule` with the merged schedule.
+  - Line chart shows complete 48h horizon with no straight-line artifacts from midnight to “now”.
+  - No repeated start_time entries appear in `schedule.json` after a manual apply cycle.
+
+**Implementation:**
+- **Completed**:
+  1. Removed the redundant `/api/schedule/save` POST after `/api/simulate`, so only the already-merged payload is written once before reloading `/api/schedule`.
+  2. Hardened `/api/schedule/save` to accept only future slots, preserve historical slots once, and deduplicate by `start_time` before writing `schedule.json`.
+  3. Added a deduplication pass inside `renderChart`’s 48h slice and already-existing null filters/fill controls to prevent Chart.js from drawing phantom lines or losing tomorrow’s data.
+- **In Progress**: None.
+- **Blocked**: None.
+- **Next Steps**: Monitor the UI for any residual chart artifacts; retain logging around `/api/schedule/save` to verify dedup logic raresly triggers.
+- **Technical Decisions**: Trust the backend to merge history once and reload `/api/schedule` in the UI; duplicate slot detection lives both server-side and in the chart renderer as a defensive belt-and-braces.
+- **Files Modified**:
+  * `static/js/app.js` — Removed duplicate save call, de-duplicated windowSlice, and kept the price/SOC filtering that avoids extra fill artifacts.
+  * `webapp.py` — `/api/schedule/save` now filters to future slots before merging preserved history and deduplicates on start time.
+- **Configuration**: No config changes required.
+
+**Verification:**
+- **Tests Status**: Not run (manual scenario verification only: apply Charge block + ensure chart/timeline behave, no HTTP 4xx/5xx).
+- **Known Issues**: None observed after manual testing.
+- **Rollback Plan**: Revert `static/js/app.js` and `webapp.py` to their previous states if duplicates or chart artifacts reappear under the manual apply workflow.
 

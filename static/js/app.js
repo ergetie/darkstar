@@ -558,20 +558,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return payload;
         })
         .then(async (simulatedData) => {
-            // Persist simulated schedule to schedule.json so a later push uses it
-            try {
-                const saveResp = await fetch('/api/schedule/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ schedule: simulatedData.schedule })
-                });
-                if (!saveResp.ok) {
-                    const details = await saveResp.json().catch(() => ({}));
-                    console.warn('Failed to save simulated schedule:', details.error || saveResp.status);
-                }
-            } catch (e) { console.warn('Save schedule failed:', e); }
-
-            // We just saved the plan on the server; now reload the canonical, merged schedule
+            // The simulate endpoint already writes the merged schedule.json.
+            // Reload the canonical, merged schedule (with preserved history + prices).
             const [schedResp, configResp] = await Promise.all([
                 fetch('/api/schedule'),
                 fetch('/api/config')
@@ -945,7 +933,24 @@ async function renderChart(data, config) {
         // Find first index within the window
         let startIndex = schedule.findIndex(s => new Date(s.start_time).getTime() >= startOfToday.getTime());
         if (startIndex === -1) startIndex = 0;
-        const windowSlice = schedule.slice(startIndex, startIndex + 192);
+        let windowSlice = schedule.slice(startIndex, startIndex + 192);
+        // Defensive: de-duplicate by start_time within the 48h slice to avoid
+        // odd artifacts and early truncation if past slots were accidentally duplicated.
+        (function dedupeWindowSlice() {
+            const seen = new Set();
+            const unique = [];
+            for (const slot of windowSlice) {
+                try {
+                    const key = new Date(slot.start_time).toISOString();
+                    if (seen.has(key)) continue;
+                    seen.add(key);
+                    unique.push(slot);
+                } catch (_) {
+                    unique.push(slot);
+                }
+            }
+            windowSlice = unique;
+        })();
 
         // Fetch additional SoC data for Rev 14 features - create time-aligned arrays
         let currentSoCArray = [];
