@@ -561,7 +561,8 @@ def save_schedule_json():
         if not isinstance(manual_schedule, list):
             return jsonify({"status": "error", "error": "Invalid schedule payload"}), 400
 
-        # Preserve historical slots from database (same logic as planner.py Rev 19)
+        # Preserve historical slots from database (same logic as planner.py) and
+        # only merge FUTURE records from the provided payload to avoid duplicates.
         try:
             from db_writer import get_preserved_slots
             import pytz
@@ -579,24 +580,54 @@ def save_schedule_json():
                 tz_name=tz.zone if hasattr(tz, "zone") else "Europe/Stockholm",
             )
 
-            # Fix slot number conflicts:
-            # ensure manual slots continue from max historical slot number
+            # Filter incoming to future-only
+            future_schedule = []
+            for rec in manual_schedule:
+                try:
+                    start_str = rec.get("start_time") or rec.get("start")
+                    if not start_str:
+                        continue
+                    dt = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = tz.localize(dt)
+                    else:
+                        dt = dt.astimezone(tz)
+                    if dt >= now:
+                        future_schedule.append(rec)
+                except Exception:
+                    # If parsing fails, keep conservative and skip the record
+                    continue
+
+            # Fix slot number conflicts: continue after historical max
             max_historical_slot = 0
             if existing_past_slots:
                 max_historical_slot = max(
                     slot.get("slot_number", 0) for slot in existing_past_slots
                 )
-
-            # Reassign slot numbers for manual records to continue from historical max
-            for i, record in enumerate(manual_schedule):
+            for i, record in enumerate(future_schedule):
                 record["slot_number"] = max_historical_slot + i + 1
 
-            # Merge: preserved past + manual (same as planner.py)
-            merged_schedule = existing_past_slots + manual_schedule
+            # Merge preserved past + future-only incoming
+            merged_schedule = existing_past_slots + future_schedule
+
+            # De-duplicate by start_time (keep first occurrence)
+            seen = set()
+            deduped = []
+            for slot in merged_schedule:
+                start_val = slot.get("start_time") or slot.get("slot_datetime")
+                if not start_val:
+                    deduped.append(slot)
+                    continue
+                key = str(start_val)
+                if key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(slot)
+            merged_schedule = deduped
 
         except Exception as e:
             logger.warning("Could not preserve historical slots for manual changes: %s", e)
-            # Fallback to manual schedule only if preservation fails
+            # Fallback: write the provided schedule as-is
             merged_schedule = manual_schedule
 
         # Build meta with version + timestamp
