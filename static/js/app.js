@@ -1697,6 +1697,17 @@ function renderTimeline(data) {
                     majorLabels: () => '',
                 },
             },
+            snap: (date) => {
+                const snapped = new Date(date);
+                const minutes = snapped.getMinutes();
+                const remainder = minutes % 15;
+                const adjustment = remainder < 0 ? remainder + 15 : remainder;
+                if (adjustment !== 0) {
+                    snapped.setMinutes(minutes - adjustment);
+                }
+                snapped.setSeconds(0, 0);
+                return snapped;
+            },
             onInitialDrawComplete: () => console.log('[timeline] rendered OK')
         };
         console.log('[timeline] desiredPx', desiredPx, 'groups', groupCount);
