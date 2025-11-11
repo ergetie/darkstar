@@ -1682,6 +1682,21 @@ function renderTimeline(data) {
                 item: 8,
                 axis: 5
             },
+            showMajorLabels: false,
+            timeAxis: {
+                scale: 'hour',
+                step: 1,
+                showMajorLabels: false,
+                format: {
+                    minorLabels: (date) =>
+                        date.toLocaleTimeString('sv-SE', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false,
+                        }),
+                    majorLabels: () => '',
+                },
+            },
             onInitialDrawComplete: () => console.log('[timeline] rendered OK')
         };
         console.log('[timeline] desiredPx', desiredPx, 'groups', groupCount);

@@ -107,6 +107,7 @@ main {
     max-width: 100vw;
     overflow-x: hidden;
     border: 1px solid var(--ds-border);
+    border-width: 1px;
     background-color: rgba(0, 0, 0, 0.05);
 }
 
@@ -138,6 +139,7 @@ main {
     font-family: 'Fira Code', monospace;
     font-size: 14px;
     font-weight: 500;
+    border: 0;
 }
 
 .vis-timeline .vis-item,
@@ -430,6 +432,7 @@ label {
     border: 1px solid var(--ds-border);
     background-color: var(--ds-background);
     display: block !important;
+    margin-bottom: 18px;
 }
 
 .chartjs-legend {
