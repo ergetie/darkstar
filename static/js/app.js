@@ -1223,6 +1223,14 @@ async function renderChart(data, config) {
         const waterFill = hexToRgba(colours.water, 0.65);
         const exportFill = hexToRgba(colours.export, 0.6);
 
+        // Filter out null-y points to avoid Chart.js connecting/filling weirdly
+        //const filteredImportPrices = importPrices.filter(p => p.y != null);
+        //const filteredProjectedSoC = projectedSoC.filter(p => p.y != null);
+        //const filteredSoCTarget = socTarget.filter(p => p.y != null);
+        // Pin the time axis to a full 48h window so it never cuts early
+        const xMin = new Date(startOfToday).toISOString();
+        const xMax = new Date(endOfTomorrow).toISOString();
+
         chart = new Chart(ctx, {
             type: 'bar',
             data: {
@@ -1236,7 +1244,7 @@ async function renderChart(data, config) {
                         tension: 0,
                         pointRadius: 0,
                         stepped: true,
-                        fill: true,
+                        fill: false,
                         yAxisID: 'y',
                         spanGaps: false
                     },
@@ -1370,6 +1378,8 @@ async function renderChart(data, config) {
                 scales: {
                     x: {
                         type: 'time',
+                        min: xMin,
+                        max: xMax,
                         time: {
                             unit: 'hour',
                             stepSize: 1,
@@ -1379,12 +1389,12 @@ async function renderChart(data, config) {
                             tooltipFormat: 'HH:mm'
                         },
                         grid: {
-                            display: true
+                        display: true
                         },
                         ticks: {
                             color: theme.foreground,
                             maxRotation: 90,
-                            source: 'data',
+                            source: 'auto',
                             autoSkip: false,
                             maxTicksLimit: 48,
                             font: {
@@ -1691,8 +1701,9 @@ function renderTimeline(data) {
         requestAnimationFrame(() => {
             if (timelineInstance) {
                 timelineInstance.redraw();
-                if (typeof timelineInstance.fit === 'function') {
-                    timelineInstance.fit({ animation: false });
+                // Always show today→tomorrow regardless of how many blocks exist
+                if (typeof timelineInstance.setWindow === 'function') {
+                    timelineInstance.setWindow(startOfToday, endOfTomorrow, { animation: false });
                 }
             }
         });
