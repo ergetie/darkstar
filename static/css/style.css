@@ -23,6 +23,7 @@
     --ds-palette-14: #6BD0CE;
     --ds-palette-15: #D1D0CC;
     --timeline-lane-height: 36px;
+    --timeline-grid-color: rgba(126, 187, 178, 0.2);
 }
 
 body {
@@ -151,7 +152,7 @@ main {
 }
 
 .vis-timeline .vis-grid .vis-line {
-    stroke: var(--ds-border) !important;
+    stroke: var(--timeline-grid-color) !important;
     stroke-width: 1px !important;
 }
 
@@ -160,20 +161,20 @@ main {
 }
 
 .vis-panel.vis-background .vis-grid {
-    border-color: var(--ds-border) !important;
+    border-color: var(--timeline-grid-color) !important;
     background-color: transparent !important;
 }
 
 .vis-panel.vis-background.vis-horizontal .vis-grid.vis-horizontal {
-    border-bottom-color: var(--ds-border) !important;
+    border-bottom-color: var(--timeline-grid-color) !important;
 }
 .vis-panel.vis-background.vis-horizontal .vis-grid.vis-minor,
 .vis-panel.vis-background.vis-horizontal .vis-grid.vis-major,
 .vis-panel.vis-background.vis-horizontal .vis-grid.vis-block {
-    border-color: var(--ds-border) !important;
+    border-color: var(--timeline-grid-color) !important;
 }
 .vis-panel.vis-background.vis-vertical .vis-grid.vis-vertical {
-    border-left-color: var(--ds-border) !important;
+    border-left-color: var(--timeline-grid-color) !important;
 }
 
 .control-panel {
@@ -379,7 +380,7 @@ label {
 
 .vis-time-axis .vis-grid.vis-vertical,
 .vis-time-axis .vis-grid.vis-horizontal {
-    border-color: var(--ds-border) !important;
+    border-color: var(--timeline-grid-color) !important;
 }
 
 /* Match action colors */
@@ -438,10 +439,10 @@ label {
 
 /* Horizontal lane separators (center foreground groups and left labels) */
 #timeline-container .vis-foreground .vis-group {
-    border-bottom-color: var(--ds-palette-0) !important;
+    border-bottom-color: var(--timeline-grid-color) !important;
 }
 #timeline-container .vis-labelset .vis-label {
-    border-bottom-color: var(--ds-palette-0) !important;
+    border-bottom-color: var(--timeline-grid-color) !important;
 }
 
 /* General responsive sizes */

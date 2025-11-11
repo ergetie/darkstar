@@ -1713,27 +1713,81 @@ function renderTimeline(data) {
             timelineInstance.destroy();
         }
 
+        const parseCssColorToRgb = (value) => {
+            if (!value) {
+                return null;
+            }
+            const trimmed = String(value).trim();
+            if (!trimmed) {
+                return null;
+            }
+
+            if (trimmed.startsWith('#')) {
+                const hex = trimmed.slice(1);
+                const expandHex = (chunk) => chunk.length === 1 ? chunk + chunk : chunk;
+                if (hex.length === 3) {
+                    const r = expandHex(hex[0]);
+                    const g = expandHex(hex[1]);
+                    const b = expandHex(hex[2]);
+                    return {
+                        r: parseInt(r, 16),
+                        g: parseInt(g, 16),
+                        b: parseInt(b, 16)
+                    };
+                }
+                if (hex.length === 6) {
+                    return {
+                        r: parseInt(hex.slice(0, 2), 16),
+                        g: parseInt(hex.slice(2, 4), 16),
+                        b: parseInt(hex.slice(4, 6), 16)
+                    };
+                }
+            }
+
+            const rgbMatch = trimmed.match(/^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})/i);
+            if (rgbMatch) {
+                return {
+                    r: Number(rgbMatch[1]),
+                    g: Number(rgbMatch[2]),
+                    b: Number(rgbMatch[3])
+                };
+            }
+
+            return null;
+        };
+
+        const toRgbaWithAlpha = (colorValue, alpha) => {
+            const rgb = parseCssColorToRgb(colorValue);
+            if (!rgb) {
+                return null;
+            }
+            return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+        };
+
         timelineInstance = new vis.Timeline(container, timelineItems, groupDataset, options);
 
         // Helper to force timeline grid color to match theme border
         const applyTimelineGridColor = () => {
             try {
-                // Use theme palette-0 color for timeline grid
                 const root = document.documentElement;
-                const cssColor = (getComputedStyle(root).getPropertyValue('--ds-palette-0') || '').trim() || '#7EBBB2';
+                const paletteColor = (getComputedStyle(root).getPropertyValue('--ds-palette-0') || '').trim() || '#7EBBB2';
+                const gridColor = toRgbaWithAlpha(paletteColor, 0.2) || paletteColor;
+                root.style.setProperty('--timeline-grid-color', gridColor);
                 const grids = container.querySelectorAll('.vis-time-axis .vis-grid');
                 grids.forEach(el => {
                     // Use !important via setProperty to beat vendor stylesheet
-                    el.style.setProperty('border-left-color', cssColor, 'important');
-                    el.style.setProperty('border-bottom-color', cssColor, 'important');
-                    el.style.setProperty('border-right-color', cssColor, 'important');
-                    el.style.setProperty('border-top-color', cssColor, 'important');
-                    el.style.setProperty('color', cssColor, 'important');
+                    el.style.setProperty('border-left-color', gridColor, 'important');
+                    el.style.setProperty('border-bottom-color', gridColor, 'important');
+                    el.style.setProperty('border-right-color', gridColor, 'important');
+                    el.style.setProperty('border-top-color', gridColor, 'important');
+                    el.style.setProperty('color', gridColor, 'important');
                 });
             } catch (e) {
                 console.warn('[timeline] applyTimelineGridColor failed:', e);
             }
         };
+
+        // Removed gradient-based lane separators during debug; using CSS override for borders instead
 
         timelineInstance.on('rangechanged', () => {
             if (timelineInstance && typeof timelineInstance.getWindow === 'function') {
@@ -1751,12 +1805,13 @@ function renderTimeline(data) {
                 }
                 // Ensure grid uses theme border color
                 applyTimelineGridColor();
+                // Lane separators handled via CSS (debug pink) for now
             }
         });
 
         // Observe DOM mutations to reapply grid color when vis-timeline updates internals
         try {
-            const observer = new MutationObserver(() => applyTimelineGridColor());
+            const observer = new MutationObserver(() => { applyTimelineGridColor(); });
             observer.observe(container, { childList: true, subtree: true });
             // Stash on instance for potential cleanup if needed elsewhere
             timelineInstance.__gridObserver = observer;
