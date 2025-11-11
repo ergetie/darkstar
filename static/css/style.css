@@ -24,6 +24,7 @@
     --ds-palette-15: #D1D0CC;
     --timeline-lane-height: 36px;
     --timeline-axis-height: 40px;
+    --timeline-action-size: 46px;
     --timeline-grid-color: rgba(126, 187, 178, 0.2);
 }
 
@@ -366,21 +367,26 @@ label {
     display: flex;
     flex-direction: column;
     gap: 6px;
-    padding-top: var(--timeline-axis-height);
-    min-width: 70px;
+    margin-top: 0;
+    justify-content: flex-start;
+    min-width: var(--timeline-action-size);
 }
 
 .timeline-actions button {
     border: none;
     font-size: 13px;
-    padding: 0 8px;
-    height: var(--timeline-lane-height);
-    width: 70px;
+    padding: 0;
+    width: var(--timeline-action-size);
+    aspect-ratio: 1 / 1;
     font-family: 'Fira Code', monospace;
     font-weight: 500;
     border-radius: 6px;
     text-transform: lowercase;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: 0.05em;
 }
 
 .vis-timeline {
@@ -665,15 +671,14 @@ label {
     .timeline-actions {
         flex-direction: row;
         flex-wrap: wrap;
-        padding-top: 0;
         min-width: auto;
-        justify-content: space-between;
+        justify-content: flex-start;
+        gap: 8px;
     }
 
     .timeline-actions button {
         width: calc(50% - 6px);
-        height: auto;
-        padding: 8px 0;
+        aspect-ratio: 1 / 1;
     }
 }
 
