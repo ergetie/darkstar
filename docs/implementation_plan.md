@@ -1399,6 +1399,44 @@ If mobile changes cause any layout issues:
 * Collect screenshots for before/after comparison.
 * If desired, add a mobile navigation toggle in Rev 29.
 
+
+---
+
+### Rev 36 — 2025-11-21: Timeline Grid + Lane Colors, Axis Cleanup *(Status: ✅ Completed)*
+- **Model**: Codex CLI
+- **Summary**: Matched timeline grid and lane separator styling to the theme, fixed hour-only axis configuration without errors, and ensured 15‑minute snapping remains intact after label changes.
+
+**Plan:**
+- **Goals**:
+  1. Make the timeline time‑axis grid (vertical/horizontal lines) use the app theme (palette 0) for consistency with the chart.
+  2. Style the horizontal lane separators (Gantt lanes and labels) to the same color so separators look continuous.
+  3. Remove invalid vis‑timeline options producing console warnings while keeping hourly ticks and 15‑minute snapping.
+- **Scope**: `static/js/app.js` (runtime overrides, options), `static/css/style.css` (lane/label borders).
+- **Dependencies**: Requires theme CSS variables (`--ds-palette-0`), lane height var `--timeline-lane-height` (already present).
+- **Acceptance Criteria**:
+  - Vertical grid lines reflect theme palette 0.
+  - Horizontal separators between Gantt lanes and label rows reflect palette 0 and align across panels.
+  - Console warnings about `timeAxis` options disappear; snapping still aligns to 15‑minute increments.
+
+**Implementation:**
+- **Completed**:
+  - Applied runtime override to `.vis-time-axis .vis-grid` borders using `getComputedStyle('--ds-palette-0')`, re‑applied on redraw and via `MutationObserver` to survive vis‑timeline DOM updates.
+  - Overrode lane separators via CSS: `.vis-foreground .vis-group` and `.vis-labelset .vis-label { border-bottom-color: var(--ds-palette-0) !important; }` for clean, original separators (no extra lines).
+  - Removed invalid vis options (`timeAxis.showMajorLabels`, `timeAxis.format`) and kept `timeAxis.scale=hour/step=1` + custom snapping callback for quarter‑hours.
+- **In Progress**: None.
+- **Blocked**: None.
+- **Next Steps**: Optionally expose a theme control to pick grid/separator color independent of the chart.
+- **Technical Decisions**: Use runtime style for time‑axis grids (vendor sets inline styles on redraw); use CSS for lane separators which are stable `.vis-group/.vis-label` borders.
+- **Files Modified**:
+  * `static/js/app.js` — Grid color runtime override, option cleanup; kept 15‑min snapping and hourly grid.
+  * `static/css/style.css` — Lane separator and label border color overrides.
+- **Configuration**: No user‑facing config changes; uses existing theme vars.
+
+**Verification:**
+- **Tests Status**: Manual verification in the UI; grid and separators match theme; no vis option warnings.
+- **Known Issues**: The vendor source map 404 is harmless (devtools only).
+- **Rollback Plan**: Remove the runtime override in `applyTimelineGridColor` and CSS overrides to restore vendor defaults.
+
 ---
 
 ### Rev 35 — 2025-11-21: Manual Apply History & Chart Integrity *(Status: ✅ Completed)*
@@ -1435,4 +1473,3 @@ If mobile changes cause any layout issues:
 - **Tests Status**: Not run (manual scenario verification only: apply Charge block + ensure chart/timeline behave, no HTTP 4xx/5xx).
 - **Known Issues**: None observed after manual testing.
 - **Rollback Plan**: Revert `static/js/app.js` and `webapp.py` to their previous states if duplicates or chart artifacts reappear under the manual apply workflow.
-

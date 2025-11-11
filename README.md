@@ -372,6 +372,21 @@ home_assistant:
   - `palette`: 16 hex colors; indices 0–7 for chart actions, 8–15 for corresponding buttons (0↔8, 1↔9, …).
 - The web-app scans the folder on startup. Select themes under Settings → Appearance.
 
+### Timeline/Grid Colors
+
+The vis-timeline grid and lane separators are styled to match the active theme.
+
+- Time-axis grid (vertical/horizontal lines):
+  - Drawn by vis-timeline under `.vis-time-axis .vis-grid` and styled at runtime in `static/js/app.js` (function `applyTimelineGridColor`).
+  - The color is taken from the CSS variable `--ds-palette-0`. To change, update your theme’s palette or modify the variable in `:root`.
+  - A MutationObserver re-applies the color after vis re-renders so the override persists.
+
+- Lane separators between Gantt lanes and label rows:
+  - Controlled by CSS border rules on `.vis-foreground .vis-group` and `.vis-labelset .vis-label`.
+  - The color is set to `var(--ds-palette-0)` in `static/css/style.css`. Override those selectors if you want a different color.
+
+Tip: If you want a different grid/separator tint than palette 0, you can either adjust `--ds-palette-0` in your theme or replace the variable in the above selectors with another palette index (e.g., `--ds-palette-6`).
+
 ## License
 
 [Add your license information here]
