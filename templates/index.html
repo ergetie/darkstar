@@ -5,8 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Helios Energy Schedule</title>
     <link rel="icon" href="/static/favicon.ico">
-    <link rel="stylesheet" href="/static/css/style.css">
+    <!-- Load vendor timeline CSS first so our overrides win -->
     <link href="/static/vis-timeline/8.4.0/css/vis-timeline-graph2d.min.css" rel="stylesheet" type="text/css" />
+    <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/vis-timeline/8.4.0/js/vis-timeline-graph2d.min.js"></script>
 </head>
 <body>
@@ -38,10 +39,10 @@
             <canvas id="scheduleChart"></canvas>
             <div id="timeline-container"></div>
             <div class="timeline-controls">
-                <button id="addChargeBtn" class="action-add btn-charge">> add charge</button>
-                <button id="addWaterBtn" class="action-add btn-water">> add water heating</button>
-                <button id="addHoldBtn" class="action-add btn-hold">> add hold</button>
-                <button id="addExportBtn" class="action-add btn-export">> add export</button>
+                <button id="addChargeBtn" class="action-add btn-charge">+ chg</button>
+                <button id="addWaterBtn" class="action-add btn-water">+ wtr</button>
+                <button id="addHoldBtn" class="action-add btn-hold">+ hld</button>
+                <button id="addExportBtn" class="action-add btn-export">+ exp</button>
             </div>
             <div class="control-panel">
                 <button id="runPlannerBtn">> run planner</button>
