@@ -1718,9 +1718,9 @@ function renderTimeline(data) {
         // Helper to force timeline grid color to match theme border
         const applyTimelineGridColor = () => {
             try {
-                // Use theme border color for timeline grid
+                // Use theme palette-0 color for timeline grid
                 const root = document.documentElement;
-                const cssColor = (getComputedStyle(root).getPropertyValue('--ds-border') || '').trim() || '#D1D0CC';
+                const cssColor = (getComputedStyle(root).getPropertyValue('--ds-palette-0') || '').trim() || '#7EBBB2';
                 const grids = container.querySelectorAll('.vis-time-axis .vis-grid');
                 grids.forEach(el => {
                     // Use !important via setProperty to beat vendor stylesheet
