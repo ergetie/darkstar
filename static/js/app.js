@@ -1686,16 +1686,6 @@ function renderTimeline(data) {
             timeAxis: {
                 scale: 'hour',
                 step: 1,
-                showMajorLabels: false,
-                format: {
-                    minorLabels: (date) =>
-                        date.toLocaleTimeString('sv-SE', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false,
-                        }),
-                    majorLabels: () => '',
-                },
             },
             snap: (date) => {
                 const snapped = new Date(date);
@@ -1724,10 +1714,33 @@ function renderTimeline(data) {
         }
 
         timelineInstance = new vis.Timeline(container, timelineItems, groupDataset, options);
+
+        // Helper to force timeline grid color to match theme border
+        const applyTimelineGridColor = () => {
+            try {
+                // Use theme border color for timeline grid
+                const root = document.documentElement;
+                const cssColor = (getComputedStyle(root).getPropertyValue('--ds-border') || '').trim() || '#D1D0CC';
+                const grids = container.querySelectorAll('.vis-time-axis .vis-grid');
+                grids.forEach(el => {
+                    // Use !important via setProperty to beat vendor stylesheet
+                    el.style.setProperty('border-left-color', cssColor, 'important');
+                    el.style.setProperty('border-bottom-color', cssColor, 'important');
+                    el.style.setProperty('border-right-color', cssColor, 'important');
+                    el.style.setProperty('border-top-color', cssColor, 'important');
+                    el.style.setProperty('color', cssColor, 'important');
+                });
+            } catch (e) {
+                console.warn('[timeline] applyTimelineGridColor failed:', e);
+            }
+        };
+
         timelineInstance.on('rangechanged', () => {
             if (timelineInstance && typeof timelineInstance.getWindow === 'function') {
                 ensureLaneSpacers(timelineInstance.getWindow());
             }
+            // Apply grid styling after DOM updates
+            setTimeout(applyTimelineGridColor, 0);
         });
         requestAnimationFrame(() => {
             if (timelineInstance) {
@@ -1736,8 +1749,20 @@ function renderTimeline(data) {
                 if (typeof timelineInstance.setWindow === 'function') {
                     timelineInstance.setWindow(startOfToday, endOfTomorrow, { animation: false });
                 }
+                // Ensure grid uses theme border color
+                applyTimelineGridColor();
             }
         });
+
+        // Observe DOM mutations to reapply grid color when vis-timeline updates internals
+        try {
+            const observer = new MutationObserver(() => applyTimelineGridColor());
+            observer.observe(container, { childList: true, subtree: true });
+            // Stash on instance for potential cleanup if needed elsewhere
+            timelineInstance.__gridObserver = observer;
+        } catch (e) {
+            console.warn('[timeline] MutationObserver unavailable:', e);
+        }
 
         // Allow external drag targets to be dropped
         timelineInstance.on('dragover', (props) => {
