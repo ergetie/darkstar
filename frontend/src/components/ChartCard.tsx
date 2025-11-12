@@ -17,7 +17,7 @@ const chartOptions: ChartConfiguration['options'] = {
                 boxWidth: 10,
                 font: { size: 12 },
                 filter: (item) =>
-                    typeof item.datasetIndex === 'number' && item.datasetIndex < 3,
+                    typeof item.datasetIndex === 'number' && item.datasetIndex < 4,
             },
         },
     },
@@ -28,13 +28,53 @@ const chartOptions: ChartConfiguration['options'] = {
         },
         y: {
             position: 'right',
+            min: 0,
+            max: 8,
+            title: {
+                display: true,
+                text: 'SEK/kWh',
+                color: '#a6b0bf'
+            },
             grid: { color: 'rgba(255,255,255,0.06)' },
             ticks: { color: '#a6b0bf' },
         },
         y1: {
             position: 'left',
+            min: 0,
+            max: 9,
+            title: {
+                display: true,
+                text: 'kW',
+                color: '#a6b0bf'
+            },
             grid: { display: false },
             ticks: { color: '#a6b0bf' },
+        },
+        y2: {
+            position: 'left',
+            min: 0,
+            max: 9,
+            title: {
+                display: true,
+                text: 'kWh',
+                color: '#a6b0bf'
+            },
+            grid: { display: false },
+            ticks: { color: '#a6b0bf' },
+            display: false,
+        },
+        y3: {
+            position: 'right',
+            min: 0,
+            max: 100,
+            title: {
+                display: true,
+                text: '%',
+                color: '#a6b0bf'
+            },
+            grid: { display: false },
+            ticks: { color: '#a6b0bf' },
+            display: false,
         },
     },
 }
@@ -108,7 +148,7 @@ const createChartData = (values: ChartValues) => ({
             data: values.export ?? values.labels.map(() => null),
             backgroundColor: '#4CAF50', // Material Green
             hidden: true,
-            yAxisID: 'y1',
+            yAxisID: 'y2', // Use kWh axis
         },
         {
             type: 'bar',
@@ -123,7 +163,7 @@ const createChartData = (values: ChartValues) => ({
             label: 'SoC Target (%)',
             data: values.socTarget ?? values.labels.map(() => null),
             borderColor: '#9C27B0', // Material Purple
-            yAxisID: 'y1',
+            yAxisID: 'y3', // Use percentage axis
             pointRadius: 0,
             hidden: true,
         },
@@ -132,7 +172,7 @@ const createChartData = (values: ChartValues) => ({
             label: 'SoC Projected (%)',
             data: values.socProjected ?? values.labels.map(() => null),
             borderColor: '#607D8B', // Material Blue Grey
-            yAxisID: 'y1',
+            yAxisID: 'y3', // Use percentage axis
             pointRadius: 0,
             hidden: true,
         },
