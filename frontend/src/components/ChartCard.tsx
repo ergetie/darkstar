@@ -47,6 +47,7 @@ type ChartValues = {
     charge?: (number | null)[]
     discharge?: (number | null)[]
     export?: (number | null)[]
+    water?: (number | null)[]
     socTarget?: (number | null)[]
     socProjected?: (number | null)[]
 }
@@ -58,8 +59,8 @@ const createChartData = (values: ChartValues) => ({
             type: 'line',
             label: 'Import Price (SEK/kWh)',
             data: values.price,
-            borderColor: '#7ea0ff',
-            backgroundColor: 'rgba(126,160,255,.12)',
+            borderColor: '#2196F3', // Material Blue
+            backgroundColor: 'rgba(33,150,243,0.1)',
             yAxisID: 'y',
             tension: 0.2,
             pointRadius: 0,
@@ -68,8 +69,8 @@ const createChartData = (values: ChartValues) => ({
             type: 'line',
             label: 'PV Forecast (kW)',
             data: values.pv,
-            borderColor: '#87F0A3',
-            backgroundColor: 'rgba(135,240,163,.18)',
+            borderColor: '#4CAF50', // Material Green
+            backgroundColor: 'rgba(76,175,80,0.15)',
             fill: true,
             yAxisID: 'y1',
             tension: .35,
@@ -79,7 +80,7 @@ const createChartData = (values: ChartValues) => ({
             type: 'bar',
             label: 'Load (kW)',
             data: values.load,
-            backgroundColor: '#F5D547',
+            backgroundColor: '#FF9800', // Material Orange
             borderRadius: 6,
             yAxisID: 'y1',
             barPercentage: 1,
@@ -89,7 +90,7 @@ const createChartData = (values: ChartValues) => ({
             type: 'bar',
             label: 'Charge (kW)',
             data: values.charge ?? values.labels.map(() => null),
-            backgroundColor: '#7EA0FF',
+            backgroundColor: '#2196F3', // Material Blue
             hidden: true,
             yAxisID: 'y1',
         },
@@ -97,7 +98,7 @@ const createChartData = (values: ChartValues) => ({
             type: 'bar',
             label: 'Discharge (kW)',
             data: values.discharge ?? values.labels.map(() => null),
-            backgroundColor: '#FF7A7A',
+            backgroundColor: '#F44336', // Material Red
             hidden: true,
             yAxisID: 'y1',
         },
@@ -105,7 +106,15 @@ const createChartData = (values: ChartValues) => ({
             type: 'bar',
             label: 'Export (kWh)',
             data: values.export ?? values.labels.map(() => null),
-            backgroundColor: '#9BF6A3',
+            backgroundColor: '#4CAF50', // Material Green
+            hidden: true,
+            yAxisID: 'y1',
+        },
+        {
+            type: 'bar',
+            label: 'Water Heating (kW)',
+            data: values.water ?? values.labels.map(() => null),
+            backgroundColor: '#FF5722', // Material Deep Orange
             hidden: true,
             yAxisID: 'y1',
         },
@@ -113,6 +122,7 @@ const createChartData = (values: ChartValues) => ({
             type: 'line',
             label: 'SoC Target (%)',
             data: values.socTarget ?? values.labels.map(() => null),
+            borderColor: '#9C27B0', // Material Purple
             yAxisID: 'y1',
             pointRadius: 0,
             hidden: true,
@@ -121,6 +131,7 @@ const createChartData = (values: ChartValues) => ({
             type: 'line',
             label: 'SoC Projected (%)',
             data: values.socProjected ?? values.labels.map(() => null),
+            borderColor: '#607D8B', // Material Blue Grey
             yAxisID: 'y1',
             pointRadius: 0,
             hidden: true,
@@ -144,6 +155,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         charge: false,
         discharge: false,
         export: false,
+        water: false,
         socTarget: false,
         socProjected: false,
     })
@@ -168,12 +180,13 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 if(!liveData) return
                 // Apply overlay visibility based on toggles
                 const ds = liveData.datasets
-                // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 socTarget, 7 socProjected
+                // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 water, 7 socTarget, 8 socProjected
                 if (ds[3]) ds[3].hidden = !overlays.charge
                 if (ds[4]) ds[4].hidden = !overlays.discharge
                 if (ds[5]) ds[5].hidden = !overlays.export
-                if (ds[6]) ds[6].hidden = !overlays.socTarget
-                if (ds[7]) ds[7].hidden = !overlays.socProjected
+                if (ds[6]) ds[6].hidden = !overlays.water
+                if (ds[7]) ds[7].hidden = !overlays.socTarget
+                if (ds[8]) ds[8].hidden = !overlays.socProjected
                 ;(chartInstance as any).data = liveData
                 chartInstance.update()
             })
@@ -194,6 +207,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             ['Charge', 'charge'],
             ['Discharge', 'discharge'],
             ['Export', 'export'],
+            ['Water', 'water'],
             ['SoC Target', 'socTarget'],
             ['SoC Projected', 'socProjected'],
         ] as const).map(([label, key]) => (
@@ -225,6 +239,7 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
     const charge = ordered.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
     const discharge = ordered.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
     const exp = ordered.map(slot => slot.export_kwh ?? null)
+    const water = ordered.map(slot => slot.water_heating_kw ?? null)
     const socTarget = ordered.map(slot => slot.soc_target_percent ?? null)
     const socProjected = ordered.map(slot => slot.projected_soc_percent ?? null)
 
@@ -237,6 +252,7 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
         charge,
         discharge,
         export: exp,
+        water,
         socTarget,
         socProjected,
     })
