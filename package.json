@@ -1,0 +1,12 @@
+{
+  "name": "darkstar-monorepo",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -k -n FRONTEND,BACKEND \"npm:dev:frontend\" \"npm:dev:backend\"",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "bash scripts/dev-backend.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
