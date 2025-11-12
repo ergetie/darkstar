@@ -1,13 +1,73 @@
+import { useState } from 'react'
 import { cls } from '../theme'
 import { Rocket, CloudDownload, Upload, RotateCcw } from 'lucide-react'
+import { Api } from '../lib/api'
 
 export default function QuickActions(){
+    const [loading, setLoading] = useState<string | null>(null)
+    const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+    const handleAction = async (action: string, apiCall: () => Promise<any>) => {
+        setLoading(action)
+        setFeedback(null)
+        try {
+            const result = await apiCall()
+            setFeedback({ type: 'success', message: result.message || 'Success' })
+        } catch (error) {
+            setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Failed' })
+        } finally {
+            setLoading(null)
+            // Clear feedback after 3 seconds
+            setTimeout(() => setFeedback(null), 3000)
+        }
+    }
+
     return (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <button className={cls.accentBtn}><Rocket className="inline -mt-0.5 mr-2 h-4 w-4" />Run planner</button>
-        <button className={cls.ghostBtn}><CloudDownload className="inline -mt-0.5 mr-2 h-4 w-4" />Load server plan</button>
-        <button className={cls.ghostBtn}><Upload className="inline -mt-0.5 mr-2 h-4 w-4" />Push to DB</button>
-        <button className={cls.ghostBtn}><RotateCcw className="inline -mt-0.5 mr-2 h-4 w-4" />Reset to optimal</button>
+        <div className="space-y-3">
+            {feedback && (
+                <div className={`rounded-lg px-3 py-2 text-sm ${
+                    feedback.type === 'success' 
+                        ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
+                        : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                }`}>
+                    {feedback.message}
+                </div>
+            )}
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <button 
+                    className={cls.iconBtn}
+                    onClick={() => handleAction('run-planner', () => Api.runPlanner())}
+                    disabled={loading === 'run-planner'}
+                    title="Run planner"
+                >
+                    <Rocket className="h-4 w-4" />
+                </button>
+                <button 
+                    className={cls.iconBtn}
+                    onClick={() => handleAction('load-server', () => Api.loadServerPlan())}
+                    disabled={loading === 'load-server'}
+                    title="Load server plan"
+                >
+                    <CloudDownload className="h-4 w-4" />
+                </button>
+                <button 
+                    className={cls.iconBtn}
+                    onClick={() => handleAction('push-db', () => Api.pushToDb())}
+                    disabled={loading === 'push-db'}
+                    title="Push to DB"
+                >
+                    <Upload className="h-4 w-4" />
+                </button>
+                <button 
+                    className={cls.iconBtn}
+                    onClick={() => handleAction('reset', () => Api.resetToOptimal())}
+                    disabled={loading === 'reset'}
+                    title="Reset to optimal"
+                >
+                    <RotateCcw className="h-4 w-4" />
+                </button>
+            </div>
         </div>
     )
 }

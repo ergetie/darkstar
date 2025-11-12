@@ -26,6 +26,10 @@ export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
   status: () => getJSON<StatusResponse>('/api/status'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
+  runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner'),
+  loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
+  pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current'),
+  resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save'),
 }
 
 export const Sel = {
