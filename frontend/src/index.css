@@ -1,0 +1,17 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Subtle grain / vignette for premium feel */
+:root {
+    --ring: 0 0% 100%;
+}
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+    radial-gradient(1200px 600px at 80% -10%, rgba(255,255,255,0.05), transparent 60%),
+    radial-gradient(1200px 600px at 10% 110%, rgba(255,255,255,0.05), transparent 60%);
+}
