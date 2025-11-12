@@ -290,6 +290,7 @@
 2. **Chart Theme & Dataset Improvements**
    * Apply Material Design colors to all datasets (fix invisible SoC lines)
    * Ensure charge/discharge/export/SoC appear in legend with toggles
+   * Add water heating dataset with proper color and legend toggle
    * Verify dataset visibility matches legacy UI behavior
    * Test color contrast and accessibility
 
