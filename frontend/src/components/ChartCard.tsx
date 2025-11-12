@@ -1,6 +1,7 @@
 import Card from './Card'
 import { useEffect, useRef } from 'react'
-import { Chart, ChartConfiguration } from 'chart.js/auto'
+import { Chart as ChartJS, ChartConfiguration } from 'chart.js/auto'
+import type { Chart } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
@@ -145,14 +146,16 @@ export default function ChartCard(){
             data: fallbackData,
             options: chartOptions,
         }
-        chartRef.current = new Chart(ref.current, cfg)
+        chartRef.current = new ChartJS(ref.current, cfg)
 
         Api.schedule()
             .then(data => {
                 const liveData = buildLiveData(data.slots ?? [])
                 if(!liveData) return
-                chartRef.current?.data = liveData
-                chartRef.current?.update()
+                const chartInstance = chartRef.current
+                if(!chartInstance) return
+                ;(chartInstance as any).data = liveData
+                chartInstance.update()
             })
             .catch(() => {})
 
