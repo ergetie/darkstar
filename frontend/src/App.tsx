@@ -1,6 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
-import Header from './components/Header'
 import Dashboard from './pages/Dashboard'
 import Planning from './pages/Planning'
 import Learning from './pages/Learning'
@@ -12,7 +11,6 @@ export default function App(){
         <BrowserRouter>
         <Sidebar />
         <div className="pl-[96px]">
-        <Header />
         <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/planning" element={<Planning />} />
