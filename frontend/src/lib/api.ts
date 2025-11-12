@@ -16,8 +16,15 @@ export type HorizonResponse = {
 
 export type ScheduleResponse = { schedule: import('./types').ScheduleSlot[] }
 
-async function getJSON<T>(path: string): Promise<T> {
-  const r = await fetch(path, { headers: { Accept: 'application/json' } })
+async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
+  const options: RequestInit = { 
+    method,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' }
+  }
+  if (body && method === 'POST') {
+    options.body = JSON.stringify(body)
+  }
+  const r = await fetch(path, options)
   if (!r.ok) throw new Error(`${path} -> ${r.status}`)
   return r.json() as Promise<T>
 }
@@ -26,10 +33,10 @@ export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
   status: () => getJSON<StatusResponse>('/api/status'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
-  runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner'),
+  runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
-  pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current'),
-  resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save'),
+  pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
+  resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
 }
 
 export const Sel = {
