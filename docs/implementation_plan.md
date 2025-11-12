@@ -247,24 +247,47 @@
 
 ## Backlog
 
-### Rev 40 — Timeline Interactions *(Status: 📋 Planned)*
+### Dashboard Completion
+- [ ] Quick Actions API wiring (run planner, load server plan, push to DB, reset optimal)
+- [ ] Dynamic KPIs from real data (battery capacity, PV today, avg load from `/api/ha/average`)
+- [ ] Status cards integration (water heater from `/api/ha/water_today`, export guard, learning status)
+- [ ] Plan origin indicator ("local vs server plan" toggle/display)
+- [ ] Dataset visibility toggles (show/hide charge/discharge/export/SoC lines)
+- [ ] Real-time data polling for live updates
+- [ ] Timezone fixes for day slicing (use local TZ instead of UTC)
+- [ ] Chart theme colors with Material Design palette (fix invisible SoC lines)
+- [ ] Header logo replacement (move lucide-bolt from header to sidebar, replace "nav" text)
+- [ ] Quick action buttons UI fix (icons only, text on hover, fix text spilling)
+- [ ] Header items moved to sidebar menu
 
-* **Summary**: Integrate vis‑timeline within the new design for manual planning lanes (Battery/Water/Export/Hold): add buttons, drag/resize, simulate→save, with live chart sync.
-* **Overview Steps**
-  * Bring vis‑timeline into React (package or script) and render lanes styled per new theme.
-  * Map legacy manual block schema to React types; implement create/edit/delete flows.
-  * Wire `/api/simulate` for preview updates and `/api/schedule/save` for persistence.
-  * Refresh chart after simulate/save; preserve device caps and SoC target semantics.
-  * Handle historical slots (read‑only) and zero‑capacity gaps; align colors with legacy rules.
+### Planning Timeline
+- [ ] vis-timeline React integration with new theme styling
+- [ ] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
+- [ ] Simulate/save workflow with `/api/simulate` and `/api/schedule/save`
+- [ ] Chart synchronization after manual changes
+- [ ] Historical slots read-only handling
+- [ ] Device caps and SoC target enforcement
+- [ ] Zero-capacity gap handling
 
-### Rev 41 — Learning & Debug Views *(Status: 📋 Planned)*
+### Settings & Configuration
+- [ ] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
+- [ ] Theme picker using `/api/themes` and `/api/theme`
+- [ ] Form validation and persistence with `/api/config/save`
+- [ ] Config reset functionality with `/api/config/reset`
 
-* **Summary**: Card‑based Learning/Debug parity with legacy tabs.
-* **Overview Steps**
-  * Learning: call `/api/learning/status`, `/api/learning/loops`, `/api/learning/changes` and render metrics/tables.
-  * Debug: call `/api/debug`, `/api/debug/logs` with polling; structured log view with filters.
-  * Dashboard badges/cards: `/api/status`, `/api/forecast/horizon`, `/api/ha/*` as needed.
-  * Ensure dark theme parity and consistent grid/timeline color rules across pages.
+### Learning & Debug
+- [ ] Learning engine UI (status, metrics, loops, changes from `/api/learning/*`)
+- [ ] Debug data visualization (`/api/debug`, `/api/debug/logs`)
+- [ ] Log viewer with polling and filters
+- [ ] Historical SoC chart from `/api/history/soc`
+
+### Production Readiness
+- [ ] Error handling & loading states for all API calls
+- [ ] Mobile responsiveness for all components
+- [ ] Performance optimization (chart rendering, data caching)
+- [ ] Deployment configuration (serve `frontend/dist` from Flask or separate static host)
+- [ ] Accessibility improvements (ARIA labels, keyboard navigation)
+- [ ] State management for user preferences and theme
 
 ---
 
