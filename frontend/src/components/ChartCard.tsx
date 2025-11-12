@@ -1,5 +1,5 @@
 import Card from './Card'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Chart as ChartJS, ChartConfiguration } from 'chart.js/auto'
 import type { Chart } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
@@ -140,6 +140,13 @@ type ChartCardProps = { day?: DaySel }
 export default function ChartCard({ day = 'today' }: ChartCardProps){
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
+    const [overlays, setOverlays] = useState({
+        charge: false,
+        discharge: false,
+        export: false,
+        socTarget: false,
+        socProjected: false,
+    })
 
     useEffect(() => {
         if(!ref.current) return
@@ -159,11 +166,19 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             .then(data => {
                 const liveData = buildLiveData(data.schedule ?? [], day)
                 if(!liveData) return
+                // Apply overlay visibility based on toggles
+                const ds = liveData.datasets
+                // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 socTarget, 7 socProjected
+                if (ds[3]) ds[3].hidden = !overlays.charge
+                if (ds[4]) ds[4].hidden = !overlays.discharge
+                if (ds[5]) ds[5].hidden = !overlays.export
+                if (ds[6]) ds[6].hidden = !overlays.socTarget
+                if (ds[7]) ds[7].hidden = !overlays.socProjected
                 ;(chartInstance as any).data = liveData
                 chartInstance.update()
             })
             .catch(() => {})
-    }, [day])
+    }, [day, overlays])
 
     return (
         <Card className="p-4 md:p-6 h-[380px]">
@@ -173,6 +188,23 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         </div>
         <div className="h-[310px]">
         <canvas ref={ref}/>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
+        {([
+            ['Charge', 'charge'],
+            ['Discharge', 'discharge'],
+            ['Export', 'export'],
+            ['SoC Target', 'socTarget'],
+            ['SoC Projected', 'socProjected'],
+        ] as const).map(([label, key]) => (
+            <button
+                key={key}
+                onClick={(e) => { e.preventDefault(); setOverlays(o => ({...o, [key]: !o[key as keyof typeof o]})) }}
+                className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays] ? 'bg-accent text-canvas border-accent' : 'border-line/60 text-muted hover:border-accent'}`}
+            >
+                {label}
+            </button>
+        ))}
         </div>
         </Card>
     )

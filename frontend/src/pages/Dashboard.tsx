@@ -11,10 +11,23 @@ export default function Dashboard(){
     const [day, setDay] = useState<DaySel>('today')
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
+    const [plannerMeta, setPlannerMeta] = useState<{plan: 'local' | 'db'; plannedAt?: string; version?: string} | null>(null)
 
     useEffect(() => {
         Api.status()
-            .then((data) => setSoc(Sel.socValue(data) ?? null))
+            .then((data) => {
+                setSoc(Sel.socValue(data) ?? null)
+                // Prefer local meta; fall back to db if present
+                const local = data.local ?? {}
+                const db = (data.db && 'planned_at' in data.db) ? (data.db as any) : null
+                if (local?.planned_at || local?.planner_version) {
+                    setPlannerMeta({ plan: 'local', plannedAt: local.planned_at, version: local.planner_version })
+                } else if (db?.planned_at || db?.planner_version) {
+                    setPlannerMeta({ plan: 'db', plannedAt: db.planned_at, version: db.planner_version })
+                } else {
+                    setPlannerMeta(null)
+                }
+            })
             .catch(() => {})
         Api.horizon()
             .then((data) =>
@@ -29,6 +42,8 @@ export default function Dashboard(){
     const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
     const pvDays = horizon?.pvDays ?? '—'
     const weatherDays = horizon?.weatherDays ?? '—'
+    const planBadge = plannerMeta ? `${plannerMeta.plan === 'local' ? 'local' : 'server'} plan` : 'plan'
+    const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
 
     const pillClass = (active: boolean) =>
         `rounded-pill px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${
@@ -54,6 +69,7 @@ export default function Dashboard(){
         <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
         <div className="text-text">SoC now: {socDisplay}</div>
         <div className="text-text">Horizon: PV {pvDays}d · Weather {weatherDays}d</div>
+        <div className="text-text">Now showing: {planBadge}{planMeta}</div>
         </div>
         <div className="grid grid-cols-2 gap-3">
         <Kpi label="Current SoC" value={socDisplay} hint="target 40%" />

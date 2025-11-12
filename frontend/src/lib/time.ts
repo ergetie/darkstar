@@ -14,18 +14,25 @@ export function isoToLocal(dateIso: string): Date {
   return d
 }
 
-export function ymd(date: Date): string {
-  return date.toISOString().slice(0, 10)
+const TZ = 'Europe/Stockholm'
+
+export function ymdLocal(date: Date, tz: string = TZ): string {
+  // Format YYYY-MM-DD in the provided timezone using Intl
+  const fmt = new Intl.DateTimeFormat('sv-SE', {
+    year: 'numeric', month: '2-digit', day: '2-digit', timeZone: tz,
+  })
+  // sv-SE yields YYYY-MM-DD already
+  return fmt.format(date)
 }
 
 export function isToday(dateIso: string, now = new Date()): boolean {
-  return ymd(isoToLocal(dateIso)) === ymd(now)
+  return ymdLocal(isoToLocal(dateIso)) === ymdLocal(now)
 }
 
 export function isTomorrow(dateIso: string, now = new Date()): boolean {
   const t = new Date(now)
   t.setDate(t.getDate() + 1)
-  return ymd(isoToLocal(dateIso)) === ymd(t)
+  return ymdLocal(isoToLocal(dateIso)) === ymdLocal(t)
 }
 
 export function formatHour(dateIso: string): string {
