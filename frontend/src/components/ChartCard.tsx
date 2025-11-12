@@ -5,7 +5,7 @@ import type { Chart } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { clampTo48hISO } from '../lib/time'
+import { clampTo48hISO, filterSlotsByDay, formatHM, DaySel } from '../lib/time'
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
@@ -135,7 +135,9 @@ const fallbackData = createChartData({
     load: sampleChart.load,
 })
 
-export default function ChartCard(){
+type ChartCardProps = { day?: DaySel }
+
+export default function ChartCard({ day = 'today' }: ChartCardProps){
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
 
@@ -150,7 +152,7 @@ export default function ChartCard(){
 
         Api.schedule()
             .then(data => {
-                const liveData = buildLiveData(data.schedule ?? [])
+                const liveData = buildLiveData(data.schedule ?? [], day)
                 if(!liveData) return
                 const chartInstance = chartRef.current
                 if(!chartInstance) return
@@ -175,25 +177,27 @@ export default function ChartCard(){
     )
 }
 
-function buildLiveData(slots: ScheduleSlot[]) {
-    if(!slots.length) return null
-    const labels = slots.map(slot => slot.start_time ?? '')
-    const mask = clampTo48hISO(labels)
+function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
+    const filtered = filterSlotsByDay(slots, day)
+    if(!filtered.length) return null
+    const isoList = filtered.map(slot => slot.start_time)
+    const mask = clampTo48hISO(isoList)
     if(!mask.length) return null
 
-    const pick = (values: (number | null)[]) => mask.map(idx => values[idx] ?? null)
-    const price = slots.map(slot => slot.import_price_sek_kwh ?? null)
-    const pv = slots.map(slot => slot.pv_forecast_kwh ?? null)
-    const load = slots.map(slot => slot.load_forecast_kwh ?? null)
-    const charge = slots.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
-    const discharge = slots.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-    const exp = slots.map(slot => slot.export_kwh ?? null)
-    const socTarget = slots.map(slot => slot.soc_target_percent ?? null)
-    const socProjected = slots.map(slot => slot.projected_soc_percent ?? null)
+    const price = filtered.map(slot => slot.import_price_sek_kwh ?? null)
+    const pv = filtered.map(slot => slot.pv_forecast_kwh ?? null)
+    const load = filtered.map(slot => slot.load_forecast_kwh ?? null)
+    const charge = filtered.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
+    const discharge = filtered.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+    const exp = filtered.map(slot => slot.export_kwh ?? null)
+    const socTarget = filtered.map(slot => slot.soc_target_percent ?? null)
+    const socProjected = filtered.map(slot => slot.projected_soc_percent ?? null)
 
-    const visibleLabels = mask.map(idx => labels[idx] ?? '')
+    const pick = (values: (number | null)[]) => mask.map(idx => values[idx] ?? null)
+    const labels = mask.map(idx => formatHM(filtered[idx].start_time))
+
     return createChartData({
-        labels: visibleLabels,
+        labels,
         price: pick(price),
         pv: pick(pv),
         load: pick(load),
