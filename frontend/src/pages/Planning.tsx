@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import PillButton from '../components/PillButton'
 import { lanes, blocks } from '../lib/sample'
-import { Api } from '../lib/api'
+import { Api, Sel } from '../lib/api'
 
 const laneHeight = 64  // px
 const hours = Array.from({length:24}, (_,i)=>i)
@@ -13,10 +13,15 @@ export default function Planning(){
 
     useEffect(() => {
         Api.status()
-            .then(data => setSoc(data.soc.value))
+            .then((d) => setSoc(Sel.socValue(d) ?? null))
             .catch(() => {})
         Api.horizon()
-            .then(data => setHorizon({ pvDays: data.pv_days, weatherDays: data.weather_days }))
+            .then((d) =>
+                setHorizon({
+                    pvDays: Sel.pvDays(d) ?? undefined,
+                    weatherDays: Sel.wxDays(d) ?? undefined,
+                }),
+            )
             .catch(() => {})
     }, [])
 
