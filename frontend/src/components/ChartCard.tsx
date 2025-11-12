@@ -90,9 +90,12 @@ type ChartValues = {
     water?: (number | null)[]
     socTarget?: (number | null)[]
     socProjected?: (number | null)[]
+    hasNoData?: boolean
+    day?: DaySel
 }
 
-const createChartData = (values: ChartValues) => ({
+const createChartData = (values: ChartValues) => {
+    const baseData = {
     labels: values.labels,
     datasets: [
         {
@@ -177,7 +180,27 @@ const createChartData = (values: ChartValues) => ({
             hidden: true,
         },
     ],
-})
+}
+    
+    // Add no-data message if needed
+    if (values.hasNoData) {
+        baseData.plugins = {
+            ...baseData.plugins,
+            tooltip: {
+                enabled: true,
+                external: true,
+                callbacks: {
+                    title: () => values.day === 'tomorrow' ? 'No Price Data' : 'No Data',
+                    label: () => values.day === 'tomorrow' 
+                        ? 'Schedule data not available yet. Check back later for prices.' 
+                        : 'No schedule data available.'
+                }
+            }
+        }
+    }
+    
+    return baseData
+}
 
 const fallbackData = createChartData({
     labels: sampleChart.labels,
@@ -233,14 +256,24 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             .catch(() => {})
     }, [day, overlays])
 
+    const hasNoDataMessage = liveData?.hasNoData
+    
     return (
         <Card className="p-4 md:p-6 h-[380px]">
         <div className="flex items-baseline justify-between pb-3">
         <div className="text-sm text-muted">Schedule Overview</div>
         <div className="text-[11px] text-muted">today → tomorrow</div>
         </div>
-        <div className="h-[310px]">
-        <canvas ref={ref}/>
+        <div className="h-[310px] relative">
+        {hasNoDataMessage && (
+            <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
+                <div className="text-center">
+                    <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
+                    <div className="text-sm text-muted">Schedule data not available yet. Check back later for prices.</div>
+                </div>
+            </div>
+        )}
+        <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }}/>
         </div>
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
         {([
@@ -266,7 +299,24 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
 
 function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
     const filtered = filterSlotsByDay(slots, day)
-    if(!filtered.length) return null
+    if(!filtered.length) {
+        // For tomorrow without schedule data, create minimal structure with message
+        console.log(`[buildLiveData] No ${day} slots found, creating fallback`)
+        return {
+            labels: Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`),
+            price: Array(24).fill(null),
+            pv: Array(24).fill(null),
+            load: Array(24).fill(null),
+            charge: Array(24).fill(null),
+            discharge: Array(24).fill(null),
+            export: Array(24).fill(null),
+            water: Array(24).fill(null),
+            socTarget: Array(24).fill(null),
+            socProjected: Array(24).fill(null),
+            hasNoData: true,
+            day
+        }
+    }
     const ordered = [...filtered].sort((a, b) => {
         const aTime = new Date(a.start_time).getTime()
         const bTime = new Date(b.start_time).getTime()
