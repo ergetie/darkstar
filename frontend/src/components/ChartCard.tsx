@@ -150,7 +150,7 @@ export default function ChartCard(){
 
         Api.schedule()
             .then(data => {
-                const liveData = buildLiveData(data.slots ?? [])
+                const liveData = buildLiveData(data.schedule ?? [])
                 if(!liveData) return
                 const chartInstance = chartRef.current
                 if(!chartInstance) return
