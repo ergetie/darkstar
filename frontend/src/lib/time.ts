@@ -14,8 +14,6 @@ export function isoToLocal(dateIso: string): Date {
   return d
 }
 
-const TZ = 'Europe/Stockholm'
-
 export function ymdLocal(date: Date, tz: string = TZ): string {
   // Format YYYY-MM-DD in the provided timezone using Intl
   const fmt = new Intl.DateTimeFormat('sv-SE', {
