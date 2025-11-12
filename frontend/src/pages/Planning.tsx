@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import Card from '../components/Card'
+import ChartCard from '../components/ChartCard'
 import PillButton from '../components/PillButton'
 import { lanes, blocks } from '../lib/sample'
 import { Api, Sel } from '../lib/api'
+import type { DaySel } from '../lib/time'
 
 const laneHeight = 64  // px
 const hours = Array.from({length:24}, (_,i)=>i)
@@ -10,6 +12,7 @@ const hours = Array.from({length:24}, (_,i)=>i)
 export default function Planning(){
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
+    const [day, setDay] = useState<DaySel>('today')
 
     useEffect(() => {
         Api.status()
@@ -102,6 +105,25 @@ export default function Planning(){
         <button className="rounded-pill border border-line/70 px-5 py-2.5 text-text hover:border-accent">Reset</button>
         </div>
         </Card>
+        <div className="mt-6">
+        <div className="flex gap-3">
+        <button
+            className={`rounded-pill px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${day === 'today' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'}`}
+            onClick={() => setDay('today')}
+        >
+            Today
+        </button>
+        <button
+            className={`rounded-pill px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${day === 'tomorrow' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'}`}
+            onClick={() => setDay('tomorrow')}
+        >
+            Tomorrow
+        </button>
+        </div>
+        <div className="mt-4">
+        <ChartCard day={day} />
+        </div>
+        </div>
         </main>
     )
 }
