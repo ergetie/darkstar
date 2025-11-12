@@ -245,6 +245,113 @@
 
 ---
 
+## Rev 40 — Dashboard Completion *(Status: 📋 Planned)*
+
+* **Model**: [To be determined]
+* **Summary**: Complete Dashboard functionality to achieve full parity with legacy UI including API integration, visual improvements, and UX polish.
+* **Started**: [Timestamp]
+* **Last Updated**: [Timestamp]
+
+### Plan
+
+* **Goals**:
+  * Transform Dashboard from partially integrated mockup to fully functional interface
+  * Implement all missing backend integrations and user interactions
+  * Fix visual/UX issues and improve usability
+  * Establish real-time data flow and proper error handling
+* **Scope**:
+  * Quick Actions API wiring and functionality
+  * Chart theme improvements and dataset visibility
+  * Header/logo reorganization and menu structure  
+  * Dynamic KPIs and status cards with real data
+  * Real-time updates and timezone fixes
+  * UI/UX polish for buttons and interactions
+* **Dependencies**:
+  * Rev 39 (React scaffold and basic Dashboard)
+  * Backend APIs already available and functional
+* **Acceptance Criteria**:
+  * All Quick Action buttons trigger correct API calls and update UI
+  * Chart datasets are clearly visible with proper colors and toggles
+  * Header uses bolt logo, all items moved to sidebar menu
+  * KPIs and status cards show real-time data from appropriate APIs
+  * Day slicing works correctly with local timezone
+  * Data refreshes automatically or on-demand
+  * No console errors, proper loading states for all API calls
+
+### Implementation Steps (Multi-step tracking)
+
+1. **Quick Actions API Wiring**
+   * Wire "Run planner" → `/api/run_planner`
+   * Wire "Load server plan" → `/api/db/current_schedule` 
+   * Wire "Push to DB" → `/api/db/push_current`
+   * Wire "Reset to optimal" → clear manual changes
+   * Add success/error feedback and state updates
+
+2. **Chart Theme & Dataset Improvements**
+   * Apply Material Design colors to all datasets (fix invisible SoC lines)
+   * Ensure charge/discharge/export/SoC appear in legend with toggles
+   * Verify dataset visibility matches legacy UI behavior
+   * Test color contrast and accessibility
+
+3. **Header/Logo Reorganization**
+   * Move lucide-bolt icon from header to sidebar as logo
+   * Replace "nav" text in sidebar with bolt logo
+   * Move all header items to sidebar menu
+   * Update responsive behavior for mobile
+
+4. **Quick Actions UI Fix**
+   * Remove text from buttons, keep icons only
+   * Add hover tooltips with button labels
+   * Fix button sizing and text spilling issues
+   * Ensure consistent spacing and alignment
+
+5. **Dynamic KPIs Integration**
+   * Battery capacity from system config
+   * PV today from calculated schedule data
+   * Avg load from `/api/ha/average`
+   * Add loading states and error handling
+
+6. **Status Cards Real Data**
+   * Water heater from `/api/ha/water_today`
+   * Export guard status from config
+   * Learning status from `/api/learning/status`
+   * Add real-time updates
+
+7. **Real-time Updates & Timezone**
+   * Fix `isToday`/`isTomorrow` to use local timezone
+   * Add polling strategy for live data refresh
+   * Implement plan origin indicator (local vs server)
+   * Add data refresh controls
+
+### Files to be Modified
+* `frontend/src/components/QuickActions.tsx`
+* `frontend/src/components/ChartCard.tsx` 
+* `frontend/src/components/Header.tsx`
+* `frontend/src/components/Sidebar.tsx`
+* `frontend/src/pages/Dashboard.tsx`
+* `frontend/src/lib/api.ts` (expand API client)
+* `frontend/src/lib/time.ts` (timezone fixes)
+* `frontend/src/lib/types.ts` (if needed)
+
+### Configuration
+* No backend config changes required
+* Frontend: Material Design color palette constants
+
+### Verification
+* Test each Quick Action with API monitoring
+* Verify chart dataset visibility and colors
+* Check responsive behavior after header changes
+* Validate real-time data updates
+* Test timezone edge cases (midnight, DST)
+* Ensure error handling for failed API calls
+
+### Rollback Plan
+* Revert individual component changes if needed
+* Each step can be rolled back independently
+* API changes are client-side only, no backend impact
+
+---
+
 ## Backlog
 
 ### Dashboard Completion
