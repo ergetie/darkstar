@@ -241,6 +241,8 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             .then(data => {
                 const liveData = buildLiveData(data.schedule ?? [], day)
                 if(!liveData) return
+                // Update no-data message state
+                setHasNoDataMessage(liveData.hasNoData ?? false)
                 // Apply overlay visibility based on toggles
                 const ds = liveData.datasets
                 // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 water, 7 socTarget, 8 socProjected
@@ -256,7 +258,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             .catch(() => {})
     }, [day, overlays])
 
-    const hasNoDataMessage = liveData?.hasNoData
+    const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     
     return (
         <Card className="p-4 md:p-6 h-[380px]">
