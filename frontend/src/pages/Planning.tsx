@@ -1,47 +1,17 @@
-import { useEffect, useState } from 'react'
 import Card from '../components/Card'
-import ChartCard from '../components/ChartCard'
 import PillButton from '../components/PillButton'
 import { lanes, blocks } from '../lib/sample'
-import { Api, Sel } from '../lib/api'
-import type { DaySel } from '../lib/time'
 
 const laneHeight = 64  // px
 const hours = Array.from({length:24}, (_,i)=>i)
 
 export default function Planning(){
-    const [soc, setSoc] = useState<number | null>(null)
-    const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
-    const [day, setDay] = useState<DaySel>('today')
-
-    useEffect(() => {
-        Api.status()
-            .then((d) => setSoc(Sel.socValue(d) ?? null))
-            .catch(() => {})
-        Api.horizon()
-            .then((d) =>
-                setHorizon({
-                    pvDays: Sel.pvDays(d) ?? undefined,
-                    weatherDays: Sel.wxDays(d) ?? undefined,
-                }),
-            )
-            .catch(() => {})
-    }, [])
-
-    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
-    const pvDays = horizon?.pvDays ?? '—'
-    const weatherDays = horizon?.weatherDays ?? '—'
-
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
         <Card className="p-4 md:p-6">
         <div className="flex items-baseline justify-between pb-4">
         <div className="text-sm text-muted">Planning Timeline</div>
         <div className="text-[11px] text-muted">today → tomorrow</div>
-        </div>
-        <div className="flex flex-wrap gap-6 pb-4 text-[11px] uppercase tracking-wider text-muted">
-        <div className="text-text">SoC now: {socDisplay}</div>
-        <div className="text-text">Horizon: PV {pvDays}d · Weather {weatherDays}d</div>
         </div>
 
         <div className="relative rounded-xl2 border border-line/60 bg-surface2 overflow-hidden">
@@ -105,25 +75,6 @@ export default function Planning(){
         <button className="rounded-pill border border-line/70 px-5 py-2.5 text-text hover:border-accent">Reset</button>
         </div>
         </Card>
-        <div className="mt-6">
-        <div className="flex gap-3">
-        <button
-            className={`rounded-pill px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${day === 'today' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'}`}
-            onClick={() => setDay('today')}
-        >
-            Today
-        </button>
-        <button
-            className={`rounded-pill px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${day === 'tomorrow' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'}`}
-            onClick={() => setDay('tomorrow')}
-        >
-            Tomorrow
-        </button>
-        </div>
-        <div className="mt-4">
-        <ChartCard day={day} />
-        </div>
-        </div>
         </main>
     )
 }

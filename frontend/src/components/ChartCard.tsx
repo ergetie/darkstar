@@ -5,7 +5,7 @@ import type { Chart } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { clampTo48hISO, filterSlotsByDay, formatHM, DaySel } from '../lib/time'
+import { filterSlotsByDay, formatHour, DaySel } from '../lib/time'
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
@@ -149,20 +149,21 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             options: chartOptions,
         }
         chartRef.current = new ChartJS(ref.current, cfg)
+        return () => chartRef.current?.destroy()
+    }, [])
 
+    useEffect(() => {
+        const chartInstance = chartRef.current
+        if(!chartInstance) return
         Api.schedule()
             .then(data => {
                 const liveData = buildLiveData(data.schedule ?? [], day)
                 if(!liveData) return
-                const chartInstance = chartRef.current
-                if(!chartInstance) return
                 ;(chartInstance as any).data = liveData
                 chartInstance.update()
             })
             .catch(() => {})
-
-        return () => chartRef.current?.destroy()
-    }, [])
+    }, [day])
 
     return (
         <Card className="p-4 md:p-6 h-[380px]">
@@ -180,31 +181,31 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
 function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
     const filtered = filterSlotsByDay(slots, day)
     if(!filtered.length) return null
-    const isoList = filtered.map(slot => slot.start_time)
-    const mask = clampTo48hISO(isoList)
-    if(!mask.length) return null
+    const ordered = [...filtered].sort((a, b) => {
+        const aTime = new Date(a.start_time).getTime()
+        const bTime = new Date(b.start_time).getTime()
+        return aTime - bTime
+    })
 
-    const price = filtered.map(slot => slot.import_price_sek_kwh ?? null)
-    const pv = filtered.map(slot => slot.pv_forecast_kwh ?? null)
-    const load = filtered.map(slot => slot.load_forecast_kwh ?? null)
-    const charge = filtered.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
-    const discharge = filtered.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-    const exp = filtered.map(slot => slot.export_kwh ?? null)
-    const socTarget = filtered.map(slot => slot.soc_target_percent ?? null)
-    const socProjected = filtered.map(slot => slot.projected_soc_percent ?? null)
+    const price = ordered.map(slot => slot.import_price_sek_kwh ?? null)
+    const pv = ordered.map(slot => slot.pv_forecast_kwh ?? null)
+    const load = ordered.map(slot => slot.load_forecast_kwh ?? null)
+    const charge = ordered.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
+    const discharge = ordered.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+    const exp = ordered.map(slot => slot.export_kwh ?? null)
+    const socTarget = ordered.map(slot => slot.soc_target_percent ?? null)
+    const socProjected = ordered.map(slot => slot.projected_soc_percent ?? null)
 
-    const pick = (values: (number | null)[]) => mask.map(idx => values[idx] ?? null)
-    const labels = mask.map(idx => formatHM(filtered[idx].start_time))
-
+    const labels = ordered.map(slot => formatHour(slot.start_time))
     return createChartData({
         labels,
-        price: pick(price),
-        pv: pick(pv),
-        load: pick(load),
-        charge: pick(charge),
-        discharge: pick(discharge),
-        export: pick(exp),
-        socTarget: pick(socTarget),
-        socProjected: pick(socProjected),
+        price,
+        pv,
+        load,
+        charge,
+        discharge,
+        export: exp,
+        socTarget,
+        socProjected,
     })
 }
