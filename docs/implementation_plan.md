@@ -180,80 +180,97 @@
 
 ---
 
-## Rev 39 — React Planning Scaffold *(Status: 📋 Planned)*
+## Rev 39 — React Planning Scaffold *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5 Codex CLI
-* **Summary**: Implement routes (`/planning`, `/learning`, `/debug`), left rail, base cards, and the chart block (48-hour view).
+* **Summary**: Establish React app shell (routes, left rail, header), and focus on the Dashboard tab with the 48‑hour chart fed from backend APIs. Planning timeline moved to Backlog.
 
 ### Plan
 
 * **Goals**
 
-  * Deliver desktop-first scaffold that mirrors legacy dashboard (chart only).
+  * Deliver desktop‑first Dashboard that mirrors the legacy chart (no timeline yet).
 * **Scope**
 
   * Tailwind tokens (dark charcoal, yellow accent), JetBrains Mono, Lucide left rail.
-  * Chart.js datasets: price line; PV/load fills; charge/export/discharge bars; SoC (projected/target/rt/historic).
+  * Chart.js datasets: price line; PV/load fills; charge/export/discharge bars; SoC (projected/target/historic).
+  * API wiring for `/api/schedule`, `/api/status`, `/api/forecast/horizon` where needed for Dashboard.
 * **Dependencies**
 
   * Rev 38 (proxy + dev loop).
 * **Acceptance Criteria**
 
-  * `/planning` renders datasets from `/api/*` with correct 48-hour window and no “bridges” on missing/partial data.
+  * Dashboard chart renders datasets from `/api/*` with correct 48‑hour window and no “bridges” on missing/partial data; day toggle works.
 
 ### Implementation
 
-* **Completed**: —
-* **Next Steps**:
+* **Completed**
 
-  * Adapt data mapping (support `battery_charge_kw`/`battery_discharge_kw` and legacy).
-* **Verification**
+  * App shell with routes: `/`, `/planning`, `/learning`, `/debug`, `/settings`.
+  * Sidebar, Header, Card components and design tokens.
+  * Dashboard ChartCard fetching `/api/schedule` and mapping fields to datasets (supports both `battery_*` and legacy `charge_kw`/`discharge_kw`).
+  * Day selector (today/tomorrow); Chart.js configured with `spanGaps: false` to avoid bridging missing points.
+  * Dev proxy and dual‑server loop available from Rev 38.
 
-  * Visual inspection + snapshot of datasets; timezone correctness (Europe/Stockholm).
+* **In Progress**
+
+  * Timezone/day filtering correctness for Europe/Stockholm (today/tomorrow slicing).
+  * Dataset completeness toggles and visual polish to match legacy chart conventions.
+
+* **Blocked**: —
+
+* **Next Steps**
+
+  * Harden day filtering around DST and local midnight boundaries.
+  * Expose toggles or legends for SoC/charge/export layers consistent with legacy.
+  * Add basic horizon/status badges to Dashboard using `/api/status` and `/api/forecast/horizon`.
+
+* **Technical Decisions**
+
+  * Keep timeline interactions (vis‑timeline) out of Rev 39; implement under Backlog (Rev 40).
+
+* **Files Modified**
+
+  * `frontend/src/App.tsx`, `frontend/src/components/ChartCard.tsx`, `frontend/src/pages/Dashboard.tsx`, `frontend/src/lib/{api.ts,time.ts,types.ts}` and related UI scaffolding.
+
+* **Configuration**
+
+  * None (dev‑only via Vite proxy from Rev 38).
+
+### Verification
+
+* **Tests Status**
+
+  * Visual inspection of datasets; manual checks of dataset alignment; pending timezone edge validation.
+* **Known Issues**
+
+  * Day slicing can be off due to UTC vs local date computation; tracked in Backlog tasks.
+* **Rollback Plan**
+
+  * Revert frontend chart/data wiring changes if required; API unchanged.
 
 ---
 
-## Rev 40 — Timeline Interactions *(Status: 📋 Planned)*
+## Backlog
 
-* **Model**: GPT-5 Codex CLI
-* **Summary**: vis-timeline with lanes (Battery/Water/Export/Hold), lane-aligned **+chg/+wtr/+exp/+hld** buttons, drag/resize, simulate→save.
+### Rev 40 — Timeline Interactions *(Status: 📋 Planned)*
 
-### Plan
+* **Summary**: Integrate vis‑timeline within the new design for manual planning lanes (Battery/Water/Export/Hold): add buttons, drag/resize, simulate→save, with live chart sync.
+* **Overview Steps**
+  * Bring vis‑timeline into React (package or script) and render lanes styled per new theme.
+  * Map legacy manual block schema to React types; implement create/edit/delete flows.
+  * Wire `/api/simulate` for preview updates and `/api/schedule/save` for persistence.
+  * Refresh chart after simulate/save; preserve device caps and SoC target semantics.
+  * Handle historical slots (read‑only) and zero‑capacity gaps; align colors with legacy rules.
 
-* **Goals**
+### Rev 41 — Learning & Debug Views *(Status: 📋 Planned)*
 
-  * Parity with legacy manual planning; update chart live after simulate/save.
-* **Scope**
-
-  * vis-timeline groups + item editing; `/api/simulate` then `/api/schedule/save`.
-* **Dependencies**
-
-  * Rev 39.
-* **Acceptance Criteria**
-
-  * Create/edit/delete manual blocks persists and reflects on chart.
-
----
-
-## Rev 41 — Learning & Debug Views *(Status: 📋 Planned)*
-
-* **Model**: GPT-5 Codex CLI
-* **Summary**: Card-style metrics and analysis sections to match legacy “Learning/Debug” tabs.
-
-### Plan
-
-* **Goals**
-
-  * Surface the same information as today, with updated visual language.
-* **Scope**
-
-  * Pull from `/api/ha/*`, `/api/status`, `/api/forecast/horizon`, learning/debug endpoints.
-* **Dependencies**
-
-  * Rev 39.
-* **Acceptance Criteria**
-
-  * All sections render without loss of information; dark theme parity (including timeline/grid color rules).
+* **Summary**: Card‑based Learning/Debug parity with legacy tabs.
+* **Overview Steps**
+  * Learning: call `/api/learning/status`, `/api/learning/loops`, `/api/learning/changes` and render metrics/tables.
+  * Debug: call `/api/debug`, `/api/debug/logs` with polling; structured log view with filters.
+  * Dashboard badges/cards: `/api/status`, `/api/forecast/horizon`, `/api/ha/*` as needed.
+  * Ensure dark theme parity and consistent grid/timeline color rules across pages.
 
 ---
 

@@ -1,0 +1,153 @@
+.
+├── AGENTS.md
+├── bin
+│   ├── release.py
+│   └── run_planner.py
+├── config.default.yaml
+├── config.yaml
+├── darkstar-react-ui-mockup
+│   ├── index.html
+│   ├── package.json
+│   ├── package-lock.json
+│   ├── postcss.config.cjs
+│   ├── public
+│   │   ├── darkstar-ascii.txt
+│   │   └── favicon.svg
+│   ├── src
+│   │   ├── App.tsx
+│   │   ├── components
+│   │   ├── index.css
+│   │   ├── lib
+│   │   ├── main.tsx
+│   │   ├── pages
+│   │   └── theme.ts
+│   ├── tailwind.config.cjs
+│   ├── tsconfig.json
+│   └── vite.config.ts
+├── data
+│   └── planner_learning.db
+├── db_writer.py
+├── docs
+│   ├── implementation_plan.md
+│   ├── old
+│   │   ├── gap_analysis.md
+│   │   ├── project_plan_v1.md
+│   │   └── project_plan_v3.md
+│   └── repo_tree.txt
+├── .flake8
+├── flask.log
+├── .gitignore
+├── inputs.py
+├── learning.py
+├── lint.sh
+├── planner.py
+├── .pre-commit-config.yaml
+├── pyproject.toml
+├── .pytest_cache
+│   ├── CACHEDIR.TAG
+│   ├── .gitignore
+│   ├── README.md
+│   └── v
+│       └── cache
+├── .python-version
+├── README.md
+├── reference
+│   ├── decision_maker.js
+│   └── executor_controller.js
+├── requirements.txt
+├── run_webui.sh
+├── schedule.json
+├── secrets.yaml
+├── static
+│   ├── css
+│   │   └── style.css
+│   ├── favicon.ico
+│   ├── js
+│   │   ├── app.js
+│   │   └── app.js.backup
+│   └── vis-timeline
+│       └── 8.4.0
+├── temp_config_20251103_095015.yaml
+├── temp_config_20251103_095016.yaml
+├── temp_config_20251103_095047.yaml
+├── temp_config_20251103_095058.yaml
+├── temp_config_20251103_095059.yaml
+├── temp_config_20251103_095845.yaml
+├── temp_config_20251103_100235.yaml
+├── temp_config_20251103_100236.yaml
+├── temp_config_20251103_101005.yaml
+├── temp_config_20251103_101100.yaml
+├── temp_config_20251103_101106.yaml
+├── temp_config_20251103_101111.yaml
+├── temp_config_20251103_101221.yaml
+├── temp_config_20251103_102434.yaml
+├── templates
+│   └── index.html
+├── test_colors.py
+├── test.db
+├── test.html
+├── tests
+│   ├── run_tests.py
+│   ├── test_energy_conversions.py
+│   ├── test_export_logic.py
+│   ├── test_gap_responsibilities.py
+│   ├── test_home_assistant_integration.py
+│   ├── test_hysteresis.py
+│   ├── test_json_schema.py
+│   ├── test_learning_engine.py
+│   ├── test_learning_integration.py
+│   ├── test_power_limits.py
+│   ├── test_rev7_behaviour.py
+│   ├── test_soc_targets.py
+│   ├── test_theme_system.py
+│   └── test_water_scheduling.py
+├── themes
+│   ├── Atom One Dark
+│   ├── Ayu
+│   ├── Batman
+│   ├── Catppuccin Latte
+│   ├── Catppuccin Macchiato
+│   ├── Dark Modern
+│   ├── Material
+│   └── Material Design Colors
+├── venv
+│   ├── bin
+│   │   ├── activate
+│   │   ├── activate.csh
+│   │   ├── activate.fish
+│   │   ├── Activate.ps1
+│   │   ├── black
+│   │   ├── blackd
+│   │   ├── f2py
+│   │   ├── flake8
+│   │   ├── flask
+│   │   ├── identify-cli
+│   │   ├── nodeenv
+│   │   ├── normalizer
+│   │   ├── numpy-config
+│   │   ├── pip
+│   │   ├── pip3
+│   │   ├── pip3.13
+│   │   ├── pre-commit
+│   │   ├── pycodestyle
+│   │   ├── pyflakes
+│   │   ├── pygmentize
+│   │   ├── py.test
+│   │   ├── pytest
+│   │   ├── python -> /usr/bin/python
+│   │   ├── python3 -> python
+│   │   ├── python3.13 -> python
+│   │   └── virtualenv
+│   ├── .gitignore
+│   ├── include
+│   │   └── python3.13
+│   ├── lib
+│   │   └── python3.13
+│   ├── lib64 -> lib
+│   └── pyvenv.cfg
+├── webapp_debug.log
+├── webapp.log
+├── webapp.py
+└── webapp_test.log
+
+30 directories, 121 files
