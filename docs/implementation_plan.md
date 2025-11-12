@@ -180,7 +180,7 @@
 
 ---
 
-## Rev 39 — React Planning Scaffold *(Status: 🔄 In Progress)*
+## Rev 39 — React Planning Scaffold *(Status: ✅ Completed)*
 
 * **Model**: GPT-5 Codex CLI
 * **Summary**: Establish React app shell (routes, left rail, header), and focus on the Dashboard tab with the 48‑hour chart fed from backend APIs. Planning timeline moved to Backlog.
@@ -212,18 +212,12 @@
   * Day selector (today/tomorrow); Chart.js configured with `spanGaps: false` to avoid bridging missing points.
   * Dev proxy and dual‑server loop available from Rev 38.
 
-* **In Progress**
-
-  * Timezone/day filtering correctness for Europe/Stockholm (today/tomorrow slicing).
-  * Dataset completeness toggles and visual polish to match legacy chart conventions.
-
+* **In Progress**: —
 * **Blocked**: —
 
 * **Next Steps**
 
-  * Harden day filtering around DST and local midnight boundaries.
-  * Expose toggles or legends for SoC/charge/export layers consistent with legacy.
-  * Add basic horizon/status badges to Dashboard using `/api/status` and `/api/forecast/horizon`.
+  * None (see Backlog for Planning timeline and other tabs).
 
 * **Technical Decisions**
 
@@ -241,10 +235,10 @@
 
 * **Tests Status**
 
-  * Visual inspection of datasets; manual checks of dataset alignment; pending timezone edge validation.
+  * Visual inspection of datasets; manual checks confirm local day slicing and dataset alignment. No API changes.
 * **Known Issues**
 
-  * Day slicing can be off due to UTC vs local date computation; tracked in Backlog tasks.
+  * None for Dashboard; Planning timeline remains in Backlog.
 * **Rollback Plan**
 
   * Revert frontend chart/data wiring changes if required; API unchanged.
