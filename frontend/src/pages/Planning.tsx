@@ -1,17 +1,39 @@
+import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import PillButton from '../components/PillButton'
 import { lanes, blocks } from '../lib/sample'
+import { Api } from '../lib/api'
 
 const laneHeight = 64  // px
 const hours = Array.from({length:24}, (_,i)=>i)
 
 export default function Planning(){
+    const [soc, setSoc] = useState<number | null>(null)
+    const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
+
+    useEffect(() => {
+        Api.status()
+            .then(data => setSoc(data.soc.value))
+            .catch(() => {})
+        Api.horizon()
+            .then(data => setHorizon({ pvDays: data.pv_days, weatherDays: data.weather_days }))
+            .catch(() => {})
+    }, [])
+
+    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
+    const pvDays = horizon?.pvDays ?? '—'
+    const weatherDays = horizon?.weatherDays ?? '—'
+
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
         <Card className="p-4 md:p-6">
         <div className="flex items-baseline justify-between pb-4">
         <div className="text-sm text-muted">Planning Timeline</div>
         <div className="text-[11px] text-muted">today → tomorrow</div>
+        </div>
+        <div className="flex flex-wrap gap-6 pb-4 text-[11px] uppercase tracking-wider text-muted">
+        <div className="text-text">SoC now: {socDisplay}</div>
+        <div className="text-text">Horizon: PV {pvDays}d · Weather {weatherDays}d</div>
         </div>
 
         <div className="relative rounded-xl2 border border-line/60 bg-surface2 overflow-hidden">

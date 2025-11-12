@@ -2,6 +2,137 @@ import Card from './Card'
 import { useEffect, useRef } from 'react'
 import { Chart, ChartConfiguration } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
+import { Api } from '../lib/api'
+import type { ScheduleSlot } from '../lib/types'
+import { clampTo48hISO } from '../lib/time'
+
+const chartOptions: ChartConfiguration['options'] = {
+    maintainAspectRatio: false,
+    spanGaps: false,
+    plugins: {
+        legend: {
+            labels: {
+                color: '#e6e9ef',
+                boxWidth: 10,
+                font: { size: 12 },
+                filter: (item) =>
+                    typeof item.datasetIndex === 'number' && item.datasetIndex < 3,
+            },
+        },
+    },
+    scales: {
+        x: {
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: { color: '#a6b0bf', maxRotation: 0, autoSkip: true },
+        },
+        y: {
+            position: 'right',
+            grid: { color: 'rgba(255,255,255,0.06)' },
+            ticks: { color: '#a6b0bf' },
+        },
+        y1: {
+            position: 'left',
+            grid: { display: false },
+            ticks: { color: '#a6b0bf' },
+        },
+    },
+}
+
+type ChartValues = {
+    labels: string[]
+    price: (number | null)[]
+    pv: (number | null)[]
+    load: (number | null)[]
+    charge?: (number | null)[]
+    discharge?: (number | null)[]
+    export?: (number | null)[]
+    socTarget?: (number | null)[]
+    socProjected?: (number | null)[]
+}
+
+const createChartData = (values: ChartValues) => ({
+    labels: values.labels,
+    datasets: [
+        {
+            type: 'line',
+            label: 'Import Price (SEK/kWh)',
+            data: values.price,
+            borderColor: '#7ea0ff',
+            backgroundColor: 'rgba(126,160,255,.12)',
+            yAxisID: 'y',
+            tension: 0.2,
+            pointRadius: 0,
+        },
+        {
+            type: 'line',
+            label: 'PV Forecast (kW)',
+            data: values.pv,
+            borderColor: '#87F0A3',
+            backgroundColor: 'rgba(135,240,163,.18)',
+            fill: true,
+            yAxisID: 'y1',
+            tension: .35,
+            pointRadius: 0,
+        },
+        {
+            type: 'bar',
+            label: 'Load (kW)',
+            data: values.load,
+            backgroundColor: '#F5D547',
+            borderRadius: 6,
+            yAxisID: 'y1',
+            barPercentage: 1,
+            categoryPercentage: .9,
+        },
+        {
+            type: 'bar',
+            label: 'Charge (kW)',
+            data: values.charge ?? values.labels.map(() => null),
+            backgroundColor: '#7EA0FF',
+            hidden: true,
+            yAxisID: 'y1',
+        },
+        {
+            type: 'bar',
+            label: 'Discharge (kW)',
+            data: values.discharge ?? values.labels.map(() => null),
+            backgroundColor: '#FF7A7A',
+            hidden: true,
+            yAxisID: 'y1',
+        },
+        {
+            type: 'bar',
+            label: 'Export (kWh)',
+            data: values.export ?? values.labels.map(() => null),
+            backgroundColor: '#9BF6A3',
+            hidden: true,
+            yAxisID: 'y1',
+        },
+        {
+            type: 'line',
+            label: 'SoC Target (%)',
+            data: values.socTarget ?? values.labels.map(() => null),
+            yAxisID: 'y1',
+            pointRadius: 0,
+            hidden: true,
+        },
+        {
+            type: 'line',
+            label: 'SoC Projected (%)',
+            data: values.socProjected ?? values.labels.map(() => null),
+            yAxisID: 'y1',
+            pointRadius: 0,
+            hidden: true,
+        },
+    ],
+})
+
+const fallbackData = createChartData({
+    labels: sampleChart.labels,
+    price: sampleChart.price,
+    pv: sampleChart.pv,
+    load: sampleChart.load,
+})
 
 export default function ChartCard(){
     const ref = useRef<HTMLCanvasElement | null>(null)
@@ -9,75 +140,23 @@ export default function ChartCard(){
 
     useEffect(() => {
         if(!ref.current) return
-            const cfg: ChartConfiguration = {
-                type: 'bar',
-              data: {
-                  labels: sampleChart.labels,
-              datasets: [
-                  {
-                      type: 'line',
-              label: 'Import Price (SEK/kWh)',
-              data: sampleChart.price,
-              borderColor: '#7ea0ff',
-              backgroundColor: 'rgba(126,160,255,.12)',
-              yAxisID: 'y',
-              tension: 0.2,
-              pointRadius: 0,
-                  },
-              {
-                  type: 'line',
-              label: 'PV Forecast (kW)',
-              data: sampleChart.pv,
-              borderColor: '#87F0A3',
-              backgroundColor: 'rgba(135,240,163,.18)',
-              fill: true,
-              yAxisID: 'y1',
-              tension: .35,
-              pointRadius: 0,
-              },
-              {
-                  type: 'bar',
-              label: 'Load (kW)',
-              data: sampleChart.load,
-              backgroundColor: '#F5D547',
-              borderRadius: 6,
-              yAxisID: 'y1',
-              barPercentage: 1,
-              categoryPercentage: .9,
-              },
-              ]
-              },
-              options: {
-                  maintainAspectRatio: false,
-              plugins: {
-                  legend: {
-                      labels: {
-                          color: '#e6e9ef',
-              boxWidth: 10,
-              font: { size: 12 }
-                      }
-                  }
-              },
-              scales: {
-                  x: {
-                      grid: { color: 'rgba(255,255,255,0.06)' },
-              ticks: { color: '#a6b0bf', maxRotation: 0, autoSkip: true }
-                  },
-              y: {
-                  position: 'right',
-              grid: { color: 'rgba(255,255,255,0.06)' },
-              ticks: { color: '#a6b0bf' }
-              },
-              y1: {
-                  position: 'left',
-              grid: { display: false },
-              ticks: { color: '#a6b0bf' }
-              }
-              }
-              }
-            }
-            chartRef.current = new Chart(ref.current, cfg)
-            return () => chartRef.current?.destroy()
+        const cfg: ChartConfiguration = {
+            type: 'bar',
+            data: fallbackData,
+            options: chartOptions,
+        }
+        chartRef.current = new Chart(ref.current, cfg)
+
+        Api.schedule()
+            .then(data => {
+                const liveData = buildLiveData(data.slots ?? [])
+                if(!liveData) return
+                chartRef.current?.data = liveData
+                chartRef.current?.update()
+            })
+            .catch(() => {})
+
+        return () => chartRef.current?.destroy()
     }, [])
 
     return (
@@ -91,4 +170,34 @@ export default function ChartCard(){
         </div>
         </Card>
     )
+}
+
+function buildLiveData(slots: ScheduleSlot[]) {
+    if(!slots.length) return null
+    const labels = slots.map(slot => slot.start_time ?? '')
+    const mask = clampTo48hISO(labels)
+    if(!mask.length) return null
+
+    const pick = (values: (number | null)[]) => mask.map(idx => values[idx] ?? null)
+    const price = slots.map(slot => slot.import_price_sek_kwh ?? null)
+    const pv = slots.map(slot => slot.pv_forecast_kwh ?? null)
+    const load = slots.map(slot => slot.load_forecast_kwh ?? null)
+    const charge = slots.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
+    const discharge = slots.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+    const exp = slots.map(slot => slot.export_kwh ?? null)
+    const socTarget = slots.map(slot => slot.soc_target_percent ?? null)
+    const socProjected = slots.map(slot => slot.projected_soc_percent ?? null)
+
+    const visibleLabels = mask.map(idx => labels[idx] ?? '')
+    return createChartData({
+        labels: visibleLabels,
+        price: pick(price),
+        pv: pick(pv),
+        load: pick(load),
+        charge: pick(charge),
+        discharge: pick(discharge),
+        export: pick(exp),
+        socTarget: pick(socTarget),
+        socProjected: pick(socProjected),
+    })
 }
