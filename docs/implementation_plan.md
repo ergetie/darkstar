@@ -294,7 +294,7 @@
    * Verify dataset visibility matches legacy UI behavior
    * Test color contrast and accessibility
 
-3. **Header/Logo Reorganization** 📋
+3. **Header/Logo Reorganization** ✅
    * Move lucide-bolt icon from header to sidebar as logo
    * Replace "nav" text in sidebar with bolt logo
    * Move all header items to sidebar menu
@@ -351,8 +351,9 @@
   * Quick Actions UI fix with icon-only buttons and hover tooltips
   * Dashboard rendering fix - resolved undefined variable causing complete UI failure
   * Graceful fallback for tomorrow data when no prices are available
+  * Header/Logo reorganization - moved bolt to sidebar, moved header items to menu
 
-* **In Progress**: Header/Logo reorganization (move bolt to sidebar, move header items to menu)
+* **In Progress**: —
 * **Blocked**: —
 * **Next Steps**: Continue with Step 3 (Header/Logo Reorganization), then proceed with remaining Rev 40 steps
 
