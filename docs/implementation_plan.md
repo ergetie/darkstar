@@ -245,12 +245,12 @@
 
 ---
 
-## Rev 40 — Dashboard Completion *(Status: 📋 Planned)*
+## Rev 40 — Dashboard Completion *(Status: 🔄 In Progress)*
 
-* **Model**: [To be determined]
+* **Model**: GPT-5 Codex CLI
 * **Summary**: Complete Dashboard functionality to achieve full parity with legacy UI including API integration, visual improvements, and UX polish.
-* **Started**: [Timestamp]
-* **Last Updated**: [Timestamp]
+* **Started**: 2025-11-13
+* **Last Updated**: 2025-11-13
 
 ### Plan
 
@@ -280,31 +280,36 @@
 
 ### Implementation Steps (Multi-step tracking)
 
-1. **Quick Actions API Wiring**
+1. **Quick Actions API Wiring** ✅
    * Wire "Run planner" → `/api/run_planner`
    * Wire "Load server plan" → `/api/db/current_schedule` 
    * Wire "Push to DB" → `/api/db/push_current`
    * Wire "Reset to optimal" → clear manual changes
    * Add success/error feedback and state updates
 
-2. **Chart Theme & Dataset Improvements**
+2. **Chart Theme & Dataset Improvements** ✅
    * Apply Material Design colors to all datasets (fix invisible SoC lines)
    * Ensure charge/discharge/export/SoC appear in legend with toggles
    * Add water heating dataset with proper color and legend toggle
    * Verify dataset visibility matches legacy UI behavior
    * Test color contrast and accessibility
 
-3. **Header/Logo Reorganization**
+3. **Header/Logo Reorganization** 📋
    * Move lucide-bolt icon from header to sidebar as logo
    * Replace "nav" text in sidebar with bolt logo
    * Move all header items to sidebar menu
    * Update responsive behavior for mobile
 
-4. **Quick Actions UI Fix**
+4. **Quick Actions UI Fix** ✅
    * Remove text from buttons, keep icons only
    * Add hover tooltips with button labels
    * Fix button sizing and text spilling issues
    * Ensure consistent spacing and alignment
+
+5. **Dashboard Rendering Fix** ✅
+   * Fixed undefined `liveData` variable causing JavaScript errors
+   * Added proper state management for no-data message display
+   * Implemented graceful fallback for tomorrow without price data
 
 5. **Dynamic KPIs Integration**
    * Battery capacity from system config
@@ -337,6 +342,19 @@
 ### Configuration
 * No backend config changes required
 * Frontend: Material Design color palette constants
+
+### Implementation
+
+* **Completed**:
+  * Quick Actions API wiring with POST methods and success/error feedback
+  * Chart theme improvements with Material Design colors and proper Y-axis mapping
+  * Quick Actions UI fix with icon-only buttons and hover tooltips
+  * Dashboard rendering fix - resolved undefined variable causing complete UI failure
+  * Graceful fallback for tomorrow data when no prices are available
+
+* **In Progress**: Header/Logo reorganization (move bolt to sidebar, move header items to menu)
+* **Blocked**: —
+* **Next Steps**: Continue with Step 3 (Header/Logo Reorganization), then proceed with remaining Rev 40 steps
 
 ### Verification
 * Test each Quick Action with API monitoring
