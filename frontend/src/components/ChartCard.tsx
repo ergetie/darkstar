@@ -293,12 +293,11 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     return baseData
 }
 
-// Initial loading state - will be replaced with real data
-const loadingData = createChartData({
-    labels: Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`),
-    price: Array(24).fill(null),
-    pv: Array(24).fill(null),
-    load: Array(24).fill(null),
+const fallbackData = createChartData({
+    labels: sampleChart.labels,
+    price: sampleChart.price,
+    pv: sampleChart.pv,
+    load: sampleChart.load,
 }, {}) // Use empty theme colors initially, will be updated
 
 type ChartCardProps = { day?: DaySel }
@@ -318,13 +317,10 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         socProjected: false,
     })
 
-    // Theme colors and chart creation handled in useEffect below
-
     useEffect(() => {
-        // Load theme colors first, then schedule data
-        const loadThemeAndSchedule = async () => {
-            try {
-                const themeData = await Api.theme()
+        // Fetch theme colors on mount
+        Api.theme()
+            .then(themeData => {
                 const currentThemeInfo = themeData.themes.find(t => t.name === themeData.current)
                 if (currentThemeInfo) {
                     // Convert palette array to key-value format
@@ -336,108 +332,74 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                     colorMap['foreground'] = currentThemeInfo.foreground
                     setThemeColors(colorMap)
                     setCurrentTheme(themeData.current)
-                    
-                    // Now load schedule data with theme colors
-                    await loadScheduleData(colorMap)
                 }
-            } catch (err) {
-                console.error('Failed to load theme colors:', err)
-            }
+            })
+            .catch(err => console.error('Failed to load theme colors:', err))
+    }, [])
+
+    useEffect(() => {
+        if(!ref.current || Object.keys(themeColors).length === 0) return
+        const cfg: ChartConfiguration = {
+            type: 'bar',
+            data: createChartData({
+                labels: sampleChart.labels,
+                price: sampleChart.price,
+                pv: sampleChart.pv,
+                load: sampleChart.load,
+            }, themeColors),
+            options: chartOptions,
         }
-        
-        const loadScheduleData = async (colorMap: Record<string, string>) => {
-            if(!ref.current) return
-            
-            setIsLoading(true)
-            
-            // Small delay to ensure chart is ready
-            const timer = setTimeout(() => {
-                if(!ref.current) return
-                
-                Api.schedule()
-                    .then(data => {
-                        console.log(`[ChartCard] API response for ${currentDay}:`, {
-                            scheduleLength: data.schedule?.length || 0,
-                            hasSchedule: !!(data.schedule && data.schedule.length > 0)
-                        })
-                        
-                        const liveData = buildLiveData(data.schedule ?? [], currentDay, colorMap)
-                        console.log(`[ChartCard] buildLiveData result for ${currentDay}:`, {
-                            hasNoData: liveData?.hasNoData,
-                            datasetsCount: liveData?.datasets?.length || 0,
-                            labelsCount: liveData?.labels?.length || 0
-                        })
-                        
-                        if(!liveData || !ref.current) return
-                        setHasNoDataMessage(liveData.hasNoData ?? false)
-                        
-                        // Update existing chart or create new one
-                        if(chartRef.current) {
-                            chartRef.current.data = liveData
-                            chartRef.current.update('none')
-                        } else {
-                            const cfg: ChartConfiguration = {
-                                type: 'bar',
-                                data: liveData,
-                                options: chartOptions,
-                            }
-                            chartRef.current = new ChartJS(ref.current, cfg)
-                        }
-                        
-                        // Apply overlay visibility
-                        const ds = liveData.datasets
-                        if (ds[3]) ds[3].hidden = !overlays.charge
-                        if (ds[4]) ds[4].hidden = !overlays.discharge
-                        if (ds[5]) ds[5].hidden = !overlays.export
-                        if (ds[6]) ds[6].hidden = !overlays.water
-                        if (ds[7]) ds[7].hidden = !overlays.socTarget
-                        if (ds[8]) ds[8].hidden = !overlays.socProjected
-                    })
-                    .catch(err => console.error('Failed to load schedule:', err))
-                    .finally(() => setIsLoading(false))
-            }, 100)
-            
-            return () => {
-                clearTimeout(timer)
-                setIsLoading(false)
-            }
-        }
-        
-        loadThemeAndSchedule()
-    }, [currentDay]) // Only re-run when day changes
+        chartRef.current = new ChartJS(ref.current, cfg)
+        return () => chartRef.current?.destroy()
+    }, [themeColors]) // Re-create chart when theme colors are loaded
 
     useEffect(() => {
         const chartInstance = chartRef.current
         if(!chartInstance || Object.keys(themeColors).length === 0) return
-        
-        const timer = setTimeout(() => {
-            if(!chartRef.current) return
-            Api.schedule()
-                .then(data => {
-                    const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
-                    if(!liveData || !chartRef.current) return
-                    // Update no-data message state
-                    setHasNoDataMessage(liveData.hasNoData ?? false)
-                    // Apply overlay visibility based on toggles
-                    const ds = liveData.datasets
-                    // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 water, 7 socTarget, 8 socProjected
-                    if (ds[3]) ds[3].hidden = !overlays.charge
-                    if (ds[4]) ds[4].hidden = !overlays.discharge
-                    if (ds[5]) ds[5].hidden = !overlays.export
-                    if (ds[6]) ds[6].hidden = !overlays.water
-                    if (ds[7]) ds[7].hidden = !overlays.socTarget
-                    if (ds[8]) ds[8].hidden = !overlays.socProjected
-                    chartRef.current.data = liveData
-                    chartRef.current.update()
-                })
-                .catch(() => {})
-        }, 50)
-        
-        return () => clearTimeout(timer)
+        // Re-fetch and rebuild chart when day changes
+        Api.schedule()
+            .then(data => {
+                const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
+                if(!liveData) return
+                setHasNoDataMessage(liveData.hasNoData ?? false)
+                const ds = liveData.datasets
+                if (ds[3]) ds[3].hidden = !overlays.charge
+                if (ds[4]) ds[4].hidden = !overlays.discharge
+                if (ds[5]) ds[5].hidden = !overlays.export
+                if (ds[6]) ds[6].hidden = !overlays.water
+                if (ds[7]) ds[7].hidden = !overlays.socTarget
+                if (ds[8]) ds[8].hidden = !overlays.socProjected
+                chartInstance.data = liveData
+                chartInstance.update('none')
+            })
+            .catch(err => console.error('Failed to load schedule:', err))
+    }, [currentDay, themeColors])
+
+    useEffect(() => {
+        const chartInstance = chartRef.current
+        if(!chartInstance || Object.keys(themeColors).length === 0) return
+        Api.schedule()
+            .then(data => {
+                const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
+                if(!liveData) return
+                // Update no-data message state
+                setHasNoDataMessage(liveData.hasNoData ?? false)
+                // Apply overlay visibility based on toggles
+                const ds = liveData.datasets
+                // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 water, 7 socTarget, 8 socProjected
+                if (ds[3]) ds[3].hidden = !overlays.charge
+                if (ds[4]) ds[4].hidden = !overlays.discharge
+                if (ds[5]) ds[5].hidden = !overlays.export
+                if (ds[6]) ds[6].hidden = !overlays.water
+                if (ds[7]) ds[7].hidden = !overlays.socTarget
+                if (ds[8]) ds[8].hidden = !overlays.socProjected
+                ;(chartInstance as any).data = liveData
+                chartInstance.update()
+            })
+            .catch(() => {})
     }, [day, overlays, themeColors])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
-    const [isLoading, setIsLoading] = useState(true)
     
     return (
         <Card className="p-4 md:p-6 h-[380px]">
@@ -463,14 +425,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         </div>
         </div>
         <div className="h-[310px] relative">
-        {isLoading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
-                <div className="text-center">
-                    <div className="text-lg font-semibold text-muted mb-2">Loading schedule...</div>
-                </div>
-            </div>
-        )}
-        {hasNoDataMessage && !isLoading && (
+        {hasNoDataMessage && (
             <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
                 <div className="text-center">
                     <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
@@ -478,12 +433,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 </div>
             </div>
         )}
-        <canvas ref={ref} style={{ display: (hasNoDataMessage || isLoading) ? 'none' : 'block' }}/>
-        </div>
-        
-        {/* Debug info - remove later */}
-        <div className="text-xs text-muted mt-2">
-            Debug: isLoading={isLoading ? 'true' : 'false'}, hasNoDataMessage={hasNoDataMessage ? 'true' : 'false'}
+        <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }}/>
         </div>
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
         {([
@@ -511,7 +461,8 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel, themeColors: Record<s
     const filtered = filterSlotsByDay(slots, day)
     if(!filtered.length) {
         // For tomorrow without schedule data, create minimal structure with message
-        const fallbackValues = {
+        console.log(`[buildLiveData] No ${day} slots found, creating fallback`)
+        return {
             labels: Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`),
             price: Array(24).fill(null),
             pv: Array(24).fill(null),
@@ -525,7 +476,6 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel, themeColors: Record<s
             hasNoData: true,
             day
         }
-        return createChartData(fallbackValues, themeColors)
     }
     const ordered = [...filtered].sort((a, b) => {
         const aTime = new Date(a.start_time).getTime()
