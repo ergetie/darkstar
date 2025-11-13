@@ -7,10 +7,14 @@ import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
 import type { DaySel } from '../lib/time'
 
+type PlannerMeta = { plannedAt?: string; version?: string } | null
+
 export default function Dashboard(){
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
-    const [plannerMeta, setPlannerMeta] = useState<{plan: 'local' | 'db'; plannedAt?: string; version?: string} | null>(null)
+    const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
+    const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null)
+    const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
     const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
     const [batteryCapacity, setBatteryCapacity] = useState<number | null>(null)
     const [pvToday, setPvToday] = useState<number | null>(null)
@@ -54,13 +58,28 @@ export default function Dashboard(){
             if (statusData.status === 'fulfilled') {
                 const data = statusData.value
                 setSoc(Sel.socValue(data) ?? null)
-                // Prefer local meta; fall back to db if present
+
                 const local = data.local ?? {}
                 const db = (data.db && 'planned_at' in data.db) ? (data.db as any) : null
-                if (local?.planned_at || local?.planner_version) {
-                    setPlannerMeta({ plan: 'local', plannedAt: local.planned_at, version: local.planner_version })
-                } else if (db?.planned_at || db?.planner_version) {
-                    setPlannerMeta({ plan: 'db', plannedAt: db.planned_at, version: db.planner_version })
+
+                const nextLocalMeta: PlannerMeta =
+                    local?.planned_at || local?.planner_version
+                        ? { plannedAt: local.planned_at, version: local.planner_version }
+                        : null
+                const nextDbMeta: PlannerMeta =
+                    db?.planned_at || db?.planner_version
+                        ? { plannedAt: db.planned_at, version: db.planner_version }
+                        : null
+
+                setPlannerLocalMeta(nextLocalMeta)
+                setPlannerDbMeta(nextDbMeta)
+
+                // Provide a sensible initial meta for first load / refresh; this will be
+                // reconciled with currentPlanSource by a dedicated effect.
+                if (nextLocalMeta) {
+                    setPlannerMeta(nextLocalMeta)
+                } else if (nextDbMeta) {
+                    setPlannerMeta(nextDbMeta)
                 } else {
                     setPlannerMeta(null)
                 }
@@ -151,6 +170,17 @@ export default function Dashboard(){
             setIsRefreshing(false)
         }
     }, [])
+
+    // Keep displayed plannerMeta aligned with currentPlanSource and stored metadata.
+    useEffect(() => {
+        let nextMeta: PlannerMeta = null
+        if (currentPlanSource === 'server') {
+            nextMeta = plannerDbMeta
+        } else {
+            nextMeta = plannerLocalMeta
+        }
+        setPlannerMeta(nextMeta)
+    }, [currentPlanSource, plannerLocalMeta, plannerDbMeta])
 
     // Initial data fetch
     useEffect(() => {
