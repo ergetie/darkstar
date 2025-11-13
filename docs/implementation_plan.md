@@ -577,7 +577,7 @@
   * Keep the timeline visually consistent with the new dashboard theme and data sources.
 
 * **Scope**:
-  * React Planning tab timeline implementation with vis-timeline (or equivalent) component.
+  * React Planning tab timeline implementation using `react-calendar-timeline` as the primary engine (with a thin wrapper), with vis-timeline kept as a fallback only if needed.
   * Manual block CRUD (create/edit/delete for charge/water/export/hold blocks).
   * Simulate/save workflow using `/api/simulate` and `/api/schedule/save`.
   * Synchronization between timeline edits and the main schedule chart/summary.
@@ -585,10 +585,20 @@
   * Enforcement of device caps and SoC target constraints when editing blocks.
   * Handling of zero-capacity gaps according to existing planner rules.
 
+* **What the timeline must provide**:
+  * 48-hour window (today + tomorrow) with 30-minute slot precision.
+  * Lanes: charge, water heating, export, hold.
+  * 1:1 reflection with the schedule/chart in both directions (timeline edits → simulate/save → chart; server/local/manual origin stays clear).
+  * Dragging and resizing blocks for precise manual overrides.
+  * Zoom and pan for fine-grained adjustments.
+  * Lane-specific “add block” actions (buttons) for easy manual scheduling.
+  * A path to mobile/tablet responsiveness in the future (desktop first for Rev 42).
+  * A clean deletion model (no cluttered “x” icons on blocks; removal via selection/toolbar or similar).
+
 * **Dependencies**:
   * Rev 40 / 40.1 (Dashboard endpoints and schedule APIs stable).
   * Existing backend support for simulate/save (`/api/simulate`, `/api/schedule/save`).
-  * Legacy vis-timeline behavior as reference (Flask UI).
+  * Legacy vis-timeline behavior as reference (Flask UI) for interactions and colors.
 
 * **Acceptance Criteria**:
   * Planning tab shows a themed timeline with lanes for relevant block types (e.g. Battery/Water/Export/Hold).
@@ -605,8 +615,8 @@
    * Wire current schedule data from `/api/schedule` into a normalized structure usable by the timeline component.
    * Define lanes and basic grouping (Battery/Water/Export/Hold) based on existing schedule classifications.
 
-2. **vis-timeline Integration & Theming**
-   * Integrate vis-timeline (or a React wrapper) and render existing schedule blocks in the Planning tab.
+2. **Timeline Engine Integration & Theming**
+   * Integrate `react-calendar-timeline` inside a dedicated `PlanningTimeline` React component and render existing schedule blocks in the Planning tab.
    * Apply theme tokens (colors, fonts, spacing) to make the timeline visually consistent with the dashboard.
    * Ensure zoom/pan behavior and time scale match the 48‑hour planning window.
 
