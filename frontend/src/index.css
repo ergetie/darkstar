@@ -39,14 +39,21 @@ body::before {
     border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
 
+.react-calendar-timeline .rct-calendar-header {
+    background: transparent !important;
+    border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
 .react-calendar-timeline .rct-dateHeader-primary {
     display: none !important; /* hide big date header row */
 }
 
 .react-calendar-timeline .rct-dateHeader {
     background-color: transparent !important;
-    border-bottom-color: rgba(255, 255, 255, 0.06) !important;
-    border-left-color: rgba(255, 255, 255, 0.06) !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-left: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-right: none !important;
+    border-top: none !important;
     color: #a6b0bf !important;
     font-size: 11px !important;
 }
