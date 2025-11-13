@@ -652,6 +652,9 @@
    * Align timeline colors and block styles with the dashboard datasets (charge/export/water/SoC).
    * Adjust block corner radius to be less pill‑like (roughly half the current radius) while staying consistent with the dashboard’s minimal theme.
    * Configure time headers/ticks for clear hourly markers (HH) over the 48‑hour window, while preserving 30‑minute precision in interactions.
+   * Move lane \"add action\" buttons into the timeline sidebar so each lane has a vertically aligned button (`+ chg`, `+ wtr`, `+ exp`, `+ hld`) centered on its row, and drop redundant lane labels.
+   * Remove the large date header row from the timeline (keep only hourly ticks), and restyle headers/grid to use dark, toned‑down backgrounds matching the chart.
+   * Align Planning controls so \"Apply manual changes\" and related buttons are grouped on the left, and remove redundant \"today → tomorrow\" text now that the view is fixed to 48h.
    * Tune interactions (hover tooltips, selection, context menus if needed) to feel coherent with the rest of the app.
    * Ensure the Planning tab’s visual density and typography match the Dashboard (no stray labels/text inside blocks; buttons use `chg/wtr/exp/hld` labels).
    * Document keyboard/mouse interactions briefly within the Planning tab or help text.
