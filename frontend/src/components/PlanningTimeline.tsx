@@ -1,5 +1,4 @@
 import Timeline from 'react-calendar-timeline'
-import 'react-calendar-timeline/lib/Timeline.css'
 
 type LaneId = 'battery' | 'water' | 'export' | 'hold'
 
@@ -58,4 +57,3 @@ export default function PlanningTimeline({ lanes, blocks }: PlanningTimelineProp
     </div>
   )
 }
-
