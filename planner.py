@@ -2691,7 +2691,27 @@ class HeliosPlanner:
         }
         self.forecast_meta = forecast_meta
 
-        output = {"schedule": merged_schedule, "meta": {"forecast": forecast_meta}}
+        # Get git version for metadata
+        try:
+            import subprocess
+            version = (
+                subprocess.check_output(
+                    ["git", "describe", "--tags", "--always", "--dirty"], stderr=subprocess.DEVNULL
+                )
+                .decode()
+                .strip()
+            )
+        except Exception:
+            version = "dev"
+
+        output = {
+            "schedule": merged_schedule, 
+            "meta": {
+                "planned_at": datetime.now().isoformat(),
+                "planner_version": version,
+                "forecast": forecast_meta
+            }
+        }
 
         # Add debug payload if enabled
         debug_config = self.config.get("debug", {})

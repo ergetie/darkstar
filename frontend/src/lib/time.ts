@@ -48,15 +48,5 @@ export function filterSlotsByDay<T extends { start_time: string }>(
   const filtered = slots.filter((s) =>
     sel === 'today' ? isToday(s.start_time, now) : isTomorrow(s.start_time, now),
   )
-  console.log(`[filterSlotsByDay] ${sel}:`, {
-    total: slots.length,
-    filtered: filtered.length,
-    nowLocal: ymdLocal(now),
-    sampleSlots: slots.slice(0, 3).map(s => ({
-      start_time: s.start_time,
-      isToday: isToday(s.start_time, now),
-      isTomorrow: isTomorrow(s.start_time, now)
-    }))
-  })
   return filtered
 }
