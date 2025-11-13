@@ -559,6 +559,107 @@
   with a small pill label) above the canvas on the today chart only, avoiding
   Chart.js config recursion issues while still clearly indicating current time.
 
+---
+
+## Rev 42 — Planning Timeline *(Status: 📋 Planned)*
+
+* **Model**: GPT-5 Codex CLI (planned)
+* **Summary**: Rebuild the Planning Timeline tab in React, mirroring the legacy vis-timeline behavior (manual block planning, simulate/save) while matching the new dashboard theme.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Provide a fully functional Planning Timeline in the new React UI that matches legacy vis-timeline behavior.
+  * Allow users to create, edit, and delete manual blocks (charge, water, export, hold) with clear visual semantics.
+  * Integrate simulate/save flows so manual plans can be previewed and applied without breaking MPC protections.
+  * Keep the timeline visually consistent with the new dashboard theme and data sources.
+
+* **Scope**:
+  * React Planning tab timeline implementation with vis-timeline (or equivalent) component.
+  * Manual block CRUD (create/edit/delete for charge/water/export/hold blocks).
+  * Simulate/save workflow using `/api/simulate` and `/api/schedule/save`.
+  * Synchronization between timeline edits and the main schedule chart/summary.
+  * Read-only handling for historical slots.
+  * Enforcement of device caps and SoC target constraints when editing blocks.
+  * Handling of zero-capacity gaps according to existing planner rules.
+
+* **Dependencies**:
+  * Rev 40 / 40.1 (Dashboard endpoints and schedule APIs stable).
+  * Existing backend support for simulate/save (`/api/simulate`, `/api/schedule/save`).
+  * Legacy vis-timeline behavior as reference (Flask UI).
+
+* **Acceptance Criteria**:
+  * Planning tab shows a themed timeline with lanes for relevant block types (e.g. Battery/Water/Export/Hold).
+  * User can create, edit, and delete blocks for supported types within allowed time ranges.
+  * Simulate/save runs through backend APIs, and results are reflected both in the timeline and the schedule chart.
+  * Historical slots are read-only; user cannot modify past time windows.
+  * Edits respect device caps (power, energy) and SoC target bounds; invalid edits are prevented or clearly surfaced.
+  * Zero-capacity gaps are handled without breaking the visualization (no misleading continuous blocks).
+
+### Implementation Steps (Planned)
+
+1. **Timeline Shell & Data Wiring**
+   * Add Planning tab layout in React to host the timeline.
+   * Wire current schedule data from `/api/schedule` into a normalized structure usable by the timeline component.
+   * Define lanes and basic grouping (Battery/Water/Export/Hold) based on existing schedule classifications.
+
+2. **vis-timeline Integration & Theming**
+   * Integrate vis-timeline (or a React wrapper) and render existing schedule blocks in the Planning tab.
+   * Apply theme tokens (colors, fonts, spacing) to make the timeline visually consistent with the dashboard.
+   * Ensure zoom/pan behavior and time scale match the 48‑hour planning window.
+
+3. **Manual Block Model & CRUD**
+   * Define a client-side manual block model aligned with backend expectations (type, start, end, power/energy, metadata).
+   * Implement block creation (click/drag) for charge/water/export/hold types.
+   * Implement block editing (resize, move, type change where allowed) and deletion, with appropriate constraints.
+   * Persist unsaved edits in local UI state for simulate/save.
+
+4. **Simulate / Save Workflow**
+   * Map manual block state into the payload expected by `/api/simulate`.
+   * Implement a simulate action that:
+     * Sends manual blocks + context to `/api/simulate`.
+     * Shows the simulated plan in the timeline and chart without committing it.
+   * Implement save/apply via `/api/schedule/save`, updating the server plan and UI (timeline + dashboard) on success.
+   * Handle errors (validation issues, backend failures) with clear messages and non-destructive behavior.
+
+5. **Chart Synchronization & Status**
+   * Ensure that after simulate/save, the main dashboard chart reflects the same plan shown in the timeline.
+   * Add a small status indicator on the Planning tab showing whether the view represents local/manual vs server plan.
+   * Keep the "NOW SHOWING" metadata consistent with manual plan application.
+
+6. **Constraints, Read-only & Edge Cases**
+   * Mark historical slots as read-only in the timeline; prevent manual edits in the past.
+   * Enforce device caps and SoC bounds when editing or creating blocks (e.g. max charge/discharge power).
+   * Handle zero-capacity gaps inside blocks according to planner rules (e.g. split vs. visually indicate gaps).
+   * Add basic validation to avoid overlapping or conflicting blocks within the same lane.
+
+7. **UX & Theme Polish**
+   * Align timeline colors and block styles with the dashboard datasets (charge/export/water/SoC).
+   * Tune interactions (hover tooltips, selection, context menus if needed) to feel coherent with the rest of the app.
+   * Document keyboard/mouse interactions briefly within the Planning tab or help text.
+
+### Implementation
+
+* **Completed**: — (Rev 42 not started)
+* **In Progress**: —  
+* **Blocked**: —
+* **Next Steps**: Confirm Rev 42 scope and priorities, then begin with Step 1 (Timeline Shell & Data Wiring).
+
+### Verification (Planned)
+
+* Manual UI tests:
+  * Create/edit/delete blocks across types and confirm planner behavior stays consistent with legacy UI.
+  * Simulate and save scenarios, verifying backend APIs are called with expected payloads.
+  * Confirm that server and local/manual plans are clearly indicated and never silently diverge.
+* Edge case validation:
+  * Past slots remain read-only.
+  * Device cap and SoC constraints correctly prevent or flag invalid edits.
+  * Zero-capacity gaps do not produce misleading continuous blocks.
+
+---
+
 ### Verification
 * ✅ Run planner properly updates Dashboard display with new timestamp
 * ✅ No Chart.js DOM errors in console (added timing safeguards)
