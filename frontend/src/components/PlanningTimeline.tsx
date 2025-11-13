@@ -36,6 +36,7 @@ export default function PlanningTimeline({
   onBlockMove,
   onBlockResize,
   onBlockSelect,
+  onAddBlock,
 }: PlanningTimelineProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const groups = lanes.map((lane) => ({
