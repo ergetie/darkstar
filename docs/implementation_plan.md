@@ -661,9 +661,12 @@
 * **Completed**:
   * Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, initial lane/block normalization)
   * Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline integrated with themed items, 48‑hour window clamped to today+tomorrow, adjacent schedule slots merged into larger action blocks, and basic drag/resize + add‑block interactions working)
-* **In Progress**: Step 3 (Block CRUD & Reset Semantics – adding delete/reset behavior and treating the timeline as the editable 48‑hour schedule)  
+  * Step 3 (Block CRUD & Reset Semantics – select/delete individual blocks, reset timeline back to the latest schedule, treat the timeline as the editable 48‑hour schedule)
+  * Step 4 (Simulate / Save wiring from Planning – \"Apply manual changes\" builds a simplified block payload, posts to `/api/simulate`, reloads the merged schedule, and re-derives planning blocks)
+  * Step 5 (Chart Synchronization – Planning tab shows a 48‑hour schedule chart using the Dashboard chart component; the chart refreshes after simulate so timeline + chart stay in sync for the local plan)
+* **In Progress**: Step 6–7 (Constraints, Read-only & Edge Cases; UX & Theme Polish)  
 * **Blocked**: —
-* **Next Steps**: Implement reliable block deletion and reset‑to‑current‑plan behavior, then wire up simulate/save flows and chart synchronization in subsequent steps.
+* **Next Steps**: Add a Planning‑tab plan status indicator (local vs server), mark historical slots as read‑only/shaded, refine block styling and headers, and investigate the SoC Projected jump around 16:45–17:45 where SoC rises sharply without an obvious charge block.
 
 ### Verification (Planned)
 
@@ -698,12 +701,13 @@
 - [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
 ### Planning Timeline
-- [ ] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
-- [ ] Simulate/save workflow with `/api/simulate` and `/api/schedule/save`
-- [ ] Chart synchronization after manual changes
-- [ ] Historical slots read-only handling
+- [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
+- [x] Simulate/save workflow with `/api/simulate` (Planning \"Apply manual changes\" uses simulate to persist local plan)
+- [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
+- [x] Historical slots read-only handling
 - [ ] Device caps and SoC target enforcement
 - [ ] Zero-capacity gap handling
+- [ ] Investigate SoC Projected anomaly where SoC jumps (e.g. ~66%→94% around 16:45–17:45) without a clear matching charge block in the schedule; ensure projection is consistent with planned actions.
 
 ### Settings & Configuration
 - [ ] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
