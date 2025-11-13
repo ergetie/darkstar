@@ -298,7 +298,7 @@ const fallbackData = createChartData({
     price: sampleChart.price,
     pv: sampleChart.pv,
     load: sampleChart.load,
-}, themeColors)
+}, {}) // Use empty theme colors initially, will be updated
 
 type ChartCardProps = { day?: DaySel }
 
@@ -338,19 +338,24 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
     }, [])
 
     useEffect(() => {
-        if(!ref.current) return
+        if(!ref.current || Object.keys(themeColors).length === 0) return
         const cfg: ChartConfiguration = {
             type: 'bar',
-            data: fallbackData,
+            data: createChartData({
+                labels: sampleChart.labels,
+                price: sampleChart.price,
+                pv: sampleChart.pv,
+                load: sampleChart.load,
+            }, themeColors),
             options: chartOptions,
         }
         chartRef.current = new ChartJS(ref.current, cfg)
         return () => chartRef.current?.destroy()
-    }, [])
+    }, [themeColors]) // Re-create chart when theme colors are loaded
 
     useEffect(() => {
         const chartInstance = chartRef.current
-        if(!chartInstance) return
+        if(!chartInstance || Object.keys(themeColors).length === 0) return
         // Re-fetch and rebuild chart when day changes
         Api.schedule()
             .then(data => {
@@ -372,7 +377,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
 
     useEffect(() => {
         const chartInstance = chartRef.current
-        if(!chartInstance) return
+        if(!chartInstance || Object.keys(themeColors).length === 0) return
         Api.schedule()
             .then(data => {
                 const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
