@@ -1,7 +1,6 @@
 import { useRef, useState, WheelEvent } from 'react'
 import Timeline from 'react-calendar-timeline'
 import 'react-calendar-timeline/dist/style.css'
-import PillButton from './PillButton'
 
 type LaneId = 'battery' | 'water' | 'export' | 'hold'
 
@@ -138,19 +137,22 @@ export default function PlanningTimeline({
           if (!lane) return null
           const label =
             lane.id === 'battery'
-              ? '+ chg'
+              ? 'chg'
               : lane.id === 'water'
-              ? '+ wtr'
+              ? 'wtr'
               : lane.id === 'export'
-              ? '+ exp'
-              : '+ hld'
+              ? 'exp'
+              : 'hld'
           return (
             <div className="flex h-full items-center justify-center">
-              <PillButton
-                label={label}
-                color={lane.color}
+              <button
+                type="button"
+                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-line/60 bg-surface/80 text-[11px] font-semibold text-muted hover:bg-surface2"
                 onClick={() => onAddBlock && onAddBlock(lane.id)}
-              />
+                title={`Add ${lane.label.toLowerCase()} action`}
+              >
+                {label}
+              </button>
             </div>
           )
         }}
