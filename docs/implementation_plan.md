@@ -653,10 +653,12 @@
 
 ### Implementation
 
-* **Completed**: Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, initial lane/block normalization)
-* **In Progress**: Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline wired in, items visible, basic drag/resize and add buttons working)  
+* **Completed**:
+  * Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, initial lane/block normalization)
+  * Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline integrated with themed items, 48‑hour window clamped to today+tomorrow, adjacent schedule slots merged into larger action blocks, and basic drag/resize + add‑block interactions working)
+* **In Progress**: Step 3 (Manual Block Model & CRUD – shaping manual vs auto blocks and defining data model for simulate/save)  
 * **Blocked**: —
-* **Next Steps**: Clamp the timeline view to a rolling 48‑hour window (today + tomorrow), refine zoom behavior within that range, and merge adjacent slots into larger action blocks before moving to Step 3 (Manual Block Model & CRUD).
+* **Next Steps**: Finalize manual block modeling (distinguish manual overrides from schedule-derived blocks), then wire up simulate/save flows and chart synchronization in subsequent steps.
 
 ### Verification (Planned)
 
