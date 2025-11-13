@@ -445,13 +445,7 @@ export default function ChartCard({
                 <div
                     className="absolute top-2 bottom-6 border-l-2 border-accent/80"
                     style={{ left: `${nowPosition * 100}%` }}
-                >
-                    <div className="absolute -top-2 -translate-x-1/2">
-                        <span className="rounded-full bg-accent text-canvas px-2 py-[1px] text-[9px] font-semibold tracking-wide">
-                            NOW
-                        </span>
-                    </div>
-                </div>
+                />
             </div>
         )}
         <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }}/>
