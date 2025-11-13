@@ -42,6 +42,7 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
     )
 
     const merged: PlanningBlock[] = []
+    const lastByLane: Partial<Record<LaneId, PlanningBlock>> = {}
     let blockCounter = 0
 
     for (const slot of sorted) {
@@ -61,25 +62,21 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
         if (!laneCandidates.length) laneCandidates.push('hold')
 
         for (const lane of laneCandidates) {
-            const last = merged.length
-                ? merged[merged.length - 1]
-                : null
+            const last = lastByLane[lane]
 
-            if (
-                last &&
-                last.lane === lane &&
-                last.end.getTime() === start.getTime()
-            ) {
+            if (last && last.end.getTime() === start.getTime()) {
                 // Extend the previous block for this lane by 30 minutes
                 last.end = end
             } else {
-                merged.push({
+                const block: PlanningBlock = {
                     id: `auto-${blockCounter++}-${lane}`,
                     lane,
                     start,
                     end,
                     source: 'schedule',
-                })
+                }
+                merged.push(block)
+                lastByLane[lane] = block
             }
         }
     }
