@@ -698,6 +698,144 @@
 
 ---
 
+## Rev 43 — Settings & Configuration UI *(Status: 📋 Planned)*
+
+* **Model**: GPT-5 Codex CLI (planned)
+* **Summary**: Consolidate legacy System and Settings tabs into a single Settings page in the React UI (System / Parameters / UI), wire it to the existing config APIs, and surface all key planner, learning, and S-index safety parameters in a structured, safe way.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Provide a single, modern Settings tab that replaces the legacy Flask System + Settings views.
+  * Expose all critical configuration knobs from `config.yaml` (battery, arbitrage, charging strategy, learning, S-index safety, UI) in a clear structure.
+  * Support safe read/update/reset flows via `/api/config`, `/api/config/save`, `/api/config/reset` with basic client-side validation.
+  * Integrate theme selection and basic UI preferences so the app is configurable without editing files.
+
+* **Scope**:
+  * React Settings page with three main sections:
+    * **System** (hardware + integration): battery, HA entities, timezone, Nordpool basics, learning DB path.
+    * **Parameters** (planner behavior): charging strategy, arbitrage, water heating, Learning Parameter Limits, S-Index Safety.
+    * **UI** (app experience): theme picker, chart defaults, possibly auto-refresh and other display preferences.
+  * Read config from `/api/config` and map to structured forms.
+  * Persist changes via `/api/config/save` with deep-merge semantics and simple validation (non-negative numbers, sane ranges).
+  * Provide a “Reset to defaults” action hooked to `/api/config/reset` with confirmation and clear messaging.
+  * Ensure learning-related configuration (Learning Parameter Limits, S-Index Safety, and any `learning.*` keys) is discoverable under Settings, not scattered across tabs.
+
+* **Dependencies**:
+  * Rev 40 / 41 (Dashboard endpoints, schedule/status APIs, and config semantics stable).
+  * Rev 42 (Planning timeline and chart behavior using the current config).
+  * Backend config endpoints already implemented:
+    * `/api/config` (GET)
+    * `/api/config/save` (POST)
+    * `/api/config/reset` (POST)
+  * Theme endpoints:
+    * `/api/themes` / `/api/theme` used by the Dashboard.
+
+* **Acceptance Criteria**:
+  * Settings tab exists with three clear sections: System, Parameters, UI.
+  * All core fields from the legacy System and Settings screens are present and editable where appropriate (Battery, Arbitrage, Charging Strategy, Learning Parameter Limits, S-Index Safety, etc.).
+  * Learning-related configuration (e.g. `learning.enabled`, `learning.sqlite_path`, and safety limits) can be viewed and changed from a single place.
+  * Theme can be changed via the UI, persists across reloads, and continues to drive Dashboard/Planning theming.
+  * Saving validates obvious invalid inputs and shows inline error messages; successful saves show non-intrusive confirmation.
+  * Reset-to-defaults works via `/api/config/reset` and resets the UI to match the new config state without requiring a manual reload.
+
+### Implementation Steps (Planned)
+
+1. **Config Inventory & Legacy Mapping**
+   * Enumerate all relevant fields from `config.yaml` and the legacy System/Settings UIs, including:
+     * System: battery capacity and limits, timezone, Nordpool (price area, resolution, currency), HA sensor IDs, arbitrage basics, learning DB path.
+     * Parameters: charging_strategy.* (price smoothing, consolidation, caps), arbitrage.* (export thresholds/guards), water heating parameters, Learning Parameter Limits, S-Index Safety.
+   * Group these fields into logical sub-sections under:
+     * System (Battery, Grid/Price, Home Assistant, Learning Storage).
+     * Parameters (Charging Strategy, Arbitrage, Water Heating, Learning & S-Index Safety).
+     * UI (Theme, Chart defaults, App behavior).
+   * Decide which fields are:
+     * **Core** (exposed by default),
+     * **Advanced** (behind a disclosure/“Advanced” toggle),
+     * **Internal** (left in config only for now).
+
+2. **Settings Layout & Routing**
+   * Implement a `Settings` page layout in React that:
+     * Uses a simple internal tab/pill switcher (System / Parameters / UI) within the Settings tab.
+     * Presents each main section as one or more cards with headings and descriptions for sub-groups.
+   * Ensure the layout works at desktop widths and degrades reasonably on smaller viewports (no heavy mobile polish yet).
+
+3. **System Section – Read/Write Configuration**
+   * Wire the Settings page to `/api/config` on mount and normalize the config object into the System form state.
+   * Implement form controls for:
+     * Battery: capacity_kwh, min/max SoC (if exposed), efficiency (if present).
+     * Grid & pricing: timezone, Nordpool price area, resolution (with some fields read-only if we treat them as advanced).
+     * Home Assistant: key entity IDs like battery SoC, water heater daily energy.
+     * Learning storage: `learning.sqlite_path` (with a note that the directory must exist).
+   * Implement a “Save System Settings” path that:
+     * Builds a minimal patch object (only changed fields).
+     * Calls `/api/config/save` with that patch.
+     * Updates local state with the merged config on success.
+     * Surfaces validation errors or backend errors with a clear message.
+
+4. **Parameters Section – Planner, Learning & S-Index**
+   * Map legacy Settings fields to structured sub-cards:
+     * Charging Strategy (price_smoothing_sek_kwh, block_consolidation_tolerance_sek, consolidation_max_gap_slots, etc.).
+     * Arbitrage (export_percentile_threshold, enable_peak_only_export, export_future_price_guard, future_price_guard_buffer_sek).
+     * Water Heating (daily quota, deferral rules where configurable).
+     * **Learning Parameter Limits**: expose the existing learning-related safety limits from config (e.g. how far learning is allowed to move thresholds).
+     * **S-Index Safety**: expose `s_index.*` (mode, base_factor, max_factor, pv_deficit_weight, temp_weight, temp_baseline_c, temp_cold_c, days_ahead_for_sindex) with appropriate descriptions so it’s clear how they interact with learning.
+   * Implement a “Save Parameters” flow:
+     * Gather the parameters form state into a patch with the same shape as `config.yaml` (only under relevant keys).
+     * Post to `/api/config/save` and update the in-memory config on success.
+     * Basic validation:
+       * Disallow negative thresholds where they don’t make sense.
+       * Ensure weights and factors are within safe numeric ranges (e.g. 0–10 unless otherwise intended).
+       * Provide inline messages when validation fails.
+
+5. **UI Section – Theme & App Behavior**
+   * Integrate theme picker:
+     * Fetch theme data from `/api/themes` (as currently used on Dashboard).
+     * Add a picker in Settings > UI that lists available themes and accent variants.
+     * When a theme is chosen, call `/api/theme` or the existing theme-set endpoint if available (or fall back to the existing dashboard mechanism) and ensure the change is reflected across the app.
+   * Add a few simple UI preferences:
+     * Default dashboard overlays (which datasets are shown on first load).
+     * Possibly an auto-refresh default (on/off) that the Dashboard respects.
+   * Persist these UI preferences either in `config.yaml` (under a `ui` section) or, if config is not appropriate, document that they are front-end only (localStorage) and exclude them from `/api/config` save.
+
+6. **Shared Save / Reset Flow & UX**
+   * Add a consistent save/reset UI affordance:
+     * Section-level “Save” buttons that are clearly tied to System, Parameters, or UI.
+     * A global “Reset to defaults” button (with confirmation) that triggers `/api/config/reset` and refetches `/api/config` on success.
+   * Ensure:
+     * Buttons show loading/disabled states while requests are in flight.
+     * Success/failure toasts or inline messages are concise and visible.
+     * The app continues to behave correctly after a reset (Dashboard and Planning should consume the updated config).
+
+7. **Verification & Learning-related Backlog Alignment**
+   * Manual test scenarios:
+     * Change battery capacity or price area, save, and verify downstream UI uses the new values.
+     * Adjust Learning Parameter Limits and S-Index Safety, save, and confirm config.yaml is updated as expected (and that the app continues to run without errors).
+     * Change theme and verify Dashboard + Planning reflect the new theme without breaking charts or timeline.
+   * Align with existing backlog items:
+     * ✅ Cover “Configuration forms (decision thresholds, battery economics, charging strategy, etc.)” under System & Parameters.
+     * ✅ Implement theme picker using `/api/themes` and `/api/theme` under UI.
+     * ✅ Implement form validation and persistence with `/api/config/save`.
+     * ✅ Wire config reset with `/api/config/reset`.
+   * Note that **Learning & Debug** backlog items related to visualization (status UI, debug logs, historical SoC chart) remain for a future dedicated Learning/Debug Rev; this Rev 43 focuses on configuration surfaces and not the Learning tab UI.
+
+### Implementation
+
+* **Completed**: —  
+* **In Progress**: —  
+* **Blocked**: —  
+* **Next Steps**: Finalize the config inventory and System/Parameters/UI grouping, then implement the Settings layout and System section in the next iteration.
+
+### Verification (Planned)
+
+* Compare Settings UI fields against the legacy System + Settings tabs to ensure parity.
+* Manually inspect `config.yaml` before/after saves to confirm only the intended keys change.
+* Sanity-check planner behavior after adjusting key parameters (e.g. charging thresholds, S-index safety, learning limits) to ensure no invalid configurations are allowed through the UI.
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
