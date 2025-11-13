@@ -421,9 +421,93 @@ def api_version():
     return jsonify({"version": _get_git_version()})
 
 
-@app.route("/api/db/current_schedule", methods=["GET"])
+@app.route("/api/db/current_schedule", methods=["GET", "POST"])
 def db_current_schedule():
     """Return the current_schedule from MariaDB in the same shape used by the UI."""
+    # Handle POST request to load server plan to local file
+    if request.method == "POST":
+        try:
+            # Get the schedule data using the existing GET logic
+            config = _load_yaml("config.yaml")
+            resolution_minutes = int(config.get("nordpool", {}).get("resolution_minutes", 15))
+            tz_name = config.get("timezone", "Europe/Stockholm")
+            tz = pytz.timezone(tz_name)
+
+            with _db_connect_from_secrets() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT slot_number, slot_start, charge_kw, export_kw, water_kw,
+                               planned_load_kwh, planned_pv_kwh,
+                               soc_target, soc_projected, planner_version
+                        FROM current_schedule
+                        ORDER BY slot_number ASC
+                        """
+                    )
+                    rows = cur.fetchall() or []
+
+            if not rows:
+                return jsonify({"error": "No schedule found in database"}), 404
+
+            # Convert DB rows to schedule format (reuse existing logic)
+            schedule = []
+            for r in rows:
+                start = r["slot_start"]
+                try:
+                    end = start + pd.Timedelta(minutes=resolution_minutes)
+                    record = {
+                        "slot_number": r.get("slot_number"),
+                        "start_time": start.isoformat(),
+                        "end_time": end.isoformat(),
+                        "battery_charge_kw": round(max(float(r.get("charge_kw") or 0.0), 0.0), 2),
+                        "battery_discharge_kw": round(max(-float(r.get("charge_kw") or 0.0), 0.0), 2),
+                        "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
+                        "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
+                        "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
+                        "pv_forecast_kwh": round(float(r.get("planned_pv_kwh") or 0.0), 4),
+                        "soc_target_percent": round(float(r.get("soc_target") or 0.0), 2),
+                        "projected_soc_percent": round(float(r.get("soc_projected") or 0.0), 2),
+                    }
+                    schedule.append(record)
+                except Exception:
+                    # Fallback if not datetime (string), try parse
+                    start_dt = datetime.fromisoformat(str(start))
+                    end = start_dt + pd.Timedelta(minutes=resolution_minutes)
+                    record = {
+                        "slot_number": r.get("slot_number"),
+                        "start_time": start_dt.isoformat(),
+                        "end_time": end.isoformat(),
+                        "battery_charge_kw": round(max(float(r.get("charge_kw") or 0.0), 0.0), 2),
+                        "battery_discharge_kw": round(max(-float(r.get("charge_kw") or 0.0), 0.0), 2),
+                        "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
+                        "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
+                        "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
+                        "pv_forecast_kwh": round(float(r.get("planned_pv_kwh") or 0.0), 4),
+                        "soc_target_percent": round(float(r.get("soc_target") or 0.0), 2),
+                        "projected_soc_percent": round(float(r.get("soc_projected") or 0.0), 2),
+                    }
+                    schedule.append(record)
+
+            # Get planner version from first row
+            planner_version = rows[0]["planner_version"] if rows else None
+            
+            # Write to local schedule.json with proper metadata
+            output = {
+                "schedule": schedule,
+                "meta": {
+                    "planned_at": datetime.now().isoformat(),
+                    "planner_version": planner_version,
+                    "source": "database"
+                }
+            }
+            
+            with open("schedule.json", "w", encoding="utf-8") as f:
+                json.dump(output, f, ensure_ascii=False, indent=2)
+            
+            return jsonify({"status": "success", "message": "Server plan loaded to local file"})
+        except Exception as e:
+            return jsonify({"status": "error", "error": str(e)}), 500
+    
     try:
         config = _load_yaml("config.yaml")
         resolution_minutes = int(config.get("nordpool", {}).get("resolution_minutes", 15))
@@ -546,6 +630,94 @@ def db_push_current():
 
         inserted = write_schedule_to_db("schedule.json", fallback_version, config, secrets)
         return jsonify({"status": "success", "rows": inserted})
+    except Exception as e:
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route("/api/db/load_to_local", methods=["POST"])
+def db_load_to_local():
+    """Load current schedule from MariaDB and write to local schedule.json file."""
+    try:
+        config = _load_yaml("config.yaml")
+        secrets = _load_yaml("secrets.yaml")
+        
+        # Get current schedule from database
+        with _db_connect_from_secrets() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT slot_number, slot_start, charge_kw, export_kw, water_kw,
+                           planned_load_kwh, planned_pv_kwh,
+                           soc_target, soc_projected, planner_version
+                    FROM current_schedule
+                    ORDER BY slot_number ASC
+                    """
+                )
+                rows = cur.fetchall() or []
+
+        if not rows:
+            return jsonify({"status": "error", "error": "No schedule found in database"}), 404
+
+        # Convert DB rows to schedule format
+        resolution_minutes = int(config.get("nordpool", {}).get("resolution_minutes", 15))
+        tz_name = config.get("timezone", "Europe/Stockholm")
+        tz = pytz.timezone(tz_name)
+        
+        schedule = []
+        for r in rows:
+            start = r["slot_start"]
+            try:
+                end = start + pd.Timedelta(minutes=resolution_minutes)
+                record = {
+                    "slot_number": r.get("slot_number"),
+                    "start_time": start.isoformat(),
+                    "end_time": end.isoformat(),
+                    "battery_charge_kw": round(max(float(r.get("charge_kw") or 0.0), 0.0), 2),
+                    "battery_discharge_kw": round(max(-float(r.get("charge_kw") or 0.0), 0.0), 2),
+                    "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
+                    "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
+                    "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
+                    "pv_forecast_kwh": round(float(r.get("planned_pv_kwh") or 0.0), 4),
+                    "soc_target_percent": round(float(r.get("soc_target") or 0.0), 2),
+                    "projected_soc_percent": round(float(r.get("soc_projected") or 0.0), 2),
+                }
+                schedule.append(record)
+            except Exception:
+                # Fallback if not datetime (string), try parse
+                start_dt = datetime.fromisoformat(str(start))
+                end = start_dt + pd.Timedelta(minutes=resolution_minutes)
+                record = {
+                    "slot_number": r.get("slot_number"),
+                    "start_time": start_dt.isoformat(),
+                    "end_time": end.isoformat(),
+                    "battery_charge_kw": round(max(float(r.get("charge_kw") or 0.0), 0.0), 2),
+                    "battery_discharge_kw": round(max(-float(r.get("charge_kw") or 0.0), 0.0), 2),
+                    "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
+                    "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
+                    "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
+                    "pv_forecast_kwh": round(float(r.get("planned_pv_kwh") or 0.0), 4),
+                    "soc_target_percent": round(float(r.get("soc_target") or 0.0), 2),
+                    "projected_soc_percent": round(float(r.get("soc_projected") or 0.0), 2),
+                }
+                schedule.append(record)
+
+        # Get planner version from first row
+        planner_version = rows[0]["planner_version"] if rows else None
+        
+        # Write to local schedule.json with proper metadata
+        output = {
+            "schedule": schedule,
+            "meta": {
+                "planned_at": datetime.now().isoformat(),
+                "planner_version": planner_version,
+                "source": "database"
+            }
+        }
+        
+        with open("schedule.json", "w", encoding="utf-8") as f:
+            json.dump(output, f, ensure_ascii=False, indent=2)
+        
+        return jsonify({"status": "success", "message": "Server plan loaded to local file"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
 
@@ -826,7 +998,9 @@ def simulate():
         df = apply_manual_plan(df, manual_plan_payload, config_data)
 
         if df.empty:
-            logger.warning("Simulation aborted: no schedule slots available after applying manual plan.")
+            logger.warning(
+                "Simulation aborted: no schedule slots available after applying manual plan."
+            )
             return (
                 jsonify(
                     {

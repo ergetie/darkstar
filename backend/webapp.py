@@ -826,7 +826,9 @@ def simulate():
         df = apply_manual_plan(df, manual_plan_payload, config_data)
 
         if df.empty:
-            logger.warning("Simulation aborted: no schedule slots available after applying manual plan.")
+            logger.warning(
+                "Simulation aborted: no schedule slots available after applying manual plan."
+            )
             return (
                 jsonify(
                     {

@@ -29,7 +29,7 @@ export default function Sidebar(){
         <aside className="fixed left-6 top-6 bottom-6 z-50">
         <div className="h-full w-16 rounded-2xl bg-surface shadow-float border border-line/60 flex flex-col items-center gap-3 p-2">
         {/* Logo - replaces "nav" text */}
-        <Link to="/" className="mt-1 mb-4 flex items-center justify-center">
+        <Link to="/" className="mt-1 mb-1 flex items-center justify-center">
         <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-surface2 border border-line/60">
         <Bolt className="h-5 w-5 text-accent" />
         </span>

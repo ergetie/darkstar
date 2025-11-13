@@ -17,9 +17,11 @@ export default function QuickActions({ onDataRefresh }: QuickActionsProps){
         try {
             const result = await apiCall()
             setFeedback({ type: 'success', message: result.message || 'Success' })
-            // Trigger data refresh after successful action
+            // Trigger data refresh after successful action with appropriate delay for backend processing
             if (onDataRefresh) {
-                onDataRefresh()
+                // Longer delay for load-server since it needs to update status metadata
+                const delay = action === 'load-server' ? 2000 : 1000
+                setTimeout(() => onDataRefresh(), delay)
             }
         } catch (error) {
             setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Failed' })

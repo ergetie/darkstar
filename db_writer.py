@@ -290,7 +290,9 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
     soc_target_i = int(round(soc_target))
     soc_projected_i = int(round(soc_projected))
 
-    battery_discharge_kw = float(slot.get("battery_discharge_kw", slot.get("discharge_kw", 0.0)) or 0.0)
+    battery_discharge_kw = float(
+        slot.get("battery_discharge_kw", slot.get("discharge_kw", 0.0)) or 0.0
+    )
     net_battery_kw = battery_charge_kw - battery_discharge_kw
     return (
         slot_number,
