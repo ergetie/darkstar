@@ -573,18 +573,10 @@
 
 ## Backlog
 
-### Dashboard Completion
-- [ ] Quick Actions API wiring (run planner, load server plan, push to DB, reset optimal)
-- [ ] Dynamic KPIs from real data (battery capacity, PV today, avg load from `/api/ha/average`)
-- [ ] Status cards integration (water heater from `/api/ha/water_today`, export guard, learning status)
-- [ ] Plan origin indicator ("local vs server plan" toggle/display)
-- [ ] Dataset visibility toggles (show/hide charge/discharge/export/SoC lines)
-- [ ] Real-time data polling for live updates
-- [ ] Timezone fixes for day slicing (use local TZ instead of UTC)
-- [ ] Chart theme colors with Material Design palette (fix invisible SoC lines)
-- [ ] Header logo replacement (move lucide-bolt from header to sidebar, replace "nav" text)
-- [ ] Quick action buttons UI fix (icons only, text on hover, fix text spilling)
-- [ ] Header items moved to sidebar menu
+### Dashboard Refinement
+- [ ] Polish "NOW" marker (slightly shorter line, ensure it never overlaps chart axes)
+- [ ] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
+- [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
 ### Planning Timeline
 - [ ] vis-timeline React integration with new theme styling
