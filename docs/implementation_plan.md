@@ -245,12 +245,13 @@
 
 ---
 
-## Rev 40 — Dashboard Completion *(Status: 🔄 In Progress)*
+## Rev 40 — Dashboard Completion *(Status: ✅ Completed)*
 
 * **Model**: GPT-5 Codex CLI
 * **Summary**: Complete Dashboard functionality to achieve full parity with legacy UI including API integration, visual improvements, and UX polish.
 * **Started**: 2025-11-13
 * **Last Updated**: 2025-11-13
+* **Completed**: 2025-11-13
 
 ### Plan
 
@@ -328,11 +329,12 @@
    * Fixed tooltip to show all datasets (mode: 'index', intersect: false)
    * Added "NOW" marker line for current time on today's chart
 
-7. **Real-time Updates & Timezone**
-   * Fix `isToday`/`isTomorrow` to use local timezone
-   * Add polling strategy for live data refresh
-   * Implement plan origin indicator (local vs server)
-   * Add data refresh controls
+7. **Real-time Updates & Timezone** ✅
+    * Fix `isToday`/`isTomorrow` to use local timezone
+    * Add polling strategy for live data refresh (30s intervals)
+    * Implement plan origin indicator (local vs server)
+    * Add data refresh controls (manual button + auto-refresh toggle)
+    * Add loading states and visual feedback for refresh operations
 
 ### Files to be Modified
 * `frontend/src/components/QuickActions.tsx`
@@ -357,10 +359,12 @@
   * Dashboard rendering fix - resolved undefined variable causing complete UI failure
   * Graceful fallback for tomorrow data when no prices are available
   * Header/Logo reorganization - moved bolt to sidebar, moved header items to menu
+  * Real-time polling with 30s intervals and manual refresh controls
+  * Loading states and visual feedback for all data refresh operations
 
-* **In Progress**: Step 7 - Real-time Updates & Timezone fixes
+* **In Progress**: —
 * **Blocked**: —
-* **Next Steps**: Complete Step 7 (Real-time Updates & Timezone fixes) to finish Rev 40
+* **Next Steps**: Rev 40 Complete! Ready for verification and final testing
 
 ### Verification
 * Test each Quick Action with API monitoring

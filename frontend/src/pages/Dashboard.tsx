@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
@@ -18,10 +18,36 @@ export default function Dashboard(){
     const [waterToday, setWaterToday] = useState<{kwh?: number; source?: string} | null>(null)
     const [learningStatus, setLearningStatus] = useState<{enabled?: boolean; status?: string; samples?: number} | null>(null)
     const [exportGuard, setExportGuard] = useState<{enabled?: boolean; mode?: string} | null>(null)
+    const [isRefreshing, setIsRefreshing] = useState(false)
+    const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+    const [autoRefresh, setAutoRefresh] = useState(true)
+    const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
-    useEffect(() => {
-        Api.status()
-            .then((data) => {
+    const fetchAllData = useCallback(async () => {
+        setIsRefreshing(true)
+        try {
+            // Parallel fetch all data
+            const [
+                statusData,
+                horizonData,
+                configData,
+                haAverageData,
+                scheduleData,
+                waterData,
+                learningData
+            ] = await Promise.allSettled([
+                Api.status(),
+                Api.horizon(),
+                Api.config(),
+                Api.haAverage(),
+                Api.schedule(),
+                Api.haWaterToday(),
+                Api.learningStatus()
+            ])
+
+            // Process status data
+            if (statusData.status === 'fulfilled') {
+                const data = statusData.value
                 setSoc(Sel.socValue(data) ?? null)
                 // Prefer local meta; fall back to db if present
                 const local = data.local ?? {}
@@ -33,33 +59,43 @@ export default function Dashboard(){
                 } else {
                     setPlannerMeta(null)
                 }
-            })
-            .catch(() => {})
-        Api.horizon()
-            .then((data) =>
+            }
+
+            // Process horizon data
+            if (horizonData.status === 'fulfilled') {
+                const data = horizonData.value
                 setHorizon({
                     pvDays: Sel.pvDays(data) ?? undefined,
                     weatherDays: Sel.wxDays(data) ?? undefined,
-                }),
-            )
-            .catch(() => {})
-        Api.config()
-            .then((data) => {
+                })
+            }
+
+            // Process config data
+            if (configData.status === 'fulfilled') {
+                const data = configData.value
                 if (data.system?.battery?.capacity_kwh) {
                     setBatteryCapacity(data.system.battery.capacity_kwh)
                 }
-            })
-            .catch(() => {})
-        Api.haAverage()
-            .then((data) => {
+                // Get export guard status from arbitrage config
+                const arbitrage = data.arbitrage || {}
+                setExportGuard({
+                    enabled: arbitrage.enable_export,
+                    mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive'
+                })
+            }
+
+            // Process HA average data
+            if (haAverageData.status === 'fulfilled') {
+                const data = haAverageData.value
                 setAvgLoad({
                     kw: data.average_load_kw,
                     dailyKwh: data.daily_kwh
                 })
-            })
-            .catch(() => {})
-        Api.schedule()
-            .then((data) => {
+            }
+
+            // Process schedule data
+            if (scheduleData.status === 'fulfilled') {
+                const data = scheduleData.value
                 // Calculate PV today from schedule data
                 const today = new Date().toISOString().split('T')[0]
                 const todaySlots = data.schedule?.filter(slot => 
@@ -80,18 +116,20 @@ export default function Dashboard(){
                 if (currentSlot?.soc_target_percent !== undefined) {
                     setCurrentSlotTarget(currentSlot.soc_target_percent)
                 }
-            })
-            .catch(() => {})
-        Api.haWaterToday()
-            .then((data) => {
+            }
+
+            // Process water data
+            if (waterData.status === 'fulfilled') {
+                const data = waterData.value
                 setWaterToday({
                     kwh: data.water_kwh_today,
                     source: data.source
                 })
-            })
-            .catch(() => {})
-        Api.learningStatus()
-            .then((data) => {
+            }
+
+            // Process learning data
+            if (learningData.status === 'fulfilled') {
+                const data = learningData.value
                 const hasData = data.metrics?.total_slots && data.metrics.total_slots > 0
                 const isLearning = data.metrics?.completed_learning_runs && data.metrics.completed_learning_runs > 0
                 setLearningStatus({
@@ -99,19 +137,40 @@ export default function Dashboard(){
                     status: hasData ? (isLearning ? 'learning' : 'ready') : 'gathering',
                     samples: data.metrics?.total_slots
                 })
-            })
-            .catch(() => {})
-        Api.config()
-            .then((data) => {
-                // Get export guard status from arbitrage config
-                const arbitrage = data.arbitrage || {}
-                setExportGuard({
-                    enabled: arbitrage.enable_export,
-                    mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive'
-                })
-            })
-            .catch(() => {})
+            }
+
+            setLastRefresh(new Date())
+        } catch (error) {
+            console.error('Error fetching dashboard data:', error)
+        } finally {
+            setIsRefreshing(false)
+        }
     }, [])
+
+    // Initial data fetch
+    useEffect(() => {
+        fetchAllData()
+    }, [fetchAllData])
+
+    // Set up polling
+    useEffect(() => {
+        if (autoRefresh) {
+            pollingIntervalRef.current = setInterval(() => {
+                fetchAllData()
+            }, 30000) // Refresh every 30 seconds
+        } else {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current)
+                pollingIntervalRef.current = null
+            }
+        }
+
+        return () => {
+            if (pollingIntervalRef.current) {
+                clearInterval(pollingIntervalRef.current)
+            }
+        }
+    }, [autoRefresh, fetchAllData])
 
     const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
     const pvDays = horizon?.pvDays ?? '—'
@@ -131,12 +190,40 @@ export default function Dashboard(){
         <Card className="p-4 md:p-5">
         <div className="flex items-baseline justify-between mb-3">
         <div className="text-sm text-muted">System Status</div>
-        <div className="text-[10px] text-muted">live</div>
+        <div className="flex items-center gap-2">
+            <div className="text-[10px] text-muted">
+                {autoRefresh ? 'auto-refresh' : 'manual'}
+                {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
+            </div>
+            <button
+                onClick={() => fetchAllData()}
+                disabled={isRefreshing}
+                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
+                    isRefreshing 
+                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed' 
+                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                }`}
+                title="Refresh data"
+            >
+                {isRefreshing ? '⟳' : '↻'}
+            </button>
+            <button
+                onClick={() => setAutoRefresh(!autoRefresh)}
+                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
+                    autoRefresh 
+                        ? 'bg-accent text-canvas border border-accent' 
+                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                }`}
+                title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
+            >
+                ⏱
+            </button>
+        </div>
         </div>
         <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
         <div className="text-text">Now showing: {planBadge}{planMeta}</div>
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div className={`grid grid-cols-2 gap-3 transition-opacity ${isRefreshing ? 'opacity-60' : 'opacity-100'}`}>
         <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `target ${currentSlotTarget.toFixed(0)}%` : 'target —%'} />
         <Kpi label="Battery Cap" value={batteryCapacity !== null ? `${batteryCapacity.toFixed(1)} kWh` : '— kWh'} />
         <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
@@ -150,7 +237,7 @@ export default function Dashboard(){
         </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 transition-opacity ${isRefreshing ? 'opacity-60' : 'opacity-100'}`}>
         <Card className="p-5">
         <div className="text-sm text-muted mb-3">Water heater</div>
         <div className="flex items-center justify-between">
