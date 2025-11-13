@@ -66,6 +66,7 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
 
 export default function Planning(){
     const [schedule, setSchedule] = useState<ScheduleSlot[] | null>(null)
+    const [blocks, setBlocks] = useState<PlanningBlock[]>([])
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
 
@@ -76,7 +77,9 @@ export default function Planning(){
         Api.schedule()
             .then(res => {
                 if (cancelled) return
-                setSchedule(res.schedule ?? [])
+                const sched = res.schedule ?? []
+                setSchedule(sched)
+                setBlocks(classifyBlocks(sched))
             })
             .catch(err => {
                 if (cancelled) return
@@ -92,9 +95,44 @@ export default function Planning(){
     }, [])
 
     const planningBlocks = useMemo(
-        () => classifyBlocks(schedule ?? []),
-        [schedule],
+        () => blocks,
+        [blocks],
     )
+
+    const handleBlockMove = ({ id, start, lane }: { id: string; start: Date; lane: LaneId }) => {
+        setBlocks(prev =>
+            prev.map(b => {
+                if (b.id !== id) return b
+                const duration = b.end.getTime() - b.start.getTime()
+                const newEnd = new Date(start.getTime() + duration)
+                return { ...b, start, end: newEnd, lane }
+            }),
+        )
+    }
+
+    const handleBlockResize = ({ id, start, end }: { id: string; start: Date; end: Date }) => {
+        setBlocks(prev =>
+            prev.map(b => (b.id === id ? { ...b, start, end } : b)),
+        )
+    }
+
+    const handleAddBlock = (lane: LaneId) => {
+        const base = new Date()
+        const start = new Date(base)
+        start.setMinutes(start.getMinutes() < 30 ? 0 : 30, 0, 0)
+        const end = new Date(start.getTime() + 60 * 60 * 1000) // 1 hour
+        const id = `manual-${Date.now()}-${lane}`
+        setBlocks(prev => [
+            ...prev,
+            {
+                id,
+                lane,
+                start,
+                end,
+                source: 'schedule',
+            },
+        ])
+    }
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
@@ -112,10 +150,27 @@ export default function Planning(){
         <PlanningTimeline
             lanes={planningLanes}
             blocks={planningBlocks}
+            onBlockMove={handleBlockMove}
+            onBlockResize={handleBlockResize}
         />
         </div>
 
-        <div className="mt-4 flex gap-3 justify-end">
+        <div className="mt-4 flex gap-3 justify-between">
+        <div className="flex gap-3">
+        {planningLanes.map((lane) => (
+            <PillButton
+            key={lane.id}
+            label={
+                lane.id==='battery' ? '+ chg' :
+                lane.id==='water'   ? '+ wtr' :
+                lane.id==='export'  ? '+ exp' : '+ hld'
+            }
+            color={lane.color}
+            onClick={() => handleAddBlock(lane.id)}
+            />
+        ))}
+        </div>
+
         <button className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold" disabled>
             Apply manual changes
         </button>

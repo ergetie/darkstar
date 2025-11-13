@@ -15,3 +15,26 @@ body::before {
     radial-gradient(1200px 600px at 80% -10%, rgba(255,255,255,0.05), transparent 60%),
     radial-gradient(1200px 600px at 10% 110%, rgba(255,255,255,0.05), transparent 60%);
 }
+
+/* Planning timeline item styling */
+.ds-timeline-item {
+    border-radius: 9999px !important;
+    border: none !important;
+    opacity: 0.9;
+}
+
+.ds-timeline-battery {
+    background-color: #AAB6C4 !important;
+}
+
+.ds-timeline-water {
+    background-color: #FF7A7A !important;
+}
+
+.ds-timeline-export {
+    background-color: #9BF6A3 !important;
+}
+
+.ds-timeline-hold {
+    background-color: #FFD966 !important;
+}
