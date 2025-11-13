@@ -1,71 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import Card from '../components/Card'
-import { Api } from '../lib/api'
+import { Api, ThemeInfo } from '../lib/api'
 
 const tabs = [
     { id: 'system', label: 'System' },
     { id: 'parameters', label: 'Parameters' },
     { id: 'ui', label: 'UI' },
 ]
-
-const sectionMap: Record<string, Array<{ title: string; description: string; items: string[] }>> = {
-    system: [
-        {
-            title: 'Battery & Grid',
-            description: 'Capacity, max power, and SoC limits define safe operating bands.',
-            items: ['system.battery.capacity_kwh', 'system.battery.max_charge_power_kw', 'system.battery.min_soc_percent', 'system.grid.max_power_kw'],
-        },
-        {
-            title: 'Home Assistant & Learning Storage',
-            description: 'Entity IDs plus the sqlite path that backs the planner learning store.',
-            items: ['learning.sqlite_path'],
-        },
-        {
-            title: 'Pricing & Timing',
-            description: 'Nordpool zone, resolution, currency, and timezone for all calculations.',
-            items: ['nordpool.price_area', 'nordpool.resolution_minutes', 'timezone'],
-        },
-    ],
-    parameters: [
-        {
-            title: 'Charging Strategy',
-            description: 'Price smoothing, consolidation tolerances, and gap settings that govern charge windows.',
-            items: ['charging_strategy.price_smoothing_sek_kwh', 'charging_strategy.block_consolidation_tolerance_sek', 'charging_strategy.consolidation_max_gap_slots'],
-        },
-        {
-            title: 'Arbitrage & Export',
-            description: 'Export thresholds, peak-only export, and future guard buffers.',
-            items: ['arbitrage.export_percentile_threshold', 'arbitrage.enable_peak_only_export', 'arbitrage.export_future_price_guard', 'arbitrage.future_price_guard_buffer_sek'],
-        },
-        {
-            title: 'Water Heating',
-            description: 'Quota, deferral, and sizing controls for the water heater scheduler.',
-            items: ['water_heating.power_kw', 'water_heating.defer_up_to_hours', 'water_heating.schedule_future_only'],
-        },
-        {
-            title: 'Learning Parameter Limits',
-            description: 'Limits that keep learning adjustments conservative.',
-            items: ['learning.max_daily_param_change.*', 'learning.min_sample_threshold', 'learning.min_improvement_threshold'],
-        },
-        {
-            title: 'S-Index Safety',
-            description: 'Base/max factors, weights, and time horizon shaping the S-index guard.',
-            items: ['s_index.mode', 's_index.base_factor', 's_index.max_factor', 's_index.pv_deficit_weight', 's_index.temp_weight'],
-        },
-    ],
-    ui: [
-        {
-            title: 'Theme & Appearance',
-            description: 'Current theme and accent color controls shared with Dashboard & Planning.',
-            items: ['ui.theme', 'ui.theme_accent_index'],
-        },
-        {
-            title: 'Dashboard Defaults',
-            description: 'Overlay and refresh toggles that control the default dashboard experience.',
-            items: ['dashboard.overlay_defaults', 'dashboard.auto_refresh_enabled'],
-        },
-    ],
-}
 
 type SystemField = {
     key: string
@@ -194,6 +135,43 @@ const parameterFieldMap: Record<string, ParameterField> = parameterFieldList.red
     return acc
 }, {} as Record<string, ParameterField>)
 
+type UIField = {
+    key: string
+    label: string
+    helper?: string
+    path: string[]
+    type: 'text' | 'boolean'
+}
+
+const uiSections = [
+    {
+        title: 'Dashboard Defaults',
+        description: 'Overlay defaults and refresh cadence for the planner dashboard.',
+        fields: [
+            {
+                key: 'dashboard.overlay_defaults',
+                label: 'Overlay defaults',
+                helper: 'Comma-separated overlay identifiers (e.g. price, charge, export).',
+                path: ['dashboard', 'overlay_defaults'],
+                type: 'text',
+            },
+            {
+                key: 'dashboard.auto_refresh_enabled',
+                label: 'Auto refresh',
+                helper: 'Enable automatic refresh of the dashboard schedule.',
+                path: ['dashboard', 'auto_refresh_enabled'],
+                type: 'boolean',
+            },
+        ],
+    },
+]
+
+const uiFieldList: UIField[] = uiSections.flatMap((section) => section.fields)
+const uiFieldMap: Record<string, UIField> = uiFieldList.reduce((acc, field) => {
+    acc[field.key] = field
+    return acc
+}, {} as Record<string, UIField>)
+
 function getDeepValue(source: any, path: string[]): any {
     return path.reduce((current, key) => (current && typeof current === 'object' ? current[key] : undefined), source)
 }
@@ -304,59 +282,105 @@ function buildParameterPatch(original: Record<string, any>, form: Record<string,
     return patch
 }
 
-function SectionCard({ title, description, items }: { title: string; description: string; items: string[] }) {
-    return (
-        <Card className="p-6">
-            <div className="text-sm font-semibold">{title}</div>
-            <p className="text-xs text-muted mt-1 mb-3">{description}</p>
-            <div className="flex flex-wrap gap-2">
-                {items.map((item) => (
-                    <span key={item} className="text-[11px] uppercase tracking-wide text-muted px-2 py-1 rounded-full border border-line/40">
-                        {item}
-                    </span>
-                ))}
-            </div>
-        </Card>
-    )
+function buildUIFormState(config: Record<string, any> | null): Record<string, string> {
+    const state: Record<string, string> = {}
+    uiFieldList.forEach((field) => {
+        const value = config ? getDeepValue(config, field.path) : undefined
+        if (field.type === 'boolean') {
+            state[field.key] = value === true ? 'true' : 'false'
+        } else {
+            state[field.key] = value !== undefined && value !== null ? String(value) : ''
+        }
+    })
+    return state
 }
 
-export default function Settings(){
+function parseUIFieldInput(field: UIField, raw: string): string | boolean | null | undefined {
+    const trimmed = raw.trim()
+    if (field.type === 'boolean') {
+        if (trimmed === '') return null
+        if (trimmed === 'true') return true
+        if (trimmed === 'false') return false
+        return undefined
+    }
+    return trimmed
+}
+
+function buildUIPatch(original: Record<string, any>, form: Record<string, string>): Record<string, any> {
+    const patch: Record<string, any> = {}
+    uiFieldList.forEach((field) => {
+        const raw = form[field.key] ?? ''
+        const parsed = parseUIFieldInput(field, raw)
+        if (parsed === undefined) return
+        if (field.type === 'boolean' && parsed === null) return
+        const currentValue = getDeepValue(original, field.path)
+        if (parsed === currentValue) return
+        setDeepValue(patch, field.path, parsed)
+    })
+    return patch
+}
+
+export default function Settings() {
     const [activeTab, setActiveTab] = useState('system')
     const [config, setConfig] = useState<Record<string, any> | null>(null)
     const [systemForm, setSystemForm] = useState<Record<string, string>>(() => buildSystemFormState(null))
     const [parameterForm, setParameterForm] = useState<Record<string, string>>(() => buildParameterFormState(null))
+    const [uiForm, setUIForm] = useState<Record<string, string>>(() => buildUIFormState(null))
     const [systemFieldErrors, setSystemFieldErrors] = useState<Record<string, string>>({})
     const [parameterFieldErrors, setParameterFieldErrors] = useState<Record<string, string>>({})
+    const [uiFieldErrors, setUIFieldErrors] = useState<Record<string, string>>({})
     const [loadingConfig, setLoadingConfig] = useState(true)
     const [configError, setConfigError] = useState<string | null>(null)
     const [systemSaving, setSystemSaving] = useState(false)
     const [parameterSaving, setParameterSaving] = useState(false)
+    const [uiSaving, setUISaving] = useState(false)
     const [systemStatusMessage, setSystemStatusMessage] = useState<string | null>(null)
     const [parameterStatusMessage, setParameterStatusMessage] = useState<string | null>(null)
-    const sections = useMemo(() => sectionMap[activeTab], [activeTab])
+    const [uiStatusMessage, setUIStatusMessage] = useState<string | null>(null)
+    const [themes, setThemes] = useState<ThemeInfo[]>([])
+    const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
+    const [themeAccentIndex, setThemeAccentIndex] = useState<number | null>(null)
+    const [themeLoading, setThemeLoading] = useState(true)
+    const [themeError, setThemeError] = useState<string | null>(null)
+    const [themeApplying, setThemeApplying] = useState(false)
+    const [themeStatusMessage, setThemeStatusMessage] = useState<string | null>(null)
 
-    useEffect(() => {
-        let cancelled = false
+    const reloadConfig = async () => {
         setLoadingConfig(true)
         setConfigError(null)
-        Api.config()
-            .then((cfg) => {
-                if (cancelled) return
-                setConfig(cfg)
-                setSystemForm(buildSystemFormState(cfg))
-                setParameterForm(buildParameterFormState(cfg))
-            })
-            .catch((err) => {
-                if (cancelled) return
-                setConfigError(err.message || 'Failed to load configuration')
-            })
-            .finally(() => {
-                if (cancelled) return
-                setLoadingConfig(false)
-            })
-        return () => {
-            cancelled = true
+        try {
+            const cfg = await Api.config()
+            setConfig(cfg)
+            setSystemForm(buildSystemFormState(cfg))
+            setParameterForm(buildParameterFormState(cfg))
+            setUIForm(buildUIFormState(cfg))
+            const accent = cfg?.ui?.theme_accent_index
+            setThemeAccentIndex(typeof accent === 'number' ? accent : null)
+        } catch (err: any) {
+            setConfigError(err?.message || 'Failed to load configuration')
+        } finally {
+            setLoadingConfig(false)
         }
+    }
+
+    const reloadThemes = async () => {
+        setThemeLoading(true)
+        setThemeError(null)
+        try {
+            const themeData = await Api.theme()
+            setThemes(themeData.themes)
+            setSelectedTheme(themeData.current ?? null)
+            setThemeAccentIndex(themeData.accent_index ?? null)
+        } catch (err: any) {
+            setThemeError(err?.message || 'Failed to load themes')
+        } finally {
+            setThemeLoading(false)
+        }
+    }
+
+    useEffect(() => {
+        reloadConfig()
+        reloadThemes()
     }, [])
 
     const handleFieldChange = (key: string, value: string) => {
@@ -401,11 +425,35 @@ export default function Settings(){
         }
     }
 
+    const handleUIFieldChange = (key: string, value: string) => {
+        const field = uiFieldMap[key]
+        if (!field) return
+        setUIForm((prev) => ({ ...prev, [key]: value }))
+        setUIStatusMessage(null)
+        if (field.type === 'boolean') {
+            const trimmed = value.trim()
+            setUIFieldErrors((prev) => {
+                const next = { ...prev }
+                if (trimmed === '') {
+                    next[key] = 'Required'
+                } else if (trimmed !== 'true' && trimmed !== 'false') {
+                    next[key] = 'Invalid value'
+                } else {
+                    delete next[key]
+                }
+                return next
+            })
+        }
+    }
+
     const systemErrors = Object.values(systemFieldErrors).filter(Boolean).length
     const hasSystemValidationErrors = systemErrors > 0
 
     const parameterErrors = Object.values(parameterFieldErrors).filter(Boolean).length
     const hasParameterValidationErrors = parameterErrors > 0
+
+    const uiErrors = Object.values(uiFieldErrors).filter(Boolean).length
+    const hasUIValidationErrors = uiErrors > 0
 
     const handleSaveSystem = async () => {
         if (!config) return
@@ -460,6 +508,69 @@ export default function Settings(){
             setParameterStatusMessage(err?.message ? `Failed to save: ${err.message}` : 'Save failed.')
         } finally {
             setParameterSaving(false)
+        }
+    }
+
+    const handleSaveUI = async () => {
+        if (!config) return
+        if (hasUIValidationErrors) {
+            setUIStatusMessage('Fix validation errors before saving.')
+            return
+        }
+        const patch = buildUIPatch(config, uiForm)
+        if (!Object.keys(patch).length) {
+            setUIStatusMessage('No changes detected.')
+            return
+        }
+        setUISaving(true)
+        setUIStatusMessage(null)
+        try {
+            await Api.configSave(patch)
+            const fresh = await Api.config()
+            setConfig(fresh)
+            setSystemForm(buildSystemFormState(fresh))
+            setParameterForm(buildParameterFormState(fresh))
+            setUIForm(buildUIFormState(fresh))
+            setUIFieldErrors({})
+            setUIStatusMessage('UI preferences saved.')
+        } catch (err: any) {
+            setUIStatusMessage(err?.message ? `Failed to save: ${err.message}` : 'Save failed.')
+        } finally {
+            setUISaving(false)
+        }
+    }
+
+    const handleApplyTheme = async () => {
+        if (!selectedTheme) {
+            setThemeStatusMessage('Select a theme before applying.')
+            return
+        }
+        setThemeApplying(true)
+        setThemeStatusMessage(null)
+        try {
+            await Api.setTheme({
+                theme: selectedTheme,
+                accent_index: themeAccentIndex ?? undefined,
+            })
+            await reloadThemes()
+            await reloadConfig()
+            setThemeStatusMessage('Theme applied successfully.')
+        } catch (err: any) {
+            setThemeStatusMessage(err?.message ? `Failed to apply theme: ${err.message}` : 'Failed to apply theme.')
+        } finally {
+            setThemeApplying(false)
+        }
+    }
+
+    const handleAccentChange = (value: string) => {
+        const trimmed = value.trim()
+        if (trimmed === '') {
+            setThemeAccentIndex(null)
+            return
+        }
+        const parsed = Number(trimmed)
+        if (!Number.isNaN(parsed)) {
+            setThemeAccentIndex(Math.max(0, Math.min(15, parsed)))
         }
     }
 
@@ -625,6 +736,157 @@ export default function Settings(){
         )
     }
 
+    const renderUIForm = () => {
+        if (loadingConfig) {
+            return (
+                <Card className="p-6 text-sm text-muted">
+                    Loading UI configuration…
+                </Card>
+            )
+        }
+        if (configError) {
+            return (
+                <Card className="p-6 text-sm text-red-400">
+                    {configError}
+                </Card>
+            )
+        }
+        return (
+            <div className="space-y-4">
+                <Card className="p-6 space-y-4">
+                    <div className="flex items-baseline justify-between gap-2">
+                        <div>
+                            <div className="text-sm font-semibold">Theme & Appearance</div>
+                            <p className="text-xs text-muted mt-1">
+                                Select a theme for the app and adjust the accent color.
+                            </p>
+                        </div>
+                        <span className="text-[10px] uppercase text-muted tracking-wide">UI</span>
+                    </div>
+                    {themeLoading ? (
+                        <p className="text-sm text-muted">Loading themes…</p>
+                    ) : themeError ? (
+                        <p className="text-sm text-red-400">{themeError}</p>
+                    ) : (
+                        <div className="grid gap-3 md:grid-cols-3">
+                            {themes.map((theme) => {
+                                const active = selectedTheme === theme.name
+                                return (
+                                    <button
+                                        key={theme.name}
+                                        type="button"
+                                        onClick={() => setSelectedTheme(theme.name)}
+                                        className={`group flex flex-col gap-2 rounded-xl border p-3 text-left transition ${
+                                            active ? 'border-accent shadow-sm' : 'border-line/50 hover:border-white/40'
+                                        }`}
+                                    >
+                                        <div className="text-sm font-semibold">{theme.name}</div>
+                                        <div className="flex h-6 overflow-hidden rounded-sm border border-line/40">
+                                            {theme.palette.slice(0, 4).map((color) => (
+                                                <span
+                                                    key={`${theme.name}-${color}`}
+                                                    className="flex-1"
+                                                    style={{ backgroundColor: color }}
+                                                />
+                                            ))}
+                                        </div>
+                                        <div className="text-[10px] uppercase text-muted tracking-wide">
+                                            {active ? 'Selected' : 'Select'}
+                                        </div>
+                                    </button>
+                                )
+                            })}
+                        </div>
+                    )}
+                    <div className="flex flex-wrap items-center gap-3">
+                        <label className="text-[10px] uppercase tracking-wide text-muted">Accent index</label>
+                        <input
+                            type="number"
+                            min={0}
+                            max={15}
+                            value={themeAccentIndex ?? ''}
+                            onChange={(event) => handleAccentChange(event.target.value)}
+                            className="h-10 w-20 rounded-lg border border-line/50 bg-surface2 px-3 text-sm focus:border-accent focus:outline-none"
+                        />
+                        <button
+                            disabled={themeApplying || themeLoading}
+                            onClick={handleApplyTheme}
+                            className="rounded-pill bg-accent px-4 py-2 text-sm font-semibold text-[#100f0e] shadow-sm transition hover:bg-accent2 disabled:opacity-50"
+                        >
+                            {themeApplying ? 'Applying…' : 'Apply theme'}
+                        </button>
+                        {themeStatusMessage && (
+                            <p className={`text-sm ${themeStatusMessage.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
+                                {themeStatusMessage}
+                            </p>
+                        )}
+                    </div>
+                </Card>
+
+                {uiSections.map((section) => (
+                    <Card key={section.title} className="p-6">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <div>
+                                <div className="text-sm font-semibold">{section.title}</div>
+                                <p className="text-xs text-muted mt-1">{section.description}</p>
+                            </div>
+                            <span className="text-[10px] uppercase text-muted tracking-wide">UI</span>
+                        </div>
+                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                            {section.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                    {field.type === 'boolean' ? (
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input
+                                                type="checkbox"
+                                                checked={uiForm[field.key] === 'true'}
+                                                onChange={(event) =>
+                                                    handleUIFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                }
+                                                className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                            />
+                                            <span className="font-semibold">{field.label}</span>
+                                        </label>
+                                    ) : (
+                                        <>
+                                            <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                            <input
+                                                type="text"
+                                                value={uiForm[field.key] ?? ''}
+                                                onChange={(event) => handleUIFieldChange(field.key, event.target.value)}
+                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                            />
+                                        </>
+                                    )}
+                                    {field.helper && (
+                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                    )}
+                                    {uiFieldErrors[field.key] && (
+                                        <p className="text-[11px] text-red-400">{uiFieldErrors[field.key]}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                ))}
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        disabled={uiSaving || loadingConfig}
+                        onClick={handleSaveUI}
+                        className="rounded-pill bg-accent px-4 py-2 text-sm font-semibold text-[#100f0e] shadow-sm transition hover:bg-accent2 disabled:opacity-50"
+                    >
+                        {uiSaving ? 'Saving…' : 'Save UI Preferences'}
+                    </button>
+                    {uiStatusMessage && (
+                        <p className={`text-sm ${uiStatusMessage.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
+                            {uiStatusMessage}
+                        </p>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12 space-y-6">
             <div>
@@ -654,13 +916,7 @@ export default function Settings(){
                 ? renderSystemForm()
                 : activeTab === 'parameters'
                     ? renderParameterForm()
-                    : (
-                        <div className="grid gap-6 md:grid-cols-2">
-                            {sections.map((section) => (
-                                <SectionCard key={section.title} {...section} />
-                            ))}
-                        </div>
-                    )}
+                    : renderUIForm()}
         </main>
     )
 }
