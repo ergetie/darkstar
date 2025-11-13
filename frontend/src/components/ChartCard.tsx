@@ -6,10 +6,9 @@ import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { filterSlotsByDay, formatHour, DaySel } from '../lib/time'
-import ChartAnnotation from 'chartjs-plugin-annotation'
-
-// Register the annotation plugin
-ChartJS.register(ChartAnnotation)
+// Note: chartjs-plugin-annotation is not used for the
+// NOW marker; we use a CSS overlay instead to avoid
+// config recursion issues with the Chart.js proxies.
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
@@ -64,17 +63,27 @@ const chartOptions: ChartConfiguration['options'] = {
                     return `${datasetLabel}: ${formattedValue}${unit}`
             }
         },
-        annotation: {
-            annotations: {
-                // Default empty - will be populated in createChartData
-            }
-        }
     },
     },
     scales: {
         x: {
             grid: { color: 'rgba(255,255,255,0.06)' },
-            ticks: { color: '#a6b0bf', maxRotation: 0, autoSkip: true },
+            ticks: {
+                color: '#a6b0bf',
+                maxRotation: 0,
+                autoSkip: false,
+                callback: function (value, index, ticks) {
+                    // Show only full hours as HH on the axis; keep labels as HH:mm
+                    const label = (this as any)?.getLabelForValue
+                        ? (this as any).getLabelForValue(value)
+                        : (ticks[index] as any)?.label
+                    if (typeof label !== 'string') return ''
+                    const parts = label.split(':')
+                    if (parts.length < 2) return ''
+                    const [hh, mm] = parts
+                    return mm === '00' ? hh : ''
+                },
+            },
         },
         y: {
             position: 'right',
@@ -142,6 +151,7 @@ type ChartValues = {
     socProjected?: (number | null)[]
     hasNoData?: boolean
     day?: DaySel
+    nowIndex?: number | null
 }
 
 const createChartData = (values: ChartValues, themeColors: Record<string, string> = {}) => {
@@ -238,50 +248,6 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     ],
 }    
     
-    // Add "now" marker annotation if we have today's data
-    if (values.day === 'today') {
-        const now = new Date()
-        const currentTimeStr = now.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
-        const nowIndex = values.labels.findIndex(label => label === currentTimeStr)
-        
-        if (nowIndex >= 0) {
-            const getAnnotationColor = (paletteIndex: number, fallback: string) => {
-                const themeKey = `palette = ${paletteIndex}`
-                return themeColors[themeKey] || fallback
-            }
-            
-            baseData.options = {
-                ...baseData.options,
-                plugins: {
-                    ...baseData.options?.plugins,
-                    annotation: {
-                        annotations: {
-                            nowLine: {
-                                type: 'line',
-                                xMin: nowIndex,
-                                xMax: nowIndex,
-                                borderColor: getAnnotationColor(5, '#FF5722'), // palette 5 (pink) or fallback
-                                borderWidth: 2,
-                                borderDash: [5, 5],
-                                label: {
-                                    content: 'NOW',
-                                    enabled: true,
-                                    position: 'start',
-                                    backgroundColor: getAnnotationColor(5, '#FF5722'),
-                                    color: '#fff',
-                                    font: {
-                                        size: 10,
-                                        weight: 'bold'
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
     // Add no-data message if needed
     if (values.hasNoData) {
         baseData.plugins = {
@@ -299,7 +265,12 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
         }
     }
     
-    return baseData
+    // Preserve nowIndex on the returned object so runtime
+    // logic can position the "NOW" marker.
+    return {
+        ...baseData,
+        nowIndex: values.nowIndex ?? null,
+    } as any
 }
 
 const fallbackData = createChartData({
@@ -325,6 +296,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         socTarget: false,
         socProjected: false,
     })
+    const [nowPosition, setNowPosition] = useState<number | null>(null)
 
     useEffect(() => {
         // Fetch theme colors on mount
@@ -359,6 +331,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             options: chartOptions,
         }
         chartRef.current = new ChartJS(ref.current, cfg)
+
         return () => {
             if (chartRef.current) {
                 chartRef.current.destroy()
@@ -391,6 +364,21 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 if (ds[6]) ds[6].hidden = !overlays.water
                 if (ds[7]) ds[7].hidden = !overlays.socTarget
                 if (ds[8]) ds[8].hidden = !overlays.socProjected
+
+                // Compute CSS overlay position for "NOW" (0–1 across labels)
+                const anyData = liveData as any
+                if (
+                    currentDay === 'today' &&
+                    typeof anyData.nowIndex === 'number' &&
+                    anyData.nowIndex >= 0 &&
+                    liveData.labels.length > 1
+                ) {
+                    const idx = anyData.nowIndex as number
+                    const denom = liveData.labels.length - 1
+                    setNowPosition(idx / denom)
+                } else {
+                    setNowPosition(null)
+                }
                 try {
                     if (!isChartUsable(chartRef.current)) return
                     if (chartRef.current) {
@@ -435,6 +423,20 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 <div className="text-center">
                     <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
                     <div className="text-sm text-muted">Schedule data not available yet. Check back later for prices.</div>
+                </div>
+            </div>
+        )}
+        {!hasNoDataMessage && currentDay === 'today' && nowPosition !== null && (
+            <div className="pointer-events-none absolute inset-0 z-10">
+                <div
+                    className="absolute top-2 bottom-6 border-l-2 border-accent/80"
+                    style={{ left: `${nowPosition * 100}%` }}
+                >
+                    <div className="absolute -top-2 -translate-x-1/2">
+                        <span className="rounded-full bg-accent text-canvas px-2 py-[1px] text-[9px] font-semibold tracking-wide">
+                            NOW
+                        </span>
+                    </div>
                 </div>
             </div>
         )}
@@ -499,6 +501,20 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel, themeColors: Record<s
     const socProjected = ordered.map(slot => slot.projected_soc_percent ?? null)
 
     const labels = ordered.map(slot => formatHour(slot.start_time))
+
+    let nowIndex: number | null = null
+    if (day === 'today') {
+        const now = new Date()
+        for (let i = 0; i < ordered.length; i++) {
+            const start = new Date(ordered[i].start_time || '')
+            const end = new Date(start.getTime() + 30 * 60 * 1000)
+            if (now >= start && now < end) {
+                nowIndex = i
+                break
+            }
+        }
+    }
+
     return createChartData({
         labels,
         price,
@@ -510,5 +526,6 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel, themeColors: Record<s
         water,
         socTarget,
         socProjected,
+        nowIndex,
     }, themeColors)
 }
