@@ -803,6 +803,7 @@
      * Default dashboard overlays (which datasets are shown on first load).
      * Possibly an auto-refresh default (on/off) that the Dashboard respects.
    * Persist these UI preferences either in `config.yaml` (under a `ui` section) or, if config is not appropriate, document that they are front-end only (localStorage) and exclude them from `/api/config` save.
+   * Status: UI tab now renders a theme picker with accent control plus dashboard defaults, all saving through `/api/config/save` and `/api/theme`.
 
 6. **Shared Save / Reset Flow & UX**
    * Add a consistent save/reset UI affordance:
@@ -832,10 +833,11 @@
   * Step 2 — Settings layout implemented with tabbed sections for System / Parameters / UI using the existing `/settings` page shell as the canvas.
   * Step 3 — System section form wiring, fetching `/api/config`, and persisting edits.
   * Step 4 — Parameter form sections built (charging strategy, arbitrage, water heating, learning limits, S-index) with validation and diff-saves.
-* **In Progress**:
   * Step 5 — UI section (theme picker, app preferences, and shared UI defaults).
+* **In Progress**:
+  * Step 6 — Shared save / reset UX (section-level saves, reset to defaults flow).
 * **Blocked**: —
-* **Next Steps**: Flesh out the UI section per Step 5, then round up the shared save/reset UX in Step 6.
+* **Next Steps**: Focus on Step 6 implementation (save/reset affordances and user feedback) next.
 
 ### Verification (Planned)
 

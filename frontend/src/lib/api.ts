@@ -77,6 +77,13 @@ export type SimulateResponse = {
   meta?: any
 }
 
+export type ThemeSetResponse = {
+  status?: string
+  current?: string
+  accent_index?: number
+  theme?: ThemeInfo
+}
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = { 
     method,
@@ -97,6 +104,8 @@ export const Api = {
   config: () => getJSON<ConfigResponse>('/api/config'),
   configSave: (payload: Record<string, any>) =>
     getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
+  setTheme: (payload: { theme: string; accent_index?: number | null }) =>
+    getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
