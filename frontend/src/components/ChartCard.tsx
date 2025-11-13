@@ -5,7 +5,7 @@ import type { Chart } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { filterSlotsByDay, formatHour, DaySel } from '../lib/time'
+import { filterSlotsByDay, formatHour, DaySel, isToday, isTomorrow } from '../lib/time'
 // Note: chartjs-plugin-annotation is not used for the
 // NOW marker; we use a CSS overlay instead to avoid
 // config recursion issues with the Chart.js proxies.
@@ -280,9 +280,21 @@ const fallbackData = createChartData({
     load: sampleChart.load,
 }, {}) // Use empty theme colors initially, will be updated
 
-type ChartCardProps = { day?: DaySel }
+type ChartRange = 'day' | '48h'
 
-export default function ChartCard({ day = 'today' }: ChartCardProps){
+type ChartCardProps = {
+    day?: DaySel
+    range?: ChartRange
+    refreshToken?: number
+    showDayToggle?: boolean
+}
+
+export default function ChartCard({
+    day = 'today',
+    range = 'day',
+    refreshToken = 0,
+    showDayToggle = true,
+}: ChartCardProps){
     const [currentDay, setCurrentDay] = useState<DaySel>(day)
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
@@ -354,7 +366,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         Api.schedule()
             .then(data => {
                 if (!isChartUsable(chartRef.current)) return
-                const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
+                const liveData = buildLiveData(data.schedule ?? [], currentDay, range, themeColors)
                 if (!liveData) return
                 setHasNoDataMessage(liveData.hasNoData ?? false)
                 const ds = liveData.datasets
@@ -390,7 +402,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 }
             })
             .catch(err => console.error('Failed to load schedule:', err))
-    }, [currentDay, overlays, themeColors])
+    }, [currentDay, overlays, themeColors, range, refreshToken])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     
@@ -398,24 +410,26 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         <Card className="p-4 md:p-6 h-[380px]">
         <div className="flex items-baseline justify-between pb-3">
         <div className="text-sm text-muted">Schedule Overview</div>
-        <div className="flex gap-1">
-            <button 
-                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                    currentDay === 'today' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                }`}
-                onClick={() => setCurrentDay('today')}
-            >
-                Today
-            </button>
-            <button 
-                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                    currentDay === 'tomorrow' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                }`}
-                onClick={() => setCurrentDay('tomorrow')}
-            >
-                Tomorrow
-            </button>
-        </div>
+        {showDayToggle && (
+            <div className="flex gap-1">
+                <button 
+                    className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                        currentDay === 'today' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                    }`}
+                    onClick={() => setCurrentDay('today')}
+                >
+                    Today
+                </button>
+                <button 
+                    className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                        currentDay === 'tomorrow' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                    }`}
+                    onClick={() => setCurrentDay('tomorrow')}
+                >
+                    Tomorrow
+                </button>
+            </div>
+        )}
         </div>
         <div className="h-[310px] relative">
         {hasNoDataMessage && (
@@ -464,8 +478,16 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
     )
 }
 
-function buildLiveData(slots: ScheduleSlot[], day: DaySel, themeColors: Record<string, string> = {}) {
-    const filtered = filterSlotsByDay(slots, day)
+function buildLiveData(
+    slots: ScheduleSlot[],
+    day: DaySel,
+    range: ChartRange,
+    themeColors: Record<string, string> = {},
+) {
+    const filtered =
+        range === 'day'
+            ? filterSlotsByDay(slots, day)
+            : slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
     if(!filtered.length) {
         // For tomorrow without schedule data, create minimal structure with message
         console.log(`[buildLiveData] No ${day} slots found, creating fallback`)
