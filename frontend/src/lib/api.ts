@@ -20,6 +20,7 @@ export type ConfigResponse = {
   system?: { battery?: { capacity_kwh?: number } }
   [key: string]: any
 }
+export type ConfigSaveResponse = { status?: string }
 
 export type HaAverageResponse = {
   average_load_kw?: number
@@ -94,6 +95,8 @@ export const Api = {
   status: () => getJSON<StatusResponse>('/api/status'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
   config: () => getJSON<ConfigResponse>('/api/config'),
+  configSave: (payload: Record<string, any>) =>
+    getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
