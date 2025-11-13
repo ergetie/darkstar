@@ -1,5 +1,5 @@
 import { useRef, useState, WheelEvent } from 'react'
-import Timeline from 'react-calendar-timeline'
+import Timeline, { TimelineMarkers, TodayMarker } from 'react-calendar-timeline'
 import 'react-calendar-timeline/dist/style.css'
 
 type LaneId = 'battery' | 'water' | 'export' | 'hold'
@@ -221,7 +221,17 @@ export default function PlanningTimeline({
             if (!onBlockSelect) return
             onBlockSelect(null)
           }}
-        />
+        >
+          <TimelineMarkers>
+            <TodayMarker>
+              {({ styles }) => (
+                <div style={styles} className="ds-timeline-now-marker">
+                  <div className="ds-timeline-now-pill">NOW</div>
+                </div>
+              )}
+            </TodayMarker>
+          </TimelineMarkers>
+        </Timeline>
       </div>
     </div>
   )
