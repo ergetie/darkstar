@@ -652,10 +652,10 @@
 
 ### Implementation
 
-* **Completed**: — (Rev 42 not started)
-* **In Progress**: —  
+* **Completed**: Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, lane/block normalization)
+* **In Progress**: Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline wired in read-only mode)  
 * **Blocked**: —
-* **Next Steps**: Confirm Rev 42 scope and priorities, then begin with Step 1 (Timeline Shell & Data Wiring).
+* **Next Steps**: Iterate on react-calendar-timeline configuration to ensure blocks render clearly with theme-consistent styles, then enable interactions in Step 3 (Manual Block Model & CRUD).
 
 ### Verification (Planned)
 
