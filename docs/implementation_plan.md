@@ -361,10 +361,11 @@
   * Header/Logo reorganization - moved bolt to sidebar, moved header items to menu
   * Real-time polling with 30s intervals and manual refresh controls
   * Loading states and visual feedback for all data refresh operations
+  * Dynamic theme colors integration - charts adapt to current theme selection
 
 * **In Progress**: —
 * **Blocked**: —
-* **Next Steps**: Rev 40 Complete! Ready for verification and final testing
+* **Next Steps**: Rev 40 Complete! Added dynamic theme colors integration - ready for verification and final testing
 
 ### Verification
 * Test each Quick Action with API monitoring
@@ -378,6 +379,83 @@
 * Revert individual component changes if needed
 * Each step can be rolled back independently
 * API changes are client-side only, no backend impact
+
+---
+
+## Rev 40.1 — Dashboard Hotfixes *(Status: 🔄 In Progress)*
+
+* **Model**: GPT-5 Codex CLI
+* **Summary**: Fix critical UI bugs and polish issues discovered after Rev 40 completion
+* **Started**: 2025-11-13
+* **Last Updated**: 2025-11-13
+
+### Plan
+
+* **Goals**:
+  * Fix functional issues affecting user experience
+  * Clean up console errors and warnings
+  * Polish UI inconsistencies
+* **Scope**:
+  * Quick Actions integration with Dashboard refresh
+  * Chart.js DOM error fixes
+  * UI cleanup (GitHub button removal, bolt logo sizing)
+  * Console warnings cleanup
+* **Dependencies**:
+  * Rev 40 (Dashboard Completion)
+* **Acceptance Criteria**:
+  * Run planner properly updates Dashboard display
+  * No Chart.js DOM errors in console
+  * Clean console with minimal warnings
+  * Consistent UI sizing and spacing
+
+### Implementation Steps
+
+1. **Quick Actions Integration Fix** 🔄
+   * Add callback to trigger Dashboard data refresh after planner runs
+   * Update plan origin indicator to reflect changes
+   * Ensure "NOW SHOWING:" updates correctly
+
+2. **Chart.js DOM Error Fix** 🔄
+   * Add null checks for chart canvas element
+   * Improve chart initialization timing with theme loading
+   * Prevent chart updates on destroyed elements
+
+3. **UI Cleanup** 📋
+   * Remove GitHub button/logo from menu bar
+   * Fix lucide-bolt logo sizing to match buttons
+   * Add proper margin between bolt and other buttons
+
+4. **Console Cleanup** 📋
+   * Fix button className prop warnings
+   * Remove excessive debug logging in time.ts
+   * Address React Router future flag warnings
+
+### Files to be Modified
+* `frontend/src/components/QuickActions.tsx`
+* `frontend/src/components/Sidebar.tsx`
+* `frontend/src/components/ChartCard.tsx`
+* `frontend/src/pages/Dashboard.tsx`
+* `frontend/src/lib/time.ts`
+* `frontend/src/main.tsx`
+
+### Configuration
+* No backend config changes required
+
+### Implementation
+
+* **In Progress**: Planning and initial fixes
+* **Blocked**: —
+* **Next Steps**: Start with Step 1 (Quick Actions Integration) and Step 2 (UI Cleanup)
+
+### Verification
+* Test Run planner updates Dashboard correctly
+* Verify no Chart.js DOM errors
+* Check console for clean output
+* Validate UI consistency
+
+### Rollback Plan
+* Revert individual component changes if needed
+* Each step can be rolled back independently
 
 ---
 
