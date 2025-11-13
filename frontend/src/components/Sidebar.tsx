@@ -1,4 +1,4 @@
-import { Gauge, CalendarRange, BookOpenCheck, Bug, Settings, Bolt, Github } from 'lucide-react'
+import { Gauge, CalendarRange, BookOpenCheck, Bug, Settings, Bolt } from 'lucide-react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 
 const Item = ({to, icon:Icon, label, onClick}:{to?:string; icon:any; label:string; onClick?:() => void}) => {
@@ -29,9 +29,9 @@ export default function Sidebar(){
         <aside className="fixed left-6 top-6 bottom-6 z-50">
         <div className="h-full w-16 rounded-2xl bg-surface shadow-float border border-line/60 flex flex-col items-center gap-3 p-2">
         {/* Logo - replaces "nav" text */}
-        <Link to="/" className="mt-1 mb-2 flex items-center justify-center">
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-surface2 border border-line/60">
-        <Bolt className="h-4 w-4 text-accent" />
+        <Link to="/" className="mt-1 mb-4 flex items-center justify-center">
+        <span className="inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-surface2 border border-line/60">
+        <Bolt className="h-5 w-5 text-accent" />
         </span>
         </Link>
         
@@ -43,13 +43,8 @@ export default function Sidebar(){
         
         <div className="mt-auto mb-1 w-8 h-px bg-line/70" />
         
-        {/* Settings and GitHub */}
+        {/* Settings */}
         <Item to="/settings" icon={Settings} label="Settings" />
-        <Item 
-        icon={Github} 
-        label="Repo" 
-        onClick={() => window.open('https://github.com/', '_blank')} 
-        />
         </div>
         </aside>
     )

@@ -232,7 +232,7 @@ export default function Dashboard(){
         </Card>
         <Card className="p-4 md:p-5">
         <div className="text-sm text-muted mb-3">Quick Actions</div>
-        <QuickActions />
+        <QuickActions onDataRefresh={fetchAllData} />
         </Card>
         </motion.div>
         </div>

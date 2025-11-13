@@ -3,7 +3,11 @@ import { cls } from '../theme'
 import { Rocket, CloudDownload, Upload, RotateCcw } from 'lucide-react'
 import { Api } from '../lib/api'
 
-export default function QuickActions(){
+interface QuickActionsProps {
+    onDataRefresh?: () => void
+}
+
+export default function QuickActions({ onDataRefresh }: QuickActionsProps){
     const [loading, setLoading] = useState<string | null>(null)
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -13,6 +17,10 @@ export default function QuickActions(){
         try {
             const result = await apiCall()
             setFeedback({ type: 'success', message: result.message || 'Success' })
+            // Trigger data refresh after successful action
+            if (onDataRefresh) {
+                onDataRefresh()
+            }
         } catch (error) {
             setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Failed' })
         } finally {
