@@ -226,8 +226,17 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             pointRadius: 0,
             hidden: true,
         },
+        {
+            type: 'line',
+            label: 'SoC Projected (%)',
+            data: values.socProjected ?? values.labels.map(() => null),
+            borderColor: getColor(14, '#FFEB3B'), // palette 14 or fallback yellow
+            yAxisID: 'y3', // Use percentage axis
+            pointRadius: 0,
+            hidden: true,
+        },
     ],
-}
+}    
     
     // Add "now" marker annotation if we have today's data
     if (values.day === 'today') {
