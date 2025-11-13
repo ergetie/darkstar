@@ -21,6 +21,7 @@ type PlanningBlock = {
     start: Date
     end: Date
     source: 'schedule'
+    isHistorical?: boolean
 }
 
 const planningLanes: PlanningLane[] = [
@@ -51,6 +52,7 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
         const end = slot.end_time
             ? new Date(slot.end_time)
             : new Date(start.getTime() + 30 * 60 * 1000)
+        const isHistorical = slot.is_historical === true
 
         const laneCandidates: LaneId[] = []
 
@@ -80,6 +82,7 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
                     start,
                     end,
                     source: 'schedule',
+                    isHistorical,
                 }
                 merged.push(block)
                 lastByLane[lane] = block

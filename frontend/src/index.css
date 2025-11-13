@@ -28,6 +28,10 @@ body::before {
     opacity: 1 !important;
 }
 
+.ds-timeline-item-historical {
+    opacity: 0.4 !important;
+    filter: grayscale(0.3);
+}
 .ds-timeline-battery {
     background-color: #AAB6C4 !important;
 }

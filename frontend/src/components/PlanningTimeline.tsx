@@ -16,6 +16,7 @@ type PlanningBlock = {
   start: Date
   end: Date
   source: 'schedule'
+  isHistorical?: boolean
 }
 
 type PlanningTimelineProps = {
@@ -47,9 +48,12 @@ export default function PlanningTimeline({
     title: '',
     start_time: b.start,
     end_time: b.end,
+    canMove: !b.isHistorical,
+    canResize: b.isHistorical ? false : 'both',
+    canChangeGroup: !b.isHistorical,
     className: `ds-timeline-item ds-timeline-${b.lane}${
-      selectedBlockId === b.id ? ' ds-timeline-item-selected' : ''
-    }`,
+      b.isHistorical ? ' ds-timeline-item-historical' : ''
+    }${selectedBlockId === b.id ? ' ds-timeline-item-selected' : ''}`,
   }))
 
   const now = new Date()
@@ -159,18 +163,20 @@ export default function PlanningTimeline({
           updateScrollCanvas(newStart, newEnd)
         }}
         onItemMove={(itemId: number | string, dragTime: number, newGroupOrder: number) => {
-          if (!onBlockMove) return
           const id = String(itemId)
+          const original = blocks.find(b => b.id === id)
+          if (!original || original.isHistorical) return
+          if (!onBlockMove) return
           const start = new Date(dragTime)
           const lane = groups[newGroupOrder]?.id as LaneId
           onBlockMove({ id, start, lane })
         }}
         onItemResize={(itemId: number | string, time: number, edge: 'left' | 'right') => {
-          if (!onBlockResize) return
           const id = String(itemId)
           const movedTime = new Date(time)
           const original = blocks.find(b => b.id === id)
-          if (!original) return
+          if (!original || original.isHistorical) return
+          if (!onBlockResize) return
           let start = original.start
           let end = original.end
           if (edge === 'left') {
