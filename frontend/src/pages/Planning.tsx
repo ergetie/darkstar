@@ -91,6 +91,7 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
 export default function Planning(){
     const [schedule, setSchedule] = useState<ScheduleSlot[] | null>(null)
     const [blocks, setBlocks] = useState<PlanningBlock[]>([])
+    const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
 
@@ -104,6 +105,7 @@ export default function Planning(){
                 const sched = res.schedule ?? []
                 setSchedule(sched)
                 setBlocks(classifyBlocks(sched))
+                setSelectedBlockId(null)
             })
             .catch(err => {
                 if (cancelled) return
@@ -138,6 +140,16 @@ export default function Planning(){
         setBlocks(prev =>
             prev.map(b => (b.id === id ? { ...b, start, end } : b)),
         )
+    }
+
+    const handleBlockSelect = (id: string | null) => {
+        setSelectedBlockId(id)
+    }
+
+    const handleDeleteSelected = () => {
+        if (!selectedBlockId) return
+        setBlocks(prev => prev.filter(b => b.id !== selectedBlockId))
+        setSelectedBlockId(null)
     }
 
     const handleAddBlock = (lane: LaneId) => {
@@ -176,6 +188,7 @@ export default function Planning(){
             blocks={planningBlocks}
             onBlockMove={handleBlockMove}
             onBlockResize={handleBlockResize}
+            onBlockSelect={handleBlockSelect}
         />
         </div>
 
@@ -198,9 +211,26 @@ export default function Planning(){
         <button className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold" disabled>
             Apply manual changes
         </button>
-        <button className="rounded-pill border border-line/70 px-5 py-2.5 text-text hover:border-accent" disabled>
-            Reset
-        </button>
+        <div className="flex gap-2">
+            <button
+                className="rounded-pill border border-line/70 px-4 py-2.5 text-text hover:border-accent disabled:opacity-40"
+                disabled={!selectedBlockId}
+                onClick={handleDeleteSelected}
+            >
+                Delete block
+            </button>
+            <button
+                className="rounded-pill border border-line/70 px-4 py-2.5 text-text hover:border-accent disabled:opacity-40"
+                disabled={loading || !schedule}
+                onClick={() => {
+                    if (!schedule) return
+                    setBlocks(classifyBlocks(schedule))
+                    setSelectedBlockId(null)
+                }}
+            >
+                Reset plan
+            </button>
+        </div>
         </div>
         </Card>
         </main>

@@ -23,9 +23,16 @@ type PlanningTimelineProps = {
   blocks: PlanningBlock[]
   onBlockMove?: (args: { id: string; start: Date; lane: LaneId }) => void
   onBlockResize?: (args: { id: string; start: Date; end: Date }) => void
+  onBlockSelect?: (id: string | null) => void
 }
 
-export default function PlanningTimeline({ lanes, blocks, onBlockMove, onBlockResize }: PlanningTimelineProps) {
+export default function PlanningTimeline({
+  lanes,
+  blocks,
+  onBlockMove,
+  onBlockResize,
+  onBlockSelect,
+}: PlanningTimelineProps) {
   const groups = lanes.map((lane) => ({
     id: lane.id,
     title: lane.label,
@@ -114,6 +121,14 @@ export default function PlanningTimeline({ lanes, blocks, onBlockMove, onBlockRe
             end = movedTime
           }
           onBlockResize({ id, start, end })
+        }}
+        onItemSelect={(itemId: number | string) => {
+          if (!onBlockSelect) return
+          onBlockSelect(String(itemId))
+        }}
+        onItemDeselect={() => {
+          if (!onBlockSelect) return
+          onBlockSelect(null)
         }}
       />
     </div>
