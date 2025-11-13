@@ -762,6 +762,7 @@
      * Uses a simple internal tab/pill switcher (System / Parameters / UI) within the Settings tab.
      * Presents each main section as one or more cards with headings and descriptions for sub-groups.
    * Ensure the layout works at desktop widths and degrades reasonably on smaller viewports (no heavy mobile polish yet).
+   * Status: Layout and tabbing scaffolding replaced the placeholder cards; the new System/Parameters/UI grouping is visible at `/settings`.
 
 3. **System Section – Read/Write Configuration**
    * Wire the Settings page to `/api/config` on mount and normalize the config object into the System form state.
@@ -824,10 +825,13 @@
 
 ### Implementation
 
-* **Completed**: —  
-* **In Progress**: —  
-* **Blocked**: —  
-* **Next Steps**: Finalize the config inventory and System/Parameters/UI grouping, then implement the Settings layout and System section in the next iteration.
+* **Completed**:
+  * Step 1 — Config inventory (system, parameters, UI mapping, learning/S-index coverage) documented and committed.
+  * Step 2 — Settings layout implemented with tabbed sections for System / Parameters / UI using the existing `/settings` page shell as the canvas.
+* **In Progress**:
+  * Step 3 — System section form wiring, fetching `/api/config`, and persisting edits.
+* **Blocked**: —
+* **Next Steps**: Build forms for the System section, then proceed to Parameters controls once the initial data flow is validated.
 
 ### Verification (Planned)
 
