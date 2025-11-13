@@ -32,6 +32,43 @@ body::before {
     opacity: 0.4 !important;
     filter: grayscale(0.3);
 }
+
+/* React Calendar Timeline theming */
+.react-calendar-timeline .rct-header-root {
+    background: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.react-calendar-timeline .rct-dateHeader-primary {
+    display: none !important; /* hide big date header row */
+}
+
+.react-calendar-timeline .rct-dateHeader {
+    background-color: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+    border-left-color: rgba(255, 255, 255, 0.06) !important;
+    color: #a6b0bf !important;
+    font-size: 11px !important;
+}
+
+.react-calendar-timeline .rct-vertical-lines .rct-vl {
+    border-left-color: rgba(255, 255, 255, 0.05) !important;
+}
+
+.react-calendar-timeline .rct-horizontal-lines .rct-hl-odd,
+.react-calendar-timeline .rct-horizontal-lines .rct-hl-even {
+    background: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+.react-calendar-timeline .rct-sidebar {
+    border-right-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+.react-calendar-timeline .rct-sidebar .rct-sidebar-row {
+    background: transparent !important;
+    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+}
 .ds-timeline-battery {
     background-color: #AAB6C4 !important;
 }
