@@ -382,7 +382,7 @@
 
 ---
 
-## Rev 40.1 — Dashboard Hotfixes *(Status: 🔄 In Progress - 1 of 2 issues resolved)*
+## Rev 40.1 — Dashboard Hotfixes *(Status: 🔄 In Progress - 1 resolved, 2 new issues discovered)*
 
 * **Model**: GLM-4.6
 * **Summary**: Fix critical UI bugs and polish issues discovered after Rev 40 completion
@@ -457,32 +457,34 @@
 - Chart should now properly show today data and "No Price Data" message for tomorrow
 - Debug logging added to trace data flow
 
-**Issue #2**: ✅ **RESOLVED** - Load Server Plan Status Detection
-- Expected: "Load server plan" should update "NOW SHOWING" to indicate server plan
-- Actual: Now correctly shows "SERVER PLAN" after server plan load
-- Solution: Implemented UI state tracking like legacy app
+**Issue #2**: ⚠️ **PARTIALLY RESOLVED** - Load Server Plan Status Detection
+- Expected: "Load server plan" should update "NOW SHOWING" with correct server metadata
+- Actual: Shows "SERVER PLAN" but with local timestamp/version
+- Progress: Badge source correct, but metadata still from local file
+- Issue: `currentPlanSource` and `planMeta` are not synchronized
 
-### Implementation - UI State Tracking
+### Implementation - UI State Tracking (Partial)
 
 **What Was Implemented**:
-- Added `currentPlanSource` state to Dashboard component to track user's current view
-- Modified `QuickActions.tsx` to accept `onPlanSourceChange` callback
-- Updated plan source logic:
-  - `load-server` → sets plan source to 'server'
-  - `run-planner`/`reset` → sets plan source to 'local' 
-  - `push-db` → no change (doesn't affect what user is viewing)
-- Updated Dashboard plan badge to use tracked state instead of metadata comparison
-- Matches legacy app behavior exactly
+- Added `currentPlanSource` state to Dashboard component to track user's current view ✅
+- Modified `QuickActions.tsx` to accept `onPlanSourceChange` callback ✅
+- Updated plan source logic for badge display ✅
+- Updated Dashboard plan badge to use tracked state instead of metadata comparison ✅
+- **Missing**: Metadata sync when plan source changes ❌
 
 **Files Modified**:
 - `frontend/src/components/QuickActions.tsx` - Added plan source change callback
 - `frontend/src/pages/Dashboard.tsx` - Added state tracking and callback handling
 
-**Why This Approach Works**:
-- User sees what they requested to view (like legacy app)
-- No backend changes required
-- Clean separation between UI state and file state
-- Simple and reliable implementation
+**Why Partial**:
+- Badge shows correct source (server/local) ✅
+- Metadata still uses old logic preferring local data ❌
+- Need to sync `planMeta` with `currentPlanSource` changes
+
+**New Issue #3**: Chart.js Plugin Cache Error
+- Error: "can't access property 'filter', this._plugins._cache is undefined"
+- Location: ChartCard.tsx during chart update operations
+- Impact: Chart updates may fail, causing display issues
 
 ### Remaining Issues to Debug
 
@@ -491,16 +493,52 @@
    - Actual: Shows empty chart with no data
    - Need to investigate buildLiveData fallback logic
 
-2. **Load Server Plan Status Detection** ✅ **RESOLVED**
-   - Expected: Update "NOW SHOWING" to indicate server plan loaded
-   - Actual: Now correctly shows "SERVER PLAN" after server plan load
-   - Solution: Implemented UI state tracking like legacy app
+2. **Load Server Plan Status Detection** ⚠️ **PARTIALLY RESOLVED**
+   - Expected: Update "NOW SHOWING" to indicate server plan loaded with correct metadata
+   - Actual: Shows "SERVER PLAN" but with local timestamp/version
+   - Issue: Badge shows correct source, but metadata still from local file
+   - Root Cause: `planMeta` still uses old logic preferring local data
+
+3. **Chart.js Plugin Cache Error** 🆕 **CRITICAL**
+   - Expected: Chart updates without errors
+   - Actual: Console error "can't access property 'filter', this._plugins._cache is undefined"
+   - Location: ChartCard.tsx:373 (chartInstance.update)
+   - Impact: Chart may fail to update properly
+
+### Debug Analysis
+
+**Issue #2 - Metadata Mismatch**:
+- `currentPlanSource` correctly changes to 'server' ✅
+- `planMeta` still contains local metadata ❌
+- Display combines both → "server plan" + local timestamp/version
+- Problem: Dashboard's `fetchAllData` still uses old logic preferring local metadata
+
+**Issue #3 - Chart.js Error**:
+- Error occurs during chart update operations
+- Chart.js plugin cache becomes undefined
+- Multiple useEffects may cause race conditions
+- Need chart instance validation and error handling
 
 ### Implementation Status
 - ✅ Added plan source state tracking to Dashboard component
 - ✅ Modified QuickActions to communicate plan source changes
 - ✅ Updated status display to show user's current view, not file metadata
-- ✅ Tested that status updates correctly for all Quick Actions
+- ⚠️ Metadata sync incomplete - plan source and metadata mismatched
+- ❌ Chart safety missing - plugin errors during updates
+
+### Planned Fixes
+
+**Fix #1 - Metadata Sync**:
+- Add separate effect to update `planMeta` when `currentPlanSource` changes
+- When source is 'server', use DB metadata from status API
+- When source is 'local', use local metadata
+- Ensure badge and metadata are synchronized
+
+**Fix #2 - Chart Safety**:
+- Add chart instance validation before updates
+- Use try-catch around chart operations
+- Fallback to chart reinitialization on error
+- Use 'default' update mode instead of 'none'
 
 ### Verification
 * ✅ Run planner properly updates Dashboard display with new timestamp
