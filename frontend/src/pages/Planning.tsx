@@ -96,6 +96,7 @@ export default function Planning(){
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [applying, setApplying] = useState(false)
+    const [chartRefreshToken, setChartRefreshToken] = useState(0)
 
     useEffect(() => {
         let cancelled = false
@@ -178,6 +179,7 @@ export default function Planning(){
                 setSchedule(sched)
                 setBlocks(classifyBlocks(sched))
                 setSelectedBlockId(null)
+                setChartRefreshToken(token => token + 1)
             })
             .catch(err => {
                 console.error('Failed to apply manual changes:', err)
@@ -275,7 +277,7 @@ export default function Planning(){
         </div>
         </Card>
 
-        <ChartCard day="today" />
+        <ChartCard day="today" range="48h" showDayToggle={false} refreshToken={chartRefreshToken} />
         </main>
     )
 }
