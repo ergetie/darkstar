@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Card from '../components/Card'
+import ChartCard from '../components/ChartCard'
 import PillButton from '../components/PillButton'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
@@ -207,7 +208,7 @@ export default function Planning(){
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
-        <Card className="p-4 md:p-6">
+        <Card className="p-4 md:p-6 mb-6">
         <div className="flex items-baseline justify-between pb-4">
         <div className="text-sm text-muted">Planning Timeline</div>
         <div className="text-[11px] text-muted">
@@ -273,6 +274,8 @@ export default function Planning(){
         </div>
         </div>
         </Card>
+
+        <ChartCard day="today" />
         </main>
     )
 }
