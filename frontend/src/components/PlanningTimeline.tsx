@@ -148,7 +148,7 @@ export default function PlanningTimeline({
             <div className="flex h-full items-center justify-center">
               <button
                 type="button"
-                className="flex h-12 w-12 items-center justify-center rounded-2xl border border-line/60 text-[11px] font-semibold hover:brightness-110"
+                className="flex h-12 w-12 items-center justify-center rounded-2xl border-none text-[11px] font-semibold shadow-float hover:brightness-110"
                 onClick={() => onAddBlock && onAddBlock(lane.id)}
                 title={`Add ${lane.label.toLowerCase()} action`}
                 style={{ backgroundColor: lane.color, color: '#0f1216' }}

@@ -36,12 +36,12 @@ body::before {
 /* React Calendar Timeline theming */
 .react-calendar-timeline .rct-header-root {
     background: transparent !important;
-    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+    border-bottom: none !important;
 }
 
 .react-calendar-timeline .rct-calendar-header {
     background: transparent !important;
-    border-color: rgba(255, 255, 255, 0.06) !important;
+    border: none !important;
 }
 
 .react-calendar-timeline .rct-dateHeader-primary {
