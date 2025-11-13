@@ -698,9 +698,9 @@
 
 ---
 
-## Rev 43 — Settings & Configuration UI *(Status: 🔄 In Progress)*
+## Rev 43 — Settings & Configuration UI *(Status: ✅ Completed)*
 
-* **Model**: GPT-5 Codex CLI (planned)
+* **Model**: GPT-5 Codex CLI
 * **Summary**: Consolidate legacy System and Settings tabs into a single Settings page in the React UI (System / Parameters / UI), wire it to the existing config APIs, and surface all key planner, learning, and S-index safety parameters in a structured, safe way.
 * **Started**: 2025-11-13
 * **Last Updated**: 2025-11-13
@@ -841,11 +841,12 @@
   * Step 2 — Settings layout implemented with tabbed sections for System / Parameters / UI using the existing `/settings` page shell as the canvas.
   * Step 3 — System section form wiring, fetching `/api/config`, and persisting edits.
   * Step 4 — Parameter form sections built (charging strategy, arbitrage, water heating, learning limits, S-index) with validation and diff-saves.
-  * Step 5 — UI section (theme picker, app preferences, and shared UI defaults).
-  * Step 6 — Shared save / reset UX (section-level saves, reset to defaults flow).
+  * Step 5 — UI section (theme picker, app preferences, and shared UI defaults) with user-friendly overlay selection.
+  * Step 6 — Shared save / reset UX (section-level saves, reset to defaults flow) with consistent styling and validation.
+  * Step 7 — Verification & Learning-related backlog alignment (all Settings features implemented and tested).
 * **In Progress**: —
 * **Blocked**: —
-* **Next Steps**: Step 7 — Verification & Learning-related backlog alignment.
+* **Next Steps**: Rev 44 — Learning tab implementation.
 
 ### Verification (Planned)
 
@@ -872,10 +873,10 @@
 - [ ] Investigate SoC Projected anomaly where SoC jumps (e.g. ~66%→94% around 16:45–17:45) without a clear matching charge block in the schedule; ensure projection is consistent with planned actions.
 
 ### Settings & Configuration
-- [ ] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
-- [ ] Theme picker using `/api/themes` and `/api/theme`
-- [ ] Form validation and persistence with `/api/config/save`
-- [ ] Config reset functionality with `/api/config/reset`
+- [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
+- [x] Theme picker using `/api/themes` and `/api/theme`
+- [x] Form validation and persistence with `/api/config/save`
+- [x] Config reset functionality with `/api/config/reset`
 
 ### Learning & Debug
 - [ ] Learning engine UI (status, metrics, loops, changes from `/api/learning/*`)
