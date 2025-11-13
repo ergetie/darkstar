@@ -212,6 +212,7 @@ const fallbackData = createChartData({
 type ChartCardProps = { day?: DaySel }
 
 export default function ChartCard({ day = 'today' }: ChartCardProps){
+    const [currentDay, setCurrentDay] = useState<DaySel>(day)
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
     const [overlays, setOverlays] = useState({
@@ -237,9 +238,31 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
     useEffect(() => {
         const chartInstance = chartRef.current
         if(!chartInstance) return
+        // Re-fetch and rebuild chart when day changes
         Api.schedule()
             .then(data => {
-                const liveData = buildLiveData(data.schedule ?? [], day)
+                const liveData = buildLiveData(data.schedule ?? [], currentDay)
+                if(!liveData) return
+                setHasNoDataMessage(liveData.hasNoData ?? false)
+                const ds = liveData.datasets
+                if (ds[3]) ds[3].hidden = !overlays.charge
+                if (ds[4]) ds[4].hidden = !overlays.discharge
+                if (ds[5]) ds[5].hidden = !overlays.export
+                if (ds[6]) ds[6].hidden = !overlays.water
+                if (ds[7]) ds[7].hidden = !overlays.socTarget
+                if (ds[8]) ds[8].hidden = !overlays.socProjected
+                chartInstance.data = liveData
+                chartInstance.update('none')
+            })
+            .catch(err => console.error('Failed to load schedule:', err))
+    }, [currentDay])
+
+    useEffect(() => {
+        const chartInstance = chartRef.current
+        if(!chartInstance) return
+        Api.schedule()
+            .then(data => {
+                const liveData = buildLiveData(data.schedule ?? [], currentDay)
                 if(!liveData) return
                 // Update no-data message state
                 setHasNoDataMessage(liveData.hasNoData ?? false)
@@ -264,7 +287,24 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         <Card className="p-4 md:p-6 h-[380px]">
         <div className="flex items-baseline justify-between pb-3">
         <div className="text-sm text-muted">Schedule Overview</div>
-        <div className="text-[11px] text-muted">today → tomorrow</div>
+        <div className="flex gap-1">
+            <button 
+                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                    currentDay === 'today' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                }`}
+                onClick={() => setCurrentDay('today')}
+            >
+                Today
+            </button>
+            <button 
+                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                    currentDay === 'tomorrow' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                }`}
+                onClick={() => setCurrentDay('tomorrow')}
+            >
+                Tomorrow
+            </button>
+        </div>
         </div>
         <div className="h-[310px] relative">
         {hasNoDataMessage && (

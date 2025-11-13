@@ -8,7 +8,6 @@ import { Api, Sel } from '../lib/api'
 import type { DaySel } from '../lib/time'
 
 export default function Dashboard(){
-    const [day, setDay] = useState<DaySel>('today')
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
     const [plannerMeta, setPlannerMeta] = useState<{plan: 'local' | 'db'; plannedAt?: string; version?: string} | null>(null)
@@ -88,20 +87,13 @@ export default function Dashboard(){
     const planBadge = plannerMeta ? `${plannerMeta.plan === 'local' ? 'local' : 'server'} plan` : 'plan'
     const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
 
-    const pillClass = (active: boolean) =>
-        `rounded-pill px-4 py-2 text-[11px] font-semibold uppercase tracking-wide transition ${
-            active ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-        }`
+
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <ChartCard day={day} />
-        <div className="flex gap-2 mt-4">
-        <button className={pillClass(day === 'today')} onClick={() => setDay('today')}>Today</button>
-        <button className={pillClass(day === 'tomorrow')} onClick={() => setDay('tomorrow')}>Tomorrow</button>
-        </div>
+        <ChartCard />
         </motion.div>
         <motion.div className="space-y-4" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <Card className="p-4 md:p-5">
