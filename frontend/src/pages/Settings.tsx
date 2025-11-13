@@ -30,11 +30,11 @@ const systemSections = [
         title: 'Battery & Grid',
         description: 'Capacity, max power, and SoC limits define safe operating bands.',
         fields: [
-            { key: 'system.battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['system', 'battery', 'capacity_kwh'], type: 'number' },
-            { key: 'system.battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['system', 'battery', 'max_charge_power_kw'], type: 'number' },
-            { key: 'system.battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['system', 'battery', 'max_discharge_power_kw'], type: 'number' },
-            { key: 'system.battery.min_soc_percent', label: 'Min SoC (%)', path: ['system', 'battery', 'min_soc_percent'], type: 'number' },
-            { key: 'system.battery.max_soc_percent', label: 'Max SoC (%)', path: ['system', 'battery', 'max_soc_percent'], type: 'number' },
+            { key: 'battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['battery', 'capacity_kwh'], type: 'number' },
+            { key: 'battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['battery', 'max_charge_power_kw'], type: 'number' },
+            { key: 'battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['battery', 'max_discharge_power_kw'], type: 'number' },
+            { key: 'battery.min_soc_percent', label: 'Min SoC (%)', path: ['battery', 'min_soc_percent'], type: 'number' },
+            { key: 'battery.max_soc_percent', label: 'Max SoC (%)', path: ['battery', 'max_soc_percent'], type: 'number' },
             { key: 'system.grid.max_power_kw', label: 'Grid max power (kW)', path: ['system', 'grid', 'max_power_kw'], type: 'number' },
         ],
     },
@@ -344,6 +344,8 @@ export default function Settings() {
     const [themeError, setThemeError] = useState<string | null>(null)
     const [themeApplying, setThemeApplying] = useState(false)
     const [themeStatusMessage, setThemeStatusMessage] = useState<string | null>(null)
+    const [resetting, setResetting] = useState(false)
+    const [resetStatusMessage, setResetStatusMessage] = useState<string | null>(null)
 
     const reloadConfig = async () => {
         setLoadingConfig(true)
@@ -571,6 +573,32 @@ export default function Settings() {
         const parsed = Number(trimmed)
         if (!Number.isNaN(parsed)) {
             setThemeAccentIndex(Math.max(0, Math.min(15, parsed)))
+        }
+    }
+
+    const handleResetToDefaults = async () => {
+        const confirmed = window.confirm(
+            'Are you sure you want to reset all settings to defaults? ' +
+            'This will overwrite your current configuration and cannot be undone.'
+        )
+        if (!confirmed) return
+
+        setResetting(true)
+        setResetStatusMessage(null)
+        try {
+            await Api.configReset()
+            // Clear errors first
+            setSystemFieldErrors({})
+            setParameterFieldErrors({})
+            setUIFieldErrors({})
+            // Reload config which will rebuild all form states
+            await reloadConfig()
+            await reloadThemes()   // Reload themes in case theme was reset
+            setResetStatusMessage('All settings reset to defaults.')
+        } catch (err: any) {
+            setResetStatusMessage(err?.message ? `Reset failed: ${err.message}` : 'Reset failed.')
+        } finally {
+            setResetting(false)
         }
     }
 
@@ -889,10 +917,18 @@ export default function Settings() {
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12 space-y-6">
-            <div>
-                <p className="text-base text-muted">Rev 43 · Settings & Configuration</p>
-                <h1 className="text-3xl font-semibold">Settings</h1>
-                <p className="text-sm text-muted">System, parameters, and UI preferences collected into one modern surface.</p>
+            <div className="flex items-center justify-between">
+                <div>
+                    <h1 className="text-3xl font-semibold">Settings</h1>
+                    <p className="text-sm text-muted">System, parameters, and UI preferences collected into one modern surface.</p>
+                </div>
+                <button
+                    disabled={resetting || loadingConfig}
+                    onClick={handleResetToDefaults}
+                    className="rounded-pill bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold shadow-sm transition disabled:opacity-50"
+                >
+                    {resetting ? 'Resetting…' : 'Reset to Defaults'}
+                </button>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -911,6 +947,16 @@ export default function Settings() {
                     )
                 })}
             </div>
+
+            {resetStatusMessage && (
+                <div className={`rounded-lg p-3 text-sm ${
+                    resetStatusMessage.startsWith('Reset failed') 
+                        ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                        : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                }`}>
+                    {resetStatusMessage}
+                </div>
+            )}
 
             {activeTab === 'system'
                 ? renderSystemForm()
