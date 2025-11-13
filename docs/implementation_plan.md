@@ -621,22 +621,24 @@
    * Lock the visible window to a rolling 48‑hour range (today + tomorrow), clamping pan/zoom so users cannot scroll beyond that horizon while still allowing useful zoom levels within it.
    * Merge consecutive schedule slots with the same classification into single blocks per lane to avoid slot‑level noise and better match the legacy “action block” behavior.
 
-3. **Manual Block Model & CRUD**
-   * Define a client-side manual block model aligned with backend expectations (type, start, end, power/energy, metadata).
-   * Implement block creation (click/drag) for charge/water/export/hold types.
-   * Implement block editing (resize, move, type change where allowed) and deletion, with appropriate constraints.
-   * Persist unsaved edits in local UI state for simulate/save.
+3. **Block CRUD & Reset Semantics**
+   * Treat timeline blocks as the editable representation of the full 48‑hour schedule (no separate manual vs. auto block types).
+   * Implement block creation via lane “add action” buttons for charge/water/export/hold types.
+   * Implement block editing (resize, move) and deletion of individual blocks with appropriate constraints.
+   * Implement a “Reset to current plan” action that reloads the latest schedule (today+tomorrow) into the timeline and discards unsaved edits.
+   * Persist the current timeline state in local UI state for simulate/save.
 
 4. **Simulate / Save Workflow**
-   * Map manual block state into the payload expected by `/api/simulate`.
+   * Map the current 48‑hour timeline block state into the payload expected by `/api/simulate`.
    * Implement a simulate action that:
-     * Sends manual blocks + context to `/api/simulate`.
+     * Sends the current timeline blocks + context to `/api/simulate`.
      * Shows the simulated plan in the timeline and chart without committing it.
    * Implement save/apply via `/api/schedule/save`, updating the server plan and UI (timeline + dashboard) on success.
    * Handle errors (validation issues, backend failures) with clear messages and non-destructive behavior.
 
 5. **Chart Synchronization & Status**
    * Ensure that after simulate/save, the main dashboard chart reflects the same plan shown in the timeline.
+   * Mirror the legacy behavior where the dashboard schedule/line chart clearly visualizes the impact of timeline edits on charge/export/water/hold over the 48‑hour window.
    * Add a small status indicator on the Planning tab showing whether the view represents local/manual vs server plan.
    * Keep the "NOW SHOWING" metadata consistent with manual plan application.
 
@@ -648,7 +650,10 @@
 
 7. **UX & Theme Polish**
    * Align timeline colors and block styles with the dashboard datasets (charge/export/water/SoC).
+   * Adjust block corner radius to be less pill‑like (roughly half the current radius) while staying consistent with the dashboard’s minimal theme.
+   * Configure time headers/ticks for clear hourly markers (HH) over the 48‑hour window, while preserving 30‑minute precision in interactions.
    * Tune interactions (hover tooltips, selection, context menus if needed) to feel coherent with the rest of the app.
+   * Ensure the Planning tab’s visual density and typography match the Dashboard (no stray labels/text inside blocks; buttons use `chg/wtr/exp/hld` labels).
    * Document keyboard/mouse interactions briefly within the Planning tab or help text.
 
 ### Implementation
@@ -656,9 +661,9 @@
 * **Completed**:
   * Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, initial lane/block normalization)
   * Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline integrated with themed items, 48‑hour window clamped to today+tomorrow, adjacent schedule slots merged into larger action blocks, and basic drag/resize + add‑block interactions working)
-* **In Progress**: Step 3 (Manual Block Model & CRUD – shaping manual vs auto blocks and defining data model for simulate/save)  
+* **In Progress**: Step 3 (Block CRUD & Reset Semantics – adding delete/reset behavior and treating the timeline as the editable 48‑hour schedule)  
 * **Blocked**: —
-* **Next Steps**: Finalize manual block modeling (distinguish manual overrides from schedule-derived blocks), then wire up simulate/save flows and chart synchronization in subsequent steps.
+* **Next Steps**: Implement reliable block deletion and reset‑to‑current‑plan behavior, then wire up simulate/save flows and chart synchronization in subsequent steps.
 
 ### Verification (Planned)
 
