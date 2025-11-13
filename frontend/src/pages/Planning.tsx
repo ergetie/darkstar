@@ -186,6 +186,7 @@ export default function Planning(){
         <PlanningTimeline
             lanes={planningLanes}
             blocks={planningBlocks}
+            selectedBlockId={selectedBlockId}
             onBlockMove={handleBlockMove}
             onBlockResize={handleBlockResize}
             onBlockSelect={handleBlockSelect}

@@ -21,6 +21,7 @@ type PlanningBlock = {
 type PlanningTimelineProps = {
   lanes: PlanningLane[]
   blocks: PlanningBlock[]
+  selectedBlockId?: string | null
   onBlockMove?: (args: { id: string; start: Date; lane: LaneId }) => void
   onBlockResize?: (args: { id: string; start: Date; end: Date }) => void
   onBlockSelect?: (id: string | null) => void
@@ -29,6 +30,7 @@ type PlanningTimelineProps = {
 export default function PlanningTimeline({
   lanes,
   blocks,
+  selectedBlockId,
   onBlockMove,
   onBlockResize,
   onBlockSelect,
@@ -44,7 +46,9 @@ export default function PlanningTimeline({
     title: '',
     start_time: b.start,
     end_time: b.end,
-    className: `ds-timeline-item ds-timeline-${b.lane}`,
+    className: `ds-timeline-item ds-timeline-${b.lane}${
+      selectedBlockId === b.id ? ' ds-timeline-item-selected' : ''
+    }`,
   }))
 
   const now = new Date()
