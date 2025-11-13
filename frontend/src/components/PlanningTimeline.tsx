@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState, WheelEvent } from 'react'
 import Timeline from 'react-calendar-timeline'
 import 'react-calendar-timeline/dist/style.css'
 
@@ -35,6 +35,7 @@ export default function PlanningTimeline({
   onBlockResize,
   onBlockSelect,
 }: PlanningTimelineProps) {
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const groups = lanes.map((lane) => ({
     id: lane.id,
     title: lane.label,
@@ -59,9 +60,62 @@ export default function PlanningTimeline({
   const [visibleStart, setVisibleStart] = useState(baseStart.getTime())
   const [visibleEnd, setVisibleEnd] = useState(baseEnd.getTime())
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const baseStartMs = baseStart.getTime()
+    const baseEndMs = baseEnd.getTime()
+    const baseSpan = baseEndMs - baseStartMs
+
+    const currentSpan = visibleEnd - visibleStart
+    const zoomDirection = event.deltaY < 0 ? 'in' : 'out'
+    const zoomFactor = 0.15
+
+    let newSpan =
+      zoomDirection === 'in'
+        ? currentSpan * (1 - zoomFactor)
+        : currentSpan * (1 + zoomFactor)
+
+    const minSpan = baseSpan * 0.05 // do not zoom in beyond ~2.4h
+    if (newSpan < minSpan) newSpan = minSpan
+    if (newSpan > baseSpan) newSpan = baseSpan
+
+    // Zoom around mouse position horizontally
+    let centerRatio = 0.5
+    const container = containerRef.current
+    if (container) {
+      const rect = container.getBoundingClientRect()
+      if (rect.width > 0) {
+        const x = event.clientX - rect.left
+        centerRatio = Math.min(1, Math.max(0, x / rect.width))
+      }
+    }
+
+    const currentCenter = visibleStart + currentSpan * centerRatio
+    let newStart = currentCenter - newSpan * centerRatio
+    let newEnd = newStart + newSpan
+
+    // Clamp to base window
+    if (newStart < baseStartMs) {
+      newStart = baseStartMs
+      newEnd = newStart + newSpan
+    }
+    if (newEnd > baseEndMs) {
+      newEnd = baseEndMs
+      newStart = newEnd - newSpan
+    }
+
+    setVisibleStart(newStart)
+    setVisibleEnd(newEnd)
+  }
+
   return (
     <div className="relative">
-      <Timeline
+      <div
+        ref={containerRef}
+        onWheel={handleWheel}
+        className="relative"
+      >
+        <Timeline
         groups={groups}
         items={items}
         visibleTimeStart={visibleStart}
@@ -130,11 +184,12 @@ export default function PlanningTimeline({
           if (!onBlockSelect) return
           onBlockSelect(String(itemId))
         }}
-        onItemDeselect={() => {
-          if (!onBlockSelect) return
-          onBlockSelect(null)
-        }}
-      />
+          onItemDeselect={() => {
+            if (!onBlockSelect) return
+            onBlockSelect(null)
+          }}
+        />
+      </div>
     </div>
   )
 }
