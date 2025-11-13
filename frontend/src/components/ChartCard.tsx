@@ -338,7 +338,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
     }, [])
 
     useEffect(() => {
-        if(!ref.current || Object.keys(themeColors).length === 0) return
+        if (!ref.current || Object.keys(themeColors).length === 0) return
         const cfg: ChartConfiguration = {
             type: 'bar',
             data: createChartData({
@@ -350,54 +350,50 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             options: chartOptions,
         }
         chartRef.current = new ChartJS(ref.current, cfg)
-        return () => chartRef.current?.destroy()
+        return () => {
+            if (chartRef.current) {
+                chartRef.current.destroy()
+                chartRef.current = null
+            }
+        }
     }, [themeColors]) // Re-create chart when theme colors are loaded
 
-    useEffect(() => {
-        const chartInstance = chartRef.current
-        if(!chartInstance || Object.keys(themeColors).length === 0) return
-        // Re-fetch and rebuild chart when day changes
-        Api.schedule()
-            .then(data => {
-                const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
-                if(!liveData) return
-                setHasNoDataMessage(liveData.hasNoData ?? false)
-                const ds = liveData.datasets
-                if (ds[3]) ds[3].hidden = !overlays.charge
-                if (ds[4]) ds[4].hidden = !overlays.discharge
-                if (ds[5]) ds[5].hidden = !overlays.export
-                if (ds[6]) ds[6].hidden = !overlays.water
-                if (ds[7]) ds[7].hidden = !overlays.socTarget
-                if (ds[8]) ds[8].hidden = !overlays.socProjected
-                chartInstance.data = liveData
-                chartInstance.update('none')
-            })
-            .catch(err => console.error('Failed to load schedule:', err))
-    }, [currentDay, themeColors])
+    const isChartUsable = (chartInstance: Chart | null) => {
+        if (!chartInstance) return false
+        const anyChart = chartInstance as any
+        if (anyChart._destroyed) return false
+        if (anyChart._plugins === undefined && anyChart.$plugins === undefined) return false
+        return true
+    }
 
     useEffect(() => {
         const chartInstance = chartRef.current
-        if(!chartInstance || Object.keys(themeColors).length === 0) return
+        if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
         Api.schedule()
             .then(data => {
+                if (!isChartUsable(chartRef.current)) return
                 const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
-                if(!liveData) return
-                // Update no-data message state
+                if (!liveData) return
                 setHasNoDataMessage(liveData.hasNoData ?? false)
-                // Apply overlay visibility based on toggles
                 const ds = liveData.datasets
-                // Index mapping: 0 price, 1 pv, 2 load, 3 charge, 4 discharge, 5 export, 6 water, 7 socTarget, 8 socProjected
                 if (ds[3]) ds[3].hidden = !overlays.charge
                 if (ds[4]) ds[4].hidden = !overlays.discharge
                 if (ds[5]) ds[5].hidden = !overlays.export
                 if (ds[6]) ds[6].hidden = !overlays.water
                 if (ds[7]) ds[7].hidden = !overlays.socTarget
                 if (ds[8]) ds[8].hidden = !overlays.socProjected
-                ;(chartInstance as any).data = liveData
-                chartInstance.update()
+                try {
+                    if (!isChartUsable(chartRef.current)) return
+                    if (chartRef.current) {
+                        ;(chartRef.current as any).data = liveData
+                        chartRef.current.update()
+                    }
+                } catch (err) {
+                    console.error('Chart update failed, skipping frame:', err)
+                }
             })
-            .catch(() => {})
-    }, [day, overlays, themeColors])
+            .catch(err => console.error('Failed to load schedule:', err))
+    }, [currentDay, overlays, themeColors])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     
