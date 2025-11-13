@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import Timeline from 'react-calendar-timeline'
 import 'react-calendar-timeline/dist/style.css'
 
@@ -40,22 +41,58 @@ export default function PlanningTimeline({ lanes, blocks, onBlockMove, onBlockRe
   }))
 
   const now = new Date()
-  const start = new Date(now)
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(start.getTime() + 48 * 60 * 60 * 1000)
+  const baseStart = new Date(now)
+  baseStart.setHours(0, 0, 0, 0)
+  const baseEnd = new Date(baseStart.getTime() + 48 * 60 * 60 * 1000)
+
+  const [visibleStart, setVisibleStart] = useState(baseStart.getTime())
+  const [visibleEnd, setVisibleEnd] = useState(baseEnd.getTime())
 
   return (
     <div className="relative">
       <Timeline
         groups={groups}
         items={items}
-        defaultTimeStart={start}
-        defaultTimeEnd={end}
+        visibleTimeStart={visibleStart}
+        visibleTimeEnd={visibleEnd}
+        defaultTimeStart={baseStart}
+        defaultTimeEnd={baseEnd}
         lineHeight={64}
         sidebarWidth={120}
         canMove
         canResize="both"
         canChangeGroup
+        onTimeChange={(start, end, updateScrollCanvas) => {
+          const baseStartMs = baseStart.getTime()
+          const baseEndMs = baseEnd.getTime()
+          const requestedSpan = end - start
+          const baseSpan = baseEndMs - baseStartMs
+
+          // Ensure span does not exceed 48h window
+          let newStart = start
+          let newEnd = end
+
+          if (requestedSpan > baseSpan) {
+            newStart = baseStartMs
+            newEnd = baseEndMs
+          }
+
+          // Clamp within [baseStart, baseEnd]
+          if (newStart < baseStartMs) {
+            const shift = baseStartMs - newStart
+            newStart = baseStartMs
+            newEnd += shift
+          }
+          if (newEnd > baseEndMs) {
+            const shift = newEnd - baseEndMs
+            newEnd = baseEndMs
+            newStart -= shift
+          }
+
+          setVisibleStart(newStart)
+          setVisibleEnd(newEnd)
+          updateScrollCanvas(newStart, newEnd)
+        }}
         onItemMove={(itemId: number | string, dragTime: number, newGroupOrder: number) => {
           if (!onBlockMove) return
           const id = String(itemId)
