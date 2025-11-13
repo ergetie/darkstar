@@ -104,6 +104,7 @@ export const Api = {
   config: () => getJSON<ConfigResponse>('/api/config'),
   configSave: (payload: Record<string, any>) =>
     getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
+  configReset: () => getJSON<{status: string}>('/api/config/reset', 'POST'),
   setTheme: (payload: { theme: string; accent_index?: number | null }) =>
     getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
