@@ -6,6 +6,10 @@ import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { filterSlotsByDay, formatHour, DaySel } from '../lib/time'
+import ChartAnnotation from 'chartjs-plugin-annotation'
+
+// Register the annotation plugin
+ChartJS.register(ChartAnnotation)
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
@@ -20,6 +24,52 @@ const chartOptions: ChartConfiguration['options'] = {
                     typeof item.datasetIndex === 'number' && item.datasetIndex < 4,
             },
         },
+        tooltip: {
+            enabled: true,
+            mode: 'index',
+            intersect: false,
+            backgroundColor: 'rgba(30, 30, 46, 0.95)',
+            titleColor: '#e6e9ef',
+            bodyColor: '#a6b0bf',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            padding: 12,
+            displayColors: true,
+            callbacks: {
+                title: function(context) {
+                    return context[0].label
+                },
+                label: function(context) {
+                    const datasetLabel = context.dataset.label || ''
+                    const value = context.parsed.y
+                    if (value === null || value === undefined) return null
+                    
+                    let formattedValue = value.toFixed(2)
+                    let unit = ''
+                    
+                    if (datasetLabel.includes('SEK/kWh')) {
+                        formattedValue = value.toFixed(2)
+                        unit = ' SEK/kWh'
+                    } else if (datasetLabel.includes('kW')) {
+                        formattedValue = value.toFixed(1)
+                        unit = ' kW'
+                    } else if (datasetLabel.includes('kWh')) {
+                        formattedValue = value.toFixed(2)
+                        unit = ' kWh'
+                    } else if (datasetLabel.includes('%')) {
+                        formattedValue = value.toFixed(1)
+                        unit = '%'
+                    }
+                    
+                    return `${datasetLabel}: ${formattedValue}${unit}`
+            }
+        },
+        annotation: {
+            annotations: {
+                // Default empty - will be populated in createChartData
+            }
+        }
+    },
     },
     scales: {
         x: {
@@ -170,17 +220,47 @@ const createChartData = (values: ChartValues) => {
             pointRadius: 0,
             hidden: true,
         },
-        {
-            type: 'line',
-            label: 'SoC Projected (%)',
-            data: values.socProjected ?? values.labels.map(() => null),
-            borderColor: '#607D8B', // Material Blue Grey
-            yAxisID: 'y3', // Use percentage axis
-            pointRadius: 0,
-            hidden: true,
-        },
     ],
 }
+    
+    // Add "now" marker annotation if we have today's data
+    if (values.day === 'today') {
+        const now = new Date()
+        const currentTimeStr = now.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' })
+        const nowIndex = values.labels.findIndex(label => label === currentTimeStr)
+        
+        if (nowIndex >= 0) {
+            baseData.options = {
+                ...baseData.options,
+                plugins: {
+                    ...baseData.options?.plugins,
+                    annotation: {
+                        annotations: {
+                            nowLine: {
+                                type: 'line',
+                                xMin: nowIndex,
+                                xMax: nowIndex,
+                                borderColor: '#FF5722',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                label: {
+                                    content: 'NOW',
+                                    enabled: true,
+                                    position: 'start',
+                                    backgroundColor: '#FF5722',
+                                    color: '#fff',
+                                    font: {
+                                        size: 10,
+                                        weight: 'bold'
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     
     // Add no-data message if needed
     if (values.hasNoData) {

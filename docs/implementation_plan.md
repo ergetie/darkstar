@@ -318,12 +318,15 @@
     * Current SoC target from current schedule slot
     * Removed redundant "SoC now" text from system status
     * Add loading states and error handling
+    * Fixed button collision - integrated day switching into ChartCard
 
-6. **Status Cards Real Data**
+6. **Status Cards Real Data** ✅
    * Water heater from `/api/ha/water_today`
    * Export guard status from config
    * Learning status from `/api/learning/status`
-   * Add real-time updates
+   * Chart tooltip improvements with elaborate display and HH:mm formatting
+   * Fixed tooltip to show all datasets (mode: 'index', intersect: false)
+   * Added "NOW" marker line for current time on today's chart
 
 7. **Real-time Updates & Timezone**
    * Fix `isToday`/`isTomorrow` to use local timezone
@@ -355,9 +358,9 @@
   * Graceful fallback for tomorrow data when no prices are available
   * Header/Logo reorganization - moved bolt to sidebar, moved header items to menu
 
-* **In Progress**: —
+* **In Progress**: Step 7 - Real-time Updates & Timezone fixes
 * **Blocked**: —
-* **Next Steps**: Continue with Step 3 (Header/Logo Reorganization), then proceed with remaining Rev 40 steps
+* **Next Steps**: Complete Step 7 (Real-time Updates & Timezone fixes) to finish Rev 40
 
 ### Verification
 * Test each Quick Action with API monitoring

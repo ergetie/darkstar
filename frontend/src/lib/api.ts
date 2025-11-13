@@ -27,6 +27,37 @@ export type HaAverageResponse = {
   [key: string]: any
 }
 
+export type WaterTodayResponse = {
+  source?: 'home_assistant' | 'sqlite'
+  water_kwh_today?: number
+  [key: string]: any
+}
+
+export type LearningStatusResponse = {
+  enabled?: boolean
+  last_updated?: string
+  metrics?: {
+    completed_learning_runs?: number
+    days_with_data?: number
+    db_size_bytes?: number
+    failed_learning_runs?: number
+    last_learning_run?: string
+    last_observation?: string
+    price_coverage_ratio?: number
+    quality_gap_events?: number
+    quality_reset_events?: number
+    total_export_kwh?: number
+    total_import_kwh?: number
+    total_learning_runs?: number
+    total_load_kwh?: number
+    total_pv_kwh?: number
+    total_slots?: number
+  }
+  sqlite_path?: string
+  sync_interval_minutes?: number
+  [key: string]: any
+}
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = { 
     method,
@@ -46,6 +77,8 @@ export const Api = {
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
   config: () => getJSON<ConfigResponse>('/api/config'),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
+  haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
+  learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
   runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
