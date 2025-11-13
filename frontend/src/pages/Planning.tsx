@@ -30,11 +30,21 @@ const planningLanes: PlanningLane[] = [
 ]
 
 function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
-    const blocks: PlanningBlock[] = []
+    const filtered = slots.filter(
+        (slot) => isToday(slot.start_time) || isTomorrow(slot.start_time),
+    )
 
-    slots.forEach((slot, index) => {
-        if (!isToday(slot.start_time) && !isTomorrow(slot.start_time)) return
+    if (!filtered.length) return []
 
+    const sorted = [...filtered].sort(
+        (a, b) =>
+            new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
+    )
+
+    const merged: PlanningBlock[] = []
+    let blockCounter = 0
+
+    for (const slot of sorted) {
         const start = new Date(slot.start_time)
         const end = new Date(start.getTime() + 30 * 60 * 1000)
 
@@ -50,18 +60,31 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
         if (exp > 0) laneCandidates.push('export')
         if (!laneCandidates.length) laneCandidates.push('hold')
 
-        laneCandidates.forEach((lane, laneIdx) => {
-            blocks.push({
-                id: `${index}-${lane}-${laneIdx}`,
-                lane,
-                start,
-                end,
-                source: 'schedule',
-            })
-        })
-    })
+        for (const lane of laneCandidates) {
+            const last = merged.length
+                ? merged[merged.length - 1]
+                : null
 
-    return blocks
+            if (
+                last &&
+                last.lane === lane &&
+                last.end.getTime() === start.getTime()
+            ) {
+                // Extend the previous block for this lane by 30 minutes
+                last.end = end
+            } else {
+                merged.push({
+                    id: `auto-${blockCounter++}-${lane}`,
+                    lane,
+                    start,
+                    end,
+                    source: 'schedule',
+                })
+            }
+        }
+    }
+
+    return merged
 }
 
 export default function Planning(){
