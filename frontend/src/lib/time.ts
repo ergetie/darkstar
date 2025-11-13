@@ -35,7 +35,7 @@ export function isTomorrow(dateIso: string, now = new Date()): boolean {
 
 export function formatHour(dateIso: string): string {
   const d = isoToLocal(dateIso)
-  return new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', timeZone: TZ }).format(d)
+  return new Intl.DateTimeFormat('sv-SE', { hour: '2-digit', minute: '2-digit', timeZone: TZ }).format(d)
 }
 
 export type DaySel = 'today' | 'tomorrow'

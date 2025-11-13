@@ -15,6 +15,9 @@ export default function Dashboard(){
     const [pvToday, setPvToday] = useState<number | null>(null)
     const [avgLoad, setAvgLoad] = useState<{kw?: number; dailyKwh?: number} | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
+    const [waterToday, setWaterToday] = useState<{kwh?: number; source?: string} | null>(null)
+    const [learningStatus, setLearningStatus] = useState<{enabled?: boolean; status?: string; samples?: number} | null>(null)
+    const [exportGuard, setExportGuard] = useState<{enabled?: boolean; mode?: string} | null>(null)
 
     useEffect(() => {
         Api.status()
@@ -79,6 +82,35 @@ export default function Dashboard(){
                 }
             })
             .catch(() => {})
+        Api.haWaterToday()
+            .then((data) => {
+                setWaterToday({
+                    kwh: data.water_kwh_today,
+                    source: data.source
+                })
+            })
+            .catch(() => {})
+        Api.learningStatus()
+            .then((data) => {
+                const hasData = data.metrics?.total_slots && data.metrics.total_slots > 0
+                const isLearning = data.metrics?.completed_learning_runs && data.metrics.completed_learning_runs > 0
+                setLearningStatus({
+                    enabled: data.enabled,
+                    status: hasData ? (isLearning ? 'learning' : 'ready') : 'gathering',
+                    samples: data.metrics?.total_slots
+                })
+            })
+            .catch(() => {})
+        Api.config()
+            .then((data) => {
+                // Get export guard status from arbitrage config
+                const arbitrage = data.arbitrage || {}
+                setExportGuard({
+                    enabled: arbitrage.enable_export,
+                    mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive'
+                })
+            })
+            .catch(() => {})
     }, [])
 
     const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
@@ -123,16 +155,22 @@ export default function Dashboard(){
         <div className="text-sm text-muted mb-3">Water heater</div>
         <div className="flex items-center justify-between">
         <div className="text-2xl">Eco mode</div>
-        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">today 1.7 kWh</div>
+        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
+            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
+        </div>
         </div>
         </Card>
         <Card className="p-5">
         <div className="text-sm text-muted mb-3">Export guard</div>
-        <div className="text-2xl">Passive</div>
+        <div className="text-2xl capitalize">
+            {exportGuard?.enabled ? (exportGuard?.mode || 'passive') : 'disabled'}
+        </div>
         </Card>
         <Card className="p-5">
         <div className="text-sm text-muted mb-3">Learning</div>
-        <div className="text-2xl">Ready</div>
+        <div className="text-2xl capitalize">
+            {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
+        </div>
         </Card>
         </div>
         </main>
