@@ -311,11 +311,13 @@
    * Added proper state management for no-data message display
    * Implemented graceful fallback for tomorrow without price data
 
-5. **Dynamic KPIs Integration**
-   * Battery capacity from system config
-   * PV today from calculated schedule data
-   * Avg load from `/api/ha/average`
-   * Add loading states and error handling
+5. **Dynamic KPIs Integration** ✅
+    * Battery capacity from system config
+    * PV today from calculated schedule data
+    * Avg load from `/api/ha/average`
+    * Current SoC target from current schedule slot
+    * Removed redundant "SoC now" text from system status
+    * Add loading states and error handling
 
 6. **Status Cards Real Data**
    * Water heater from `/api/ha/water_today`
