@@ -382,7 +382,7 @@
 
 ---
 
-## Rev 40.1 — Dashboard Hotfixes *(Status: ✅ Completed)*
+## Rev 40.1 — Dashboard Hotfixes *(Status: 🔄 In Progress - Partial fixes complete, 2 remaining issues to debug)*
 
 * **Model**: GLM-4.6
 * **Summary**: Fix critical UI bugs and polish issues discovered after Rev 40 completion
@@ -445,10 +445,27 @@
 
 ### Implementation
 
-* **Completed**: All Steps 1-4 (Quick Actions Integration, Chart.js DOM Error Fix, UI Cleanup, Console Cleanup)
-* **In Progress**: —
+* **Completed**: Steps 1-4 (Quick Actions Integration, Chart.js DOM Error Fix, UI Cleanup, Console Cleanup)
+* **In Progress**: Step 5 - Debug remaining issues
 * **Blocked**: —
-* **Next Steps**: Rev 40.1 is complete. Ready for next revision.
+* **Next Steps**: Debug and fix remaining issues before marking Rev 40.1 complete
+
+### Remaining Issues to Debug
+
+1. **Tomorrow Tab Shows Empty Chart**
+   - Expected: Show "No Price Data" message like before
+   - Actual: Shows empty chart with no data
+   - Need to investigate buildLiveData fallback logic
+
+2. **Load Server Plan Status Detection**
+   - Expected: Update "NOW SHOWING" to indicate server plan loaded
+   - Actual: Still shows "LOCAL PLAN" after server plan load
+   - Need to debug status endpoint and Dashboard detection logic
+
+### Debug Plan
+- Add console logging to trace data flow in buildLiveData
+- Verify status endpoint returns correct metadata after server plan load
+- Check if Dashboard status detection logic needs adjustment
 
 ### Verification
 * ✅ Run planner properly updates Dashboard display with new timestamp
