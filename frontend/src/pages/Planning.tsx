@@ -220,7 +220,6 @@ export default function Planning(){
         <div className="text-[11px] text-muted">
             {loading && 'Loading schedule…'}
             {!loading && error && error}
-            {!loading && !error && 'today → tomorrow'}
         </div>
         </div>
 
@@ -232,25 +231,11 @@ export default function Planning(){
             onBlockMove={handleBlockMove}
             onBlockResize={handleBlockResize}
             onBlockSelect={handleBlockSelect}
+            onAddBlock={handleAddBlock}
         />
         </div>
 
-        <div className="mt-4 flex gap-3 justify-between">
-        <div className="flex gap-3">
-        {planningLanes.map((lane) => (
-            <PillButton
-            key={lane.id}
-            label={
-                lane.id==='battery' ? '+ chg' :
-                lane.id==='water'   ? '+ wtr' :
-                lane.id==='export'  ? '+ exp' : '+ hld'
-            }
-            color={lane.color}
-            onClick={() => handleAddBlock(lane.id)}
-            />
-        ))}
-        </div>
-
+        <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
             className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold disabled:opacity-40"
             disabled={loading || applying || blocks.length === 0}

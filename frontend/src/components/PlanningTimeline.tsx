@@ -1,6 +1,7 @@
 import { useRef, useState, WheelEvent } from 'react'
 import Timeline from 'react-calendar-timeline'
 import 'react-calendar-timeline/dist/style.css'
+import PillButton from './PillButton'
 
 type LaneId = 'battery' | 'water' | 'export' | 'hold'
 
@@ -26,6 +27,7 @@ type PlanningTimelineProps = {
   onBlockMove?: (args: { id: string; start: Date; lane: LaneId }) => void
   onBlockResize?: (args: { id: string; start: Date; end: Date }) => void
   onBlockSelect?: (id: string | null) => void
+  onAddBlock?: (lane: LaneId) => void
 }
 
 export default function PlanningTimeline({
@@ -127,10 +129,31 @@ export default function PlanningTimeline({
         defaultTimeStart={baseStart}
         defaultTimeEnd={baseEnd}
         lineHeight={64}
-        sidebarWidth={120}
+        sidebarWidth={96}
         canMove
         canResize="both"
         canChangeGroup
+        groupRenderer={({ group }) => {
+          const lane = lanes.find(l => l.id === group.id)
+          if (!lane) return null
+          const label =
+            lane.id === 'battery'
+              ? '+ chg'
+              : lane.id === 'water'
+              ? '+ wtr'
+              : lane.id === 'export'
+              ? '+ exp'
+              : '+ hld'
+          return (
+            <div className="flex h-full items-center justify-center">
+              <PillButton
+                label={label}
+                color={lane.color}
+                onClick={() => onAddBlock && onAddBlock(lane.id)}
+              />
+            </div>
+          )
+        }}
         onTimeChange={(start, end, updateScrollCanvas) => {
           const baseStartMs = baseStart.getTime()
           const baseEndMs = baseEnd.getTime()
