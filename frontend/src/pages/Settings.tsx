@@ -150,13 +150,6 @@ const uiSections = [
         description: 'Overlay defaults and refresh cadence for the planner dashboard.',
         fields: [
             {
-                key: 'dashboard.overlay_defaults',
-                label: 'Overlay defaults',
-                helper: 'Comma-separated overlay identifiers (e.g. price, charge, export).',
-                path: ['dashboard', 'overlay_defaults'],
-                type: 'text',
-            },
-            {
                 key: 'dashboard.auto_refresh_enabled',
                 label: 'Auto refresh',
                 helper: 'Enable automatic refresh of the dashboard schedule.',
@@ -293,6 +286,10 @@ function buildUIFormState(config: Record<string, any> | null): Record<string, st
             state[field.key] = value !== undefined && value !== null ? String(value) : ''
         }
     })
+    // Add overlay defaults separately since it's not in uiFieldList anymore
+    if (config?.dashboard?.overlay_defaults) {
+        state['dashboard.overlay_defaults'] = String(config.dashboard.overlay_defaults)
+    }
     return state
 }
 
@@ -318,6 +315,15 @@ function buildUIPatch(original: Record<string, any>, form: Record<string, string
         if (parsed === currentValue) return
         setDeepValue(patch, field.path, parsed)
     })
+    // Handle overlay defaults separately
+    const overlayDefaults = form['dashboard.overlay_defaults']
+    if (overlayDefaults !== undefined) {
+        const currentOverlayDefaults = getDeepValue(original, ['dashboard', 'overlay_defaults'])
+        if (overlayDefaults !== currentOverlayDefaults) {
+            if (!patch.dashboard) patch.dashboard = {}
+            patch.dashboard.overlay_defaults = overlayDefaults
+        }
+    }
     return patch
 }
 
@@ -444,9 +450,16 @@ export default function Settings() {
 
     const handleUIFieldChange = (key: string, value: string) => {
         const field = uiFieldMap[key]
-        if (!field) return
+        if (!field && key !== 'dashboard.overlay_defaults') return
         setUIForm((prev) => ({ ...prev, [key]: value }))
         setUIStatusMessage(null)
+        
+        // Handle overlay defaults separately
+        if (key === 'dashboard.overlay_defaults') {
+            // No validation needed for overlay defaults
+            return
+        }
+        
         if (field.type === 'boolean') {
             const trimmed = value.trim()
             setUIFieldErrors((prev) => {
@@ -883,8 +896,56 @@ export default function Settings() {
                             </div>
                             <span className="text-[10px] uppercase text-muted tracking-wide">UI</span>
                         </div>
-                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                            {section.fields.map((field) => (
+                        <div className="space-y-4">
+                            {/* Overlay Defaults - Special Case */}
+                            {section.title === 'Dashboard Defaults' && (
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="text-[10px] uppercase tracking-wide text-muted">Overlay defaults</label>
+                                        <p className="text-[11px] text-muted mb-3">Select which overlays are enabled by default on the dashboard.</p>
+                                        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                                            {[
+                                                ['Charge', 'charge'],
+                                                ['Discharge', 'discharge'],
+                                                ['Export', 'export'],
+                                                ['Water', 'water'],
+                                                ['SoC Target', 'socTarget'],
+                                                ['SoC Projected', 'socProjected'],
+                                            ].map(([label, key]) => {
+                                                const overlayDefaults = uiForm['dashboard.overlay_defaults'] || ''
+                                                const isActive = overlayDefaults.split(',').map(s => s.trim().toLowerCase()).includes(key)
+                                                return (
+                                                    <button
+                                                        key={key}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            const current = overlayDefaults.split(',').map(s => s.trim()).filter(Boolean)
+                                                            if (isActive) {
+                                                                const updated = current.filter(item => item.toLowerCase() !== key)
+                                                                handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
+                                                            } else {
+                                                                const updated = [...current, key]
+                                                                handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
+                                                            }
+                                                        }}
+                                                        className={`rounded-pill px-3 py-1 border text-[11px] transition ${
+                                                            isActive 
+                                                                ? 'bg-accent text-canvas border-accent' 
+                                                                : 'border-line/60 text-muted hover:border-accent'
+                                                        }`}
+                                                    >
+                                                        {label}
+                                                    </button>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                            
+                            {/* Regular Fields */}
+                            <div className="grid gap-4 sm:grid-cols-2">
+                                {section.fields.map((field) => (
                                 <div key={field.key} className="space-y-1">
                                     {field.type === 'boolean' ? (
                                         <label className="flex items-center gap-2 text-sm">
