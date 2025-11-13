@@ -792,6 +792,7 @@
        * Disallow negative thresholds where they don’t make sense.
        * Ensure weights and factors are within safe numeric ranges (e.g. 0–10 unless otherwise intended).
        * Provide inline messages when validation fails.
+   * Status: Parameter tab now renders charging strategy, arbitrage, water heating, learning, and S-index sections, validates numeric inputs, and diff-saves them via `/api/config/save`.
 
 5. **UI Section – Theme & App Behavior**
    * Integrate theme picker:
@@ -829,10 +830,12 @@
 * **Completed**:
   * Step 1 — Config inventory (system, parameters, UI mapping, learning/S-index coverage) documented and committed.
   * Step 2 — Settings layout implemented with tabbed sections for System / Parameters / UI using the existing `/settings` page shell as the canvas.
-* **In Progress**:
   * Step 3 — System section form wiring, fetching `/api/config`, and persisting edits.
+  * Step 4 — Parameter form sections built (charging strategy, arbitrage, water heating, learning limits, S-index) with validation and diff-saves.
+* **In Progress**:
+  * Step 5 — UI section (theme picker, app preferences, and shared UI defaults).
 * **Blocked**: —
-* **Next Steps**: Build forms for the System section, then proceed to Parameters controls once the initial data flow is validated.
+* **Next Steps**: Flesh out the UI section per Step 5, then round up the shared save/reset UX in Step 6.
 
 ### Verification (Planned)
 
