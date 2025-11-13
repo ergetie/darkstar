@@ -358,17 +358,34 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             // Load schedule data and create chart
             Api.schedule()
                 .then(data => {
+                    console.log(`[ChartCard] API response for ${currentDay}:`, {
+                        scheduleLength: data.schedule?.length || 0,
+                        hasSchedule: !!(data.schedule && data.schedule.length > 0)
+                    })
+                    
                     const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
-                    if(!liveData || !ref.current) return
+                    console.log(`[ChartCard] buildLiveData result for ${currentDay}:`, {
+                        hasNoData: liveData?.hasNoData,
+                        datasetsCount: liveData?.datasets?.length || 0,
+                        labelsCount: liveData?.labels?.length || 0
+                    })
+                    
+                    if(!liveData || !chartRef.current) return
+                    // Update no-data message state
                     setHasNoDataMessage(liveData.hasNoData ?? false)
                     
-                    // Create chart with live data
-                    const cfg: ChartConfiguration = {
-                        type: 'bar',
-                        data: liveData,
-                        options: chartOptions,
+                    // Update existing chart or create new one
+                    if(chartRef.current) {
+                        chartRef.current.data = liveData
+                        chartRef.current.update('none')
+                    } else {
+                        const cfg: ChartConfiguration = {
+                            type: 'bar',
+                            data: liveData,
+                            options: chartOptions,
+                        }
+                        chartRef.current = new ChartJS(ref.current, cfg)
                     }
-                    chartRef.current = new ChartJS(ref.current, cfg)
                     
                     // Apply overlay visibility
                     const ds = liveData.datasets
@@ -466,6 +483,11 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
             </div>
         )}
         <canvas ref={ref} style={{ display: (hasNoDataMessage || isLoading) ? 'none' : 'block' }}/>
+        </div>
+        
+        {/* Debug info - remove later */}
+        <div className="text-xs text-muted mt-2">
+            Debug: isLoading={isLoading ? 'true' : 'false'}, hasNoDataMessage={hasNoDataMessage ? 'true' : 'false'}
         </div>
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
         {([
