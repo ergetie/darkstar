@@ -946,38 +946,39 @@ export default function Settings() {
                             {/* Regular Fields */}
                             <div className="grid gap-4 sm:grid-cols-2">
                                 {section.fields.map((field) => (
-                                <div key={field.key} className="space-y-1">
-                                    {field.type === 'boolean' ? (
-                                        <label className="flex items-center gap-2 text-sm">
-                                            <input
-                                                type="checkbox"
-                                                checked={uiForm[field.key] === 'true'}
-                                                onChange={(event) =>
-                                                    handleUIFieldChange(field.key, event.target.checked ? 'true' : 'false')
-                                                }
-                                                className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
-                                            />
-                                            <span className="font-semibold">{field.label}</span>
-                                        </label>
-                                    ) : (
-                                        <>
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
-                                            <input
-                                                type="text"
-                                                value={uiForm[field.key] ?? ''}
-                                                onChange={(event) => handleUIFieldChange(field.key, event.target.value)}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                        </>
-                                    )}
-                                    {field.helper && (
-                                        <p className="text-[11px] text-muted">{field.helper}</p>
-                                    )}
-                                    {uiFieldErrors[field.key] && (
-                                        <p className="text-[11px] text-red-400">{uiFieldErrors[field.key]}</p>
-                                    )}
-                                </div>
-                            ))}
+                                    <div key={field.key} className="space-y-1">
+                                        {field.type === 'boolean' ? (
+                                            <label className="flex items-center gap-2 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={uiForm[field.key] === 'true'}
+                                                    onChange={(event) =>
+                                                        handleUIFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                    }
+                                                    className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                                />
+                                                <span className="font-semibold">{field.label}</span>
+                                            </label>
+                                        ) : (
+                                            <>
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                                <input
+                                                    type="text"
+                                                    value={uiForm[field.key] ?? ''}
+                                                    onChange={(event) => handleUIFieldChange(field.key, event.target.value)}
+                                                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                                />
+                                            </>
+                                        )}
+                                        {field.helper && (
+                                            <p className="text-[11px] text-muted">{field.helper}</p>
+                                        )}
+                                        {uiFieldErrors[field.key] && (
+                                            <p className="text-[11px] text-red-400">{uiFieldErrors[field.key]}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     </Card>
                 ))}
