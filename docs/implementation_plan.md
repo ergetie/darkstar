@@ -698,12 +698,12 @@
 
 ---
 
-## Rev 43 — Settings & Configuration UI *(Status: 📋 Planned)*
+## Rev 43 — Settings & Configuration UI *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5 Codex CLI (planned)
 * **Summary**: Consolidate legacy System and Settings tabs into a single Settings page in the React UI (System / Parameters / UI), wire it to the existing config APIs, and surface all key planner, learning, and S-index safety parameters in a structured, safe way.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-13
+* **Last Updated**: 2025-11-13
 
 ### Plan
 
@@ -806,13 +806,21 @@
    * Status: UI tab now renders a theme picker with accent control plus dashboard defaults, all saving through `/api/config/save` and `/api/theme`.
 
 6. **Shared Save / Reset Flow & UX**
-   * Add a consistent save/reset UI affordance:
-     * Section-level “Save” buttons that are clearly tied to System, Parameters, or UI.
-     * A global “Reset to defaults” button (with confirmation) that triggers `/api/config/reset` and refetches `/api/config` on success.
-   * Ensure:
-     * Buttons show loading/disabled states while requests are in flight.
-     * Success/failure toasts or inline messages are concise and visible.
-     * The app continues to behave correctly after a reset (Dashboard and Planning should consume the updated config).
+    * Add a consistent save/reset UI affordance:
+      * Section-level "Save" buttons that are clearly tied to System, Parameters, or UI.
+      * A global "Reset to defaults" button (with confirmation) that triggers `/api/config/reset` and refetches `/api/config` on success.
+    * Ensure:
+      * Buttons show loading/disabled states while requests are in flight.
+      * Success/failure toasts or inline messages are concise and visible.
+      * The app continues to behave correctly after a reset (Dashboard and Planning should consume the updated config).
+    * **Implementation Details**:
+      * Added `configReset()` API method to `/api/config/reset` endpoint
+      * Implemented global reset button in Settings page header with browser confirmation dialog
+      * Added reset state management (loading, status messages, error handling)
+      * Fixed critical field path mapping bug where battery fields used incorrect paths (`system.battery.*` → `battery.*`)
+      * Added success/error status message display with appropriate styling
+      * Removed "Rev 43 · Settings & Configuration" header text for cleaner UI
+      * Reset flow properly clears form errors, reloads config/themes, and updates all form states
 
 7. **Verification & Learning-related Backlog Alignment**
    * Manual test scenarios:
@@ -834,10 +842,10 @@
   * Step 3 — System section form wiring, fetching `/api/config`, and persisting edits.
   * Step 4 — Parameter form sections built (charging strategy, arbitrage, water heating, learning limits, S-index) with validation and diff-saves.
   * Step 5 — UI section (theme picker, app preferences, and shared UI defaults).
-* **In Progress**:
   * Step 6 — Shared save / reset UX (section-level saves, reset to defaults flow).
+* **In Progress**: —
 * **Blocked**: —
-* **Next Steps**: Focus on Step 6 implementation (save/reset affordances and user feedback) next.
+* **Next Steps**: Step 7 — Verification & Learning-related backlog alignment.
 
 ### Verification (Planned)
 
