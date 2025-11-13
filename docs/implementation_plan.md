@@ -382,7 +382,7 @@
 
 ---
 
-## Rev 40.1 — Dashboard Hotfixes *(Status: 🔄 In Progress - 1 resolved, 2 new issues discovered)*
+## Rev 41 — Dashboard Hotfixes *(Status: ✅ Completed)*
 
 * **Model**: GLM-4.6
 * **Summary**: Fix critical UI bugs and polish issues discovered after Rev 40 completion
@@ -561,12 +561,12 @@
 
 ---
 
-## Rev 42 — Planning Timeline *(Status: 📋 Planned)*
+## Rev 42 — Planning Timeline *(Status: ✅ Completed)*
 
 * **Model**: GPT-5 Codex CLI (planned)
 * **Summary**: Rebuild the Planning Timeline tab in React, mirroring the legacy vis-timeline behavior (manual block planning, simulate/save) while matching the new dashboard theme.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-13
+* **Last Updated**: 2025-11-13
 
 ### Plan
 
@@ -667,9 +667,11 @@
   * Step 3 (Block CRUD & Reset Semantics – select/delete individual blocks, reset timeline back to the latest schedule, treat the timeline as the editable 48‑hour schedule)
   * Step 4 (Simulate / Save wiring from Planning – \"Apply manual changes\" builds a simplified block payload, posts to `/api/simulate`, reloads the merged schedule, and re-derives planning blocks)
   * Step 5 (Chart Synchronization – Planning tab shows a 48‑hour schedule chart using the Dashboard chart component; the chart refreshes after simulate so timeline + chart stay in sync for the local plan)
-* **In Progress**: Step 6–7 (Constraints, Read-only & Edge Cases; UX & Theme Polish)  
+  * Step 6 (Constraints, Read-only & Edge Cases – historical slots read-only/shaded; zoom/pan clamped to 48h; timeline \"NOW\" line matching the chart; prevent edits in past slots)
+  * Step 7 (UX & Theme Polish – lane-aligned add buttons, minimal dark grid, hourly headers only, compact actions, consistent NOW lines on chart and timeline, and Planning controls aligned with Dashboard aesthetics)
+* **In Progress**: —  
 * **Blocked**: —
-* **Next Steps**: Add a Planning‑tab plan status indicator (local vs server), mark historical slots as read‑only/shaded, refine block styling and headers, and investigate the SoC Projected jump around 16:45–17:45 where SoC rises sharply without an obvious charge block.
+* **Next Steps**: Investigate the SoC Projected jump around 16:45–17:45 where SoC rises sharply without an obvious charge block, and handle device caps / zero‑capacity gap constraints in a later Rev.
 
 ### Verification (Planned)
 
