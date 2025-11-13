@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Card from '../components/Card'
+import { Api } from '../lib/api'
 
 const tabs = [
     { id: 'system', label: 'System' },
@@ -17,7 +18,7 @@ const sectionMap: Record<string, Array<{ title: string; description: string; ite
         {
             title: 'Home Assistant & Learning Storage',
             description: 'Entity IDs plus the sqlite path that backs the planner learning store.',
-            items: ['secrets.battery_soc_entity_id', 'secrets.water_heater_daily_entity_id', 'learning.sqlite_path'],
+            items: ['learning.sqlite_path'],
         },
         {
             title: 'Pricing & Timing',
@@ -66,6 +67,102 @@ const sectionMap: Record<string, Array<{ title: string; description: string; ite
     ],
 }
 
+type SystemField = {
+    key: string
+    label: string
+    helper?: string
+    path: string[]
+    type: 'number' | 'text'
+}
+
+const systemSections = [
+    {
+        title: 'Battery & Grid',
+        description: 'Capacity, max power, and SoC limits define safe operating bands.',
+        fields: [
+            { key: 'system.battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['system', 'battery', 'capacity_kwh'], type: 'number' },
+            { key: 'system.battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['system', 'battery', 'max_charge_power_kw'], type: 'number' },
+            { key: 'system.battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['system', 'battery', 'max_discharge_power_kw'], type: 'number' },
+            { key: 'system.battery.min_soc_percent', label: 'Min SoC (%)', path: ['system', 'battery', 'min_soc_percent'], type: 'number' },
+            { key: 'system.battery.max_soc_percent', label: 'Max SoC (%)', path: ['system', 'battery', 'max_soc_percent'], type: 'number' },
+            { key: 'system.grid.max_power_kw', label: 'Grid max power (kW)', path: ['system', 'grid', 'max_power_kw'], type: 'number' },
+        ],
+    },
+    {
+        title: 'Home Assistant & Learning Storage',
+        description: 'Additionally track the learning database path for telemetry.',
+        fields: [
+            { key: 'learning.sqlite_path', label: 'Learning SQLite path', helper: 'Directory must exist and be writable.', path: ['learning', 'sqlite_path'], type: 'text' },
+        ],
+    },
+    {
+        title: 'Pricing & Timing',
+        description: 'Nordpool zone, resolution, and timezone for planner calculations.',
+        fields: [
+            { key: 'nordpool.price_area', label: 'Price area', path: ['nordpool', 'price_area'], type: 'text' },
+            { key: 'nordpool.resolution_minutes', label: 'Price resolution (minutes)', path: ['nordpool', 'resolution_minutes'], type: 'number' },
+            { key: 'timezone', label: 'Timezone', path: ['timezone'], type: 'text' },
+        ],
+    },
+]
+
+const systemFieldList: SystemField[] = systemSections.flatMap((section) => section.fields)
+const systemFieldMap: Record<string, SystemField> = systemFieldList.reduce((acc, field) => {
+    acc[field.key] = field
+    return acc
+}, {} as Record<string, SystemField>)
+
+function getDeepValue(source: any, path: string[]): any {
+    return path.reduce((current, key) => (current && typeof current === 'object' ? current[key] : undefined), source)
+}
+
+function setDeepValue(target: Record<string, any>, path: string[], value: any) {
+    let cursor: Record<string, any> = target
+    path.forEach((key, index) => {
+        if (index === path.length - 1) {
+            cursor[key] = value
+            return
+        }
+        if (!cursor[key] || typeof cursor[key] !== 'object') {
+            cursor[key] = {}
+        }
+        cursor = cursor[key]
+    })
+}
+
+function buildSystemFormState(config: Record<string, any> | null): Record<string, string> {
+    const state: Record<string, string> = {}
+    systemFieldList.forEach((field) => {
+        const value = config ? getDeepValue(config, field.path) : undefined
+        state[field.key] = value !== undefined && value !== null ? String(value) : ''
+    })
+    return state
+}
+
+function parseFieldInput(field: SystemField, raw: string): number | string | null | undefined {
+    const trimmed = raw.trim()
+    if (field.type === 'number') {
+        if (trimmed === '') return null
+        const parsed = Number(trimmed)
+        return Number.isNaN(parsed) ? undefined : parsed
+    }
+    return trimmed
+}
+
+function buildSystemPatch(original: Record<string, any>, form: Record<string, string>): Record<string, any> {
+    const patch: Record<string, any> = {}
+    systemFieldList.forEach((field) => {
+        const raw = form[field.key] ?? ''
+        const parsed = parseFieldInput(field, raw)
+        if (parsed === undefined) return
+        if (field.type === 'number' && parsed === null) return
+        const currentValue = getDeepValue(original, field.path)
+        if (parsed === currentValue) return
+        setDeepValue(patch, field.path, parsed)
+    })
+    return patch
+}
+
 function SectionCard({ title, description, items }: { title: string; description: string; items: string[] }) {
     return (
         <Card className="p-6">
@@ -84,7 +181,154 @@ function SectionCard({ title, description, items }: { title: string; description
 
 export default function Settings(){
     const [activeTab, setActiveTab] = useState('system')
+    const [config, setConfig] = useState<Record<string, any> | null>(null)
+    const [systemForm, setSystemForm] = useState<Record<string, string>>(() => buildSystemFormState(null))
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+    const [loadingConfig, setLoadingConfig] = useState(true)
+    const [configError, setConfigError] = useState<string | null>(null)
+    const [saving, setSaving] = useState(false)
+    const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const sections = useMemo(() => sectionMap[activeTab], [activeTab])
+
+    useEffect(() => {
+        let cancelled = false
+        setLoadingConfig(true)
+        setConfigError(null)
+        Api.config()
+            .then((cfg) => {
+                if (cancelled) return
+                setConfig(cfg)
+                setSystemForm(buildSystemFormState(cfg))
+            })
+            .catch((err) => {
+                if (cancelled) return
+                setConfigError(err.message || 'Failed to load configuration')
+            })
+            .finally(() => {
+                if (cancelled) return
+                setLoadingConfig(false)
+            })
+        return () => {
+            cancelled = true
+        }
+    }, [])
+
+    const handleFieldChange = (key: string, value: string) => {
+        const field = systemFieldMap[key]
+        if (!field) return
+        setSystemForm((prev) => ({ ...prev, [key]: value }))
+        setStatusMessage(null)
+        if (field.type === 'number') {
+            const trimmed = value.trim()
+            setFieldErrors((prev) => {
+                const next = { ...prev }
+                if (trimmed === '') {
+                    next[key] = 'Required'
+                } else if (Number.isNaN(Number(trimmed))) {
+                    next[key] = 'Must be a number'
+                } else {
+                    delete next[key]
+                }
+                return next
+            })
+        }
+    }
+
+    const fieldErrorCount = Object.values(fieldErrors).filter(Boolean).length
+    const hasValidationErrors = fieldErrorCount > 0
+
+    const handleSaveSystem = async () => {
+        if (!config) return
+        if (hasValidationErrors) {
+            setStatusMessage('Fix validation errors before saving.')
+            return
+        }
+        const patch = buildSystemPatch(config, systemForm)
+        if (!Object.keys(patch).length) {
+            setStatusMessage('No changes detected.')
+            return
+        }
+        setSaving(true)
+        setStatusMessage(null)
+        try {
+            await Api.configSave(patch)
+            const fresh = await Api.config()
+            setConfig(fresh)
+            setSystemForm(buildSystemFormState(fresh))
+            setFieldErrors({})
+            setStatusMessage('System settings saved.')
+        } catch (err: any) {
+            setStatusMessage(err?.message ? `Failed to save: ${err.message}` : 'Save failed.')
+        } finally {
+            setSaving(false)
+        }
+    }
+
+    const renderSystemForm = () => {
+        if (loadingConfig) {
+            return (
+                <Card className="p-6 text-sm text-muted">
+                    Loading system configuration…
+                </Card>
+            )
+        }
+        if (configError) {
+            return (
+                <Card className="p-6 text-sm text-red-400">
+                    {configError}
+                </Card>
+            )
+        }
+        return (
+            <div className="space-y-4">
+                {systemSections.map((section) => (
+                    <Card key={section.title} className="p-6">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <div>
+                                <div className="text-sm font-semibold">{section.title}</div>
+                                <p className="text-xs text-muted mt-1">{section.description}</p>
+                            </div>
+                            <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
+                        </div>
+                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                            {section.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                    <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                    <input
+                                        type={field.type === 'number' ? 'number' : 'text'}
+                                        inputMode={field.type === 'number' ? 'decimal' : undefined}
+                                        value={systemForm[field.key] ?? ''}
+                                        onChange={(event) => handleFieldChange(field.key, event.target.value)}
+                                        className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                    />
+                                    {field.helper && (
+                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                    )}
+                                    {fieldErrors[field.key] && (
+                                        <p className="text-[11px] text-red-400">{fieldErrors[field.key]}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                ))}
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        disabled={saving || loadingConfig}
+                        onClick={handleSaveSystem}
+                        className="rounded-pill bg-accent px-4 py-2 text-sm font-semibold text-[#100f0e] shadow-sm transition hover:bg-accent2 disabled:opacity-50"
+                    >
+                        {saving ? 'Saving…' : 'Save System Settings'}
+                    </button>
+                    {statusMessage && (
+                        <p className={`text-sm ${statusMessage.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
+                            {statusMessage}
+                        </p>
+                    )}
+                </div>
+            </div>
+        )
+    }
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12 space-y-6">
@@ -94,7 +338,7 @@ export default function Settings(){
                 <p className="text-sm text-muted">System, parameters, and UI preferences collected into one modern surface.</p>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
                 {tabs.map((tab) => {
                     const active = activeTab === tab.id
                     return (
@@ -111,11 +355,15 @@ export default function Settings(){
                 })}
             </div>
 
-            <div className="grid gap-6 md:grid-cols-2">
-                {sections.map((section) => (
-                    <SectionCard key={section.title} {...section} />
-                ))}
-            </div>
+            {activeTab === 'system' ? (
+                renderSystemForm()
+            ) : (
+                <div className="grid gap-6 md:grid-cols-2">
+                    {sections.map((section) => (
+                        <SectionCard key={section.title} {...section} />
+                    ))}
+                </div>
+            )}
         </main>
     )
 }

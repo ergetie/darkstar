@@ -776,6 +776,7 @@
      * Calls `/api/config/save` with that patch.
      * Updates local state with the merged config on success.
      * Surfaces validation errors or backend errors with a clear message.
+   * Status: System tab now fetches `/api/config`, renders fields for battery/grid, pricing, and learning storage, validates numeric input, and diff-saves via `/api/config/save`.
 
 4. **Parameters Section – Planner, Learning & S-Index**
    * Map legacy Settings fields to structured sub-cards:
