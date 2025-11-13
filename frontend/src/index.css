@@ -23,6 +23,11 @@ body::before {
     opacity: 0.9;
 }
 
+.ds-timeline-item-selected {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.7) !important;
+    opacity: 1 !important;
+}
+
 .ds-timeline-battery {
     background-color: #AAB6C4 !important;
 }
