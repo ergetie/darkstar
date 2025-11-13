@@ -445,10 +445,10 @@
 
 ### Implementation
 
-* **Completed**: Steps 1-4 (Quick Actions Integration, Chart.js DOM Error Fix, UI Cleanup, Console Cleanup) + Fix #1 (Metadata Sync implementation in Dashboard)
-* **In Progress**: Step 5 - Debug remaining issues (focus on Chart safety / Issue #3)  
+* **Completed**: Steps 1-4 (Quick Actions Integration, Chart.js DOM Error Fix, UI Cleanup, Console Cleanup) + Fix #1 (Metadata Sync implementation in Dashboard) + Fix #2 (Chart Safety in ChartCard)
+* **In Progress**: Step 5 - Verify remaining issues in UI (empty tomorrow chart, SoC overlays visibility)  
 * **Blocked**: —
-* **Next Steps**: Verify Issue #2 (Load Server Plan Status Detection) in UI, then proceed to Fix #2 (Chart Safety)
+* **Next Steps**: Manual verification pass on Dashboard (planner runs, load server plan, overlay toggles) and adjust any remaining visual bugs (e.g. SoC Projected visibility)
 
 ### Current Status Summary
 
@@ -480,10 +480,10 @@
 - Metadata now follows the selected source instead of always preferring local ✅
 - Awaiting manual verification in real UI flows (run planner, load server plan, reset, push) ⚠️
 
-**New Issue #3**: Chart.js Plugin Cache Error
-- Error: "can't access property 'filter', this._plugins._cache is undefined"
-- Location: ChartCard.tsx during chart update operations
-- Impact: Chart updates may fail, causing display issues
+**New Issue #3**: Chart.js Plugin Cache Error ✅ **ADDRESSED BY FIX #2**
+- Original error: "can't access property 'filter', this._plugins._cache is undefined"
+- Location: ChartCard.tsx during chart update operations on destroyed chart instances
+- Fix: Guard all updates via `isChartUsable`, clear `chartRef` on destroy, and wrap updates in try/catch to avoid calling `update` on invalid instances
 
 ### Remaining Issues to Debug
 
@@ -497,26 +497,17 @@
    - Current: Badge and metadata are both driven by `currentPlanSource` + source-specific metadata
    - Remaining: Validate edge cases (no server metadata, first-load state) during manual testing
 
-3. **Chart.js Plugin Cache Error** 🆕 **CRITICAL**
+3. **Chart.js Plugin Cache Error** ✅ **RESOLVED BY FIX #2**
    - Expected: Chart updates without errors
-   - Actual: Console error "can't access property 'filter', this._plugins._cache is undefined"
-   - Location: ChartCard.tsx:373 (chartInstance.update)
-   - Impact: Chart may fail to update properly
-
-### Debug Analysis
-
-**Issue #3 - Chart.js Error**:
-- Error occurs during chart update operations
-- Chart.js plugin cache becomes undefined
-- Multiple useEffects may cause race conditions
-- Need chart instance validation and error handling
+   - Current: Updates are guarded by `isChartUsable` + try/catch; destroyed charts clear their refs on cleanup
+   - Remaining: Keep an eye on runtime console during testing; no known repro after hardening
 
 ### Implementation Status
 - ✅ Added plan source state tracking to Dashboard component
 - ✅ Modified QuickActions to communicate plan source changes
 - ✅ Updated status display to show user's current view, not file metadata
-- ⚠️ Metadata sync incomplete - plan source and metadata mismatched
-- ❌ Chart safety missing - plugin errors during updates
+- ✅ Metadata sync implemented so plan source and metadata match
+- ✅ Chart safety implemented; plugin cache errors guarded
 
 ### Planned Fixes
 
