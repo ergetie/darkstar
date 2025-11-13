@@ -915,7 +915,7 @@ export default function Settings() {
                                                 const overlayDefaults = uiForm['dashboard.overlay_defaults'] || ''
                                                 // Clean and deduplicate the overlay defaults
                                                 const cleanOverlays = [...new Set(overlayDefaults.split(',').map(s => s.trim().toLowerCase()))]
-                                                const isActive = cleanOverlays.includes(key)
+                                                const isActive = cleanOverlays.includes(key.toLowerCase())
                                                 console.log('Overlay toggle debug:', { key, overlayDefaults, cleanOverlays, isActive })
                                                 return (
                                                     <button
@@ -925,11 +925,11 @@ export default function Settings() {
                                                             const current = [...new Set(overlayDefaults.split(',').map(s => s.trim().toLowerCase()))]
                                                             console.log('Before click:', { key, isActive, current })
                                                             if (isActive) {
-                                                                const updated = current.filter(item => item !== key)
+                                                                const updated = current.filter(item => item !== key.toLowerCase())
                                                                 console.log('Removing:', key, 'Result:', updated)
                                                                 handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
                                                             } else {
-                                                                const updated = [...current, key]
+                                                                const updated = [...current, key.toLowerCase()]
                                                                 console.log('Adding:', key, 'Result:', updated)
                                                                 handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
                                                             }
