@@ -1,78 +1,127 @@
+import { useEffect, useMemo, useState } from 'react'
 import Card from '../components/Card'
 import PillButton from '../components/PillButton'
-import { lanes, blocks } from '../lib/sample'
+import { Api } from '../lib/api'
+import type { ScheduleSlot } from '../lib/types'
+import { isToday, isTomorrow } from '../lib/time'
+import PlanningTimeline from '../components/PlanningTimeline'
 
-const laneHeight = 64  // px
-const hours = Array.from({length:24}, (_,i)=>i)
+type LaneId = 'battery' | 'water' | 'export' | 'hold'
+
+type PlanningLane = {
+    id: LaneId
+    label: string
+    color: string
+}
+
+type PlanningBlock = {
+    id: string
+    lane: LaneId
+    start: Date
+    end: Date
+    source: 'schedule'
+}
+
+const planningLanes: PlanningLane[] = [
+    { id: 'battery', label: 'Battery', color: '#AAB6C4' },
+    { id: 'water',   label: 'Water',   color: '#FF7A7A' },
+    { id: 'export',  label: 'Export',  color: '#9BF6A3' },
+    { id: 'hold',    label: 'Hold',    color: '#FFD966' },
+]
+
+function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
+    const blocks: PlanningBlock[] = []
+
+    slots.forEach((slot, index) => {
+        if (!isToday(slot.start_time) && !isTomorrow(slot.start_time)) return
+
+        const start = new Date(slot.start_time)
+        const end = new Date(start.getTime() + 30 * 60 * 1000)
+
+        const laneCandidates: LaneId[] = []
+
+        const charge = slot.battery_charge_kw ?? slot.charge_kw ?? 0
+        const discharge = slot.battery_discharge_kw ?? slot.discharge_kw ?? 0
+        const water = slot.water_heating_kw ?? 0
+        const exp = slot.export_kwh ?? 0
+
+        if (charge > 0 || discharge > 0) laneCandidates.push('battery')
+        if (water > 0) laneCandidates.push('water')
+        if (exp > 0) laneCandidates.push('export')
+        if (!laneCandidates.length) laneCandidates.push('hold')
+
+        laneCandidates.forEach((lane, laneIdx) => {
+            blocks.push({
+                id: `${index}-${lane}-${laneIdx}`,
+                lane,
+                start,
+                end,
+                source: 'schedule',
+            })
+        })
+    })
+
+    return blocks
+}
 
 export default function Planning(){
+    const [schedule, setSchedule] = useState<ScheduleSlot[] | null>(null)
+    const [error, setError] = useState<string | null>(null)
+    const [loading, setLoading] = useState(false)
+
+    useEffect(() => {
+        let cancelled = false
+        setLoading(true)
+        setError(null)
+        Api.schedule()
+            .then(res => {
+                if (cancelled) return
+                setSchedule(res.schedule ?? [])
+            })
+            .catch(err => {
+                if (cancelled) return
+                console.error('Failed to load schedule for Planning:', err)
+                setError('Failed to load schedule')
+            })
+            .finally(() => {
+                if (cancelled) return
+                setLoading(false)
+            })
+
+        return () => { cancelled = true }
+    }, [])
+
+    const planningBlocks = useMemo(
+        () => classifyBlocks(schedule ?? []),
+        [schedule],
+    )
+
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
         <Card className="p-4 md:p-6">
         <div className="flex items-baseline justify-between pb-4">
         <div className="text-sm text-muted">Planning Timeline</div>
-        <div className="text-[11px] text-muted">today → tomorrow</div>
+        <div className="text-[11px] text-muted">
+            {loading && 'Loading schedule…'}
+            {!loading && error && error}
+            {!loading && !error && 'today → tomorrow'}
+        </div>
         </div>
 
-        <div className="relative rounded-xl2 border border-line/60 bg-surface2 overflow-hidden">
-        {/* hour grid */}
-        <div className="absolute left-28 right-2 top-0 h-[16px] flex items-center gap-2 px-2 text-[10px] text-muted">
-        {hours.map(h => (
-            <div key={h} className="flex-1 text-center">{String(h).padStart(2,'0')}</div>
-        ))}
-        </div>
-
-        {/* vertical grid lines */}
-        <div className="absolute left-28 right-2 bottom-2 top-6 grid"
-        style={{ gridTemplateColumns: 'repeat(24,minmax(0,1fr))' }}>
-        {hours.map(h => (
-            <div key={h} className="border-l border-line/60" />
-        ))}
-        </div>
-
-        {/* lanes */}
-        <div className="pl-2 pr-2 pt-6 pb-2">
-        {lanes.map((lane, idx) => (
-            <div key={lane.id} className="relative flex items-center" style={{ height: laneHeight }}>
-            {/* floating add buttons column */}
-            <div className="w-24 flex items-center justify-center">
-            <div className="grid gap-2">
-            {/* one pill that matches your screenshot per lane */}
-            <PillButton
-            label={
-                lane.id==='battery' ? '+ chg' :
-                lane.id==='water'   ? '+ wtr' :
-                lane.id==='export'  ? '+ exp' : '+ hld'
-            }
-            color={lane.color}
-            />
-            </div>
-            </div>
-
-            {/* lane rail */}
-            <div className="relative flex-1 h-12 rounded-xl2 border border-line/70 bg-surface shadow-inset1">
-            {/* blocks */}
-            {blocks.filter(b=>b.lane===lane.id).map((b, i) => {
-                const leftPct = (b.start/24)*100
-                const widthPct = (b.len/24)*100
-                return (
-                    <div key={i}
-                    className="absolute top-1 bottom-1 rounded-pill shadow-float"
-                    style={{ left: `${leftPct}%`, width: `${widthPct}%`, background: b.color }}
-                    />
-                )
-            })}
-            {/* "now" indicator */}
-            <div className="absolute top-0 bottom-0 w-0.5 bg-[#ff6a6a] left-[66%] opacity-80" />
-            </div>
-            </div>
-        ))}
-        </div>
+        <div className="rounded-xl2 border border-line/60 bg-surface2 overflow-hidden">
+        <PlanningTimeline
+            lanes={planningLanes}
+            blocks={planningBlocks}
+        />
         </div>
 
         <div className="mt-4 flex gap-3 justify-end">
-        <button className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold">Apply manual changes</button>
-        <button className="rounded-pill border border-line/70 px-5 py-2.5 text-text hover:border-accent">Reset</button>
+        <button className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold" disabled>
+            Apply manual changes
+        </button>
+        <button className="rounded-pill border border-line/70 px-5 py-2.5 text-text hover:border-accent" disabled>
+            Reset
+        </button>
         </div>
         </Card>
         </main>
