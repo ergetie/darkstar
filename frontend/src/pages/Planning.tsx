@@ -94,6 +94,7 @@ export default function Planning(){
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
+    const [applying, setApplying] = useState(false)
 
     useEffect(() => {
         let cancelled = false
@@ -150,6 +151,40 @@ export default function Planning(){
         if (!selectedBlockId) return
         setBlocks(prev => prev.filter(b => b.id !== selectedBlockId))
         setSelectedBlockId(null)
+    }
+
+    const handleApply = () => {
+        if (!blocks.length || applying) return
+        setApplying(true)
+        setError(null)
+        const laneDefaultAction: Record<LaneId, string> = {
+            battery: 'Charge',
+            water: 'Water Heating',
+            export: 'Export',
+            hold: 'Hold',
+        }
+        const payload = blocks.map(b => ({
+            id: b.id,
+            group: b.lane,
+            title: null,
+            action: laneDefaultAction[b.lane],
+            start: b.start.toISOString(),
+            end: b.end.toISOString(),
+        }))
+        Api.simulate(payload)
+            .then(res => {
+                const sched = res.schedule ?? []
+                setSchedule(sched)
+                setBlocks(classifyBlocks(sched))
+                setSelectedBlockId(null)
+            })
+            .catch(err => {
+                console.error('Failed to apply manual changes:', err)
+                setError('Failed to apply manual changes')
+            })
+            .finally(() => {
+                setApplying(false)
+            })
     }
 
     const handleAddBlock = (lane: LaneId) => {
@@ -209,7 +244,11 @@ export default function Planning(){
         ))}
         </div>
 
-        <button className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold" disabled>
+        <button
+            className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold disabled:opacity-40"
+            disabled={loading || applying || blocks.length === 0}
+            onClick={handleApply}
+        >
             Apply manual changes
         </button>
         <div className="flex gap-2">

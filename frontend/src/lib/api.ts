@@ -71,6 +71,11 @@ export type ThemeResponse = {
   themes: ThemeInfo[]
 }
 
+export type SimulateResponse = {
+  schedule: import('./types').ScheduleSlot[]
+  meta?: any
+}
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = { 
     method,
@@ -97,6 +102,7 @@ export const Api = {
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
   resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
+  simulate: (payload: any) => getJSON<SimulateResponse>('/api/simulate', 'POST', payload),
 }
 
 export const Sel = {
