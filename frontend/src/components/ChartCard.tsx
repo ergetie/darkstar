@@ -308,6 +308,27 @@ export default function ChartCard({
         socTarget: false,
         socProjected: false,
     })
+
+    // Load overlay defaults from config
+    useEffect(() => {
+        Api.config()
+            .then(config => {
+                const overlayDefaults = config?.dashboard?.overlay_defaults
+                if (overlayDefaults && typeof overlayDefaults === 'string') {
+                    const defaultOverlays = overlayDefaults.split(',').map(s => s.trim().toLowerCase())
+                    const parsedOverlays = {
+                        charge: defaultOverlays.includes('charge'),
+                        discharge: defaultOverlays.includes('discharge'),
+                        export: defaultOverlays.includes('export'),
+                        water: defaultOverlays.includes('water'),
+                        socTarget: defaultOverlays.includes('soctarget') || defaultOverlays.includes('soc_target'),
+                        socProjected: defaultOverlays.includes('socprojected') || defaultOverlays.includes('soc_projected'),
+                    }
+                    setOverlays(parsedOverlays)
+                }
+            })
+            .catch(err => console.error('Failed to load overlay defaults:', err))
+    }, [])
     const [nowPosition, setNowPosition] = useState<number | null>(null)
 
     useEffect(() => {
