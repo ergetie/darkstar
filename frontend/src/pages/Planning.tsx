@@ -59,7 +59,8 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
         const water = slot.water_heating_kw ?? 0
         const exp = slot.export_kwh ?? 0
 
-        if (charge > 0 || discharge > 0) laneCandidates.push('battery')
+        // Battery lane represents explicit charging actions only
+        if (charge > 0) laneCandidates.push('battery')
         if (water > 0) laneCandidates.push('water')
         if (exp > 0) laneCandidates.push('export')
         if (!laneCandidates.length) laneCandidates.push('hold')
