@@ -744,17 +744,18 @@
 ### Implementation Steps (Planned)
 
 1. **Config Inventory & Legacy Mapping**
-   * Enumerate all relevant fields from `config.yaml` and the legacy System/Settings UIs, including:
-     * System: battery capacity and limits, timezone, Nordpool (price area, resolution, currency), HA sensor IDs, arbitrage basics, learning DB path.
-     * Parameters: charging_strategy.* (price smoothing, consolidation, caps), arbitrage.* (export thresholds/guards), water heating parameters, Learning Parameter Limits, S-Index Safety.
-   * Group these fields into logical sub-sections under:
-     * System (Battery, Grid/Price, Home Assistant, Learning Storage).
+   * Enumerate all relevant fields from `config.yaml` and the legacy System/Settings UIs, consolidating:
+     * System: battery capacity, SoC limits, efficiency (if exposed), timezone, Nordpool price area/resolution/currency, energy export toggles, HA sensor IDs (`battery_soc_entity_id`, `water_heater_daily_entity_id`), learning DB path (`learning.sqlite_path`), and other integration keys shown on the legacy System page.
+     * Parameters: `charging_strategy.*` (price smoothing, block consolidation tolerance, consolidation_max_gap_slots, hysteresis controls), `arbitrage.*` (export_percentile_threshold, enable_peak_only_export, export_future_price_guard, future_price_guard_buffer_sek), water heating quotas, **Learning Parameter Limits**, and the **S-Index Safety** block (`s_index.mode`, `base_factor`, `max_factor`, `pv_deficit_weight`, `temp_weight`, `temp_baseline_c`, `temp_cold_c`, `days_ahead_for_sindex`), ensuring every learning-related backlog item is represented.
+   * Document the existing `/settings` page (currently two placeholder cards) as the primary canvas for these sections; the plan should replace those placeholders with the new System/Parameters/UI structure without re-routing.
+   * Group fields into logical sub-sections under:
+     * System (Battery, Grid/Price, Home Assistant + Learning Storage).
      * Parameters (Charging Strategy, Arbitrage, Water Heating, Learning & S-Index Safety).
      * UI (Theme, Chart defaults, App behavior).
    * Decide which fields are:
      * **Core** (exposed by default),
-     * **Advanced** (behind a disclosure/“Advanced” toggle),
-     * **Internal** (left in config only for now).
+     * **Advanced** (behind an “Advanced” disclosure),
+     * **Internal** (left in config only), and flag any entries that correspond to existing backlog items so their coverage can be verified (Learning Parameter Limits, S-Index Safety, etc.).
 
 2. **Settings Layout & Routing**
    * Implement a `Settings` page layout in React that:
