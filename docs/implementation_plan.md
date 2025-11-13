@@ -529,16 +529,32 @@
 ### Planned Fixes
 
 **Fix #1 - Metadata Sync**:
-- Add separate effect to update `planMeta` when `currentPlanSource` changes
-- When source is 'server', use DB metadata from status API
-- When source is 'local', use local metadata
-- Ensure badge and metadata are synchronized
+- Preserve both `local` and `db` planner metadata from `/api/status` in separate state objects
+  (e.g. `plannerLocalMeta`, `plannerDbMeta`) instead of collapsing into a single `plannerMeta`.
+- Add a derived effect/selectors that compute the *displayed* `planMeta` from
+  `currentPlanSource` + the stored metadata (server → DB meta, local → local meta).
+- When `currentPlanSource` is `'server'` but DB metadata is missing, avoid silently
+  reusing local timestamps; show an explicit “no server metadata” state or fallback
+  text so that badge + timestamp are never misleading.
+- (Optional refinement) On initial load, derive the initial `currentPlanSource` from
+  `/api/status` (e.g. prefer `local` when local meta exists, otherwise fall back to
+  `server` when only DB meta is present) so “NOW SHOWING” is consistent even before
+  the first Quick Action.
 
 **Fix #2 - Chart Safety**:
-- Add chart instance validation before updates
-- Use try-catch around chart operations
-- Fallback to chart reinitialization on error
-- Use 'default' update mode instead of 'none'
+- Ensure `chartRef.current` is cleared when a chart is destroyed
+  (set `chartRef.current = null` in the `destroy()` cleanup) so effects never hold
+  references to destroyed instances.
+- Before any `chartInstance.update(...)`, validate that the instance exists and is
+  not destroyed (e.g. bail out if `(chartInstance as any)._destroyed` is true or
+  if plugin internals like `chartInstance.$plugins` / `_plugins` are missing).
+- Wrap schedule-driven updates in try/catch as a secondary guard, and if an error
+  is thrown during `update`, re-create the chart from the latest `liveData` only
+  when the canvas is still mounted.
+- Optionally simplify to a single schedule-fetch/update effect (driven by
+  `[currentDay, overlays, themeColors]`) to reduce races between multiple effects
+  touching `chartInstance.data`, then use the default `update()` mode once safety
+  checks are in place.
 
 ### Verification
 * ✅ Run planner properly updates Dashboard display with new timestamp
