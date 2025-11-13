@@ -16,6 +16,17 @@ export type HorizonResponse = {
 
 export type ScheduleResponse = { schedule: import('./types').ScheduleSlot[] }
 
+export type ConfigResponse = {
+  system?: { battery?: { capacity_kwh?: number } }
+  [key: string]: any
+}
+
+export type HaAverageResponse = {
+  average_load_kw?: number
+  daily_kwh?: number
+  [key: string]: any
+}
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = { 
     method,
@@ -33,6 +44,8 @@ export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
   status: () => getJSON<StatusResponse>('/api/status'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
+  config: () => getJSON<ConfigResponse>('/api/config'),
+  haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
