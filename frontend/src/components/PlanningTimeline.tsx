@@ -1,4 +1,5 @@
 import Timeline from 'react-calendar-timeline'
+import 'react-calendar-timeline/dist/style.css'
 
 type LaneId = 'battery' | 'water' | 'export' | 'hold'
 
@@ -19,9 +20,11 @@ type PlanningBlock = {
 type PlanningTimelineProps = {
   lanes: PlanningLane[]
   blocks: PlanningBlock[]
+  onBlockMove?: (args: { id: string; start: Date; lane: LaneId }) => void
+  onBlockResize?: (args: { id: string; start: Date; end: Date }) => void
 }
 
-export default function PlanningTimeline({ lanes, blocks }: PlanningTimelineProps) {
+export default function PlanningTimeline({ lanes, blocks, onBlockMove, onBlockResize }: PlanningTimelineProps) {
   const groups = lanes.map((lane) => ({
     id: lane.id,
     title: lane.label,
@@ -33,7 +36,7 @@ export default function PlanningTimeline({ lanes, blocks }: PlanningTimelineProp
     title: '',
     start_time: b.start,
     end_time: b.end,
-    className: 'bg-accent/60 border-none',
+    className: `ds-timeline-item ds-timeline-${b.lane}`,
   }))
 
   const now = new Date()
@@ -48,11 +51,33 @@ export default function PlanningTimeline({ lanes, blocks }: PlanningTimelineProp
         items={items}
         defaultTimeStart={start}
         defaultTimeEnd={end}
-        lineHeight={48}
+        lineHeight={64}
         sidebarWidth={120}
-        canMove={false}
-        canResize={false}
-        canChangeGroup={false}
+        canMove
+        canResize="both"
+        canChangeGroup
+        onItemMove={(itemId: number | string, dragTime: number, newGroupOrder: number) => {
+          if (!onBlockMove) return
+          const id = String(itemId)
+          const start = new Date(dragTime)
+          const lane = groups[newGroupOrder]?.id as LaneId
+          onBlockMove({ id, start, lane })
+        }}
+        onItemResize={(itemId: number | string, time: number, edge: 'left' | 'right') => {
+          if (!onBlockResize) return
+          const id = String(itemId)
+          const movedTime = new Date(time)
+          const original = blocks.find(b => b.id === id)
+          if (!original) return
+          let start = original.start
+          let end = original.end
+          if (edge === 'left') {
+            start = movedTime
+          } else {
+            end = movedTime
+          }
+          onBlockResize({ id, start, end })
+        }}
       />
     </div>
   )

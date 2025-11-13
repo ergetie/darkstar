@@ -618,7 +618,8 @@
 2. **Timeline Engine Integration & Theming**
    * Integrate `react-calendar-timeline` inside a dedicated `PlanningTimeline` React component and render existing schedule blocks in the Planning tab.
    * Apply theme tokens (colors, fonts, spacing) to make the timeline visually consistent with the dashboard.
-   * Ensure zoom/pan behavior and time scale match the 48‑hour planning window.
+   * Lock the visible window to a rolling 48‑hour range (today + tomorrow), clamping pan/zoom so users cannot scroll beyond that horizon while still allowing useful zoom levels within it.
+   * Merge consecutive schedule slots with the same classification into single blocks per lane to avoid slot‑level noise and better match the legacy “action block” behavior.
 
 3. **Manual Block Model & CRUD**
    * Define a client-side manual block model aligned with backend expectations (type, start, end, power/energy, metadata).
@@ -652,10 +653,10 @@
 
 ### Implementation
 
-* **Completed**: Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, lane/block normalization)
-* **In Progress**: Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline wired in read-only mode)  
+* **Completed**: Step 1 (Timeline Shell & Data Wiring – Planning tab layout, schedule wiring, initial lane/block normalization)
+* **In Progress**: Step 2 (Timeline Engine Integration & Theming – react-calendar-timeline wired in, items visible, basic drag/resize and add buttons working)  
 * **Blocked**: —
-* **Next Steps**: Iterate on react-calendar-timeline configuration to ensure blocks render clearly with theme-consistent styles, then enable interactions in Step 3 (Manual Block Model & CRUD).
+* **Next Steps**: Clamp the timeline view to a rolling 48‑hour window (today + tomorrow), refine zoom behavior within that range, and merge adjacent slots into larger action blocks before moving to Step 3 (Manual Block Model & CRUD).
 
 ### Verification (Planned)
 
@@ -690,7 +691,6 @@
 - [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
 ### Planning Timeline
-- [ ] vis-timeline React integration with new theme styling
 - [ ] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
 - [ ] Simulate/save workflow with `/api/simulate` and `/api/schedule/save`
 - [ ] Chart synchronization after manual changes
