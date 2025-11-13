@@ -18,7 +18,7 @@ body::before {
 
 /* Planning timeline item styling */
 .ds-timeline-item {
-    border-radius: 9999px !important;
+    border-radius: 18px !important;
     border: none !important;
     opacity: 0.9;
 }
