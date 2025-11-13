@@ -539,6 +539,15 @@
   touching `chartInstance.data`, then use the default `update()` mode once safety
   checks are in place.
 
+**Fix #3 - SoC Projected Visibility**:
+- Add a dedicated `SoC Projected (%)` line dataset in `ChartCard` that consumes
+  `slot.projected_soc_percent` (already wired via `buildLiveData`) and attaches
+  to the percentage axis (`y3`) with a distinct color from SoC Target.
+- Keep the dataset hidden by default and wire it to the existing "SoC Projected"
+  overlay toggle (dataset index 8) so users can reveal it on demand.
+- Confirm that tooltip formatting and legend behavior remain consistent (legend
+  still filters to core datasets; SoC lines are controlled via overlay buttons).
+
 ### Verification
 * ✅ Run planner properly updates Dashboard display with new timestamp
 * ✅ No Chart.js DOM errors in console (added timing safeguards)
