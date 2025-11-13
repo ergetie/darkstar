@@ -225,9 +225,7 @@ export default function PlanningTimeline({
           <TimelineMarkers>
             <TodayMarker>
               {({ styles }) => (
-                <div style={styles} className="ds-timeline-now-marker">
-                  <div className="ds-timeline-now-pill">NOW</div>
-                </div>
+                <div style={styles} className="ds-timeline-now-marker" />
               )}
             </TodayMarker>
           </TimelineMarkers>
