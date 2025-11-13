@@ -445,10 +445,10 @@
 
 ### Implementation
 
-* **Completed**: Steps 1-4 (Quick Actions Integration, Chart.js DOM Error Fix, UI Cleanup, Console Cleanup) + Fix #1 (Metadata Sync implementation in Dashboard) + Fix #2 (Chart Safety in ChartCard)
-* **In Progress**: Step 5 - Verify remaining issues in UI (empty tomorrow chart, SoC overlays visibility)  
+* **Completed**: Steps 1-4 (Quick Actions Integration, Chart.js DOM Error Fix, UI Cleanup, Console Cleanup) + Fix #1 (Metadata Sync implementation in Dashboard) + Fix #2 (Chart Safety in ChartCard) + Fix #3 (SoC Projected dataset) + Fix #4 ("NOW" marker + X-axis label polish)
+* **In Progress**: Visual polish / UX refinements only (non-blocking)  
 * **Blocked**: —
-* **Next Steps**: Manual verification pass on Dashboard (planner runs, load server plan, overlay toggles) and adjust any remaining visual bugs (e.g. SoC Projected visibility)
+* **Next Steps**: Optional design tweaks for the "NOW" marker and additional dashboard cosmetic improvements
 
 ### Current Status Summary
 
@@ -547,6 +547,17 @@
   overlay toggle (dataset index 8) so users can reveal it on demand.
 - Confirm that tooltip formatting and legend behavior remain consistent (legend
   still filters to core datasets; SoC lines are controlled via overlay buttons).
+
+**Fix #4 - "Now" Marker & X-Axis Labels**:
+- Compute a `nowIndex` in `buildLiveData` for today's data based on the current
+  local time falling inside a slot's 30-minute window, and derive a normalized
+  `nowPosition` (0–1) across the X-axis labels.
+- Keep the X-axis underlying labels as `HH:mm` but adjust tick callbacks so the
+  axis only renders one-hour steps as `HH` (e.g. 00, 01, …, 23), while the
+  tooltip title still shows full `HH:mm` labels for precise time.
+- Render a subtle CSS overlay "NOW" marker (thin accent-colored vertical line
+  with a small pill label) above the canvas on the today chart only, avoiding
+  Chart.js config recursion issues while still clearly indicating current time.
 
 ### Verification
 * ✅ Run planner properly updates Dashboard display with new timestamp
