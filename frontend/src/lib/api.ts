@@ -58,6 +58,19 @@ export type LearningStatusResponse = {
   [key: string]: any
 }
 
+export type ThemeInfo = {
+  name: string
+  background: string
+  foreground: string
+  palette: string[]
+}
+
+export type ThemeResponse = {
+  current: string
+  accent_index?: number
+  themes: ThemeInfo[]
+}
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = { 
     method,
@@ -79,6 +92,7 @@ export const Api = {
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
+  theme: () => getJSON<ThemeResponse>('/api/themes'),
   runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),

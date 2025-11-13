@@ -144,7 +144,13 @@ type ChartValues = {
     day?: DaySel
 }
 
-const createChartData = (values: ChartValues) => {
+const createChartData = (values: ChartValues, themeColors: Record<string, string> = {}) => {
+    // Use theme colors with fallbacks to Material Design colors
+    const getColor = (paletteIndex: number, fallback: string) => {
+        const themeKey = `palette = ${paletteIndex}`
+        return themeColors[themeKey] || fallback
+    }
+
     const baseData = {
     labels: values.labels,
     datasets: [
@@ -152,8 +158,8 @@ const createChartData = (values: ChartValues) => {
             type: 'line',
             label: 'Import Price (SEK/kWh)',
             data: values.price,
-            borderColor: '#2196F3', // Material Blue
-            backgroundColor: 'rgba(33,150,243,0.1)',
+            borderColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
+            backgroundColor: themeColors['palette = 4'] ? `${getColor(4, '#2196F3')}20` : 'rgba(33,150,243,0.1)',
             yAxisID: 'y',
             tension: 0.2,
             pointRadius: 0,
@@ -162,8 +168,8 @@ const createChartData = (values: ChartValues) => {
             type: 'line',
             label: 'PV Forecast (kW)',
             data: values.pv,
-            borderColor: '#4CAF50', // Material Green
-            backgroundColor: 'rgba(76,175,80,0.15)',
+            borderColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
+            backgroundColor: themeColors['palette = 2'] ? `${getColor(2, '#4CAF50')}30` : 'rgba(76,175,80,0.15)',
             fill: true,
             yAxisID: 'y1',
             tension: .35,
@@ -173,7 +179,7 @@ const createChartData = (values: ChartValues) => {
             type: 'bar',
             label: 'Load (kW)',
             data: values.load,
-            backgroundColor: '#FF9800', // Material Orange
+            backgroundColor: getColor(3, '#FF9800'), // palette 3 (yellow) or Material Orange
             borderRadius: 6,
             yAxisID: 'y1',
             barPercentage: 1,
@@ -183,7 +189,7 @@ const createChartData = (values: ChartValues) => {
             type: 'bar',
             label: 'Charge (kW)',
             data: values.charge ?? values.labels.map(() => null),
-            backgroundColor: '#2196F3', // Material Blue
+            backgroundColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
             hidden: true,
             yAxisID: 'y1',
         },
@@ -191,7 +197,7 @@ const createChartData = (values: ChartValues) => {
             type: 'bar',
             label: 'Discharge (kW)',
             data: values.discharge ?? values.labels.map(() => null),
-            backgroundColor: '#F44336', // Material Red
+            backgroundColor: getColor(1, '#F44336'), // palette 1 (red) or Material Red
             hidden: true,
             yAxisID: 'y1',
         },
@@ -199,7 +205,7 @@ const createChartData = (values: ChartValues) => {
             type: 'bar',
             label: 'Export (kWh)',
             data: values.export ?? values.labels.map(() => null),
-            backgroundColor: '#4CAF50', // Material Green
+            backgroundColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
             hidden: true,
             yAxisID: 'y2', // Use kWh axis
         },
@@ -207,7 +213,7 @@ const createChartData = (values: ChartValues) => {
             type: 'bar',
             label: 'Water Heating (kW)',
             data: values.water ?? values.labels.map(() => null),
-            backgroundColor: '#FF5722', // Material Deep Orange
+            backgroundColor: getColor(5, '#FF5722'), // palette 5 (pink) or Material Deep Orange
             hidden: true,
             yAxisID: 'y1',
         },
@@ -215,7 +221,7 @@ const createChartData = (values: ChartValues) => {
             type: 'line',
             label: 'SoC Target (%)',
             data: values.socTarget ?? values.labels.map(() => null),
-            borderColor: '#9C27B0', // Material Purple
+            borderColor: getColor(13, '#9C27B0'), // palette 13 (pink) or Material Purple
             yAxisID: 'y3', // Use percentage axis
             pointRadius: 0,
             hidden: true,
@@ -230,6 +236,11 @@ const createChartData = (values: ChartValues) => {
         const nowIndex = values.labels.findIndex(label => label === currentTimeStr)
         
         if (nowIndex >= 0) {
+            const getAnnotationColor = (paletteIndex: number, fallback: string) => {
+                const themeKey = `palette = ${paletteIndex}`
+                return themeColors[themeKey] || fallback
+            }
+            
             baseData.options = {
                 ...baseData.options,
                 plugins: {
@@ -240,14 +251,14 @@ const createChartData = (values: ChartValues) => {
                                 type: 'line',
                                 xMin: nowIndex,
                                 xMax: nowIndex,
-                                borderColor: '#FF5722',
+                                borderColor: getAnnotationColor(5, '#FF5722'), // palette 5 (pink) or fallback
                                 borderWidth: 2,
                                 borderDash: [5, 5],
                                 label: {
                                     content: 'NOW',
                                     enabled: true,
                                     position: 'start',
-                                    backgroundColor: '#FF5722',
+                                    backgroundColor: getAnnotationColor(5, '#FF5722'),
                                     color: '#fff',
                                     font: {
                                         size: 10,
@@ -287,7 +298,7 @@ const fallbackData = createChartData({
     price: sampleChart.price,
     pv: sampleChart.pv,
     load: sampleChart.load,
-})
+}, themeColors)
 
 type ChartCardProps = { day?: DaySel }
 
@@ -295,6 +306,8 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
     const [currentDay, setCurrentDay] = useState<DaySel>(day)
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
+    const [themeColors, setThemeColors] = useState<Record<string, string>>({})
+    const [currentTheme, setCurrentTheme] = useState<string>('')
     const [overlays, setOverlays] = useState({
         charge: false,
         discharge: false,
@@ -303,6 +316,26 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         socTarget: false,
         socProjected: false,
     })
+
+    useEffect(() => {
+        // Fetch theme colors on mount
+        Api.theme()
+            .then(themeData => {
+                const currentThemeInfo = themeData.themes.find(t => t.name === themeData.current)
+                if (currentThemeInfo) {
+                    // Convert palette array to key-value format
+                    const colorMap: Record<string, string> = {}
+                    currentThemeInfo.palette.forEach((color, index) => {
+                        colorMap[`palette = ${index}`] = color
+                    })
+                    colorMap['background'] = currentThemeInfo.background
+                    colorMap['foreground'] = currentThemeInfo.foreground
+                    setThemeColors(colorMap)
+                    setCurrentTheme(themeData.current)
+                }
+            })
+            .catch(err => console.error('Failed to load theme colors:', err))
+    }, [])
 
     useEffect(() => {
         if(!ref.current) return
@@ -321,7 +354,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
         // Re-fetch and rebuild chart when day changes
         Api.schedule()
             .then(data => {
-                const liveData = buildLiveData(data.schedule ?? [], currentDay)
+                const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
                 if(!liveData) return
                 setHasNoDataMessage(liveData.hasNoData ?? false)
                 const ds = liveData.datasets
@@ -335,14 +368,14 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 chartInstance.update('none')
             })
             .catch(err => console.error('Failed to load schedule:', err))
-    }, [currentDay])
+    }, [currentDay, themeColors])
 
     useEffect(() => {
         const chartInstance = chartRef.current
         if(!chartInstance) return
         Api.schedule()
             .then(data => {
-                const liveData = buildLiveData(data.schedule ?? [], currentDay)
+                const liveData = buildLiveData(data.schedule ?? [], currentDay, themeColors)
                 if(!liveData) return
                 // Update no-data message state
                 setHasNoDataMessage(liveData.hasNoData ?? false)
@@ -359,7 +392,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
                 chartInstance.update()
             })
             .catch(() => {})
-    }, [day, overlays])
+    }, [day, overlays, themeColors])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     
@@ -419,7 +452,7 @@ export default function ChartCard({ day = 'today' }: ChartCardProps){
     )
 }
 
-function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
+function buildLiveData(slots: ScheduleSlot[], day: DaySel, themeColors: Record<string, string> = {}) {
     const filtered = filterSlotsByDay(slots, day)
     if(!filtered.length) {
         // For tomorrow without schedule data, create minimal structure with message
@@ -467,5 +500,5 @@ function buildLiveData(slots: ScheduleSlot[], day: DaySel) {
         water,
         socTarget,
         socProjected,
-    })
+    }, themeColors)
 }
