@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import { Api, ThemeInfo } from '../lib/api'
+import { cls } from '../theme'
 
 const tabs = [
     { id: 'system', label: 'System' },
@@ -398,6 +399,12 @@ export default function Settings() {
                     next[key] = 'Required'
                 } else if (Number.isNaN(Number(trimmed))) {
                     next[key] = 'Must be a number'
+                } else if (key.includes('percent') && (Number(trimmed) < 0 || Number(trimmed) > 100)) {
+                    next[key] = 'Must be between 0 and 100'
+                } else if (key.includes('power_kw') && Number(trimmed) < 0) {
+                    next[key] = 'Must be positive'
+                } else if (key.includes('capacity_kwh') && Number(trimmed) <= 0) {
+                    next[key] = 'Must be greater than 0'
                 } else {
                     delete next[key]
                 }
@@ -419,6 +426,14 @@ export default function Settings() {
                     next[key] = 'Required'
                 } else if (Number.isNaN(Number(trimmed))) {
                     next[key] = 'Must be a number'
+                } else if (key.includes('percent') && (Number(trimmed) < 0 || Number(trimmed) > 100)) {
+                    next[key] = 'Must be between 0 and 100'
+                } else if (key.includes('sek') && Number(trimmed) < 0) {
+                    next[key] = 'Must be positive'
+                } else if (key.includes('power_kw') && Number(trimmed) < 0) {
+                    next[key] = 'Must be positive'
+                } else if (key.includes('kwh') && Number(trimmed) <= 0) {
+                    next[key] = 'Must be greater than 0'
                 } else {
                     delete next[key]
                 }
@@ -654,14 +669,18 @@ export default function Settings() {
                     <button
                         disabled={systemSaving || loadingConfig}
                         onClick={handleSaveSystem}
-                        className="rounded-pill bg-accent px-4 py-2 text-sm font-semibold text-[#100f0e] shadow-sm transition hover:bg-accent2 disabled:opacity-50"
+                        className={cls.accentBtn}
                     >
                         {systemSaving ? 'Saving…' : 'Save System Settings'}
                     </button>
                     {systemStatusMessage && (
-                        <p className={`text-sm ${systemStatusMessage.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
+                        <div className={`rounded-lg p-3 text-sm ${
+                            systemStatusMessage.startsWith('Failed') 
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                        }`}>
                             {systemStatusMessage}
-                        </p>
+                        </div>
                     )}
                 </div>
             </div>
@@ -750,14 +769,18 @@ export default function Settings() {
                     <button
                         disabled={parameterSaving || loadingConfig}
                         onClick={handleSaveParameters}
-                        className="rounded-pill bg-accent px-4 py-2 text-sm font-semibold text-[#100f0e] shadow-sm transition hover:bg-accent2 disabled:opacity-50"
+                        className={cls.accentBtn}
                     >
                         {parameterSaving ? 'Saving…' : 'Save Parameters'}
                     </button>
                     {parameterStatusMessage && (
-                        <p className={`text-sm ${parameterStatusMessage.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
+                        <div className={`rounded-lg p-3 text-sm ${
+                            parameterStatusMessage.startsWith('Failed') 
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                        }`}>
                             {parameterStatusMessage}
-                        </p>
+                        </div>
                     )}
                 </div>
             </div>
@@ -901,14 +924,18 @@ export default function Settings() {
                     <button
                         disabled={uiSaving || loadingConfig}
                         onClick={handleSaveUI}
-                        className="rounded-pill bg-accent px-4 py-2 text-sm font-semibold text-[#100f0e] shadow-sm transition hover:bg-accent2 disabled:opacity-50"
+                        className={cls.accentBtn}
                     >
                         {uiSaving ? 'Saving…' : 'Save UI Preferences'}
                     </button>
                     {uiStatusMessage && (
-                        <p className={`text-sm ${uiStatusMessage.startsWith('Failed') ? 'text-red-400' : 'text-muted'}`}>
+                        <div className={`rounded-lg p-3 text-sm ${
+                            uiStatusMessage.startsWith('Failed') 
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                        }`}>
                             {uiStatusMessage}
-                        </p>
+                        </div>
                     )}
                 </div>
             </div>
