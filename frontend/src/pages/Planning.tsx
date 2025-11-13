@@ -47,7 +47,9 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
 
     for (const slot of sorted) {
         const start = new Date(slot.start_time)
-        const end = new Date(start.getTime() + 30 * 60 * 1000)
+        const end = slot.end_time
+            ? new Date(slot.end_time)
+            : new Date(start.getTime() + 30 * 60 * 1000)
 
         const laneCandidates: LaneId[] = []
 
@@ -64,9 +66,11 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
         for (const lane of laneCandidates) {
             const last = lastByLane[lane]
 
-            if (last && last.end.getTime() === start.getTime()) {
-                // Extend the previous block for this lane by 30 minutes
-                last.end = end
+            if (last && start.getTime() <= last.end.getTime()) {
+                // Extend or merge overlapping/adjacent slots for this lane
+                if (end.getTime() > last.end.getTime()) {
+                    last.end = end
+                }
             } else {
                 const block: PlanningBlock = {
                     id: `auto-${blockCounter++}-${lane}`,
