@@ -137,19 +137,20 @@ export default function PlanningTimeline({
           if (!lane) return null
           const label =
             lane.id === 'battery'
-              ? 'chg'
+              ? '+ chg'
               : lane.id === 'water'
-              ? 'wtr'
+              ? '+ wtr'
               : lane.id === 'export'
-              ? 'exp'
-              : 'hld'
+              ? '+ exp'
+              : '+ hld'
           return (
             <div className="flex h-full items-center justify-center">
               <button
                 type="button"
-                className="flex h-10 w-10 items-center justify-center rounded-2xl border border-line/60 bg-surface/80 text-[11px] font-semibold text-muted hover:bg-surface2"
+                className="flex h-12 w-12 items-center justify-center rounded-2xl border border-line/60 text-[11px] font-semibold hover:brightness-110"
                 onClick={() => onAddBlock && onAddBlock(lane.id)}
                 title={`Add ${lane.label.toLowerCase()} action`}
+                style={{ backgroundColor: lane.color, color: '#0f1216' }}
               >
                 {label}
               </button>
