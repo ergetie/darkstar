@@ -11,6 +11,7 @@ export default function Dashboard(){
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
     const [plannerMeta, setPlannerMeta] = useState<{plan: 'local' | 'db'; plannedAt?: string; version?: string} | null>(null)
+    const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
     const [batteryCapacity, setBatteryCapacity] = useState<number | null>(null)
     const [pvToday, setPvToday] = useState<number | null>(null)
     const [avgLoad, setAvgLoad] = useState<{kw?: number; dailyKwh?: number} | null>(null)
@@ -22,6 +23,10 @@ export default function Dashboard(){
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+
+    const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
+        setCurrentPlanSource(source)
+    }, [])
 
     const fetchAllData = useCallback(async () => {
         setIsRefreshing(true)
@@ -175,7 +180,7 @@ export default function Dashboard(){
     const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
     const pvDays = horizon?.pvDays ?? '—'
     const weatherDays = horizon?.weatherDays ?? '—'
-    const planBadge = plannerMeta ? `${plannerMeta.plan === 'local' ? 'local' : 'server'} plan` : 'plan'
+    const planBadge = `${currentPlanSource} plan`
     const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
 
 
@@ -232,7 +237,7 @@ export default function Dashboard(){
         </Card>
         <Card className="p-4 md:p-5">
         <div className="text-sm text-muted mb-3">Quick Actions</div>
-        <QuickActions onDataRefresh={fetchAllData} />
+        <QuickActions onDataRefresh={fetchAllData} onPlanSourceChange={handlePlanSourceChange} />
         </Card>
         </motion.div>
         </div>

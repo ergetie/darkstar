@@ -5,9 +5,10 @@ import { Api } from '../lib/api'
 
 interface QuickActionsProps {
     onDataRefresh?: () => void
+    onPlanSourceChange?: (source: 'local' | 'server') => void
 }
 
-export default function QuickActions({ onDataRefresh }: QuickActionsProps){
+export default function QuickActions({ onDataRefresh, onPlanSourceChange }: QuickActionsProps){
     const [loading, setLoading] = useState<string | null>(null)
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -17,6 +18,17 @@ export default function QuickActions({ onDataRefresh }: QuickActionsProps){
         try {
             const result = await apiCall()
             setFeedback({ type: 'success', message: result.message || 'Success' })
+            
+            // Handle plan source changes
+            if (onPlanSourceChange) {
+                if (action === 'load-server') {
+                    onPlanSourceChange('server')
+                } else if (action === 'run-planner' || action === 'reset') {
+                    onPlanSourceChange('local')
+                }
+                // push-db doesn't change what user is viewing, so no plan source change
+            }
+            
             // Trigger data refresh after successful action with appropriate delay for backend processing
             if (onDataRefresh) {
                 // Longer delay for load-server since it needs to update status metadata
