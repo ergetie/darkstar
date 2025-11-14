@@ -1388,12 +1388,12 @@
 
 ---
 
-## Rev 49 — Planning Device Caps & SoC Enforcement *(Status: 📋 Planned)*
+## Rev 49 — Planning Device Caps & SoC Enforcement *(Status: ✅ Completed)*
 
-* **Model**: GPT-5.1 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI
 * **Summary**: Make the Planning tab respect device limits and SoC constraints so manual plans remain physically realistic and consistent with the planner and executor.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -1430,7 +1430,7 @@
   * SoC Target and SoC Actual lines in both Dashboard and Planning remain consistent with the constrained manual plan after “Apply manual changes”.
   * The executor still reads a physically valid `current_schedule` from DB (no new SoC/power violations introduced by manual planning).
 
-### Implementation Steps (Planned)
+### Implementation Steps
 
 1. **Constraint Inventory & Mapping**
    * Enumerate relevant config keys in `config.yaml` for battery capacity, SoC bounds, and charge/discharge/grid limits.
@@ -1463,6 +1463,18 @@
    * Align with Backlog:
      * ✅ Close “Device caps and SoC target enforcement” under Planning Timeline once the above behaviours are satisfied.
 
+### Implementation
+
+* **Completed**:
+  * Step 1: Collected device and SoC constraints from `config.yaml` (battery capacity, `min_soc_percent`, `max_soc_percent`, `max_charge_power_kw`, `max_discharge_power_kw`) and confirmed they are the relevant hard limits for Planning.
+  * Step 2 & 4: Added a simulate-based validation path to the Planning “Apply manual changes” flow:
+    * After sending blocks to `/api/simulate`, the Planning page now inspects the returned schedule against the configured caps.
+    * SoC is checked against `[min_soc_percent, max_soc_percent]` (using `projected_soc_percent` or `soc_target_percent`), and battery charge/discharge per slot are checked against their respective max kW.
+    * If any violation is detected, the manual plan is rejected and a clear error message is shown in the Planning header (no changes are applied to the schedule or DB).
+    * If there are no violations (which should be the common case given the planner’s own protections), the plan is applied as before and charts/timeline update.
+* **In Progress**: —
+* **Blocked**: —
+
 ---
 
 ## Backlog
@@ -1482,7 +1494,7 @@
 - [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
 - [x] Historical slots read-only handling
 - [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
-- [ ] Device caps and SoC target enforcement
+- [x] Device caps and SoC target enforcement
 - [ ] Zero-capacity gap handling
 
 ### Settings & Configuration
