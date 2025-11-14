@@ -79,6 +79,13 @@ export default function Learning() {
     const lastRun = metrics?.last_learning_run ?? learning?.last_updated
     const lastObs = metrics?.last_observation
     const syncInterval = learning?.sync_interval_minutes
+    const lastError = (learning as any)?.last_error as string | undefined
+
+    const hasAnyMetricData =
+        (metrics && Object.keys(metrics).length > 0) ||
+        completed > 0 ||
+        failed > 0 ||
+        daysWithData > 0
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
@@ -133,6 +140,24 @@ export default function Learning() {
                                 {learning?.sqlite_path || config?.learning?.sqlite_path || '—'}
                             </span>
                         </div>
+                        {!loading && !error && !enabled && (
+                            <div className="mt-3 rounded-xl2 border border-dashed border-line/60 bg-surface2/60 px-3 py-2 text-[12px] text-muted/90">
+                                Learning is currently <span className="font-semibold">disabled</span>. Enable it
+                                in the Settings → Parameters section to start collecting data.
+                            </div>
+                        )}
+                        {!loading && !error && enabled && !hasAnyMetricData && (
+                            <div className="mt-3 rounded-xl2 border border-dashed border-line/60 bg-surface2/60 px-3 py-2 text-[12px] text-muted/90">
+                                Learning is enabled but no runs have been recorded yet. This panel will fill
+                                in after the planner has accumulated enough data.
+                            </div>
+                        )}
+                        {!loading && !error && lastError && (
+                            <div className="mt-3 rounded-xl2 border border-amber-500/60 bg-amber-500/5 px-3 py-2 text-[12px] text-amber-200">
+                                <div className="font-semibold mb-0.5">Last learning error</div>
+                                <div className="line-clamp-3 break-words">{lastError}</div>
+                            </div>
+                        )}
                     </div>
                 </Card>
 

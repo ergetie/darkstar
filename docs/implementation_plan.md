@@ -967,11 +967,17 @@
      * Uses `day="today"` and `range="day"` with `showDayToggle={false}` to provide a small 24h schedule-impact view.
      * Reuses existing theming and tooltip behavior from the main Dashboard chart.
 
-7. **Error & Health Indicators**
+7. **Error & Health Indicators** ✅
    * In all sections, handle partial/missing data gracefully:
      * Show “No learning data yet” when metrics are zero or absent.
      * When `enabled` is false, disable the mini-chart and metrics but keep the tab visible with explanation.
    * If `/api/learning/status` exposes any error messages or “last error”, surface them in a small, non-intrusive warning card.
+
+   **Status**:
+   * Implemented in the Learning Overview card:
+     * When learning is disabled, a subtle info box explains that it can be enabled from Settings.
+     * When enabled but no metrics are present yet, a “no runs recorded yet” message is shown.
+     * If `last_error` is present on the learning status payload, it is displayed in a compact warning-styled box.
 
 8. **Verification & Backlog Alignment**
    * Manually test:
