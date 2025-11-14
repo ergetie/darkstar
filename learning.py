@@ -379,60 +379,30 @@ class LearningEngine:
                 export_price = record.get("export_price_sek_kwh")
                 quality_flags = record.get("quality_flags", "{}")
 
+                # Use a portable update-then-insert pattern instead of
+                # SQLite's ON CONFLICT upsert clause to avoid syntax
+                # issues across different SQLite versions/builds.
+                update_sql = """
+                    UPDATE slot_observations
+                    SET
+                        slot_end = COALESCE(?, slot_end),
+                        import_kwh = ?,
+                        export_kwh = ?,
+                        pv_kwh = ?,
+                        load_kwh = ?,
+                        water_kwh = ?,
+                        batt_charge_kwh = COALESCE(?, batt_charge_kwh),
+                        batt_discharge_kwh = COALESCE(?, batt_discharge_kwh),
+                        soc_start_percent = COALESCE(?, soc_start_percent),
+                        soc_end_percent = COALESCE(?, soc_end_percent),
+                        import_price_sek_kwh = COALESCE(?, import_price_sek_kwh),
+                        export_price_sek_kwh = COALESCE(?, export_price_sek_kwh),
+                        quality_flags = ?
+                    WHERE slot_start = ?
+                """
                 cursor.execute(
-                    """
-                    INSERT INTO slot_observations (
-                        slot_start,
-                        slot_end,
-                        import_kwh,
-                        export_kwh,
-                        pv_kwh,
-                        load_kwh,
-                        water_kwh,
-                        batt_charge_kwh,
-                        batt_discharge_kwh,
-                        soc_start_percent,
-                        soc_end_percent,
-                        import_price_sek_kwh,
-                        export_price_sek_kwh,
-                        quality_flags
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(slot_start) DO UPDATE SET
-                        slot_end = COALESCE(excluded.slot_end, slot_observations.slot_end),
-                        import_kwh = excluded.import_kwh,
-                        export_kwh = excluded.export_kwh,
-                        pv_kwh = excluded.pv_kwh,
-                        load_kwh = excluded.load_kwh,
-                        water_kwh = excluded.water_kwh,
-                        batt_charge_kwh = COALESCE(
-                            excluded.batt_charge_kwh,
-                            slot_observations.batt_charge_kwh,
-                        ),
-                        batt_discharge_kwh = COALESCE(
-                            excluded.batt_discharge_kwh,
-                            slot_observations.batt_discharge_kwh,
-                        ),
-                        soc_start_percent = COALESCE(
-                            excluded.soc_start_percent,
-                            slot_observations.soc_start_percent,
-                        ),
-                        soc_end_percent = COALESCE(
-                            excluded.soc_end_percent,
-                            slot_observations.soc_end_percent,
-                        ),
-                        import_price_sek_kwh = COALESCE(
-                            excluded.import_price_sek_kwh,
-                            slot_observations.import_price_sek_kwh,
-                        ),
-                        export_price_sek_kwh = COALESCE(
-                            excluded.export_price_sek_kwh,
-                            slot_observations.export_price_sek_kwh,
-                        ),
-                        quality_flags = excluded.quality_flags
-                    """,
+                    update_sql,
                     (
-                        slot_start,
                         slot_end,
                         import_kwh,
                         export_kwh,
@@ -446,8 +416,48 @@ class LearningEngine:
                         None if import_price is None else float(import_price),
                         None if export_price is None else float(export_price),
                         quality_flags,
+                        slot_start,
                     ),
                 )
+
+                if cursor.rowcount == 0:
+                    cursor.execute(
+                        """
+                        INSERT INTO slot_observations (
+                            slot_start,
+                            slot_end,
+                            import_kwh,
+                            export_kwh,
+                            pv_kwh,
+                            load_kwh,
+                            water_kwh,
+                            batt_charge_kwh,
+                            batt_discharge_kwh,
+                            soc_start_percent,
+                            soc_end_percent,
+                            import_price_sek_kwh,
+                            export_price_sek_kwh,
+                            quality_flags
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            slot_start,
+                            slot_end,
+                            import_kwh,
+                            export_kwh,
+                            pv_kwh,
+                            load_kwh,
+                            water_kwh,
+                            None if batt_charge is None else float(batt_charge),
+                            None if batt_discharge is None else float(batt_discharge),
+                            None if soc_start is None else float(soc_start),
+                            None if soc_end is None else float(soc_end),
+                            None if import_price is None else float(import_price),
+                            None if export_price is None else float(export_price),
+                            quality_flags,
+                        ),
+                    )
 
             conn.commit()
 
