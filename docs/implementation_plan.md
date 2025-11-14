@@ -1629,8 +1629,10 @@
 * **Completed**:
   * Step 1: S-index history storage
     * Record the current `s_index.base_factor` (or `static_factor` as fallback) into the existing `learning_metrics` table on every successful nightly learning run, keyed by `date` and `metric='s_index.base_factor'`. This ensures we always have at least one S-index datapoint per day once learning is running, even when no config changes are applied.
+  * Step 2: API extensions
+    * Extended `/api/learning/history` to include an `s_index_history` array alongside `runs`, populated from `learning_metrics` (`metric='s_index.base_factor'`) ordered by date (most recent first, limited to a reasonable window). This gives the frontend a single call that returns both per-run metrics and S-index factor history.
 * **In Progress**:
-  * Step 2–4: API extensions, Learning chart enhancements, and Debug time-range filters.
+  * Step 3–4: Learning chart enhancements and Debug time-range filters.
 * **Blocked**: —
 
 ---
