@@ -935,7 +935,7 @@
      * Show the configured `learning.sync_interval_minutes` and horizon days, where available.
    * Clearly indicate when learning is disabled and point users to the Settings tab to enable it.
 
-5. **Parameter Impact Snapshot**
+5. **Parameter Impact Snapshot** ✅
    * Use `Api.config()` to read the current values of:
      * Decision thresholds (`decision_thresholds.*`).
      * S-index factors (`s_index.*`).
@@ -944,6 +944,13 @@
      * Each parameter with its current value and units.
      * A small “learning can adjust” label when the corresponding `max_daily_param_change.*` is non-zero.
    * Include a subtle, non-clickable hint that edits are made in the Settings tab (with a reference to Rev 43).
+
+   **Status**:
+   * Implemented in `frontend/src/pages/Learning.tsx`:
+     * Decision thresholds (battery_use_margin_sek, battery_water_margin_sek, export_profit_margin_sek) displayed with SEK/kWh units.
+     * S-index factors (base_factor, pv_deficit_weight, temp_weight) and learning limits (min_improvement_threshold, min_sample_threshold) shown with current values.
+     * “learning can adjust” chip rendered when corresponding `learning.max_daily_param_change.*` fields are non-zero.
+     * Card copy explicitly points users to Settings for edits.
 
 6. **History Mini-chart Implementation**
    * Decide on what to chart based on available data:
@@ -977,8 +984,8 @@
   * Learning tab layout scaffolded in `frontend/src/pages/Learning.tsx` with Overview, Metrics, Parameter Impact, and History sections.
   * Learning status and config wiring implemented in the Learning tab using `Api.learningStatus()` and `Api.config()`, with loading/error handling.
   * Overview and Metrics sections now render real data (enabled badge, last run/observation timestamps, sync interval, SQLite path, KPI tiles for completed/failed runs, days with data, and DB size).
+  * Parameter Impact snapshot implemented from `config.yaml` (decision_thresholds, s_index, learning limits) with “learning can adjust” indicators based on `learning.max_daily_param_change.*`.
 * **In Progress**:
-  * Parameter Impact snapshot backed by config (decision thresholds, S-index factors, learning limits).
   * History mini-chart implementation and theming.
 * **Blocked**: —
 * **Next Steps**:
