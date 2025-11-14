@@ -1193,8 +1193,9 @@
 * **Completed**:
   * Step 1: Diagnosed that the Dashboard “today” chart was starting at 12:15 because `buildLiveData` only used whatever slots were present for the day, with no padding, and today’s `schedule.json` really began at 12:15.
   * Step 2 (Dashboard): Updated `buildLiveData` in `frontend/src/components/ChartCard.tsx` so that for `range="day"` it always builds a full 24‑hour local grid (00:00–24:00) at the inferred slot resolution (default 15 minutes), padding missing buckets with `null` while keeping tooltips and the NOW marker correct.
+  * Step 2 (Planning): Extended the same fixed-window approach to the 48‑hour Planning chart (`range="48h"`), building a 48‑hour grid (today+tomorrow from local midnight) at the inferred resolution and padding missing buckets with `null` so the chart window always matches the Planning timeline horizon.
 * **In Progress**:
-  * Step 2 (Planning): Extend the same “fixed window” behavior to the 48‑hour Planning chart so its X‑axis matches the Planning timeline window semantics.
+  * Step 3–5: Planner→DB→executor contract review and error/empty-state hardening.
 * **Blocked**:
   * None at this stage.
 * **Technical Decisions**:
