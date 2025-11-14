@@ -24,6 +24,13 @@ type PlanningBlock = {
     isHistorical?: boolean
 }
 
+type PlanningConstraints = {
+    minSocPercent: number
+    maxSocPercent: number
+    maxChargeKw: number
+    maxDischargeKw: number
+}
+
 const planningLanes: PlanningLane[] = [
     { id: 'battery', label: 'Battery', color: '#AAB6C4' },
     { id: 'water',   label: 'Water',   color: '#FF7A7A' },
@@ -103,13 +110,14 @@ export default function Planning(){
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
     const [chartSlots, setChartSlots] = useState<ScheduleSlot[] | null>(null)
+    const [constraints, setConstraints] = useState<PlanningConstraints | null>(null)
 
     useEffect(() => {
         let cancelled = false
         setLoading(true)
         setError(null)
-        Promise.allSettled([Api.schedule(), Api.scheduleTodayWithHistory()])
-            .then(([schedRes, histRes]) => {
+        Promise.allSettled([Api.schedule(), Api.scheduleTodayWithHistory(), Api.config()])
+            .then(([schedRes, histRes, configRes]) => {
                 if (cancelled) return
 
                 if (schedRes.status === 'fulfilled') {
@@ -127,6 +135,23 @@ export default function Planning(){
                     setHistorySlots(histSlots)
                 } else {
                     console.error('Failed to load execution history for Planning:', histRes.reason)
+                }
+
+                if (configRes.status === 'fulfilled') {
+                    const cfg = configRes.value as any
+                    const battery = cfg.battery || {}
+                    const minSoc = Number(battery.min_soc_percent ?? 0)
+                    const maxSoc = Number(battery.max_soc_percent ?? 100)
+                    const maxChargeKw = Number(battery.max_charge_power_kw ?? 0)
+                    const maxDischargeKw = Number(battery.max_discharge_power_kw ?? 0)
+                    setConstraints({
+                        minSocPercent: Number.isFinite(minSoc) ? minSoc : 0,
+                        maxSocPercent: Number.isFinite(maxSoc) ? maxSoc : 100,
+                        maxChargeKw: Number.isFinite(maxChargeKw) ? maxChargeKw : 0,
+                        maxDischargeKw: Number.isFinite(maxDischargeKw) ? maxDischargeKw : 0,
+                    })
+                } else {
+                    console.error('Failed to load config for Planning constraints:', configRes.reason)
                 }
             })
             .finally(() => {
@@ -186,6 +211,71 @@ export default function Planning(){
         setSelectedBlockId(null)
     }
 
+    const validateSimulatedSchedule = (
+        sched: ScheduleSlot[],
+        caps: PlanningConstraints | null,
+    ): { ok: true } | { ok: false; message: string } => {
+        if (!caps) return { ok: true }
+
+        const violations: string[] = []
+        for (const slot of sched) {
+            const time = slot.start_time
+            const soc =
+                (typeof slot.projected_soc_percent === 'number'
+                    ? slot.projected_soc_percent
+                    : typeof slot.soc_target_percent === 'number'
+                      ? slot.soc_target_percent
+                      : null)
+
+            if (typeof soc === 'number') {
+                if (soc < caps.minSocPercent - 0.01) {
+                    violations.push(
+                        `${time}: SoC ${soc.toFixed(1)}% below min ${caps.minSocPercent}%`,
+                    )
+                } else if (soc > caps.maxSocPercent + 0.01) {
+                    violations.push(
+                        `${time}: SoC ${soc.toFixed(1)}% above max ${caps.maxSocPercent}%`,
+                    )
+                }
+            }
+
+            const chargeKw = Math.max(
+                slot.battery_charge_kw ?? slot.charge_kw ?? 0,
+                0,
+            )
+            const dischargeKw = Math.max(
+                slot.battery_discharge_kw ?? slot.discharge_kw ?? 0,
+                0,
+            )
+
+            if (caps.maxChargeKw > 0 && chargeKw > caps.maxChargeKw + 1e-6) {
+                violations.push(
+                    `${time}: charge ${chargeKw.toFixed(
+                        2,
+                    )} kW exceeds max ${caps.maxChargeKw} kW`,
+                )
+            }
+            if (caps.maxDischargeKw > 0 && dischargeKw > caps.maxDischargeKw + 1e-6) {
+                violations.push(
+                    `${time}: discharge ${dischargeKw.toFixed(
+                        2,
+                    )} kW exceeds max ${caps.maxDischargeKw} kW`,
+                )
+            }
+        }
+
+        if (!violations.length) return { ok: true }
+
+        const first = violations[0]
+        const extraCount = violations.length - 1
+        const suffix =
+            extraCount > 0 ? ` (and ${extraCount} more slots)` : ''
+        return {
+            ok: false,
+            message: `Manual plan violates device/SoC limits: ${first}${suffix}`,
+        }
+    }
+
     const handleApply = () => {
         if (!blocks.length || applying) return
         setApplying(true)
@@ -207,6 +297,13 @@ export default function Planning(){
         Api.simulate(payload)
             .then(res => {
                 const sched = res.schedule ?? []
+                const validation = validateSimulatedSchedule(sched, constraints)
+                if (!validation.ok) {
+                    console.error('Manual plan validation failed:', validation.message)
+                    setError(validation.message)
+                    return
+                }
+                setError(null)
                 setSchedule(sched)
                 setBlocks(classifyBlocks(sched))
                 setSelectedBlockId(null)
