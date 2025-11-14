@@ -167,24 +167,89 @@ export default function Learning() {
                     <div className="text-sm text-muted mb-3">Parameter impact</div>
                     <div className="text-sm text-muted/80">
                         Read-only snapshot of key thresholds that learning can adjust
-                        (decision thresholds, S-index factors, daily change limits). Values
-                        will be populated from config; edits are done in Settings.
+                        (decision thresholds, S-index factors, daily change limits). Edits
+                        are made in the Settings tab.
                     </div>
-                    <div className="mt-4 grid gap-2 text-sm text-muted/90 md:grid-cols-2">
-                        <div className="rounded-xl2 border border-dashed border-line/60 px-3 py-2">
-                            <div className="text-[11px] uppercase tracking-wide text-muted">
-                                Decision thresholds
+                    <div className="mt-4 grid gap-3 text-sm text-muted/90 md:grid-cols-2">
+                        <div className="rounded-xl2 border border-line/60 px-3 py-2">
+                            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-muted">
+                                <span>Decision thresholds</span>
                             </div>
-                            <div className="text-[13px] mt-1">
-                                Placeholder for charge/export threshold snapshot.
+                            <div className="mt-2 space-y-1.5 text-[13px]">
+                                <div className="flex items-center justify-between">
+                                    <span>Battery use margin</span>
+                                    <span className="tabular-nums">
+                                        {config?.decision_thresholds?.battery_use_margin_sek ?? '—'}{' '}
+                                        <span className="text-[11px] text-muted">SEK/kWh</span>
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Battery → Water margin</span>
+                                    <span className="tabular-nums">
+                                        {config?.decision_thresholds?.battery_water_margin_sek ?? '—'}{' '}
+                                        <span className="text-[11px] text-muted">SEK/kWh</span>
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Export profit margin</span>
+                                    <span className="tabular-nums">
+                                        {config?.decision_thresholds?.export_profit_margin_sek ?? '—'}{' '}
+                                        <span className="text-[11px] text-muted">SEK/kWh</span>
+                                    </span>
+                                </div>
                             </div>
                         </div>
-                        <div className="rounded-xl2 border border-dashed border-line/60 px-3 py-2">
-                            <div className="text-[11px] uppercase tracking-wide text-muted">
-                                S-index & learning limits
+
+                        <div className="rounded-xl2 border border-line/60 px-3 py-2">
+                            <div className="flex items-center justify-between text-[11px] uppercase tracking-wide text-muted">
+                                <span>S-index & learning limits</span>
                             </div>
-                            <div className="text-[13px] mt-1">
-                                Placeholder for S-index factors and max_daily_param_change.
+                            <div className="mt-2 space-y-1.5 text-[13px]">
+                                <div className="flex items-center justify-between">
+                                    <span>S-index base factor</span>
+                                    <span className="tabular-nums">
+                                        {config?.s_index?.base_factor ?? '—'}
+                                        {config?.learning?.max_daily_param_change?.s_index_base_factor ? (
+                                            <span className="ml-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                                learning can adjust
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>PV deficit weight</span>
+                                    <span className="tabular-nums">
+                                        {config?.s_index?.pv_deficit_weight ?? '—'}
+                                        {config?.learning?.max_daily_param_change?.s_index_pv_deficit_weight ? (
+                                            <span className="ml-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                                learning can adjust
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Temp weight</span>
+                                    <span className="tabular-nums">
+                                        {config?.s_index?.temp_weight ?? '—'}
+                                        {config?.learning?.max_daily_param_change?.s_index_temp_weight ? (
+                                            <span className="ml-1 rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                                learning can adjust
+                                            </span>
+                                        ) : null}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Min improvement</span>
+                                    <span className="tabular-nums">
+                                        {config?.learning?.min_improvement_threshold ?? '—'}
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>Min samples</span>
+                                    <span className="tabular-nums">
+                                        {config?.learning?.min_sample_threshold ?? '—'}
+                                    </span>
+                                </div>
                             </div>
                         </div>
                     </div>
