@@ -952,7 +952,7 @@
      * “learning can adjust” chip rendered when corresponding `learning.max_daily_param_change.*` fields are non-zero.
      * Card copy explicitly points users to Settings for edits.
 
-6. **History Mini-chart Implementation**
+6. **History Mini-chart Implementation** ✅
    * Decide on what to chart based on available data:
      * If a time-ordered history of learning runs exists, use it; otherwise:
        * Derive a simple bar or line chart from aggregate fields (e.g. success vs failure counts over a synthetic timeline), or
@@ -961,6 +961,11 @@
      * Narrow height, width constrained to the card.
      * Respect the existing theme colors (using palette indices and `themeColors` patterns from `ChartCard` to stay consistent).
    * Show a compact legend and tooltips; no complex interactions needed for this Rev.
+
+   **Status**:
+   * Implemented as a compact `ChartCard` instance embedded in the Learning History card:
+     * Uses `day="today"` and `range="day"` with `showDayToggle={false}` to provide a small 24h schedule-impact view.
+     * Reuses existing theming and tooltip behavior from the main Dashboard chart.
 
 7. **Error & Health Indicators**
    * In all sections, handle partial/missing data gracefully:
