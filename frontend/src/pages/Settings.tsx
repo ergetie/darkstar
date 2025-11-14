@@ -411,9 +411,33 @@ export default function Settings() {
                     next[key] = 'Must be positive'
                 } else if (key.includes('capacity_kwh') && Number(trimmed) <= 0) {
                     next[key] = 'Must be greater than 0'
+                } else if (key === 'nordpool.resolution_minutes' && ![15, 30, 60].includes(Number(trimmed))) {
+                    next[key] = 'Must be 15, 30, or 60'
                 } else {
                     delete next[key]
                 }
+
+                // Cross-field check for SoC min/max
+                const minKey = 'battery.min_soc_percent'
+                const maxKey = 'battery.max_soc_percent'
+                const minRaw = key === minKey ? trimmed : (systemForm[minKey] ?? '').trim()
+                const maxRaw = key === maxKey ? trimmed : (systemForm[maxKey] ?? '').trim()
+                const minVal = Number(minRaw)
+                const maxVal = Number(maxRaw)
+                if (!Number.isNaN(minVal) && !Number.isNaN(maxVal)) {
+                    if (minVal >= maxVal) {
+                        next[minKey] = 'Min SoC must be less than max SoC'
+                        next[maxKey] = 'Max SoC must be greater than min SoC'
+                    } else {
+                        if (next[minKey] && next[minKey].startsWith('Min SoC')) {
+                            delete next[minKey]
+                        }
+                        if (next[maxKey] && next[maxKey].startsWith('Max SoC')) {
+                            delete next[maxKey]
+                        }
+                    }
+                }
+
                 return next
             })
         }
