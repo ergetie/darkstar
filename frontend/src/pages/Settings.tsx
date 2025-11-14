@@ -499,7 +499,26 @@ export default function Settings() {
         setSystemSaving(true)
         setSystemStatusMessage(null)
         try {
-            await Api.configSave(patch)
+            const resp = await Api.configSave(patch)
+            if (resp.status !== 'success') {
+                const fieldErrors: Record<string, string> = {}
+                resp.errors?.forEach((err) => {
+                    if (err.field) {
+                        fieldErrors[err.field] = err.message || 'Invalid value'
+                    }
+                })
+                if (Object.keys(fieldErrors).length) {
+                    setSystemFieldErrors((prev) => ({ ...prev, ...fieldErrors }))
+                    setSystemStatusMessage('Fix highlighted fields before saving.')
+                } else {
+                    setSystemStatusMessage(
+                        resp.errors && resp.errors[0]?.message
+                            ? resp.errors[0].message
+                            : 'Save failed.',
+                    )
+                }
+                return
+            }
             const fresh = await Api.config()
             setConfig(fresh)
             setSystemForm(buildSystemFormState(fresh))
@@ -527,7 +546,26 @@ export default function Settings() {
         setParameterSaving(true)
         setParameterStatusMessage(null)
         try {
-            await Api.configSave(patch)
+            const resp = await Api.configSave(patch)
+            if (resp.status !== 'success') {
+                const fieldErrors: Record<string, string> = {}
+                resp.errors?.forEach((err) => {
+                    if (err.field) {
+                        fieldErrors[err.field] = err.message || 'Invalid value'
+                    }
+                })
+                if (Object.keys(fieldErrors).length) {
+                    setParameterFieldErrors((prev) => ({ ...prev, ...fieldErrors }))
+                    setParameterStatusMessage('Fix highlighted fields before saving.')
+                } else {
+                    setParameterStatusMessage(
+                        resp.errors && resp.errors[0]?.message
+                            ? resp.errors[0].message
+                            : 'Save failed.',
+                    )
+                }
+                return
+            }
             const fresh = await Api.config()
             setConfig(fresh)
             setSystemForm(buildSystemFormState(fresh))
@@ -555,7 +593,26 @@ export default function Settings() {
         setUISaving(true)
         setUIStatusMessage(null)
         try {
-            await Api.configSave(patch)
+            const resp = await Api.configSave(patch)
+            if (resp.status !== 'success') {
+                const fieldErrors: Record<string, string> = {}
+                resp.errors?.forEach((err) => {
+                    if (err.field) {
+                        fieldErrors[err.field] = err.message || 'Invalid value'
+                    }
+                })
+                if (Object.keys(fieldErrors).length) {
+                    setUIFieldErrors((prev) => ({ ...prev, ...fieldErrors }))
+                    setUIStatusMessage('Fix highlighted fields before saving.')
+                } else {
+                    setUIStatusMessage(
+                        resp.errors && resp.errors[0]?.message
+                            ? resp.errors[0].message
+                            : 'Save failed.',
+                    )
+                }
+                return
+            }
             const fresh = await Api.config()
             setConfig(fresh)
             setSystemForm(buildSystemFormState(fresh))
