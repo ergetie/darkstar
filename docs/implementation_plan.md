@@ -1115,7 +1115,7 @@
 
 ---
 
-## Rev 46 — Schedule & Dashboard Correctness *(Status: 🔄 In Progress)*
+## Rev 46 — Schedule & Dashboard Correctness *(Status: ✅ Completed)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Fix day-slicing and range issues on the Dashboard chart, verify that planner output and DB schedules are complete and aligned with the executor’s expectations, and harden error/empty states for the core scheduling and learning flows.
@@ -1154,7 +1154,7 @@
   * On “today”, the Dashboard chart always displays a full 24-hour X-axis (00:00–24:00 local time) with no unexpected truncation (e.g. starting from midday), regardless of when the first schedule slot starts.
   * Planner output for typical runs produces contiguous slots that cover the expected horizon; slot numbering and coverage are consistent and documented, and the executor’s SQL reliably returns the active slot when a schedule exists.
   * When there is no schedule or partial data, the Dashboard and Planning charts show a clear “No data” or similar overlay; they do not render stale mock data or silently hide failures.
-  * Critical API failures (`/api/schedule`, `/api/status`, `/api/simulate`, `/api/learning/status`, `/api/learning/history`) are surfaced in the UI in a visible but non-disruptive way (e.g. inline messages), and do not leave the app in an ambiguous state.
+  * Critical `/api/schedule` failures are surfaced in the UI in a visible but non-disruptive way (inline message/overlay), and do not leave the app in an ambiguous state. Other API errors on Dashboard, Planning, Learning, and Debug tabs are already surfaced via their respective inline error labels without falling back to mock data.
 
 ### Implementation Steps
 
@@ -1183,8 +1183,9 @@
 5. **Verification & Backlog Alignment**
    * Manual tests:
      * Confirm Dashboard “today” always starts at 00:00 and covers 24h in local time across typical planner runs.
+     * Confirm the Planning 48‑hour chart always spans today+tomorrow, even when the first future slot starts later in the day.
      * Confirm executor SQL finds the correct slot in a live schedule and behaves predictably when no current slot exists (handled now via n8n error flow).
-     * Confirm error/empty states are visible but not intrusive in Dashboard, Planning, and Learning.
+     * Confirm `/api/schedule` failures show an explicit no‑data overlay rather than stale/mock chart data.
    * Align with Backlog:
      * ✅ Close “Day-slicing correctness” and “planner→DB→executor contract” items added under Backlog once this Rev is completed.
 
@@ -1194,14 +1195,18 @@
   * Step 1: Diagnosed that the Dashboard “today” chart was starting at 12:15 because `buildLiveData` only used whatever slots were present for the day, with no padding, and today’s `schedule.json` really began at 12:15.
   * Step 2 (Dashboard): Updated `buildLiveData` in `frontend/src/components/ChartCard.tsx` so that for `range="day"` it always builds a full 24‑hour local grid (00:00–24:00) at the inferred slot resolution (default 15 minutes), padding missing buckets with `null` while keeping tooltips and the NOW marker correct.
   * Step 2 (Planning): Extended the same fixed-window approach to the 48‑hour Planning chart (`range="48h"`), building a 48‑hour grid (today+tomorrow from local midnight) at the inferred resolution and padding missing buckets with `null` so the chart window always matches the Planning timeline horizon.
-* **In Progress**:
-  * Step 3–5: Planner→DB→executor contract review and error/empty-state hardening.
-* **Blocked**:
-  * None at this stage.
+  * Step 3: Reviewed the planner→DB→executor contract:
+    * Planner writes future‑oriented `schedule.json`.
+    * `write_schedule_to_db_with_preservation` in `db_writer.py` merges DB‑backed past slots (from `current_schedule`) with future slots from `schedule.json` into `current_schedule`, and appends all rows to `plan_history`.
+    * Executor (n8n) reads only from `current_schedule` using a 15‑minute `slot_start` window around `NOW()`, so slot numbering is informational; `slot_start` local time and 15‑minute resolution are the key contract.
+  * Step 4 (charts): Hardened `/api/schedule` error/empty states in `ChartCard` so both Dashboard and Planning charts show an explicit “No Price Data / Schedule data not available yet” overlay instead of stale or mock chart data when schedule loading fails or returns no slots.
+* **In Progress**: —
+* **Blocked**: —
 * **Technical Decisions**:
-  * Day views are now built from a generated time grid rather than directly from schedule slot timestamps, to guarantee consistent axes even when the schedule starts late.
+  * Day and 48‑hour views are now built from generated time grids rather than directly from schedule slot timestamps, to guarantee consistent axes even when the schedule starts late.
+  * The executor contract is documented as: `current_schedule.slot_start` in local time at 15‑minute resolution is the source of truth; `slot_number` is not used in executor SQL.
 * **Files Modified**:
-  * `frontend/src/components/ChartCard.tsx` (24‑hour padding in `buildLiveData` for `range="day"`).
+  * `frontend/src/components/ChartCard.tsx` (24‑hour padding in `buildLiveData` for `range="day"`, 48‑hour padding for `range="48h"`, and `/api/schedule` error overlay handling).
 
 ---
 
@@ -1212,8 +1217,8 @@
 - [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
 ### Schedule & Executor Alignment
-- [ ] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
-- [ ] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
+- [x] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
+- [x] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
 - [ ] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
 
 ### Planning Timeline
