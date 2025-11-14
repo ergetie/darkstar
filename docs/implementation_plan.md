@@ -1495,7 +1495,7 @@
 - [x] Historical slots read-only handling
 - [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
 - [x] Device caps and SoC target enforcement
-- [ ] Zero-capacity gap handling
+- [x] Zero-capacity gap handling
 
 ### Settings & Configuration
 - [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
@@ -1503,7 +1503,7 @@
 - [x] Form validation and persistence with `/api/config/save`
 - [x] Config reset functionality with `/api/config/reset`
 - [x] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
-- [ ] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
+- [x] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
 
 ### Learning & Debug
 - [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
@@ -1521,12 +1521,12 @@
 
 ---
 
-## Rev 50 — Planning & Settings Polish *(Status: 📋 Planned)*
+## Rev 50 — Planning & Settings Polish *(Status: ✅ Completed)*
 
-* **Model**: GPT-5.1 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI
 * **Summary**: Tighten Planning behaviour around zero-capacity gaps and improve Settings validation so configuration errors are caught and explained field-by-field.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -1565,7 +1565,7 @@
     * Invalid combinations (e.g. min SoC ≥ max SoC, negative power limits) are rejected with clear messages.
     * Applying settings does not silently misconfigure critical planner behaviour.
 
-### Implementation Steps (Planned)
+### Implementation Steps
 
 1. **Zero-Capacity Semantics**
    * Identify which fields and conditions imply a zero-capacity slot (e.g. SoC pinned at bounds, device offline, grid max 0).
@@ -1589,6 +1589,23 @@
 5. **Verification & Backlog Alignment**
    * Manual tests for Planning (zero-capacity scenarios) and Settings (invalid inputs).
    * Close “Zero-capacity gap handling” and “Settings validation polish” backlog items once behaviour is verified.
+
+### Implementation
+
+* **Completed**:
+  * Step 1–2 (Planning): Introduced a notion of zero-capacity slots in Planning by detecting slots where there are no controllable actions (no charge/discharge/export/water) and SoC is pinned at or beyond configured min/max bounds. Updated `classifyBlocks` so these slots no longer produce “Hold” blocks and are treated as true gaps, preventing consolidated blocks from bridging across pinned SoC segments.
+  * Step 3–4 (Settings): Added explicit backend validation in `/api/config/save` for:
+    * Battery capacity, SoC min/max, and charge/discharge power limits.
+    * Nordpool `resolution_minutes` (must be 15, 30, or 60).
+    * Timezone (non-empty string).
+    * S-index base/max factors and ordering.
+    * Learning thresholds (`min_sample_threshold`, `min_improvement_threshold`).
+    Returned structured field errors (`{field, message}`) instead of relying on generic failures.
+  * Wired the Settings UI to:
+    * Consume these backend validation errors and highlight the corresponding fields in the System, Parameters, and UI tabs.
+    * Add frontend cross-field checks for battery SoC min/max and refine validation for `nordpool.resolution_minutes`, preventing saves until highlighted issues are fixed.
+* **In Progress**: —
+* **Blocked**: —
 
 ---
 
