@@ -1253,7 +1253,7 @@
    * Hide Y-axis tick labels while confirming tooltips still show precise values and the chart remains usable.
 
 2. **Dashboard Defaults Consumption**
-   * Read `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` in `ChartCard`/Dashboard and initialize overlay state and auto-refresh behavior from these config values.
+   * Read `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` in `ChartCard`/Dashboard and initialize overlay state and auto-refresh behavior from these config values (including core series defaults for price, PV, and load).
    * Ensure manual changes (toggling overlays or auto-refresh) affect only the current session unless/until settings are changed in the Settings UI.
 
 3. **Planning Timeline Background Normalization**
