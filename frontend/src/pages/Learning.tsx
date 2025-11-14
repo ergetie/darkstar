@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Card from '../components/Card'
 import Kpi from '../components/Kpi'
-import { Api, type LearningStatusResponse, type ConfigResponse } from '../lib/api'
-import ChartCard from '../components/ChartCard'
+import { Api, type LearningStatusResponse, type ConfigResponse, type LearningHistoryResponse } from '../lib/api'
+import { Chart as ChartJS, type Chart, type ChartConfiguration } from 'chart.js/auto'
 
 function formatBytes(bytes?: number): string {
     if (!bytes || bytes <= 0) return '—'
@@ -33,16 +33,20 @@ export default function Learning() {
     const [config, setConfig] = useState<ConfigResponse | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
+    const [history, setHistory] = useState<LearningHistoryResponse | null>(null)
+    const [debugSIndex, setDebugSIndex] = useState<{ mode?: string; base_factor?: number; factor?: number; max_factor?: number } | null>(null)
+    const historyCanvasRef = useRef<HTMLCanvasElement | null>(null)
+    const historyChartRef = useRef<Chart | null>(null)
 
     useEffect(() => {
         let cancelled = false
         setLoading(true)
         setError(null)
 
-        Promise.allSettled([Api.learningStatus(), Api.config()]).then(results => {
+        Promise.allSettled([Api.learningStatus(), Api.config(), Api.learningHistory(), Api.debug()]).then(results => {
             if (cancelled) return
 
-            const [learningRes, configRes] = results
+            const [learningRes, configRes, historyRes, debugRes] = results
 
             if (learningRes.status === 'fulfilled') {
                 setLearning(learningRes.value)
@@ -57,6 +61,22 @@ export default function Learning() {
                 console.error('Failed to load config for learning tab:', configRes.reason)
                 if (!error) {
                     setError('Failed to load config')
+                }
+            }
+
+            if (historyRes.status === 'fulfilled') {
+                setHistory(historyRes.value)
+            }
+
+            if (debugRes.status === 'fulfilled' && debugRes.value && typeof debugRes.value === 'object') {
+                const sIndex = (debugRes.value as any).s_index
+                if (sIndex && typeof sIndex === 'object') {
+                    setDebugSIndex({
+                        mode: sIndex.mode,
+                        base_factor: sIndex.base_factor,
+                        factor: sIndex.factor,
+                        max_factor: sIndex.max_factor,
+                    })
                 }
             }
 
@@ -86,6 +106,84 @@ export default function Learning() {
         completed > 0 ||
         failed > 0 ||
         daysWithData > 0
+
+    useEffect(() => {
+        if (!historyCanvasRef.current) return
+
+        const runs = history?.runs ?? []
+        if (!runs.length) {
+            if (historyChartRef.current) {
+                historyChartRef.current.destroy()
+                historyChartRef.current = null
+            }
+            return
+        }
+
+        const sorted = [...runs].sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
+        const labels = sorted.map(run => {
+            const d = new Date(run.started_at)
+            if (Number.isNaN(d.getTime())) return ''
+            return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+        })
+        const changesApplied = sorted.map(run => run.changes_applied ?? 0)
+
+        const data = {
+            labels,
+            datasets: [
+                {
+                    type: 'bar' as const,
+                    label: 'Changes applied',
+                    data: changesApplied,
+                    backgroundColor: 'rgba(244, 143, 177, 0.7)',
+                    borderRadius: 4,
+                },
+            ],
+        }
+
+        const options: ChartConfiguration['options'] = {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => `Changes applied: ${ctx.parsed.y}`,
+                    },
+                },
+            },
+            scales: {
+                x: {
+                    ticks: { color: '#a6b0bf', maxRotation: 0 },
+                    grid: { display: false },
+                },
+                y: {
+                    ticks: { color: '#a6b0bf', stepSize: 1 },
+                    grid: { color: 'rgba(255,255,255,0.06)' },
+                    beginAtZero: true,
+                },
+            },
+        }
+
+        if (historyChartRef.current) {
+            historyChartRef.current.data = data as any
+            historyChartRef.current.options = options
+            historyChartRef.current.update()
+            return
+        }
+
+        historyChartRef.current = new ChartJS(historyCanvasRef.current, {
+            type: 'bar',
+            data: data as any,
+            options,
+        })
+
+        return () => {
+            if (historyChartRef.current) {
+                historyChartRef.current.destroy()
+                historyChartRef.current = null
+            }
+        }
+    }, [history])
 
     return (
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
@@ -167,22 +265,18 @@ export default function Learning() {
                         <Kpi
                             label="Completed runs"
                             value={completed ? completed.toString() : '0'}
-                            hint="learning_status.completed_learning_runs"
                         />
                         <Kpi
                             label="Failed runs"
                             value={failed ? failed.toString() : '0'}
-                            hint="learning_status.failed_learning_runs"
                         />
                         <Kpi
                             label="Days with data"
                             value={daysWithData ? daysWithData.toString() : '0'}
-                            hint="learning_status.days_with_data"
                         />
                         <Kpi
                             label="DB size"
                             value={dbSize}
-                            hint="learning_status.db_size_bytes"
                         />
                     </div>
                 </Card>
@@ -231,6 +325,17 @@ export default function Learning() {
                                 <span>S-index & learning limits</span>
                             </div>
                             <div className="mt-2 space-y-1.5 text-[13px]">
+                                <div className="flex items-center justify-between">
+                                    <span>Current S-index</span>
+                                    <span className="tabular-nums">
+                                        {debugSIndex?.factor ?? debugSIndex?.base_factor ?? config?.s_index?.base_factor ?? '—'}
+                                        {debugSIndex?.mode && (
+                                            <span className="ml-1 text-[11px] text-muted">
+                                                ({debugSIndex.mode})
+                                            </span>
+                                        )}
+                                    </span>
+                                </div>
                                 <div className="flex items-center justify-between">
                                     <span>S-index base factor</span>
                                     <span className="tabular-nums">
@@ -284,11 +389,10 @@ export default function Learning() {
                 <Card className="p-5 lg:col-span-1">
                     <div className="text-sm text-muted mb-3">History</div>
                     <div className="text-[13px] text-muted/80 mb-2">
-                        Recent schedule impact from learning (SoC, charge, export) over the
-                        last 24 hours. This is a compact, read-only view.
+                        Recent learning runs and how many parameter changes were applied.
                     </div>
                     <div className="h-40">
-                        <ChartCard day="today" range="day" showDayToggle={false} />
+                        <canvas ref={historyCanvasRef} className="w-full h-full" />
                     </div>
                 </Card>
             </div>
