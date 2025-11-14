@@ -293,13 +293,15 @@ export default function Planning(){
         </div>
         </Card>
 
-        <ChartCard
-            day="today"
-            range="48h"
-            showDayToggle={false}
-            refreshToken={chartRefreshToken}
-            slotsOverride={chartSlots ?? undefined}
-        />
+        {chartSlots && chartSlots.length > 0 && (
+            <ChartCard
+                day="today"
+                range="48h"
+                showDayToggle={false}
+                refreshToken={chartRefreshToken}
+                slotsOverride={chartSlots}
+            />
+        )}
         </main>
     )
 }
