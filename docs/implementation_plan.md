@@ -1477,50 +1477,6 @@
 
 ---
 
-## Backlog
-
-### Dashboard Refinement
-- [x] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
-- [x] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
-
-### Schedule & Executor Alignment
-- [x] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
-- [x] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
-- [x] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
-
-### Planning Timeline
-- [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
-- [x] Simulate/save workflow with `/api/simulate` (Planning \"Apply manual changes\" uses simulate to persist local plan)
-- [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
-- [x] Historical slots read-only handling
-- [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
-- [x] Device caps and SoC target enforcement
-- [x] Zero-capacity gap handling
-
-### Settings & Configuration
-- [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
-- [x] Theme picker using `/api/themes` and `/api/theme`
-- [x] Form validation and persistence with `/api/config/save`
-- [x] Config reset functionality with `/api/config/reset`
-- [x] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
-- [x] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
-
-### Learning & Debug
-- [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
-- [ ] Learning history chart polish: enrich the Learning tab mini-chart with S-index factor and/or per-loop metrics in addition to changes-applied bars (build on the new `/api/learning/history` and planned S-index history storage).
-- [x] Debug data visualization (`/api/debug`, `/api/debug/logs`)
-- [x] Log viewer with polling and filters
-- [x] Historical SoC chart from `/api/history/soc`
-
-### Production Readiness
-- [ ] Error handling & loading states for all API calls
-- [ ] Mobile responsiveness for all components
-- [ ] Performance optimization (chart rendering, data caching)
-- [ ] Deployment configuration (serve `frontend/dist` from Flask or separate static host)
-- [ ] State management for user preferences and theme
-
----
-
 ## Rev 50 — Planning & Settings Polish *(Status: ✅ Completed)*
 
 * **Model**: GPT-5.1 Codex CLI
@@ -1609,12 +1565,12 @@
 
 ---
 
-## Rev 51 — Learning & Debug Enhancements *(Status: 📋 Planned)*
+## Rev 51 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Persist S-index factor history and enhance the Learning and Debug tabs so operators can see how learning affects the system over time.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -1667,6 +1623,15 @@
 5. **Verification & Backlog Alignment**
    * Manual tests for Learning and Debug tabs with active learning runs.
    * Close the Learning & Debug backlog items related to S-index history and chart polish.
+
+### Implementation
+
+* **Completed**:
+  * Step 1: S-index history storage
+    * Record the current `s_index.base_factor` (or `static_factor` as fallback) into the existing `learning_metrics` table on every successful nightly learning run, keyed by `date` and `metric='s_index.base_factor'`. This ensures we always have at least one S-index datapoint per day once learning is running, even when no config changes are applied.
+* **In Progress**:
+  * Step 2–4: API extensions, Learning chart enhancements, and Debug time-range filters.
+* **Blocked**: —
 
 ---
 
@@ -1723,6 +1688,50 @@
 5. **Verification & Backlog Alignment**
    * Manual tests for error states, mobile layout, and a basic production-like deployment.
    * Close relevant Production Readiness backlog items incrementally.
+
+---
+
+## Backlog
+
+### Dashboard Refinement
+- [x] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
+- [x] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
+
+### Schedule & Executor Alignment
+- [x] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
+- [x] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
+- [x] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
+
+### Planning Timeline
+- [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
+- [x] Simulate/save workflow with `/api/simulate` (Planning \"Apply manual changes\" uses simulate to persist local plan)
+- [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
+- [x] Historical slots read-only handling
+- [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
+- [x] Device caps and SoC target enforcement
+- [x] Zero-capacity gap handling
+
+### Settings & Configuration
+- [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
+- [x] Theme picker using `/api/themes` and `/api/theme`
+- [x] Form validation and persistence with `/api/config/save`
+- [x] Config reset functionality with `/api/config/reset`
+- [x] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
+- [x] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
+
+### Learning & Debug
+- [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
+- [ ] Learning history chart polish: enrich the Learning tab mini-chart with S-index factor and/or per-loop metrics in addition to changes-applied bars (build on the new `/api/learning/history` and planned S-index history storage).
+- [x] Debug data visualization (`/api/debug`, `/api/debug/logs`)
+- [x] Log viewer with polling and filters
+- [x] Historical SoC chart from `/api/history/soc`
+
+### Production Readiness
+- [ ] Error handling & loading states for all API calls
+- [ ] Mobile responsiveness for all components
+- [ ] Performance optimization (chart rendering, data caching)
+- [ ] Deployment configuration (serve `frontend/dist` from Flask or separate static host)
+- [ ] State management for user preferences and theme
 
 ---
 
