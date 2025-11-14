@@ -856,6 +856,122 @@
 
 ---
 
+## Rev 44 — Learning Engine UI *(Status: 📋 Planned)*
+
+* **Model**: GPT-5 Codex CLI (planned)
+* **Summary**: Replace the placeholder Learning tab with a full Learning Engine UI that surfaces learning status, metrics, and parameter impacts (read-only), including a compact history chart, while keeping configuration edits in the Settings tab.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Provide a dedicated Learning tab that makes the state of the learning engine visible at a glance (enabled/disabled, last run, data coverage, errors).
+  * Visualize key learning metrics, including a mini-chart of recent learning runs or quality metrics, to make trends obvious.
+  * Show how learning interacts with critical thresholds (Learning Parameter Limits and S-Index Safety) in a read-only way, complementing the editable Settings UI.
+  * Keep the Learning tab non-destructive: no configuration changes from this tab; all edits stay in Settings.
+
+* **Scope**:
+  * React Learning page implementation in `frontend/src/pages/Learning.tsx`, replacing the current placeholder.
+  * Read-only use of:
+    * `/api/learning/status` (primary metrics and health).
+    * `/api/config` (current learning-related config and limits).
+    * Existing debug endpoints if available (e.g. recent config changes or learning events) for a small history/mini-chart.
+  * UI sections:
+    * Overview (enabled flag, last run/observation, sync interval, quick health badges).
+    * Metrics (KPI tiles for runs, days with data, DB size, slot coverage, etc.).
+    * Parameter Impact (snapshot of key thresholds learning can move, with “learning can adjust” hints).
+    * History / Mini-chart (compact chart of recent learning runs or a proxy metric, e.g. completed vs failed runs over time).
+  * No new backend logic; only minor data-shaping helpers in the frontend if needed.
+
+* **Dependencies**:
+  * Rev 43 (Settings & Configuration UI), which already exposes Learning Parameter Limits and S-Index Safety as editable config.
+  * Existing learning endpoints:
+    * `/api/learning/status` (already typed in `frontend/src/lib/api.ts`).
+    * Any learning-related debug endpoints (`/api/learning/changes`, `config_versions`, or similar) if present; otherwise, we derive a minimal history from what we already have.
+
+* **Acceptance Criteria**:
+  * Learning tab replaces the placeholder with a structured UI:
+    * Overview, Metrics, Parameter Impact, History sections clearly labeled.
+  * `/api/learning/status` is fetched on load and its key fields are rendered:
+    * Learning enabled/disabled, last learning run, last observation, sync interval.
+    * Completed and failed learning runs, days with data, DB size, total slots, import/export/pv/load kWh if available.
+  * The mini-chart:
+    * Shows a small, well-themed visualization of recent learning dynamics (e.g. bar chart of completed vs failed runs over the last N runs, or a time-based trend if available).
+    * Uses the existing chart theming (accent colors, background) to match the Dashboard/Planning.
+  * Parameter Impact section:
+    * Lists key thresholds that learning can adjust (decision thresholds, S-index factors) alongside their current values.
+    * Clearly indicates that edits must be made via the Settings tab (this tab is read-only).
+  * Errors and “learning disabled” states are clearly communicated without breaking the rest of the tab.
+
+### Implementation Steps (Planned)
+
+1. **Learning API & Data Shape Inventory**
+   * Inspect `/api/learning/status` and any existing learning/debug endpoints to confirm:
+     * Available metrics (completed/failed runs, days with data, db size, last run, last observation, etc.).
+     * Any simple history or time-indexed arrays we can use for the mini-chart.
+   * Update or confirm `LearningStatusResponse` in `frontend/src/lib/api.ts` matches the actual payload.
+
+2. **Learning Tab Layout & Sections**
+   * Replace the placeholder `Learning` page with a structured layout:
+     * Overview card at top (enabled flag, last run, last observation, sync interval, basic health).
+     * Metrics card (KPI tiles for counts and coverage).
+     * Parameter Impact card (snapshot of learning-affected thresholds).
+     * History card containing the mini-chart and simple legend.
+   * Ensure visual alignment with Dashboard/Planning (same card styles, headings, typography).
+
+3. **Learning Status Fetch & State Management**
+   * In `frontend/src/pages/Learning.tsx`:
+     * Fetch `/api/learning/status` on mount, with loading and error states.
+     * Provide a small “Refresh status” button to re-fetch on demand (no auto-polling for now).
+   * Map status fields into a view-model that the Overview and Metrics sections can use (e.g., derived “time since last run”).
+
+4. **Metrics & Overview UI**
+   * Implement KPI tiles using the existing `Kpi` component for key metrics:
+     * Completed learning runs, failed runs, days with data, db size, total slots, total import/export/load/pv kWh if present.
+   * Overview card:
+     * Show learning enabled/disabled (with a subtle badge).
+     * Show “Last run” and “Last observation” using friendly relative times (e.g., “3h ago”) via existing time helpers.
+     * Show the configured `learning.sync_interval_minutes` and horizon days, where available.
+   * Clearly indicate when learning is disabled and point users to the Settings tab to enable it.
+
+5. **Parameter Impact Snapshot**
+   * Use `Api.config()` to read the current values of:
+     * Decision thresholds (`decision_thresholds.*`).
+     * S-index factors (`s_index.*`).
+     * Learning Parameter Limits (`learning.max_daily_param_change.*`).
+   * Render a read-only card:
+     * Each parameter with its current value and units.
+     * A small “learning can adjust” label when the corresponding `max_daily_param_change.*` is non-zero.
+   * Include a subtle, non-clickable hint that edits are made in the Settings tab (with a reference to Rev 43).
+
+6. **History Mini-chart Implementation**
+   * Decide on what to chart based on available data:
+     * If a time-ordered history of learning runs exists, use it; otherwise:
+       * Derive a simple bar or line chart from aggregate fields (e.g. success vs failure counts over a synthetic timeline), or
+       * Defer to a minimal static chart that still demonstrates recent behavior.
+   * Implement a small Chart.js-based mini-chart component:
+     * Narrow height, width constrained to the card.
+     * Respect the existing theme colors (using palette indices and `themeColors` patterns from `ChartCard` to stay consistent).
+   * Show a compact legend and tooltips; no complex interactions needed for this Rev.
+
+7. **Error & Health Indicators**
+   * In all sections, handle partial/missing data gracefully:
+     * Show “No learning data yet” when metrics are zero or absent.
+     * When `enabled` is false, disable the mini-chart and metrics but keep the tab visible with explanation.
+   * If `/api/learning/status` exposes any error messages or “last error”, surface them in a small, non-intrusive warning card.
+
+8. **Verification & Backlog Alignment**
+   * Manually test:
+     * Learning disabled vs enabled and confirm the Overview, Metrics, and History change appropriately.
+     * Changes to learning-related config in Settings are reflected in the Parameter Impact snapshot.
+     * The mini-chart responds correctly when the underlying metrics change (e.g., after a new learning run).
+   * Align with Learning & Debug backlog:
+     * ✅ Cover “Learning engine UI (status, metrics, loops, changes from `/api/learning/*`)" for core status.
+     * Defer full debug log viewer and historical SoC chart to a later dedicated Learning/Debug Rev.
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
