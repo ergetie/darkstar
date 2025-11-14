@@ -73,8 +73,15 @@ export type LearningHistoryEntry = {
   changes_applied?: number
 }
 
+export type SIndexHistoryEntry = {
+  date: string
+  metric: string
+  value: number | null
+}
+
 export type LearningHistoryResponse = {
   runs: LearningHistoryEntry[]
+  s_index_history?: SIndexHistoryEntry[]
 }
 
 export type DebugResponse = {

@@ -186,7 +186,9 @@ export default function Learning() {
         if (!historyCanvasRef.current) return
 
         const runs = history?.runs ?? []
-        if (!runs.length) {
+        const sHistory = history?.s_index_history ?? []
+
+        if (!runs.length && !sHistory.length) {
             if (historyChartRef.current) {
                 historyChartRef.current.destroy()
                 historyChartRef.current = null
@@ -194,16 +196,27 @@ export default function Learning() {
             return
         }
 
-        const sorted = [...runs].sort((a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime())
-        const labels = sorted.map(run => {
+        // Use runs as primary X-axis; if no runs, fall back to S-index dates
+        const sortedRuns = [...runs].sort(
+            (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
+        )
+
+        const labels = sortedRuns.map(run => {
             const d = new Date(run.started_at)
             if (Number.isNaN(d.getTime())) return ''
             return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
         })
-        const changesApplied = sorted.map(run => run.changes_applied ?? 0)
+
+        const changesApplied = sortedRuns.map(run => run.changes_applied ?? 0)
+
+        // Map S-index history to the same index order by date ascending
+        const sortedSIndex = [...sHistory].sort((a, b) => a.date.localeCompare(b.date))
+        const sIndexValues = sortedSIndex.map(entry =>
+            entry.value !== null && entry.value !== undefined ? entry.value : null,
+        )
 
         const data = {
-            labels,
+            labels: labels.length ? labels : sortedSIndex.map(e => e.date),
             datasets: [
                 {
                     type: 'bar' as const,
@@ -211,6 +224,17 @@ export default function Learning() {
                     data: changesApplied,
                     backgroundColor: 'rgba(244, 143, 177, 0.7)',
                     borderRadius: 4,
+                    yAxisID: 'y',
+                },
+                {
+                    type: 'line' as const,
+                    label: 'S-index factor',
+                    data: sIndexValues,
+                    borderColor: 'rgba(129, 212, 250, 0.9)',
+                    backgroundColor: 'rgba(129, 212, 250, 0.2)',
+                    tension: 0.2,
+                    pointRadius: 2,
+                    yAxisID: 'y1',
                 },
             ],
         }
@@ -219,10 +243,18 @@ export default function Learning() {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { display: false },
+                legend: { display: true, labels: { color: '#a6b0bf', usePointStyle: true } },
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `Changes applied: ${ctx.parsed.y}`,
+                        label: (ctx) => {
+                            if (ctx.dataset.label === 'Changes applied') {
+                                return `Changes applied: ${ctx.parsed.y}`
+                            }
+                            if (ctx.dataset.label === 'S-index factor') {
+                                return `S-index: ${ctx.parsed.y.toFixed(3)}`
+                            }
+                            return `${ctx.dataset.label}: ${ctx.parsed.y}`
+                        },
                     },
                 },
             },
@@ -235,6 +267,15 @@ export default function Learning() {
                     ticks: { color: '#a6b0bf', stepSize: 1 },
                     grid: { color: 'rgba(255,255,255,0.06)' },
                     beginAtZero: true,
+                    position: 'left',
+                    title: { display: false },
+                },
+                y1: {
+                    ticks: { color: '#a6b0bf' },
+                    grid: { display: false },
+                    beginAtZero: false,
+                    position: 'right',
+                    title: { display: false },
                 },
             },
         }
