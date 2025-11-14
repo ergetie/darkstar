@@ -100,7 +100,7 @@ const chartOptions: ChartConfiguration['options'] = {
         y1: {
             position: 'left',
             min: 0,
-            max: 1.5,
+            max: 9,
             title: {
                 display: false,
                 text: 'kW',
@@ -134,6 +134,19 @@ const chartOptions: ChartConfiguration['options'] = {
             grid: { display: false },
             ticks: { color: '#a6b0bf' },
             display: false,
+        },
+        // Dedicated axis for PV/history so we can zoom it
+        y4: {
+            position: 'left',
+            min: 0,
+            max: 1.5,
+            title: {
+                display: false,
+                text: 'kW (PV)',
+                color: '#a6b0bf',
+            },
+            grid: { display: false },
+            ticks: { color: '#a6b0bf', display: false },
         },
     },
 }
@@ -182,7 +195,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             borderColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
             backgroundColor: themeColors['palette = 2'] ? `${getColor(2, '#4CAF50')}30` : 'rgba(76,175,80,0.15)',
             fill: true,
-            yAxisID: 'y1',
+            yAxisID: 'y4',
             tension: .35,
             pointRadius: 0,
         },
