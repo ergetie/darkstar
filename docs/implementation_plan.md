@@ -856,12 +856,12 @@
 
 ---
 
-## Rev 44 — Learning Engine UI *(Status: 📋 Planned)*
+## Rev 44 — Learning Engine UI *(Status: 🔄 In Progress)*
 
-* **Model**: GPT-5.1 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI
 * **Summary**: Replace the placeholder Learning tab with a full Learning Engine UI that surfaces learning status, metrics, and parameter impacts (read-only), including a compact history chart, while keeping configuration edits in the Settings tab.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -904,15 +904,15 @@
     * Clearly indicates that edits must be made via the Settings tab (this tab is read-only).
   * Errors and “learning disabled” states are clearly communicated without breaking the rest of the tab.
 
-### Implementation Steps (Planned)
+### Implementation Steps
 
-1. **Learning API & Data Shape Inventory**
+1. **Learning API & Data Shape Inventory** ✅
    * Inspect `/api/learning/status` and any existing learning/debug endpoints to confirm:
      * Available metrics (completed/failed runs, days with data, db size, last run, last observation, etc.).
      * Any simple history or time-indexed arrays we can use for the mini-chart.
    * Update or confirm `LearningStatusResponse` in `frontend/src/lib/api.ts` matches the actual payload.
 
-2. **Learning Tab Layout & Sections**
+2. **Learning Tab Layout & Sections** ✅
    * Replace the placeholder `Learning` page with a structured layout:
      * Overview card at top (enabled flag, last run, last observation, sync interval, basic health).
      * Metrics card (KPI tiles for counts and coverage).
@@ -920,13 +920,13 @@
      * History card containing the mini-chart and simple legend.
    * Ensure visual alignment with Dashboard/Planning (same card styles, headings, typography).
 
-3. **Learning Status Fetch & State Management**
+3. **Learning Status Fetch & State Management** ✅
    * In `frontend/src/pages/Learning.tsx`:
      * Fetch `/api/learning/status` on mount, with loading and error states.
      * Provide a small “Refresh status” button to re-fetch on demand (no auto-polling for now).
    * Map status fields into a view-model that the Overview and Metrics sections can use (e.g., derived “time since last run”).
 
-4. **Metrics & Overview UI**
+4. **Metrics & Overview UI** ✅
    * Implement KPI tiles using the existing `Kpi` component for key metrics:
      * Completed learning runs, failed runs, days with data, db size, total slots, total import/export/load/pv kWh if present.
    * Overview card:
@@ -969,6 +969,20 @@
    * Align with Learning & Debug backlog:
      * ✅ Cover “Learning engine UI (status, metrics, loops, changes from `/api/learning/*`)" for core status.
      * Defer full debug log viewer and historical SoC chart to a later dedicated Learning/Debug Rev.
+
+### Implementation
+
+* **Completed**:
+  * Learning API inventory and `LearningStatusResponse` shape confirmed against `/api/learning/status`.
+  * Learning tab layout scaffolded in `frontend/src/pages/Learning.tsx` with Overview, Metrics, Parameter Impact, and History sections.
+  * Learning status and config wiring implemented in the Learning tab using `Api.learningStatus()` and `Api.config()`, with loading/error handling.
+  * Overview and Metrics sections now render real data (enabled badge, last run/observation timestamps, sync interval, SQLite path, KPI tiles for completed/failed runs, days with data, and DB size).
+* **In Progress**:
+  * Parameter Impact snapshot backed by config (decision thresholds, S-index factors, learning limits).
+  * History mini-chart implementation and theming.
+* **Blocked**: —
+* **Next Steps**:
+  * Implement Parameter Impact snapshot and History mini-chart, then add health/error indicators and run manual verification for Rev 44.
 
 ---
 

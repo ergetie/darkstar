@@ -2694,6 +2694,7 @@ class HeliosPlanner:
         # Get git version for metadata
         try:
             import subprocess
+
             version = (
                 subprocess.check_output(
                     ["git", "describe", "--tags", "--always", "--dirty"], stderr=subprocess.DEVNULL
@@ -2705,12 +2706,12 @@ class HeliosPlanner:
             version = "dev"
 
         output = {
-            "schedule": merged_schedule, 
+            "schedule": merged_schedule,
             "meta": {
                 "planned_at": datetime.now().isoformat(),
                 "planner_version": version,
-                "forecast": forecast_meta
-            }
+                "forecast": forecast_meta,
+            },
         }
 
         # Add debug payload if enabled

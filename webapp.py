@@ -460,7 +460,9 @@ def db_current_schedule():
                         "start_time": start.isoformat(),
                         "end_time": end.isoformat(),
                         "battery_charge_kw": round(max(float(r.get("charge_kw") or 0.0), 0.0), 2),
-                        "battery_discharge_kw": round(max(-float(r.get("charge_kw") or 0.0), 0.0), 2),
+                        "battery_discharge_kw": round(
+                            max(-float(r.get("charge_kw") or 0.0), 0.0), 2
+                        ),
                         "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
                         "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
                         "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
@@ -478,7 +480,9 @@ def db_current_schedule():
                         "start_time": start_dt.isoformat(),
                         "end_time": end.isoformat(),
                         "battery_charge_kw": round(max(float(r.get("charge_kw") or 0.0), 0.0), 2),
-                        "battery_discharge_kw": round(max(-float(r.get("charge_kw") or 0.0), 0.0), 2),
+                        "battery_discharge_kw": round(
+                            max(-float(r.get("charge_kw") or 0.0), 0.0), 2
+                        ),
                         "export_kwh": round(float(r.get("export_kw") or 0.0) / 4.0, 4),
                         "water_heating_kw": round(float(r.get("water_kw") or 0.0), 2),
                         "load_forecast_kwh": round(float(r.get("planned_load_kwh") or 0.0), 4),
@@ -490,24 +494,24 @@ def db_current_schedule():
 
             # Get planner version from first row
             planner_version = rows[0]["planner_version"] if rows else None
-            
+
             # Write to local schedule.json with proper metadata
             output = {
                 "schedule": schedule,
                 "meta": {
                     "planned_at": datetime.now().isoformat(),
                     "planner_version": planner_version,
-                    "source": "database"
-                }
+                    "source": "database",
+                },
             }
-            
+
             with open("schedule.json", "w", encoding="utf-8") as f:
                 json.dump(output, f, ensure_ascii=False, indent=2)
-            
+
             return jsonify({"status": "success", "message": "Server plan loaded to local file"})
         except Exception as e:
             return jsonify({"status": "error", "error": str(e)}), 500
-    
+
     try:
         config = _load_yaml("config.yaml")
         resolution_minutes = int(config.get("nordpool", {}).get("resolution_minutes", 15))
@@ -640,7 +644,7 @@ def db_load_to_local():
     try:
         config = _load_yaml("config.yaml")
         secrets = _load_yaml("secrets.yaml")
-        
+
         # Get current schedule from database
         with _db_connect_from_secrets() as conn:
             with conn.cursor() as cur:
@@ -662,7 +666,7 @@ def db_load_to_local():
         resolution_minutes = int(config.get("nordpool", {}).get("resolution_minutes", 15))
         tz_name = config.get("timezone", "Europe/Stockholm")
         tz = pytz.timezone(tz_name)
-        
+
         schedule = []
         for r in rows:
             start = r["slot_start"]
@@ -703,20 +707,20 @@ def db_load_to_local():
 
         # Get planner version from first row
         planner_version = rows[0]["planner_version"] if rows else None
-        
+
         # Write to local schedule.json with proper metadata
         output = {
             "schedule": schedule,
             "meta": {
                 "planned_at": datetime.now().isoformat(),
                 "planner_version": planner_version,
-                "source": "database"
-            }
+                "source": "database",
+            },
         }
-        
+
         with open("schedule.json", "w", encoding="utf-8") as f:
             json.dump(output, f, ensure_ascii=False, indent=2)
-        
+
         return jsonify({"status": "success", "message": "Server plan loaded to local file"})
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
