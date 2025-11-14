@@ -1280,6 +1280,95 @@
 
 ---
 
+## Rev 48 — Dashboard History Merge *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Combine executed behavior from MariaDB `execution_history` with the current planner schedule so the Dashboard “today” chart shows both what actually happened earlier today and what is planned for the rest of the day, including an “Actual SoC” line.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Make the Dashboard “Today” view reflect **real execution** for past slots and planner intent for future slots, instead of plan-only.
+  * Plot an **Actual SoC (%)** line from `execution_history.actual_soc` alongside SoC Target and SoC Projected, so we can visually compare plan vs reality.
+  * Keep the planner→DB→executor contract unchanged; this Rev is display/diagnostics only.
+
+* **Scope**:
+  * Backend:
+    * Add a read-only API that returns a merged “today” schedule for the Dashboard, combining:
+      * Executed slots from MariaDB `execution_history` (source of truth for what ran).
+      * Planned slots from `schedule.json` (via the existing planner pipeline).
+    * Align on the same 15-minute grid used elsewhere (00:00–24:00 local), and include:
+      * Executed values: `actual_charge_kw`, `actual_export_kw`, `actual_load_kwh`, `actual_pv_kwh`, `actual_soc`, and related energy fields where helpful.
+      * Planned values: charge/export/water/load/PV/SoC from `schedule.json`.
+      * A flag like `is_executed: true/false` for each bucket, indicating whether we have execution data.
+    * Leave `current_schedule` and the executor SQL unchanged; they continue to drive real actions.
+  * Frontend (Dashboard):
+    * Extend `Api` with a client for the merged endpoint (or extend `/api/schedule` payload to include a `history` section for today).
+    * For the **“Today”** chart:
+      * Use the merged data when available:
+        * For time buckets where `is_executed` is true, plot executed series (including Actual SoC).
+        * For future buckets (no execution), fall back to planner schedule as today.
+      * Add a new dataset for **“SoC Actual (%)”**:
+        * Sourced from `actual_soc` (when present).
+        * Styled to be distinguishable from SoC Target and SoC Projected lines.
+      * Consider subtle styling differences (e.g. slightly different opacity or dashed lines) to differentiate executed vs planned segments, without clutter.
+    * Preserve Rev 46 behavior when no execution history is available for today (plan-only with padding).
+
+* **Dependencies**:
+  * Rev 41–42 (Dashboard + Planning foundations).
+  * Rev 43 (Settings; config semantics don’t change but SoC view should remain consistent).
+  * Rev 46 (Schedule & Dashboard correctness; 24h padding and NOW marker).
+  * Rev 47 (Dashboard legend/pill UX).
+
+* **Acceptance Criteria**:
+  * With a typical day of `execution_history` data present:
+    * Dashboard “Today” chart shows executed charge/export/load/PV behavior and an Actual SoC line for all past 15-minute slots, and planner schedule for future slots.
+    * Past buckets clearly reflect what the executor actually did, even if the latest planner schedule has changed since execution.
+  * With no execution history:
+    * Dashboard behaves exactly as in Rev 46: plan-only, full-day padded chart with NOW marker and pills.
+  * Planner→DB→executor behavior is unchanged; this Rev only reads from `execution_history` and `schedule.json`.
+
+### Implementation Steps (Planned)
+
+1. **Execution History Contract Exploration**
+   * Inspect the MariaDB `execution_history` schema and a couple of recent rows (with user’s help, if needed) to confirm available fields and units:
+     * At least: `slot_start`, `planned_charge_kw`, `actual_charge_kw`, `planned_export_kw`, `actual_export_kw`, `planned_soc_projected`, `actual_soc`, `planned_load_kwh`, `actual_load_kwh`, `planned_pv_kwh`, `actual_pv_kwh`, prices and energy/profit fields.
+   * Document which fields will be used in the merged Dashboard view and how they map to the existing chart datasets.
+
+2. **Merged “Today” Data Endpoint**
+   * Implement a backend endpoint (e.g. `/api/schedule/today_with_history`) that:
+     * Determines the local “today” date and builds a 15-minute time grid from 00:00–24:00.
+     * Queries `execution_history` for rows where `DATE(slot_start) = today`.
+     * Loads the current `schedule.json` and filters slots to today.
+     * Produces a merged list of buckets where each entry includes:
+       * Timestamp.
+       * Executed values (when present) and planned values.
+       * A boolean `is_executed` and an `actual_soc` field in percent.
+
+3. **ChartCard Data Integration**
+   * Extend `Api` and `ChartCard` so that for `range="day"` and Dashboard context:
+     * Fetch from the merged endpoint instead of bare `/api/schedule` (Planning can remain plan-only for now).
+     * Adapt `buildLiveData` (or a dedicated variant) to:
+       * Fill the full 24h grid from the merged buckets.
+       * Populate new “SoC Actual (%)” dataset from `actual_soc` where available.
+       * Choose executed vs planned values for other series according to `is_executed`.
+
+4. **Visual Differentiation & UX**
+   * Choose appropriate styling for the Actual SoC line (e.g. distinct color, possibly slightly thicker line).
+   * Optionally apply subtle styling differences for executed vs planned segments in other series (e.g. lower opacity for planned).
+   * Ensure tooltips show both planned and actual values clearly (e.g. SoC target vs actual at a given timestamp).
+
+5. **Verification & Backlog Alignment**
+   * Manual tests:
+     * With real `execution_history` data for today, confirm that the early part of the chart matches executor behavior and the Actual SoC line tracks real SoC.
+     * Confirm that edits to the schedule and new planner runs don’t rewrite history in the chart—past execution remains visible.
+     * Confirm that when `execution_history` is empty for today, behavior matches Rev 46.
+   * Add and/or update Backlog items under “Schedule & Executor Alignment” or a new “Dashboard History” section to track any follow-up polish (e.g. filtering ranges, multi-day history views).
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
