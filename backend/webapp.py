@@ -1269,6 +1269,7 @@ def learning_history():
             return jsonify({"runs": []})
 
         runs: list[dict] = []
+        s_index_history: list[dict] = []
         with sqlite3.connect(engine.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1304,7 +1305,26 @@ def learning_history():
                     }
                 )
 
-        return jsonify({"runs": runs})
+            # Fetch S-index factor history stored in learning_metrics
+            cursor.execute(
+                """
+                SELECT date, value
+                FROM learning_metrics
+                WHERE metric = 's_index.base_factor'
+                ORDER BY date DESC
+                LIMIT 60
+                """
+            )
+            for date_str, value in cursor.fetchall():
+                s_index_history.append(
+                    {
+                        "date": date_str,
+                        "metric": "s_index.base_factor",
+                        "value": float(value) if value is not None else None,
+                    }
+                )
+
+        return jsonify({"runs": runs, "s_index_history": s_index_history})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
