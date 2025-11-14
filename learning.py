@@ -1605,6 +1605,30 @@ class NightlyOrchestrator:
                         run_id,
                     ),
                 )
+
+                # Persist current S-index base factor for this run's day so
+                # we can visualise its evolution over time, even if no
+                # changes were applied.
+                try:
+                    with open("config.yaml", "r", encoding="utf-8") as handle:
+                        cfg = yaml.safe_load(handle) or {}
+                except FileNotFoundError:
+                    cfg = {}
+
+                s_index_cfg = (cfg.get("s_index") or {}) if isinstance(cfg, dict) else {}
+                base_factor = s_index_cfg.get("base_factor") or s_index_cfg.get("static_factor")
+                if base_factor is not None:
+                    today = job_start.date().isoformat()
+                    cursor.execute(
+                        """
+                        INSERT INTO learning_metrics (date, metric, value)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(date, metric) DO UPDATE SET
+                            value = excluded.value
+                        """,
+                        (today, "s_index.base_factor", float(base_factor)),
+                    )
+
                 conn.commit()
 
             return {
@@ -1668,6 +1692,8 @@ class NightlyOrchestrator:
 
             with sqlite3.connect(self.engine.db_path) as conn:
                 cursor = conn.cursor()
+
+                # Persist the applied config version for traceability
                 cursor.execute(
                     """
                     INSERT INTO config_versions (yaml_blob, reason, metrics_json, applied)
@@ -1680,6 +1706,23 @@ class NightlyOrchestrator:
                         True,
                     ),
                 )
+
+                # Record S-index base factor in learning_metrics so we can
+                # visualise how it changes over time.
+                s_index_cfg = (config.get("s_index") or {}) if isinstance(config, dict) else {}
+                base_factor = s_index_cfg.get("base_factor") or s_index_cfg.get("static_factor")
+                if base_factor is not None:
+                    today = datetime.now(self.engine.timezone).date().isoformat()
+                    cursor.execute(
+                        """
+                        INSERT INTO learning_metrics (date, metric, value)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(date, metric) DO UPDATE SET
+                            value = excluded.value
+                        """,
+                        (today, "s_index.base_factor", float(base_factor)),
+                    )
+
                 conn.commit()
 
             return changes
