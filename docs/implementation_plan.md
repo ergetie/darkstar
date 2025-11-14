@@ -858,7 +858,7 @@
 
 ## Rev 44 — Learning Engine UI *(Status: 📋 Planned)*
 
-* **Model**: GPT-5 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Replace the placeholder Learning tab with a full Learning Engine UI that surfaces learning status, metrics, and parameter impacts (read-only), including a compact history chart, while keeping configuration edits in the Settings tab.
 * **Started**: — (planned)
 * **Last Updated**: — (planned)
@@ -972,10 +972,101 @@
 
 ---
 
+## Rev 45 — Debug & Diagnostics UI *(Status: 📋 Planned)*
+
+* **Model**: GPT-5 Codex CLI (planned)
+* **Summary**: Build a dedicated Debug tab that surfaces planner/logging diagnostics, including a log viewer, recent events/errors summary, and a historical SoC mini-chart, to help operators understand and troubleshoot planner behavior.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Provide a single Debug tab that aggregates diagnostics (logs, recent errors, historical SoC) instead of scattering them across other views.
+  * Make it easy to inspect “what the planner has been doing lately” without SSH or manual log tailing.
+  * Keep the Debug tab read-only and clearly “operator-facing” rather than an end-user UI.
+
+* **Scope**:
+  * React Debug page implementation in `frontend/src/pages/Debug.tsx`, replacing the placeholder with:
+    * Log viewer (paged or tailed) backed by the existing in-memory ring buffer logs.
+    * Recent events / error summary extracted from the same log payload.
+    * Historical SoC mini-chart sourced from `/api/history/soc`.
+  * Read-only integration with:
+    * `/api/debug/logs` (or equivalent) for log entries (timestamp, level, logger, message).
+    * `/api/history/soc` for SoC history over a recent window.
+  * No planner behavior changes; this is a visualization/diagnostics Rev.
+
+* **Dependencies**:
+  * Rev 39–44 (Dashboard, Planning, Settings, Learning) stable.
+  * Backend debug endpoints:
+    * Ring buffer handler + log endpoint (e.g. `/api/debug/logs`) available.
+    * `/api/history/soc` implemented for SoC history.
+
+* **Acceptance Criteria**:
+  * Debug tab shows:
+    * A scrollable log view with level and component displayed, plus clear timestamps.
+    * Basic controls: “Refresh logs” and optional “Tail” behavior (manual refresh is sufficient for this Rev).
+    * A compact summary of recent errors/warnings (e.g. last N error-level entries, with counts).
+    * A historical SoC mini-chart that visualizes SoC (%) over a recent window (e.g. last 24–72 hours) using the existing chart theming.
+  * Debug tab is clearly labeled as non-destructive and read-only; no config changes can be made from this tab.
+  * Errors in debug endpoints are handled gracefully (e.g. “Logs unavailable” or “No SoC history” messages instead of blank or broken sections).
+
+### Implementation Steps (Planned)
+
+1. **Debug Endpoint Inventory**
+   * Confirm available debug/logging endpoints and their payloads:
+     * Log entries from the ring buffer (e.g. `/api/debug/logs`).
+     * SoC history from `/api/history/soc` (timestamps and SoC values).
+   * Add or confirm TypeScript types for these responses in `frontend/src/lib/api.ts`.
+
+2. **Debug Tab Layout**
+   * Replace the Debug placeholder page with a three-section layout:
+     * Logs (primary area).
+     * Recent Events/Errors (secondary card).
+     * Historical SoC mini-chart (chart card).
+   * Align styling with Dashboard/Planning (cards, typography, dark theme).
+
+3. **Log Viewer Implementation**
+   * Fetch logs on load with loading/error states.
+   * Implement:
+     * Basic filters: log level (INFO/WARN/ERROR) and logger name.
+     * “Refresh” button to refetch logs; defer auto-polling to a later Rev.
+   * Render logs in a scrollable list:
+     * Display timestamp, level badge, logger name, message.
+
+4. **Recent Events / Error Summary**
+   * Derive a summary view from the log payload:
+     * Count of error/warn entries in the current window.
+     * Last N errors with timestamps and logger names.
+   * Show this in a compact card; no deep drill-down needed for this Rev.
+
+5. **Historical SoC Mini-chart**
+   * Use `/api/history/soc` to fetch SoC history for a recent window (e.g. last 24–72 hours, depending on backend support).
+   * Implement a small Chart.js-based mini-chart:
+     * Time on X-axis, SoC (%) on Y-axis.
+     * Theming aligned with `ChartCard` (using theme palette colors).
+   * Provide a simple range selector if the endpoint allows parameterized windows; otherwise, a fixed recent horizon is acceptable.
+
+6. **Error Handling & UX Polish**
+   * Ensure each section handles its own errors:
+     * Log viewer: clear message if logs cannot be loaded or debug mode is off.
+     * SoC chart: “No history available” when there is no data.
+   * Keep the page responsive for desktop and usable on smaller widths (no full mobile optimization required).
+
+7. **Verification & Backlog Alignment**
+   * Manually test:
+     * Log loading, filtering, and refresh.
+     * SoC history loading and chart rendering.
+   * Align with Learning & Debug backlog items:
+     * ✅ Debug data visualization (`/api/debug`, `/api/debug/logs`).
+     * ✅ Log viewer with polling/refresh and filters (basic).
+     * ✅ Historical SoC chart from `/api/history/soc`.
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
-- [ ] Polish "NOW" marker (slightly shorter line, ensure it never overlaps chart axes)
 - [ ] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
 - [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
