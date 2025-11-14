@@ -196,27 +196,45 @@ export default function Learning() {
             return
         }
 
-        // Use runs as primary X-axis; if no runs, fall back to S-index dates
-        const sortedRuns = [...runs].sort(
-            (a, b) => new Date(a.started_at).getTime() - new Date(b.started_at).getTime(),
-        )
-
-        const labels = sortedRuns.map(run => {
+        // Aggregate changes_applied per day
+        const changesByDate = new Map<string, number>()
+        runs.forEach(run => {
             const d = new Date(run.started_at)
-            if (Number.isNaN(d.getTime())) return ''
-            return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+            if (Number.isNaN(d.getTime())) return
+            const dateKey = d.toISOString().slice(0, 10) // YYYY-MM-DD
+            const prev = changesByDate.get(dateKey) ?? 0
+            const val = typeof run.changes_applied === 'number' ? run.changes_applied : 0
+            changesByDate.set(dateKey, prev + val)
         })
 
-        const changesApplied = sortedRuns.map(run => run.changes_applied ?? 0)
+        // Collect all dates present in either runs or S-index history
+        const dateSet = new Set<string>()
+        for (const key of changesByDate.keys()) {
+            dateSet.add(key)
+        }
+        sHistory.forEach(entry => {
+            if (entry.date) dateSet.add(entry.date)
+        })
 
-        // Map S-index history to the same index order by date ascending
-        const sortedSIndex = [...sHistory].sort((a, b) => a.date.localeCompare(b.date))
-        const sIndexValues = sortedSIndex.map(entry =>
-            entry.value !== null && entry.value !== undefined ? entry.value : null,
+        const sortedDates = Array.from(dateSet).sort()
+
+        const labels = sortedDates
+        const changesApplied = sortedDates.map(d => changesByDate.get(d) ?? 0)
+
+        // Map S-index history by date and align to sortedDates
+        const sIndexByDate = new Map<string, number | null>()
+        sHistory.forEach(entry => {
+            sIndexByDate.set(
+                entry.date,
+                entry.value !== null && entry.value !== undefined ? entry.value : null,
+            )
+        })
+        const sIndexValues = sortedDates.map(d =>
+            sIndexByDate.has(d) ? sIndexByDate.get(d)! : null,
         )
 
         const data = {
-            labels: labels.length ? labels : sortedSIndex.map(e => e.date),
+            labels,
             datasets: [
                 {
                     type: 'bar' as const,
