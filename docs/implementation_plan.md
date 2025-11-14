@@ -1115,11 +1115,90 @@
 
 ---
 
+## Rev 46 — Schedule & Dashboard Correctness *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Fix day-slicing and range issues on the Dashboard chart, verify that planner output and DB schedules are complete and aligned with the executor’s expectations, and harden error/empty states for the core scheduling and learning flows.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Ensure the Dashboard “today” chart always presents a full, correct 00:00–24:00 view in local time, even when the first schedule slot starts later in the day.
+  * Verify that the planner → DB writer → executor (n8n) contract is consistent: slot numbering, time coverage, and timezone handling all match what the executor’s SQL expects.
+  * Strengthen error and empty-state handling for the critical APIs so that missing or failing data never results in silent misbehavior or misleading charts.
+
+* **Scope**:
+  * Dashboard `ChartCard` day slicing and label generation for `day="today"`:
+    * Diagnose why the current chart range starts at 12:15 instead of 00:00.
+    * Ensure labels and datasets for “today” are always built over the full local 24 hours, with `null` values (no data) instead of shrinking the axis when early slots are absent.
+  * Planner/DB/executor alignment:
+    * Inspect how slots are generated and written into `schedule.json`, `current_schedule`, and `plan_history` (slot numbering, slot_start coverage).
+    * Confirm assumptions used by the n8n executor SQL (`slot_start` with `NOW()` and a 15-minute window) are valid for the current system.
+    * Document and, if necessary, normalize slot numbering (e.g. 0–191 for 48h @ 15min) to avoid surprises like slot_number 705 for a single schedule.
+  * Targeted Production Readiness:
+    * Harden error and empty states for the core planner/learning endpoints:
+      * `/api/schedule`, `/api/status`, `/api/simulate`.
+      * `/api/config` (where it impacts Dashboard/Planning behaviors).
+      * `/api/learning/status`, `/api/learning/history` (to avoid silent fallbacks on the Learning tab).
+    * Ensure the Dashboard and Planning charts never fall back to mock data or render misleading shapes when these endpoints fail or return empty data; they must show a clear “no data” or error state instead.
+
+* **Dependencies**:
+  * Rev 39–41 (Dashboard data wiring and hotfixes).
+  * Rev 42 (Planning timeline and 48h chart behavior).
+  * Rev 43 (Settings & Configuration; config semantics for dashboard defaults).
+  * Rev 44–45 (Learning and Debug UIs, including history and SoC diagnostics).
+
+* **Acceptance Criteria**:
+  * On “today”, the Dashboard chart always displays a full 24-hour X-axis (00:00–24:00 local time) with no unexpected truncation (e.g. starting from midday), regardless of when the first schedule slot starts.
+  * Planner output for typical runs produces contiguous slots that cover the expected horizon; slot numbering and coverage are consistent and documented, and the executor’s SQL reliably returns the active slot when a schedule exists.
+  * When there is no schedule or partial data, the Dashboard and Planning charts show a clear “No data” or similar overlay; they do not render stale mock data or silently hide failures.
+  * Critical API failures (`/api/schedule`, `/api/status`, `/api/simulate`, `/api/learning/status`, `/api/learning/history`) are surfaced in the UI in a visible but non-disruptive way (e.g. inline messages), and do not leave the app in an ambiguous state.
+
+### Implementation Steps (Planned)
+
+1. **Dashboard Today-Range Diagnosis**
+   * Inspect `filterSlotsByDay`, `isToday`, and `formatHour` in `frontend/src/lib/time.ts` plus `buildLiveData` in `ChartCard` to understand how “today” slots are filtered and labels are created.
+   * Reproduce and document the case where the chart only shows from 12:15–24:00 instead of 00:00–24:00.
+
+2. **Full-Day Chart Range Implementation**
+   * Adjust the “today” data-building logic so that the X-axis always spans the full 24 hours in local time, padding with `null` values where the schedule lacks data rather than shrinking to the first available slot.
+   * Verify the tooltip and NOW marker still behave correctly with padded data.
+
+3. **Planner→DB→Executor Contract Review**
+   * Review `write_schedule_to_db`/`plan_history` writing logic to confirm:
+     * Slot numbering strategy and upper bounds for a typical 48h schedule.
+     * How `slot_start` values are generated and stored (timezone, resolution).
+   * Cross-check these assumptions against the n8n executor SQL that selects the “current slot” by `slot_start` and `NOW()`.
+   * Document the contract so future changes don’t break the executor.
+
+4. **Targeted Error/Empty-State Hardening**
+   * Audit how `/api/schedule`, `/api/status`, `/api/simulate`, `/api/learning/status`, and `/api/learning/history` are consumed in Dashboard, Planning, and Learning pages.
+   * Ensure that for each:
+     * Errors are surfaced via inline messages in the relevant card/page.
+     * Empty or partial data leads to an explicit “no data” state, not mock data.
+     * No silent failover masks real issues in the planner or backend.
+
+5. **Verification & Backlog Alignment**
+   * Manual tests:
+     * Confirm Dashboard “today” always starts at 00:00 and covers 24h in local time across typical planner runs.
+     * Confirm executor SQL finds the correct slot in a live schedule and behaves predictably when no current slot exists (handled now via n8n error flow).
+     * Confirm error/empty states are visible but not intrusive in Dashboard, Planning, and Learning.
+   * Align with Backlog:
+     * ✅ Close “Day-slicing correctness” and “planner→DB→executor contract” items added under Backlog once this Rev is completed.
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
 - [ ] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
 - [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
+
+### Schedule & Executor Alignment
+- [ ] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
+- [ ] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
 
 ### Planning Timeline
 - [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
@@ -1128,7 +1207,6 @@
 - [x] Historical slots read-only handling
 - [ ] Device caps and SoC target enforcement
 - [ ] Zero-capacity gap handling
-- [ ] Investigate SoC Projected anomaly where SoC jumps (e.g. ~66%→94% around 16:45–17:45) without a clear matching charge block in the schedule; ensure projection is consistent with planned actions.
 
 ### Settings & Configuration
 - [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
@@ -1150,7 +1228,6 @@
 - [ ] Mobile responsiveness for all components
 - [ ] Performance optimization (chart rendering, data caching)
 - [ ] Deployment configuration (serve `frontend/dist` from Flask or separate static host)
-- [ ] Accessibility improvements (ARIA labels, keyboard navigation)
 - [ ] State management for user preferences and theme
 
 ---
