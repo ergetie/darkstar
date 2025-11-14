@@ -1521,6 +1521,194 @@
 
 ---
 
+## Rev 50 — Planning & Settings Polish *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Tighten Planning behaviour around zero-capacity gaps and improve Settings validation so configuration errors are caught and explained field-by-field.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Make Planning blocks and the 48h view handle zero-capacity slots cleanly (no tiny phantom actions or misleading gaps).
+  * Provide clearer, per-field validation in the Settings UI instead of heuristic or generic errors.
+
+* **Scope**:
+  * Planning Timeline:
+    * Define how “zero-capacity” slots should be represented in the merged schedule:
+      * Slots where the device cannot act (e.g. inverter off, battery unavailable, grid cap 0).
+      * Ensure charge/export/water blocks do not appear or are visually distinct in such slots.
+    * Update block classification/merging so:
+      * Consolidated blocks do not bridge through genuinely unavailable periods.
+      * Zero-capacity runs either become explicit visual gaps or are excluded from block merging.
+  * Settings validation:
+    * Replace broad, key-name-based validation with explicit rules for key fields, including:
+      * Battery SoC min/max and power limits.
+      * Nordpool resolution and timezone.
+      * S-index parameters.
+      * Learning thresholds and limits.
+    * Surface errors inline in the Settings UI:
+      * Highlight invalid fields.
+      * Provide concise messages (e.g. “Min SoC must be < Max SoC”).
+
+* **Dependencies**:
+  * Rev 42 (Planning timeline and block classification).
+  * Rev 43 (Settings UI and config save/reset).
+  * Rev 49 (SoC and device caps enforcement).
+
+* **Acceptance Criteria**:
+  * Planning:
+    * Zero-capacity slots do not create tiny or misleading blocks; block merging respects capacity gaps.
+    * Users can visually distinguish genuine “no action” from “cannot act” slots.
+  * Settings:
+    * Invalid combinations (e.g. min SoC ≥ max SoC, negative power limits) are rejected with clear messages.
+    * Applying settings does not silently misconfigure critical planner behaviour.
+
+### Implementation Steps (Planned)
+
+1. **Zero-Capacity Semantics**
+   * Identify which fields and conditions imply a zero-capacity slot (e.g. SoC pinned at bounds, device offline, grid max 0).
+   * Decide how to tag such slots in the schedule (e.g. `capacity_state: 'unavailable'`).
+
+2. **Block Merging & Visualization**
+   * Update Planning block classification/merging logic to stop merging across zero-capacity slots.
+   * Adjust the timeline rendering so zero-capacity periods are either:
+     * Empty gaps, or
+     * Styled differently (e.g. shaded background band).
+
+3. **Settings Validation Rules**
+   * Introduce explicit validation functions for key config sections (battery, thresholds, S-index, learning).
+   * Wire these into the Settings save flow, returning structured field errors to the frontend.
+
+4. **Settings UI Error Display**
+   * Update the Settings UI to:
+     * Mark invalid fields.
+     * Show concise inline messages and prevent save when critical validation fails.
+
+5. **Verification & Backlog Alignment**
+   * Manual tests for Planning (zero-capacity scenarios) and Settings (invalid inputs).
+   * Close “Zero-capacity gap handling” and “Settings validation polish” backlog items once behaviour is verified.
+
+---
+
+## Rev 51 — Learning & Debug Enhancements *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Persist S-index factor history and enhance the Learning and Debug tabs so operators can see how learning affects the system over time.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Track S-index factor over time so we can visualise how learning adjusts it.
+  * Make the Learning tab’s mini-chart more informative by showing S-index and loop-level metrics.
+  * Add small UX polish to the Debug tab for logs and SoC history.
+
+* **Scope**:
+  * Learning:
+    * Extend the learning DB schema to store S-index factor history (per learning run or per day).
+    * Update learning loops to persist S-index factor and relevant context on each run.
+    * Extend `/api/learning/history` or add a dedicated `/api/learning/sindex_history` endpoint.
+    * Enhance the Learning tab chart to:
+      * Plot S-index factor over recent runs.
+      * Optionally overlay per-loop metrics (e.g. which loop applied changes).
+  * Debug:
+    * Add simple filters or range controls (e.g. last N minutes/hours) for logs and SoC history.
+    * Make it easier to correlate errors with specific time windows.
+
+* **Dependencies**:
+  * Rev 44 (Learning tab and `/api/learning/history`).
+  * Rev 45 (Debug tab and `/api/history/soc`).
+
+* **Acceptance Criteria**:
+  * S-index:
+    * S-index factor history is stored and can be queried for recent runs/days.
+    * Learning tab chart can show S-index factor evolution alongside changes-applied bars.
+  * Debug:
+    * Operators can filter logs by level and time range.
+    * SoC history can be scoped to relevant windows for debugging.
+
+### Implementation Steps (Planned)
+
+1. **S-index History Storage**
+   * Extend the learning DB to add a table or fields for S-index factor history.
+   * Update learning loops to populate this on each run.
+
+2. **API Extensions**
+   * Extend `/api/learning/history` or introduce a new endpoint to return S-index history data.
+
+3. **Learning Tab Chart Enhancements**
+   * Update the Learning tab mini-chart to plot S-index factor alongside changes-applied.
+   * Ensure tooltips show both metrics clearly.
+
+4. **Debug Tab UX Polish**
+   * Add time-range filters for logs and SoC history.
+   * Make the log viewer and SoC chart respect the selected range.
+
+5. **Verification & Backlog Alignment**
+   * Manual tests for Learning and Debug tabs with active learning runs.
+   * Close the Learning & Debug backlog items related to S-index history and chart polish.
+
+---
+
+## Rev 52 — Production Readiness Slice *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the UI behaves well in real use.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Ensure critical API failures are clearly surfaced without breaking the whole UI.
+  * Make the main tabs usable on smaller screens (no full redesign).
+  * Provide a simple, documented way to deploy the frontend with the backend.
+
+* **Scope**:
+  * Error & loading handling:
+    * Audit Dashboard, Planning, Learning, Debug, and Settings for:
+      * Clear loading states for primary cards.
+      * Clear, non-intrusive error banners when core APIs fail (`/api/status`, `/api/schedule`, `/api/config`, `/api/learning/status`, etc.).
+    * Add a global “backend offline” indicator when `/api/config`/`/api/status` repeatedly fail.
+  * Mobile responsiveness:
+    * Tweak layouts for breakpoints so the main tabs are readable and scroll nicely on phones/tablets (no overlapping or clipped content).
+  * Deployment basics:
+    * Document or implement a minimal setup to serve `frontend/dist` via Flask or alongside it (e.g. nginx + Flask).
+
+* **Dependencies**:
+  * All previous Revs; this is a polish layer rather than new core features.
+
+* **Acceptance Criteria**:
+  * When backend APIs fail, each main tab shows a clear error but remains usable (no spinners forever, no blank screens).
+  * The app is navigable on a phone-sized viewport (critical controls accessible, charts scrollable).
+  * There is a documented path for serving the built frontend with the backend in production.
+
+### Implementation Steps (Planned)
+
+1. **Error & Loading Audit**
+   * Review each tab’s use of API calls and loading states.
+   * Add or refine loading spinners and error banners where missing.
+
+2. **Global Backend-Offline Indicator**
+   * Add a small global banner component that appears when repeated `/api/config` or `/api/status` calls fail.
+
+3. **Mobile Layout Tweaks**
+   * Adjust grid and spacing classes in the main pages to behave better on narrow viewports.
+
+4. **Deployment Notes**
+   * Add a short section to README or a new doc describing how to:
+     * Build the frontend.
+     * Serve `frontend/dist` with Flask or via a simple reverse proxy.
+
+5. **Verification & Backlog Alignment**
+   * Manual tests for error states, mobile layout, and a basic production-like deployment.
+   * Close relevant Production Readiness backlog items incrementally.
+
+---
+
 ## Appendix — Handover Notes
 
 * **Monorepo rules**
