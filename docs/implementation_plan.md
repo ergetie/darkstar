@@ -1008,9 +1008,9 @@
 
 ---
 
-## Rev 45 — Debug & Diagnostics UI *(Status: 📋 Planned)*
+## Rev 45 — Debug & Diagnostics UI *(Status: ✅ Completed)*
 
-* **Model**: GPT-5 Codex CLI (planned)
+* **Model**: GPT-5 Codex CLI
 * **Summary**: Build a dedicated Debug tab that surfaces planner/logging diagnostics, including a log viewer, recent events/errors summary, and a historical SoC mini-chart, to help operators understand and troubleshoot planner behavior.
 * **Started**: — (planned)
 * **Last Updated**: — (planned)
@@ -1097,6 +1097,21 @@
      * ✅ Debug data visualization (`/api/debug`, `/api/debug/logs`).
      * ✅ Log viewer with manual refresh and level filters.
      * ✅ Historical SoC chart from `/api/history/soc`.
+
+### Implementation
+
+* **Completed**:
+  * Debug endpoint inventory and API client types for `/api/debug/logs` and `/api/history/soc`.
+  * Debug tab layout with three sections: Logs, Recent Events/Errors, and Historical SoC.
+  * Log viewer implementation with level filters and manual refresh.
+  * Recent events summary card with counts and last error entries.
+  * Historical SoC mini-chart wired to `/api/history/soc` using Chart.js.
+  * Error handling and UX polish for logs and SoC chart.
+  * Fixed learning auto-observation SQL by replacing the SQLite `ON CONFLICT` upsert in `LearningEngine.store_slot_observations` with a portable update‑then‑insert pattern, eliminating `sqlite3.OperationalError: near \")\": syntax error` during automatic observation recording.
+* **In Progress**: —
+* **Blocked**: —
+* **Next Steps**:
+  * Manual verification of log and SoC views across typical planner runs; any further diagnostics enhancements can be tracked under Backlog → Learning & Debug.
 
 ---
 
