@@ -347,6 +347,8 @@ export default function ChartCard({
                 const overlayDefaults = config?.dashboard?.overlay_defaults
                 if (overlayDefaults && typeof overlayDefaults === 'string') {
                     const defaultOverlays = overlayDefaults.split(',').map(s => s.trim().toLowerCase())
+                    const hasSocActualToken =
+                        defaultOverlays.includes('socactual') || defaultOverlays.includes('soc_actual')
                     const parsedOverlays = {
                         price: !defaultOverlays.includes('price_off'),
                         pv: !defaultOverlays.includes('pv_off'),
@@ -357,7 +359,9 @@ export default function ChartCard({
                         water: defaultOverlays.includes('water'),
                         socTarget: defaultOverlays.includes('soctarget') || defaultOverlays.includes('soc_target'),
                         socProjected: defaultOverlays.includes('socprojected') || defaultOverlays.includes('soc_projected'),
-                        socActual: defaultOverlays.includes('socactual') || defaultOverlays.includes('soc_actual'),
+                        // Only override SoC Actual if config explicitly mentions it;
+                        // otherwise keep the initial default (true).
+                        socActual: hasSocActualToken ? true : overlays.socActual,
                     }
                     setOverlays(parsedOverlays)
                 }
@@ -777,6 +781,7 @@ function buildLiveData(
         const water: (number | null)[] = []
         const socTarget: (number | null)[] = []
         const socProjected: (number | null)[] = []
+        const socActual: (number | null)[] = []
 
         let nowIndex: number | null = null
         const now = new Date()
@@ -789,15 +794,35 @@ function buildLiveData(
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
+                const isExec = (slot as any).is_executed === true
+                const anySlot = slot as any
+
                 price.push(slot.import_price_sek_kwh ?? null)
-                pv.push(slot.pv_forecast_kwh ?? null)
-                load.push(slot.load_forecast_kwh ?? null)
-                charge.push(slot.battery_charge_kw ?? slot.charge_kw ?? null)
+                pv.push(
+                    isExec && anySlot.actual_pv_kwh != null
+                        ? anySlot.actual_pv_kwh
+                        : slot.pv_forecast_kwh ?? null,
+                )
+                load.push(
+                    isExec && anySlot.actual_load_kwh != null
+                        ? anySlot.actual_load_kwh
+                        : slot.load_forecast_kwh ?? null,
+                )
+                charge.push(
+                    isExec && anySlot.actual_charge_kw != null
+                        ? anySlot.actual_charge_kw
+                        : slot.battery_charge_kw ?? slot.charge_kw ?? null,
+                )
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-                exp.push(slot.export_kwh ?? null)
+                exp.push(
+                    isExec && anySlot.actual_export_kw != null
+                        ? anySlot.actual_export_kw
+                        : slot.export_kwh ?? null,
+                )
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
+                socActual.push(anySlot.soc_actual_percent != null ? anySlot.soc_actual_percent : null)
             } else {
                 price.push(null)
                 pv.push(null)
@@ -808,6 +833,7 @@ function buildLiveData(
                 water.push(null)
                 socTarget.push(null)
                 socProjected.push(null)
+                socActual.push(null)
             }
 
             if (now >= bucketStart && now < bucketEnd) {
@@ -827,6 +853,7 @@ function buildLiveData(
                 water,
                 socTarget,
                 socProjected,
+                socActual,
                 nowIndex,
             },
             themeColors,
