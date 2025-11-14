@@ -1012,6 +1012,55 @@ def learning_loops():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/learning/history", methods=["GET"])
+def learning_history():
+    """Return recent learning runs for history/mini-chart visualisation."""
+    try:
+        engine = get_learning_engine()
+        if not os.path.exists(engine.db_path):
+            return jsonify({"runs": []})
+
+        runs: list[dict] = []
+        with sqlite3.connect(engine.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, started_at, status, result_metrics_json
+                FROM learning_runs
+                ORDER BY started_at DESC
+                LIMIT 20
+                """
+            )
+            for row in cursor.fetchall():
+                run_id, started_at, status, metrics_json = row
+                loops_run = None
+                changes_proposed = None
+                changes_applied = None
+                if metrics_json:
+                    try:
+                        metrics = json.loads(metrics_json)
+                        loops_run = metrics.get("loops_run")
+                        changes_proposed = metrics.get("changes_proposed")
+                        changes_applied = metrics.get("changes_applied")
+                    except (TypeError, json.JSONDecodeError):
+                        pass
+
+                runs.append(
+                    {
+                        "id": run_id,
+                        "started_at": started_at,
+                        "status": status,
+                        "loops_run": loops_run,
+                        "changes_proposed": changes_proposed,
+                        "changes_applied": changes_applied,
+                    }
+                )
+
+        return jsonify({"runs": runs})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/debug", methods=["GET"])
 def debug_data():
     """Return comprehensive planner debug data from schedule.json."""
