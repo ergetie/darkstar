@@ -5,7 +5,7 @@ import shutil
 import sqlite3
 import threading
 from collections import deque
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import pytz
@@ -331,6 +331,143 @@ def get_schedule():
                     pass
 
     return jsonify(data)
+
+
+@app.route("/api/schedule/today_with_history", methods=["GET"])
+def schedule_today_with_history():
+    """
+    Return a merged view of today's schedule and execution history.
+
+    For each slot_start on the local "today" date, combine:
+      * planned values from schedule.json
+      * executed values from MariaDB execution_history (latest executed_at per slot)
+    """
+    try:
+        config = _load_yaml("config.yaml")
+        tz_name = config.get("timezone", "Europe/Stockholm")
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone("Europe/Stockholm")
+        tz_name = "Europe/Stockholm"
+
+    today_local = datetime.now(tz).date()
+
+    # Load schedule.json and filter to today's slots
+    schedule_map: dict[datetime, dict] = {}
+    try:
+        with open("schedule.json", "r") as f:
+            payload = json.load(f)
+        schedule_slots = payload.get("schedule", []) or []
+    except Exception:
+        schedule_slots = []
+
+    for slot in schedule_slots:
+        start_str = slot.get("start_time")
+        if not start_str:
+            continue
+        try:
+            start = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
+        except Exception:
+            continue
+        if start.tzinfo is None:
+            local = tz.localize(start)
+        else:
+            local = start.astimezone(tz)
+        if local.date() != today_local:
+            continue
+        key = local.replace(tzinfo=None)
+        schedule_map[key] = slot
+
+    # Load execution history for today (latest executed_at per slot_start)
+    exec_map: dict[datetime, dict] = {}
+    try:
+        secrets = _load_yaml("secrets.yaml")
+        if secrets.get("mariadb"):
+            with _db_connect_from_secrets() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT e.*
+                        FROM execution_history e
+                        JOIN (
+                            SELECT slot_start, MAX(executed_at) AS max_executed_at
+                            FROM execution_history
+                            WHERE DATE(slot_start) = %s
+                            GROUP BY slot_start
+                        ) latest
+                        ON e.slot_start = latest.slot_start AND e.executed_at = latest.max_executed_at
+                        ORDER BY e.slot_start ASC
+                        """,
+                        (today_local.isoformat(),),
+                    )
+                    rows = cur.fetchall() or []
+            for row in rows:
+                # slot_start is stored as naive local DATETIME
+                slot_start = row.get("slot_start")
+                if isinstance(slot_start, datetime):
+                    exec_map[slot_start] = row
+    except Exception as exc:
+        logger.warning("Failed to read execution_history: %s", exc)
+
+    # Merge keys from schedule and execution history
+    all_keys = sorted(set(schedule_map.keys()) | set(exec_map.keys()))
+    merged_slots: list[dict] = []
+
+    # Default resolution (minutes) if we need to synthesise end_time
+    resolution_minutes = 15
+    try:
+        cfg = _load_yaml("config.yaml")
+        resolution_minutes = int(
+            cfg.get("nordpool", {}).get("resolution_minutes", resolution_minutes)
+        )
+    except Exception:
+        pass
+
+    for local_start in all_keys:
+        sched = schedule_map.get(local_start)
+        hist = exec_map.get(local_start)
+
+        if sched:
+            # Start from planned slot data
+            slot = dict(sched)
+        else:
+            # Synthesise a minimal planned slot so the frontend can render history-only periods
+            start_iso = tz.localize(local_start).isoformat()
+            end_iso = (local_start + timedelta(minutes=resolution_minutes)).isoformat()
+            slot = {
+                "start_time": start_iso,
+                "end_time": end_iso,
+            }
+
+        # Normalise start_time to local ISO for consistency
+        local_zoned = tz.localize(local_start)
+        slot["start_time"] = local_zoned.isoformat()
+        if "end_time" not in slot:
+            slot["end_time"] = (
+                local_zoned + timedelta(minutes=resolution_minutes)
+            ).isoformat()
+
+        # Attach executed values if present
+        if hist:
+            slot["is_executed"] = True
+            # Actual SoC
+            if hist.get("actual_soc") is not None:
+                slot["soc_actual_percent"] = float(hist.get("actual_soc") or 0.0)
+            # Actual power / energy series
+            if hist.get("actual_charge_kw") is not None:
+                slot["actual_charge_kw"] = float(hist.get("actual_charge_kw") or 0.0)
+            if hist.get("actual_export_kw") is not None:
+                slot["actual_export_kw"] = float(hist.get("actual_export_kw") or 0.0)
+            if hist.get("actual_load_kwh") is not None:
+                slot["actual_load_kwh"] = float(hist.get("actual_load_kwh") or 0.0)
+            if hist.get("actual_pv_kwh") is not None:
+                slot["actual_pv_kwh"] = float(hist.get("actual_pv_kwh") or 0.0)
+        else:
+            slot["is_executed"] = False
+
+        merged_slots.append(slot)
+
+    return jsonify({"slots": merged_slots, "timezone": tz_name})
 
 
 def _load_yaml(path: str) -> dict:
