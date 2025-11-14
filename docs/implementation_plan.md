@@ -1260,6 +1260,15 @@
    * Override react-calendar-timeline default styles in `frontend/src/index.css` so weekend/alternate-day tinting is removed and the full 48h background matches the app’s dark theme.
    * Verify that horizontal/vertical grid-lines remain readable and that blocks retain their lane color identity.
 
+### Implementation
+
+* **Completed**:
+  * Step 1: Dashboard legend removed and all datasets (price, PV, load, charge, discharge, export, water, SoC Target, SoC Projected) are now controlled solely via overlay pills; Y-axis tick labels are hidden while tooltips still provide precise values.
+  * Step 2 (auto-refresh): Dashboard auto-refresh is now initialized from `dashboard.auto_refresh_enabled` in `config.yaml`, so the Dashboard toggle reflects the UI Settings default on load.
+  * Step 3: Planning timeline background normalization by overriding `react-calendar-timeline` weekend/alternate-day tint, ensuring the full 48h window uses a consistent dark background.
+* **In Progress**: —
+* **Blocked**: —
+
 4. **Verification & Backlog Alignment**
    * Manual tests:
      * Confirm Dashboard loads with overlay defaults and auto-refresh matching Settings.
@@ -1287,7 +1296,7 @@
 - [x] Simulate/save workflow with `/api/simulate` (Planning \"Apply manual changes\" uses simulate to persist local plan)
 - [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
 - [x] Historical slots read-only handling
-- [ ] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
+- [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
 - [ ] Device caps and SoC target enforcement
 - [ ] Zero-capacity gap handling
 
