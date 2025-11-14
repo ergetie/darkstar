@@ -878,6 +878,7 @@
     * `/api/config` (current learning-related config and limits).
     * Existing debug endpoints if available (e.g. recent config changes or learning events) for a small history/mini-chart.
     * New `/api/learning/history` endpoint exposing recent learning runs from the learning engine DB for mini-chart visualisation.
+    * Existing `/api/learning/run` and `/api/learning/loops` endpoints for manual learning orchestration and loop testing controls.
   * UI sections:
     * Overview (enabled flag, last run/observation, sync interval, quick health badges).
     * Metrics (KPI tiles for runs, days with data, DB size, slot coverage, etc.).
@@ -999,6 +1000,7 @@
   * Parameter Impact snapshot implemented from `config.yaml` (decision_thresholds, s_index, learning limits) with “learning can adjust” indicators based on `learning.max_daily_param_change.*`, plus a “Current S-index” row that reads the effective factor from `/api/debug` when available.
   * History mini-chart implemented using recent `learning_runs` data via `/api/learning/history` (changes applied per run).
   * Error and health indicators implemented for disabled learning, empty metrics, and last-error display.
+  * Manual Learning controls added on the Learning tab using `/api/learning/run` (“Run learning now”) and `/api/learning/loops` (“Test loops”) with inline status summaries.
 * **In Progress**: —
 * **Blocked**: —
 * **Next Steps**:

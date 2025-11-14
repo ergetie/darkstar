@@ -1,7 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import Card from '../components/Card'
 import Kpi from '../components/Kpi'
-import { Api, type LearningStatusResponse, type ConfigResponse, type LearningHistoryResponse } from '../lib/api'
+import {
+    Api,
+    type LearningStatusResponse,
+    type ConfigResponse,
+    type LearningHistoryResponse,
+    type LearningRunResponse,
+    type LearningLoopsResponse,
+} from '../lib/api'
 import { Chart as ChartJS, type Chart, type ChartConfiguration } from 'chart.js/auto'
 
 function formatBytes(bytes?: number): string {
@@ -35,53 +42,69 @@ export default function Learning() {
     const [error, setError] = useState<string | null>(null)
     const [history, setHistory] = useState<LearningHistoryResponse | null>(null)
     const [debugSIndex, setDebugSIndex] = useState<{ mode?: string; base_factor?: number; factor?: number; max_factor?: number } | null>(null)
+    const [runLoading, setRunLoading] = useState(false)
+    const [runMessage, setRunMessage] = useState<string | null>(null)
+    const [loopsLoading, setLoopsLoading] = useState(false)
+    const [loopsSummary, setLoopsSummary] = useState<string | null>(null)
     const historyCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const historyChartRef = useRef<Chart | null>(null)
 
     useEffect(() => {
         let cancelled = false
-        setLoading(true)
-        setError(null)
 
-        Promise.allSettled([Api.learningStatus(), Api.config(), Api.learningHistory(), Api.debug()]).then(results => {
-            if (cancelled) return
+        const loadAll = () => {
+            setLoading(true)
+            setError(null)
 
-            const [learningRes, configRes, historyRes, debugRes] = results
+            Promise.allSettled([
+                Api.learningStatus(),
+                Api.config(),
+                Api.learningHistory(),
+                Api.debug(),
+            ]).then(results => {
+                if (cancelled) return
 
-            if (learningRes.status === 'fulfilled') {
-                setLearning(learningRes.value)
-            } else {
-                console.error('Failed to load learning status:', learningRes.reason)
-                setError('Failed to load learning status')
-            }
+                const [learningRes, configRes, historyRes, debugRes] = results
 
-            if (configRes.status === 'fulfilled') {
-                setConfig(configRes.value)
-            } else {
-                console.error('Failed to load config for learning tab:', configRes.reason)
-                if (!error) {
-                    setError('Failed to load config')
+                if (learningRes.status === 'fulfilled') {
+                    setLearning(learningRes.value)
+                } else {
+                    console.error('Failed to load learning status:', learningRes.reason)
+                    setError('Failed to load learning status')
                 }
-            }
 
-            if (historyRes.status === 'fulfilled') {
-                setHistory(historyRes.value)
-            }
-
-            if (debugRes.status === 'fulfilled' && debugRes.value && typeof debugRes.value === 'object') {
-                const sIndex = (debugRes.value as any).s_index
-                if (sIndex && typeof sIndex === 'object') {
-                    setDebugSIndex({
-                        mode: sIndex.mode,
-                        base_factor: sIndex.base_factor,
-                        factor: sIndex.factor,
-                        max_factor: sIndex.max_factor,
-                    })
+                if (configRes.status === 'fulfilled') {
+                    setConfig(configRes.value)
+                } else {
+                    console.error('Failed to load config for learning tab:', configRes.reason)
+                    if (!error) {
+                        setError('Failed to load config')
+                    }
                 }
-            }
 
-            setLoading(false)
-        })
+                if (historyRes.status === 'fulfilled') {
+                    setHistory(historyRes.value)
+                } else {
+                    console.error('Failed to load learning history:', historyRes.reason)
+                }
+
+                if (debugRes.status === 'fulfilled' && debugRes.value && typeof debugRes.value === 'object') {
+                    const sIndex = (debugRes.value as any).s_index
+                    if (sIndex && typeof sIndex === 'object') {
+                        setDebugSIndex({
+                            mode: sIndex.mode,
+                            base_factor: sIndex.base_factor,
+                            factor: sIndex.factor,
+                            max_factor: sIndex.max_factor,
+                        })
+                    }
+                }
+
+                setLoading(false)
+            })
+        }
+
+        loadAll()
 
         return () => {
             cancelled = true
@@ -106,6 +129,58 @@ export default function Learning() {
         completed > 0 ||
         failed > 0 ||
         daysWithData > 0
+
+    const handleRunLearning = async () => {
+        if (!enabled || runLoading) return
+        setRunLoading(true)
+        setRunMessage(null)
+        try {
+            const res: LearningRunResponse = await Api.learningRun()
+            const msgParts: string[] = []
+            if (res.message) msgParts.push(res.message)
+            if (typeof res.changes_applied === 'number') {
+                msgParts.push(`changes applied: ${res.changes_applied}`)
+            }
+            if (!msgParts.length && res.status) msgParts.push(res.status)
+            setRunMessage(msgParts.join(' · ') || 'Learning run completed.')
+        } catch (e: any) {
+            console.error('Failed to run learning:', e)
+            setRunMessage('Failed to run learning (see logs).')
+        } finally {
+            setRunLoading(false)
+            // Refresh metrics and history
+            try {
+                const status = await Api.learningStatus()
+                setLearning(status)
+                const history = await Api.learningHistory()
+                setHistory(history)
+            } catch (e) {
+                console.error('Failed to refresh learning status/history after run:', e)
+            }
+        }
+    }
+
+    const handleTestLoops = async () => {
+        if (loopsLoading) return
+        setLoopsLoading(true)
+        setLoopsSummary(null)
+        try {
+            const res: LearningLoopsResponse = await Api.learningLoops()
+            const parts: string[] = []
+            const loops: [string, any][] = Object.entries(res)
+            loops.forEach(([name, value]) => {
+                if (!value || typeof value !== 'object') return
+                const status = (value as any).status || 'no_changes'
+                parts.push(`${name}: ${status}`)
+            })
+            setLoopsSummary(parts.length ? parts.join(' · ') : 'No loops reported any changes.')
+        } catch (e: any) {
+            console.error('Failed to test learning loops:', e)
+            setLoopsSummary('Failed to test loops (see logs).')
+        } finally {
+            setLoopsLoading(false)
+        }
+    }
 
     useEffect(() => {
         if (!historyCanvasRef.current) return
@@ -238,6 +313,28 @@ export default function Learning() {
                                 {learning?.sqlite_path || config?.learning?.sqlite_path || '—'}
                             </span>
                         </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                            <button
+                                className="rounded-pill bg-accent text-canvas px-3 py-1.5 text-[11px] font-semibold disabled:opacity-40"
+                                onClick={handleRunLearning}
+                                disabled={!enabled || runLoading}
+                            >
+                                {runLoading ? 'Running…' : 'Run learning now'}
+                            </button>
+                            <button
+                                className="rounded-pill border border-line/70 px-3 py-1.5 text-[11px] font-semibold text-muted hover:border-accent disabled:opacity-40"
+                                onClick={handleTestLoops}
+                                disabled={loopsLoading}
+                            >
+                                {loopsLoading ? 'Testing loops…' : 'Test loops'}
+                            </button>
+                        </div>
+                        {(runMessage || loopsSummary) && (
+                            <div className="mt-2 space-y-1 text-[11px] text-muted/90">
+                                {runMessage && <div>{runMessage}</div>}
+                                {loopsSummary && <div>{loopsSummary}</div>}
+                            </div>
+                        )}
                         {!loading && !error && !enabled && (
                             <div className="mt-3 rounded-xl2 border border-dashed border-line/60 bg-surface2/60 px-3 py-2 text-[12px] text-muted/90">
                                 Learning is currently <span className="font-semibold">disabled</span>. Enable it

@@ -83,6 +83,23 @@ export type DebugResponse = {
   [key: string]: any
 }
 
+export type LearningRunResponse = {
+  status?: string
+  message?: string
+  loops_run?: number
+  changes_proposed?: number
+  changes_applied?: number
+  [key: string]: any
+}
+
+export type LearningLoopsResponse = {
+  forecast_calibrator?: { status?: string; result?: any }
+  threshold_tuner?: { status?: string; result?: any }
+  s_index_tuner?: { status?: string; result?: any }
+  export_guard_tuner?: { status?: string; result?: any }
+  [key: string]: any
+}
+
 export type ThemeInfo = {
   name: string
   background: string
@@ -135,6 +152,8 @@ export const Api = {
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
   learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
+  learningRun: () => getJSON<LearningRunResponse>('/api/learning/run', 'POST'),
+  learningLoops: () => getJSON<LearningLoopsResponse>('/api/learning/loops'),
   theme: () => getJSON<ThemeResponse>('/api/themes'),
   runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
