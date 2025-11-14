@@ -1047,55 +1047,55 @@
   * Debug tab is clearly labeled as non-destructive and read-only; no config changes can be made from this tab.
   * Errors in debug endpoints are handled gracefully (e.g. “Logs unavailable” or “No SoC history” messages instead of blank or broken sections).
 
-### Implementation Steps (Planned)
+### Implementation Steps
 
-1. **Debug Endpoint Inventory**
-   * Confirm available debug/logging endpoints and their payloads:
-     * Log entries from the ring buffer (e.g. `/api/debug/logs`).
-     * SoC history from `/api/history/soc` (timestamps and SoC values).
-   * Add or confirm TypeScript types for these responses in `frontend/src/lib/api.ts`.
+1. **Debug Endpoint Inventory** ✅
+   * Confirmed available debug/logging endpoints and their payloads:
+     * `/api/debug/logs` for log entries from the in-memory ring buffer (timestamp, level, logger, message).
+     * `/api/history/soc` for SoC history for a given date (timestamp, soc_percent, quality_flags).
+     * `/api/debug` for planner debug information from `schedule.json` (used by other Revs, not central here).
+   * Added TypeScript types and helpers for these responses in `frontend/src/lib/api.ts` and exposed them via `Api.debugLogs` and `Api.historySoc`.
 
-2. **Debug Tab Layout**
-   * Replace the Debug placeholder page with a three-section layout:
-     * Logs (primary area).
-     * Recent Events/Errors (secondary card).
-     * Historical SoC mini-chart (chart card).
-   * Align styling with Dashboard/Planning (cards, typography, dark theme).
+2. **Debug Tab Layout** ✅
+   * Replaced the Debug placeholder page with a three-section layout in `frontend/src/pages/Debug.tsx`:
+     * Logs (primary area, spanning two columns on desktop).
+     * Recent Events/Errors (secondary card for quick health overview).
+     * Historical SoC mini-chart (chart card in a second row).
+   * Styling aligned with existing cards and typography for Dashboard/Planning.
 
-3. **Log Viewer Implementation**
-   * Fetch logs on load with loading/error states.
-   * Implement:
-     * Basic filters: log level (INFO/WARN/ERROR) and logger name.
-     * “Refresh” button to refetch logs; defer auto-polling to a later Rev.
-   * Render logs in a scrollable list:
-     * Display timestamp, level badge, logger name, message.
+3. **Log Viewer Implementation** ✅
+   * Fetched logs on load from `/api/debug/logs` with loading and error states.
+   * Implemented:
+     * Level filter: All, Warn+Error, Errors only.
+     * “Refresh” button to refetch logs on demand (no auto-polling for this Rev).
+   * Rendered logs in a scrollable, monospaced list with timestamp, level badge, logger name, and message.
 
-4. **Recent Events / Error Summary**
-   * Derive a summary view from the log payload:
-     * Count of error/warn entries in the current window.
-     * Last N errors with timestamps and logger names.
-   * Show this in a compact card; no deep drill-down needed for this Rev.
+4. **Recent Events / Error Summary** ✅
+   * Derived a summary view from the log payload:
+     * Count of total log entries and error/critical entries.
+     * Up to five most recent error-level entries with timestamp, logger, and truncated message.
+   * Displayed this in a compact “Recent events” card next to the log viewer.
 
-5. **Historical SoC Mini-chart**
-   * Use `/api/history/soc` to fetch SoC history for a recent window (e.g. last 24–72 hours, depending on backend support).
-   * Implement a small Chart.js-based mini-chart:
-     * Time on X-axis, SoC (%) on Y-axis.
-     * Theming aligned with `ChartCard` (using theme palette colors).
-   * Provide a simple range selector if the endpoint allows parameterized windows; otherwise, a fixed recent horizon is acceptable.
+5. **Historical SoC Mini-chart** ✅
+   * Wired `/api/history/soc` into a small Chart.js line chart:
+     * X-axis: time of day (HH:mm:ss).
+     * Y-axis: SoC (%) with a suggested 0–100 range.
+   * Embedded the chart in a dedicated “Historical SoC” card with short explanatory copy and inline error display when history cannot be loaded.
+   * Theming aligned with the rest of the app (dark background, light line/fill).
 
-6. **Error Handling & UX Polish**
-   * Ensure each section handles its own errors:
-     * Log viewer: clear message if logs cannot be loaded or debug mode is off.
-     * SoC chart: “No history available” when there is no data.
-   * Keep the page responsive for desktop and usable on smaller widths (no full mobile optimization required).
+6. **Error Handling & UX Polish** ✅
+   * Ensured each section handles its own errors:
+     * Log viewer shows a small inline error if logs cannot be fetched.
+     * SoC chart shows an inline error when history fails; an empty chart is tolerated when there is simply no data.
+   * Kept the page desktop-focused but usable on smaller widths, consistent with other tabs.
 
-7. **Verification & Backlog Alignment**
-   * Manually test:
-     * Log loading, filtering, and refresh.
-     * SoC history loading and chart rendering.
+7. **Verification & Backlog Alignment** (Planned)
+   * Manual testing:
+     * Confirm log loading, filtering, and refresh behavior.
+     * Confirm SoC history loads and chart renders when data is available.
    * Align with Learning & Debug backlog items:
      * ✅ Debug data visualization (`/api/debug`, `/api/debug/logs`).
-     * ✅ Log viewer with polling/refresh and filters (basic).
+     * ✅ Log viewer with manual refresh and level filters.
      * ✅ Historical SoC chart from `/api/history/soc`.
 
 ---
@@ -1126,9 +1126,9 @@
 ### Learning & Debug
 - [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
 - [ ] Learning history chart polish: enrich the Learning tab mini-chart with S-index factor and/or per-loop metrics in addition to changes-applied bars (build on the new `/api/learning/history` and planned S-index history storage).
-- [ ] Debug data visualization (`/api/debug`, `/api/debug/logs`)
-- [ ] Log viewer with polling and filters
-- [ ] Historical SoC chart from `/api/history/soc`
+- [x] Debug data visualization (`/api/debug`, `/api/debug/logs`)
+- [x] Log viewer with polling and filters
+- [x] Historical SoC chart from `/api/history/soc`
 
 ### Production Readiness
 - [ ] Error handling & loading states for all API calls

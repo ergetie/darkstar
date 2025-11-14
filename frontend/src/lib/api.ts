@@ -83,6 +83,29 @@ export type DebugResponse = {
   [key: string]: any
 }
 
+export type DebugLogEntry = {
+  timestamp: string
+  level: string
+  logger: string
+  message: string
+}
+
+export type DebugLogsResponse = {
+  logs: DebugLogEntry[]
+}
+
+export type HistorySocSlot = {
+  timestamp: string
+  soc_percent: number
+  quality_flags?: string
+}
+
+export type HistorySocResponse = {
+  date: string
+  slots: HistorySocSlot[]
+  count: number
+  message?: string
+}
 export type LearningRunResponse = {
   status?: string
   message?: string
@@ -161,6 +184,9 @@ export const Api = {
   resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
   simulate: (payload: any) => getJSON<SimulateResponse>('/api/simulate', 'POST', payload),
   debug: () => getJSON<DebugResponse>('/api/debug'),
+  debugLogs: () => getJSON<DebugLogsResponse>('/api/debug/logs'),
+  historySoc: (date: string | 'today' = 'today') =>
+    getJSON<HistorySocResponse>(`/api/history/soc?date=${date}`),
 }
 
 export const Sel = {
