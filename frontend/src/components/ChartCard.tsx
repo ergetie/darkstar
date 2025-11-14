@@ -335,7 +335,7 @@ export default function ChartCard({
         water: false,
         socTarget: false,
         socProjected: false,
-        socActual: false,
+        socActual: true,
     })
 
     // Load overlay defaults from config

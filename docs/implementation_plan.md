@@ -1327,7 +1327,7 @@
     * Dashboard “Today” chart shows executed charge/export/load/PV behavior and an Actual SoC line for all past 15-minute slots, and planner schedule for future slots.
     * Past buckets clearly reflect what the executor actually did, even if the latest planner schedule has changed since execution.
   * With no execution history:
-    * Dashboard behaves exactly as in Rev 46: plan-only, full-day padded chart with NOW marker and pills.
+    * Dashboard behaves exactly as in Rev 46: plan-only, full-day padded chart with NOW marker and pills (SoC Actual pill will show no data until history exists).
   * Planner→DB→executor behavior is unchanged; this Rev only reads from `execution_history` and `schedule.json`.
 
 ### Implementation Steps (Planned)
