@@ -1221,6 +1221,7 @@
 - [x] Simulate/save workflow with `/api/simulate` (Planning \"Apply manual changes\" uses simulate to persist local plan)
 - [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
 - [x] Historical slots read-only handling
+- [ ] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
 - [ ] Device caps and SoC target enforcement
 - [ ] Zero-capacity gap handling
 

@@ -422,7 +422,12 @@ export default function ChartCard({
                     console.error('Chart update failed, skipping frame:', err)
                 }
             })
-            .catch(err => console.error('Failed to load schedule:', err))
+            .catch(err => {
+                console.error('Failed to load schedule:', err)
+                // Show an explicit "no data" overlay instead of leaving stale/mock data visible
+                setHasNoDataMessage(true)
+                setNowPosition(null)
+            })
     }, [currentDay, overlays, themeColors, range, refreshToken])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
