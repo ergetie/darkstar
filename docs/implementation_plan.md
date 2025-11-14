@@ -1210,6 +1210,67 @@
 
 ---
 
+## Rev 47 — Dashboard & Planning UX Polish *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Apply targeted UX polish to the Dashboard chart and Planning timeline to close the most visible UI-related backlog items, without changing planner behavior.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Reduce visual clutter on the Dashboard chart while keeping all information available via tooltips and overlay pills.
+  * Make the Planning timeline background consistent across today and tomorrow, removing confusing weekend/alternate-day tinting.
+  * Ensure Dashboard respects the UI-related settings that are already editable in the Settings UI (overlay defaults and auto-refresh).
+
+* **Scope**:
+  * Dashboard `ChartCard`:
+    * Remove redundant legend entries for datasets that already have overlay pills (e.g. charge/discharge/export/water/SoC lines), so the legend only shows core series that are not controllable via pills.
+    * Optionally hide Y-axis scale tick labels to reduce clutter, relying on tooltips for exact values while keeping axes and grid-lines for orientation.
+    * Wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` from config so Dashboard and `ChartCard` actually use the persisted defaults exposed in the Settings UI.
+  * Planning Timeline:
+    * Normalize the timeline background so the full 48-hour window uses a consistent dark theme, removing the special tinting that react-calendar-timeline applies to weekends/alternate days.
+
+* **Dependencies**:
+  * Rev 40–41 (Dashboard completion and hotfixes).
+  * Rev 42 (Planning timeline interactions and 48h window behavior).
+  * Rev 43 (Settings UI, including Dashboard UI settings).
+  * Rev 46 (Schedule & Dashboard correctness and chart padding/error behavior).
+
+* **Acceptance Criteria**:
+  * Dashboard chart:
+    * Legend no longer duplicates any series that have overlay pills; users can still toggle those datasets via pills only.
+    * Y-axis presentation is simplified (either labels removed or significantly toned down) without losing the ability to read exact values via tooltips.
+    * On reload, Dashboard honors `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` from `config.yaml` as set via the Settings UI.
+  * Planning timeline:
+    * No distinct tint for the “tomorrow” portion of the 48h window; the entire horizon uses the same dark, minimal background, with only grid lines and item colors indicating structure.
+
+### Implementation Steps
+
+1. **Dashboard Legend & Axis Cleanup**
+   * Update `frontend/src/components/ChartCard.tsx` to remove the inline legend entirely and rely solely on overlay pills for dataset toggles (price, PV, load, charge, discharge, export, water, SoC Target, SoC Projected).
+   * Hide Y-axis tick labels while confirming tooltips still show precise values and the chart remains usable.
+
+2. **Dashboard Defaults Consumption**
+   * Read `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` in `ChartCard`/Dashboard and initialize overlay state and auto-refresh behavior from these config values.
+   * Ensure manual changes (toggling overlays or auto-refresh) affect only the current session unless/until settings are changed in the Settings UI.
+
+3. **Planning Timeline Background Normalization**
+   * Override react-calendar-timeline default styles in `frontend/src/index.css` so weekend/alternate-day tinting is removed and the full 48h background matches the app’s dark theme.
+   * Verify that horizontal/vertical grid-lines remain readable and that blocks retain their lane color identity.
+
+4. **Verification & Backlog Alignment**
+   * Manual tests:
+     * Confirm Dashboard loads with overlay defaults and auto-refresh matching Settings.
+     * Confirm legend and Y-axis feel lighter while tooltips remain fully informative.
+     * Confirm Planning timeline shows a consistent dark background for both today and tomorrow (no weekend tint), with the now line and grid-lines still clear.
+   * Align with Backlog:
+     * ✅ Close the Dashboard Refinement items “Remove Y-axis scale labels” and “Remove chart legend duplications”.
+     * ✅ Close the Planning Timeline item “Normalize Planning timeline background so today and tomorrow use a consistent dark theme”.
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
