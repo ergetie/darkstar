@@ -856,7 +856,7 @@
 
 ---
 
-## Rev 44 — Learning Engine UI *(Status: 🔄 In Progress)*
+## Rev 44 — Learning Engine UI *(Status: ✅ Completed)*
 
 * **Model**: GPT-5.1 Codex CLI
 * **Summary**: Replace the placeholder Learning tab with a full Learning Engine UI that surfaces learning status, metrics, and parameter impacts (read-only), including a compact history chart, while keeping configuration edits in the Settings tab.
@@ -1124,7 +1124,8 @@
 - [ ] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
 
 ### Learning & Debug
-- [ ] Learning engine UI (status, metrics, loops, changes from `/api/learning/*`)
+- [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
+- [ ] Learning history chart polish: enrich the Learning tab mini-chart with S-index factor and/or per-loop metrics in addition to changes-applied bars (build on the new `/api/learning/history` and planned S-index history storage).
 - [ ] Debug data visualization (`/api/debug`, `/api/debug/logs`)
 - [ ] Log viewer with polling and filters
 - [ ] Historical SoC chart from `/api/history/soc`
