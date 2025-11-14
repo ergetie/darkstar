@@ -1115,12 +1115,12 @@
 
 ---
 
-## Rev 46 — Schedule & Dashboard Correctness *(Status: 📋 Planned)*
+## Rev 46 — Schedule & Dashboard Correctness *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Fix day-slicing and range issues on the Dashboard chart, verify that planner output and DB schedules are complete and aligned with the executor’s expectations, and harden error/empty states for the core scheduling and learning flows.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -1156,7 +1156,7 @@
   * When there is no schedule or partial data, the Dashboard and Planning charts show a clear “No data” or similar overlay; they do not render stale mock data or silently hide failures.
   * Critical API failures (`/api/schedule`, `/api/status`, `/api/simulate`, `/api/learning/status`, `/api/learning/history`) are surfaced in the UI in a visible but non-disruptive way (e.g. inline messages), and do not leave the app in an ambiguous state.
 
-### Implementation Steps (Planned)
+### Implementation Steps
 
 1. **Dashboard Today-Range Diagnosis**
    * Inspect `filterSlotsByDay`, `isToday`, and `formatHour` in `frontend/src/lib/time.ts` plus `buildLiveData` in `ChartCard` to understand how “today” slots are filtered and labels are created.
@@ -1188,6 +1188,20 @@
    * Align with Backlog:
      * ✅ Close “Day-slicing correctness” and “planner→DB→executor contract” items added under Backlog once this Rev is completed.
 
+### Implementation
+
+* **Completed**:
+  * Step 1: Diagnosed that the Dashboard “today” chart was starting at 12:15 because `buildLiveData` only used whatever slots were present for the day, with no padding, and today’s `schedule.json` really began at 12:15.
+  * Step 2 (Dashboard): Updated `buildLiveData` in `frontend/src/components/ChartCard.tsx` so that for `range="day"` it always builds a full 24‑hour local grid (00:00–24:00) at the inferred slot resolution (default 15 minutes), padding missing buckets with `null` while keeping tooltips and the NOW marker correct.
+* **In Progress**:
+  * Step 2 (Planning): Extend the same “fixed window” behavior to the 48‑hour Planning chart so its X‑axis matches the Planning timeline window semantics.
+* **Blocked**:
+  * None at this stage.
+* **Technical Decisions**:
+  * Day views are now built from a generated time grid rather than directly from schedule slot timestamps, to guarantee consistent axes even when the schedule starts late.
+* **Files Modified**:
+  * `frontend/src/components/ChartCard.tsx` (24‑hour padding in `buildLiveData` for `range="day"`).
+
 ---
 
 ## Backlog
@@ -1199,6 +1213,7 @@
 ### Schedule & Executor Alignment
 - [ ] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
 - [ ] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
+- [ ] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
 
 ### Planning Timeline
 - [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)

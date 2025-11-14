@@ -503,11 +503,136 @@ function buildLiveData(
         range === 'day'
             ? filterSlotsByDay(slots, day)
             : slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
-    if(!filtered.length) {
-        // For tomorrow without schedule data, create minimal structure with message
-        console.log(`[buildLiveData] No ${day} slots found, creating fallback`)
+
+    // Special handling for full-day views: always show 00:00–24:00,
+    // padding with nulls where the schedule has no data.
+    if (range === 'day') {
+        if (!filtered.length) {
+            // No slots at all for this day → show explicit "no data" state
+            console.log(`[buildLiveData] No ${day} slots found, creating fallback`)
+            return {
+                labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`),
+                price: Array(24).fill(null),
+                pv: Array(24).fill(null),
+                load: Array(24).fill(null),
+                charge: Array(24).fill(null),
+                discharge: Array(24).fill(null),
+                export: Array(24).fill(null),
+                water: Array(24).fill(null),
+                socTarget: Array(24).fill(null),
+                socProjected: Array(24).fill(null),
+                hasNoData: true,
+                day,
+            }
+        }
+
+        const ordered = [...filtered].sort((a, b) => {
+            const aTime = new Date(a.start_time).getTime()
+            const bTime = new Date(b.start_time).getTime()
+            return aTime - bTime
+        })
+
+        // Infer resolution from consecutive slots; default to 15 minutes.
+        let resolutionMinutes = 15
+        if (ordered.length >= 2) {
+            const dt0 = new Date(ordered[0].start_time).getTime()
+            const dt1 = new Date(ordered[1].start_time).getTime()
+            const deltaMinutes = Math.max(1, Math.round((dt1 - dt0) / 60000))
+            if (deltaMinutes === 15 || deltaMinutes === 30 || deltaMinutes === 60) {
+                resolutionMinutes = deltaMinutes
+            }
+        }
+
+        // Build a full-day time grid from 00:00–24:00 local time
+        const anchor = new Date()
+        if (day === 'today') {
+            anchor.setHours(0, 0, 0, 0)
+        } else {
+            anchor.setDate(anchor.getDate() + 1)
+            anchor.setHours(0, 0, 0, 0)
+        }
+
+        const stepMs = resolutionMinutes * 60 * 1000
+        const steps = Math.round((24 * 60) / resolutionMinutes)
+
+        // Index slots by exact start timestamp for quick lookup
+        const slotByTime = new Map<number, ScheduleSlot>()
+        for (const s of ordered) {
+            const t = new Date(s.start_time).getTime()
+            slotByTime.set(t, s)
+        }
+
+        const labels: string[] = []
+        const price: (number | null)[] = []
+        const pv: (number | null)[] = []
+        const load: (number | null)[] = []
+        const charge: (number | null)[] = []
+        const discharge: (number | null)[] = []
+        const exp: (number | null)[] = []
+        const water: (number | null)[] = []
+        const socTarget: (number | null)[] = []
+        const socProjected: (number | null)[] = []
+
+        let nowIndex: number | null = null
+        const now = new Date()
+
+        for (let i = 0; i < steps; i++) {
+            const bucketStart = new Date(anchor.getTime() + i * stepMs)
+            const bucketEnd = new Date(bucketStart.getTime() + stepMs)
+            const slot = slotByTime.get(bucketStart.getTime())
+
+            labels.push(formatHour(bucketStart.toISOString()))
+
+            if (slot) {
+                price.push(slot.import_price_sek_kwh ?? null)
+                pv.push(slot.pv_forecast_kwh ?? null)
+                load.push(slot.load_forecast_kwh ?? null)
+                charge.push(slot.battery_charge_kw ?? slot.charge_kw ?? null)
+                discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+                exp.push(slot.export_kwh ?? null)
+                water.push(slot.water_heating_kw ?? null)
+                socTarget.push(slot.soc_target_percent ?? null)
+                socProjected.push(slot.projected_soc_percent ?? null)
+            } else {
+                price.push(null)
+                pv.push(null)
+                load.push(null)
+                charge.push(null)
+                discharge.push(null)
+                exp.push(null)
+                water.push(null)
+                socTarget.push(null)
+                socProjected.push(null)
+            }
+
+            if (day === 'today' && now >= bucketStart && now < bucketEnd) {
+                nowIndex = i
+            }
+        }
+
+        return createChartData(
+            {
+                labels,
+                price,
+                pv,
+                load,
+                charge,
+                discharge,
+                export: exp,
+                water,
+                socTarget,
+                socProjected,
+                nowIndex,
+            },
+            themeColors,
+        )
+    }
+
+    // 48h / multi-day range: keep existing behavior (no padding)
+    if (!filtered.length) {
+        console.log(`[buildLiveData] No slots found for range=${range}, creating fallback`)
         return {
-            labels: Array.from({length: 24}, (_, i) => `${String(i).padStart(2, '0')}:00`),
+            labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`),
             price: Array(24).fill(null),
             pv: Array(24).fill(null),
             load: Array(24).fill(null),
@@ -518,26 +643,27 @@ function buildLiveData(
             socTarget: Array(24).fill(null),
             socProjected: Array(24).fill(null),
             hasNoData: true,
-            day
+            day,
         }
     }
+
     const ordered = [...filtered].sort((a, b) => {
         const aTime = new Date(a.start_time).getTime()
         const bTime = new Date(b.start_time).getTime()
         return aTime - bTime
     })
 
-    const price = ordered.map(slot => slot.import_price_sek_kwh ?? null)
-    const pv = ordered.map(slot => slot.pv_forecast_kwh ?? null)
-    const load = ordered.map(slot => slot.load_forecast_kwh ?? null)
-    const charge = ordered.map(slot => slot.battery_charge_kw ?? slot.charge_kw ?? null)
-    const discharge = ordered.map(slot => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-    const exp = ordered.map(slot => slot.export_kwh ?? null)
-    const water = ordered.map(slot => slot.water_heating_kw ?? null)
-    const socTarget = ordered.map(slot => slot.soc_target_percent ?? null)
-    const socProjected = ordered.map(slot => slot.projected_soc_percent ?? null)
+    const price = ordered.map((slot) => slot.import_price_sek_kwh ?? null)
+    const pv = ordered.map((slot) => slot.pv_forecast_kwh ?? null)
+    const load = ordered.map((slot) => slot.load_forecast_kwh ?? null)
+    const charge = ordered.map((slot) => slot.battery_charge_kw ?? slot.charge_kw ?? null)
+    const discharge = ordered.map((slot) => slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+    const exp = ordered.map((slot) => slot.export_kwh ?? null)
+    const water = ordered.map((slot) => slot.water_heating_kw ?? null)
+    const socTarget = ordered.map((slot) => slot.soc_target_percent ?? null)
+    const socProjected = ordered.map((slot) => slot.projected_soc_percent ?? null)
 
-    const labels = ordered.map(slot => formatHour(slot.start_time))
+    const labels = ordered.map((slot) => formatHour(slot.start_time))
 
     let nowIndex: number | null = null
     if (day === 'today') {
@@ -552,17 +678,20 @@ function buildLiveData(
         }
     }
 
-    return createChartData({
-        labels,
-        price,
-        pv,
-        load,
-        charge,
-        discharge,
-        export: exp,
-        water,
-        socTarget,
-        socProjected,
-        nowIndex,
-    }, themeColors)
+    return createChartData(
+        {
+            labels,
+            price,
+            pv,
+            load,
+            charge,
+            discharge,
+            export: exp,
+            water,
+            socTarget,
+            socProjected,
+            nowIndex,
+        },
+        themeColors,
+    )
 }
