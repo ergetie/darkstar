@@ -1352,8 +1352,8 @@
      * Fetch from the merged endpoint instead of bare `/api/schedule` (Planning can remain plan-only for now).
      * Adapt `buildLiveData` (or a dedicated variant) to:
        * Fill the full 24h grid from the merged buckets.
-       * Populate new “SoC Actual (%)” dataset from `actual_soc` where available.
-       * Choose executed vs planned values for other series according to `is_executed`.
+       * Populate new “SoC Actual (%)” dataset from `soc_actual_percent` (derived from `actual_soc`) where available.
+       * Choose executed vs planned values for other series according to `is_executed` (prefer `actual_*` when present, otherwise fall back to planned schedule fields).
 
 4. **Visual Differentiation & UX**
    * Choose appropriate styling for the Actual SoC line (e.g. distinct color, possibly slightly thicker line).

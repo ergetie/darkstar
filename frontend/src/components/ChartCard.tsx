@@ -149,6 +149,7 @@ type ChartValues = {
     water?: (number | null)[]
     socTarget?: (number | null)[]
     socProjected?: (number | null)[]
+    socActual?: (number | null)[]
     hasNoData?: boolean
     day?: DaySel
     nowIndex?: number | null
@@ -245,6 +246,15 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             pointRadius: 0,
             hidden: true,
         },
+        {
+            type: 'line',
+            label: 'SoC Actual (%)',
+            data: values.socActual ?? values.labels.map(() => null),
+            borderColor: getColor(15, '#80CBC4'), // palette 15 or fallback teal
+            yAxisID: 'y3',
+            pointRadius: 0,
+            hidden: true,
+        },
     ],
 }    
     
@@ -287,6 +297,7 @@ type ChartCardProps = {
     range?: ChartRange
     refreshToken?: number
     showDayToggle?: boolean
+    useHistoryForToday?: boolean
 }
 
 export default function ChartCard({
@@ -294,6 +305,7 @@ export default function ChartCard({
     range = 'day',
     refreshToken = 0,
     showDayToggle = true,
+    useHistoryForToday = false,
 }: ChartCardProps){
     const [currentDay, setCurrentDay] = useState<DaySel>(day)
     const ref = useRef<HTMLCanvasElement | null>(null)
@@ -310,6 +322,7 @@ export default function ChartCard({
         water: false,
         socTarget: false,
         socProjected: false,
+        socActual: false,
     })
 
     // Load overlay defaults from config
@@ -329,6 +342,7 @@ export default function ChartCard({
                         water: defaultOverlays.includes('water'),
                         socTarget: defaultOverlays.includes('soctarget') || defaultOverlays.includes('soc_target'),
                         socProjected: defaultOverlays.includes('socprojected') || defaultOverlays.includes('soc_projected'),
+                        socActual: defaultOverlays.includes('socactual') || defaultOverlays.includes('soc_actual'),
                     }
                     setOverlays(parsedOverlays)
                 }
@@ -390,7 +404,12 @@ export default function ChartCard({
     useEffect(() => {
         const chartInstance = chartRef.current
         if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
-        Api.schedule()
+        const loader =
+            useHistoryForToday && range === 'day' && currentDay === 'today'
+                ? Api.scheduleTodayWithHistory().then(res => ({ schedule: res.slots }))
+                : Api.schedule()
+
+        loader
             .then(data => {
                 if (!isChartUsable(chartRef.current)) return
                 const liveData = buildLiveData(data.schedule ?? [], currentDay, range, themeColors)
@@ -406,6 +425,7 @@ export default function ChartCard({
                 if (ds[6]) ds[6].hidden = !overlays.water
                 if (ds[7]) ds[7].hidden = !overlays.socTarget
                 if (ds[8]) ds[8].hidden = !overlays.socProjected
+                if (ds[9]) ds[9].hidden = !overlays.socActual
 
                 // Compute CSS overlay position for "NOW" (0–1 across labels)
                 const anyData = liveData as any
@@ -496,6 +516,7 @@ export default function ChartCard({
             ['Water', 'water'],
             ['SoC Target', 'socTarget'],
             ['SoC Projected', 'socProjected'],
+            ['SoC Actual', 'socActual'],
         ] as const).map(([label, key]) => (
             <button
                 key={key}
@@ -589,6 +610,7 @@ function buildLiveData(
         const water: (number | null)[] = []
         const socTarget: (number | null)[] = []
         const socProjected: (number | null)[] = []
+        const socActual: (number | null)[] = []
 
         let nowIndex: number | null = null
         const now = new Date()
@@ -601,15 +623,36 @@ function buildLiveData(
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
+                const isExec = (slot as any).is_executed === true
+                const anySlot = slot as any
+
                 price.push(slot.import_price_sek_kwh ?? null)
-                pv.push(slot.pv_forecast_kwh ?? null)
-                load.push(slot.load_forecast_kwh ?? null)
-                charge.push(slot.battery_charge_kw ?? slot.charge_kw ?? null)
+                pv.push(
+                    isExec && anySlot.actual_pv_kwh != null
+                        ? anySlot.actual_pv_kwh
+                        : slot.pv_forecast_kwh ?? null,
+                )
+                load.push(
+                    isExec && anySlot.actual_load_kwh != null
+                        ? anySlot.actual_load_kwh
+                        : slot.load_forecast_kwh ?? null,
+                )
+                // For charge/export, prefer actual_* when executed; discharge/water remain planned.
+                charge.push(
+                    isExec && anySlot.actual_charge_kw != null
+                        ? anySlot.actual_charge_kw
+                        : slot.battery_charge_kw ?? slot.charge_kw ?? null,
+                )
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-                exp.push(slot.export_kwh ?? null)
+                exp.push(
+                    isExec && anySlot.actual_export_kw != null
+                        ? anySlot.actual_export_kw
+                        : slot.export_kwh ?? null,
+                )
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
+                socActual.push(anySlot.soc_actual_percent != null ? anySlot.soc_actual_percent : null)
             } else {
                 price.push(null)
                 pv.push(null)
@@ -620,6 +663,7 @@ function buildLiveData(
                 water.push(null)
                 socTarget.push(null)
                 socProjected.push(null)
+                socActual.push(null)
             }
 
             if (day === 'today' && now >= bucketStart && now < bucketEnd) {
@@ -639,6 +683,7 @@ function buildLiveData(
                 water,
                 socTarget,
                 socProjected,
+                socActual,
                 nowIndex,
             },
             themeColors,
@@ -780,6 +825,7 @@ function buildLiveData(
     const water = ordered.map((slot) => slot.water_heating_kw ?? null)
     const socTarget = ordered.map((slot) => slot.soc_target_percent ?? null)
     const socProjected = ordered.map((slot) => slot.projected_soc_percent ?? null)
+    const socActual = ordered.map((slot) => (slot as any).soc_actual_percent ?? null)
 
     const labels = ordered.map((slot) => formatHour(slot.start_time))
 
@@ -808,6 +854,7 @@ function buildLiveData(
             water,
             socTarget,
             socProjected,
+            socActual,
             nowIndex,
         },
         themeColors,

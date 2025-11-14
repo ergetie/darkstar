@@ -224,7 +224,7 @@ export default function Dashboard(){
         <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <ChartCard />
+        <ChartCard useHistoryForToday />
         </motion.div>
         <motion.div className="space-y-4" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <Card className="p-4 md:p-5">

@@ -15,6 +15,10 @@ export type HorizonResponse = {
 }
 
 export type ScheduleResponse = { schedule: import('./types').ScheduleSlot[] }
+export type ScheduleTodayWithHistoryResponse = {
+  slots: import('./types').ScheduleSlot[]
+  timezone?: string
+}
 
 export type ConfigResponse = {
   system?: { battery?: { capacity_kwh?: number } }
@@ -163,6 +167,7 @@ async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: a
 
 export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
+  scheduleTodayWithHistory: () => getJSON<ScheduleTodayWithHistoryResponse>('/api/schedule/today_with_history'),
   status: () => getJSON<StatusResponse>('/api/status'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
   config: () => getJSON<ConfigResponse>('/api/config'),
