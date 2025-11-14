@@ -101,23 +101,33 @@ export default function Planning(){
     const [loading, setLoading] = useState(false)
     const [applying, setApplying] = useState(false)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
+    const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
+    const [chartSlots, setChartSlots] = useState<ScheduleSlot[] | null>(null)
 
     useEffect(() => {
         let cancelled = false
         setLoading(true)
         setError(null)
-        Api.schedule()
-            .then(res => {
+        Promise.allSettled([Api.schedule(), Api.scheduleTodayWithHistory()])
+            .then(([schedRes, histRes]) => {
                 if (cancelled) return
-                const sched = res.schedule ?? []
-                setSchedule(sched)
-                setBlocks(classifyBlocks(sched))
-                setSelectedBlockId(null)
-            })
-            .catch(err => {
-                if (cancelled) return
-                console.error('Failed to load schedule for Planning:', err)
-                setError('Failed to load schedule')
+
+                if (schedRes.status === 'fulfilled') {
+                    const sched = schedRes.value.schedule ?? []
+                    setSchedule(sched)
+                    setBlocks(classifyBlocks(sched))
+                    setSelectedBlockId(null)
+                } else {
+                    console.error('Failed to load schedule for Planning:', schedRes.reason)
+                    setError('Failed to load schedule')
+                }
+
+                if (histRes.status === 'fulfilled') {
+                    const histSlots = histRes.value.slots ?? []
+                    setHistorySlots(histSlots)
+                } else {
+                    console.error('Failed to load execution history for Planning:', histRes.reason)
+                }
             })
             .finally(() => {
                 if (cancelled) return
@@ -126,6 +136,23 @@ export default function Planning(){
 
         return () => { cancelled = true }
     }, [])
+
+    // Build merged chart slots when schedule or history changes
+    useEffect(() => {
+        if (!schedule) {
+            setChartSlots(null)
+            return
+        }
+        const todayAndTomorrow = schedule.filter(
+            slot => isToday(slot.start_time) || isTomorrow(slot.start_time),
+        )
+        if (historySlots && historySlots.length) {
+            const tomorrowSlots = todayAndTomorrow.filter(slot => isTomorrow(slot.start_time))
+            setChartSlots([...historySlots, ...tomorrowSlots])
+        } else {
+            setChartSlots(todayAndTomorrow)
+        }
+    }, [schedule, historySlots])
 
     const planningBlocks = useMemo(
         () => blocks,
@@ -266,7 +293,13 @@ export default function Planning(){
         </div>
         </Card>
 
-        <ChartCard day="today" range="48h" showDayToggle={false} refreshToken={chartRefreshToken} />
+        <ChartCard
+            day="today"
+            range="48h"
+            showDayToggle={false}
+            refreshToken={chartRefreshToken}
+            slotsOverride={chartSlots ?? undefined}
+        />
         </main>
     )
 }

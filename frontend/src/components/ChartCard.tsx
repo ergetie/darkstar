@@ -311,6 +311,7 @@ type ChartCardProps = {
     refreshToken?: number
     showDayToggle?: boolean
     useHistoryForToday?: boolean
+    slotsOverride?: ScheduleSlot[]
 }
 
 export default function ChartCard({
@@ -319,6 +320,7 @@ export default function ChartCard({
     refreshToken = 0,
     showDayToggle = true,
     useHistoryForToday = false,
+    slotsOverride,
 }: ChartCardProps){
     const [currentDay, setCurrentDay] = useState<DaySel>(day)
     const ref = useRef<HTMLCanvasElement | null>(null)
@@ -417,15 +419,9 @@ export default function ChartCard({
     useEffect(() => {
         const chartInstance = chartRef.current
         if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
-        const loader =
-            useHistoryForToday && range === 'day' && currentDay === 'today'
-                ? Api.scheduleTodayWithHistory().then(res => ({ schedule: res.slots }))
-                : Api.schedule()
-
-        loader
-            .then(data => {
+        const applyData = (slots: ScheduleSlot[]) => {
                 if (!isChartUsable(chartRef.current)) return
-                const liveData = buildLiveData(data.schedule ?? [], currentDay, range, themeColors)
+                const liveData = buildLiveData(slots, currentDay, range, themeColors)
                 if (!liveData) return
                 setHasNoDataMessage(liveData.hasNoData ?? false)
                 const ds = liveData.datasets
@@ -463,6 +459,21 @@ export default function ChartCard({
                 } catch (err) {
                     console.error('Chart update failed, skipping frame:', err)
                 }
+        }
+
+        if (slotsOverride && slotsOverride.length) {
+            applyData(slotsOverride)
+            return
+        }
+
+        const loader =
+            useHistoryForToday && range === 'day' && currentDay === 'today'
+                ? Api.scheduleTodayWithHistory().then(res => ({ schedule: res.slots }))
+                : Api.schedule()
+
+        loader
+            .then(data => {
+                applyData(data.schedule ?? [])
             })
             .catch(err => {
                 console.error('Failed to load schedule:', err)
@@ -470,7 +481,7 @@ export default function ChartCard({
                 setHasNoDataMessage(true)
                 setNowPosition(null)
             })
-    }, [currentDay, overlays, themeColors, range, refreshToken])
+    }, [currentDay, overlays, themeColors, range, refreshToken, slotsOverride, useHistoryForToday])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     
