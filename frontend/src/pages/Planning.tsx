@@ -38,7 +38,7 @@ const planningLanes: PlanningLane[] = [
     { id: 'hold',    label: 'Hold',    color: '#FFD966' },
 ]
 
-function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
+function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null): PlanningBlock[] {
     const filtered = slots.filter(
         (slot) => isToday(slot.start_time) || isTomorrow(slot.start_time),
     )
@@ -68,11 +68,40 @@ function classifyBlocks(slots: ScheduleSlot[]): PlanningBlock[] {
         const water = slot.water_heating_kw ?? 0
         const exp = slot.export_kwh ?? 0
 
+        // Identify slots where the device cannot meaningfully act:
+        // no controllable actions and SoC pinned to configured bounds.
+        let isPinnedZeroCapacity = false
+        if (caps) {
+            const soc =
+                (typeof slot.projected_soc_percent === 'number'
+                    ? slot.projected_soc_percent
+                    : typeof slot.soc_target_percent === 'number'
+                      ? slot.soc_target_percent
+                      : null)
+            const noActions =
+                (charge || 0) <= 0 &&
+                (discharge || 0) <= 0 &&
+                (water || 0) <= 0 &&
+                (exp || 0) <= 0
+            if (
+                noActions &&
+                typeof soc === 'number' &&
+                (soc <= caps.minSocPercent + 0.01 ||
+                    soc >= caps.maxSocPercent - 0.01)
+            ) {
+                isPinnedZeroCapacity = true
+            }
+        }
+
         // Battery lane represents explicit charging actions only
         if (charge > 0) laneCandidates.push('battery')
         if (water > 0) laneCandidates.push('water')
         if (exp > 0) laneCandidates.push('export')
-        if (!laneCandidates.length) laneCandidates.push('hold')
+        if (!laneCandidates.length) {
+            // Only treat as a "hold" block if the device is actually free to act;
+            // if SoC is pinned at bounds and there are no actions, leave a gap.
+            if (!isPinnedZeroCapacity) laneCandidates.push('hold')
+        }
 
         for (const lane of laneCandidates) {
             const last = lastByLane[lane]
@@ -123,7 +152,7 @@ export default function Planning(){
                 if (schedRes.status === 'fulfilled') {
                     const sched = schedRes.value.schedule ?? []
                     setSchedule(sched)
-                    setBlocks(classifyBlocks(sched))
+                    setBlocks(classifyBlocks(sched, constraints))
                     setSelectedBlockId(null)
                 } else {
                     console.error('Failed to load schedule for Planning:', schedRes.reason)
@@ -177,7 +206,7 @@ export default function Planning(){
         } else {
             setChartSlots(todayAndTomorrow)
         }
-    }, [schedule, historySlots])
+    }, [schedule, historySlots, constraints])
 
     const planningBlocks = useMemo(
         () => blocks,
@@ -305,7 +334,7 @@ export default function Planning(){
                 }
                 setError(null)
                 setSchedule(sched)
-                setBlocks(classifyBlocks(sched))
+                setBlocks(classifyBlocks(sched, constraints))
                 setSelectedBlockId(null)
                 setChartRefreshToken(token => token + 1)
             })
