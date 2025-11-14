@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import Kpi from '../components/Kpi'
 import { Api, type LearningStatusResponse, type ConfigResponse } from '../lib/api'
+import ChartCard from '../components/ChartCard'
 
 function formatBytes(bytes?: number): string {
     if (!bytes || bytes <= 0) return '—'
@@ -257,8 +258,12 @@ export default function Learning() {
 
                 <Card className="p-5 lg:col-span-1">
                     <div className="text-sm text-muted mb-3">History</div>
-                    <div className="flex h-40 items-center justify-center rounded-xl2 border border-dashed border-line/60 bg-surface2/40 text-[13px] text-muted">
-                        Mini learning chart placeholder (recent runs / quality trend)
+                    <div className="text-[13px] text-muted/80 mb-2">
+                        Recent schedule impact from learning (SoC, charge, export) over the
+                        last 24 hours. This is a compact, read-only view.
+                    </div>
+                    <div className="h-40">
+                        <ChartCard day="today" range="day" showDayToggle={false} />
                     </div>
                 </Card>
             </div>
