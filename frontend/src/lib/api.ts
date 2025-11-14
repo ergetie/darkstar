@@ -24,7 +24,8 @@ export type ConfigResponse = {
   system?: { battery?: { capacity_kwh?: number } }
   [key: string]: any
 }
-export type ConfigSaveResponse = { status?: string }
+export type ConfigSaveError = { field?: string; message: string }
+export type ConfigSaveResponse = { status?: string; errors?: ConfigSaveError[] }
 
 export type HaAverageResponse = {
   average_load_kw?: number

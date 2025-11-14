@@ -802,14 +802,120 @@ def get_initial_state():
         return jsonify({"error": str(e)}), 500
 
 
+def _validate_config(cfg: dict) -> list[dict]:
+    """Return a list of field error dicts: {'field': 'path', 'message': '...'}."""
+    errors: list[dict] = []
+
+    def add(field: str, message: str) -> None:
+        errors.append({"field": field, "message": message})
+
+    # Battery constraints
+    battery = cfg.get("battery", {}) or {}
+    cap = battery.get("capacity_kwh")
+    if cap is not None:
+        try:
+            if float(cap) <= 0:
+                add("battery.capacity_kwh", "Battery capacity must be greater than 0.")
+        except (TypeError, ValueError):
+            add("battery.capacity_kwh", "Battery capacity must be a number.")
+
+    min_soc = battery.get("min_soc_percent")
+    max_soc = battery.get("max_soc_percent")
+    try:
+        min_soc_val = float(min_soc) if min_soc is not None else None
+        max_soc_val = float(max_soc) if max_soc is not None else None
+    except (TypeError, ValueError):
+        min_soc_val = None
+        max_soc_val = None
+
+    if min_soc_val is not None:
+        if not 0 <= min_soc_val <= 100:
+            add("battery.min_soc_percent", "Min SoC must be between 0 and 100.")
+    if max_soc_val is not None:
+        if not 0 <= max_soc_val <= 100:
+            add("battery.max_soc_percent", "Max SoC must be between 0 and 100.")
+    if min_soc_val is not None and max_soc_val is not None:
+        if min_soc_val >= max_soc_val:
+            add(
+                "battery.min_soc_percent",
+                "Min SoC must be strictly less than Max SoC.",
+            )
+
+    for key, field_name in [
+        ("max_charge_power_kw", "battery.max_charge_power_kw"),
+        ("max_discharge_power_kw", "battery.max_discharge_power_kw"),
+    ]:
+        v = battery.get(key)
+        if v is not None:
+            try:
+                if float(v) < 0:
+                    add(field_name, "Power limit must be zero or positive.")
+            except (TypeError, ValueError):
+                add(field_name, "Power limit must be a number.")
+
+    # Nordpool resolution
+    nordpool = cfg.get("nordpool", {}) or {}
+    res = nordpool.get("resolution_minutes")
+    if res is not None:
+        try:
+            res_val = int(res)
+            if res_val not in (15, 30, 60):
+                add(
+                    "nordpool.resolution_minutes",
+                    "Resolution must be one of 15, 30, or 60 minutes.",
+                )
+        except (TypeError, ValueError):
+            add("nordpool.resolution_minutes", "Resolution must be an integer.")
+
+    # Timezone (basic check: non-empty string)
+    tz_name = cfg.get("timezone")
+    if tz_name is None or not str(tz_name).strip():
+        add("timezone", "Timezone is required.")
+
+    # S-index
+    s_index = cfg.get("s_index", {}) or {}
+    base_factor = s_index.get("base_factor", s_index.get("static_factor"))
+    max_factor = s_index.get("max_factor")
+    try:
+        base_val = float(base_factor) if base_factor is not None else None
+        max_val = float(max_factor) if max_factor is not None else None
+    except (TypeError, ValueError):
+        base_val = None
+        max_val = None
+
+    if base_val is not None and base_val <= 0:
+        add("s_index.base_factor", "Base factor must be greater than 0.")
+    if max_val is not None and max_val <= 0:
+        add("s_index.max_factor", "Max factor must be greater than 0.")
+    if base_val is not None and max_val is not None and max_val < base_val:
+        add("s_index.max_factor", "Max factor must be >= base factor.")
+
+    # Learning thresholds
+    learning_cfg = cfg.get("learning", {}) or {}
+    if "min_sample_threshold" in learning_cfg:
+        try:
+            if int(learning_cfg["min_sample_threshold"]) < 0:
+                add("learning.min_sample_threshold", "Value must be zero or positive.")
+        except (TypeError, ValueError):
+            add("learning.min_sample_threshold", "Value must be an integer.")
+    if "min_improvement_threshold" in learning_cfg:
+        try:
+            if float(learning_cfg["min_improvement_threshold"]) < 0:
+                add("learning.min_improvement_threshold", "Value must be zero or positive.")
+        except (TypeError, ValueError):
+            add("learning.min_improvement_threshold", "Value must be a number.")
+
+    return errors
+
+
 @app.route("/api/config/save", methods=["POST"])
 def save_config():
     # Load current config first
     with open("config.yaml", "r") as f:
-        current_config = yaml.safe_load(f)
+        current_config = yaml.safe_load(f) or {}
 
     # Get the new config data from the request
-    new_config = request.get_json()
+    new_config = request.get_json() or {}
 
     # Deep merge the new config into the current config
     def deep_merge(current, new):
@@ -831,6 +937,11 @@ def save_config():
         merged_config["nordpool"]["price_area"] = "SE4"
     if "currency" not in merged_config["nordpool"]:
         merged_config["nordpool"]["currency"] = "SEK"
+
+    # Validate merged config before writing
+    errors = _validate_config(merged_config)
+    if errors:
+        return jsonify({"status": "error", "errors": errors})
 
     with open("config.yaml", "w") as f:
         yaml.dump(merged_config, f, default_flow_style=False)
