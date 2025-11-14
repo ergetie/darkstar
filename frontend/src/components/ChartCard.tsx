@@ -100,7 +100,7 @@ const chartOptions: ChartConfiguration['options'] = {
         y1: {
             position: 'left',
             min: 0,
-            max: 9,
+            max: 1.5,
             title: {
                 display: false,
                 text: 'kW',
