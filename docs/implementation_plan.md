@@ -1388,6 +1388,83 @@
 
 ---
 
+## Rev 49 — Planning Device Caps & SoC Enforcement *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Make the Planning tab respect device limits and SoC constraints so manual plans remain physically realistic and consistent with the planner and executor.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Ensure manual Planning blocks cannot exceed configured charge/discharge power or violate SoC min/max limits.
+  * Keep SoC Target behaviour in Planning consistent with the planner’s internal rules and the executor’s expectations.
+  * Surface any constraint violations clearly to the user instead of silently allowing impossible plans.
+
+* **Scope**:
+  * Constraints:
+    * Use existing config values for:
+      * Battery capacity and SoC min/max (e.g. `system.battery.*`).
+      * Max charge/discharge power (`system.battery.max_charge_kw`, `max_discharge_kw`, or equivalent).
+      * Grid limits if relevant (`system.grid.max_power_kw`).
+    * Use existing simulator/planner logic (`/api/simulate`) as the primary source of truth for SoC evolution and power limits.
+  * Planning tab behaviour:
+    * When blocks are created/edited/applied:
+      * Clamp charge/export/water blocks so they never request more than the configured device limits per slot.
+      * Ensure combined actions across lanes do not exceed grid or inverter limits when those are present.
+    * After “Apply manual changes”:
+      * Use `/api/simulate` to compute SoC trajectory and reject or adjust plans that would push SoC below min or above max over the 48h horizon.
+      * Reflect SoC constraints in the Planning chart (SoC Target vs Actual vs bounds).
+
+* **Dependencies**:
+  * Rev 42 (Planning timeline CRUD + simulate/apply semantics).
+  * Rev 46 (Schedule & Dashboard correctness, SoC plotting).
+  * Rev 48 (Dashboard/Planning history integration and SoC Actual line).
+
+* **Acceptance Criteria**:
+  * Manual plans created via the Planning tab never exceed configured device charge/discharge power per slot.
+  * Simulated SoC over the manual plan horizon never violates configured min/max SoC bounds; if it would, the UI either:
+    * Rejects the plan with a clear error, or
+    * Clearly indicates which slots are invalid and how they were clamped.
+  * SoC Target and SoC Actual lines in both Dashboard and Planning remain consistent with the constrained manual plan after “Apply manual changes”.
+  * The executor still reads a physically valid `current_schedule` from DB (no new SoC/power violations introduced by manual planning).
+
+### Implementation Steps (Planned)
+
+1. **Constraint Inventory & Mapping**
+   * Enumerate relevant config keys in `config.yaml` for battery capacity, SoC bounds, and charge/discharge/grid limits.
+   * Confirm how the core planner enforces these internally and how `/api/simulate` represents violated or clamped actions today.
+
+2. **Simulate-Based SoC Validation Path**
+   * Define a minimal, repeatable “validate manual plan” flow using `/api/simulate`:
+     * Take the manual blocks payload from Planning.
+     * Call `/api/simulate` to obtain a simulated schedule with SoC trajectory and per-slot power values.
+     * Inspect the returned schedule for SoC or power violations relative to config.
+   * Decide on the UX: reject the plan entirely on violation vs. allow with warnings vs. automatic clamping.
+
+3. **Planning UI Caps Enforcement**
+   * Apply hard caps on block-level actions in the Planning UI:
+     * When blocks are created or resized, clamp their implied power/energy to the configured max charge/discharge/export/water limits.
+     * Ensure grid/power limits are respected when combining multiple lanes in the same slot (if applicable).
+   * Provide unobtrusive hints in the UI when a user’s edit is being clamped (e.g. “Capped at max charge power”).
+
+4. **Simulate/Apply Integration & Feedback**
+   * After “Apply manual changes”, use the simulate-based validation path:
+     * If the resulting simulated schedule honors all constraints, proceed as today (save + refresh charts).
+     * If violations occur, surface a clear error or warning in the Planning tab (e.g. listing problematic slots or providing a summary).
+   * Optionally update the Planning chart to indicate clamped segments (e.g. slightly different bar color for capped slots).
+
+5. **Verification & Backlog Alignment**
+   * Manual tests:
+     * Attempt to create blocks that exceed device power limits and confirm they are clamped.
+     * Attempt to create plans that would over-discharge or over-charge the battery and confirm SoC constraints are enforced.
+     * Confirm executor continues to run plans without producing physically impossible actions.
+   * Align with Backlog:
+     * ✅ Close “Device caps and SoC target enforcement” under Planning Timeline once the above behaviours are satisfied.
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
