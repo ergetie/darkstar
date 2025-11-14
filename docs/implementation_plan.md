@@ -877,6 +877,8 @@
 - [x] Theme picker using `/api/themes` and `/api/theme`
 - [x] Form validation and persistence with `/api/config/save`
 - [x] Config reset functionality with `/api/config/reset`
+- [ ] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
+- [ ] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
 
 ### Learning & Debug
 - [ ] Learning engine UI (status, metrics, loops, changes from `/api/learning/*`)
