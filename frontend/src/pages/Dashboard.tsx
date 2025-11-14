@@ -106,6 +106,11 @@ export default function Dashboard(){
                     enabled: arbitrage.enable_export,
                     mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive'
                 })
+
+                // Initialize auto-refresh from dashboard config if present
+                if (typeof data.dashboard?.auto_refresh_enabled === 'boolean') {
+                    setAutoRefresh(data.dashboard.auto_refresh_enabled)
+                }
             }
 
             // Process HA average data
