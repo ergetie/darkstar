@@ -59,6 +59,30 @@ export type LearningStatusResponse = {
   [key: string]: any
 }
 
+export type LearningHistoryEntry = {
+  id: number
+  started_at: string
+  status: string
+  loops_run?: number
+  changes_proposed?: number
+  changes_applied?: number
+}
+
+export type LearningHistoryResponse = {
+  runs: LearningHistoryEntry[]
+}
+
+export type DebugResponse = {
+  s_index?: {
+    mode?: string
+    base_factor?: number
+    factor?: number
+    max_factor?: number
+    [key: string]: any
+  }
+  [key: string]: any
+}
+
 export type ThemeInfo = {
   name: string
   background: string
@@ -110,12 +134,14 @@ export const Api = {
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
+  learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
   theme: () => getJSON<ThemeResponse>('/api/themes'),
   runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
   resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
   simulate: (payload: any) => getJSON<SimulateResponse>('/api/simulate', 'POST', payload),
+  debug: () => getJSON<DebugResponse>('/api/debug'),
 }
 
 export const Sel = {

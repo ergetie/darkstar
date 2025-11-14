@@ -877,6 +877,7 @@
     * `/api/learning/status` (primary metrics and health).
     * `/api/config` (current learning-related config and limits).
     * Existing debug endpoints if available (e.g. recent config changes or learning events) for a small history/mini-chart.
+    * New `/api/learning/history` endpoint exposing recent learning runs from the learning engine DB for mini-chart visualisation.
   * UI sections:
     * Overview (enabled flag, last run/observation, sync interval, quick health badges).
     * Metrics (KPI tiles for runs, days with data, DB size, slot coverage, etc.).
@@ -963,9 +964,9 @@
    * Show a compact legend and tooltips; no complex interactions needed for this Rev.
 
    **Status**:
-   * Implemented as a compact `ChartCard` instance embedded in the Learning History card:
-     * Uses `day="today"` and `range="day"` with `showDayToggle={false}` to provide a small 24h schedule-impact view.
-     * Reuses existing theming and tooltip behavior from the main Dashboard chart.
+   * Implemented as a compact bar chart embedded in the Learning History card:
+     * Backs onto a new `/api/learning/history` endpoint that summarizes recent `learning_runs` from the learning DB.
+     * Shows “changes applied per run” over time to visualise how active the learning engine has been.
 
 7. **Error & Health Indicators** ✅
    * In all sections, handle partial/missing data gracefully:
@@ -995,12 +996,13 @@
   * Learning tab layout scaffolded in `frontend/src/pages/Learning.tsx` with Overview, Metrics, Parameter Impact, and History sections.
   * Learning status and config wiring implemented in the Learning tab using `Api.learningStatus()` and `Api.config()`, with loading/error handling.
   * Overview and Metrics sections now render real data (enabled badge, last run/observation timestamps, sync interval, SQLite path, KPI tiles for completed/failed runs, days with data, and DB size).
-  * Parameter Impact snapshot implemented from `config.yaml` (decision_thresholds, s_index, learning limits) with “learning can adjust” indicators based on `learning.max_daily_param_change.*`.
-* **In Progress**:
-  * History mini-chart implementation and theming.
+  * Parameter Impact snapshot implemented from `config.yaml` (decision_thresholds, s_index, learning limits) with “learning can adjust” indicators based on `learning.max_daily_param_change.*`, plus a “Current S-index” row that reads the effective factor from `/api/debug` when available.
+  * History mini-chart implemented using recent `learning_runs` data via `/api/learning/history` (changes applied per run).
+  * Error and health indicators implemented for disabled learning, empty metrics, and last-error display.
+* **In Progress**: —
 * **Blocked**: —
 * **Next Steps**:
-  * Implement Parameter Impact snapshot and History mini-chart, then add health/error indicators and run manual verification for Rev 44.
+  * Manual verification for Rev 44 and capturing any follow-up polish items in Backlog.
 
 ---
 
