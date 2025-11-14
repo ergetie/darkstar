@@ -1210,12 +1210,12 @@
 
 ---
 
-## Rev 47 — Dashboard & Planning UX Polish *(Status: 📋 Planned)*
+## Rev 47 — Dashboard & Planning UX Polish *(Status: ✅ Completed)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Apply targeted UX polish to the Dashboard chart and Planning timeline to close the most visible UI-related backlog items, without changing planner behavior.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -1283,8 +1283,8 @@
 ## Backlog
 
 ### Dashboard Refinement
-- [ ] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
-- [ ] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
+- [x] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
+- [x] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
 ### Schedule & Executor Alignment
 - [x] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
@@ -1305,7 +1305,7 @@
 - [x] Theme picker using `/api/themes` and `/api/theme`
 - [x] Form validation and persistence with `/api/config/save`
 - [x] Config reset functionality with `/api/config/reset`
-- [ ] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
+- [x] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
 - [ ] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
 
 ### Learning & Debug
