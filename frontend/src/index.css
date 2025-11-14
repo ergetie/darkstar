@@ -70,6 +70,13 @@ body::before {
 
 .react-calendar-timeline .rct-vertical-lines .rct-vl {
     border-left-color: rgba(255, 255, 255, 0.05) !important;
+    background: transparent !important;
+}
+
+/* Remove special weekend/alternate-day tint so the full 48h
+   window uses a consistent dark background */
+.react-calendar-timeline .rct-vertical-lines .rct-vl.rct-vl-weekend {
+    background: transparent !important;
 }
 
 .react-calendar-timeline .rct-horizontal-lines .rct-hl-odd,
