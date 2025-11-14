@@ -628,25 +628,126 @@ function buildLiveData(
         )
     }
 
-    // 48h / multi-day range: keep existing behavior (no padding)
-    if (!filtered.length) {
-        console.log(`[buildLiveData] No slots found for range=${range}, creating fallback`)
-        return {
-            labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`),
-            price: Array(24).fill(null),
-            pv: Array(24).fill(null),
-            load: Array(24).fill(null),
-            charge: Array(24).fill(null),
-            discharge: Array(24).fill(null),
-            export: Array(24).fill(null),
-            water: Array(24).fill(null),
-            socTarget: Array(24).fill(null),
-            socProjected: Array(24).fill(null),
-            hasNoData: true,
-            day,
+    // 48h / multi-day range: build a fixed 48-hour window (today+tomorrow)
+    if (range === '48h') {
+        if (!filtered.length) {
+            console.log('[buildLiveData] No slots found for 48h range, creating fallback')
+            const labels = Array.from({ length: 48 }, (_, i) => {
+                const hour = i % 24
+                return `${String(hour).padStart(2, '0')}:00`
+            })
+            return {
+                labels,
+                price: Array(labels.length).fill(null),
+                pv: Array(labels.length).fill(null),
+                load: Array(labels.length).fill(null),
+                charge: Array(labels.length).fill(null),
+                discharge: Array(labels.length).fill(null),
+                export: Array(labels.length).fill(null),
+                water: Array(labels.length).fill(null),
+                socTarget: Array(labels.length).fill(null),
+                socProjected: Array(labels.length).fill(null),
+                hasNoData: true,
+                day,
+            }
         }
+
+        const ordered = [...filtered].sort((a, b) => {
+            const aTime = new Date(a.start_time).getTime()
+            const bTime = new Date(b.start_time).getTime()
+            return aTime - bTime
+        })
+
+        // Infer resolution from consecutive slots; default to 15 minutes.
+        let resolutionMinutes = 15
+        if (ordered.length >= 2) {
+            const dt0 = new Date(ordered[0].start_time).getTime()
+            const dt1 = new Date(ordered[1].start_time).getTime()
+            const deltaMinutes = Math.max(1, Math.round((dt1 - dt0) / 60000))
+            if (deltaMinutes === 15 || deltaMinutes === 30 || deltaMinutes === 60) {
+                resolutionMinutes = deltaMinutes
+            }
+        }
+
+        const anchor = new Date()
+        anchor.setHours(0, 0, 0, 0)
+
+        const stepMs = resolutionMinutes * 60 * 1000
+        const steps = Math.round((48 * 60) / resolutionMinutes)
+
+        const slotByTime = new Map<number, ScheduleSlot>()
+        for (const s of ordered) {
+            const t = new Date(s.start_time).getTime()
+            slotByTime.set(t, s)
+        }
+
+        const labels: string[] = []
+        const price: (number | null)[] = []
+        const pv: (number | null)[] = []
+        const load: (number | null)[] = []
+        const charge: (number | null)[] = []
+        const discharge: (number | null)[] = []
+        const exp: (number | null)[] = []
+        const water: (number | null)[] = []
+        const socTarget: (number | null)[] = []
+        const socProjected: (number | null)[] = []
+
+        let nowIndex: number | null = null
+        const now = new Date()
+
+        for (let i = 0; i < steps; i++) {
+            const bucketStart = new Date(anchor.getTime() + i * stepMs)
+            const bucketEnd = new Date(bucketStart.getTime() + stepMs)
+            const slot = slotByTime.get(bucketStart.getTime())
+
+            labels.push(formatHour(bucketStart.toISOString()))
+
+            if (slot) {
+                price.push(slot.import_price_sek_kwh ?? null)
+                pv.push(slot.pv_forecast_kwh ?? null)
+                load.push(slot.load_forecast_kwh ?? null)
+                charge.push(slot.battery_charge_kw ?? slot.charge_kw ?? null)
+                discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+                exp.push(slot.export_kwh ?? null)
+                water.push(slot.water_heating_kw ?? null)
+                socTarget.push(slot.soc_target_percent ?? null)
+                socProjected.push(slot.projected_soc_percent ?? null)
+            } else {
+                price.push(null)
+                pv.push(null)
+                load.push(null)
+                charge.push(null)
+                discharge.push(null)
+                exp.push(null)
+                water.push(null)
+                socTarget.push(null)
+                socProjected.push(null)
+            }
+
+            if (now >= bucketStart && now < bucketEnd) {
+                nowIndex = i
+            }
+        }
+
+        return createChartData(
+            {
+                labels,
+                price,
+                pv,
+                load,
+                charge,
+                discharge,
+                export: exp,
+                water,
+                socTarget,
+                socProjected,
+                nowIndex,
+            },
+            themeColors,
+        )
     }
 
+    // Fallback for any other future range types (none today)
     const ordered = [...filtered].sort((a, b) => {
         const aTime = new Date(a.start_time).getTime()
         const bTime = new Date(b.start_time).getTime()
