@@ -1280,12 +1280,12 @@
 
 ---
 
-## Rev 48 — Dashboard History Merge *(Status: 📋 Planned)*
+## Rev 48 — Dashboard History Merge *(Status: ✅ Completed)*
 
-* **Model**: GPT-5.1 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI
 * **Summary**: Combine executed behavior from MariaDB `execution_history` with the current planner schedule so the Dashboard “today” chart shows both what actually happened earlier today and what is planned for the rest of the day, including an “Actual SoC” line.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-14
 
 ### Plan
 
@@ -1330,7 +1330,7 @@
     * Dashboard behaves exactly as in Rev 46: plan-only, full-day padded chart with NOW marker and pills (SoC Actual pill will show no data until history exists).
   * Planner→DB→executor behavior is unchanged; this Rev only reads from `execution_history` and `schedule.json`.
 
-### Implementation Steps (Planned)
+### Implementation Steps
 
 1. **Execution History Contract Exploration**
    * Inspect the MariaDB `execution_history` schema and a couple of recent rows (with user’s help, if needed) to confirm available fields and units:
@@ -1367,6 +1367,25 @@
      * Confirm that when `execution_history` is empty for today, behavior matches Rev 46.
    * Add and/or update Backlog items under “Schedule & Executor Alignment” or a new “Dashboard History” section to track any follow-up polish (e.g. filtering ranges, multi-day history views).
 
+### Implementation
+
+* **Completed**:
+  * Step 1: Confirmed the `execution_history` schema (slot_start, planned/actual charge/export, load/PV planned/actual, SoC planned/actual, prices and energy metrics) and decided to use `actual_charge_kw`, `actual_export_kw`, `actual_load_kwh`, `actual_pv_kwh`, and `actual_soc` as the primary executed series for the Dashboard history view.
+  * Step 2: Implemented `/api/schedule/today_with_history` in `backend/webapp.py`:
+    * Builds a local-today 15-minute grid by merging `schedule.json` with the latest `execution_history` row per `slot_start` (using a `JOIN` on `slot_start` and `MAX(executed_at)`).
+    * Normalises `start_time`/`end_time` to local ISO, attaches `is_executed`, `soc_actual_percent`, and the `actual_*` series per slot.
+  * Step 3: Extended `Api` and `ChartCard` so that:
+    * Dashboard “Today” uses the merged endpoint instead of bare `/api/schedule`.
+    * `buildLiveData` prefers `actual_*` values when `is_executed` is true (for PV, load, charge, export) and falls back to planned schedule values otherwise.
+    * Added a new “SoC Actual (%)” dataset sourced from `soc_actual_percent`, with a teal line and a dedicated overlay pill that defaults to enabled (unless explicitly overridden via `dashboard.overlay_defaults`).
+    * Added a dedicated y4 axis for PV so the PV/actual PV series can be rendered on a tighter 0–1.5 kW scale without affecting the load/charge axis.
+  * Step 4: Reused the same merged slots and SoC Actual semantics in the Planning 48h chart by:
+    * Fetching both `/api/schedule` and `/api/schedule/today_with_history` on the Planning page.
+    * Combining history slots for today with plan slots for tomorrow and passing them into `ChartCard` via `slotsOverride` so the 48h chart shows execution history for today and plan for tomorrow.
+    * Updating the 48h path in `buildLiveData` to honour `is_executed`, `actual_*`, and `soc_actual_percent` in the same way as the daily view.
+* **In Progress**: —
+* **Blocked**: —
+
 ---
 
 ## Backlog
@@ -1378,7 +1397,7 @@
 ### Schedule & Executor Alignment
 - [x] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
 - [x] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
-- [ ] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
+- [x] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
 
 ### Planning Timeline
 - [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
