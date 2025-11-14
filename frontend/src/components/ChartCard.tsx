@@ -15,12 +15,12 @@ const chartOptions: ChartConfiguration['options'] = {
     spanGaps: false,
     plugins: {
         legend: {
+            display: false,
             labels: {
                 color: '#e6e9ef',
                 boxWidth: 10,
                 font: { size: 12 },
-                filter: (item) =>
-                    typeof item.datasetIndex === 'number' && item.datasetIndex < 4,
+                filter: () => false,
             },
         },
         tooltip: {
@@ -90,36 +90,36 @@ const chartOptions: ChartConfiguration['options'] = {
             min: 0,
             max: 8,
             title: {
-                display: true,
+                display: false,
                 text: 'SEK/kWh',
                 color: '#a6b0bf'
             },
             grid: { color: 'rgba(255,255,255,0.06)' },
-            ticks: { color: '#a6b0bf' },
+            ticks: { color: '#a6b0bf', display: false },
         },
         y1: {
             position: 'left',
             min: 0,
             max: 9,
             title: {
-                display: true,
+                display: false,
                 text: 'kW',
                 color: '#a6b0bf'
             },
             grid: { display: false },
-            ticks: { color: '#a6b0bf' },
+            ticks: { color: '#a6b0bf', display: false },
         },
         y2: {
             position: 'left',
             min: 0,
             max: 9,
             title: {
-                display: true,
+                display: false,
                 text: 'kWh',
                 color: '#a6b0bf'
             },
             grid: { display: false },
-            ticks: { color: '#a6b0bf' },
+            ticks: { color: '#a6b0bf', display: false },
             display: false,
         },
         y3: {
@@ -301,6 +301,9 @@ export default function ChartCard({
     const [themeColors, setThemeColors] = useState<Record<string, string>>({})
     const [currentTheme, setCurrentTheme] = useState<string>('')
     const [overlays, setOverlays] = useState({
+        price: true,
+        pv: true,
+        load: true,
         charge: false,
         discharge: false,
         export: false,
@@ -317,6 +320,9 @@ export default function ChartCard({
                 if (overlayDefaults && typeof overlayDefaults === 'string') {
                     const defaultOverlays = overlayDefaults.split(',').map(s => s.trim().toLowerCase())
                     const parsedOverlays = {
+                        price: !defaultOverlays.includes('price_off'),
+                        pv: !defaultOverlays.includes('pv_off'),
+                        load: !defaultOverlays.includes('load_off'),
                         charge: defaultOverlays.includes('charge'),
                         discharge: defaultOverlays.includes('discharge'),
                         export: defaultOverlays.includes('export'),
@@ -391,6 +397,9 @@ export default function ChartCard({
                 if (!liveData) return
                 setHasNoDataMessage(liveData.hasNoData ?? false)
                 const ds = liveData.datasets
+                if (ds[0]) ds[0].hidden = !overlays.price
+                if (ds[1]) ds[1].hidden = !overlays.pv
+                if (ds[2]) ds[2].hidden = !overlays.load
                 if (ds[3]) ds[3].hidden = !overlays.charge
                 if (ds[4]) ds[4].hidden = !overlays.discharge
                 if (ds[5]) ds[5].hidden = !overlays.export
@@ -478,6 +487,9 @@ export default function ChartCard({
         </div>
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
         {([
+            ['Price', 'price'],
+            ['PV', 'pv'],
+            ['Load', 'load'],
             ['Charge', 'charge'],
             ['Discharge', 'discharge'],
             ['Export', 'export'],
