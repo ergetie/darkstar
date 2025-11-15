@@ -4,8 +4,10 @@ Phase 9a: Schema + ETL + status endpoint
 """
 
 import copy
+import errno
 import json
 import os
+import shutil
 import sqlite3
 import tempfile
 from collections import defaultdict
@@ -1703,7 +1705,14 @@ class NightlyOrchestrator:
             fd, temp_path = tempfile.mkstemp(prefix="config_apply_", suffix=".yaml")
             with os.fdopen(fd, "w", encoding="utf-8") as tmp_handle:
                 yaml.safe_dump(config, tmp_handle, default_flow_style=False)
-            os.replace(temp_path, "config.yaml")
+            try:
+                os.replace(temp_path, "config.yaml")
+            except OSError as exc:
+                # Handle cross-device renames (e.g. /tmp on different filesystem)
+                if exc.errno == errno.EXDEV:
+                    shutil.move(temp_path, "config.yaml")
+                else:
+                    raise
 
             version_payload = {
                 "loops": {r["loop"]: r["metrics"] for r in loop_results},
