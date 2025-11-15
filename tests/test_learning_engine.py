@@ -80,7 +80,7 @@ class TestLearningEngine:
                 SELECT name FROM sqlite_master
                 WHERE type='table' AND name IN (
                     'slot_observations', 'slot_forecasts', 'config_versions',
-                    'learning_runs', 'learning_metrics'
+                    'learning_runs', 'learning_daily_metrics'
                 )
             """
             ).fetchall()
