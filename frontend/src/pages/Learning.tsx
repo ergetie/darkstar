@@ -8,6 +8,7 @@ import {
     type LearningHistoryResponse,
     type LearningRunResponse,
     type LearningLoopsResponse,
+    type LearningDailyMetricsResponse,
 } from '../lib/api'
 import { Chart as ChartJS, type Chart, type ChartConfiguration } from 'chart.js/auto'
 
@@ -46,6 +47,7 @@ export default function Learning() {
     const [runMessage, setRunMessage] = useState<string | null>(null)
     const [loopsLoading, setLoopsLoading] = useState(false)
     const [loopsSummary, setLoopsSummary] = useState<string | null>(null)
+    const [dailyMetrics, setDailyMetrics] = useState<LearningDailyMetricsResponse | null>(null)
     const historyCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const historyChartRef = useRef<Chart | null>(null)
 
@@ -61,10 +63,11 @@ export default function Learning() {
                 Api.config(),
                 Api.learningHistory(),
                 Api.debug(),
+                Api.learningDailyMetrics(),
             ]).then(results => {
                 if (cancelled) return
 
-                const [learningRes, configRes, historyRes, debugRes] = results
+                const [learningRes, configRes, historyRes, debugRes, dailyRes] = results
 
                 if (learningRes.status === 'fulfilled') {
                     setLearning(learningRes.value)
@@ -100,6 +103,12 @@ export default function Learning() {
                     }
                 }
 
+                if (dailyRes.status === 'fulfilled') {
+                    setDailyMetrics(dailyRes.value)
+                } else {
+                    console.error('Failed to load daily learning metrics:', dailyRes.reason)
+                }
+
                 setLoading(false)
             })
         }
@@ -129,6 +138,10 @@ export default function Learning() {
         completed > 0 ||
         failed > 0 ||
         daysWithData > 0
+
+    const latestSIndex = dailyMetrics?.s_index_base_factor
+    const latestPvMae = dailyMetrics?.pv_error_mean_abs_kwh
+    const latestLoadMae = dailyMetrics?.load_error_mean_abs_kwh
 
     const handleRunLearning = async () => {
         if (!enabled || runLoading) return
@@ -435,6 +448,38 @@ export default function Learning() {
                             value={dbSize}
                         />
                     </div>
+                    {latestSIndex !== undefined && latestSIndex !== null && (
+                        <div className="mt-4 grid grid-cols-3 gap-3 text-[11px] text-muted">
+                            <div>
+                                <div className="uppercase tracking-wide text-[10px] text-muted/70">
+                                    Learned S-index base
+                                </div>
+                                <div className="mt-0.5 text-[13px]">
+                                    {latestSIndex.toFixed(3)}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="uppercase tracking-wide text-[10px] text-muted/70">
+                                    PV MAE (kWh)
+                                </div>
+                                <div className="mt-0.5 text-[13px]">
+                                    {latestPvMae !== undefined && latestPvMae !== null
+                                        ? latestPvMae.toFixed(3)
+                                        : '—'}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="uppercase tracking-wide text-[10px] text-muted/70">
+                                    Load MAE (kWh)
+                                </div>
+                                <div className="mt-0.5 text-[13px]">
+                                    {latestLoadMae !== undefined && latestLoadMae !== null
+                                        ? latestLoadMae.toFixed(3)
+                                        : '—'}
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </Card>
             </div>
 
