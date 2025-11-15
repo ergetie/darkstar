@@ -1332,12 +1332,12 @@ def learning_history():
                     }
                 )
 
-            # Fetch S-index factor history stored in learning_metrics
+            # Fetch S-index factor history stored in learning_daily_metrics
             cursor.execute(
                 """
-                SELECT date, value
-                FROM learning_metrics
-                WHERE metric = 's_index.base_factor'
+                SELECT date, s_index_base_factor
+                FROM learning_daily_metrics
+                WHERE s_index_base_factor IS NOT NULL
                 ORDER BY date DESC
                 LIMIT 60
                 """
