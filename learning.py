@@ -175,6 +175,22 @@ class LearningEngine:
                 """
             )
 
+            # Parameter change history (per applied change)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS learning_param_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER,
+                    param_path TEXT NOT NULL,
+                    old_value TEXT,
+                    new_value TEXT,
+                    loop TEXT,
+                    reason TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
             # Sensor totals table for cumulative energy readings
             cursor.execute(
                 """
@@ -1703,7 +1719,7 @@ class NightlyOrchestrator:
             # Apply changes if auto_apply is enabled
             applied_changes = {}
             if all_changes and self.learning_config.get("auto_apply", True):
-                applied_changes = self._apply_changes(all_changes, loop_results)
+                applied_changes = self._apply_changes(all_changes, loop_results, run_id=run_id)
 
             # Record completion
             job_end = datetime.now(self.engine.timezone)
@@ -1789,7 +1805,12 @@ class NightlyOrchestrator:
 
             return {"status": "failed", "error": str(e), "run_id": run_id}
 
-    def _apply_changes(self, changes: Dict[str, Any], loop_results: List[Dict]) -> Dict[str, Any]:
+    def _apply_changes(
+        self,
+        changes: Dict[str, Any],
+        loop_results: List[Dict],
+        run_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
         """Apply parameter changes to configuration"""
         try:
             with open("config.yaml", "r", encoding="utf-8") as handle:
@@ -1860,6 +1881,46 @@ class NightlyOrchestrator:
                         """,
                         (today, "s_index.base_factor", float(base_factor)),
                     )
+
+                # Record parameter-level history for each applied change
+                if changes:
+                    # Build a simple map from param path → loop name based on prefixes
+                    def _infer_loop(path: str) -> str:
+                        if path.startswith("forecasting."):
+                            return "forecast_calibrator"
+                        if path.startswith("decision_thresholds."):
+                            return "threshold_tuner"
+                        if path.startswith("s_index."):
+                            return "s_index_tuner"
+                        if path.startswith("arbitrage.future_price_guard_buffer_sek"):
+                            return "export_guard_tuner"
+                        return ""
+
+                    # Aggregate reasons from loop_results
+                    reason_text = "; ".join(
+                        filter(None, [r.get("reason", "") for r in loop_results])
+                    ) or None
+
+                    for key_path, change in diff_summary.items():
+                        old_val = change.get("old")
+                        new_val = change.get("new")
+                        loop_name = _infer_loop(key_path)
+                        cursor.execute(
+                            """
+                            INSERT INTO learning_param_history (
+                                run_id, param_path, old_value, new_value, loop, reason
+                            )
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                run_id,
+                                key_path,
+                                None if old_val is None else str(old_val),
+                                None if new_val is None else str(new_val),
+                                loop_name or None,
+                                reason_text,
+                            ),
+                        )
 
                 conn.commit()
 

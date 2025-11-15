@@ -1296,6 +1296,7 @@ def learning_history():
 
         runs: list[dict] = []
         s_index_history: list[dict] = []
+        recent_changes: list[dict] = []
         with sqlite3.connect(engine.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -1349,8 +1350,47 @@ def learning_history():
                         "value": float(value) if value is not None else None,
                     }
                 )
+            # Fetch recent parameter changes (joined with learning_runs for timestamp)
+            cursor.execute(
+                """
+                SELECT h.run_id,
+                       r.started_at,
+                       h.param_path,
+                       h.old_value,
+                       h.new_value,
+                       h.loop,
+                       h.reason
+                FROM learning_param_history h
+                LEFT JOIN learning_runs r ON h.run_id = r.id
+                ORDER BY h.id DESC
+                LIMIT 20
+                """
+            )
+            for row in cursor.fetchall():
+                (
+                    run_id,
+                    started_at,
+                    param_path,
+                    old_value,
+                    new_value,
+                    loop_name,
+                    reason,
+                ) = row
+                recent_changes.append(
+                    {
+                        "run_id": run_id,
+                        "started_at": started_at,
+                        "param_path": param_path,
+                        "old_value": old_value,
+                        "new_value": new_value,
+                        "loop": loop_name,
+                        "reason": reason,
+                    }
+                )
 
-        return jsonify({"runs": runs, "s_index_history": s_index_history})
+        return jsonify(
+            {"runs": runs, "s_index_history": s_index_history, "recent_changes": recent_changes}
+        )
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
