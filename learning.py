@@ -122,20 +122,6 @@ class LearningEngine:
             """
             )
 
-            # Learning metrics table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS learning_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT NOT NULL,
-                    metric TEXT NOT NULL,
-                    value REAL NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(date, metric)
-                )
-            """
-            )
-
             # Consolidated per-day learning outputs (one row per date/run)
             cursor.execute(
                 """
@@ -155,6 +141,10 @@ class LearningEngine:
                 """
             )
 
+            # Drop legacy metrics tables that are no longer used
+            cursor.execute("DROP TABLE IF EXISTS learning_metrics")
+            cursor.execute("DROP TABLE IF EXISTS learning_daily_series")
+
             # Create indexes for performance
             cursor.execute(
                 (
@@ -170,28 +160,9 @@ class LearningEngine:
             )
             cursor.execute(
                 (
-                    "CREATE INDEX IF NOT EXISTS idx_learning_metrics_date "
-                    "ON learning_metrics(date)"
-                )
-            )
-            cursor.execute(
-                (
                     "CREATE INDEX IF NOT EXISTS idx_learning_runs_started "
                     "ON learning_runs(started_at)"
                 )
-            )
-
-            # Daily series metrics (e.g. 24h arrays) for learning
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS learning_daily_series (
-                    date TEXT NOT NULL,
-                    metric TEXT NOT NULL,
-                    values_json TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY(date, metric)
-                )
-                """
             )
 
             # Parameter change history (per applied change)
@@ -776,36 +747,19 @@ class LearningEngine:
                     (today, metric, json.dumps(values)),
                 )
 
-            # Derive simple adjustment arrays (negated errors) for potential use
-            # in forecast biasing: if actual > forecast, adjustment is positive.
-            pv_errors = series.get("pv_error_by_hour_kwh") or [0.0] * 24
-            load_errors = series.get("load_error_by_hour_kwh") or [0.0] * 24
-            pv_adjust = [round(-(v or 0.0), 4) for v in pv_errors]
-            load_adjust = [round(-(v or 0.0), 4) for v in load_errors]
+        # Derive simple adjustment arrays (negated errors) for potential use
+        # in forecast biasing: if actual > forecast, adjustment is positive.
+        pv_errors = series.get("pv_error_by_hour_kwh") or [0.0] * 24
+        load_errors = series.get("load_error_by_hour_kwh") or [0.0] * 24
+        pv_adjust = [round(-(v or 0.0), 4) for v in pv_errors]
+        load_adjust = [round(-(v or 0.0), 4) for v in load_errors]
 
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO learning_daily_series (date, metric, values_json)
-                VALUES (?, ?, ?)
-                """,
-                (today, "pv_adjustment_by_hour_kwh", json.dumps(pv_adjust)),
-            )
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO learning_daily_series (date, metric, values_json)
-                VALUES (?, ?, ?)
-                """,
-                (today, "load_adjustment_by_hour_kwh", json.dumps(load_adjust)),
-            )
+        def _mean_abs(values: list[float]) -> float:
+            vals = [abs(v or 0.0) for v in values]
+            return sum(vals) / float(len(vals)) if vals else 0.0
 
-            def _mean_abs(values: list[float]) -> float:
-                vals = [abs(v or 0.0) for v in values]
-                return sum(vals) / float(len(vals)) if vals else 0.0
-
-            pv_mae_daily = _mean_abs(pv_errors)
-            load_mae_daily = _mean_abs(load_errors)
-
-            conn.commit()
+        pv_mae_daily = _mean_abs(pv_errors)
+        load_mae_daily = _mean_abs(load_errors)
 
         # Mirror arrays and daily aggregates into the consolidated
         # learning_daily_metrics table so there is exactly one row per
