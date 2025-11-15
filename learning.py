@@ -746,6 +746,8 @@ class LearningEngine:
         today = datetime.now(self.timezone).date().isoformat()
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+
+            # Persist raw error series
             for metric, values in series.items():
                 cursor.execute(
                     """
@@ -754,6 +756,51 @@ class LearningEngine:
                     """,
                     (today, metric, json.dumps(values)),
                 )
+
+            # Derive simple adjustment arrays (negated errors) for potential use
+            # in forecast biasing: if actual > forecast, adjustment is positive.
+            pv_errors = series.get("pv_error_by_hour_kwh") or [0.0] * 24
+            load_errors = series.get("load_error_by_hour_kwh") or [0.0] * 24
+            pv_adjust = [round(-(v or 0.0), 4) for v in pv_errors]
+            load_adjust = [round(-(v or 0.0), 4) for v in load_errors]
+
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO learning_daily_series (date, metric, values_json)
+                VALUES (?, ?, ?)
+                """,
+                (today, "pv_adjustment_by_hour_kwh", json.dumps(pv_adjust)),
+            )
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO learning_daily_series (date, metric, values_json)
+                VALUES (?, ?, ?)
+                """,
+                (today, "load_adjustment_by_hour_kwh", json.dumps(load_adjust)),
+            )
+
+            # Store simple daily aggregate metrics in learning_metrics
+            def _mean_abs(values: list[float]) -> float:
+                vals = [abs(v or 0.0) for v in values]
+                return sum(vals) / float(len(vals)) if vals else 0.0
+
+            pv_mae_daily = _mean_abs(pv_errors)
+            load_mae_daily = _mean_abs(load_errors)
+
+            for metric_name, value in (
+                ("pv_error_mean_abs_kwh", pv_mae_daily),
+                ("load_error_mean_abs_kwh", load_mae_daily),
+            ):
+                cursor.execute(
+                    """
+                    INSERT INTO learning_metrics (date, metric, value)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(date, metric) DO UPDATE SET
+                        value = excluded.value
+                    """,
+                    (today, metric_name, float(value)),
+                )
+
             conn.commit()
 
     def get_status(self) -> Dict[str, Any]:
