@@ -943,6 +943,74 @@ class LearningEngine:
 
             conn.commit()
 
+    def get_latest_daily_metrics(self) -> Optional[Dict[str, Any]]:
+        """
+        Fetch the most recent consolidated daily metrics row.
+
+        Returns a dict with parsed arrays for PV/load error/adjustment and
+        scalar fields (MAE, S-index, SoC error) where available.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT date,
+                       pv_error_by_hour_kwh,
+                       load_error_by_hour_kwh,
+                       pv_adjustment_by_hour_kwh,
+                       load_adjustment_by_hour_kwh,
+                       soc_error_mean_pct,
+                       soc_error_stddev_pct,
+                       pv_error_mean_abs_kwh,
+                       load_error_mean_abs_kwh,
+                       s_index_base_factor
+                FROM learning_daily_metrics
+                ORDER BY date DESC
+                LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        (
+            date_str,
+            pv_err_json,
+            load_err_json,
+            pv_adj_json,
+            load_adj_json,
+            soc_mean,
+            soc_std,
+            pv_mae,
+            load_mae,
+            s_index_base,
+        ) = row
+
+        def _parse_series(raw: Optional[str]) -> Optional[list[float]]:
+            if raw is None:
+                return None
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    return [float(v) for v in data]
+            except (json.JSONDecodeError, TypeError, ValueError):
+                return None
+            return None
+
+        return {
+            "date": date_str,
+            "pv_error_by_hour_kwh": _parse_series(pv_err_json),
+            "load_error_by_hour_kwh": _parse_series(load_err_json),
+            "pv_adjustment_by_hour_kwh": _parse_series(pv_adj_json),
+            "load_adjustment_by_hour_kwh": _parse_series(load_adj_json),
+            "soc_error_mean_pct": soc_mean,
+            "soc_error_stddev_pct": soc_std,
+            "pv_error_mean_abs_kwh": pv_mae,
+            "load_error_mean_abs_kwh": load_mae,
+            "s_index_base_factor": s_index_base,
+        }
+
 # Global instance for webapp
 _learning_engine = None
 
@@ -1926,6 +1994,18 @@ class NightlyOrchestrator:
                             value = excluded.value
                         """,
                         (today, "s_index.base_factor", float(base_factor)),
+                    )
+
+                    # Mirror into consolidated daily metrics so planner has
+                    # a single place to read the learned S-index factor.
+                    cursor.execute(
+                        """
+                        INSERT INTO learning_daily_metrics (date, s_index_base_factor)
+                        VALUES (?, ?)
+                        ON CONFLICT(date) DO UPDATE SET
+                            s_index_base_factor = excluded.s_index_base_factor
+                        """,
+                        (today, float(base_factor)),
                     )
 
                 conn.commit()
