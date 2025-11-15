@@ -1943,6 +1943,12 @@
 - [x] Log viewer with polling and filters
 - [x] Historical SoC chart from `/api/history/soc`
 
+### Planner & Charts
+- [ ] Fix `soc_target_percent` behaviour around re-planning so that the current/next slot does not create a one-slot spike (use a consistent target floor/trajectory instead of using entry SoC only for the current slot).
+- [ ] Render `soc_target` as a step-line series in the charts to better match discrete slot-level behaviour.
+- [ ] Add zoom support to the charts (e.g. wheel + modifier or explicit controls) so operators can inspect narrower time windows.
+- [ ] Offset chart tooltips slightly from the cursor to avoid covering the exact data point, improving readability when inspecting dense regions.
+
 ### Production Readiness
 - [ ] Error handling & loading states for all API calls
 - [ ] Mobile responsiveness for all components
