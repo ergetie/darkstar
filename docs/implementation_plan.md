@@ -1565,7 +1565,83 @@
 
 ---
 
-## Rev 51 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
+## Rev 51 — Learning Engine Correctness & Data Flow Debugging *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Trace and validate the Darkstar learning engine’s data flow and behaviour, aligning it conceptually with the Helios/n8n setup and identifying why recent runs apply no changes.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Understand, end-to-end, how the Darkstar learning engine currently works (from schedule → observations → SQLite → learning loops → config changes).
+  * Compare this behaviour to the Helios learning engine (MariaDB `execution_history` / `learning_metrics` + n8n) and highlight key differences.
+  * Diagnose why recent Darkstar learning runs report `changes_applied = 0` for weeks, while earlier runs did apply changes.
+
+* **Scope**:
+  1. **Document Current Learning Design (Darkstar vs Helios)**:
+     * Describe how Darkstar is intended to work today:
+       * Continuous observation capture via `record_observation_from_current_state` into SQLite tables (`slot_observations`, `slot_forecasts`, etc.).
+       * Nightly learning orchestration via `NightlyOrchestrator.run_nightly_job` storing state in `learning_runs`, `config_versions`, and (now) `learning_metrics` for S-index.
+       * How `LearningLoops` use historical data and the deterministic simulator to propose config changes.
+     * Contrast with Helios:
+       * Execution history flow (15 min) writing `execution_history` in MariaDB from HA sensors and `plan_history`.
+       * Daily learning flow (01:00) reading `execution_history` to compute load/PV errors, SoC tracking metrics, arbitrage success, and writing to MariaDB `learning_metrics`.
+       * Note that Darkstar uses a local SQLite learning DB, but should aim for similar semantics and effectiveness.
+  2. **Inspect Learning DB State (SQLite)**:
+     * For the current `learning.sqlite_path`, inspect (read-only):
+       * `slot_observations`: row counts, earliest/latest timestamps, key columns populated (import/export, PV, load, SoC).
+       * `slot_forecasts`: coverage relative to `slot_observations`.
+       * `learning_runs`: run frequency, statuses, `result_metrics_json` presence.
+       * `learning_metrics`: current contents (S-index and any other metrics).
+       * `planner_debug` (if present).
+     * Summarise findings in this Rev so we can resume debugging later if interrupted.
+  3. **Analyse Recent Runs & Loop Results**:
+     * Decode `learning_runs.result_metrics_json` for the last N runs (e.g. 30 days):
+       * Which loops ran (forecast_calibrator, threshold_tuner, s_index_tuner, export_guard_tuner).
+       * For each, what baseline and best objective values were computed, and what improvement % was observed.
+       * Whether loops proposed changes but they were filtered out by caps (`max_daily_param_change`) or thresholds (`min_improvement_threshold`), or never proposed any changes at all.
+     * Cross-reference these metrics with the dates where Helios-style metrics indicate problems (e.g. missed arbitrage, SoC tracking errors).
+  4. **Config vs Data Sanity Checks**:
+     * Review learning-related config:
+       * `learning.min_sample_threshold`, `learning.min_improvement_threshold`.
+       * `learning.max_daily_param_change.*` for thresholds, S-index, and export guard.
+       * S-index config (`s_index.*`) and decision thresholds used by the loops.
+     * Compare thresholds/caps to observed metrics from step 3:
+       * Are improvements consistently just below the configured threshold?
+       * Are caps effectively zero (preventing any change)?
+  5. **Minimal Diagnostics (If Needed)**:
+     * If it’s still unclear why changes are not applied, add small, targeted diagnostics:
+       * Log explicit reasons when a loop skips or rejects a candidate (e.g. “improvement below threshold X”, “daily cap exceeded”, “insufficient samples”).
+       * Optionally enrich `result_metrics_json.loop_results` with a short `reason` string per loop for display in the Learning UI.
+  6. **Findings & Follow-up Plan**:
+     * Summarise root causes:
+       * Data coverage issues (insufficient observation history, backend not running enough hours).
+       * Threshold/cap tuning issues.
+       * Logic bugs or query errors inside specific loops.
+     * Propose concrete fixes for a follow-up Rev (e.g. “Rev 54 — Threshold Tuner Fix & Learning Metrics Export”), or apply small config/default tweaks here if appropriate.
+
+* **Dependencies**:
+  * Rev 44 (Learning tab) and Rev 45 (Debug tab) for visibility into status and logs.
+  * Existing Darkstar learning implementation (`learning.py`, `backend/webapp.py`), Helios flows for conceptual reference.
+
+* **Acceptance Criteria**:
+  * Clear, written understanding of:
+    * How Darkstar learning currently uses its data (tables, fields, time windows).
+    * Why recent learning runs show `changes_applied = 0` while older runs applied changes.
+  * Identified next steps (config changes and/or code changes) to make Darkstar learning behaviour more robust and more closely aligned with the Helios engine.
+
+### Implementation
+
+* **Completed**:
+  * (Planned) — to be filled as investigation proceeds.
+* **In Progress**: —
+* **Blocked**: —
+
+---
+
+## Rev 52 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Persist S-index factor history and enhance the Learning and Debug tabs so operators can see how learning affects the system over time.
@@ -1631,13 +1707,18 @@
     * Record the current `s_index.base_factor` (or `static_factor` as fallback) into the existing `learning_metrics` table on every successful nightly learning run, keyed by `date` and `metric='s_index.base_factor'`. This ensures we always have at least one S-index datapoint per day once learning is running, even when no config changes are applied.
   * Step 2: API extensions
     * Extended `/api/learning/history` to include an `s_index_history` array alongside `runs`, populated from `learning_metrics` (`metric='s_index.base_factor'`) ordered by date (most recent first, limited to a reasonable window). This gives the frontend a single call that returns both per-run metrics and S-index factor history.
+  * Step 3: Learning tab chart enhancements
+    * Updated the Learning tab mini-chart to:
+      * Overlay a line for S-index factor against daily aggregated “changes applied” bars.
+      * Aggregate changes-applied per day so bars/points align on the same X-axis (dates).
+      * Use dual Y-axes (counts vs S-index factor) with clear tooltips.
 * **In Progress**:
-  * Step 3–4: Learning chart enhancements and Debug time-range filters.
+  * Step 4: Debug time-range filters and SoC history range controls.
 * **Blocked**: —
 
 ---
 
-## Rev 52 — Production Readiness Slice *(Status: 📋 Planned)*
+## Rev 53 — Production Readiness Slice *(Status: 📋 Planned)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the UI behaves well in real use.
