@@ -1737,8 +1737,8 @@
 ### Implementation Steps (Planned)
 
 1. **Metrics Schema & ETL**
-   * Design the extended `learning_metrics` row format (date + metric + value, and/or structured JSON payloads per day).
-   * Implement a daily ETL in the learning engine that computes the desired metrics from `slot_observations`, `slot_forecasts`, and schedule/price data, and writes them into `learning_metrics`.
+   * Design the extended metrics row format (date + metric + value or JSON per day).
+   * Implement a daily ETL in the learning engine that computes the desired metrics from `slot_observations`, `slot_forecasts`, and schedule/price data, and writes them into dedicated tables.
 
 2. **Parameter History Schema & Writes**
    * Create a `learning_param_history` table keyed by `run_id` and timestamp.
@@ -1755,6 +1755,22 @@
 4. **Verification & Alignment**
    * Validate that new metrics match expectations by spot-checking against raw `slot_observations`/`slot_forecasts`.
    * Confirm that parameter changes seen in `learning_param_history` align with `config.yaml` diffs and `learning_runs` entries.
+
+### Implementation
+
+* **Completed**:
+  * Step 1 (partial): Metrics schema & ETL for hourly PV/load deviations
+    * Extended the learning schema with a `learning_daily_series` table `(date, metric, values_json, created_at, PRIMARY KEY(date, metric))` to store per-day JSON series such as 24-element arrays.
+    * Added `LearningEngine.compute_hourly_forecast_errors(days_back=7)` which:
+      * Joins `slot_observations` and `slot_forecasts` over the last N days.
+      * Computes average PV and load forecast error per hour of day (actual - forecast in kWh) across that window.
+      * Returns two 24-element arrays: `pv_error_by_hour_kwh` and `load_error_by_hour_kwh`.
+    * Added `LearningEngine.store_hourly_forecast_errors(days_back=7)` which:
+      * Calls the above computation and writes the resulting arrays into `learning_daily_series` as JSON (`values_json`) under metrics `pv_error_by_hour_kwh` and `load_error_by_hour_kwh`, keyed by today’s date.
+    * Updated `NightlyOrchestrator.run_nightly_job` so that, after recording a completed run and S-index factor, it also calls `store_hourly_forecast_errors(...)` to persist the 24h PV/load deviation arrays for diagnostics and future learning use.
+* **In Progress**:
+  * Remaining metrics (SoC error, arbitrage/profit metrics, etc.) and parameter history schema/writes.
+* **Blocked**: —
 
 ---
 
