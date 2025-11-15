@@ -49,7 +49,7 @@ class LearningEngine:
 
     def _init_schema(self) -> None:
         """Initialize SQLite database schema"""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
 
             # Slot observations table
@@ -200,7 +200,7 @@ class LearningEngine:
         if not rows:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
             for row in rows:
                 slot_start = row.get("slot_start") or row.get("start_time")
@@ -380,7 +380,7 @@ class LearningEngine:
         if observations_df.empty:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             records = observations_df.to_dict("records")
 
             for record in records:
@@ -498,7 +498,7 @@ class LearningEngine:
         if not forecasts:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
 
             for forecast in forecasts:
@@ -530,7 +530,7 @@ class LearningEngine:
 
     def calculate_metrics(self, days_back: int = 7) -> Dict[str, Any]:
         """Calculate learning metrics for the last N days"""
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
 
             metrics = {}
@@ -680,7 +680,7 @@ class LearningEngine:
               AND f.load_forecast_kwh IS NOT NULL
         """
         records: list[tuple] = []
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             for row in conn.execute(sql, (cutoff_date.isoformat(),)):
                 records.append(row)
 
@@ -725,27 +725,11 @@ class LearningEngine:
 
     def store_hourly_forecast_errors(self, days_back: int = 7) -> None:
         """
-        Compute and persist hourly forecast error arrays into learning_daily_series.
-
-        Uses today's date as the key and overwrites any existing series for that date.
+        Compute and persist hourly forecast error arrays into learning_daily_metrics.
         """
         series = self.compute_hourly_forecast_errors(days_back=days_back)
         if not series:
             return
-
-        today = datetime.now(self.timezone).date().isoformat()
-        with sqlite3.connect(self.db_path) as conn:
-            cursor = conn.cursor()
-
-            # Persist raw error series
-            for metric, values in series.items():
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO learning_daily_series (date, metric, values_json)
-                    VALUES (?, ?, ?)
-                    """,
-                    (today, metric, json.dumps(values)),
-                )
 
         # Derive simple adjustment arrays (negated errors) for potential use
         # in forecast biasing: if actual > forecast, adjustment is positive.
@@ -815,7 +799,7 @@ class LearningEngine:
         """
         date_key = date.isoformat()
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
             # Ensure row exists
             cursor.execute(
@@ -889,7 +873,7 @@ class LearningEngine:
         Returns a dict with parsed arrays for PV/load error/adjustment and
         scalar fields (MAE, S-index, SoC error) where available.
         """
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -1124,7 +1108,7 @@ class DeterministicSimulator:
             ORDER BY slot_start
         """
         rows: List[Tuple[pd.Timestamp, pd.Timestamp, Dict[str, float]]] = []
-        with sqlite3.connect(self.engine.db_path) as conn:
+        with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
             for slot_start, slot_end, import_price, export_price in conn.execute(
                 sql, (day.isoformat(),)
             ):
@@ -1171,7 +1155,7 @@ class DeterministicSimulator:
             ORDER BY slot_start, id DESC
         """
         data: Dict[str, Tuple[pd.Timestamp, Dict[str, float]]] = {}
-        with sqlite3.connect(self.engine.db_path) as conn:
+        with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
             for slot_start, pv_kwh, load_kwh, temp_c, row_id in conn.execute(
                 sql, (day.isoformat(),)
             ):
@@ -1195,7 +1179,7 @@ class DeterministicSimulator:
     def _get_stored_historical_data(
         self, start_date: datetime, end_date: datetime
     ) -> Dict[str, list]:
-        with sqlite3.connect(self.engine.db_path) as conn:
+        with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
             obs_query = """
                 SELECT slot_start, slot_end, import_kwh, export_kwh, pv_kwh,
                        load_kwh, water_kwh, soc_start_percent, soc_end_percent,
@@ -1333,7 +1317,7 @@ class LearningLoops:
         """
         try:
             # Get recent forecast accuracy
-            with sqlite3.connect(self.engine.db_path) as conn:
+            with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
                 # Calculate PV bias by hour of day
                 pv_query = """
                     SELECT
@@ -1681,7 +1665,7 @@ class LearningLoops:
             )
 
             # Analyze export patterns to identify premature exports
-            with sqlite3.connect(self.engine.db_path) as conn:
+            with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
                 # Get export events with price information
                 export_query = """
                     SELECT o.slot_start, o.export_kwh, o.export_price_sek_kwh,
@@ -1889,7 +1873,8 @@ class NightlyOrchestrator:
 
             # Record completion
             job_end = datetime.now(self.engine.timezone)
-            with sqlite3.connect(self.engine.db_path) as conn:
+            base_factor: Optional[float] = None
+            with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
                     """
@@ -1922,15 +1907,21 @@ class NightlyOrchestrator:
                     cfg = {}
 
                 s_index_cfg = (cfg.get("s_index") or {}) if isinstance(cfg, dict) else {}
-                base_factor = s_index_cfg.get("base_factor") or s_index_cfg.get("static_factor")
-                if base_factor is not None:
-                    # Mirror into consolidated daily metrics so the planner has
-                    # a single place to read the learned S-index factor.
-                    self.engine.upsert_daily_metrics(
-                        job_start.date(), {"s_index_base_factor": float(base_factor)}
-                    )
+                raw_base = s_index_cfg.get("base_factor") or s_index_cfg.get("static_factor")
+                if raw_base is not None:
+                    try:
+                        base_factor = float(raw_base)
+                    except (TypeError, ValueError):
+                        base_factor = None
 
                 conn.commit()
+
+            # Mirror S-index base factor into consolidated daily metrics using
+            # a separate connection to avoid nested write locks.
+            if base_factor is not None:
+                self.engine.upsert_daily_metrics(
+                    job_start.date(), {"s_index_base_factor": float(base_factor)}
+                )
 
             # Compute and persist hourly forecast error arrays for diagnostics and
             # future learning use (e.g. Helios-style load/PV adjustment per hour).
@@ -1952,7 +1943,7 @@ class NightlyOrchestrator:
         except Exception as e:
             # Record failure
             if run_id is not None:
-                with sqlite3.connect(self.engine.db_path) as conn:
+                with sqlite3.connect(self.engine.db_path, timeout=30.0) as conn:
                     cursor = conn.cursor()
                     cursor.execute(
                         """
