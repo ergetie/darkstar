@@ -272,6 +272,7 @@ class HeliosPlanner:
         self.manual_planning = self.config.get("manual_planning", {}) or {}
         self.learning_config = self.config.get("learning", {})
         self._learning_schema_initialized = False
+        self.learning_overlays: dict[str, Any] = {}
         self.daily_pv_forecast: dict[str, float] = {}
         self.daily_load_forecast: dict[str, float] = {}
         self._last_temperature_forecast: dict[int, float] = {}
@@ -434,6 +435,67 @@ class HeliosPlanner:
             conn.commit()
 
         self._learning_schema_initialized = True
+
+    def _load_learning_overlays(self) -> dict:
+        """
+        Load latest learning adjustments (PV/load bias and S-index base factor).
+
+        Data is read from learning_daily_metrics, which stores one row per date
+        with 24h adjustment arrays and scalars. This method is intentionally
+        tolerant: if anything fails or no data exists, it returns an empty dict.
+        """
+        if not self._learning_enabled():
+            return {}
+
+        path = self._learning_db_path()
+        try:
+            with sqlite3.connect(path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT date,
+                           pv_adjustment_by_hour_kwh,
+                           load_adjustment_by_hour_kwh,
+                           s_index_base_factor
+                    FROM learning_daily_metrics
+                    ORDER BY date DESC
+                    LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+        except sqlite3.Error:
+            return {}
+
+        if not row:
+            return {}
+
+        _, pv_adj_json, load_adj_json, s_index_base = row
+
+        def _parse_series(raw):
+            if raw is None:
+                return None
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    return [float(v) for v in data]
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return None
+            return None
+
+        overlays: dict[str, Any] = {}
+        pv_adj = _parse_series(pv_adj_json)
+        load_adj = _parse_series(load_adj_json)
+        if pv_adj:
+            overlays["pv_adjustment_by_hour_kwh"] = pv_adj
+        if load_adj:
+            overlays["load_adjustment_by_hour_kwh"] = load_adj
+        if s_index_base is not None:
+            try:
+                overlays["s_index_base_factor"] = float(s_index_base)
+            except (TypeError, ValueError):
+                pass
+
+        return overlays
 
     def _get_home_assistant_water_heating_today(self) -> Optional[float]:
         """Return today's water heating consumption according to Home Assistant."""
@@ -812,6 +874,8 @@ class HeliosPlanner:
             pass
         self.daily_pv_forecast = input_data.get("daily_pv_forecast", {})
         self.daily_load_forecast = input_data.get("daily_load_forecast", {})
+        # Load latest learning adjustments (PV/load bias, S-index base_factor)
+        self.learning_overlays = self._load_learning_overlays()
         # Compute 'now' rounded up to next 15-minute slot in configured timezone
         try:
             now_slot = pd.Timestamp.now(tz=self.timezone).ceil("15min")
@@ -859,6 +923,34 @@ class HeliosPlanner:
         load_margin = forecasting.get("load_safety_margin_percent", 110.0) / 100.0
         df["adjusted_pv_kwh"] = df["pv_forecast_kwh"] * pv_confidence
         df["adjusted_load_kwh"] = df["load_forecast_kwh"] * load_margin
+
+        # Apply per-hour learning adjustments if available
+        overlays = getattr(self, "learning_overlays", {}) or {}
+        pv_adj = overlays.get("pv_adjustment_by_hour_kwh")
+        load_adj = overlays.get("load_adjustment_by_hour_kwh")
+        if pv_adj or load_adj:
+            try:
+                tz = pytz.timezone(self.timezone)
+            except Exception:
+                tz = pytz.timezone("Europe/Stockholm")
+
+            try:
+                local_index = df.index.tz_convert(tz)
+            except TypeError:
+                local_index = df.index.tz_localize(tz)
+
+            hours = local_index.hour
+            if pv_adj:
+                if len(pv_adj) == 24:
+                    df["adjusted_pv_kwh"] = df["adjusted_pv_kwh"] + hours.map(
+                        lambda h: float(pv_adj[h])
+                    ).values
+            if load_adj:
+                if len(load_adj) == 24:
+                    df["adjusted_load_kwh"] = df["adjusted_load_kwh"] + hours.map(
+                        lambda h: float(load_adj[h])
+                    ).values
+
         return df
 
     def _pass_1_identify_windows(self, df):
@@ -1548,14 +1640,23 @@ class HeliosPlanner:
             if self.is_strategic_period and (window_prices < strategic_price_threshold_sek).any():
                 strategic_windows.append(i)
 
-        # S-index factor (static or dynamic)
+        # S-index factor (static or dynamic, optionally adjusted by learning)
         s_index_cfg = self.config.get("s_index", {})
         s_index_mode = (s_index_cfg.get("mode") or "static").lower()
         s_index_max = float(s_index_cfg.get("max_factor", 1.50))
         static_factor = float(s_index_cfg.get("static_factor", 1.05))
         base_factor = float(s_index_cfg.get("base_factor", static_factor))
 
-        s_index_factor = min(static_factor, s_index_max)
+        # Apply learned base_factor if available
+        learned_overlays = getattr(self, "learning_overlays", {}) or {}
+        learned_base = learned_overlays.get("s_index_base_factor")
+        if isinstance(learned_base, (int, float)):
+            try:
+                base_factor = float(learned_base)
+            except (TypeError, ValueError):
+                base_factor = base_factor
+
+        s_index_factor = min(base_factor if s_index_mode == "static" else static_factor, s_index_max)
         s_index_debug = {
             "mode": s_index_mode,
             "static_factor": round(static_factor, 4),
@@ -1571,7 +1672,7 @@ class HeliosPlanner:
                 s_index_factor = dynamic_factor
                 s_index_debug.update(dynamic_debug)
             else:
-                s_index_factor = min(static_factor, s_index_max)
+                s_index_factor = min(base_factor, s_index_max)
                 s_index_debug["fallback"] = "static"
 
         s_index_debug["factor"] = round(s_index_factor, 4)
