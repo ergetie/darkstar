@@ -1972,38 +1972,24 @@ class NightlyOrchestrator:
         loop_results: List[Dict],
         run_id: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Apply parameter changes to configuration"""
-        try:
-            with open("config.yaml", "r", encoding="utf-8") as handle:
-                config = yaml.safe_load(handle) or {}
-            original_config = copy.deepcopy(config)
+        """
+        Record proposed parameter changes in the learning history without
+        mutating config.yaml.
 
+        The current design keeps config.yaml static; learning outputs used
+        by the planner live in SQLite (e.g. learning_daily_metrics). This
+        method now only records parameter-level history for observability.
+        """
+        if not changes:
+            return {}
+
+        try:
             diff_summary: Dict[str, Dict[str, Any]] = {}
 
+            # We no longer mutate config.yaml; instead we record the
+            # proposed new values as a virtual diff (old is unknown here).
             for key_path, new_value in changes.items():
-                keys = key_path.split(".")
-                current_orig = original_config
-                current_new = config
-                for key in keys[:-1]:
-                    current_orig = (
-                        current_orig.get(key, {}) if isinstance(current_orig, dict) else {}
-                    )
-                    current_new = current_new.setdefault(key, {})
-                old_value = current_orig.get(keys[-1]) if isinstance(current_orig, dict) else None
-                current_new[keys[-1]] = new_value
-                diff_summary[key_path] = {"old": old_value, "new": new_value}
-
-            fd, temp_path = tempfile.mkstemp(prefix="config_apply_", suffix=".yaml")
-            with os.fdopen(fd, "w", encoding="utf-8") as tmp_handle:
-                yaml.safe_dump(config, tmp_handle, default_flow_style=False)
-            try:
-                os.replace(temp_path, "config.yaml")
-            except OSError as exc:
-                # Handle cross-device renames (e.g. /tmp on different filesystem)
-                if exc.errno == errno.EXDEV:
-                    shutil.move(temp_path, "config.yaml")
-                else:
-                    raise
+                diff_summary[key_path] = {"old": None, "new": new_value}
 
             version_payload = {
                 "loops": {r["loop"]: r["metrics"] for r in loop_results},
@@ -2013,71 +1999,62 @@ class NightlyOrchestrator:
             with sqlite3.connect(self.engine.db_path) as conn:
                 cursor = conn.cursor()
 
-                # Persist the applied config version for traceability
+                # Persist the virtual config version for traceability
                 cursor.execute(
                     """
                     INSERT INTO config_versions (yaml_blob, reason, metrics_json, applied)
                     VALUES (?, ?, ?, ?)
                     """,
                     (
-                        yaml.safe_dump(config),
+                        "",  # yaml_blob left empty because we no longer write config.yaml
                         "; ".join(filter(None, [r.get("reason", "") for r in loop_results])),
                         json.dumps(version_payload),
-                        True,
+                        False,
                     ),
                 )
 
-                # Record parameter-level history for each applied change
-                if changes:
-                    # Build a simple map from param path → loop name based on prefixes
-                    def _infer_loop(path: str) -> str:
-                        if path.startswith("forecasting."):
-                            return "forecast_calibrator"
-                        if path.startswith("decision_thresholds."):
-                            return "threshold_tuner"
-                        if path.startswith("s_index."):
-                            return "s_index_tuner"
-                        if path.startswith("arbitrage.future_price_guard_buffer_sek"):
-                            return "export_guard_tuner"
-                        return ""
+                # Record parameter-level history for each proposed change
+                def _infer_loop(path: str) -> str:
+                    if path.startswith("forecasting."):
+                        return "forecast_calibrator"
+                    if path.startswith("decision_thresholds."):
+                        return "threshold_tuner"
+                    if path.startswith("s_index."):
+                        return "s_index_tuner"
+                    if path.startswith("arbitrage.future_price_guard_buffer_sek"):
+                        return "export_guard_tuner"
+                    return ""
 
-                    # Aggregate reasons from loop_results
-                    reason_text = "; ".join(
-                        filter(None, [r.get("reason", "") for r in loop_results])
-                    ) or None
+                reason_text = "; ".join(
+                    filter(None, [r.get("reason", "") for r in loop_results])
+                ) or None
 
-                    for key_path, change in diff_summary.items():
-                        old_val = change.get("old")
-                        new_val = change.get("new")
-                        loop_name = _infer_loop(key_path)
-                        cursor.execute(
-                            """
-                            INSERT INTO learning_param_history (
-                                run_id, param_path, old_value, new_value, loop, reason
-                            )
-                            VALUES (?, ?, ?, ?, ?, ?)
-                            """,
-                            (
-                                run_id,
-                                key_path,
-                                None if old_val is None else str(old_val),
-                                None if new_val is None else str(new_val),
-                                loop_name or None,
-                                reason_text,
-                            ),
+                for key_path, change in diff_summary.items():
+                    new_val = change.get("new")
+                    loop_name = _infer_loop(key_path)
+                    cursor.execute(
+                        """
+                        INSERT INTO learning_param_history (
+                            run_id, param_path, old_value, new_value, loop, reason
                         )
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            run_id,
+                            key_path,
+                            None,
+                            None if new_val is None else str(new_val),
+                            loop_name or None,
+                            reason_text,
+                        ),
+                    )
 
                 conn.commit()
 
             return changes
 
         except Exception as e:
-            print(f"Failed to apply changes: {e}")
-            try:
-                if "temp_path" in locals() and os.path.exists(temp_path):
-                    os.remove(temp_path)
-            except OSError:
-                pass
+            print(f"Failed to record parameter changes: {e}")
             return {}
 
 
