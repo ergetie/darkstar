@@ -160,6 +160,17 @@ class LearningEngine:
                 )
             )
 
+            # Sensor totals table for cumulative energy readings
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS sensor_totals (
+                    name TEXT PRIMARY KEY,
+                    last_value REAL,
+                    last_timestamp TEXT
+                )
+                """
+            )
+
             conn.commit()
 
     def store_slot_prices(self, price_rows: Iterable[Dict[str, Any]]) -> None:

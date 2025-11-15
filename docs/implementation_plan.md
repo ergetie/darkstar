@@ -1657,6 +1657,22 @@
       * `sensor.inverter_total_battery_discharge`
       * SoC sensor (already used via `battery_soc_percent` in `get_initial_state`) and Nordpool price data (already available).
     * Conclusion so far: the Darkstar learning engine’s orchestration and loops exist and were able to apply changes on 2025‑11‑03, but they are currently starved of meaningful data (no real energy flows, no forecast table), so all loops have effectively gone idle since run 6.
+  * Step 4: Real HA sensor ingestion for observations (Phase 1)
+    * Extended the learning schema with a `sensor_totals` table (`name`, `last_value`, `last_timestamp`) to track the last seen cumulative kWh per HA sensor and compute 15-minute deltas safely (clamped at zero on resets).
+    * Updated `record_observation_from_current_state` so that, instead of hard-coding zeros, it now:
+      * Fetches the agreed HA cumulative energy sensors via `get_home_assistant_sensor_float`:
+        * `sensor.inverter_total_production` (PV),
+        * `sensor.inverter_total_load_consumption` (load),
+        * `sensor.inverter_total_energy_import` (grid import),
+        * `sensor.inverter_total_energy_export` (grid export),
+        * `sensor.inverter_total_battery_charge` (battery charge),
+        * `sensor.inverter_total_battery_discharge` (battery discharge).
+      * Computes per-slot kWh deltas by comparing each total with `sensor_totals.last_value`, initialising with zero delta on first sight and clamping negative deltas to zero (to handle counter resets).
+      * Writes these deltas into `slot_observations` as:
+        * `import_kwh`, `export_kwh`, `pv_kwh`, `load_kwh`, `batt_charge_kwh`, `batt_discharge_kwh`,
+        * plus SoC start/end from `get_initial_state` and a `quality_flags="auto_recorded"` marker (prices still 0.0 for now).
+      * Keeps the existing guard that prevents double-recording the same slot (`slot_start` + non-null `soc_end_percent`).
+    * This makes `slot_observations` begin to reflect real energy flows from the inverter, aligning Darkstar’s observation logging conceptually with the Helios Execution History flow (albeit without prices/profit yet).
 * **In Progress**: —
 * **Blocked**: —
 
