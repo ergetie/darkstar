@@ -1888,7 +1888,7 @@
 
 * **In Progress**:
   * Step 4: Config & learning separation
-    * `_apply_changes` still writes changes into `config.yaml`; gating or removing this behaviour so that all learning outputs are DB-only remains to be completed.
+    * `_apply_changes` has been changed to no longer mutate `config.yaml`. Instead it records proposed changes into `config_versions` (with an empty yaml_blob and `applied=False`) and `learning_param_history` purely for observability. The planner now reads all learning outputs (PV/load adjustments, S-index base factor) from SQLite; `config.yaml` remains static except for user edits.
   * Step 5: Learning UI alignment & backlog hooks
     * The Learning tab still shows runs + S-index history + recent changes; exposing the consolidated daily metrics (PV/load MAE, S-index base factor, etc.) and clearly separating “base config” vs “learned adjustments” remains TODO.
 
