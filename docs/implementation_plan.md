@@ -1689,9 +1689,9 @@
 
 ---
 
-## Rev 52 — Learning Metrics & Parameter History *(Status: 📋 Planned)*
+## Rev 52 — Learning Metrics & Parameter History *(Status: ✅ Completed)*
 
-* **Model**: GPT-5.1 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI
 * **Summary**: Add proper learning metrics and parameter-change history to the SQLite DB so we are no longer relying on `config.yaml` as the only record of learning, and make this history visible in the Learning UI.
 * **Started**: — (planned)
 * **Last Updated**: — (planned)
@@ -1759,7 +1759,7 @@
 ### Implementation
 
 * **Completed**:
-  * Step 1 (partial): Metrics schema & ETL for hourly PV/load deviations
+  * Step 1: Metrics schema & ETL for hourly PV/load deviations
     * Extended the learning schema with a `learning_daily_series` table `(date, metric, values_json, created_at, PRIMARY KEY(date, metric))` to store per-day JSON series such as 24-element arrays.
     * Added `LearningEngine.compute_hourly_forecast_errors(days_back=7)` which:
       * Joins `slot_observations` and `slot_forecasts` over the last N days.
@@ -1767,14 +1767,129 @@
       * Returns two 24-element arrays: `pv_error_by_hour_kwh` and `load_error_by_hour_kwh`.
     * Added `LearningEngine.store_hourly_forecast_errors(days_back=7)` which:
       * Calls the above computation and writes the resulting arrays into `learning_daily_series` as JSON (`values_json`) under metrics `pv_error_by_hour_kwh` and `load_error_by_hour_kwh`, keyed by today’s date.
-    * Updated `NightlyOrchestrator.run_nightly_job` so that, after recording a completed run and S-index factor, it also calls `store_hourly_forecast_errors(...)` to persist the 24h PV/load deviation arrays for diagnostics and future learning use.
-* **In Progress**:
-  * Remaining metrics (SoC error, arbitrage/profit metrics, etc.) and parameter history schema/writes.
-* **Blocked**: —
+      * Derives adjustment arrays `pv_adjustment_by_hour_kwh` and `load_adjustment_by_hour_kwh` (negated errors) and persists them in `learning_daily_series` for potential future use in forecast biasing.
+      * Stores simple daily aggregate metrics `pv_error_mean_abs_kwh` and `load_error_mean_abs_kwh` in `learning_metrics`, keyed by date.
+      * Updates `NightlyOrchestrator.run_nightly_job` so that, after recording a completed run and S-index factor, it also calls `store_hourly_forecast_errors(...)` to persist the 24h PV/load deviation arrays and daily aggregates.
+  * Step 2: Parameter history schema & writes
+    * Added a `learning_param_history` table `(id, run_id, param_path, old_value, new_value, loop, reason, created_at)` to store per-parameter changes applied by the learning engine.
+    * Updated `_apply_changes` to accept a `run_id` and, whenever config changes are applied:
+      * Compute a `diff_summary` of `old`/`new` values per `param_path`.
+      * Infer the originating loop for each parameter (e.g. `forecast_calibrator`, `threshold_tuner`, `s_index_tuner`, `export_guard_tuner`) based on key prefixes.
+      * Aggregate human-readable reasons from loop results.
+      * Insert one row per changed parameter into `learning_param_history`, keyed by the `run_id`.
+    * Ensured `config_versions` continues to store the full YAML blob and loop metrics JSON, while `learning_param_history` provides a flat, queryable view of “what changed, when, and why”.
+  * Step 3: API & UI wiring for learning history
+    * Extended `/api/learning/history` to return:
+      * `runs`: the existing list of learning runs.
+      * `s_index_history`: daily `s_index.base_factor` values pulled from `learning_metrics`.
+      * `recent_changes`: the 20 most recent parameter changes from `learning_param_history` joined with `learning_runs` to attach `started_at` timestamps.
+    * Updated the frontend API types in `frontend/src/lib/api.ts` to include `LearningParamChange` and `recent_changes` on `LearningHistoryResponse`.
+    * Enhanced the Learning tab history section to render:
+      * The existing mini-chart with “changes applied” bars and S-index line.
+      * A “Recent changes” list showing, for each change, the parameter path, `old_value → new_value`, originating loop/reason (when available), and the associated run timestamp.
+* **In Progress**: —
+* **Blocked**:
+  * Additional metrics such as detailed SoC tracking error and arbitrage/profit metrics remain in the backlog and will be implemented in a later rev once we either ingest richer execution history (Helios-style) or expose equivalent data into the learning DB.
 
 ---
 
-## Rev 53 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
+## Rev 53 — Learning Engine Architecture & Planner Integration *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Simplify and solidify the learning engine so that it uses a clear, Helios-style execution-history flow, stores one daily learning-output row per day, and feeds those outputs directly into the planner without rewriting `config.yaml`.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Separate static configuration (`config.yaml`) from dynamic, learned state in SQLite so there is a single, transparent source of truth for learning outputs.
+  * Consolidate per-day learning outputs (PV/load adjustments, SoC error metrics, S-index factors, etc.) into a single row per day/run for easier debugging and UI integration.
+  * Make the planner actually consume learning outputs on each run (biasing PV/load forecasts and S-index) while keeping the scope of automatic tuning modest for now.
+
+* **Scope**:
+  * Data model & flow:
+    * Introduce or refactor towards a unified per-slot history model (conceptually equivalent to Helios’ `execution_history`) that combines plan and reality per slot, at least locally in SQLite:
+      * Key fields: `slot_start`, `slot_end`, planned_* (charge/export/SoC/load/PV/prices) and actual_* (kWh, SoC, etc.), plus quality flags.
+      * Ensure this history can be derived from or aligned with MariaDB’s `execution_history` / `plan_history` where appropriate, without breaking the existing executor.
+    * Add a `learning_daily_metrics`-style table with exactly one row per date (or per `run_id`) containing:
+      * 24-element PV/load error and adjustment arrays.
+      * Basic SoC error metrics (mean/stddev, optionally by hour).
+      * S-index factor(s) and a few key scalars (e.g. pv/load MAE).
+    * Stop relying on `learning_daily_series`/`learning_metrics` as a scattered per-metric store for new data; either migrate to the new table or clearly mark legacy usage.
+  * Learning behaviour:
+    * Refactor the nightly learning orchestration so that:
+      * It reads per-slot history (plan + actual) for the last N days.
+      * Computes the minimal but useful set of outputs for this rev:
+        * PV/load 24h adjustment arrays (bias per hour).
+        * Basic SoC tracking error metrics.
+        * S-index factor for the next planning horizon.
+      * Writes a single, consolidated row into the daily metrics table.
+    * Stop writing learned values back into `config.yaml`; instead, treat the new daily metrics table (plus optional `learning_param_history`) as the only record of learning outputs.
+  * Planner integration:
+    * On each planner run:
+      * Read the latest daily metrics row (if present).
+      * Bias PV/load forecasts by the stored 24h adjustments when building the forecast for each slot.
+      * Use the learned S-index factor when computing the S-index, subject to bounds from `config.yaml`.
+    * Keep advanced automatic tuning (e.g. fine-grained threshold/arbitrage parameter changes) out of this rev and move them explicitly to the backlog.
+  * UI/UX:
+    * Ensure the Learning tab surfaces:
+      * The consolidated daily metrics (including PV/load MAE and SoC error) in a simple, inspectable way.
+      * The separation between static config and learned outputs is clear (e.g. “Base config” vs “Learned adjustments”).
+
+* **Dependencies**:
+  * Rev 51 (learning DB wiring and loop correctness).
+  * Rev 52 (learning metrics & parameter history wiring).
+  * Existing planner behaviour and inputs.
+
+* **Acceptance Criteria**:
+  * Static vs dynamic:
+    * `config.yaml` is no longer mutated by learning loops; it remains static except when changed by the user or explicit migrations.
+    * All learning outputs used by the planner live in the SQLite DB in well-defined tables.
+  * Data model:
+    * There is exactly one primary daily learning-output row per date/run, containing PV/load adjustment arrays, basic SoC error metrics, and S-index factors.
+    * Per-slot history (plan + actual) is available in a form that resembles Helios’ `execution_history` and is used as the input to learning.
+  * Planner integration:
+    * The planner reads the latest daily learning outputs on each run and biases PV/load forecasts and S-index accordingly.
+    * If learning data is missing or incomplete, the planner falls back gracefully to base `config.yaml` behaviour.
+  * UI:
+    * The Learning tab can show, for recent days, both the daily outputs (arrays/metrics) and the per-run history, without the user needing to inspect raw config diffs.
+
+### Implementation Steps (Planned)
+
+1. **Learning Data Model & Flow Redesign**
+   * Document the current slot_observations/slot_forecasts layout and how it relates to MariaDB’s `execution_history`/`plan_history`.
+   * Design a unified per-slot history model (locally in SQLite) that combines planned and actual metrics per slot.
+   * Introduce a `learning_daily_metrics` table (or refactor existing tables) to store one consolidated row per day/run with 24h arrays and key scalars.
+
+2. **Nightly Learning Output Consolidation**
+   * Refactor the nightly learning orchestrator so it:
+     * Reads per-slot history for the last N days.
+     * Computes PV/load hourly adjustments, SoC error metrics, and S-index factor.
+     * Writes a single consolidated row into `learning_daily_metrics` for that date/run.
+   * Deprecate or stop writing new data into `learning_daily_series` where it duplicates the new daily metrics table.
+
+3. **Planner Consumption of Learning Outputs**
+   * Update the planner’s input/forecast-building code so that:
+     * It fetches the latest daily metrics row before generating a schedule.
+     * It applies PV/load adjustment arrays as forecast biases per hour.
+     * It uses the learned S-index factor (within configured bounds) instead of a purely static value.
+   * Ensure the planner behaves sensibly when no learning outputs exist yet (e.g. first day).
+
+4. **Config & Learning Separation**
+   * Remove or gate `_apply_changes` so that learning no longer writes parameter changes into `config.yaml`.
+   * If needed, keep `learning_param_history` purely as an audit log of virtual/derived parameters rather than config diffs.
+   * Update documentation to clearly state that `config.yaml` is static and learning outputs live in the DB.
+
+5. **Learning UI Alignment & Backlog Hooks**
+   * Extend the Learning tab to:
+     * Show a simple view of daily learning outputs (PV/load MAE, SoC error, S-index factor) sourced from the new daily metrics table.
+     * Clarify which values are base config vs learned adjustments.
+   * Capture advanced tuning (detailed thresholds, profit/arbitrage optimisation, richer SoC metrics) as explicit backlog items to be tackled in later revs once this architecture is stable.
+
+---
+
+## Rev 54 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Persist S-index factor history and enhance the Learning and Debug tabs so operators can see how learning affects the system over time.
@@ -1851,7 +1966,7 @@
 
 ---
 
-## Rev 54 — Production Readiness Slice *(Status: 📋 Planned)*
+## Rev 55 — Production Readiness Slice *(Status: 📋 Planned)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the UI behaves well in real use.

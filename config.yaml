@@ -38,8 +38,8 @@ decision_thresholds:
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
 forecasting:
-  load_safety_margin_percent: 111.0
-  pv_confidence_percent: 89.0
+  load_safety_margin_percent: 113.0
+  pv_confidence_percent: 87.0
 learning:
   auto_apply: true
   default_battery_cost_sek_per_kwh: 0.2
