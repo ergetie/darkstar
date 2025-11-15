@@ -1441,7 +1441,7 @@ def record_observation_from_current_state():
             if not initial_state:
                 return  # No data available
 
-            # Create observation record
+            # Create observation record aligned to 15-minute slots
             current_slot_start = now.replace(
                 minute=(now.minute // 15) * 15, second=0, microsecond=0
             )
@@ -1459,23 +1459,108 @@ def record_observation_from_current_state():
                 )
                 existing_count = cursor.fetchone()[0]
 
-                if existing_count > 0:
-                    logger.info(
-                        "[learning] Observation already exists for slot %s",
-                        current_slot_start.isoformat(),
+            if existing_count > 0:
+                logger.info(
+                    "[learning] Observation already exists for slot %s",
+                    current_slot_start.isoformat(),
+                )
+                return  # Skip if already recorded
+
+            # Fetch cumulative energy sensors from Home Assistant
+            # These are total-increasing kWh counters on the inverter.
+            sensor_totals = {
+                "pv_total": get_home_assistant_sensor_float(
+                    "sensor.inverter_total_production"
+                ),
+                "load_total": get_home_assistant_sensor_float(
+                    "sensor.inverter_total_load_consumption"
+                ),
+                "grid_import_total": get_home_assistant_sensor_float(
+                    "sensor.inverter_total_energy_import"
+                ),
+                "grid_export_total": get_home_assistant_sensor_float(
+                    "sensor.inverter_total_energy_export"
+                ),
+                "battery_charge_total": get_home_assistant_sensor_float(
+                    "sensor.inverter_total_battery_charge"
+                ),
+                "battery_discharge_total": get_home_assistant_sensor_float(
+                    "sensor.inverter_total_battery_discharge"
+                ),
+            }
+
+            # Compute deltas vs last recorded totals
+            deltas = {
+                "pv_kwh": 0.0,
+                "load_kwh": 0.0,
+                "import_kwh": 0.0,
+                "export_kwh": 0.0,
+                "batt_charge_kwh": 0.0,
+                "batt_discharge_kwh": 0.0,
+            }
+
+            with sqlite3.connect(engine.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS sensor_totals (
+                        name TEXT PRIMARY KEY,
+                        last_value REAL,
+                        last_timestamp TEXT
                     )
-                    return  # Skip if already recorded
+                    """
+                )
+
+                for name, value in sensor_totals.items():
+                    if value is None:
+                        continue
+                    cursor.execute(
+                        "SELECT last_value FROM sensor_totals WHERE name = ?", (name,)
+                    )
+                    row = cursor.fetchone()
+                    if row is None:
+                        # First observation for this sensor – initialise without delta
+                        delta = 0.0
+                        cursor.execute(
+                            "INSERT INTO sensor_totals (name, last_value, last_timestamp) "
+                            "VALUES (?, ?, ?)",
+                            (name, float(value), now.isoformat()),
+                        )
+                    else:
+                        last_value = float(row[0])
+                        raw_delta = float(value) - last_value
+                        delta = max(0.0, raw_delta)
+                        cursor.execute(
+                            "UPDATE sensor_totals SET last_value = ?, last_timestamp = ? "
+                            "WHERE name = ?",
+                            (float(value), now.isoformat(), name),
+                        )
+
+                    if name == "pv_total":
+                        deltas["pv_kwh"] = delta
+                    elif name == "load_total":
+                        deltas["load_kwh"] = delta
+                    elif name == "grid_import_total":
+                        deltas["import_kwh"] = delta
+                    elif name == "grid_export_total":
+                        deltas["export_kwh"] = delta
+                    elif name == "battery_charge_total":
+                        deltas["batt_charge_kwh"] = delta
+                    elif name == "battery_discharge_total":
+                        deltas["batt_discharge_kwh"] = delta
+
+                conn.commit()
 
             observation = {
                 "slot_start": current_slot_start.isoformat(),
                 "slot_end": current_slot_end.isoformat(),
-                "import_kwh": 0.0,
-                "export_kwh": 0.0,
-                "pv_kwh": 0.0,
-                "load_kwh": 0.0,
+                "import_kwh": deltas["import_kwh"],
+                "export_kwh": deltas["export_kwh"],
+                "pv_kwh": deltas["pv_kwh"],
+                "load_kwh": deltas["load_kwh"],
                 "water_kwh": 0.0,
-                "batt_charge_kwh": 0.0,
-                "batt_discharge_kwh": 0.0,
+                "batt_charge_kwh": deltas["batt_charge_kwh"],
+                "batt_discharge_kwh": deltas["batt_discharge_kwh"],
                 "soc_start_percent": initial_state.get("battery_soc_percent", 0),
                 "soc_end_percent": initial_state.get("battery_soc_percent", 0),
                 "import_price_sek_kwh": 0.0,
@@ -1487,9 +1572,14 @@ def record_observation_from_current_state():
             observations_df = pd.DataFrame([observation])
             engine.store_slot_observations(observations_df)
             logger.info(
-                "[learning] Recorded observation for slot %s: %s%%",
+                "[learning] Recorded observation for slot %s: soc=%s%%, "
+                "import=%.3f kWh, export=%.3f kWh, pv=%.3f kWh, load=%.3f kWh",
                 current_slot_start.isoformat(),
                 initial_state.get("battery_soc_percent", 0),
+                deltas["import_kwh"],
+                deltas["export_kwh"],
+                deltas["pv_kwh"],
+                deltas["load_kwh"],
             )
 
         except Exception:
