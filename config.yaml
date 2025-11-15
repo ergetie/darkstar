@@ -28,7 +28,7 @@ charging_strategy:
   consolidation_max_gap_slots: 0
   price_smoothing_sek_kwh: 0.05
 dashboard:
-  auto_refresh_enabled: false
+  auto_refresh_enabled: true
   overlay_defaults: charge, socTarget, socProjected, water, discharge, export
 debug:
   enable_planner_debug: false
@@ -38,8 +38,8 @@ decision_thresholds:
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
 forecasting:
-  load_safety_margin_percent: 110.0
-  pv_confidence_percent: 90.0
+  load_safety_margin_percent: 111.0
+  pv_confidence_percent: 89.0
 learning:
   auto_apply: true
   default_battery_cost_sek_per_kwh: 0.2
@@ -55,7 +55,7 @@ learning:
     s_index_pv_deficit_weight: 0.05
     s_index_temp_weight: 0.05
   min_improvement_threshold: 0.015
-  min_sample_threshold: 36
+  min_sample_threshold: 2
   sensor_map: {}
   sqlite_path: data/planner_learning.db
   sync_interval_minutes: 5
