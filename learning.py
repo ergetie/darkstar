@@ -162,6 +162,19 @@ class LearningEngine:
                 )
             )
 
+            # Daily series metrics (e.g. 24h arrays) for learning
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS learning_daily_series (
+                    date TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    values_json TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY(date, metric)
+                )
+                """
+            )
+
             # Sensor totals table for cumulative energy readings
             cursor.execute(
                 """
@@ -637,6 +650,95 @@ class LearningEngine:
                 metrics["last_learning_run"] = runs_result[3]
 
             return metrics
+
+    def compute_hourly_forecast_errors(self, days_back: int = 7) -> Optional[dict]:
+        """
+        Compute average PV and load forecast error per hour of day over the last N days.
+
+        Returns a dict with two 24-element lists (one per hour, 0–23) for PV and load
+        errors in kWh (actual - forecast).
+        """
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
+        sql = """
+            SELECT o.slot_start,
+                   o.pv_kwh,
+                   o.load_kwh,
+                   f.pv_forecast_kwh,
+                   f.load_forecast_kwh
+            FROM slot_observations o
+            JOIN slot_forecasts f ON o.slot_start = f.slot_start
+            WHERE DATE(o.slot_start) >= ?
+              AND o.pv_kwh IS NOT NULL
+              AND o.load_kwh IS NOT NULL
+              AND f.pv_forecast_kwh IS NOT NULL
+              AND f.load_forecast_kwh IS NOT NULL
+        """
+        records: list[tuple] = []
+        with sqlite3.connect(self.db_path) as conn:
+            for row in conn.execute(sql, (cutoff_date.isoformat(),)):
+                records.append(row)
+
+        if not records:
+            return None
+
+        pv_errors_by_hour = [[] for _ in range(24)]
+        load_errors_by_hour = [[] for _ in range(24)]
+
+        for slot_start, pv_kwh, load_kwh, pv_forecast, load_forecast in records:
+            try:
+                ts = pd.Timestamp(slot_start)
+                if ts.tzinfo is None:
+                    ts = ts.tz_localize(self.timezone)
+                else:
+                    ts = ts.tz_convert(self.timezone)
+                hour = ts.hour
+            except Exception:
+                continue
+
+            try:
+                pv_err = float(pv_kwh or 0.0) - float(pv_forecast or 0.0)
+                load_err = float(load_kwh or 0.0) - float(load_forecast or 0.0)
+            except (TypeError, ValueError):
+                continue
+
+            pv_errors_by_hour[hour].append(pv_err)
+            load_errors_by_hour[hour].append(load_err)
+
+        def _avg(values: list[float]) -> float:
+            if not values:
+                return 0.0
+            return sum(values) / float(len(values))
+
+        pv_series = [round(_avg(vals), 4) for vals in pv_errors_by_hour]
+        load_series = [round(_avg(vals), 4) for vals in load_errors_by_hour]
+
+        return {
+            "pv_error_by_hour_kwh": pv_series,
+            "load_error_by_hour_kwh": load_series,
+        }
+
+    def store_hourly_forecast_errors(self, days_back: int = 7) -> None:
+        """
+        Compute and persist hourly forecast error arrays into learning_daily_series.
+
+        Uses today's date as the key and overwrites any existing series for that date.
+        """
+        series = self.compute_hourly_forecast_errors(days_back=days_back)
+        if not series:
+            return
+
+        today = datetime.now(self.timezone).date().isoformat()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            for metric, values in series.items():
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO learning_daily_series (date, metric, values_json)
+                    VALUES (?, ?, ?)
+                    """,
+                    (today, metric, json.dumps(values)),
+                )
+            conn.commit()
 
     def get_status(self) -> Dict[str, Any]:
         """Get learning engine status and metrics"""
@@ -1652,6 +1754,13 @@ class NightlyOrchestrator:
                     )
 
                 conn.commit()
+
+            # Compute and persist hourly forecast error arrays for diagnostics and
+            # future learning use (e.g. Helios-style load/PV adjustment per hour).
+            try:
+                self.engine.store_hourly_forecast_errors(days_back=self.learning_config.get("horizon_days", 7))
+            except Exception as exc:
+                print(f"Failed to store hourly forecast errors: {exc}")
 
             return {
                 "status": "completed",
