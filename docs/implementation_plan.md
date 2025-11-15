@@ -1689,7 +1689,76 @@
 
 ---
 
-## Rev 52 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
+## Rev 52 — Learning Metrics & Parameter History *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Add proper learning metrics and parameter-change history to the SQLite DB so we are no longer relying on `config.yaml` as the only record of learning, and make this history visible in the Learning UI.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Keep `config.yaml` as the source of truth for current tunable parameters while moving learning history into dedicated SQLite tables.
+  * Provide a clear, queryable record of what the learning engine has done over time (metrics and parameter changes), similar to Helios’ `learning_metrics` and `config history`.
+  * Surface this history in the Learning tab so operators can see “what changed, when, and why” without digging into raw JSON blobs.
+
+* **Scope**:
+  * Metrics:
+    * Extend the existing `learning_metrics` table to store daily aggregates beyond S-index, e.g.:
+      * Load adjustment per hour (`load_adjustment_kwh[24]`).
+      * SoC tracking error (avg/stddev).
+      * PV forecast error (avg/stddev).
+      * Arbitrage success metrics and profit aggregates.
+    * Add a small ETL in the learning engine (using `slot_observations`, `slot_forecasts`, and possibly schedule/price data) to compute these aggregates once per day, similar in spirit to the Helios n8n Learning Engine flow.
+  * Parameter-change history:
+    * Introduce a `learning_param_history` table with columns like:
+      * `run_id`, `timestamp`, `param_path`, `old_value`, `new_value`, `loop`, `reason`.
+    * Populate this table in `_apply_changes` whenever config changes are applied, instead of relying solely on `config_versions.metrics_json`.
+    * Ensure we can reconstruct how key parameters (e.g. `forecasting.pv_confidence_percent`, `forecasting.load_safety_margin_percent`, S-index factors, thresholds) have evolved over time.
+  * UI integration:
+    * Extend the Learning tab with:
+      * A “Recent Changes” list showing the last N parameter changes (param path, old → new, loop, reason, timestamp).
+      * Optional small tables/mini-charts for key metrics over time (e.g. PV/load MAE, SoC error, arbitrage success rate).
+
+* **Dependencies**:
+  * Rev 51 (learning DB wiring and loop correctness).
+  * Existing Learning tab implementation (Rev 44/52) as a place to surface metrics.
+
+* **Acceptance Criteria**:
+  * SQLite DB contains:
+    * Daily learning metrics (beyond S-index) in `learning_metrics`.
+    * A clear per-run/per-change history in `learning_param_history`.
+  * Learning tab can show:
+    * Recent parameter changes with context.
+    * At least one or two key learning metrics over time.
+  * We no longer need to treat `config.yaml` as a history store; it remains only the current configuration.
+
+### Implementation Steps (Planned)
+
+1. **Metrics Schema & ETL**
+   * Design the extended `learning_metrics` row format (date + metric + value, and/or structured JSON payloads per day).
+   * Implement a daily ETL in the learning engine that computes the desired metrics from `slot_observations`, `slot_forecasts`, and schedule/price data, and writes them into `learning_metrics`.
+
+2. **Parameter History Schema & Writes**
+   * Create a `learning_param_history` table keyed by `run_id` and timestamp.
+   * Update `_apply_changes` to insert one row per changed parameter path (with old/new values, loop, and reason) when changes are applied.
+
+3. **API & UI Wiring**
+   * Extend `/api/learning/history` or add a dedicated endpoint to expose:
+     * Recent parameter changes (from `learning_param_history`).
+     * Selected daily metrics (from `learning_metrics`).
+   * Update the Learning tab to render:
+     * A “Recent Changes” list.
+     * A simple metrics view (e.g. PV/load MAE over time or arbitrage success rate).
+
+4. **Verification & Alignment**
+   * Validate that new metrics match expectations by spot-checking against raw `slot_observations`/`slot_forecasts`.
+   * Confirm that parameter changes seen in `learning_param_history` align with `config.yaml` diffs and `learning_runs` entries.
+
+---
+
+## Rev 53 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Persist S-index factor history and enhance the Learning and Debug tabs so operators can see how learning affects the system over time.
@@ -1766,7 +1835,7 @@
 
 ---
 
-## Rev 53 — Production Readiness Slice *(Status: 📋 Planned)*
+## Rev 54 — Production Readiness Slice *(Status: 📋 Planned)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the UI behaves well in real use.
