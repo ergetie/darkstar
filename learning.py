@@ -136,6 +136,25 @@ class LearningEngine:
             """
             )
 
+            # Consolidated per-day learning outputs (one row per date/run)
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS learning_daily_metrics (
+                    date TEXT PRIMARY KEY,
+                    pv_error_by_hour_kwh TEXT,
+                    load_error_by_hour_kwh TEXT,
+                    pv_adjustment_by_hour_kwh TEXT,
+                    load_adjustment_by_hour_kwh TEXT,
+                    soc_error_mean_pct REAL,
+                    soc_error_stddev_pct REAL,
+                    pv_error_mean_abs_kwh REAL,
+                    load_error_mean_abs_kwh REAL,
+                    s_index_base_factor REAL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
             # Create indexes for performance
             cursor.execute(
                 (
@@ -801,6 +820,24 @@ class LearningEngine:
                     (today, metric_name, float(value)),
                 )
 
+            # Also mirror the daily aggregates into the consolidated
+            # learning_daily_metrics table so there is exactly one row per
+            # date with the key scalars. Arrays are handled elsewhere.
+            cursor.execute(
+                """
+                INSERT INTO learning_daily_metrics (
+                    date,
+                    pv_error_mean_abs_kwh,
+                    load_error_mean_abs_kwh
+                )
+                VALUES (?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    pv_error_mean_abs_kwh = excluded.pv_error_mean_abs_kwh,
+                    load_error_mean_abs_kwh = excluded.load_error_mean_abs_kwh
+                """,
+                (today, float(pv_mae_daily), float(load_mae_daily)),
+            )
+
             conn.commit()
 
     def get_status(self) -> Dict[str, Any]:
@@ -830,6 +867,68 @@ class LearningEngine:
                 "last_updated": datetime.now(self.timezone).isoformat(),
             }
 
+    def upsert_daily_metrics(self, date: datetime.date, payload: Dict[str, Any]) -> None:
+        """
+        Upsert a single consolidated daily metrics row for the given date.
+
+        This is the new, one-row-per-day surface for learning outputs that the
+        planner can consume. Arrays are stored as JSON strings; scalars as
+        numeric columns.
+        """
+        date_key = date.isoformat()
+        pv_err = payload.get("pv_error_by_hour_kwh")
+        load_err = payload.get("load_error_by_hour_kwh")
+        pv_adj = payload.get("pv_adjustment_by_hour_kwh")
+        load_adj = payload.get("load_adjustment_by_hour_kwh")
+
+        soc_mean = payload.get("soc_error_mean_pct")
+        soc_std = payload.get("soc_error_stddev_pct")
+        pv_mae = payload.get("pv_error_mean_abs_kwh")
+        load_mae = payload.get("load_error_mean_abs_kwh")
+        s_index_base = payload.get("s_index_base_factor")
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO learning_daily_metrics (
+                    date,
+                    pv_error_by_hour_kwh,
+                    load_error_by_hour_kwh,
+                    pv_adjustment_by_hour_kwh,
+                    load_adjustment_by_hour_kwh,
+                    soc_error_mean_pct,
+                    soc_error_stddev_pct,
+                    pv_error_mean_abs_kwh,
+                    load_error_mean_abs_kwh,
+                    s_index_base_factor
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date) DO UPDATE SET
+                    pv_error_by_hour_kwh = excluded.pv_error_by_hour_kwh,
+                    load_error_by_hour_kwh = excluded.load_error_by_hour_kwh,
+                    pv_adjustment_by_hour_kwh = excluded.pv_adjustment_by_hour_kwh,
+                    load_adjustment_by_hour_kwh = excluded.load_adjustment_by_hour_kwh,
+                    soc_error_mean_pct = excluded.soc_error_mean_pct,
+                    soc_error_stddev_pct = excluded.soc_error_stddev_pct,
+                    pv_error_mean_abs_kwh = excluded.pv_error_mean_abs_kwh,
+                    load_error_mean_abs_kwh = excluded.load_error_mean_abs_kwh,
+                    s_index_base_factor = excluded.s_index_base_factor
+                """,
+                (
+                    date_key,
+                    json.dumps(pv_err) if pv_err is not None else None,
+                    json.dumps(load_err) if load_err is not None else None,
+                    json.dumps(pv_adj) if pv_adj is not None else None,
+                    json.dumps(load_adj) if load_adj is not None else None,
+                    None if soc_mean is None else float(soc_mean),
+                    None if soc_std is None else float(soc_std),
+                    None if pv_mae is None else float(pv_mae),
+                    None if load_mae is None else float(load_mae),
+                    None if s_index_base is None else float(s_index_base),
+                ),
+            )
+            conn.commit()
 
 # Global instance for webapp
 _learning_engine = None
