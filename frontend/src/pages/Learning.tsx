@@ -547,9 +547,45 @@ export default function Learning() {
                     <div className="text-[13px] text-muted/80 mb-2">
                         Recent learning runs and how many parameter changes were applied.
                     </div>
-                    <div className="h-40">
+                    <div className="h-40 mb-3">
                         <canvas ref={historyCanvasRef} className="w-full h-full" />
                     </div>
+                    {history?.recent_changes && history.recent_changes.length > 0 && (
+                        <div className="mt-1 border-t border-line/50 pt-2">
+                            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">
+                                Recent changes
+                            </div>
+                            <div className="space-y-1.5 max-h-32 overflow-auto text-[11px] text-muted/90">
+                                {history.recent_changes.slice(0, 6).map((chg, idx) => (
+                                    <div key={`${chg.run_id ?? 'r'}-${chg.param_path}-${idx}`}>
+                                        <div className="flex items-center justify-between">
+                                            <span className="truncate max-w-[10rem]">
+                                                {chg.param_path}
+                                            </span>
+                                            <span className="ml-2 tabular-nums text-right">
+                                                {chg.old_value ?? '—'}{' '}
+                                                <span className="mx-0.5 text-muted/70">→</span>
+                                                {chg.new_value ?? '—'}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between text-[10px] text-muted/70">
+                                            <span>
+                                                {chg.loop || 'learning'}{' '}
+                                                {chg.reason && (
+                                                    <span className="ml-1 line-clamp-1">
+                                                        · {chg.reason}
+                                                    </span>
+                                                )}
+                                            </span>
+                                            {chg.started_at && (
+                                                <span>{formatTimestamp(chg.started_at)}</span>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </Card>
             </div>
         </main>

@@ -79,9 +79,20 @@ export type SIndexHistoryEntry = {
   value: number | null
 }
 
+export type LearningParamChange = {
+  run_id?: number | null
+  started_at?: string | null
+  param_path: string
+  old_value?: string | null
+  new_value?: string | null
+  loop?: string | null
+  reason?: string | null
+}
+
 export type LearningHistoryResponse = {
   runs: LearningHistoryEntry[]
   s_index_history?: SIndexHistoryEntry[]
+  recent_changes?: LearningParamChange[]
 }
 
 export type DebugResponse = {
