@@ -959,7 +959,33 @@ def run_planner():
     try:
         input_data = get_all_input_data()
         planner = HeliosPlanner("config.yaml")
-        planner.generate_schedule(input_data)
+        df = planner.generate_schedule(input_data)
+
+        # Store per-slot PV/load forecasts in the learning database so
+        # the learning engine can calibrate forecast accuracy over time.
+        try:
+            engine = get_learning_engine()
+            if engine.learning_config.get("enable", False) and df is not None:
+                forecast_rows = []
+                for ts, row in df.iterrows():
+                    try:
+                        slot_start = ts.isoformat()
+                    except Exception:
+                        continue
+                    forecast_rows.append(
+                        {
+                            "slot_start": slot_start,
+                            "pv_forecast_kwh": float(row.get("pv_forecast_kwh") or 0.0),
+                            "load_forecast_kwh": float(row.get("load_forecast_kwh") or 0.0),
+                            # Temperature per slot is optional here; can be extended later
+                            "temp_c": None,
+                        }
+                    )
+                if forecast_rows:
+                    engine.store_forecasts(forecast_rows, forecast_version=_get_git_version())
+        except Exception as exc:
+            logger.info("Skipping forecast storage in learning DB: %s", exc)
+
         return jsonify({"status": "success", "message": "Planner run completed successfully."})
     except Exception as e:
         return jsonify({"status": "error", "message": f"An error occurred: {str(e)}"}), 500

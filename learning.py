@@ -482,19 +482,28 @@ class LearningEngine:
 
             for forecast in forecasts:
                 slot_start = forecast.get("slot_start")
+                if slot_start is None:
+                    continue
+
                 pv_forecast = forecast.get("pv_forecast_kwh", 0.0)
                 load_forecast = forecast.get("load_forecast_kwh", 0.0)
                 temp_c = forecast.get("temp_c")
 
-            cursor.execute(
-                """
-                INSERT OR REPLACE INTO slot_forecasts (
-                    slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO slot_forecasts (
+                        slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        slot_start,
+                        float(pv_forecast or 0.0),
+                        float(load_forecast or 0.0),
+                        None if temp_c is None else float(temp_c),
+                        forecast_version,
+                    ),
                 )
-                VALUES (?, ?, ?, ?, ?)
-            """,
-                (slot_start, pv_forecast, load_forecast, temp_c, forecast_version),
-            )
 
             conn.commit()
 
