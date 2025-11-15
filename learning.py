@@ -798,27 +798,12 @@ class LearningEngine:
                 (today, "load_adjustment_by_hour_kwh", json.dumps(load_adjust)),
             )
 
-            # Store simple daily aggregate metrics in learning_metrics
             def _mean_abs(values: list[float]) -> float:
                 vals = [abs(v or 0.0) for v in values]
                 return sum(vals) / float(len(vals)) if vals else 0.0
 
             pv_mae_daily = _mean_abs(pv_errors)
             load_mae_daily = _mean_abs(load_errors)
-
-            for metric_name, value in (
-                ("pv_error_mean_abs_kwh", pv_mae_daily),
-                ("load_error_mean_abs_kwh", load_mae_daily),
-            ):
-                cursor.execute(
-                    """
-                    INSERT INTO learning_metrics (date, metric, value)
-                    VALUES (?, ?, ?)
-                    ON CONFLICT(date, metric) DO UPDATE SET
-                        value = excluded.value
-                    """,
-                    (today, metric_name, float(value)),
-                )
 
             conn.commit()
 
@@ -1985,27 +1970,10 @@ class NightlyOrchestrator:
                 s_index_cfg = (cfg.get("s_index") or {}) if isinstance(cfg, dict) else {}
                 base_factor = s_index_cfg.get("base_factor") or s_index_cfg.get("static_factor")
                 if base_factor is not None:
-                    today = job_start.date().isoformat()
-                    cursor.execute(
-                        """
-                        INSERT INTO learning_metrics (date, metric, value)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(date, metric) DO UPDATE SET
-                            value = excluded.value
-                        """,
-                        (today, "s_index.base_factor", float(base_factor)),
-                    )
-
-                    # Mirror into consolidated daily metrics so planner has
+                    # Mirror into consolidated daily metrics so the planner has
                     # a single place to read the learned S-index factor.
-                    cursor.execute(
-                        """
-                        INSERT INTO learning_daily_metrics (date, s_index_base_factor)
-                        VALUES (?, ?)
-                        ON CONFLICT(date) DO UPDATE SET
-                            s_index_base_factor = excluded.s_index_base_factor
-                        """,
-                        (today, float(base_factor)),
+                    self.engine.upsert_daily_metrics(
+                        job_start.date(), {"s_index_base_factor": float(base_factor)}
                     )
 
                 conn.commit()
@@ -2104,22 +2072,6 @@ class NightlyOrchestrator:
                         True,
                     ),
                 )
-
-                # Record S-index base factor in learning_metrics so we can
-                # visualise how it changes over time.
-                s_index_cfg = (config.get("s_index") or {}) if isinstance(config, dict) else {}
-                base_factor = s_index_cfg.get("base_factor") or s_index_cfg.get("static_factor")
-                if base_factor is not None:
-                    today = datetime.now(self.engine.timezone).date().isoformat()
-                    cursor.execute(
-                        """
-                        INSERT INTO learning_metrics (date, metric, value)
-                        VALUES (?, ?, ?)
-                        ON CONFLICT(date, metric) DO UPDATE SET
-                            value = excluded.value
-                        """,
-                        (today, "s_index.base_factor", float(base_factor)),
-                    )
 
                 # Record parameter-level history for each applied change
                 if changes:
