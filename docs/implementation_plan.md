@@ -1853,6 +1853,7 @@
 ### Learning & Debug
 - [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
 - [ ] Learning history chart polish: enrich the Learning tab mini-chart with S-index factor and/or per-loop metrics in addition to changes-applied bars (build on the new `/api/learning/history` and planned S-index history storage).
+- [ ] Make the learning engine pick up config changes (e.g. `learning.min_sample_threshold`) without requiring a backend restart by reloading or rebuilding the cached `LearningEngine` instance when relevant settings are saved.
 - [x] Debug data visualization (`/api/debug`, `/api/debug/logs`)
 - [x] Log viewer with polling and filters
 - [x] Historical SoC chart from `/api/history/soc`
