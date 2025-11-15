@@ -1635,7 +1635,28 @@
 ### Implementation
 
 * **Completed**:
-  * (Planned) — to be filled as investigation proceeds.
+  * Step 1–3: Initial learning DB and loop behaviour analysis
+    * Confirmed that the current observation path (`record_observation_from_current_state` → `LearningEngine.store_slot_observations`) records only SoC per 15-minute slot and hard-codes all energy and price fields to `0.0` (`import_kwh`, `export_kwh`, `pv_kwh`, `load_kwh`, `water_kwh`, `batt_*`, `import_price_sek_kwh`, `export_price_sek_kwh`). This explains the “all zeros” pattern in `slot_observations` despite the hardware being active.
+    * Verified that the cumulative-sensor ETL (`etl_cumulative_to_slots`) exists and is capable of converting total-increasing sensors into slot-level deltas (similar to the Helios Execution History flow), but it is not wired up anywhere yet—no endpoint or job feeds HA totals into it.
+    * Inspected the SQLite learning DB (`data/planner_learning.db`):
+      * `slot_observations`: ~160 rows from 2025‑11‑03 onwards, with SoC values but mostly zero energy flows in recent slots.
+      * `slot_forecasts`: 0 rows; `store_forecasts` is defined but never called, and even as written would only persist the last forecast in a batch.
+      * `learning_runs`: 24 runs total. Runs 1–5 (2025‑11‑03) show `forecast_calibrator` applying changes (2 changes/run), but from run 6 onward `loops_run=0`, `changes_proposed=0`, `changes_applied=0`, and `loop_results` is empty—meaning no loop produces any candidate at all.
+      * `learning_metrics`: currently a single row for `('2025‑11‑15', 's_index.base_factor', 1.05)` from the recent S-index history work.
+      * `planner_debug`: populated (~170 rows), confirming planner debug writes are working.
+    * Analysed `learning_runs.result_metrics_json`:
+      * Early runs (IDs 1–5) have a single `forecast_calibrator` loop in `loop_results` with metrics, which matches the one day in the chart where “changes applied” > 0.
+      * All later runs have `loops_run=0` and empty `loop_results`, which is consistent with loops returning `None` (no data/insufficient samples or improvement) and explains why the chart shows no changes for weeks.
+    * Confirmed that `LearningLoops.forecast_calibrator` relies on a join between `slot_observations` and `slot_forecasts` over the last 14 days and enforces `min_sample_threshold` (`learning.min_sample_threshold`, currently 36). With `slot_forecasts` empty, `pv_results`/`load_results` are empty, sample counts are zero, and the loop always returns `None` (no bias/MAE, no changes).
+    * Captured the intended HA sensor sources (to be ingested via the backend/HA API rather than n8n) for a future ingestion Rev:
+      * `sensor.inverter_total_production`
+      * `sensor.inverter_total_load_consumption`
+      * `sensor.inverter_total_energy_import`
+      * `sensor.inverter_total_energy_export`
+      * `sensor.inverter_total_battery_charge`
+      * `sensor.inverter_total_battery_discharge`
+      * SoC sensor (already used via `battery_soc_percent` in `get_initial_state`) and Nordpool price data (already available).
+    * Conclusion so far: the Darkstar learning engine’s orchestration and loops exist and were able to apply changes on 2025‑11‑03, but they are currently starved of meaningful data (no real energy flows, no forecast table), so all loops have effectively gone idle since run 6.
 * **In Progress**: —
 * **Blocked**: —
 
