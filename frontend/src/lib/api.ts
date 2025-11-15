@@ -95,6 +95,14 @@ export type LearningHistoryResponse = {
   recent_changes?: LearningParamChange[]
 }
 
+export type LearningDailyMetricsResponse = {
+  date?: string
+  pv_error_mean_abs_kwh?: number | null
+  load_error_mean_abs_kwh?: number | null
+  s_index_base_factor?: number | null
+  message?: string
+}
+
 export type DebugResponse = {
   s_index?: {
     mode?: string
@@ -199,6 +207,7 @@ export const Api = {
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
   learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
+  learningDailyMetrics: () => getJSON<LearningDailyMetricsResponse>('/api/learning/daily_metrics'),
   learningRun: () => getJSON<LearningRunResponse>('/api/learning/run', 'POST'),
   learningLoops: () => getJSON<LearningLoopsResponse>('/api/learning/loops'),
   theme: () => getJSON<ThemeResponse>('/api/themes'),

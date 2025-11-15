@@ -1395,6 +1395,45 @@ def learning_history():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/learning/daily_metrics", methods=["GET"])
+def learning_daily_metrics():
+    """Return latest consolidated daily learning metrics (one row per date)."""
+    try:
+        engine = get_learning_engine()
+        if not os.path.exists(engine.db_path):
+            return jsonify({"message": "learning DB not found"}), 404
+
+        latest: dict | None = None
+        with sqlite3.connect(engine.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT date,
+                       pv_error_mean_abs_kwh,
+                       load_error_mean_abs_kwh,
+                       s_index_base_factor
+                FROM learning_daily_metrics
+                ORDER BY date DESC
+                LIMIT 1
+                """
+            )
+            row = cursor.fetchone()
+            if row:
+                latest = {
+                    "date": row[0],
+                    "pv_error_mean_abs_kwh": float(row[1]) if row[1] is not None else None,
+                    "load_error_mean_abs_kwh": float(row[2]) if row[2] is not None else None,
+                    "s_index_base_factor": float(row[3]) if row[3] is not None else None,
+                }
+
+        if not latest:
+            return jsonify({"message": "no daily metrics yet"}), 200
+
+        return jsonify(latest)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/debug", methods=["GET"])
 def debug_data():
     """Return comprehensive planner debug data from schedule.json."""
