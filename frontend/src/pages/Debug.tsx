@@ -4,16 +4,20 @@ import { Api, type DebugLogsResponse, type HistorySocResponse } from '../lib/api
 import { Chart as ChartJS, type Chart, type ChartConfiguration } from 'chart.js/auto'
 
 type LogLevelFilter = 'all' | 'warn_error' | 'error'
+type LogTimeRange = 'all' | '1h' | '6h' | '24h'
+type SocDateFilter = 'today' | 'yesterday'
 
 export default function Debug() {
     const [logs, setLogs] = useState<DebugLogsResponse['logs']>([])
     const [logsLoading, setLogsLoading] = useState(false)
     const [logsError, setLogsError] = useState<string | null>(null)
     const [levelFilter, setLevelFilter] = useState<LogLevelFilter>('all')
+    const [timeRange, setTimeRange] = useState<LogTimeRange>('all')
 
     const [socHistory, setSocHistory] = useState<HistorySocResponse | null>(null)
     const [socLoading, setSocLoading] = useState(false)
     const [socError, setSocError] = useState<string | null>(null)
+    const [socDate, setSocDate] = useState<SocDateFilter>('today')
     const socCanvasRef = useRef<HTMLCanvasElement | null>(null)
     const socChartRef = useRef<Chart | null>(null)
 
@@ -30,10 +34,22 @@ export default function Debug() {
                 .finally(() => setLogsLoading(false))
         }
 
+        loadLogs()
+    }, [])
+
+    useEffect(() => {
         const loadSoc = () => {
             setSocLoading(true)
             setSocError(null)
-            Api.historySoc('today')
+
+            let dateParam: string = 'today'
+            if (socDate === 'yesterday') {
+                const d = new Date()
+                d.setDate(d.getDate() - 1)
+                dateParam = d.toISOString().slice(0, 10)
+            }
+
+            Api.historySoc(dateParam)
                 .then((res) => setSocHistory(res))
                 .catch((err) => {
                     console.error('Failed to fetch historic SoC:', err)
@@ -42,17 +58,34 @@ export default function Debug() {
                 .finally(() => setSocLoading(false))
         }
 
-        loadLogs()
         loadSoc()
-    }, [])
+    }, [socDate])
 
-    const filteredLogs = logs.filter((entry) => {
-        if (levelFilter === 'all') return true
-        const level = (entry.level || '').toUpperCase()
-        if (levelFilter === 'error') return level === 'ERROR' || level === 'CRITICAL'
-        // warn_error
-        return level === 'WARN' || level === 'WARNING' || level === 'ERROR' || level === 'CRITICAL'
-    })
+    const filteredLogs = logs
+        .filter((entry) => {
+            if (levelFilter === 'all') return true
+            const level = (entry.level || '').toUpperCase()
+            if (levelFilter === 'error') return level === 'ERROR' || level === 'CRITICAL'
+            // warn_error
+            return (
+                level === 'WARN' ||
+                level === 'WARNING' ||
+                level === 'ERROR' ||
+                level === 'CRITICAL'
+            )
+        })
+        .filter((entry) => {
+            if (timeRange === 'all') return true
+            const ts = new Date(entry.timestamp).getTime()
+            if (Number.isNaN(ts)) return true
+            const now = Date.now()
+            const deltaMs = now - ts
+            const oneHour = 60 * 60 * 1000
+            if (timeRange === '1h') return deltaMs <= oneHour
+            if (timeRange === '6h') return deltaMs <= 6 * oneHour
+            if (timeRange === '24h') return deltaMs <= 24 * oneHour
+            return true
+        })
 
     const errorLogs = logs.filter((entry) => {
         const level = (entry.level || '').toUpperCase()
@@ -149,7 +182,7 @@ export default function Debug() {
 
             <div className="grid gap-6 lg:grid-cols-3">
                 <Card className="p-5 lg:col-span-2">
-                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center justify-between mb-3">
                         <div className="text-sm text-muted">Logs</div>
                         <div className="flex items-center gap-2 text-[11px] text-muted">
                             <button
@@ -169,6 +202,16 @@ export default function Debug() {
                             >
                                 {logsLoading ? 'Refreshing…' : 'Refresh'}
                             </button>
+                            <select
+                                className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
+                                value={timeRange}
+                                onChange={(e) => setTimeRange(e.target.value as LogTimeRange)}
+                            >
+                                <option value="all">All time</option>
+                                <option value="1h">Last 1 hour</option>
+                                <option value="6h">Last 6 hours</option>
+                                <option value="24h">Last 24 hours</option>
+                            </select>
                             <select
                                 className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
                                 value={levelFilter}
@@ -247,9 +290,22 @@ export default function Debug() {
 
             <div className="grid gap-6 mt-6 lg:grid-cols-3">
                 <Card className="p-5 lg:col-span-2">
-                    <div className="text-sm text-muted mb-3">Historical SoC</div>
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="text-sm text-muted">Historical SoC</div>
+                        <div className="flex items-center gap-2 text-[11px] text-muted">
+                            <span className="text-muted/70">Range</span>
+                            <select
+                                className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
+                                value={socDate}
+                                onChange={(e) => setSocDate(e.target.value as SocDateFilter)}
+                            >
+                                <option value="today">Today</option>
+                                <option value="yesterday">Yesterday</option>
+                            </select>
+                        </div>
+                    </div>
                     <div className="text-[13px] text-muted/80 mb-2">
-                        SoC (%) over today from the learning database. Use this to correlate planner behaviour
+                        SoC (%) over the selected day from the learning database. Use this to correlate planner behaviour
                         with actual SoC movement.
                     </div>
                     {socError && <div className="text-[11px] text-amber-400 mb-2">{socError}</div>}

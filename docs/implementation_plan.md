@@ -1905,7 +1905,7 @@
 
 ---
 
-## Rev 54 — Learning & Debug Enhancements *(Status: 🔄 In Progress)*
+## Rev 54 — Learning & Debug Enhancements *(Status: ✅ Completed)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Persist S-index factor history and enhance the Learning and Debug tabs so operators can see how learning affects the system over time.
@@ -1968,17 +1968,28 @@
 
 * **Completed**:
   * Step 1: S-index history storage
-    * Record the current `s_index.base_factor` (or `static_factor` as fallback) into the existing `learning_metrics` table on every successful nightly learning run, keyed by `date` and `metric='s_index.base_factor'`. This ensures we always have at least one S-index datapoint per day once learning is running, even when no config changes are applied.
+    * Record the current `s_index.base_factor` (or `static_factor` as fallback) into the consolidated `learning_daily_metrics` table on every successful nightly learning run via `upsert_daily_metrics(date, {"s_index_base_factor": ...})`. This ensures we always have at least one S-index datapoint per day once learning is running, even when no config changes are applied.
   * Step 2: API extensions
-    * Extended `/api/learning/history` to include an `s_index_history` array alongside `runs`, populated from `learning_metrics` (`metric='s_index.base_factor'`) ordered by date (most recent first, limited to a reasonable window). This gives the frontend a single call that returns both per-run metrics and S-index factor history.
+    * Extended `/api/learning/history` to include an `s_index_history` array alongside `runs`, populated from `learning_daily_metrics.s_index_base_factor` ordered by date (most recent first, limited to a reasonable window). This gives the frontend a single call that returns both per-run metrics and S-index factor history.
   * Step 3: Learning tab chart enhancements
     * Updated the Learning tab mini-chart to:
       * Overlay a line for S-index factor against daily aggregated “changes applied” bars.
       * Aggregate changes-applied per day so bars/points align on the same X-axis (dates).
       * Use dual Y-axes (counts vs S-index factor) with clear tooltips.
-* **In Progress**:
-  * Step 4: Debug time-range filters and SoC history range controls.
+  * Step 4: Debug time-range filters and SoC history range controls
+    * Added client-side time-range filters to the Debug logs view (`all`, `last 1h`, `last 6h`, `last 24h`) so operators can focus on recent events without changing the backend API.
+    * Extended the SoC history card to support a simple date range selector (`today` / `yesterday`) wired to `/api/history/soc?date=...`, allowing quick comparison of SoC behaviour across days.
+* **In Progress**: —
 * **Blocked**: —
+
+### Verification
+
+* **Tests Status**:
+  * Verified Learning tab history chart and metrics row render correctly with S-index history and daily metrics; Debug tab manually checked for log filters and SoC date switching.
+* **Known Issues**:
+  * More advanced log/SoC range queries (e.g. arbitrary date ranges or multi-day SoC charts) remain in the backlog.
+* **Rollback Plan**:
+  * Revert the Debug tab UI changes if necessary; learning history wiring is backward compatible and can be left in place.
 
 ---
 
