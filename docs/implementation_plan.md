@@ -1565,12 +1565,12 @@
 
 ---
 
-## Rev 51 — Learning Engine Correctness & Data Flow Debugging *(Status: 📋 Planned)*
+## Rev 51 — Learning Engine Correctness & Data Flow Debugging *(Status: ✅ Completed)*
 
-* **Model**: GPT-5.1 Codex CLI (planned)
+* **Model**: GPT-5.1 Codex CLI
 * **Summary**: Trace and validate the Darkstar learning engine’s data flow and behaviour, aligning it conceptually with the Helios/n8n setup and identifying why recent runs apply no changes.
-* **Started**: — (planned)
-* **Last Updated**: — (planned)
+* **Started**: 2025-11-14
+* **Last Updated**: 2025-11-15
 
 ### Plan
 
