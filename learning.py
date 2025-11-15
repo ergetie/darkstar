@@ -820,25 +820,22 @@ class LearningEngine:
                     (today, metric_name, float(value)),
                 )
 
-            # Also mirror the daily aggregates into the consolidated
-            # learning_daily_metrics table so there is exactly one row per
-            # date with the key scalars. Arrays are handled elsewhere.
-            cursor.execute(
-                """
-                INSERT INTO learning_daily_metrics (
-                    date,
-                    pv_error_mean_abs_kwh,
-                    load_error_mean_abs_kwh
-                )
-                VALUES (?, ?, ?)
-                ON CONFLICT(date) DO UPDATE SET
-                    pv_error_mean_abs_kwh = excluded.pv_error_mean_abs_kwh,
-                    load_error_mean_abs_kwh = excluded.load_error_mean_abs_kwh
-                """,
-                (today, float(pv_mae_daily), float(load_mae_daily)),
-            )
-
             conn.commit()
+
+        # Mirror arrays and daily aggregates into the consolidated
+        # learning_daily_metrics table so there is exactly one row per
+        # date with the key scalars and arrays.
+        self.upsert_daily_metrics(
+            datetime.now(self.timezone).date(),
+            {
+                "pv_error_by_hour_kwh": pv_errors,
+                "load_error_by_hour_kwh": load_errors,
+                "pv_adjustment_by_hour_kwh": pv_adjust,
+                "load_adjustment_by_hour_kwh": load_adjust,
+                "pv_error_mean_abs_kwh": pv_mae_daily,
+                "load_error_mean_abs_kwh": load_mae_daily,
+            },
+        )
 
     def get_status(self) -> Dict[str, Any]:
         """Get learning engine status and metrics"""
@@ -873,61 +870,77 @@ class LearningEngine:
 
         This is the new, one-row-per-day surface for learning outputs that the
         planner can consume. Arrays are stored as JSON strings; scalars as
-        numeric columns.
+        numeric columns. Only fields present in `payload` are updated, so this
+        can be called multiple times for the same date without clobbering
+        previously written values.
         """
         date_key = date.isoformat()
-        pv_err = payload.get("pv_error_by_hour_kwh")
-        load_err = payload.get("load_error_by_hour_kwh")
-        pv_adj = payload.get("pv_adjustment_by_hour_kwh")
-        load_adj = payload.get("load_adjustment_by_hour_kwh")
-
-        soc_mean = payload.get("soc_error_mean_pct")
-        soc_std = payload.get("soc_error_stddev_pct")
-        pv_mae = payload.get("pv_error_mean_abs_kwh")
-        load_mae = payload.get("load_error_mean_abs_kwh")
-        s_index_base = payload.get("s_index_base_factor")
 
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+            # Ensure row exists
             cursor.execute(
-                """
-                INSERT INTO learning_daily_metrics (
-                    date,
-                    pv_error_by_hour_kwh,
-                    load_error_by_hour_kwh,
-                    pv_adjustment_by_hour_kwh,
-                    load_adjustment_by_hour_kwh,
-                    soc_error_mean_pct,
-                    soc_error_stddev_pct,
-                    pv_error_mean_abs_kwh,
-                    load_error_mean_abs_kwh,
-                    s_index_base_factor
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(date) DO UPDATE SET
-                    pv_error_by_hour_kwh = excluded.pv_error_by_hour_kwh,
-                    load_error_by_hour_kwh = excluded.load_error_by_hour_kwh,
-                    pv_adjustment_by_hour_kwh = excluded.pv_adjustment_by_hour_kwh,
-                    load_adjustment_by_hour_kwh = excluded.load_adjustment_by_hour_kwh,
-                    soc_error_mean_pct = excluded.soc_error_mean_pct,
-                    soc_error_stddev_pct = excluded.soc_error_stddev_pct,
-                    pv_error_mean_abs_kwh = excluded.pv_error_mean_abs_kwh,
-                    load_error_mean_abs_kwh = excluded.load_error_mean_abs_kwh,
-                    s_index_base_factor = excluded.s_index_base_factor
-                """,
-                (
-                    date_key,
-                    json.dumps(pv_err) if pv_err is not None else None,
-                    json.dumps(load_err) if load_err is not None else None,
-                    json.dumps(pv_adj) if pv_adj is not None else None,
-                    json.dumps(load_adj) if load_adj is not None else None,
-                    None if soc_mean is None else float(soc_mean),
-                    None if soc_std is None else float(soc_std),
-                    None if pv_mae is None else float(pv_mae),
-                    None if load_mae is None else float(load_mae),
-                    None if s_index_base is None else float(s_index_base),
-                ),
+                "INSERT OR IGNORE INTO learning_daily_metrics (date) VALUES (?)", (date_key,)
             )
+
+            # Build dynamic UPDATE for provided fields only
+            sets = []
+            values = []
+
+            if "pv_error_by_hour_kwh" in payload:
+                sets.append("pv_error_by_hour_kwh = ?")
+                values.append(
+                    json.dumps(payload["pv_error_by_hour_kwh"])
+                    if payload["pv_error_by_hour_kwh"] is not None
+                    else None
+                )
+            if "load_error_by_hour_kwh" in payload:
+                sets.append("load_error_by_hour_kwh = ?")
+                values.append(
+                    json.dumps(payload["load_error_by_hour_kwh"])
+                    if payload["load_error_by_hour_kwh"] is not None
+                    else None
+                )
+            if "pv_adjustment_by_hour_kwh" in payload:
+                sets.append("pv_adjustment_by_hour_kwh = ?")
+                values.append(
+                    json.dumps(payload["pv_adjustment_by_hour_kwh"])
+                    if payload["pv_adjustment_by_hour_kwh"] is not None
+                    else None
+                )
+            if "load_adjustment_by_hour_kwh" in payload:
+                sets.append("load_adjustment_by_hour_kwh = ?")
+                values.append(
+                    json.dumps(payload["load_adjustment_by_hour_kwh"])
+                    if payload["load_adjustment_by_hour_kwh"] is not None
+                    else None
+                )
+            if "soc_error_mean_pct" in payload:
+                sets.append("soc_error_mean_pct = ?")
+                val = payload["soc_error_mean_pct"]
+                values.append(None if val is None else float(val))
+            if "soc_error_stddev_pct" in payload:
+                sets.append("soc_error_stddev_pct = ?")
+                val = payload["soc_error_stddev_pct"]
+                values.append(None if val is None else float(val))
+            if "pv_error_mean_abs_kwh" in payload:
+                sets.append("pv_error_mean_abs_kwh = ?")
+                val = payload["pv_error_mean_abs_kwh"]
+                values.append(None if val is None else float(val))
+            if "load_error_mean_abs_kwh" in payload:
+                sets.append("load_error_mean_abs_kwh = ?")
+                val = payload["load_error_mean_abs_kwh"]
+                values.append(None if val is None else float(val))
+            if "s_index_base_factor" in payload:
+                sets.append("s_index_base_factor = ?")
+                val = payload["s_index_base_factor"]
+                values.append(None if val is None else float(val))
+
+            if sets:
+                sql = f"UPDATE learning_daily_metrics SET {', '.join(sets)} WHERE date = ?"
+                values.append(date_key)
+                cursor.execute(sql, tuple(values))
+
             conn.commit()
 
 # Global instance for webapp
