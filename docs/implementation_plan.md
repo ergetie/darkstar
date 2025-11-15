@@ -1673,6 +1673,17 @@
         * plus SoC start/end from `get_initial_state` and a `quality_flags="auto_recorded"` marker (prices still 0.0 for now).
       * Keeps the existing guard that prevents double-recording the same slot (`slot_start` + non-null `soc_end_percent`).
     * This makes `slot_observations` begin to reflect real energy flows from the inverter, aligning Darkstar’s observation logging conceptually with the Helios Execution History flow (albeit without prices/profit yet).
+  * Step 5: Forecast storage into `slot_forecasts`
+    * Fixed `LearningEngine.store_forecasts` so it now iterates over all provided forecast rows and performs an `INSERT OR REPLACE` per slot instead of only writing the last forecast in the batch.
+    * Updated `/api/run_planner` so that after `HeliosPlanner.generate_schedule` runs, it:
+      * Iterates over the planner DataFrame rows and builds a list of forecast records with:
+        * `slot_start` from the index timestamp (ISO format),
+        * `pv_forecast_kwh` and `load_forecast_kwh` from the DataFrame columns,
+        * `temp_c` left as `None` for now.
+      * Calls `LearningEngine.store_forecasts` with this list and the current git describe as `forecast_version`, guarded behind `learning.enable` so it’s a no-op when learning is disabled.
+    * With this wiring, `slot_forecasts` now records per-slot PV/load forecasts each time the planner runs, enabling:
+      * Forecast calibration loops to compute bias/MAE vs realised `slot_observations`,
+      * `calculate_metrics` to report PV/load forecast sample counts and accuracy.
 * **In Progress**: —
 * **Blocked**: —
 
