@@ -1993,16 +1993,15 @@
 
 ---
 
-## Rev 55 — Production Readiness Slice *(Status: 📋 Planned)*
-
 * **Model**: GPT-5.1 Codex CLI (planned)
-* **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the UI behaves well in real use.
+* **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the new React/Flask UI can be safely used in place of the legacy app.
 * **Started**: — (planned)
 * **Last Updated**: — (planned)
 
 ### Plan
 
 * **Goals**:
+  * Make the new React/Flask UI safe and predictable enough to run as the primary interface instead of the legacy app.
   * Ensure critical API failures are clearly surfaced without breaking the whole UI.
   * Make the main tabs usable on smaller screens (no full redesign).
   * Provide a simple, documented way to deploy the frontend with the backend.
@@ -2012,11 +2011,15 @@
     * Audit Dashboard, Planning, Learning, Debug, and Settings for:
       * Clear loading states for primary cards.
       * Clear, non-intrusive error banners when core APIs fail (`/api/status`, `/api/schedule`, `/api/config`, `/api/learning/status`, etc.).
-    * Add a global “backend offline” indicator when `/api/config`/`/api/status` repeatedly fail.
+    * Add a global “backend offline” indicator when `/api/config`/`/api/status` repeatedly fail (for example after N consecutive errors), without blocking user navigation.
   * Mobile responsiveness:
     * Tweak layouts for breakpoints so the main tabs are readable and scroll nicely on phones/tablets (no overlapping or clipped content).
+  * Legacy UI decommissioning:
+    * Remove or archive any legacy Flask UI entrypoints and their `templates/` / `static/` folders outside `backend/`, keeping `backend/` as the single serving surface.
+    * Remove obsolete scripts or run modes that still start the legacy UI.
+    * Update README so there is only one canonical way to run the planner/UI (the new React/Flask stack).
   * Deployment basics:
-    * Document or implement a minimal setup to serve `frontend/dist` via Flask or alongside it (e.g. nginx + Flask).
+    * Document or implement a minimal setup to serve `frontend/dist` via Flask or alongside it (e.g. nginx + Flask), including where the planner, learning DB, and `schedule.json` live on disk.
 
 * **Dependencies**:
   * All previous Revs; this is a polish layer rather than new core features.
@@ -2024,7 +2027,8 @@
 * **Acceptance Criteria**:
   * When backend APIs fail, each main tab shows a clear error but remains usable (no spinners forever, no blank screens).
   * The app is navigable on a phone-sized viewport (critical controls accessible, charts scrollable).
-  * There is a documented path for serving the built frontend with the backend in production.
+  * There is a documented path for serving the built frontend with the backend in production (referenced from README and/or a dedicated deployment doc), suitable for replacing the legacy UI on the server.
+  * There is no separate “legacy UI” path in docs or scripts: only the new React/Flask UI is documented and supported, and any legacy folders/scripts are either removed or clearly archived.
 
 ### Implementation Steps (Planned)
 
@@ -2044,6 +2048,73 @@
      * Serve `frontend/dist` with Flask or via a simple reverse proxy.
 
 5. **Verification & Backlog Alignment**
+   * Manual tests for error states, mobile layout, and a basic production-like deployment.
+   * Close relevant Production Readiness backlog items incrementally.
+
+---
+
+## Rev 55 — Production Readiness Slice *(Status: 📋 Planned)*
+
+* **Model**: GPT-5.1 Codex CLI (planned)
+* **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the new React/Flask UI can be safely used in place of the legacy app.
+* **Started**: — (planned)
+* **Last Updated**: — (planned)
+
+### Plan
+
+* **Goals**:
+  * Make the new React/Flask UI safe and predictable enough to run as the primary interface instead of the legacy app.
+  * Ensure critical API failures are clearly surfaced without breaking the whole UI.
+  * Make the main tabs usable on smaller screens (no full redesign).
+  * Provide a simple, documented way to deploy the frontend with the backend.
+
+* **Scope**:
+  * Error & loading handling:
+    * Audit Dashboard, Planning, Learning, Debug, and Settings for:
+      * Clear loading states for primary cards.
+      * Clear, non-intrusive error banners when core APIs fail (`/api/status`, `/api/schedule`, `/api/config`, `/api/learning/status`, etc.).
+    * Add a global “backend offline” indicator when `/api/config`/`/api/status` repeatedly fail (for example after N consecutive errors), without blocking user navigation.
+  * Mobile responsiveness:
+    * Tweak layouts for breakpoints so the main tabs are readable and scroll nicely on phones/tablets (no overlapping or clipped content).
+  * Legacy UI decommissioning:
+    * Remove or archive any legacy Flask UI entrypoints and their `templates/` / `static/` folders outside `backend/`, keeping `backend/` as the single serving surface.
+    * Remove obsolete scripts or run modes that still start the legacy UI.
+    * Update README so there is only one canonical way to run the planner/UI (the new React/Flask stack).
+  * Deployment basics:
+    * Document or implement a minimal setup to serve `frontend/dist` via Flask or alongside it (e.g. nginx + Flask), including where the planner, learning DB, and `schedule.json` live on disk.
+
+* **Dependencies**:
+  * All previous Revs; this is a polish layer rather than new core features.
+
+* **Acceptance Criteria**:
+  * When backend APIs fail, each main tab shows a clear error but remains usable (no spinners forever, no blank screens).
+  * The app is navigable on a phone-sized viewport (critical controls accessible, charts scrollable).
+  * There is a documented path for serving the built frontend with the backend in production (referenced from README and/or a dedicated deployment doc), suitable for replacing the legacy UI on the server.
+  * There is no separate “legacy UI” path in docs or scripts: only the new React/Flask UI is documented and supported, and any legacy folders/scripts are either removed or clearly archived.
+
+### Implementation Steps (Planned)
+
+1. **Error & Loading Audit**
+   * Review each tab’s use of API calls and loading states.
+   * Add or refine loading spinners and error banners where missing.
+
+2. **Global Backend-Offline Indicator**
+   * Add a small global banner component that appears when repeated `/api/config` or `/api/status` calls fail.
+
+3. **Mobile Layout Tweaks**
+   * Adjust grid and spacing classes in the main pages to behave better on narrow viewports.
+
+4. **Legacy UI Cleanup**
+   * Identify and remove/archive legacy Flask UI entrypoints, templates, static assets, and run scripts outside `backend/`.
+   * Update README to remove legacy run instructions and point only to the new stack.
+
+5. **Deployment Notes**
+   * Add a short section to README or a new doc describing how to:
+     * Build the frontend.
+     * Serve `frontend/dist` with Flask or via a simple reverse proxy.
+     * Ensure the learning DB and `schedule.json` paths are writable and backed up appropriately.
+
+6. **Verification & Backlog Alignment**
    * Manual tests for error states, mobile layout, and a basic production-like deployment.
    * Close relevant Production Readiness backlog items incrementally.
 
