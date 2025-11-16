@@ -25,6 +25,7 @@ export default function Dashboard(){
     const [exportGuard, setExportGuard] = useState<{enabled?: boolean; mode?: string} | null>(null)
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+    const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
@@ -34,6 +35,8 @@ export default function Dashboard(){
 
     const fetchAllData = useCallback(async () => {
         setIsRefreshing(true)
+        setStatusMessage('Refreshing…')
+        let hadError = false
         try {
             // Parallel fetch all data
             const [
@@ -83,6 +86,9 @@ export default function Dashboard(){
                 } else {
                     setPlannerMeta(null)
                 }
+            } else {
+                hadError = true
+                console.error('Failed to load status for Dashboard:', statusData.reason)
             }
 
             // Process horizon data
@@ -92,6 +98,9 @@ export default function Dashboard(){
                     pvDays: Sel.pvDays(data) ?? undefined,
                     weatherDays: Sel.wxDays(data) ?? undefined,
                 })
+            } else {
+                hadError = true
+                console.error('Failed to load horizon for Dashboard:', horizonData.reason)
             }
 
             // Process config data
@@ -111,6 +120,9 @@ export default function Dashboard(){
                 if (typeof data.dashboard?.auto_refresh_enabled === 'boolean') {
                     setAutoRefresh(data.dashboard.auto_refresh_enabled)
                 }
+            } else {
+                hadError = true
+                console.error('Failed to load config for Dashboard:', configData.reason)
             }
 
             // Process HA average data
@@ -120,6 +132,9 @@ export default function Dashboard(){
                     kw: data.average_load_kw,
                     dailyKwh: data.daily_kwh
                 })
+            } else {
+                hadError = true
+                console.error('Failed to load HA average for Dashboard:', haAverageData.reason)
             }
 
             // Process schedule data
@@ -145,6 +160,9 @@ export default function Dashboard(){
                 if (currentSlot?.soc_target_percent !== undefined) {
                     setCurrentSlotTarget(currentSlot.soc_target_percent)
                 }
+            } else {
+                hadError = true
+                console.error('Failed to load schedule for Dashboard:', scheduleData.reason)
             }
 
             // Process water data
@@ -154,6 +172,9 @@ export default function Dashboard(){
                     kwh: data.water_kwh_today,
                     source: data.source
                 })
+            } else {
+                hadError = true
+                console.error('Failed to load water data for Dashboard:', waterData.reason)
             }
 
             // Process learning data
@@ -166,13 +187,18 @@ export default function Dashboard(){
                     status: hasData ? (isLearning ? 'learning' : 'ready') : 'gathering',
                     samples: data.metrics?.total_slots
                 })
+            } else {
+                hadError = true
+                console.error('Failed to load learning status for Dashboard:', learningData.reason)
             }
 
             setLastRefresh(new Date())
         } catch (error) {
             console.error('Error fetching dashboard data:', error)
+            hadError = true
         } finally {
             setIsRefreshing(false)
+            setStatusMessage(hadError ? 'Some dashboard data failed to load.' : null)
         }
     }, [])
 
@@ -235,6 +261,11 @@ export default function Dashboard(){
                 {autoRefresh ? 'auto-refresh' : 'manual'}
                 {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
             </div>
+            {statusMessage && (
+                <div className="text-[10px] text-amber-400">
+                    {statusMessage}
+                </div>
+            )}
             <button
                 onClick={() => fetchAllData()}
                 disabled={isRefreshing}
