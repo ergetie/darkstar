@@ -34,6 +34,9 @@ const chartOptions: ChartConfiguration['options'] = {
             borderWidth: 1,
             padding: 12,
             displayColors: true,
+            // Nudge the tooltip away from the exact cursor/data point
+            caretPadding: 8,
+            yAlign: 'bottom',
             callbacks: {
                 title: function(context) {
                     return context[0].label
