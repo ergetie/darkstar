@@ -38,6 +38,8 @@ export default function Forecasting(){
   const [loading, setLoading] = useState(false)
   const [config, setConfig] = useState<Record<string, any> | null>(null)
   const [savingSource, setSavingSource] = useState(false)
+  const [runningEval, setRunningEval] = useState(false)
+  const [runningForward, setRunningForward] = useState(false)
 
   useEffect(() => {
     const fetchEval = async () => {
@@ -138,6 +140,43 @@ export default function Forecasting(){
     }
   }
 
+  const reloadData = async () => {
+    try {
+      const [evalRes, dayRes] = await Promise.all([
+        Api.forecastEval(),
+        Api.forecastDay(),
+      ])
+      setEvalData(evalRes as any)
+      setDayData(dayRes as any)
+    } catch (err) {
+      console.error('Failed to reload forecasting data:', err)
+    }
+  }
+
+  const handleRunEval = async () => {
+    setRunningEval(true)
+    try {
+      await Api.forecastRunEval(7)
+      await reloadData()
+    } catch (err) {
+      console.error('Failed to run AURORA evaluation:', err)
+    } finally {
+      setRunningEval(false)
+    }
+  }
+
+  const handleRunForward = async () => {
+    setRunningForward(true)
+    try {
+      await Api.forecastRunForward(48)
+      await reloadData()
+    } catch (err) {
+      console.error('Failed to run AURORA forward forecasts:', err)
+    } finally {
+      setRunningForward(false)
+    }
+  }
+
   return (
     <div className="px-4 pt-16 pb-10 lg:px-8 lg:pt-10 space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -180,6 +219,24 @@ export default function Forecasting(){
               <option value="baseline_7_day_avg">Baseline (7-day average)</option>
               <option value="aurora">AURORA (ML model, experimental)</option>
             </select>
+          </div>
+          <div className="inline-flex items-center gap-2 text-[11px]">
+            <button
+              type="button"
+              onClick={handleRunEval}
+              disabled={runningEval}
+              className="rounded-full border border-line/80 bg-surface2 px-2 py-1 text-[11px] text-white hover:border-accent disabled:opacity-50"
+            >
+              {runningEval ? 'Running eval…' : 'Run eval (7d)'}
+            </button>
+            <button
+              type="button"
+              onClick={handleRunForward}
+              disabled={runningForward}
+              className="rounded-full border border-line/80 bg-surface2 px-2 py-1 text-[11px] text-white hover:border-accent disabled:opacity-50"
+            >
+              {runningForward ? 'Running forward…' : 'Run forward (48h)'}
+            </button>
           </div>
         </div>
       </div>
