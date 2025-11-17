@@ -355,7 +355,17 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   [1] (Done) Implement `ml/forward.py` to generate forward AURORA forecasts for the planner horizon and store them as `aurora_v0.1` in `slot_forecasts`.
     *   [2] (Done) Update `ml/weather.get_temperature_series` to use Open-Meteo archive for historical windows and forecast API for future windows, so `temp_c` is available for forward slots when possible.
-    *   [3] (Planned) Add a short CLI/ops note (and optional cron/systemd example) documenting how and when to run forward inference in real deployments.
+    *   [3] (Done) Add a short CLI/ops note (and optional cron/systemd example) documenting how and when to run forward inference in real deployments.
+
+    **Implementation**
+
+    *   **Completed**:
+        *   Forward inference implemented in `ml/forward.py` with a simple CLI:
+            *   `PYTHONPATH=. python ml/forward.py`
+        *   Running the script generates 15‑minute AURORA forecasts for the next 48 hours and stores them in `slot_forecasts` with `forecast_version='aurora_v0.1'`.
+        *   Forward inference is safe to run repeatedly; existing future rows for `aurora_v0.1` are overwritten for the same `slot_start`.
+        *   Example cron entry (run every hour at minute 5):
+            *   `5 * * * * cd /opt/darkstar && PYTHONPATH=. /opt/darkstar/venv/bin/python ml/forward.py >> /opt/darkstar/logs/aurora_forward.log 2>&1`
 
     *   **Acceptance Criteria**:
         *   Invoking the forward-inference entrypoint populates `slot_forecasts` with `aurora_v0.1` rows for the planner horizon.
