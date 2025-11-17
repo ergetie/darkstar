@@ -271,7 +271,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 ---
 
-### Rev 9 — 2025-11-17: AURORA v0.2 (Enhanced Shadow Mode) *(Status: 📋 Planned)*
+### Rev 9 — 2025-11-17: AURORA v0.2 (Enhanced Shadow Mode) *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Upgrade AURORA while keeping it sandboxed by adding weather and behavioural features, and introduce a Forecasting tab in the UI for deeper evaluation, without yet letting AURORA drive the live planner.
