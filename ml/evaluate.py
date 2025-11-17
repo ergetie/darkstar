@@ -14,7 +14,7 @@ import sqlite3
 
 from learning import LearningEngine, get_learning_engine
 from ml.train import _build_time_features, _load_slot_observations
-from ml.weather import get_temperature_series
+from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
@@ -147,6 +147,10 @@ def _predict_with_boosters(
     ]
     if "temp_c" in features.columns:
         feature_cols.append("temp_c")
+    if "cloud_cover_pct" in features.columns:
+        feature_cols.append("cloud_cover_pct")
+    if "shortwave_radiation_w_m2" in features.columns:
+        feature_cols.append("shortwave_radiation_w_m2")
     X = features[feature_cols]
 
     load_pred = None
