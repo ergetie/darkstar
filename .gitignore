@@ -13,10 +13,8 @@ secrets.yaml
 .idea/
 
 # Generated files (output)
-schedule.json
 *.log
 webapp*.log
-data/planner_learning.db
 node_modules/
 **/node_modules/
 frontend/dist/
