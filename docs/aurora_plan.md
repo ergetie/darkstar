@@ -308,6 +308,13 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
                 *   May write `forecasting.active_forecast_version` in config,
                   but does **not** yet change which forecasts the planner uses.
 
+    **Sub-steps**
+
+    *   [1] Integrate per-slot temperature (`temp_c`) into training/evaluation and populate it in `slot_forecasts`.
+    *   [2] Add `vacation_mode` (and related boolean/context flags) as model input features.
+    *   [3] Extend `ml/evaluate.py` with segmented MAE reporting (by weather regime and occupancy).
+    *   [4] Implement a Forecasting tab (and view-only AURORA toggle) in the UI that surfaces baseline vs AURORA vs actuals and MAE metrics, without changing planner behaviour.
+
     *   **Dependencies**: Revs 3–8 completed (v0.1 pipeline, evaluation, ML API, config flag, and docs).
 
     *   **Acceptance Criteria**:
