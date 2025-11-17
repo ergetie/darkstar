@@ -333,7 +333,7 @@ export default function Learning() {
     }, [history])
 
     return (
-        <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
             <div className="mb-6 flex items-baseline justify-between">
                 <div>
                     <div className="text-sm text-muted">Learning Engine</div>

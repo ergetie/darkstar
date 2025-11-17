@@ -247,7 +247,7 @@ export default function Dashboard(){
 
 
     return (
-        <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <ChartCard useHistoryForToday />
@@ -294,7 +294,7 @@ export default function Dashboard(){
         <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
         <div className="text-text">Now showing: {planBadge}{planMeta}</div>
         </div>
-        <div className={`grid grid-cols-2 gap-3 transition-opacity ${isRefreshing ? 'opacity-60' : 'opacity-100'}`}>
+        <div className={`grid grid-cols-1 gap-3 sm:grid-cols-2 transition-opacity ${isRefreshing ? 'opacity-60' : 'opacity-100'}`}>
         <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `target ${currentSlotTarget.toFixed(0)}%` : 'target —%'} />
         <Kpi label="Battery Cap" value={batteryCapacity !== null ? `${batteryCapacity.toFixed(1)} kWh` : '— kWh'} />
         <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
@@ -308,7 +308,7 @@ export default function Dashboard(){
         </motion.div>
         </div>
 
-        <div className={`grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 transition-opacity ${isRefreshing ? 'opacity-60' : 'opacity-100'}`}>
+        <div className={`grid grid-cols-1 gap-6 mt-6 lg:grid-cols-3 transition-opacity ${isRefreshing ? 'opacity-60' : 'opacity-100'}`}>
         <Card className="p-5">
         <div className="text-sm text-muted mb-3">Water heater</div>
         <div className="flex items-center justify-between">

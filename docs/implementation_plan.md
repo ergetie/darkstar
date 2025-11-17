@@ -2120,6 +2120,23 @@
 
 ---
 
+### Implementation
+
+* **Completed**:
+  * Step 1: Initial error/loading handling (Dashboard)
+    * Added per-card error messaging on the Dashboard by tracking partial API failures in `Dashboard.tsx` and surfacing a compact status line (“Some dashboard data failed to load.”) in the System Status card while still rendering whatever data was successfully fetched.
+    * Ensured the main dashboard chart shows a clear “No Price Data” overlay when schedule/pricing data is missing, instead of leaving stale/mock data visible.
+  * Step 2: Global backend-offline indicator
+    * Added a lightweight health check in `App.tsx` that periodically calls `/api/status` and `/api/config`; after three consecutive failures it displays a non-blocking banner (“Backend appears offline or degraded. Some data may be stale or unavailable.”) across all tabs.
+    * Kept the indicator read-only and non-modal so navigation and per-card error states remain usable even when the banner is visible.
+  * Tooltip offset for charts
+    * Tweaked Chart.js tooltip options in `ChartCard.tsx` (`caretPadding`, `yAlign`) so tooltips no longer sit directly on top of data points, improving readability on dense desktop and mobile charts.
+* **In Progress**:
+  * Step 3: Mobile layout tweaks for Dashboard, Planning, Learning, Debug, and Settings (stacked cards and better wrapping on narrow viewports).
+* **Blocked**: —
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
@@ -2139,6 +2156,7 @@
 - [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
 - [x] Device caps and SoC target enforcement
 - [x] Zero-capacity gap handling
+- [ ] Fix Planning timeline “Hold” vs discharge bug where some slots are rendered as hold blocks even though the schedule has discharge with `soc_target_percent` pinned to `min_soc_percent` (ensure the classification logic respects discharge action and SoC limits).
 
 ### Settings & Configuration
 - [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
@@ -2161,6 +2179,7 @@
 - [ ] Render `soc_target` as a step-line series in the charts to better match discrete slot-level behaviour.
 - [ ] Add zoom support to the charts (e.g. wheel + modifier or explicit controls) so operators can inspect narrower time windows.
 - [ ] Offset chart tooltips slightly from the cursor to avoid covering the exact data point, improving readability when inspecting dense regions.
+- [ ] Ensure the price series includes full Nordpool price history for the day, including past hours, so the charts can display a complete 24-hour price curve (even when schedule data is limited).
 
 ### Production Readiness
 - [ ] Error handling & loading states for all API calls

@@ -172,7 +172,7 @@ export default function Debug() {
     }, [socHistory])
 
     return (
-        <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
             <div className="mb-6">
                 <div className="text-sm text-muted">Debug & Diagnostics</div>
                 <div className="text-[13px] text-muted/80">
