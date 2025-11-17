@@ -371,8 +371,9 @@ Configure `secrets.yaml` with:
 home_assistant:
   url: "http://homeassistant.local:8123"
   token: "<long-lived-access-token>"
-  battery_soc_entity_id: "sensor.inverter_battery"
+  consumption_entity_id: "sensor.inverter_total_load_consumption"
   water_heater_daily_entity_id: "sensor.vvb_energy_daily"
+  battery_soc_entity_id: "sensor.inverter_battery"
 ```
 
 - Planner initial state prefers the `battery_soc_entity_id` value, falling back to config defaults when unavailable.

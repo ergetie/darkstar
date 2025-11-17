@@ -2148,6 +2148,8 @@
 - [ ] Fix Planning timeline “Hold” vs discharge bug where some slots are rendered as hold blocks even though the schedule has discharge with `soc_target_percent` pinned to `min_soc_percent` (ensure the classification logic respects discharge action and SoC limits).
 
 ### Settings & Configuration
+- [ ] Unify sensor configuration under `config.yaml` `input_sensors` map; remove Home Assistant entity IDs (e.g. `battery_soc_entity_id`, `water_heater_daily_entity_id`) from `secrets.yaml` so that file only holds actual secrets (HA URL + token), and refactor `learning.py` and `inputs.py` to read all sensor IDs from the centralized `input_sensors` structure while keeping the planner, learning engine, and web UI fully functional on the new configuration.
+
 ### Repo & Docs Hygiene
 - [ ] Update `AGENTS.md` project structure and theme path references to match the current backend/frontend layout (themes under `backend/themes/`).
 - [ ] Plan and execute a dedicated refactor rev to move `planner.py` and `inputs.py` under `backend/` (with updated imports/tests) to keep the repository structure consistent.
