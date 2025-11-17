@@ -2131,6 +2131,8 @@
     * Kept the indicator read-only and non-modal so navigation and per-card error states remain usable even when the banner is visible.
   * Tooltip offset for charts
     * Tweaked Chart.js tooltip options in `ChartCard.tsx` (`caretPadding`, `yAlign`) so tooltips no longer sit directly on top of data points, improving readability on dense desktop and mobile charts.
+  * Price history overlay for charts
+    * Updated `/api/schedule/today_with_history` to merge in a full-day Nordpool price map for today (via `get_nordpool_data`), synthesising slots where needed so the chart’s price series can show a complete 24-hour curve even when the schedule or execution history is sparse.
 * **In Progress**:
   * Step 3: Mobile layout tweaks for Dashboard, Planning, Learning, Debug, and Settings (stacked cards and better wrapping on narrow viewports).
 * **Blocked**: —
@@ -2165,6 +2167,9 @@
 - [x] Config reset functionality with `/api/config/reset`
 - [x] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
 - [x] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
+### Repo & Docs Hygiene
+- [ ] Update `AGENTS.md` project structure and theme path references to match the current backend/frontend layout (themes under `backend/themes/`).
+- [ ] Plan and execute a dedicated refactor rev to move `planner.py` and `inputs.py` under `backend/` (with updated imports/tests) to keep the repository structure consistent.
 
 ### Learning & Debug
 - [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
