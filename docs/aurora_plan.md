@@ -260,3 +260,53 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   **Acceptance Criteria**:
         *   `docs/implementation_plan.md` reflects AURORA's successful integration.
         *   Project documentation is current.
+
+---
+
+## Backlog / Post v0.1 Ideas
+
+These items are intentionally out of scope for AURORA v0.1 but should be
+considered for future revisions once the core pipeline is stable.
+
+*   **Weather integration**
+    *   Join Open-Meteo (or other) weather data into the training/evaluation
+        pipeline and store per-slot `temp_c` in `slot_forecasts`.
+    *   Add weather-derived features (temperature, cloud cover, irradiance)
+        to the LightGBM models for both PV and load.
+
+*   **Context & behavioural features**
+    *   Incorporate Home Assistant booleans such as `vacation_mode` as
+        additional input features (e.g. one-hot or binary flags) instead of
+        treating them as cumulative sensors.
+    *   Evaluate other relevant context signals (occupancy, manual overrides,
+        holiday calendars) and how they affect forecast accuracy.
+
+*   **Forward AURORA inference**
+    *   Add a dedicated script or service that generates **future** AURORA
+        forecasts (not just historical evaluation) and writes them into
+        `slot_forecasts` under `forecast_version: aurora_v0.1` for the
+        planner horizon.
+    *   Ensure graceful fallback to the baseline `active_forecast_version`
+        when AURORA forecasts are missing or stale.
+
+*   **UI / UX enhancements**
+    *   Add an **AURORA enable toggle** in the web UI Settings page that
+        controls which `forecast_version` is active (e.g. toggling between
+        `"baseline_7_day_avg"` and `"aurora_v0.1"`).
+    *   Introduce a dedicated **Forecasting** tab showing:
+        *   Current active `forecast_version`.
+        *   Recent MAE and coverage metrics for baseline vs AURORA.
+        *   Visual overlays of forecast vs actual for selected days.
+
+*   **Model lifecycle & monitoring**
+    *   Implement scheduled retraining (e.g. weekly) and automatic promotion
+        of new `forecast_version`s based on evaluation metrics.
+    *   Track model drift and data quality signals (e.g. changes in usage
+        patterns, missing sensors, or weather feed failures).
+
+*   **Future experimentation**
+    *   Explore multi-model or ensemble approaches (e.g. separate models per
+        season or weekday/weekend).
+    *   Evaluate alternative algorithms or architectures (e.g. temporal
+        convolutional networks) using the same `slot_observations` /
+        `slot_forecasts` schema and `forecast_version` abstraction.
