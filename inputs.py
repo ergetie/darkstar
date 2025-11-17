@@ -8,6 +8,8 @@ import yaml
 from nordpool.elspot import Prices
 from open_meteo_solar_forecast import OpenMeteoSolarForecast
 
+from ml.api import get_forecast_slots
+
 
 def load_home_assistant_config() -> Dict[str, Any]:
     """Read Home Assistant configuration from secrets.yaml."""
@@ -401,6 +403,18 @@ def get_all_input_data(config_path="config.yaml"):
         "daily_pv_forecast": forecast_result.get("daily_pv_forecast", {}),
         "daily_load_forecast": forecast_result.get("daily_load_forecast", {}),
     }
+
+
+def get_db_forecast_slots(start: datetime, end: datetime, config: dict) -> list[dict]:
+    """
+    Fetch forecast slots from the learning database via ml.api.
+
+    This helper does not change planner behaviour by itself; it simply
+    wraps get_forecast_slots using the configured active_forecast_version.
+    """
+    forecasting_cfg = config.get("forecasting", {}) or {}
+    version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
+    return get_forecast_slots(start, end, version)
 
 
 def _get_load_profile_from_ha(config: dict) -> list[float]:
