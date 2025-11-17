@@ -68,6 +68,12 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
         const water = slot.water_heating_kw ?? 0
         const exp = slot.export_kwh ?? 0
 
+        const noActions =
+            (charge || 0) <= 0 &&
+            (discharge || 0) <= 0 &&
+            (water || 0) <= 0 &&
+            (exp || 0) <= 0
+
         // Identify slots where the device cannot meaningfully act:
         // no controllable actions and SoC pinned to configured bounds.
         let isPinnedZeroCapacity = false
@@ -78,11 +84,6 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
                     : typeof slot.soc_target_percent === 'number'
                       ? slot.soc_target_percent
                       : null)
-            const noActions =
-                (charge || 0) <= 0 &&
-                (discharge || 0) <= 0 &&
-                (water || 0) <= 0 &&
-                (exp || 0) <= 0
             if (
                 noActions &&
                 typeof soc === 'number' &&
@@ -100,7 +101,9 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
         if (!laneCandidates.length) {
             // Only treat as a "hold" block if the device is actually free to act;
             // if SoC is pinned at bounds and there are no actions, leave a gap.
-            if (!isPinnedZeroCapacity) laneCandidates.push('hold')
+            // Also never classify slots with discharge as hold; discharge is the
+            // default behaviour and should not show up in the timeline.
+            if (!isPinnedZeroCapacity && noActions) laneCandidates.push('hold')
         }
 
         for (const lane of laneCandidates) {
