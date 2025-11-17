@@ -16,22 +16,23 @@ By understanding the drivers behind energy consumption (like weather, time of da
 
 ### Architecture & Data Flow
 
-AURORA is designed as a distinct module that integrates seamlessly with the existing Darkstar components. The implementation follows a safe, phased approach:
+AURORA is designed as a distinct module that integrates seamlessly with the existing Darkstar components **while reusing the current learning engine and database**. The implementation follows a safe, phased approach:
 
-1.  **Data Collection:** A robust data pipeline will collect and store historical data from Home Assistant (energy usage, user states) and a weather API (temperature, cloud cover) into a dedicated SQLite database.
+1.  **Data Collection (via LearningEngine):** A robust data pipeline collects and stores historical data from Home Assistant (energy usage, user states) and a weather API (temperature, cloud cover) using the existing `LearningEngine` in `learning.py`, into the single SQLite database at `learning.sqlite_path` (default `data/planner_learning.db`). AURORA does **not** introduce a second DB or schema.
 2.  **Offline Training:** Using the collected data, machine learning models will be trained to predict load and PV production. This step is performed offline and has no impact on the live system.
-3.  **Shadow Mode Evaluation:** The trained models will be run in a "shadow mode," where their predictions are compared against the old model and actual results. This provides objective proof of performance before integration.
-4.  **Live Integration:** Once proven, AURORA will be integrated into the planner's `inputs.py` module, controlled by a feature flag in `config.yaml` for safety and easy rollback.
+3.  **Shadow Mode Evaluation (forecast_version):** The trained models are run in a "shadow mode," where their predictions are written into the existing `slot_forecasts` table with a distinct `forecast_version` (e.g. `aurora_v1.0`) and then compared against the baseline forecasts and actual results from `slot_observations`. This provides objective proof of performance before integration.
+4.  **Live Integration (feature-flagged):** Once proven, AURORA will be integrated into the planner's `inputs.py` module via a small ML API (`ml/api.py`), controlled by a feature flag in `config.yaml` (e.g. `forecasting.active_forecast_version`) for safety and easy rollback. Until that flag is switched, the live system continues to use the existing baseline forecasts.
 
 ### Folder Structure
 
-To ensure a clean separation of concerns, all AURORA-related code will reside in a new top-level `/ml` directory:
+To ensure a clean separation of concerns, all AURORA-related code will reside in a new top-level `/ml` directory, acting as a client of the existing learning engine:
 
 ```
 /ml/
-├── data_activator.py  # Script to run the existing ETL logic
+├── data_activator.py  # Script to call LearningEngine and populate training data
 ├── train.py           # Script to train the AURORA models
-├── evaluate.py        # Script to run shadow-mode evaluation
+├── evaluate.py        # Script to run shadow-mode evaluation using slot_forecasts
+├── api.py             # Thin API: e.g. get_forecast_slots(start, end, version)
 └── models/            # Directory to store the trained model files
 ```
 
@@ -86,7 +87,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 *   **Model**: Gemini
 *   **Summary**: Create the base directory and file structure for AURORA development.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
@@ -98,16 +99,16 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 ### Rev 2 — 2025-11-16: Update `config.yaml` with `input_sensors` *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
-*   **Summary**: Add a dedicated `input_sensors` section to `config.yaml` to map canonical sensor roles to user-specific Home Assistant entity IDs.
+*   **Summary**: Add a dedicated `input_sensors` section to `config.yaml` to map canonical sensor roles to user-specific Home Assistant entity IDs, to be used first by AURORA and later by the rest of Darkstar.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
-    *   **Goals**: Create a flexible and user-configurable mapping for all sensors required by AURORA.
-    *   **Scope**: Add the `input_sensors` section to `config.yaml`. `secrets.yaml` will only be used for the HA URL and token.
-    *   **Dependencies**: None.
-    *   **Acceptance Criteria**: `config.yaml` contains the `input_sensors` section with placeholder entity IDs.
+    *   **Goals**: Create a flexible and user-configurable mapping for all sensors required by AURORA, and eventually by the planner and learning engine.
+    *   **Scope**: Add the `input_sensors` section to `config.yaml`. `secrets.yaml` will only be used for the HA URL and token. Initially, only AURORA reads from `input_sensors`; a later Darkstar refactor will migrate `learning.py`, `inputs.py`, and related components to use this same map.
+    *   **Dependencies**: None for AURORA sandbox use; full app migration depends on the Darkstar config refactor backlog item.
+    *   **Acceptance Criteria**: `config.yaml` contains the `input_sensors` section with real entity IDs for the running system, and AURORA code can resolve canonical sensor names from it without affecting the live planner.
     *   **Configuration**: Add the following to `config.yaml`:
         ```yaml
         input_sensors:
@@ -129,7 +130,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 *   **Model**: Gemini
 *   **Summary**: Create a script to activate the existing `etl_cumulative_to_slots` logic in `learning.py`, populating the `slot_observations` table with rich historical data based on the new `input_sensors` config.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
@@ -154,7 +155,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 *   **Model**: Gemini
 *   **Summary**: Create a Python script to train LightGBM models for Load and PV forecasting using the data in `slot_observations`.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
@@ -180,23 +181,23 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 ### Rev 5 — 2025-11-16: Implement `ml/evaluate.py` *(Status: 📋 Planned)*
 
 *   **Model**: Gemini
-*   **Summary**: Create a Python script to compare AURORA's predictions against the old forecasting model and actual historical data.
+*   **Summary**: Create a Python script to compare AURORA's predictions against the old forecasting model and actual historical data using the shared `slot_forecasts` table and `forecast_version`.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
     *   **Goals**:
-        *   Objectively measure the performance of AURORA models.
+        *   Objectively measure the performance of AURORA models using a shared database and `forecast_version`.
     *   **Scope**:
         *   Load trained AURORA models from `/ml/models/`.
         *   Fetch actual historical data for a specified period (e.g., last 7 days) from `slot_observations`.
-        *   Generate predictions using AURORA for that period.
-        *   Generate predictions using the existing 7-day average logic for the same period.
-        *   Calculate and report Mean Absolute Error (MAE) for both models.
-    *   **Dependencies**: Trained AURORA models (Rev 4).
+        *   Generate predictions using AURORA for that period and write them into `slot_forecasts` with a distinct `forecast_version` (e.g. `aurora_v1.0`).
+        *   Ensure baseline forecasts are also present in `slot_forecasts` under a separate `forecast_version` (e.g. `baseline_7_day_avg`) if not already generated.
+        *   Calculate and report Mean Absolute Error (MAE) and related metrics for both `forecast_version` values by joining against `slot_observations`.
+    *   **Dependencies**: Trained AURORA models (Rev 4), populated `slot_observations` table.
     *   **Acceptance Criteria**:
-        *   A clear performance report is generated, showing MAE for both models.
+        *   A clear performance report is generated, comparing AURORA and baseline forecasts using the single SQLite DB and the `forecast_version` field.
 
 ---
 
@@ -209,16 +210,16 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 *   **Model**: Gemini
 *   **Summary**: Add a feature flag to `config.yaml` to enable/disable AURORA forecasting.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
     *   **Goals**: Provide a safe mechanism to switch between AURORA and the old forecasting method.
-    *   **Scope**: Add a `forecasting` section with a `use_aura` boolean flag to `config.yaml`.
+    *   **Scope**: Add a `forecasting` section with a `active_forecast_version` field to `config.yaml` to select which `forecast_version` from `slot_forecasts` drives the planner (e.g. `"baseline_7_day_avg"` vs `"aurora_v1.0"`).
     *   **Configuration**:
         ```yaml
         forecasting:
-          use_aura: false # Default to false initially for safety
+          active_forecast_version: "baseline_7_day_avg"  # default to baseline for safety
         ```
 
 ### Rev 7 — 2025-11-16: Modify `inputs.py` for AURORA Integration *(Status: 📋 Planned)*
@@ -226,16 +227,16 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 *   **Model**: Gemini
 *   **Summary**: Integrate AURORA models into `inputs.py` to provide forecasts to the planner, controlled by the feature flag.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
     *   **Goals**:
         *   Enable the planner to receive forecasts from AURORA.
     *   **Scope**:
-        *   Modify the `get_forecast_data` function in `inputs.py`.
-        *   Add logic to load AURORA models if `forecasting.use_aura` is true.
-        *   Replace the old 7-day average logic with AURORA's prediction logic.
+        *   Introduce a thin ML API in `ml/api.py` (e.g. `get_forecast_slots(start, end, version)`).
+        *   Modify the `get_forecast_data` function in `inputs.py` to read from the `slot_forecasts` table via `ml/api.py`, selecting rows based on `forecasting.active_forecast_version`.
+        *   Keep the old 7-day average logic available as a baseline `forecast_version` until AURORA is fully validated.
     *   **Dependencies**: Trained AURORA models (Rev 4), `config.yaml` feature flag (Rev 6).
     *   **Acceptance Criteria**:
         *   When `forecasting.use_aura` is `true`, the planner receives forecasts generated by AURORA.
@@ -245,7 +246,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 *   **Model**: Gemini
 *   **Summary**: Finalize AURORA integration, update documentation, and remove deprecated code.
 *   **Started**: 2025-11-16
-*   **Last Updated**: 2025-11-16
+*   **Last Updated**: 2025-11-17
 
     **Plan**
 
