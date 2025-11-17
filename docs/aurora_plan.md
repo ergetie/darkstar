@@ -326,6 +326,96 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 ---
 
+## Phase 4: AURORA v0.3 — Forward Inference & Planner Wiring (Still Controlled)
+
+**Goal:** Teach AURORA to generate forward-looking forecasts for the planner horizon and add a config/UX path to let the planner *optionally* consume them, while keeping rollback trivial and avoiding a “hard cutover” until we are happy with real‑world results.
+
+### Rev 10 — 2025-11-17: Forward AURORA Inference *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Generate future AURORA forecasts for the planner horizon and store them in `slot_forecasts` under `aurora_v0.1`.
+*   **Started**: 2025-11-17
+*   **Last Updated**: 2025-11-17
+
+    **Plan**
+
+    *   **Goals**:
+        *   Produce forward AURORA forecasts (PV + load) for each 15-min slot in the planner horizon.
+        *   Use the same features as training (time, temp, context flags) with forecasted weather.
+
+    *   **Scope**:
+        *   Add a forward-inference helper (e.g. `ml/forward.py` or a function in `ml/api.py`) that:
+            *   Uses trained models and Open-Meteo **forecast** temperatures (reusing planner’s `_fetch_temperature_forecast` logic or a shared helper).
+            *   Builds a feature frame for all future slots in the chosen horizon (e.g. next 48–96 slots).
+            *   Writes per-slot forecasts into `slot_forecasts` as `forecast_version='aurora_v0.1'`.
+        *   Provide a CLI/script wrapper so forward inference can be run manually or from a cron/systemd job.
+    *   **Dependencies**: Revs 3–9 (v0.1/v0.2 pipeline, models, ML API).
+
+    *   **Acceptance Criteria**:
+        *   Invoking the forward-inference entrypoint populates `slot_forecasts` with `aurora_v0.1` rows for the planner horizon.
+        *   Forecast rows include `slot_start`, `pv_forecast_kwh`, `load_forecast_kwh`, and `temp_c`.
+        *   No changes to planner behaviour yet; the planner still uses the existing baseline forecast path.
+
+### Rev 11 — 2025-11-17: Planner Consumption via Feature Flag *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Allow the planner to optionally consume AURORA forecasts instead of the baseline, controlled purely by `forecasting.active_forecast_version`.
+*   **Started**: 2025-11-17
+*   **Last Updated**: 2025-11-17
+
+    **Plan**
+
+    *   **Goals**:
+        *   Let the planner use either baseline or AURORA forecasts with a simple config switch.
+        *   Preserve an instant rollback path by flipping `active_forecast_version`.
+
+    *   **Scope**:
+        *   Update `inputs.get_forecast_data` (or an adjacent helper) to:
+            *   When `forecasting.active_forecast_version` is `"baseline_7_day_avg"`:
+                *   Use the current baseline forecast path (status quo).
+            *   When `forecasting.active_forecast_version` is `"aurora_v0.1"`:
+                *   Fetch forecasts from the learning DB via `ml.api.get_forecast_slots(...)` for the planner horizon.
+                *   Fall back to baseline logic if AURORA data is missing, incomplete, or stale.
+        *   Ensure timezone, slot alignment, and shapes match the planner’s expectations.
+    *   **Dependencies**: Rev 10 (forward AURORA forecasts available in `slot_forecasts`).
+
+    *   **Acceptance Criteria**:
+        *   With `active_forecast_version="baseline_7_day_avg"` the planner behaves exactly as before.
+        *   With `active_forecast_version="aurora_v0.1"` and fresh AURORA forecasts present, the planner uses AURORA forecasts for PV/load while preserving existing safety margins.
+        *   If AURORA data is missing or stale, the planner automatically falls back to baseline and logs a warning.
+
+### Rev 12 — 2025-11-17: Settings Toggle for Active Forecast Version *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Expose the active forecast version as a controlled toggle in the Settings UI, so operators can switch between baseline and AURORA without touching YAML.
+*   **Started**: 2025-11-17
+*   **Last Updated**: 2025-11-17
+
+    **Plan**
+
+    *   **Goals**:
+        *   Make it easy and safe to switch between baseline and AURORA in production.
+        *   Keep AURORA v0.3 clearly marked as experimental in the UI.
+
+    *   **Scope**:
+        *   Backend:
+            *   Extend `/api/config` and `/api/config/save` (if needed) so `forecasting.active_forecast_version` can be read/written via the API.
+        *   Frontend (Settings tab):
+            *   Add a small “Forecast source” control (e.g. radio buttons or a select) with options:
+                *   `Baseline (7-day average)`
+                *   `AURORA v0.1 (experimental)`
+            *   Display the currently active version and a short explanation/tooltip about AURORA being experimental.
+        *   Keep the Forecasting tab view-only: it reflects whichever version is active but does not itself change planner logic.
+    *   **Dependencies**: Rev 11 (planner respects `active_forecast_version`).
+
+    *   **Acceptance Criteria**:
+        *   Changing the forecast source in Settings correctly updates `forecasting.active_forecast_version` in `config.yaml` (via API).
+        *   AURORA can be enabled/disabled without editing YAML or redeploying.
+        *   Operators can switch back to baseline instantly if needed, completing the v0.3 story.
+
+
+---
+
 ## Backlog / Post v0.1 Ideas
 
 These items are intentionally out of scope for AURORA v0.1 but should be
