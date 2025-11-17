@@ -330,7 +330,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 **Goal:** Teach AURORA to generate forward-looking forecasts for the planner horizon and add a config/UX path to let the planner *optionally* consume them, while keeping rollback trivial and avoiding a “hard cutover” until we are happy with real‑world results.
 
-### Rev 10 — 2025-11-17: Forward AURORA Inference *(Status: 📋 Planned)*
+### Rev 10 — 2025-11-17: Forward AURORA Inference *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Generate future AURORA forecasts for the planner horizon and store them in `slot_forecasts` under `aurora_v0.1`.
