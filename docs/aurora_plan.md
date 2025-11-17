@@ -372,7 +372,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Forecast rows include `slot_start`, `pv_forecast_kwh`, `load_forecast_kwh`, and `temp_c`.
         *   No changes to planner behaviour yet; the planner still uses the existing baseline forecast path.
 
-### Rev 11 — 2025-11-17: Planner Consumption via Feature Flag *(Status: 📋 Planned)*
+### Rev 11 — 2025-11-17: Planner Consumption via Feature Flag *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Allow the planner to optionally consume AURORA forecasts instead of the baseline, controlled purely by `forecasting.active_forecast_version`.
