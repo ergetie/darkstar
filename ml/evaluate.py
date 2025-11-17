@@ -238,8 +238,18 @@ def _print_segmented_mae(
     if df_f.empty:
         return
 
-    df_f["slot_start"] = pd.to_datetime(df_f["slot_start"])
-    obs["slot_start"] = pd.to_datetime(obs["slot_start"])
+    df_f["slot_start"] = pd.to_datetime(
+        df_f["slot_start"],
+        format="ISO8601",
+        utc=True,
+        errors="coerce",
+    )
+    obs["slot_start"] = pd.to_datetime(
+        obs["slot_start"],
+        format="ISO8601",
+        utc=True,
+        errors="coerce",
+    )
     merged = pd.merge(
         obs,
         df_f,
