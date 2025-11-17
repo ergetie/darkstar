@@ -12,8 +12,8 @@ source venv/bin/activate
 echo "🚀 Starting Darkstar Web UI..."
 echo "   Press Ctrl+C to stop."
 
-# Start Flask app
-export FLASK_APP=webapp
+# Start Flask app (React frontend + backend APIs)
+export FLASK_APP=backend.webapp
 export FLASK_ENV=development
 
 # Free port 5000 if already in use

@@ -75,19 +75,34 @@ PYTHONPATH=. python -m pytest -q
 
 4. Use `PYTHONPATH=. python -m pytest -q` for regression testing after significant changes.
 
-## Project Structure
+## Repository Structure
 
 ```
 darkstar/
-├── config.yaml                   # Master configuration file
-├── inputs.py                     # External data fetching (Nordpool API, forecasts)
-├── planner.py                    # Core MPC scheduling logic
-├── decision_maker.js             # Ref erence JavaScript implementation
-├── schedule.json                 # Generated output schedule
-├── requirements.txt              # Python dependencies
-├── AGENTS.md                     # Development guidelines for contributors
-├── /docs/implementation_plan.md  # Project plan and history
-└── README.md                     # This file
+├─ backend/
+│  ├─ webapp.py        - Flask APIs, planner endpoints, diagnostics, theme serving
+│  ├─ static/          - Backend static assets (served under /static)
+│  └─ templates/       - Backend templates (used by Flask where appropriate)
+│
+├─ frontend/
+│  ├─ src/             - React UI (Dashboard, Planning, Learning, Debug, Settings)
+│  ├─ index.html       - Vite entrypoint
+│  └─ ...              - Components, pages, theming helpers
+│
+├─ planner.py          - Core MPC scheduling logic
+├─ inputs.py           - External data fetching (Nordpool, forecasts, Home Assistant)
+├─ config.yaml         - Main runtime configuration (battery, thresholds, strategy)
+├─ schedule.json       - Latest generated schedule (JSON)
+├─ data/               - Learning SQLite DB (`planner_learning.db`) and telemetry
+├─ docs/               - Implementation plan and architecture docs
+├─ tests/              - Pytest-based regression tests
+├─ bin/                - Helper scripts (e.g. `run_planner.py`, `release.py`)
+├─ scripts/            - Dev and ops helpers
+├─ archive/
+│  └─ legacy_flask/    - Archived legacy Flask UI (`webapp.py`, templates, static, themes)
+├─ AGENTS.md           - Development guidelines for contributors
+├─ requirements.txt    - Python dependencies
+└─ README.md           - This file
 ```
 
 ## Configuration
@@ -117,7 +132,7 @@ The system is designed for clarity, testability, and separation of concerns. For
 - **`config.yaml`**: Master configuration file for all user-configurable parameters.
 - **`inputs.py`**: Handles all external data fetching and preparation (Nordpool API, forecasts, Home Assistant).
 - **`planner.py`**: Core MPC logic for generating the schedule.
-- **`webapp.py`**: Flask-based web UI and diagnostics API layer.
+- **`backend/webapp.py`**: Flask-based API and diagnostics layer backing the React UI.
 - **`schedule.json`**: The final output: a time-slotted plan of actions.
 
 ### Multi-Pass MPC Logic
@@ -150,12 +165,12 @@ The system generates `schedule.json` containing:
 
 ## Web UI
 
-The Flask dashboard provides:
+The React + Flask dashboard provides:
 - Real-time stats including current SoC, S-index factor, forecast horizons, and water usage.
 - A 48-hour chart with SoC, SoC target overlay, PV/load forecasts, charge/discharge/export bars, and theme-aware colours.
 - Manual action controls (`add charge`, `add water heating`, `add hold`, `add export`) that feed the simulate endpoint respecting manual semantics.
 - Planner controls (`run planner`, `apply manual changes`, `reset to optimal`) arranged for quick workflows.
-- Appearance settings that read all themes from `themes/` and allow selecting a palette accent.
+- Appearance settings that read all themes from the backend theme directory (`backend/themes/`) and allow selecting a palette accent.
 
 ## Deployment & Ops
 
@@ -197,7 +212,7 @@ tmux new -s darkstar
 # inside tmux
 cd /opt/darkstar
 source venv/bin/activate
-FLASK_APP=webapp flask run --host 0.0.0.0 --port 8000
+FLASK_APP=backend.webapp flask run --host 0.0.0.0 --port 8000
 # detach: Ctrl-b then d
 # reattach later: tmux attach -t darkstar
 ```
@@ -328,7 +343,7 @@ Server update (applies the new release):
 cd /opt/darkstar
 git fetch --all && git reset --hard origin/main
 source venv/bin/activate && pip install -r requirements.txt
-FLASK_APP=webapp flask run --host 0.0.0.0 --port 8000
+FLASK_APP=backend.webapp flask run --host 0.0.0.0 --port 8000
 ```
 
 
@@ -365,27 +380,12 @@ home_assistant:
 
 ## UI Themes
 
-- Place theme files in the `themes/` directory. Supported formats: JSON (`.json`) and YAML (`.yaml`/`.yml`).
+- Place theme files in the backend theme directory (`backend/themes/`). Supported formats: JSON (`.json`) and YAML (`.yaml`/`.yml`).
 - Each theme defines:
   - `foreground`, `background` (hex colors)
   - optional `accent`, `muted`
   - `palette`: 16 hex colors; indices 0–7 for chart actions, 8–15 for corresponding buttons (0↔8, 1↔9, …).
 - The web-app scans the folder on startup. Select themes under Settings → Appearance.
-
-### Timeline/Grid Colors
-
-The vis-timeline grid and lane separators are styled to match the active theme.
-
-- Time-axis grid (vertical/horizontal lines):
-  - Drawn by vis-timeline under `.vis-time-axis .vis-grid` and styled at runtime in `static/js/app.js` (function `applyTimelineGridColor`).
-  - The color is taken from the CSS variable `--ds-palette-0`. To change, update your theme’s palette or modify the variable in `:root`.
-  - A MutationObserver re-applies the color after vis re-renders so the override persists.
-
-- Lane separators between Gantt lanes and label rows:
-  - Controlled by CSS border rules on `.vis-foreground .vis-group` and `.vis-labelset .vis-label`.
-  - The color is set to `var(--ds-palette-0)` in `static/css/style.css`. Override those selectors if you want a different color.
-
-Tip: If you want a different grid/separator tint than palette 0, you can either adjust `--ds-palette-0` in your theme or replace the variable in the above selectors with another palette index (e.g., `--ds-palette-6`).
 
 ## License
 
