@@ -73,6 +73,8 @@ def generate_forward_slots(
         df = df.merge(temp_series.to_frame(), left_on="slot_start", right_index=True, how="left")
     else:
         df["temp_c"] = None
+    # Ensure numeric dtype even when values are missing/None
+    df["temp_c"] = df["temp_c"].astype("float64")
 
     # Enrich with context flags based on recent HA history (best effort)
     vac_series = get_vacation_mode_series(slot_start - timedelta(days=7), horizon_end, config=engine.config)
@@ -152,4 +154,3 @@ def generate_forward_slots(
 
 if __name__ == "__main__":
     generate_forward_slots()
-
