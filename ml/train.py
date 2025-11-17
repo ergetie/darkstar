@@ -71,11 +71,14 @@ def _load_slot_observations(
         return df
 
     # Ensure timezone-aware datetimes
-    df["slot_start"] = pd.to_datetime(df["slot_start"])
-    if df["slot_start"].dt.tz is None:
-        df["slot_start"] = df["slot_start"].dt.tz_localize(engine.timezone)
-    else:
-        df["slot_start"] = df["slot_start"].dt.tz_convert(engine.timezone)
+    df["slot_start"] = pd.to_datetime(
+        df["slot_start"],
+        format="ISO8601",
+        utc=True,
+        errors="coerce",
+    )
+    df = df.dropna(subset=["slot_start"])
+    df["slot_start"] = df["slot_start"].dt.tz_convert(engine.timezone)
 
     return df
 
@@ -216,4 +219,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
