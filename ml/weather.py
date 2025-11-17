@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List
 
 import pandas as pd
@@ -45,8 +45,8 @@ def get_weather_series(
 
     start_local = start_time.astimezone(tz)
     end_local = end_time.astimezone(tz)
-    start_date = start_local.date().isoformat()
-    end_date = end_local.date().isoformat()
+    start_date_obj = start_local.date()
+    end_date_obj = end_local.date()
     today_local = datetime.now(tz).date()
 
     try:
@@ -57,13 +57,17 @@ def get_weather_series(
         ]
         hourly_param_str = ",".join(hourly_params)
 
-        if end_local.date() <= today_local:
+        if end_date_obj <= today_local:
             url = "https://archive-api.open-meteo.com/v1/archive"
+            # Open-Meteo archive API typically supports data up to yesterday.
+            archive_end = min(end_date_obj, today_local - timedelta(days=1))
+            if archive_end < start_date_obj:
+                return pd.DataFrame(dtype="float64")
             params = {
                 "latitude": latitude,
                 "longitude": longitude,
-                "start_date": start_date,
-                "end_date": end_date,
+                "start_date": start_date_obj.isoformat(),
+                "end_date": archive_end.isoformat(),
                 "hourly": hourly_param_str,
                 "timezone": timezone_name,
             }
@@ -131,4 +135,3 @@ def get_temperature_series(
     series = df["temp_c"].copy()
     series.name = "temp_c"
     return series
-
