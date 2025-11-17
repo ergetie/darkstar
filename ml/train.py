@@ -14,6 +14,7 @@ import pytz
 
 from learning import LearningEngine, get_learning_engine
 from ml.weather import get_temperature_series
+from ml.context_features import get_vacation_mode_series
 
 
 @dataclass
@@ -184,6 +185,19 @@ def main() -> None:
     else:
         observations["temp_c"] = None
 
+    # Enrich with vacation_mode flag where available
+    vac_series = get_vacation_mode_series(start_time, now, config=engine.config)
+    if not vac_series.empty:
+        vac_df = vac_series.to_frame(name="vacation_mode_flag")
+        observations = observations.merge(
+            vac_df,
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
+    else:
+        observations["vacation_mode_flag"] = 0.0
+
     # Build shared features
     observations = _build_time_features(observations)
     feature_cols = [
@@ -196,6 +210,8 @@ def main() -> None:
     ]
     if "temp_c" in observations.columns:
         feature_cols.append("temp_c")
+    if "vacation_mode_flag" in observations.columns:
+        feature_cols.append("vacation_mode_flag")
 
     # Train load model
     load_df = observations.dropna(subset=["load_kwh"])
