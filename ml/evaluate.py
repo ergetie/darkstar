@@ -10,6 +10,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pytz
+import sqlite3
 
 from learning import LearningEngine, get_learning_engine
 from ml.train import _build_time_features, _load_slot_observations
@@ -176,8 +177,10 @@ def _calculate_mae(
     forecast_version: str,
 ) -> Tuple[float | None, float | None]:
     """Calculate MAE for PV and load for a given forecast_version."""
-    with engine._connect_db() as conn:  # type: ignore[attr-defined]
-        query = """
+    with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            """
             SELECT
                 o.pv_kwh,
                 o.load_kwh,
@@ -188,9 +191,7 @@ def _calculate_mae(
               ON o.slot_start = f.slot_start
             WHERE o.slot_start >= ? AND o.slot_start < ?
               AND f.forecast_version = ?
-        """
-        rows = conn.execute(
-            query,
+            """,
             (start_time.isoformat(), end_time.isoformat(), forecast_version),
         ).fetchall()
 
@@ -308,4 +309,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
