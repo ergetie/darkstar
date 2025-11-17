@@ -227,11 +227,7 @@ async def get_forecast_data(price_slots, config):
     # If AURORA is selected, try to use DB-backed forecasts first.
     if active_version == "aurora_v0.1":
         db_forecasts = build_db_forecast_for_slots(price_slots, config)
-        if db_forecasts and any(
-            slot.get("pv_forecast_kwh", 0.0) != 0.0
-            or slot.get("load_forecast_kwh", 0.0) != 0.0
-            for slot in db_forecasts
-        ):
+        if db_forecasts:
             print("Info: Using AURORA forecasts from learning DB (aurora_v0.1).")
             daily_pv_forecast: dict[str, float] = {}
             daily_load_forecast: dict[str, float] = {}
@@ -490,7 +486,7 @@ def build_db_forecast_for_slots(
 
     records = get_forecast_slots(start_time, end_time, version)
     if not records:
-        return [{"pv_forecast_kwh": 0.0, "load_forecast_kwh": 0.0} for _ in price_slots]
+        return []
 
     # Index forecasts by localised slot_start for quick lookup
     indexed: dict[datetime, dict] = {}
