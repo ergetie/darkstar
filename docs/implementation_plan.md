@@ -2053,7 +2053,7 @@
 
 ---
 
-## Rev 55 — Production Readiness Slice *(Status: 📋 Planned)*
+## Rev 55 — Production Readiness Slice *(Status: ✅ Completed)*
 
 * **Model**: GPT-5.1 Codex CLI (planned)
 * **Summary**: Improve error/loading handling, basic mobile responsiveness, and document a minimal deployment setup so the new React/Flask UI can be safely used in place of the legacy app.
@@ -2133,8 +2133,7 @@
     * Tweaked Chart.js tooltip options in `ChartCard.tsx` (`caretPadding`, `yAlign`) so tooltips no longer sit directly on top of data points, improving readability on dense desktop and mobile charts.
   * Price history overlay for charts
     * Updated `/api/schedule/today_with_history` to merge in a full-day Nordpool price map for today (via `get_nordpool_data`), synthesising slots where needed so the chart’s price series can show a complete 24-hour curve even when the schedule or execution history is sparse.
-* **In Progress**:
-  * Step 3: Mobile layout tweaks for Dashboard, Planning, Learning, Debug, and Settings (stacked cards and better wrapping on narrow viewports).
+* **In Progress**: —
 * **Blocked**: —
 
 ---
@@ -2157,9 +2156,6 @@
 - [ ] Persist S-index factor history in learning DB (per-run or per-day) so we can visualise how the effective S-index changes over time.
 - [ ] Learning history chart polish: enrich the Learning tab mini-chart with S-index factor and/or per-loop metrics in addition to changes-applied bars (build on the new `/api/learning/history` and planned S-index history storage).
 - [ ] Make the learning engine pick up config changes (e.g. `learning.min_sample_threshold`) without requiring a backend restart by reloading or rebuilding the cached `LearningEngine` instance when relevant settings are saved.
-- [x] Debug data visualization (`/api/debug`, `/api/debug/logs`)
-- [x] Log viewer with polling and filters
-- [x] Historical SoC chart from `/api/history/soc`
 
 ### Planner & Charts
 - [ ] Fix `soc_target_percent` behaviour around re-planning so that the current/next slot does not create a one-slot spike (use a consistent target floor/trajectory instead of using entry SoC only for the current slot).
