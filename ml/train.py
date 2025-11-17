@@ -184,6 +184,11 @@ def main() -> None:
     else:
         observations["temp_c"] = None
 
+    # Ensure weather columns are numeric (LightGBM requires numeric dtypes)
+    for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
+        if col in observations.columns:
+            observations[col] = pd.to_numeric(observations[col], errors="coerce")
+
     # Enrich with vacation_mode flag where available
     vac_series = get_vacation_mode_series(start_time, now, config=engine.config)
     if not vac_series.empty:

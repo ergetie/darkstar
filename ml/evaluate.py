@@ -151,6 +151,11 @@ def _predict_with_boosters(
         feature_cols.append("cloud_cover_pct")
     if "shortwave_radiation_w_m2" in features.columns:
         feature_cols.append("shortwave_radiation_w_m2")
+
+    for col in feature_cols:
+        if col in features.columns:
+            features[col] = pd.to_numeric(features[col], errors="coerce")
+
     X = features[feature_cols]
 
     load_pred = None
@@ -372,6 +377,10 @@ def main() -> None:
         )
     else:
         observations["temp_c"] = None
+
+    for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
+        if col in observations.columns:
+            observations[col] = pd.to_numeric(observations[col], errors="coerce")
 
     # Enrich with vacation_mode flag where available
     vac_series = get_vacation_mode_series(start_time, now, config=engine.config)
