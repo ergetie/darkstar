@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, date
 from typing import Dict
 
 import pandas as pd
@@ -41,23 +41,41 @@ def get_temperature_series(
     timezone_name = cfg.get("timezone", "Europe/Stockholm")
     tz = pytz.timezone(timezone_name)
 
-    # Normalise window to local dates for the archive API
+    # Normalise window to local dates
     start_local = start_time.astimezone(tz)
     end_local = end_time.astimezone(tz)
     start_date = start_local.date().isoformat()
     end_date = end_local.date().isoformat()
 
-    url = "https://archive-api.open-meteo.com/v1/archive"
-    params = {
-        "latitude": latitude,
-        "longitude": longitude,
-        "start_date": start_date,
-        "end_date": end_date,
-        "hourly": "temperature_2m",
-        "timezone": timezone_name,
-    }
+    today_local = datetime.now(tz).date()
 
+    # Choose archive vs forecast API based on window:
+    # - past (end <= today): archive API
+    # - future (any part beyond today): forecast API
     try:
+        if end_local.date() <= today_local:
+            # Historical window: use archive API
+            url = "https://archive-api.open-meteo.com/v1/archive"
+            params = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "start_date": start_date,
+                "end_date": end_date,
+                "hourly": "temperature_2m",
+                "timezone": timezone_name,
+            }
+        else:
+            # Future window: use forecast API with forecast_days
+            url = "https://api.open-meteo.com/v1/forecast"
+            days_ahead = max(1, (end_local.date() - today_local).days + 1)
+            params = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "hourly": "temperature_2m",
+                "forecast_days": days_ahead,
+                "timezone": timezone_name,
+            }
+
         response = requests.get(url, params=params, timeout=20)
         response.raise_for_status()
         payload = response.json()
@@ -73,15 +91,16 @@ def get_temperature_series(
         return pd.Series(dtype="float64")
 
     # Build Series indexed by localised datetimes
+    # Parse as UTC then convert to local timezone to avoid DST ambiguities
     dt_index = pd.to_datetime(times)
     if dt_index.tz is None:
-        dt_index = dt_index.dt.tz_localize(tz)
+        dt_index = dt_index.tz_localize("UTC")
     else:
-        dt_index = dt_index.tz_convert(tz)
+        dt_index = dt_index.tz_convert("UTC")
+    dt_index = dt_index.tz_convert(tz)
 
     series = pd.Series(temps, index=dt_index, name="temp_c").astype("float64")
 
     # Restrict to the exact window [start_time, end_time)
     series = series[(series.index >= start_local) & (series.index < end_local)]
     return series
-
