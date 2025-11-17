@@ -10,6 +10,12 @@ Darkstar Energy Manager implements advanced multi-pass MPC logic to optimize ene
 - Cascading responsibility between time windows
 - "Hold in cheap windows" principle to preserve battery for expensive periods
 
+An experimental **AURORA v0.1** machine-learning forecasting pipeline is also available,
+implemented under `ml/` and using the existing learning engine and SQLite database.
+In its current form AURORA runs in shadow mode only: it writes forecasts into
+`slot_forecasts` for evaluation and comparison against the baseline, and does not
+change planner behaviour unless a future revision explicitly opts in via config.
+
 ## Quick Start
 
 ### Prerequisites
