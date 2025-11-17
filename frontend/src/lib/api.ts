@@ -220,6 +220,9 @@ export const Api = {
   debugLogs: () => getJSON<DebugLogsResponse>('/api/debug/logs'),
   historySoc: (date: string | 'today' = 'today') =>
     getJSON<HistorySocResponse>(`/api/history/soc?date=${date}`),
+  forecastEval: () => getJSON<any>('/api/forecast/eval'),
+  forecastDay: (date?: string) =>
+    getJSON<any>(date ? `/api/forecast/day?date=${date}` : '/api/forecast/day'),
 }
 
 export const Sel = {

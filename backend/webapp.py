@@ -246,6 +246,156 @@ def list_themes():
     )
 
 
+@app.route("/api/forecast/eval", methods=["GET"])
+def forecast_eval():
+    """Return simple MAE metrics for baseline vs AURORA forecasts over recent days."""
+    try:
+        engine = get_learning_engine()
+        days_back = int(request.args.get("days", "7"))
+    except Exception:
+        days_back = 7
+
+    now = datetime.now(timezone.utc)
+    start_time = now - timedelta(days=max(days_back, 1))
+
+    with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+        cursor = conn.cursor()
+        rows = cursor.execute(
+            """
+            SELECT
+                f.forecast_version,
+                AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)) as mae_pv,
+                AVG(ABS(o.load_kwh - f.load_forecast_kwh)) as mae_load,
+                COUNT(*) as samples
+            FROM slot_observations o
+            JOIN slot_forecasts f
+              ON o.slot_start = f.slot_start
+            WHERE o.slot_start >= ? AND o.slot_start < ?
+              AND f.forecast_version IN ('baseline_7_day_avg', 'aurora_v0.1')
+            GROUP BY f.forecast_version
+            """,
+            (start_time.isoformat(), now.isoformat()),
+        ).fetchall()
+
+    versions = []
+    for version, mae_pv, mae_load, samples in rows:
+        versions.append(
+            {
+                "version": version,
+                "mae_pv": None if mae_pv is None else float(mae_pv),
+                "mae_load": None if mae_load is None else float(mae_load),
+                "samples": int(samples or 0),
+            }
+        )
+
+    return jsonify(
+        {
+            "window": {"start": start_time.isoformat(), "end": now.isoformat()},
+            "versions": versions,
+        }
+    )
+
+
+@app.route("/api/forecast/day", methods=["GET"])
+def forecast_day():
+    """Return per-slot actual vs baseline/AURORA forecasts for a single day."""
+    engine = get_learning_engine()
+    tz_name = engine.timezone.zone if hasattr(engine.timezone, "zone") else "Europe/Stockholm"
+    tz = pytz.timezone(tz_name)
+
+    date_param = request.args.get("date")
+    try:
+        target_date = (
+            datetime.fromisoformat(date_param).date()
+            if date_param
+            else datetime.now(tz).date()
+        )
+    except Exception:
+        target_date = datetime.now(tz).date()
+
+    day_start = tz.localize(datetime(target_date.year, target_date.month, target_date.day))
+    day_end = day_start + timedelta(days=1)
+
+    with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+        cursor = conn.cursor()
+        obs_rows = cursor.execute(
+            """
+            SELECT slot_start, pv_kwh, load_kwh
+            FROM slot_observations
+            WHERE slot_start >= ? AND slot_start < ?
+            ORDER BY slot_start ASC
+            """,
+            (day_start.isoformat(), day_end.isoformat()),
+        ).fetchall()
+
+        f_rows = cursor.execute(
+            """
+            SELECT slot_start, pv_forecast_kwh, load_forecast_kwh, forecast_version
+            FROM slot_forecasts
+            WHERE slot_start >= ? AND slot_start < ?
+              AND forecast_version IN ('baseline_7_day_avg', 'aurora_v0.1')
+            """,
+            (day_start.isoformat(), day_end.isoformat()),
+        ).fetchall()
+
+    df_obs = pd.DataFrame(obs_rows, columns=["slot_start", "pv_kwh", "load_kwh"])
+    df_f = pd.DataFrame(
+        f_rows,
+        columns=["slot_start", "pv_forecast_kwh", "load_forecast_kwh", "forecast_version"],
+    )
+    if df_obs.empty:
+        return jsonify({"date": target_date.isoformat(), "slots": []})
+
+    df_obs["slot_start"] = pd.to_datetime(df_obs["slot_start"])
+    df_obs = df_obs.sort_values("slot_start")
+
+    baseline = df_f[df_f["forecast_version"] == "baseline_7_day_avg"].copy()
+    aurora = df_f[df_f["forecast_version"] == "aurora_v0.1"].copy()
+    for df in (baseline, aurora):
+        if not df.empty:
+            df["slot_start"] = pd.to_datetime(df["slot_start"])
+
+    merged = df_obs.copy()
+    if not baseline.empty:
+        merged = merged.merge(
+            baseline[["slot_start", "pv_forecast_kwh", "load_forecast_kwh"]],
+            on="slot_start",
+            how="left",
+            suffixes=("", "_baseline"),
+        )
+    if not aurora.empty:
+        merged = merged.merge(
+            aurora[["slot_start", "pv_forecast_kwh", "load_forecast_kwh"]],
+            on="slot_start",
+            how="left",
+            suffixes=("", "_aurora"),
+        )
+
+    slots = []
+    for _, row in merged.iterrows():
+        slots.append(
+            {
+                "slot_start": pd.to_datetime(row["slot_start"]).isoformat(),
+                "pv_kwh": None if pd.isna(row.get("pv_kwh")) else float(row["pv_kwh"]),
+                "load_kwh": None if pd.isna(row.get("load_kwh")) else float(row["load_kwh"]),
+                "baseline_pv": None
+                if pd.isna(row.get("pv_forecast_kwh_baseline"))
+                else float(row["pv_forecast_kwh_baseline"]),
+                "baseline_load": None
+                if pd.isna(row.get("load_forecast_kwh_baseline"))
+                else float(row["load_forecast_kwh_baseline"]),
+                "aurora_pv": None
+                if pd.isna(row.get("pv_forecast_kwh_aurora"))
+                else float(row["pv_forecast_kwh_aurora"]),
+                "aurora_load": None
+                if pd.isna(row.get("load_forecast_kwh_aurora"))
+                else float(row["load_forecast_kwh_aurora"]),
+            }
+        )
+
+    return jsonify({"date": target_date.isoformat(), "slots": slots})
+
+
 @app.route("/api/theme", methods=["POST"])
 def select_theme():
     """Persist a selected theme to config.yaml."""
