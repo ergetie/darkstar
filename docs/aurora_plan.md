@@ -60,6 +60,13 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   **Dependencies**:
     *   **Acceptance Criteria**:
 
+    **Sub-steps**
+
+    *   [1] [Short label for sub-step 1]
+    *   [2] [Short label for sub-step 2]
+    *   [3] [Short label for sub-step 3]
+    *   [4] [Short label for sub-step 4]
+
     **Implementation**
 
     *   **Completed**:
