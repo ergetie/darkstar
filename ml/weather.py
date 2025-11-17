@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from datetime import datetime, date
-from typing import Dict
+from datetime import datetime
+from typing import Dict, List
 
 import pandas as pd
 import pytz
@@ -11,26 +11,28 @@ import yaml
 
 def _load_config(config_path: str = "config.yaml") -> Dict:
     """Load configuration from YAML file."""
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    with open(config_path, "r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle) or {}
 
 
-def get_temperature_series(
+def get_weather_series(
     start_time: datetime,
     end_time: datetime,
     config: Dict | None = None,
     *,
     config_path: str = "config.yaml",
-) -> pd.Series:
+) -> pd.DataFrame:
     """
-    Fetch hourly outdoor temperature (temp_c) from Open-Meteo for the given window.
+    Fetch hourly outdoor weather data from Open-Meteo for the given window.
 
-    Returns a pandas Series indexed by timezone-aware datetimes in the planner
-    timezone, with float temperature values in degrees Celsius.
+    Returns a DataFrame indexed by timezone-aware datetimes in the planner
+    timezone with some or all of the following float columns:
+        - temp_c: 2m air temperature in °C
+        - cloud_cover_pct: total cloud cover in percent
+        - shortwave_radiation_w_m2: shortwave radiation
 
-    This helper is best-effort and will return an empty Series if the request
-    fails for any reason; callers should treat missing data as optional and
-    continue without temperature features.
+    This helper is best-effort and will return an empty DataFrame if the
+    request fails or contains no usable data.
     """
     cfg = config or _load_config(config_path)
     system_cfg = cfg.get("system", {}) or {}
@@ -41,37 +43,37 @@ def get_temperature_series(
     timezone_name = cfg.get("timezone", "Europe/Stockholm")
     tz = pytz.timezone(timezone_name)
 
-    # Normalise window to local dates
     start_local = start_time.astimezone(tz)
     end_local = end_time.astimezone(tz)
     start_date = start_local.date().isoformat()
     end_date = end_local.date().isoformat()
-
     today_local = datetime.now(tz).date()
 
-    # Choose archive vs forecast API based on window:
-    # - past (end <= today): archive API
-    # - future (any part beyond today): forecast API
     try:
+        hourly_params: List[str] = [
+            "temperature_2m",
+            "cloud_cover",
+            "shortwave_radiation",
+        ]
+        hourly_param_str = ",".join(hourly_params)
+
         if end_local.date() <= today_local:
-            # Historical window: use archive API
             url = "https://archive-api.open-meteo.com/v1/archive"
             params = {
                 "latitude": latitude,
                 "longitude": longitude,
                 "start_date": start_date,
                 "end_date": end_date,
-                "hourly": "temperature_2m",
+                "hourly": hourly_param_str,
                 "timezone": timezone_name,
             }
         else:
-            # Future window: use forecast API with forecast_days
             url = "https://api.open-meteo.com/v1/forecast"
             days_ahead = max(1, (end_local.date() - today_local).days + 1)
             params = {
                 "latitude": latitude,
                 "longitude": longitude,
-                "hourly": "temperature_2m",
+                "hourly": hourly_param_str,
                 "forecast_days": days_ahead,
                 "timezone": timezone_name,
             }
@@ -80,18 +82,18 @@ def get_temperature_series(
         response.raise_for_status()
         payload = response.json()
     except Exception as exc:  # pragma: no cover - defensive logging
-        print(f"Warning: Failed to fetch temperature data from Open-Meteo: {exc}")
-        return pd.Series(dtype="float64")
+        print(f"Warning: Failed to fetch weather data from Open-Meteo: {exc}")
+        return pd.DataFrame(dtype="float64")
 
     hourly = payload.get("hourly") or {}
     times = hourly.get("time") or []
     temps = hourly.get("temperature_2m") or []
+    clouds = hourly.get("cloud_cover") or []
+    sw_rad = hourly.get("shortwave_radiation") or []
 
-    if not times or not temps or len(times) != len(temps):
-        return pd.Series(dtype="float64")
+    if not times:
+        return pd.DataFrame(dtype="float64")
 
-    # Build Series indexed by localised datetimes
-    # Parse as UTC then convert to local timezone to avoid DST ambiguities
     dt_index = pd.to_datetime(times)
     if dt_index.tz is None:
         dt_index = dt_index.tz_localize("UTC")
@@ -99,8 +101,34 @@ def get_temperature_series(
         dt_index = dt_index.tz_convert("UTC")
     dt_index = dt_index.tz_convert(tz)
 
-    series = pd.Series(temps, index=dt_index, name="temp_c").astype("float64")
+    data: Dict[str, List[float]] = {}
+    if temps and len(temps) == len(times):
+        data["temp_c"] = temps
+    if clouds and len(clouds) == len(times):
+        data["cloud_cover_pct"] = clouds
+    if sw_rad and len(sw_rad) == len(times):
+        data["shortwave_radiation_w_m2"] = sw_rad
 
-    # Restrict to the exact window [start_time, end_time)
-    series = series[(series.index >= start_local) & (series.index < end_local)]
+    if not data:
+        return pd.DataFrame(dtype="float64")
+
+    df = pd.DataFrame(data, index=dt_index).astype("float64")
+    df = df[(df.index >= start_local) & (df.index < end_local)]
+    return df
+
+
+def get_temperature_series(
+    start_time: datetime,
+    end_time: datetime,
+    config: Dict | None = None,
+    *,
+    config_path: str = "config.yaml",
+) -> pd.Series:
+    """Compatibility wrapper returning only the temp_c series."""
+    df = get_weather_series(start_time, end_time, config=config, config_path=config_path)
+    if df.empty or "temp_c" not in df.columns:
+        return pd.Series(dtype="float64")
+    series = df["temp_c"].copy()
+    series.name = "temp_c"
     return series
+
