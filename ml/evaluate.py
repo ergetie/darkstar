@@ -151,6 +151,10 @@ def _predict_with_boosters(
         feature_cols.append("cloud_cover_pct")
     if "shortwave_radiation_w_m2" in features.columns:
         feature_cols.append("shortwave_radiation_w_m2")
+    if "vacation_mode_flag" in features.columns:
+        feature_cols.append("vacation_mode_flag")
+    if "alarm_armed_flag" in features.columns:
+        feature_cols.append("alarm_armed_flag")
 
     for col in feature_cols:
         if col in features.columns:
