@@ -125,7 +125,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         ```
         *(Note: User will replace placeholder sensor names with actual entity IDs.)*
 
-### Rev 3 — 2025-11-16: Implement `ml/data_activator.py` *(Status: 🔄 In Progress)*
+### Rev 3 — 2025-11-16: Implement `ml/data_activator.py` *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Create a script to activate the existing `etl_cumulative_to_slots` logic in `learning.py`, populating the `slot_observations` table with rich historical data based on the new `input_sensors` config.
@@ -150,7 +150,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   The `slot_observations` table in `data/planner_learning.db` is populated with historical data, including non-zero values for `load_kwh`, `pv_kwh`, etc.
         *   Running the script appends new data points correctly.
 
-### Rev 4 — 2025-11-16: Implement `ml/train.py` *(Status: 📋 Planned)*
+### Rev 4 — 2025-11-16: Implement `ml/train.py` *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Create a Python script to train LightGBM models for Load and PV forecasting using the data in `slot_observations`.
@@ -178,7 +178,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 **Goal:** Prove that the AURORA models are more accurate than the existing forecasting method before integrating them.
 
-### Rev 5 — 2025-11-16: Implement `ml/evaluate.py` *(Status: 📋 Planned)*
+### Rev 5 — 2025-11-16: Implement `ml/evaluate.py` *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Create a Python script to compare AURORA's predictions against the old forecasting model and actual historical data using the shared `slot_forecasts` table and `forecast_version`.
@@ -205,7 +205,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 **Goal:** Safely integrate the proven AURORA models into the live planner, with a safety switch to revert if needed.
 
-### Rev 6 — 2025-11-16: Update `config.yaml` with AURORA Feature Flag *(Status: 📋 Planned)*
+### Rev 6 — 2025-11-16: Update `config.yaml` with AURORA Feature Flag *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Add a feature flag to `config.yaml` to enable/disable AURORA forecasting.
