@@ -1469,9 +1469,14 @@ def forecast_run_eval():
     except Exception:
         days_back = 7
 
-    cmd = ["python", "ml/evaluate.py", "--days-back", str(days_back)]
+    # Use the same interpreter and ensure repo root is on PYTHONPATH
+    python_bin = sys.executable
+    cmd = [python_bin, "-m", "ml.evaluate", "--days-back", str(days_back)]
+    env = os.environ.copy()
+    cwd = os.getcwd()
+    env["PYTHONPATH"] = f"{cwd}{os.pathsep}{env.get('PYTHONPATH', '')}"
     try:
-        subprocess.check_call(cmd)
+        subprocess.check_call(cmd, env=env, cwd=cwd)
         return jsonify({"status": "success", "days_back": days_back})
     except subprocess.CalledProcessError as exc:
         logger.error("forecast_run_eval failed: %s", exc)
@@ -1488,9 +1493,13 @@ def forecast_run_forward():
     except Exception:
         horizon_hours = 48
 
-    cmd = ["python", "ml/forward.py"]
+    python_bin = sys.executable
+    cmd = [python_bin, "-m", "ml.forward"]
+    env = os.environ.copy()
+    cwd = os.getcwd()
+    env["PYTHONPATH"] = f"{cwd}{os.pathsep}{env.get('PYTHONPATH', '')}"
     try:
-        subprocess.check_call(cmd)
+        subprocess.check_call(cmd, env=env, cwd=cwd)
         return jsonify({"status": "success", "horizon_hours": horizon_hours})
     except subprocess.CalledProcessError as exc:
         logger.error("forecast_run_forward failed: %s", exc)
