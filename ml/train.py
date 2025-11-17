@@ -13,7 +13,7 @@ import pandas as pd
 import pytz
 
 from learning import LearningEngine, get_learning_engine
-from ml.weather import get_temperature_series
+from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
@@ -172,12 +172,11 @@ def main() -> None:
     observations = observations.dropna(subset=["slot_start"])
     observations = observations.sort_values("slot_start")
 
-    # Enrich with hourly temperature where available
-    temp_series = get_temperature_series(start_time, now, config=engine.config)
-    if not temp_series.empty:
-        temp_df = temp_series.to_frame()
+    # Enrich with hourly weather where available
+    weather_df = get_weather_series(start_time, now, config=engine.config)
+    if not weather_df.empty:
         observations = observations.merge(
-            temp_df,
+            weather_df,
             left_on="slot_start",
             right_index=True,
             how="left",
@@ -223,6 +222,10 @@ def main() -> None:
     ]
     if "temp_c" in observations.columns:
         feature_cols.append("temp_c")
+    if "cloud_cover_pct" in observations.columns:
+        feature_cols.append("cloud_cover_pct")
+    if "shortwave_radiation_w_m2" in observations.columns:
+        feature_cols.append("shortwave_radiation_w_m2")
     if "vacation_mode_flag" in observations.columns:
         feature_cols.append("vacation_mode_flag")
     if "alarm_armed_flag" in observations.columns:

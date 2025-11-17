@@ -9,7 +9,7 @@ import pytz
 
 from learning import LearningEngine, get_learning_engine
 from ml.train import _build_time_features
-from ml.weather import get_temperature_series
+from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
@@ -66,15 +66,19 @@ def generate_forward_slots(
 
     df = pd.DataFrame({"slot_start": slots})
 
-    # Enrich with forecast temperature: reuse same helper as training, but
-    # using archive API here for simplicity; can be swapped to forecast API later.
-    temp_series = get_temperature_series(slot_start, horizon_end, config=engine.config)
-    if not temp_series.empty:
-        df = df.merge(temp_series.to_frame(), left_on="slot_start", right_index=True, how="left")
+    # Enrich with forecast weather where available (temp, cloud cover, radiation)
+    weather_df = get_weather_series(slot_start, horizon_end, config=engine.config)
+    if not weather_df.empty:
+        df = df.merge(weather_df, left_on="slot_start", right_index=True, how="left")
     else:
         df["temp_c"] = None
-    # Ensure numeric dtype even when values are missing/None
-    df["temp_c"] = df["temp_c"].astype("float64")
+    # Ensure numeric dtypes even when values are missing/None
+    if "temp_c" in df.columns:
+        df["temp_c"] = df["temp_c"].astype("float64")
+    if "cloud_cover_pct" in df.columns:
+        df["cloud_cover_pct"] = df["cloud_cover_pct"].astype("float64")
+    if "shortwave_radiation_w_m2" in df.columns:
+        df["shortwave_radiation_w_m2"] = df["shortwave_radiation_w_m2"].astype("float64")
 
     # Enrich with context flags based on recent HA history (best effort)
     vac_series = get_vacation_mode_series(slot_start - timedelta(days=7), horizon_end, config=engine.config)
@@ -111,6 +115,10 @@ def generate_forward_slots(
     ]
     if "temp_c" in df.columns:
         feature_cols.append("temp_c")
+    if "cloud_cover_pct" in df.columns:
+        feature_cols.append("cloud_cover_pct")
+    if "shortwave_radiation_w_m2" in df.columns:
+        feature_cols.append("shortwave_radiation_w_m2")
     if "vacation_mode_flag" in df.columns:
         feature_cols.append("vacation_mode_flag")
     if "alarm_armed_flag" in df.columns:
