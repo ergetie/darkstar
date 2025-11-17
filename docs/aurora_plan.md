@@ -244,22 +244,71 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 ### Rev 8 — 2025-11-16: Finalization and Cleanup *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
-*   **Summary**: Finalize AURORA integration, update documentation, and remove deprecated code.
+*   **Summary**: Document AURORA v0.1, confirm sandboxed behaviour, and capture a backlog for future revisions.
 *   **Started**: 2025-11-16
 *   **Last Updated**: 2025-11-17
 
     **Plan**
 
     *   **Goals**:
-        *   Fully integrate AURORA into the Darkstar project.
+        *   Clearly document the AURORA v0.1 pipeline and its sandboxed status.
+        *   Capture follow‑up ideas (v0.2 and beyond) in a dedicated backlog.
     *   **Scope**:
-        *   Update `docs/implementation_plan.md` with a summary of AURORA's implementation.
-        *   Remove the old 7-day average forecasting logic from `inputs.py`.
-        *   Update `README.md` with information about AURORA.
-    *   **Dependencies**: AURORA fully integrated and stable (Rev 7).
+        *   Update `README.md` with a short description of AURORA v0.1.
+        *   Keep AURORA v0.1 strictly shadow‑mode only (no planner integration yet).
+        *   Add a backlog section describing weather, context features, UI toggles, and other future work.
+    *   **Dependencies**: AURORA v0.1 pipeline (Revs 3–7) completed and validated.
     *   **Acceptance Criteria**:
-        *   `docs/implementation_plan.md` reflects AURORA's successful integration.
-        *   Project documentation is current.
+        *   `README.md` briefly describes AURORA as an experimental, sandboxed forecasting pipeline.
+        *   This document (`aurora_plan.md`) contains a clear backlog for future AURORA work.
+
+---
+
+### Rev 9 — 2025-11-17: AURORA v0.2 (Enhanced Shadow Mode) *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Upgrade AURORA while keeping it sandboxed by adding weather and behavioural features, and introduce a Forecasting tab in the UI for deeper evaluation, without yet letting AURORA drive the live planner.
+*   **Started**: 2025-11-17
+*   **Last Updated**: 2025-11-17
+
+    **Plan**
+
+    *   **Goals**:
+        *   Improve forecast fidelity with weather and context features.
+        *   Provide rich observability via a Forecasting tab and metrics.
+        *   Keep AURORA strictly in shadow mode (planner still uses baseline forecasts).
+
+    *   **Scope**:
+        *   **Weather & features**:
+            *   Extend the training and evaluation pipeline to include per‑slot temperature:
+                *   Fetch or join Open‑Meteo (or equivalent) data and populate `temp_c` in `slot_forecasts`.
+                *   Add temperature (and potentially simple derived features) as model inputs in `ml/train.py`.
+            *   Promote `vacation_mode` (and potentially other HA booleans) to proper input features:
+                *   Ensure historic on/off state is available for the training window.
+                *   Feed `vacation_mode` (and weekend/holiday flags) into the LightGBM models.
+        *   **Evaluation & metrics**:
+            *   Extend `ml/evaluate.py` to optionally report MAE segmented by:
+                *   Weather regimes (e.g. cold vs mild days).
+                *   Occupancy state (`vacation_mode` on/off).
+            *   Keep all evaluation writes confined to `slot_forecasts` (no planner behaviour change).
+        *   **UI / Forecasting tab**:
+            *   Add a Forecasting tab in the React UI that:
+                *   Shows the currently active `forecast_version` from config.
+                *   Visualises baseline vs AURORA vs actuals for selected days.
+                *   Displays recent MAE and coverage metrics for both versions.
+            *   Optionally introduce an AURORA toggle in Settings that:
+                *   Controls which `forecast_version` the Forecasting tab highlights.
+                *   May write `forecasting.active_forecast_version` in config,
+                  but does **not** yet change which forecasts the planner uses.
+
+    *   **Dependencies**: Revs 3–8 completed (v0.1 pipeline, evaluation, ML API, config flag, and docs).
+
+    *   **Acceptance Criteria**:
+        *   Weather and `vacation_mode` (or equivalent) are available as features in training and evaluation.
+        *   `slot_forecasts.temp_c` is non‑null for new forecasts generated during evaluation.
+        *   `ml/evaluate.py` can produce segmented MAE reports (e.g. by occupancy or temperature band).
+        *   A Forecasting tab exists in the UI, showing baseline vs AURORA vs actuals and MAE metrics.
+        *   The live planner still runs on the baseline path by default; AURORA remains sandboxed.
 
 ---
 
