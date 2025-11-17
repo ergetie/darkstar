@@ -366,7 +366,7 @@ export default function Planning(){
     }
 
     return (
-        <main className="mx-auto max-w-7xl px-6 pb-24 pt-10 lg:pt-12">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
         <Card className="p-4 md:p-6 mb-6">
         <div className="flex items-baseline justify-between pb-4">
         <div className="text-sm text-muted">Planning Timeline</div>
