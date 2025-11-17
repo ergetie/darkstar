@@ -417,6 +417,62 @@ def get_db_forecast_slots(start: datetime, end: datetime, config: dict) -> list[
     return get_forecast_slots(start, end, version)
 
 
+def build_db_forecast_for_slots(
+    price_slots: list[dict],
+    config: dict,
+) -> list[dict]:
+    """
+    Build planner-style PV/load forecasts for the given price_slots from slot_forecasts.
+
+    The returned list has the same length and ordering as price_slots, with
+    dictionaries of the form:
+        { "pv_forecast_kwh": float, "load_forecast_kwh": float }
+
+    This is a thin adapter around ml.api.get_forecast_slots and does not
+    change planner behaviour until it is used by get_forecast_data.
+    """
+    if not price_slots:
+        return []
+
+    forecasting_cfg = config.get("forecasting", {}) or {}
+    version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
+
+    timezone = config.get("timezone", "Europe/Stockholm")
+    local_tz = pytz.timezone(timezone)
+
+    # Determine horizon from price slots
+    start_time = price_slots[0]["start_time"].astimezone(local_tz)
+    end_time = price_slots[-1]["start_time"].astimezone(local_tz) + timedelta(
+        minutes=15,
+    )
+
+    records = get_forecast_slots(start_time, end_time, version)
+    if not records:
+        return [{"pv_forecast_kwh": 0.0, "load_forecast_kwh": 0.0} for _ in price_slots]
+
+    # Index forecasts by localised slot_start for quick lookup
+    indexed: dict[datetime, dict] = {}
+    for rec in records:
+        ts = rec["slot_start"]
+        if ts.tzinfo is None:
+            ts = pytz.UTC.localize(ts)
+        indexed[ts.astimezone(local_tz)] = rec
+
+    result: list[dict] = []
+    for slot in price_slots:
+        ts = slot["start_time"].astimezone(local_tz)
+        rec = indexed.get(ts)
+        if rec is None:
+            pv = 0.0
+            load = 0.0
+        else:
+            pv = float(rec.get("pv_forecast_kwh") or 0.0)
+            load = float(rec.get("load_forecast_kwh") or 0.0)
+        result.append({"pv_forecast_kwh": pv, "load_forecast_kwh": load})
+
+    return result
+
+
 def _get_load_profile_from_ha(config: dict) -> list[float]:
     """Fetch actual load profile from Home Assistant historical data.
 

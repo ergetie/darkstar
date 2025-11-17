@@ -397,7 +397,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     **Sub-steps**
 
-    *   [1] (Planned) Add a helper in `inputs.py` that can build planner-ready PV/load arrays from `slot_forecasts` for a given `forecast_version` and horizon.
+    *   [1] (Done) Add a helper in `inputs.py` that can build planner-ready PV/load arrays from `slot_forecasts` for a given `forecast_version` and horizon.
     *   [2] (Planned) Wire `get_forecast_data` to branch on `forecasting.active_forecast_version` and pull from AURORA via `ml.api.get_forecast_slots(...)` when set to `"aurora_v0.1"`, with automatic fallback to baseline.
     *   [3] (Planned) Add defensive logging/metrics when AURORA data is missing or stale so operators can see when the planner falls back to baseline.
 
