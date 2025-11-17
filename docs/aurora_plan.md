@@ -342,7 +342,8 @@ considered for future revisions once the core pipeline is stable.
         additional input features (e.g. one-hot or binary flags) instead of
         treating them as cumulative sensors.
     *   Evaluate other relevant context signals (occupancy, manual overrides,
-        holiday calendars) and how they affect forecast accuracy.
+        holiday calendars) and how they affect forecast accuracy. (Holiday flags
+        are explicitly deferred to a later Rev.)
 
 *   **Forward AURORA inference**
     *   Add a dedicated script or service that generates **future** AURORA
