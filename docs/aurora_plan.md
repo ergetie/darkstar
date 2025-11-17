@@ -471,7 +471,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 ## Phase 5: AURORA v0.4 — Weather & UX Refinement
 
-### Rev 13 — 2025-11-18: AURORA Naming Cleanup & Forecast Toggle Placement *(Status: 📋 Planned)*
+### Rev 13 — 2025-11-18: AURORA Naming Cleanup & Forecast Toggle Placement *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Clean up AURORA naming in the UI (no hard-coded version suffixes) and move the forecast source toggle from Settings → UI into the Forecasting tab where it belongs.
@@ -491,9 +491,16 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Sub-steps**
 
-    *   [1] (Planned) Remove explicit `v0.1` suffixes from user-facing labels (Settings, Forecasting tab) while keeping internal config/DB keys versioned.
-    *   [2] (Planned) Move the forecast source control from Settings → UI into the Forecasting page, keeping it wired to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
-    *   [3] (Planned) Verify that toggling Baseline vs AURORA from the Forecasting tab correctly updates config and still drives planner behaviour through Rev 11.
+    *   [1] (Done) Remove explicit `v0.1` suffixes from user-facing labels while keeping internal config/DB keys versioned (e.g. `aurora_v0.1`).
+    *   [2] (Done) Move the forecast source control from Settings → UI into the Forecasting page, keeping it wired to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
+    *   [3] (Done) Verify that toggling Baseline vs AURORA from the Forecasting tab correctly updates config and still drives planner behaviour through Rev 11.
+
+    **Implementation**
+
+    *   **Completed**:
+        *   UI labels now refer to “AURORA (ML model, experimental)” without exposing the internal version suffix; config and DB continue to use `baseline_7_day_avg` and `aurora_v0.1` as `forecast_version` keys.
+        *   The Settings → UI tab no longer owns the forecast source control; instead, the Forecasting tab exposes a “Planner forecast source” dropdown bound to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
+        *   Switching the dropdown between “Baseline (7-day average)” and “AURORA (ML model, experimental)” updates `config.yaml` and, through Rev 11, changes which forecasts the planner consumes while preserving instant rollback.
 
 ### Rev 14 — 2025-11-18: Additional Weather Features *(Status: 📋 Planned)*
 
