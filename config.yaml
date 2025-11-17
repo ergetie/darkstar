@@ -138,3 +138,4 @@ input_sensors:
   battery_soc: "sensor.inverter_battery"
   water_heater_consumption: "sensor.vvb_energy_daily"
   vacation_mode: "input_boolean.vacation_mode"
+  alarm_state: "alarm_control_panel.alarmo"
