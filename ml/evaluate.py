@@ -224,6 +224,98 @@ def _calculate_mae(
     return mae_pv, mae_load
 
 
+def _print_segmented_mae(
+    label: str,
+    observations: pd.DataFrame,
+    forecasts: List[Dict],
+) -> None:
+    """Print MAE segmented by simple context bands (weather/occupancy)."""
+    if not forecasts or observations.empty:
+        return
+
+    obs = observations.copy()
+    df_f = pd.DataFrame(forecasts)
+    if df_f.empty:
+        return
+
+    df_f["slot_start"] = pd.to_datetime(df_f["slot_start"])
+    obs["slot_start"] = pd.to_datetime(obs["slot_start"])
+    merged = pd.merge(
+        obs,
+        df_f,
+        on="slot_start",
+        how="inner",
+        suffixes=("_obs", "_pred"),
+    )
+    if merged.empty:
+        return
+
+    # Basic errors
+    merged["pv_err"] = (merged["pv_kwh"] - merged["pv_forecast_kwh"]).abs()
+    merged["load_err"] = (merged["load_kwh"] - merged["load_forecast_kwh"]).abs()
+
+    # Weather bands: cold vs mild using s_index temp_baseline_c if available
+    temp_baseline = (
+        merged.get("temp_baseline_c")
+        if "temp_baseline_c" in merged
+        else None
+    )
+    if temp_baseline is None:
+        temp_baseline = (
+            merged["temp_c"].median()
+            if "temp_c" in merged.columns and merged["temp_c"].notna().any()
+            else None
+        )
+
+    print(f"--- Segmented MAE ({label}) ---")
+
+    if temp_baseline is not None and "temp_c" in merged.columns:
+        cold = merged[merged["temp_c"] <= temp_baseline]
+        mild = merged[merged["temp_c"] > temp_baseline]
+        if not cold.empty:
+            print(
+                f"  Cold (temp_c <= {temp_baseline:.1f}): "
+                f"pv_mae={cold['pv_err'].mean():.4f}, "
+                f"load_mae={cold['load_err'].mean():.4f}",
+            )
+        if not mild.empty:
+            print(
+                f"  Mild (temp_c > {temp_baseline:.1f}): "
+                f"pv_mae={mild['pv_err'].mean():.4f}, "
+                f"load_mae={mild['load_err'].mean():.4f}",
+            )
+
+    # Occupancy bands: vacation vs normal
+    if "vacation_mode_flag" in merged.columns:
+        vac = merged[merged["vacation_mode_flag"] >= 0.5]
+        normal = merged[merged["vacation_mode_flag"] < 0.5]
+        if not vac.empty:
+            print(
+                f"  Vacation ON: pv_mae={vac['pv_err'].mean():.4f}, "
+                f"load_mae={vac['load_err'].mean():.4f}",
+            )
+        if not normal.empty:
+            print(
+                f"  Vacation OFF: pv_mae={normal['pv_err'].mean():.4f}, "
+                f"load_mae={normal['load_err'].mean():.4f}",
+            )
+
+    # Security bands: alarm armed vs disarmed
+    if "alarm_armed_flag" in merged.columns:
+        armed = merged[merged["alarm_armed_flag"] >= 0.5]
+        disarmed = merged[merged["alarm_armed_flag"] < 0.5]
+        if not armed.empty:
+            print(
+                f"  Alarm ARMED: pv_mae={armed['pv_err'].mean():.4f}, "
+                f"load_mae={armed['load_err'].mean():.4f}",
+            )
+        if not disarmed.empty:
+            print(
+                f"  Alarm DISARMED: pv_mae={disarmed['pv_err'].mean():.4f}, "
+                f"load_mae={disarmed['load_err'].mean():.4f}",
+            )
+
+
 def main() -> None:
     args = _parse_args()
     cfg = EvaluationConfig(
@@ -355,6 +447,8 @@ def main() -> None:
     print(f"Baseline MAE load: {mae_load_baseline}")
     print(f"AURORA MAE PV:     {mae_pv_aurora}")
     print(f"AURORA MAE load:   {mae_load_aurora}")
+    _print_segmented_mae("Baseline", observations, baseline_forecasts)
+    _print_segmented_mae("AURORA", observations, aurora_forecasts)
     print("--- AURORA Evaluation finished ---")
 
 
