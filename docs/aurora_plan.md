@@ -502,7 +502,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   The Settings → UI tab no longer owns the forecast source control; instead, the Forecasting tab exposes a “Planner forecast source” dropdown bound to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
         *   Switching the dropdown between “Baseline (7-day average)” and “AURORA (ML model, experimental)” updates `config.yaml` and, through Rev 11, changes which forecasts the planner consumes while preserving instant rollback.
 
-### Rev 14 — 2025-11-18: Additional Weather Features *(Status: 📋 Planned)*
+### Rev 14 — 2025-11-18: Additional Weather Features *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Enrich AURORA with extra weather signals (beyond temperature) in training, evaluation, and forward inference.
@@ -515,9 +515,16 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Sub-steps**
 
-    *   [1] (Planned) Extend `ml/weather.py` to fetch additional hourly signals from Open-Meteo (e.g. cloud cover, shortwave radiation, and/or wind speed) for both historical and future windows.
-    *   [2] (Planned) Join these weather series into `ml/train.py` and `ml/evaluate.py`, adding new feature columns and, where useful, persisting key values (e.g. `cloud_cover_pct`) into `slot_forecasts`.
-    *   [3] (Planned) Wire the same features into `ml/forward.py` so forward AURORA forecasts use the enriched weather context.
+    *   [1] (Done) Extend `ml/weather.py` to fetch additional hourly signals from Open-Meteo (cloud cover and shortwave radiation) for both historical and future windows.
+    *   [2] (Done) Join these weather series into `ml/train.py` and `ml/evaluate.py`, adding new feature columns so models can use `cloud_cover_pct` and `shortwave_radiation_w_m2` alongside `temp_c`.
+    *   [3] (Done) Wire the same features into `ml/forward.py` so forward AURORA forecasts use the enriched weather context.
+
+    **Implementation**
+
+    *   **Completed**:
+        *   `ml/weather.get_weather_series` now returns a DataFrame with `temp_c`, `cloud_cover_pct`, and `shortwave_radiation_w_m2` where available, using the archive or forecast Open-Meteo API depending on the window.
+        *   `ml/train.py` and `ml/evaluate.py` merge the weather DataFrame onto `slot_start` and include `cloud_cover_pct` and `shortwave_radiation_w_m2` as model features when present.
+        *   `ml/forward.py` enriches future slots with the same weather columns and feeds them into the LightGBM models for forward AURORA forecasts.
 
 ### Rev 15 — 2025-11-18: Forecasting Tab Enhancements *(Status: 📋 Planned)*
 
