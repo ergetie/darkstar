@@ -361,12 +361,11 @@ def main() -> None:
         print("Error: No slot_observations found for evaluation window.")
         return
 
-    # Enrich with hourly temperature where available
-    temp_series = get_temperature_series(start_time, now, config=engine.config)
-    if not temp_series.empty:
-        temp_df = temp_series.to_frame()
+    # Enrich with hourly weather where available (temp, cloud, radiation)
+    weather_df = get_weather_series(start_time, now, config=engine.config)
+    if not weather_df.empty:
         observations = observations.merge(
-            temp_df,
+            weather_df,
             left_on="slot_start",
             right_index=True,
             how="left",
