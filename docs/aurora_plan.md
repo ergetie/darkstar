@@ -542,6 +542,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   [1] (Planned) Tidy up labels and legends in the Forecasting chart/table so Baseline and AURORA are clearly distinguished and use consistent naming with Rev 13.
     *   [2] (Planned) Add a small summary block (e.g. last 7 days) highlighting MAE deltas between Baseline and AURORA using existing `/api/forecast/eval` data.
     *   [3] (Planned) Ensure the Forecasting tab gracefully handles cases where AURORA forecasts are missing or disabled (clear messaging instead of empty charts).
+    *   [4] (Planned) Add lightweight “Run evaluation/forward” controls on the Forecasting tab that trigger backend endpoints to run `ml/evaluate.py` (and optionally `ml/forward.py`) and then refresh metrics, so operators can update AURORA KPIs without using the CLI.
 
 ## Backlog / Post v0.1 Ideas
 
