@@ -2142,31 +2142,13 @@
 ## Backlog
 
 ### Dashboard Refinement
-- [x] Remove Y-axis scale labels to reduce clutter (keep tooltips for exact values)
-- [x] Remove chart legend duplications where we already have pill toggles (avoid showing the same concept twice)
 
 ### Schedule & Executor Alignment
-- [x] Day-slicing correctness: ensure the Dashboard “today” chart always shows a full 00:00–24:00 local-day range, padding with no-data values instead of shrinking to the first schedule slot.
-- [x] Planner→DB→executor contract: document and verify slot resolution, numbering, coverage, and how the executor identifies the current slot from `current_schedule`.
-- [x] Dashboard history merge: extend the Dashboard “today” chart to merge realised execution history from MariaDB (`execution_history` or equivalent) with the current schedule so earlier slots reflect what actually ran, not just the latest schedule.json.
 
 ### Planning Timeline
-- [x] Manual block CRUD operations (create/edit/delete charge/water/export/hold)
-- [x] Simulate/save workflow with `/api/simulate` (Planning \"Apply manual changes\" uses simulate to persist local plan)
-- [x] Chart synchronization after manual changes (Planning 48‑hour chart reflects latest local schedule)
-- [x] Historical slots read-only handling
-- [x] Normalize Planning timeline background so today and tomorrow use a consistent dark theme (remove special weekend/alternate-day tint from the react-calendar-timeline default styles).
-- [x] Device caps and SoC target enforcement
-- [x] Zero-capacity gap handling
 - [ ] Fix Planning timeline “Hold” vs discharge bug where some slots are rendered as hold blocks even though the schedule has discharge with `soc_target_percent` pinned to `min_soc_percent` (ensure the classification logic respects discharge action and SoC limits).
 
 ### Settings & Configuration
-- [x] Configuration forms (decision thresholds, battery economics, charging strategy, etc.)
-- [x] Theme picker using `/api/themes` and `/api/theme`
-- [x] Form validation and persistence with `/api/config/save`
-- [x] Config reset functionality with `/api/config/reset`
-- [x] Dashboard defaults consumption (wire `dashboard.overlay_defaults` and `dashboard.auto_refresh_enabled` into Dashboard/Chart behavior) — see `docs/rev_43_review.md`
-- [x] Settings validation polish (replace key-name heuristics with explicit per-field rules where needed) — see `docs/rev_43_review.md`
 ### Repo & Docs Hygiene
 - [ ] Update `AGENTS.md` project structure and theme path references to match the current backend/frontend layout (themes under `backend/themes/`).
 - [ ] Plan and execute a dedicated refactor rev to move `planner.py` and `inputs.py` under `backend/` (with updated imports/tests) to keep the repository structure consistent.
