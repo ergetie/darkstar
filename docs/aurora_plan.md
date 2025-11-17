@@ -351,6 +351,12 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Provide a CLI/script wrapper so forward inference can be run manually or from a cron/systemd job.
     *   **Dependencies**: Revs 3–9 (v0.1/v0.2 pipeline, models, ML API).
 
+    **Sub-steps**
+
+    *   [1] (Done) Implement `ml/forward.py` to generate forward AURORA forecasts for the planner horizon and store them as `aurora_v0.1` in `slot_forecasts`.
+    *   [2] (Done) Update `ml/weather.get_temperature_series` to use Open-Meteo archive for historical windows and forecast API for future windows, so `temp_c` is available for forward slots when possible.
+    *   [3] (Planned) Add a short CLI/ops note (and optional cron/systemd example) documenting how and when to run forward inference in real deployments.
+
     *   **Acceptance Criteria**:
         *   Invoking the forward-inference entrypoint populates `slot_forecasts` with `aurora_v0.1` rows for the planner horizon.
         *   Forecast rows include `slot_start`, `pv_forecast_kwh`, `load_forecast_kwh`, and `temp_c`.
