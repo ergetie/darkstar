@@ -461,13 +461,73 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     **Sub-steps**
 
-    *   [1] (Planned) Ensure backend config APIs expose `forecasting.active_forecast_version` in both read and write paths.
-    *   [2] (Planned) Add a “Forecast source” control to the Settings page that reads/writes the active forecast version via the API and clearly labels AURORA as experimental.
-    *   [3] (Planned) Verify that toggling between baseline and AURORA via the Settings UI correctly updates config and, together with Rev 11, changes which forecasts the planner uses while preserving instant rollback.
+    *   [1] (Done) Ensure backend config APIs expose `forecasting.active_forecast_version` in both read and write paths.
+    *   [2] (Done) Add a “Forecast source” control to the Settings page that reads/writes the active forecast version via the API and clearly labels AURORA as experimental.
+    *   [3] (Done) Verify that toggling between baseline and AURORA via the Settings UI correctly updates config and, together with Rev 11, changes which forecasts the planner uses while preserving instant rollback.
 
 
 
 ---
+
+## Phase 5: AURORA v0.4 — Weather & UX Refinement
+
+### Rev 13 — 2025-11-18: AURORA Naming Cleanup & Forecast Toggle Placement *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Clean up AURORA naming in the UI (no hard-coded version suffixes) and move the forecast source toggle from Settings → UI into the Forecasting tab where it belongs.
+*   **Started**: 2025-11-18
+*   **Last Updated**: 2025-11-18
+
+    **Plan**
+
+    *   **Goals**:
+        *   Make AURORA appear as a single evolving feature in the UI (no v0.1/v0.3 clutter).
+        *   Place the “which forecast is active?” toggle in the Forecasting tab, closer to MAE and charts.
+
+    *   **Scope**:
+        *   Keep internal `forecast_version` keys versioned (e.g. `aurora_v0.1`) for DB and config.
+        *   Update UI labels so the AURORA option is simply called “AURORA (ML model, experimental)”.
+        *   Move the forecast source dropdown from Settings → UI tab into the Forecasting page while still writing `forecasting.active_forecast_version` via `/api/config/save`.
+
+    *   **Sub-steps**
+
+    *   [1] (Planned) Remove explicit `v0.1` suffixes from user-facing labels (Settings, Forecasting tab) while keeping internal config/DB keys versioned.
+    *   [2] (Planned) Move the forecast source control from Settings → UI into the Forecasting page, keeping it wired to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
+    *   [3] (Planned) Verify that toggling Baseline vs AURORA from the Forecasting tab correctly updates config and still drives planner behaviour through Rev 11.
+
+### Rev 14 — 2025-11-18: Additional Weather Features *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Enrich AURORA with extra weather signals (beyond temperature) in training, evaluation, and forward inference.
+
+    **Plan**
+
+    *   **Goals**:
+        *   Capture more of the weather impact on PV and load.
+        *   Keep the feature set small and interpretable (1–2 extra signals).
+
+    *   **Sub-steps**
+
+    *   [1] (Planned) Extend `ml/weather.py` to fetch additional hourly signals from Open-Meteo (e.g. cloud cover, shortwave radiation, and/or wind speed) for both historical and future windows.
+    *   [2] (Planned) Join these weather series into `ml/train.py` and `ml/evaluate.py`, adding new feature columns and, where useful, persisting key values (e.g. `cloud_cover_pct`) into `slot_forecasts`.
+    *   [3] (Planned) Wire the same features into `ml/forward.py` so forward AURORA forecasts use the enriched weather context.
+
+### Rev 15 — 2025-11-18: Forecasting Tab Enhancements *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Refine the Forecasting tab to better illustrate Baseline vs AURORA behaviour using the existing metrics and forecasts.
+
+    **Plan**
+
+    *   **Goals**:
+        *   Make it easier to visually compare Baseline vs AURORA.
+        *   Keep changes incremental and focused on clarity.
+
+    *   **Sub-steps**
+
+    *   [1] (Planned) Tidy up labels and legends in the Forecasting chart/table so Baseline and AURORA are clearly distinguished and use consistent naming with Rev 13.
+    *   [2] (Planned) Add a small summary block (e.g. last 7 days) highlighting MAE deltas between Baseline and AURORA using existing `/api/forecast/eval` data.
+    *   [3] (Planned) Ensure the Forecasting tab gracefully handles cases where AURORA forecasts are missing or disabled (clear messaging instead of empty charts).
 
 ## Backlog / Post v0.1 Ideas
 
