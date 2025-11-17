@@ -409,8 +409,28 @@ def schedule_today_with_history():
     except Exception as exc:
         logger.warning("Failed to read execution_history: %s", exc)
 
-    # Merge keys from schedule and execution history
-    all_keys = sorted(set(schedule_map.keys()) | set(exec_map.keys()))
+    # Build price map for today using Nordpool data (full day coverage)
+    price_map: dict[datetime, float] = {}
+    try:
+        from inputs import get_nordpool_data
+
+        price_slots = get_nordpool_data("config.yaml")
+        for p in price_slots:
+            st = p["start_time"]
+            if isinstance(st, datetime):
+                if st.tzinfo is None:
+                    st_local = tz.localize(st)
+                else:
+                    st_local = st.astimezone(tz)
+                if st_local.date() != today_local:
+                    continue
+                key = st_local.replace(tzinfo=None)
+                price_map[key] = float(p.get("import_price_sek_kwh") or 0.0)
+    except Exception as exc:
+        logger.warning("Failed to overlay prices in /api/schedule/today_with_history: %s", exc)
+
+    # Merge keys from schedule, execution history, and price slots
+    all_keys = sorted(set(schedule_map.keys()) | set(exec_map.keys()) | set(price_map.keys()))
     merged_slots: list[dict] = []
 
     # Default resolution (minutes) if we need to synthesise end_time
@@ -464,6 +484,11 @@ def schedule_today_with_history():
                 slot["actual_pv_kwh"] = float(hist.get("actual_pv_kwh") or 0.0)
         else:
             slot["is_executed"] = False
+
+        # Attach import price if available for this slot
+        price = price_map.get(local_start)
+        if price is not None:
+            slot["import_price_sek_kwh"] = round(price, 4)
 
         merged_slots.append(slot)
 

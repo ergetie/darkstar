@@ -389,4 +389,10 @@ home_assistant:
 
 ## License
 
-[Add your license information here]
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+
+- You may use, modify, and redistribute the code, including in commercial settings, as long as:
+  - Any distributed versions (or derivatives) are also licensed under AGPL-3.0.
+  - If you offer Darkstar as a network service, users of that service must be able to obtain the corresponding source code.
+
+See the official AGPL-3.0 text for full terms and obligations.
