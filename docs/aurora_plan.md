@@ -404,10 +404,10 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     **Implementation**
 
     *   **Completed**:
-        *   `inputs.build_db_forecast_for_slots` builds planner-style `{pv_forecast_kwh, load_forecast_kwh}` arrays from `slot_forecasts` for the active `forecast_version`.
+        *   `inputs.build_db_forecast_for_slots` builds planner-style `{pv_forecast_kwh, load_forecast_kwh}` arrays from `slot_forecasts` for the active `forecast_version`, or returns an empty list when no DB forecasts exist for the horizon.
         *   `get_forecast_data` now:
-            *   Uses AURORA forecasts from the learning DB when `forecasting.active_forecast_version == "aurora_v0.1"` and non-zero forecasts exist for the current horizon.
-            *   Falls back to the existing baseline PV/load pipeline otherwise, logging a warning if AURORA data is missing or unusable.
+            *   Uses AURORA forecasts from the learning DB when `forecasting.active_forecast_version == "aurora_v0.1"` and any DB forecasts exist for the current horizon.
+            *   Falls back to the existing baseline PV/load pipeline when no DB forecasts exist for the horizon, logging a warning if AURORA data is missing.
         *   Logging:
             *   Prints an info line when AURORA forecasts are used.
             *   Prints a warning when falling back to baseline because AURORA forecasts are missing or all-zero for the horizon.
