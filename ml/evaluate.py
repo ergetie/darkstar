@@ -18,7 +18,7 @@ from ml.weather import get_temperature_series
 from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
-AURORA_VERSION = "aurora_v0.1"
+AURORA_VERSION = "aurora"
 BASELINE_VERSION = "baseline_7_day_avg"
 
 
@@ -46,7 +46,7 @@ def _parse_args() -> argparse.Namespace:
         "--aurora-version",
         type=str,
         default=AURORA_VERSION,
-        help="forecast_version name for AURORA forecasts (default: aurora_v0.1).",
+        help="forecast_version name for AURORA forecasts (default: aurora).",
     )
     parser.add_argument(
         "--baseline-version",

@@ -31,7 +31,7 @@ def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
 
 def generate_forward_slots(
     horizon_hours: int = 48,
-    forecast_version: str = "aurora_v0.1",
+    forecast_version: str = "aurora",
 ) -> None:
     """
     Generate forward AURORA forecasts for the next horizon_hours and

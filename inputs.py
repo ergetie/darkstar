@@ -225,10 +225,10 @@ async def get_forecast_data(price_slots, config):
     active_version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
 
     # If AURORA is selected, try to use DB-backed forecasts first.
-    if active_version == "aurora_v0.1":
+    if active_version == "aurora":
         db_forecasts = build_db_forecast_for_slots(price_slots, config)
         if db_forecasts:
-            print("Info: Using AURORA forecasts from learning DB (aurora_v0.1).")
+            print("Info: Using AURORA forecasts from learning DB (aurora).")
             daily_pv_forecast: dict[str, float] = {}
             daily_load_forecast: dict[str, float] = {}
 

@@ -333,7 +333,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 ### Rev 10 — 2025-11-17: Forward AURORA Inference *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
-*   **Summary**: Generate future AURORA forecasts for the planner horizon and store them in `slot_forecasts` under `aurora_v0.1`.
+*   **Summary**: Generate future AURORA forecasts for the planner horizon and store them in `slot_forecasts` under `aurora`.
 *   **Started**: 2025-11-17
 *   **Last Updated**: 2025-11-17
 
@@ -347,13 +347,13 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Add a forward-inference helper (e.g. `ml/forward.py` or a function in `ml/api.py`) that:
             *   Uses trained models and Open-Meteo **forecast** temperatures (reusing planner’s `_fetch_temperature_forecast` logic or a shared helper).
             *   Builds a feature frame for all future slots in the chosen horizon (e.g. next 48–96 slots).
-            *   Writes per-slot forecasts into `slot_forecasts` as `forecast_version='aurora_v0.1'`.
+            *   Writes per-slot forecasts into `slot_forecasts` as `forecast_version='aurora'`.
         *   Provide a CLI/script wrapper so forward inference can be run manually or from a cron/systemd job.
     *   **Dependencies**: Revs 3–9 (v0.1/v0.2 pipeline, models, ML API).
 
     **Sub-steps**
 
-    *   [1] (Done) Implement `ml/forward.py` to generate forward AURORA forecasts for the planner horizon and store them as `aurora_v0.1` in `slot_forecasts`.
+    *   [1] (Done) Implement `ml/forward.py` to generate forward AURORA forecasts for the planner horizon and store them as `aurora` in `slot_forecasts`.
     *   [2] (Done) Update `ml/weather.get_temperature_series` to use Open-Meteo archive for historical windows and forecast API for future windows, so `temp_c` is available for forward slots when possible.
     *   [3] (Done) Add a short CLI/ops note (and optional cron/systemd example) documenting how and when to run forward inference in real deployments.
 
@@ -362,13 +362,13 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   **Completed**:
         *   Forward inference implemented in `ml/forward.py` with a simple CLI:
             *   `PYTHONPATH=. python ml/forward.py`
-        *   Running the script generates 15‑minute AURORA forecasts for the next 48 hours and stores them in `slot_forecasts` with `forecast_version='aurora_v0.1'`.
-        *   Forward inference is safe to run repeatedly; existing future rows for `aurora_v0.1` are overwritten for the same `slot_start`.
+        *   Running the script generates 15‑minute AURORA forecasts for the next 48 hours and stores them in `slot_forecasts` with `forecast_version='aurora'`.
+        *   Forward inference is safe to run repeatedly; existing future rows for `aurora` are overwritten for the same `slot_start`.
         *   Example cron entry (run every hour at minute 5):
             *   `5 * * * * cd /opt/darkstar && PYTHONPATH=. /opt/darkstar/venv/bin/python ml/forward.py >> /opt/darkstar/logs/aurora_forward.log 2>&1`
 
     *   **Acceptance Criteria**:
-        *   Invoking the forward-inference entrypoint populates `slot_forecasts` with `aurora_v0.1` rows for the planner horizon.
+        *   Invoking the forward-inference entrypoint populates `slot_forecasts` with `aurora` rows for the planner horizon.
         *   Forecast rows include `slot_start`, `pv_forecast_kwh`, `load_forecast_kwh`, and `temp_c`.
         *   No changes to planner behaviour yet; the planner still uses the existing baseline forecast path.
 
@@ -389,7 +389,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Update `inputs.get_forecast_data` (or an adjacent helper) to:
             *   When `forecasting.active_forecast_version` is `"baseline_7_day_avg"`:
                 *   Use the current baseline forecast path (status quo).
-            *   When `forecasting.active_forecast_version` is `"aurora_v0.1"`:
+            *   When `forecasting.active_forecast_version` is `"aurora"`:
                 *   Fetch forecasts from the learning DB via `ml.api.get_forecast_slots(...)` for the planner horizon.
                 *   Fall back to baseline logic if AURORA data is missing, incomplete, or stale.
         *   Ensure timezone, slot alignment, and shapes match the planner’s expectations.
@@ -398,7 +398,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     **Sub-steps**
 
     *   [1] (Done) Add a helper in `inputs.py` that can build planner-ready PV/load arrays from `slot_forecasts` for a given `forecast_version` and horizon.
-    *   [2] (Done) Wire `get_forecast_data` to branch on `forecasting.active_forecast_version` and pull from AURORA via `ml.api.get_forecast_slots(...)` when set to `"aurora_v0.1"`, with automatic fallback to baseline.
+    *   [2] (Done) Wire `get_forecast_data` to branch on `forecasting.active_forecast_version` and pull from AURORA via `ml.api.get_forecast_slots(...)` when set to `"aurora"`, with automatic fallback to baseline.
     *   [3] (Done) Add defensive logging/metrics when AURORA data is missing or stale so operators can see when the planner falls back to baseline.
 
     **Implementation**
@@ -406,7 +406,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   **Completed**:
         *   `inputs.build_db_forecast_for_slots` builds planner-style `{pv_forecast_kwh, load_forecast_kwh}` arrays from `slot_forecasts` for the active `forecast_version`, or returns an empty list when no DB forecasts exist for the horizon.
         *   `get_forecast_data` now:
-            *   Uses AURORA forecasts from the learning DB when `forecasting.active_forecast_version == "aurora_v0.1"` and any DB forecasts exist for the current horizon.
+            *   Uses AURORA forecasts from the learning DB when `forecasting.active_forecast_version == "aurora"` and any DB forecasts exist for the current horizon.
             *   Falls back to the existing baseline PV/load pipeline when no DB forecasts exist for the horizon, logging a warning if AURORA data is missing.
         *   Logging:
             *   Prints an info line when AURORA forecasts are used.
@@ -414,7 +414,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Acceptance Criteria**:
         *   With `active_forecast_version="baseline_7_day_avg"` the planner behaves exactly as before.
-        *   With `active_forecast_version="aurora_v0.1"` and fresh AURORA forecasts present, the planner uses AURORA forecasts for PV/load while preserving existing safety margins.
+        *   With `active_forecast_version="aurora"` and fresh AURORA forecasts present, the planner uses AURORA forecasts for PV/load while preserving existing safety margins.
         *   If AURORA data is missing or stale, the planner automatically falls back to baseline and logs a warning.
 
 ### Rev 12 — 2025-11-17: Settings Toggle for Active Forecast Version *(Status: ✅ Completed)*
@@ -485,20 +485,20 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Place the “which forecast is active?” toggle in the Forecasting tab, closer to MAE and charts.
 
     *   **Scope**:
-        *   Keep internal `forecast_version` keys versioned (e.g. `aurora_v0.1`) for DB and config.
+        *   Keep internal `forecast_version` keys versioned (e.g. `aurora`) for DB and config.
         *   Update UI labels so the AURORA option is simply called “AURORA (ML model, experimental)”.
         *   Move the forecast source dropdown from Settings → UI tab into the Forecasting page while still writing `forecasting.active_forecast_version` via `/api/config/save`.
 
     *   **Sub-steps**
 
-    *   [1] (Done) Remove explicit `v0.1` suffixes from user-facing labels while keeping internal config/DB keys versioned (e.g. `aurora_v0.1`).
+    *   [1] (Done) Remove explicit `v0.1` suffixes from user-facing labels while keeping internal config/DB keys versioned (e.g. `aurora`).
     *   [2] (Done) Move the forecast source control from Settings → UI into the Forecasting page, keeping it wired to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
     *   [3] (Done) Verify that toggling Baseline vs AURORA from the Forecasting tab correctly updates config and still drives planner behaviour through Rev 11.
 
     **Implementation**
 
     *   **Completed**:
-        *   UI labels now refer to “AURORA (ML model, experimental)” without exposing the internal version suffix; config and DB continue to use `baseline_7_day_avg` and `aurora_v0.1` as `forecast_version` keys.
+        *   UI labels now refer to “AURORA (ML model, experimental)” without exposing the internal version suffix; config and DB continue to use `baseline_7_day_avg` and `aurora` as `forecast_version` keys.
         *   The Settings → UI tab no longer owns the forecast source control; instead, the Forecasting tab exposes a “Planner forecast source” dropdown bound to `forecasting.active_forecast_version` via `/api/config` and `/api/config/save`.
         *   Switching the dropdown between “Baseline (7-day average)” and “AURORA (ML model, experimental)” updates `config.yaml` and, through Rev 11, changes which forecasts the planner consumes while preserving instant rollback.
 
@@ -558,7 +558,7 @@ considered for future revisions once the core pipeline is stable.
 *   **Forward AURORA inference**
     *   Add a dedicated script or service that generates **future** AURORA
         forecasts (not just historical evaluation) and writes them into
-        `slot_forecasts` under `forecast_version: aurora_v0.1` for the
+        `slot_forecasts` under `forecast_version: aurora` for the
         planner horizon.
     *   Ensure graceful fallback to the baseline `active_forecast_version`
         when AURORA forecasts are missing or stale.
@@ -566,7 +566,7 @@ considered for future revisions once the core pipeline is stable.
 *   **UI / UX enhancements**
     *   Add an **AURORA enable toggle** in the web UI Settings page that
         controls which `forecast_version` is active (e.g. toggling between
-        `"baseline_7_day_avg"` and `"aurora_v0.1"`).
+        `"baseline_7_day_avg"` and `"aurora"`).
     *   Introduce a dedicated **Forecasting** tab showing:
         *   Current active `forecast_version`.
         *   Recent MAE and coverage metrics for baseline vs AURORA.

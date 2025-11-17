@@ -271,7 +271,7 @@ def forecast_eval():
             JOIN slot_forecasts f
               ON o.slot_start = f.slot_start
             WHERE o.slot_start >= ? AND o.slot_start < ?
-              AND f.forecast_version IN ('baseline_7_day_avg', 'aurora_v0.1')
+              AND f.forecast_version IN ('baseline_7_day_avg', 'aurora')
             GROUP BY f.forecast_version
             """,
             (start_time.isoformat(), now.isoformat()),
@@ -333,7 +333,7 @@ def forecast_day():
             SELECT slot_start, pv_forecast_kwh, load_forecast_kwh, forecast_version
             FROM slot_forecasts
             WHERE slot_start >= ? AND slot_start < ?
-              AND forecast_version IN ('baseline_7_day_avg', 'aurora_v0.1')
+              AND forecast_version IN ('baseline_7_day_avg', 'aurora')
             """,
             (day_start.isoformat(), day_end.isoformat()),
         ).fetchall()
@@ -350,7 +350,7 @@ def forecast_day():
     df_obs = df_obs.sort_values("slot_start")
 
     baseline = df_f[df_f["forecast_version"] == "baseline_7_day_avg"].copy()
-    aurora = df_f[df_f["forecast_version"] == "aurora_v0.1"].copy()
+    aurora = df_f[df_f["forecast_version"] == "aurora"].copy()
     for df in (baseline, aurora):
         if not df.empty:
             df["slot_start"] = pd.to_datetime(df["slot_start"])
