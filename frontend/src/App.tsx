@@ -6,6 +6,7 @@ import Planning from './pages/Planning'
 import Learning from './pages/Learning'
 import Debug from './pages/Debug'
 import Settings from './pages/Settings'
+import Forecasting from './pages/Forecasting'
 import { Api } from './lib/api'
 
 export default function App(){
@@ -51,6 +52,7 @@ export default function App(){
         <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/planning" element={<Planning />} />
+        <Route path="/forecasting" element={<Forecasting />} />
         <Route path="/learning" element={<Learning />} />
         <Route path="/debug" element={<Debug />} />
         <Route path="/settings" element={<Settings />} />
