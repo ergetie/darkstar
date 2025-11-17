@@ -13,6 +13,7 @@ import pandas as pd
 import pytz
 
 from learning import LearningEngine, get_learning_engine
+from ml.weather import get_temperature_series
 
 
 @dataclass
@@ -170,6 +171,19 @@ def main() -> None:
     observations = observations.dropna(subset=["slot_start"])
     observations = observations.sort_values("slot_start")
 
+    # Enrich with hourly temperature where available
+    temp_series = get_temperature_series(start_time, now, config=engine.config)
+    if not temp_series.empty:
+        temp_df = temp_series.to_frame()
+        observations = observations.merge(
+            temp_df,
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
+    else:
+        observations["temp_c"] = None
+
     # Build shared features
     observations = _build_time_features(observations)
     feature_cols = [
@@ -180,6 +194,8 @@ def main() -> None:
         "hour_sin",
         "hour_cos",
     ]
+    if "temp_c" in observations.columns:
+        feature_cols.append("temp_c")
 
     # Train load model
     load_df = observations.dropna(subset=["load_kwh"])

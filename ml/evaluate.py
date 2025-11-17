@@ -14,6 +14,7 @@ import sqlite3
 
 from learning import LearningEngine, get_learning_engine
 from ml.train import _build_time_features, _load_slot_observations
+from ml.weather import get_temperature_series
 
 
 AURORA_VERSION = "aurora_v0.1"
@@ -92,25 +93,33 @@ def _generate_baseline_forecasts(
     grouped = history.groupby("hour").agg(
         load_kwh=("load_kwh", "mean"),
         pv_kwh=("pv_kwh", "mean"),
+        temp_c=("temp_c", "mean") if "temp_c" in history.columns else ("load_kwh", "mean"),
     )
 
     forecasts: List[Dict] = []
     for _, row in df.iterrows():
         hour = int(row["hour"])
-        slot_start = row["slot_start"].astimezone(engine.timezone).isoformat()
+        slot_start_dt = row["slot_start"].astimezone(engine.timezone)
+        slot_start = slot_start_dt.isoformat()
         if hour in grouped.index:
             load_forecast = float(grouped.loc[hour, "load_kwh"] or 0.0)
             pv_forecast = float(grouped.loc[hour, "pv_kwh"] or 0.0)
+            temp_c = (
+                None
+                if "temp_c" not in grouped.columns
+                else float(grouped.loc[hour, "temp_c"])
+            )
         else:
             load_forecast = 0.0
             pv_forecast = 0.0
+            temp_c = None
 
         forecasts.append(
             {
                 "slot_start": slot_start,
                 "load_forecast_kwh": load_forecast,
                 "pv_forecast_kwh": pv_forecast,
-                "temp_c": None,
+                "temp_c": temp_c,
             },
         )
     return forecasts
@@ -135,6 +144,8 @@ def _predict_with_boosters(
         "hour_sin",
         "hour_cos",
     ]
+    if "temp_c" in features.columns:
+        feature_cols.append("temp_c")
     X = features[feature_cols]
 
     load_pred = None
@@ -157,7 +168,7 @@ def _predict_with_boosters(
             "slot_start": slot_start.isoformat(),
             "pv_forecast_kwh": 0.0,
             "load_forecast_kwh": 0.0,
-            "temp_c": None,
+            "temp_c": row.get("temp_c"),
         }
 
         pos = features.index.get_loc(idx)
@@ -242,6 +253,19 @@ def main() -> None:
     if observations.empty:
         print("Error: No slot_observations found for evaluation window.")
         return
+
+    # Enrich with hourly temperature where available
+    temp_series = get_temperature_series(start_time, now, config=engine.config)
+    if not temp_series.empty:
+        temp_df = temp_series.to_frame()
+        observations = observations.merge(
+            temp_df,
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
+    else:
+        observations["temp_c"] = None
 
     # Build features consistent with training
     features = _build_time_features(observations)
