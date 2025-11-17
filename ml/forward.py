@@ -146,7 +146,12 @@ def generate_forward_slots(
         if load_pred is not None:
             record["load_forecast_kwh"] = float(max(load_pred[idx], 0.0))
         if pv_pred is not None:
-            record["pv_forecast_kwh"] = float(max(pv_pred[idx], 0.0))
+            pv_val = float(max(pv_pred[idx], 0.0))
+            # Clamp PV to zero during night hours to avoid unrealistic production.
+            hour = slot_start_ts.hour
+            if hour < 5 or hour >= 21:
+                pv_val = 0.0
+            record["pv_forecast_kwh"] = pv_val
         forecasts.append(record)
 
     if not forecasts:
