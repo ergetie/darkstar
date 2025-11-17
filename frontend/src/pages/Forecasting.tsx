@@ -36,6 +36,8 @@ export default function Forecasting(){
   const [dayData, setDayData] = useState<ForecastDayResponse | null>(null)
   const [activeVersion, setActiveVersion] = useState<'baseline' | 'aurora'>('baseline')
   const [loading, setLoading] = useState(false)
+  const [config, setConfig] = useState<Record<string, any> | null>(null)
+  const [savingSource, setSavingSource] = useState(false)
 
   useEffect(() => {
     const fetchEval = async () => {
@@ -62,6 +64,18 @@ export default function Forecasting(){
       }
     }
     fetchToday()
+  }, [])
+
+  useEffect(() => {
+    const fetchConfig = async () => {
+      try {
+        const cfg = await Api.config()
+        setConfig(cfg as any)
+      } catch (err) {
+        console.error('Failed to load config for forecasting:', err)
+      }
+    }
+    fetchConfig()
   }, [])
 
   const baselineEval = evalData?.versions.find(v => v.version === 'baseline_7_day_avg') || null
@@ -108,35 +122,65 @@ export default function Forecasting(){
     },
   ]
 
+  const activeSource = (config?.forecasting?.active_forecast_version as string) || 'baseline_7_day_avg'
+
+  const handleSourceChange = async (value: string) => {
+    if (!config) return
+    setSavingSource(true)
+    try {
+      await Api.configSave({ forecasting: { active_forecast_version: value } })
+      const fresh = await Api.config()
+      setConfig(fresh as any)
+    } catch (err) {
+      console.error('Failed to save active forecast version:', err)
+    } finally {
+      setSavingSource(false)
+    }
+  }
+
   return (
     <div className="px-4 pt-16 pb-10 lg:px-8 lg:pt-10 space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
           <h1 className="text-lg font-medium text-text">Forecasting</h1>
           <p className="text-[11px] text-muted">
-            Baseline vs AURORA forecasts in shadow mode. Planner still uses baseline.
+            Baseline vs AURORA forecasts. Use the selector to choose which source the planner uses.
           </p>
         </div>
-        <div className="inline-flex items-center gap-2 rounded-full border border-line/80 bg-surface2 px-2 py-1 text-[11px]">
-          <span className="text-muted">Highlight</span>
-          <button
-            type="button"
-            className={`px-2 py-0.5 rounded-full ${
-              activeVersion === 'baseline' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-            }`}
-            onClick={() => setActiveVersion('baseline')}
-          >
-            Baseline
-          </button>
-          <button
-            type="button"
-            className={`px-2 py-0.5 rounded-full ${
-              activeVersion === 'aurora' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-            }`}
-            onClick={() => setActiveVersion('aurora')}
-          >
-            AURORA
-          </button>
+        <div className="flex flex-col items-end gap-2">
+          <div className="inline-flex items-center gap-2 rounded-full border border-line/80 bg-surface2 px-2 py-1 text-[11px]">
+            <span className="text-muted">Highlight</span>
+            <button
+              type="button"
+              className={`px-2 py-0.5 rounded-full ${
+                activeVersion === 'baseline' ? 'bg-accent text-[#0F1216]' : 'text-muted'
+              }`}
+              onClick={() => setActiveVersion('baseline')}
+            >
+              Baseline
+            </button>
+            <button
+              type="button"
+              className={`px-2 py-0.5 rounded-full ${
+                activeVersion === 'aurora' ? 'bg-accent text-[#0F1216]' : 'text-muted'
+              }`}
+              onClick={() => setActiveVersion('aurora')}
+            >
+              AURORA
+            </button>
+          </div>
+          <div className="inline-flex items-center gap-2 text-[11px]">
+            <span className="text-muted">Planner forecast source</span>
+            <select
+              value={activeSource}
+              onChange={(event) => handleSourceChange(event.target.value)}
+              disabled={savingSource}
+              className="rounded-full border border-line/80 bg-surface2 px-2 py-1 text-[11px] text-white focus:border-accent focus:outline-none"
+            >
+              <option value="baseline_7_day_avg">Baseline (7-day average)</option>
+              <option value="aurora_v0.1">AURORA (ML model, experimental)</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -193,4 +237,3 @@ export default function Forecasting(){
     </div>
   )
 }
-
