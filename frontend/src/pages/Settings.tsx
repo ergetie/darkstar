@@ -141,7 +141,8 @@ type UIField = {
     label: string
     helper?: string
     path: string[]
-    type: 'text' | 'boolean'
+    type: 'text' | 'boolean' | 'select'
+    options?: { label: string; value: string }[]
 }
 
 const uiSections = [
@@ -167,7 +168,11 @@ const uiSections = [
                 label: 'Forecast source',
                 helper: 'Baseline is the existing 7-day average. AURORA v0.1 uses the ML model and can be switched off at any time.',
                 path: ['forecasting', 'active_forecast_version'],
-                type: 'text',
+                type: 'select',
+                options: [
+                    { label: 'Baseline (7-day average)', value: 'baseline_7_day_avg' },
+                    { label: 'AURORA v0.1 (experimental)', value: 'aurora_v0.1' },
+                ],
             },
         ],
     },
@@ -1059,6 +1064,22 @@ export default function Settings() {
                                                 />
                                                 <span className="font-semibold">{field.label}</span>
                                             </label>
+                                        ) : field.type === 'select' ? (
+                                            <>
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                                <select
+                                                    value={uiForm[field.key] ?? ''}
+                                                    onChange={(event) => handleUIFieldChange(field.key, event.target.value)}
+                                                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                                >
+                                                    <option value="">Select</option>
+                                                    {field.options?.map((option) => (
+                                                        <option key={option.value} value={option.value}>
+                                                            {option.label}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </>
                                         ) : (
                                             <>
                                                 <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
