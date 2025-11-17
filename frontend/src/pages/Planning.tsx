@@ -63,7 +63,9 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
 
         const laneCandidates: LaneId[] = []
 
-        const charge = slot.battery_charge_kw ?? slot.charge_kw ?? 0
+        // For Planning, treat only explicit grid-charging (`charge_kw`) as an active
+        // battery action; `battery_charge_kw` (PV + side effects) is for telemetry.
+        const charge = slot.charge_kw ?? 0
         const discharge = slot.battery_discharge_kw ?? slot.discharge_kw ?? 0
         const water = slot.water_heating_kw ?? 0
         const exp = slot.export_kwh ?? 0
