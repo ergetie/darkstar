@@ -221,6 +221,48 @@ async def get_forecast_data(price_slots, config):
     timezone = config.get("timezone", "Europe/Stockholm")
     local_tz = pytz.timezone(timezone)
 
+    forecasting_cfg = config.get("forecasting", {}) or {}
+    active_version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
+
+    # If AURORA is selected, try to use DB-backed forecasts first.
+    if active_version == "aurora_v0.1":
+        db_forecasts = build_db_forecast_for_slots(price_slots, config)
+        if db_forecasts and any(
+            slot.get("pv_forecast_kwh", 0.0) != 0.0
+            or slot.get("load_forecast_kwh", 0.0) != 0.0
+            for slot in db_forecasts
+        ):
+            print("Info: Using AURORA forecasts from learning DB (aurora_v0.1).")
+            daily_pv_forecast: dict[str, float] = {}
+            daily_load_forecast: dict[str, float] = {}
+
+            forecast_data: list[dict] = []
+            for slot, db_slot in zip(price_slots, db_forecasts):
+                start_time = slot["start_time"].astimezone(local_tz)
+                pv_kwh = float(db_slot.get("pv_forecast_kwh", 0.0))
+                load_kwh = float(db_slot.get("load_forecast_kwh", 0.0))
+                forecast_data.append(
+                    {
+                        "start_time": slot["start_time"],
+                        "pv_forecast_kwh": pv_kwh,
+                        "load_forecast_kwh": load_kwh,
+                    }
+                )
+                day_key = start_time.date().isoformat()
+                daily_pv_forecast[day_key] = daily_pv_forecast.get(day_key, 0.0) + pv_kwh
+                daily_load_forecast[day_key] = daily_load_forecast.get(day_key, 0.0) + load_kwh
+
+            return {
+                "slots": forecast_data,
+                "daily_pv_forecast": daily_pv_forecast,
+                "daily_load_forecast": daily_load_forecast,
+            }
+
+        print(
+            "Warning: No usable AURORA forecasts found for horizon; "
+            "falling back to baseline forecast pipeline."
+        )
+
     pv_kwh_forecast: list[float] = []
     daily_pv_forecast: dict[str, float] = {}
     resolution_hours = 0.25

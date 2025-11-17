@@ -398,8 +398,19 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     **Sub-steps**
 
     *   [1] (Done) Add a helper in `inputs.py` that can build planner-ready PV/load arrays from `slot_forecasts` for a given `forecast_version` and horizon.
-    *   [2] (Planned) Wire `get_forecast_data` to branch on `forecasting.active_forecast_version` and pull from AURORA via `ml.api.get_forecast_slots(...)` when set to `"aurora_v0.1"`, with automatic fallback to baseline.
-    *   [3] (Planned) Add defensive logging/metrics when AURORA data is missing or stale so operators can see when the planner falls back to baseline.
+    *   [2] (Done) Wire `get_forecast_data` to branch on `forecasting.active_forecast_version` and pull from AURORA via `ml.api.get_forecast_slots(...)` when set to `"aurora_v0.1"`, with automatic fallback to baseline.
+    *   [3] (Done) Add defensive logging/metrics when AURORA data is missing or stale so operators can see when the planner falls back to baseline.
+
+    **Implementation**
+
+    *   **Completed**:
+        *   `inputs.build_db_forecast_for_slots` builds planner-style `{pv_forecast_kwh, load_forecast_kwh}` arrays from `slot_forecasts` for the active `forecast_version`.
+        *   `get_forecast_data` now:
+            *   Uses AURORA forecasts from the learning DB when `forecasting.active_forecast_version == "aurora_v0.1"` and non-zero forecasts exist for the current horizon.
+            *   Falls back to the existing baseline PV/load pipeline otherwise, logging a warning if AURORA data is missing or unusable.
+        *   Logging:
+            *   Prints an info line when AURORA forecasts are used.
+            *   Prints a warning when falling back to baseline because AURORA forecasts are missing or all-zero for the horizon.
 
     *   **Acceptance Criteria**:
         *   With `active_forecast_version="baseline_7_day_avg"` the planner behaves exactly as before.
