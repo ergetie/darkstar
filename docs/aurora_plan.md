@@ -95,7 +95,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   **Dependencies**: None.
     *   **Acceptance Criteria**: The specified directory structure exists.
 
-### Rev 2 — 2025-11-16: Update `config.yaml` with `input_sensors` *(Status: 📋 Planned)*
+### Rev 2 — 2025-11-16: Update `config.yaml` with `input_sensors` *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Add a dedicated `input_sensors` section to `config.yaml` to map canonical sensor roles to user-specific Home Assistant entity IDs.
@@ -124,7 +124,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         ```
         *(Note: User will replace placeholder sensor names with actual entity IDs.)*
 
-### Rev 3 — 2025-11-16: Implement `ml/data_activator.py` *(Status: 📋 Planned)*
+### Rev 3 — 2025-11-16: Implement `ml/data_activator.py` *(Status: 🔄 In Progress)*
 
 *   **Model**: Gemini
 *   **Summary**: Create a script to activate the existing `etl_cumulative_to_slots` logic in `learning.py`, populating the `slot_observations` table with rich historical data based on the new `input_sensors` config.

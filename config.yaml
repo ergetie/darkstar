@@ -124,3 +124,16 @@ water_heating:
   plan_days_ahead: 1
   power_kw: 3.0
   schedule_future_only: true
+
+# Input sensors mapping for AURORA
+input_sensors:
+  # Map canonical names to your specific Home Assistant entity IDs
+  total_load_consumption: "sensor.your_total_load_consumption_sensor"
+  total_pv_production: "sensor.your_total_pv_production_sensor"
+  total_grid_import: "sensor.your_total_grid_import_sensor"
+  total_grid_export: "sensor.your_total_grid_export_sensor"
+  total_battery_charge: "sensor.your_total_battery_charge_sensor"
+  total_battery_discharge: "sensor.your_total_battery_discharge_sensor"
+  battery_soc: "sensor.inverter_battery"
+  water_heater_consumption: "sensor.vvb_energy_daily"
+  vacation_mode: "input_boolean.vacation_mode"
