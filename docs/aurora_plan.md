@@ -385,6 +385,12 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Ensure timezone, slot alignment, and shapes match the planner’s expectations.
     *   **Dependencies**: Rev 10 (forward AURORA forecasts available in `slot_forecasts`).
 
+    **Sub-steps**
+
+    *   [1] (Planned) Add a helper in `inputs.py` that can build planner-ready PV/load arrays from `slot_forecasts` for a given `forecast_version` and horizon.
+    *   [2] (Planned) Wire `get_forecast_data` to branch on `forecasting.active_forecast_version` and pull from AURORA via `ml.api.get_forecast_slots(...)` when set to `"aurora_v0.1"`, with automatic fallback to baseline.
+    *   [3] (Planned) Add defensive logging/metrics when AURORA data is missing or stale so operators can see when the planner falls back to baseline.
+
     *   **Acceptance Criteria**:
         *   With `active_forecast_version="baseline_7_day_avg"` the planner behaves exactly as before.
         *   With `active_forecast_version="aurora_v0.1"` and fresh AURORA forecasts present, the planner uses AURORA forecasts for PV/load while preserving existing safety margins.
@@ -418,6 +424,13 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Changing the forecast source in Settings correctly updates `forecasting.active_forecast_version` in `config.yaml` (via API).
         *   AURORA can be enabled/disabled without editing YAML or redeploying.
         *   Operators can switch back to baseline instantly if needed, completing the v0.3 story.
+
+    **Sub-steps**
+
+    *   [1] (Planned) Ensure backend config APIs expose `forecasting.active_forecast_version` in both read and write paths.
+    *   [2] (Planned) Add a “Forecast source” control to the Settings page that reads/writes the active forecast version via the API and clearly labels AURORA as experimental.
+    *   [3] (Planned) Verify that toggling between baseline and AURORA via the Settings UI correctly updates config and, together with Rev 11, changes which forecasts the planner uses while preserving instant rollback.
+
 
 
 ---
