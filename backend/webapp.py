@@ -1461,6 +1461,42 @@ def learning_loops():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/forecast/run_eval", methods=["POST"])
+def forecast_run_eval():
+    """Trigger AURORA evaluation (shadow-mode) for the recent window."""
+    try:
+        days_back = int(request.json.get("days_back", 7)) if request.is_json else 7
+    except Exception:
+        days_back = 7
+
+    cmd = ["python", "ml/evaluate.py", "--days-back", str(days_back)]
+    try:
+        subprocess.check_call(cmd)
+        return jsonify({"status": "success", "days_back": days_back})
+    except subprocess.CalledProcessError as exc:
+        logger.error("forecast_run_eval failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
+@app.route("/api/forecast/run_forward", methods=["POST"])
+def forecast_run_forward():
+    """Trigger forward AURORA forecast generation for the planner horizon."""
+    try:
+        horizon_hours = (
+            int(request.json.get("horizon_hours", 48)) if request.is_json else 48
+        )
+    except Exception:
+        horizon_hours = 48
+
+    cmd = ["python", "ml/forward.py"]
+    try:
+        subprocess.check_call(cmd)
+        return jsonify({"status": "success", "horizon_hours": horizon_hours})
+    except subprocess.CalledProcessError as exc:
+        logger.error("forecast_run_forward failed: %s", exc)
+        return jsonify({"status": "error", "message": str(exc)}), 500
+
+
 @app.route("/api/learning/history", methods=["GET"])
 def learning_history():
     """Return recent learning runs for history/mini-chart visualisation."""

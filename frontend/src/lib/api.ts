@@ -223,6 +223,10 @@ export const Api = {
   forecastEval: () => getJSON<any>('/api/forecast/eval'),
   forecastDay: (date?: string) =>
     getJSON<any>(date ? `/api/forecast/day?date=${date}` : '/api/forecast/day'),
+  forecastRunEval: (daysBack = 7) =>
+    getJSON<{status: string}>('/api/forecast/run_eval', 'POST', { days_back: daysBack }),
+  forecastRunForward: (horizonHours = 48) =>
+    getJSON<{status: string}>('/api/forecast/run_forward', 'POST', { horizon_hours: horizonHours }),
 }
 
 export const Sel = {
