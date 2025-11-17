@@ -42,7 +42,7 @@ export default function App(){
     return (
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Sidebar />
-        <div className="pl-[96px]">
+        <div className="lg:pl-[96px]">
         {backendOffline && (
             <div className="bg-amber-900/80 border-b border-amber-500/60 text-amber-100 text-[11px] px-4 py-2 flex items-center justify-between">
             <span>Backend appears offline or degraded. Some data may be stale or unavailable.</span>
