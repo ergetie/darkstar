@@ -417,7 +417,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   With `active_forecast_version="aurora_v0.1"` and fresh AURORA forecasts present, the planner uses AURORA forecasts for PV/load while preserving existing safety margins.
         *   If AURORA data is missing or stale, the planner automatically falls back to baseline and logs a warning.
 
-### Rev 12 — 2025-11-17: Settings Toggle for Active Forecast Version *(Status: 📋 Planned)*
+### Rev 12 — 2025-11-17: Settings Toggle for Active Forecast Version *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Expose the active forecast version as a controlled toggle in the Settings UI, so operators can switch between baseline and AURORA without touching YAML.
@@ -440,6 +440,19 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
             *   Display the currently active version and a short explanation/tooltip about AURORA being experimental.
         *   Keep the Forecasting tab view-only: it reflects whichever version is active but does not itself change planner logic.
     *   **Dependencies**: Rev 11 (planner respects `active_forecast_version`).
+
+    **Sub-steps**
+
+    *   [1] (Done) Ensure backend config APIs expose `forecasting.active_forecast_version` in both read and write paths.
+    *   [2] (Done) Add a “Forecast source” control to the Settings page that reads/writes the active forecast version via the API and clearly labels AURORA as experimental.
+    *   [3] (Done) Verify that toggling between baseline and AURORA via the Settings UI correctly updates config and, together with Rev 11, changes which forecasts the planner uses while preserving instant rollback.
+
+    **Implementation**
+
+    *   **Completed**:
+        *   `/api/config` and `/api/config/save` already operate on the full `config.yaml` structure, so `forecasting.active_forecast_version` is transparently exposed and persisted without backend changes.
+        *   Settings  UI tab now includes a “Forecasting” section with a `Forecast source` field bound to `forecasting.active_forecast_version`, with helper text marking `AURORA v0.1` as experimental.
+        *   Changing this field and clicking **Save UI Preferences** posts a patch via `/api/config/save` that updates `forecasting.active_forecast_version`, which the planner now respects via Rev 11.
 
     *   **Acceptance Criteria**:
         *   Changing the forecast source in Settings correctly updates `forecasting.active_forecast_version` in `config.yaml` (via API).

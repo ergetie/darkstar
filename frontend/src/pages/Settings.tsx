@@ -158,6 +158,19 @@ const uiSections = [
             },
         ],
     },
+    {
+        title: 'Forecasting',
+        description: 'Choose which forecast source the planner uses. AURORA v0.1 is experimental.',
+        fields: [
+            {
+                key: 'forecasting.active_forecast_version',
+                label: 'Forecast source',
+                helper: 'Baseline is the existing 7-day average. AURORA v0.1 uses the ML model and can be switched off at any time.',
+                path: ['forecasting', 'active_forecast_version'],
+                type: 'text',
+            },
+        ],
+    },
 ]
 
 const uiFieldList: UIField[] = uiSections.flatMap((section) => section.fields)
