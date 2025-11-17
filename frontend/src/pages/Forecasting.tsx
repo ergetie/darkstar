@@ -79,7 +79,7 @@ export default function Forecasting(){
   }, [])
 
   const baselineEval = evalData?.versions.find(v => v.version === 'baseline_7_day_avg') || null
-  const auroraEval = evalData?.versions.find(v => v.version === 'aurora_v0.1') || null
+  const auroraEval = evalData?.versions.find(v => v.version === 'aurora') || null
 
   const kpiValue = (v: ForecastEvalVersion | null, key: 'mae_pv' | 'mae_load') => {
     if (!v) return '—'
@@ -178,7 +178,7 @@ export default function Forecasting(){
               className="rounded-full border border-line/80 bg-surface2 px-2 py-1 text-[11px] text-white focus:border-accent focus:outline-none"
             >
               <option value="baseline_7_day_avg">Baseline (7-day average)</option>
-              <option value="aurora_v0.1">AURORA (ML model, experimental)</option>
+              <option value="aurora">AURORA (ML model, experimental)</option>
             </select>
           </div>
         </div>

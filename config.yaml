@@ -38,9 +38,20 @@ decision_thresholds:
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
 forecasting:
+  active_forecast_version: aurora
   load_safety_margin_percent: 117.0
   pv_confidence_percent: 83.0
-  active_forecast_version: "baseline_7_day_avg"
+input_sensors:
+  alarm_state: alarm_control_panel.alarmo
+  battery_soc: sensor.inverter_battery
+  total_battery_charge: sensor.inverter_total_battery_charge
+  total_battery_discharge: sensor.inverter_total_battery_discharge
+  total_grid_export: sensor.inverter_total_energy_export
+  total_grid_import: sensor.inverter_total_energy_import
+  total_load_consumption: sensor.inverter_total_load_consumption
+  total_pv_production: sensor.inverter_total_production
+  vacation_mode: input_boolean.vacation_mode
+  water_heater_consumption: sensor.vvb_energy_daily
 learning:
   auto_apply: true
   default_battery_cost_sek_per_kwh: 0.2
@@ -125,17 +136,3 @@ water_heating:
   plan_days_ahead: 1
   power_kw: 3.0
   schedule_future_only: true
-
-# Input sensors mapping for AURORA
-input_sensors:
-  # Map canonical names to your specific Home Assistant entity IDs
-  total_load_consumption: "sensor.inverter_total_load_consumption"
-  total_pv_production: "sensor.inverter_total_production"
-  total_grid_import: "sensor.inverter_total_energy_import"
-  total_grid_export: "sensor.inverter_total_energy_export"
-  total_battery_charge: "sensor.inverter_total_battery_charge"
-  total_battery_discharge: "sensor.inverter_total_battery_discharge"
-  battery_soc: "sensor.inverter_battery"
-  water_heater_consumption: "sensor.vvb_energy_daily"
-  vacation_mode: "input_boolean.vacation_mode"
-  alarm_state: "alarm_control_panel.alarmo"
