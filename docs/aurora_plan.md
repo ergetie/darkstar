@@ -526,7 +526,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   `ml/train.py` and `ml/evaluate.py` merge the weather DataFrame onto `slot_start` and include `cloud_cover_pct` and `shortwave_radiation_w_m2` as model features when present.
         *   `ml/forward.py` enriches future slots with the same weather columns and feeds them into the LightGBM models for forward AURORA forecasts.
 
-### Rev 15 — 2025-11-18: Forecasting Tab Enhancements *(Status: 📋 Planned)*
+### Rev 15 — 2025-11-18: Forecasting Tab Enhancements *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Refine the Forecasting tab to better illustrate Baseline vs AURORA behaviour using the existing metrics and forecasts.
@@ -539,9 +539,9 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Sub-steps**
 
-    *   [1] (Planned) Tidy up labels and legends in the Forecasting chart/table so Baseline and AURORA are clearly distinguished and use consistent naming with Rev 13.
-    *   [2] (Planned) Add a small summary block (e.g. last 7 days) highlighting MAE deltas between Baseline and AURORA using existing `/api/forecast/eval` data.
-    *   [3] (Planned) Ensure the Forecasting tab gracefully handles cases where AURORA forecasts are missing or disabled (clear messaging instead of empty charts).
+    *   [1] (Done) Tidy up labels and legends in the Forecasting chart/table so Baseline and AURORA are clearly distinguished and use consistent naming with Rev 13.
+    *   [2] (Done) Add a small summary block (e.g. last 7 days) highlighting MAE deltas between Baseline and AURORA using existing `/api/forecast/eval` data.
+    *   [3] (Done) Ensure the Forecasting tab gracefully handles cases where AURORA forecasts are missing or disabled (clear messaging instead of empty charts).
     *   [4] (Done) Add lightweight “Run evaluation/forward” controls on the Forecasting tab that trigger backend endpoints to run `ml/evaluate.py` and `ml/forward.py` and then refresh metrics, so operators can update AURORA KPIs without using the CLI.
 
     **Implementation**
@@ -555,6 +555,9 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
                 *   “Run eval (7d)” → calls `Api.forecastRunEval(7)` then reloads `/api/forecast/eval` and `/api/forecast/day`.
                 *   “Run forward (48h)” → calls `Api.forecastRunForward(48)` then reloads the same APIs.
             *   Buttons show simple “Running…” states and log errors to the console without breaking the page.
+            *   Labels and legends clearly distinguish “Baseline (7-day average)” and “AURORA (ML model, experimental)” across the Forecasting chart, KPIs, and table.
+            *   A compact MAE delta summary card shows how much AURORA improves or worsens MAE vs baseline for PV and load over the last evaluation window.
+            *   When AURORA metrics are missing or disabled, the tab shows a small warning message instead of silently rendering empty or misleading series.
 
 ---
 

@@ -251,6 +251,8 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             borderColor: getColor(13, '#9C27B0'), // palette 13 (pink) or Material Purple
             yAxisID: 'y3', // Use percentage axis
             pointRadius: 0,
+            tension: 0,
+            stepped: 'after',
             hidden: true,
         },
         {
