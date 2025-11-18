@@ -25,6 +25,7 @@ export default function Dashboard(){
     const [exportGuard, setExportGuard] = useState<{enabled?: boolean; mode?: string} | null>(null)
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+    const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -199,6 +200,10 @@ export default function Dashboard(){
         } finally {
             setIsRefreshing(false)
             setStatusMessage(hadError ? 'Some dashboard data failed to load.' : null)
+            // Nudge the overview chart to reload its schedule data so that
+            // planner runs / server-plan loads are reflected without manual
+            // day toggling.
+            setChartRefreshToken(token => token + 1)
         }
     }, [])
 
@@ -250,7 +255,7 @@ export default function Dashboard(){
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <ChartCard useHistoryForToday />
+        <ChartCard useHistoryForToday refreshToken={chartRefreshToken} />
         </motion.div>
         <motion.div className="space-y-4" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <Card className="p-4 md:p-5">

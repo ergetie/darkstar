@@ -38,7 +38,7 @@ decision_thresholds:
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
 forecasting:
-  active_forecast_version: aurora
+  active_forecast_version: baseline_7_day_avg
   load_safety_margin_percent: 117.0
   pv_confidence_percent: 83.0
 input_sensors:

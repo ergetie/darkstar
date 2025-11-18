@@ -100,14 +100,14 @@ export default function Forecasting(){
 
   const chartDatasets = [
     {
-      label: 'Actual load',
+      label: 'Actual load (kWh)',
       data: chartActual,
       borderColor: 'rgba(248, 250, 252, 0.9)',
       backgroundColor: 'rgba(248, 250, 252, 0.15)',
       tension: 0.2,
     },
     {
-      label: 'Baseline load',
+      label: 'Baseline load (kWh)',
       data: chartBaseline,
       borderColor: 'rgba(96, 165, 250, 0.8)',
       backgroundColor: 'rgba(96, 165, 250, 0.15)',
@@ -115,7 +115,7 @@ export default function Forecasting(){
       tension: 0.2,
     },
     {
-      label: 'AURORA load',
+      label: 'AURORA load (kWh)',
       data: chartAurora,
       borderColor: 'rgba(52, 211, 153, 0.8)',
       backgroundColor: 'rgba(52, 211, 153, 0.15)',
@@ -125,6 +125,23 @@ export default function Forecasting(){
   ]
 
   const activeSource = (config?.forecasting?.active_forecast_version as string) || 'baseline_7_day_avg'
+
+  const auroraAvailable = !!auroraEval && auroraEval.samples > 0
+
+  const maeDelta = (
+    baseline: ForecastEvalVersion | null,
+    aurora: ForecastEvalVersion | null,
+    key: 'mae_pv' | 'mae_load',
+  ): number | null => {
+    if (!baseline || !aurora) return null
+    const b = baseline[key]
+    const a = aurora[key]
+    if (b == null || a == null) return null
+    return b - a
+  }
+
+  const pvDelta = maeDelta(baselineEval, auroraEval, 'mae_pv')
+  const loadDelta = maeDelta(baselineEval, auroraEval, 'mae_load')
 
   const handleSourceChange = async (value: string) => {
     if (!config) return
@@ -247,6 +264,44 @@ export default function Forecasting(){
         <Kpi label="AURORA MAE PV" value={kpiValue(auroraEval, 'mae_pv')} hint="Last window" />
         <Kpi label="AURORA MAE Load" value={kpiValue(auroraEval, 'mae_load')} hint="Last window" />
       </div>
+
+      {baselineEval && auroraEval && (
+        <Card className="p-3 md:p-4">
+          <div className="text-[11px] text-muted mb-1">
+            MAE delta (AURORA vs baseline, last window)
+          </div>
+          <div className="flex flex-wrap gap-4 text-[11px]">
+            <div>
+              <span className="text-muted mr-1">PV:</span>
+              {pvDelta != null ? (
+                <span className={pvDelta > 0 ? 'text-green-400' : pvDelta < 0 ? 'text-amber-300' : ''}>
+                  {pvDelta > 0 ? '↓ ' : pvDelta < 0 ? '↑ ' : ''}
+                  {Math.abs(pvDelta).toFixed(3)} kWh MAE
+                </span>
+              ) : (
+                <span className="text-muted">—</span>
+              )}
+            </div>
+            <div>
+              <span className="text-muted mr-1">Load:</span>
+              {loadDelta != null ? (
+                <span className={loadDelta > 0 ? 'text-green-400' : loadDelta < 0 ? 'text-amber-300' : ''}>
+                  {loadDelta > 0 ? '↓ ' : loadDelta < 0 ? '↑ ' : ''}
+                  {Math.abs(loadDelta).toFixed(3)} kWh MAE
+                </span>
+              ) : (
+                <span className="text-muted">—</span>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {!auroraAvailable && (
+        <div className="text-[11px] text-amber-300">
+          AURORA metrics are not available yet. Run an evaluation or keep the planner on baseline.
+        </div>
+      )}
 
       <ChartCard
         title={`Load forecast vs actual (${dayData?.date ?? 'today'})`}
