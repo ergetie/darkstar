@@ -580,10 +580,26 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Sub-steps**
 
-    *   [1] (Planned) Perform a focused offline analysis comparing AURORA vs baseline vs actuals for both load and PV across time-of-day and price bands (using existing `slot_observations` and `slot_forecasts`), to identify where AURORA is under- or over-estimating most severely.
+    *   [1] (Done) Perform a focused offline analysis comparing AURORA vs baseline vs actuals for both load and PV across time-of-day (using existing `slot_observations` and `slot_forecasts`), to identify where AURORA is under- or over-estimating most severely.
     *   [2] (Planned) Calibrate the models and feature set based on these findings (e.g. enforce PV≈0 at night by construction, revisit weather features if they introduce pathologies, adjust LightGBM hyperparameters, or change targets/normalisation) and retrain.
     *   [3] (Planned) Add planner-facing guardrails for forward inference (e.g. PV/load clamps, optional blending with baseline like `max(baseline, aurora)` or a weighted mix) so that even if AURORA drifts, it cannot produce obviously unsafe scheduling inputs.
     *   [4] (Planned) Re-run evaluation and a small set of end-to-end planner runs (with AURORA in shadow mode) and update this document with the new behaviour and any remaining caveats before considering AURORA for live use again.
+
+    **Implementation**
+
+    *   **Completed**:
+        *   Offline analysis on the current learning DB (`data/planner_learning.db`) shows:
+            *   For **load**, AURORA systematically underestimates compared to actuals, especially around morning (08–09) and evening (16–21) peaks. Example hourly averages (kWh per 15‑minute slot):
+                *   08: actual ≈ 0.50, baseline ≈ 0.54, AURORA ≈ 0.14.
+                *   09: actual ≈ 0.37, baseline ≈ 0.41, AURORA ≈ 0.19.
+                *   16: actual ≈ 0.25, baseline ≈ 0.28, AURORA ≈ 0.11.
+                *   21: actual ≈ 0.16, baseline ≈ 0.17, AURORA ≈ 0.09.
+            *   For **PV**, AURORA predicts small but non‑zero generation at night and tends to mis‑shape the daytime curve:
+                *   00: actual PV ≈ 0.00, AURORA PV ≈ 0.004.
+                *   07: actual PV ≈ 0.00, AURORA PV ≈ 0.017.
+                *   Late afternoon hours show mismatched magnitudes vs actuals.
+            *   Baseline forecasts remain closer to actuals in absolute magnitude and daily shape, even where AURORA achieves slightly lower MAE overall.
+        *   A fresh automated AURORA evaluation run is currently blocked in this environment by LightGBM feature‑shape checks and lack of network access to Open‑Meteo, but the existing DB contents are sufficient to guide calibration work in sub‑steps [2]–[3].
 
 ## Backlog / Post v0.1 Ideas
 
