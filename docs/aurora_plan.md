@@ -548,13 +548,39 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Completed**:
         *   Backend:
-            *   `/api/forecast/run_eval` (POST) runs `python ml/evaluate.py --days-back N` synchronously and returns a simple status JSON.
-            *   `/api/forecast/run_forward` (POST) runs `python ml/forward.py` to generate forward AURORA forecasts.
+            *   `/api/forecast/run_eval` (POST) runs `ml.evaluate` with `--days-back` and returns a simple status JSON.
+            *   `/api/forecast/run_forward` (POST) runs `ml.forward` to generate forward AURORA forecasts.
         *   Frontend:
             *   Forecasting tab adds two small buttons next to the planner source selector:
                 *   “Run eval (7d)” → calls `Api.forecastRunEval(7)` then reloads `/api/forecast/eval` and `/api/forecast/day`.
                 *   “Run forward (48h)” → calls `Api.forecastRunForward(48)` then reloads the same APIs.
             *   Buttons show simple “Running…” states and log errors to the console without breaking the page.
+
+---
+
+### Rev 16 — 2025-11-18: AURORA Calibration & Safety Guardrails *(Status: 📋 Planned)*
+
+*   **Model**: Gemini
+*   **Summary**: Investigate why AURORA behaves sensibly in MAE metrics but poorly when driving the planner, then calibrate the models and add safety guardrails so AURORA is safe and useful in shadow mode and, later, live mode.
+
+    **Plan**
+
+    *   **Goals**:
+        *   Understand and fix the discrepancy between “good MAE” and “bad planner behaviour”.
+        *   Ensure AURORA never produces obviously invalid forecasts (e.g. PV at night, unrealistically low load) for the planner horizon.
+        *   Re-establish AURORA as a trustworthy shadow-mode signal before any new live cutover.
+
+    *   **Scope**:
+        *   Deep-dive into training vs forward distributions and where AURORA diverges most from baseline/actuals.
+        *   Adjust model training and/or calibration so forward forecasts remain realistic across all hours.
+        *   Add planner-side guardrails (clamps/blends) to prevent obviously unsafe forecasts from affecting decisions.
+
+    *   **Sub-steps**
+
+    *   [1] (Planned) Perform a focused offline analysis comparing AURORA vs baseline vs actuals for both load and PV across time-of-day and price bands (using existing `slot_observations` and `slot_forecasts`), to identify where AURORA is under- or over-estimating most severely.
+    *   [2] (Planned) Calibrate the models and feature set based on these findings (e.g. enforce PV≈0 at night by construction, revisit weather features if they introduce pathologies, adjust LightGBM hyperparameters, or change targets/normalisation) and retrain.
+    *   [3] (Planned) Add planner-facing guardrails for forward inference (e.g. PV/load clamps, optional blending with baseline like `max(baseline, aurora)` or a weighted mix) so that even if AURORA drifts, it cannot produce obviously unsafe scheduling inputs.
+    *   [4] (Planned) Re-run evaluation and a small set of end-to-end planner runs (with AURORA in shadow mode) and update this document with the new behaviour and any remaining caveats before considering AURORA for live use again.
 
 ## Backlog / Post v0.1 Ideas
 
