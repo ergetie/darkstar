@@ -3,17 +3,17 @@ timezone: "Europe/Stockholm"
 
 # System Parameters
 system:
-  location:
-    latitude: 59.3293
-    longitude: 18.0686
-  solar_array:
-    kwp: 8.5
-    azimuth: 180
-    tilt: 35
+  grid:
+    max_power_kw: 11
   inverter:
     max_power_kw: 10.0
-  grid:
-    max_power_kw: 25.0
+  location:
+    latitude: 55.493221 
+    longitude: 13.111221
+  solar_array:
+    azimuth: 150
+    kwp: 10
+    tilt: 45
 
 # Battery Specifications
 battery:

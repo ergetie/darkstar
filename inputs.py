@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, date
 import math
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import pytz
 import requests
@@ -224,47 +224,76 @@ async def get_forecast_data(price_slots, config):
     forecasting_cfg = config.get("forecasting", {}) or {}
     active_version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
 
-    # If AURORA is selected, try to use DB-backed forecasts first.
+    # AURORA: DB-backed forecast
     if active_version == "aurora":
-        db_forecasts = build_db_forecast_for_slots(price_slots, config)
-        if db_forecasts:
+        # 1. Build slots strictly for the price horizon (0-48h)
+        db_slots = build_db_forecast_for_slots(price_slots, config)
+        
+        forecast_data: list[dict] = []
+        if db_slots:
             print("Info: Using AURORA forecasts from learning DB (aurora).")
-            daily_pv_forecast: dict[str, float] = {}
-            daily_load_forecast: dict[str, float] = {}
-
-            forecast_data: list[dict] = []
-            for slot, db_slot in zip(price_slots, db_forecasts):
-                start_time = slot["start_time"].astimezone(local_tz)
-                pv_kwh = float(db_slot.get("pv_forecast_kwh", 0.0))
-                load_kwh = float(db_slot.get("load_forecast_kwh", 0.0))
+            for slot, db_slot in zip(price_slots, db_slots):
                 forecast_data.append(
                     {
                         "start_time": slot["start_time"],
-                        "pv_forecast_kwh": pv_kwh,
-                        "load_forecast_kwh": load_kwh,
+                        "pv_forecast_kwh": float(db_slot.get("pv_forecast_kwh", 0.0)),
+                        "load_forecast_kwh": float(db_slot.get("load_forecast_kwh", 0.0)),
                     }
                 )
-                day_key = start_time.date().isoformat()
-                daily_pv_forecast[day_key] = daily_pv_forecast.get(day_key, 0.0) + pv_kwh
-                daily_load_forecast[day_key] = daily_load_forecast.get(day_key, 0.0) + load_kwh
+        else:
+            print("Warning: AURORA slots missing for price horizon. Returning empty slots.")
 
-            return {
-                "slots": forecast_data,
-                "daily_pv_forecast": daily_pv_forecast,
-                "daily_load_forecast": daily_load_forecast,
-            }
+        # 2. Build DAILY totals for the extended horizon required by S-index
+        daily_pv_forecast: dict[str, float] = {}
+        daily_load_forecast: dict[str, float] = {}
+        
+        if price_slots:
+            start_dt = price_slots[0]["start_time"].astimezone(local_tz)
+            
+            # Calculate required horizon based on config
+            s_index_cfg = config.get("s_index", {})
+            days_list = s_index_cfg.get("days_ahead_for_sindex", [2, 3, 4])
+            
+            # Handle both list and single integer input types safely
+            if isinstance(days_list, list):
+                 max_days = max(days_list) if days_list else 4
+            else:
+                 try:
+                     max_days = int(days_list)
+                 except (TypeError, ValueError):
+                     max_days = 4
+                     
+            # Ensure we fetch at least enough to cover the config
+            horizon_days = max(4, max_days + 1)
+            end_dt = start_dt + timedelta(days=horizon_days)
+            
+            # Fetch extended records from DB
+            extended_records = get_forecast_slots(start_dt, end_dt, active_version)
+            
+            for rec in extended_records:
+                ts = rec["slot_start"]
+                if ts.tzinfo is None:
+                    ts = pytz.UTC.localize(ts)
+                date_key = ts.astimezone(local_tz).date().isoformat()
+                
+                pv_val = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
+                load_val = float(rec.get("load_forecast_kwh", 0.0) or 0.0)
+                
+                daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
+                daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val
 
-        print(
-            "Warning: No usable AURORA forecasts found for horizon; "
-            "falling back to baseline forecast pipeline."
-        )
+        return {
+            "slots": forecast_data,
+            "daily_pv_forecast": daily_pv_forecast,
+            "daily_load_forecast": daily_load_forecast,
+        }
 
+    # --- FALLBACK: Open-Meteo (Live API) ---
     pv_kwh_forecast: list[float] = []
     daily_pv_forecast: dict[str, float] = {}
     resolution_hours = 0.25
 
     try:
-
         async def _fetch_forecast():
             async with OpenMeteoSolarForecast(
                 latitude=latitude,
