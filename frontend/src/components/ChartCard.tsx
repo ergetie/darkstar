@@ -207,8 +207,8 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             type: 'bar',
             label: 'Load (kW)',
             data: values.load,
-            backgroundColor: `${getColor(3, '#FF9800')}CC`, // semi-transparent
-            borderRadius: 6,
+            backgroundColor: `${getColor(3, '#FF9800')}80`, // more transparent
+            borderRadius: 0,
             yAxisID: 'y1',
             barPercentage: 1,
             categoryPercentage: 1,
@@ -218,7 +218,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             type: 'bar',
             label: 'Charge (kW)',
             data: values.charge ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(4, '#2196F3')}CC`, // semi-transparent
+            backgroundColor: `${getColor(4, '#2196F3')}80`, // more transparent
             hidden: true,
             yAxisID: 'y1',
             barPercentage: 1,
@@ -229,7 +229,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             type: 'bar',
             label: 'Discharge (kW)',
             data: values.discharge ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(1, '#F44336')}CC`, // semi-transparent
+            backgroundColor: `${getColor(1, '#F44336')}80`, // more transparent
             hidden: true,
             yAxisID: 'y1',
             barPercentage: 1,
@@ -240,7 +240,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             type: 'bar',
             label: 'Export (kWh)',
             data: values.export ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(2, '#4CAF50')}CC`, // semi-transparent
+            backgroundColor: `${getColor(2, '#4CAF50')}80`, // more transparent
             hidden: true,
             yAxisID: 'y2', // Use kWh axis
             barPercentage: 1,
@@ -251,7 +251,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             type: 'bar',
             label: 'Water Heating (kW)',
             data: values.water ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(5, '#FF5722')}CC`, // semi-transparent
+            backgroundColor: `${getColor(5, '#FF5722')}80`, // more transparent
             hidden: true,
             yAxisID: 'y1',
             barPercentage: 1,
