@@ -40,6 +40,17 @@ const systemSections = [
         ],
     },
     {
+        title: 'Location & Solar Array',
+        description: 'Geolocation and PV array parameters used by the forecasting engine.',
+        fields: [
+            { key: 'system.location.latitude', label: 'Latitude', helper: 'Decimal degrees, positive north. Example: 55.4932', path: ['system', 'location', 'latitude'], type: 'number' },
+            { key: 'system.location.longitude', label: 'Longitude', helper: 'Decimal degrees, positive east. Example: 13.1112', path: ['system', 'location', 'longitude'], type: 'number' },
+            { key: 'system.solar_array.azimuth', label: 'Solar azimuth (°)', helper: 'Panel direction: 0° = North, 90° = East, 180° = South, 270° = West.', path: ['system', 'solar_array', 'azimuth'], type: 'number' },
+            { key: 'system.solar_array.tilt', label: 'Solar tilt (°)', helper: 'Angle from horizontal. 0° = flat, 90° = vertical.', path: ['system', 'solar_array', 'tilt'], type: 'number' },
+            { key: 'system.solar_array.kwp', label: 'Solar capacity (kWp)', helper: 'Total DC peak power of the PV array.', path: ['system', 'solar_array', 'kwp'], type: 'number' },
+        ],
+    },
+    {
         title: 'Home Assistant & Learning Storage',
         description: 'Additionally track the learning database path for telemetry.',
         fields: [
