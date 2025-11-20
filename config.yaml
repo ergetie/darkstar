@@ -29,7 +29,7 @@ charging_strategy:
   price_smoothing_sek_kwh: 0.05
 dashboard:
   auto_refresh_enabled: true
-  overlay_defaults: charge, soctarget, socprojected, water, export
+  overlay_defaults: charge, soctarget, socprojected, water, export, load_off
 debug:
   enable_planner_debug: false
   sample_size: 30
@@ -124,7 +124,7 @@ system:
     tilt: 35
 timezone: Europe/Stockholm
 ui:
-  theme: Material Design Colors
+  theme: Ayu
   theme_accent_index: 6
 water_heating:
   block_consolidation_tolerance_sek: 0.05
