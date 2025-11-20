@@ -83,6 +83,8 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
     *   **Known Issues**:
     *   **Rollback Plan**:
 
+    **Backlog items**
+    * Sectioned list
 ---
 
 ## Phase 1: Data Pipeline Activation & Model Training
@@ -597,6 +599,74 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
         *   Retrained model showed MAE improvement (0.15 vs 0.22 Baseline).
         *   Verification script confirmed forward slots pass all safety checks.
 
+        
+###   Rev 17 — 2025-11-20: Stabilization: Fixed Phantom Charging, S-Index Horizon & DB Crashes *(Status: ✅ Completed)*
+
+*   **Model**: Google Gemini Flash 2.0
+*   **Summary**: Diagnosed and fixed negative load bias causing phantom charging, extended forecast horizon for S-index, and fixed DB writer column mismatch.
+*   **Started**: 2025-11-20 17:00
+*   **Last Updated**: 2025-11-20 23:33
+
+**Plan**
+
+*   **Goals**: Eliminate "excess_pv" charging during dark hours; Fix S-index sticking to base factor; Resolve HTTP 500 on DB write.
+*   **Scope**: Planner logic, Input fetching, Learning Database, DB Writer.
+*   **Dependencies**: `planner_learning.db`, Nordpool prices, Open-Meteo API.
+*   **Acceptance Criteria**:
+1. No charging scheduled during expensive peak hours without real PV.
+2. S-index reacts dynamically to cold weather/deficits (factor > 1.5).
+3. `schedule.json` writes to MariaDB without error.
+
+**Sub-steps**
+
+*   [1] Diagnose and clean "Ghost Data" (zero-load records) in Learning DB.
+*   [2] Implement "Shield" in Planner to clamp adjusted load/PV to 0.0.
+*   [3] Fix S-index logic: Clear DB locks and extend `inputs.py` forecast horizon.
+*   [4] Debug and fix `db_writer.py` column mismatch causing DB crashes.
+
+**Implementation**
+
+*   **Completed**: All goals met.
+*   **In Progress**: None.
+*   **Blocked**: None.
+*   **Next Steps**: Move debug scripts to `debug/` folder (see backlog).
+*   **Technical Decisions**:
+*   **Planner**: Added `.clip(lower=0.0)` to adjusted forecasts to prevent negative math artifacts.
+*   **Inputs**: Decoupled "Daily Forecast Horizon" (7 days) from "Price Slot Horizon" (48h) to ensure S-index has data for Day 2-4.
+*   **DB Writer**: Corrected `plan_history` insert columns; `SoC` was mapped to `PV` column, causing overflow errors.
+*   **Files Modified**: `planner.py`, `inputs.py`, `db_writer.py`.
+*   **Configuration**: Changed S-index to `mode: dynamic`, `base_factor: 1.5`.
+
+**Verification**
+
+*   **Tests Status**:
+*   `verify_fix.py`: Passed (No phantom charging).
+*   `diagnose_schedule.py`: Passed (S-index 2.0, PV positive).
+*   `debug_db_write.py`: Passed (Rows inserted successfully).
+*   **Known Issues**: Planner targets 86% instead of 100% for tomorrow; diagnosed as hardware limit (Inverter maxed out during the limited cheap window).
+*   **Rollback Plan**: Revert `planner.py` / `inputs.py` to Rev 16 state (git).
+
+**Scripts Created (for `debug/` folder)**
+*   `debug_learning.py`: Inspects the SQLite DB for learned biases and stored S-index factors.
+*   `find_ghost_data.py`: Scans DB for suspicious `0.0` load records causing negative bias.
+*   `clean_ghost_data.py`: Deletes invalid zero-load records from SQLite.
+*   `clear_s_index.py`: Sets stored S-index to NULL for today, forcing Planner to read `config.yaml`.
+*   `debug_inputs.py`: Simulates a planner run to check how many days of forecast data `inputs.py` returns.
+*   `debug_forecast_db.py`: Inspects the `slot_forecasts` table to count available future slots per day.
+*   `populate_forecasts.py`: Forces a fetch of 7 days of forecast data (via Open-Meteo) and writes to DB.
+*   `diagnose_schedule.py`: Parses `schedule.json` to analyze S-index debug data, forecast totals, and charging stop reasons.
+*   `debug_db_write.py`: Simulates the backend DB write operation in terminal to expose tracebacks.
+*   `debug_db_row_by_row.py`: Inserts schedule rows one-by-one to isolate specific bad data.
+*   `check_json_health.py`: Scans `schedule.json` for NaN or Infinite values.
+*   `debug_pv_values.py`: Scans `schedule.json` specifically for negative PV values.
+*   `show_prices.py`: Prints a simple table of tomorrow's prices and "Cheap" status.
+
+**Backlog items**
+*   **[UI]** Add "Reset Learning for Today" button to clear cached S-index/metrics without CLI.
+*   **[UI]** Add Solar Array configuration (azimuth, tilt, kwp) to the UI settings page.
+*   **[Planner]** Implement "Dynamic Window Expansion" (Smart Thresholds): Allow charging in "expensive" slots if the "cheap" window is physically too short to reach Target SoC.
+*   **[Ops]** Create `debug/` folder and move all diagnostic scripts there.
+        
 ## Backlog / Post v0.1 Ideas
 
 These items are intentionally out of scope for AURORA v0.1 but should be
