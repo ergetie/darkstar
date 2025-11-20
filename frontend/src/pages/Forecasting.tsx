@@ -303,13 +303,7 @@ export default function Forecasting(){
         </div>
       )}
 
-      <ChartCard
-        title={`Load forecast vs actual (${dayData?.date ?? 'today'})`}
-        description="Actual load vs baseline and AURORA forecasts, 15-minute slots."
-        labels={chartLabels}
-        datasets={chartDatasets}
-        loading={loading}
-      />
+      <ChartCard day="today" range="48h" showDayToggle={false} />
 
       <Card>
         <div className="text-[11px] text-muted mb-2">Today&apos;s slots</div>

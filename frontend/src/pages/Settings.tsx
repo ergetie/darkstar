@@ -986,46 +986,73 @@ export default function Settings() {
                                         <label className="text-[10px] uppercase tracking-wide text-muted">Overlay defaults</label>
                                         <p className="text-[11px] text-muted mb-3">Select which overlays are enabled by default on the dashboard.</p>
                                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                                            {[
-                                                ['Charge', 'charge'],
-                                                ['Discharge', 'discharge'],
-                                                ['Export', 'export'],
-                                                ['Water', 'water'],
-                                                ['SoC Target', 'socTarget'],
-                                                ['SoC Projected', 'socProjected'],
-                                            ].map(([label, key]) => {
+                                            {/* Special-case toggles for overlays that use *_off semantics */}
+                                            {(() => {
                                                 const overlayDefaults = uiForm['dashboard.overlay_defaults'] || ''
-                                                // Clean and deduplicate the overlay defaults
                                                 const cleanOverlays = [...new Set(overlayDefaults.split(',').map(s => s.trim().toLowerCase()))]
-                                                const isActive = cleanOverlays.includes(key.toLowerCase())
-                                                console.log('Overlay toggle debug:', { key, overlayDefaults, cleanOverlays, isActive })
+
+                                                const loadIsActive = !cleanOverlays.includes('load_off')
+
+                                                const toggleToken = (token: string, shouldEnable: boolean) => {
+                                                    const current = [...new Set(overlayDefaults.split(',').map(s => s.trim().toLowerCase()))]
+                                                    let updated: string[]
+                                                    if (shouldEnable) {
+                                                        updated = current.filter(item => item !== token.toLowerCase())
+                                                    } else {
+                                                        updated = [...current, token.toLowerCase()]
+                                                    }
+                                                    handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
+                                                }
+
                                                 return (
-                                                    <button
-                                                        key={key}
-                                                        type="button"
-                                                        onClick={() => {
-                                                            const current = [...new Set(overlayDefaults.split(',').map(s => s.trim().toLowerCase()))]
-                                                            console.log('Before click:', { key, isActive, current })
-                                                            if (isActive) {
-                                                                const updated = current.filter(item => item !== key.toLowerCase())
-                                                                console.log('Removing:', key, 'Result:', updated)
-                                                                handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
-                                                            } else {
-                                                                const updated = [...current, key.toLowerCase()]
-                                                                console.log('Adding:', key, 'Result:', updated)
-                                                                handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
-                                                            }
-                                                        }}
-                                                        className={`rounded-pill px-3 py-1 border text-[11px] transition ${
-                                                            isActive 
-                                                                ? 'bg-accent text-canvas border-accent' 
-                                                                : 'border-line/60 text-muted hover:border-accent'
-                                                        }`}
-                                                    >
-                                                        {label}
-                                                    </button>
+                                                    <>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleToken('load_off', !loadIsActive)}
+                                                            className={`rounded-pill px-3 py-1 border text-[11px] transition ${
+                                                                loadIsActive
+                                                                    ? 'bg-accent text-canvas border-accent'
+                                                                    : 'border-line/60 text-muted hover:border-accent'
+                                                            }`}
+                                                        >
+                                                            Load
+                                                        </button>
+                                                        {[
+                                                            ['Charge', 'charge'],
+                                                            ['Discharge', 'discharge'],
+                                                            ['Export', 'export'],
+                                                            ['Water', 'water'],
+                                                            ['SoC Target', 'socTarget'],
+                                                            ['SoC Projected', 'socProjected'],
+                                                        ].map(([label, key]) => {
+                                                            const isActive = cleanOverlays.includes(key.toLowerCase())
+                                                            return (
+                                                                <button
+                                                                    key={key}
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const current = [...new Set(overlayDefaults.split(',').map(s => s.trim().toLowerCase()))]
+                                                                        let updated: string[]
+                                                                        if (isActive) {
+                                                                            updated = current.filter(item => item !== key.toLowerCase())
+                                                                        } else {
+                                                                            updated = [...current, key.toLowerCase()]
+                                                                        }
+                                                                        handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
+                                                                    }}
+                                                                    className={`rounded-pill px-3 py-1 border text-[11px] transition ${
+                                                                        isActive 
+                                                                            ? 'bg-accent text-canvas border-accent' 
+                                                                            : 'border-line/60 text-muted hover:border-accent'
+                                                                    }`}
+                                                                >
+                                                                    {label}
+                                                                </button>
+                                                            )
+                                                        })}
+                                                    </>
                                                 )
-                                            })}
+                                            })()}
                                         </div>
                                     </div>
                                 </div>
