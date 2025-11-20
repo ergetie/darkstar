@@ -943,9 +943,11 @@ class HeliosPlanner:
             hours = local_index.hour
             if pv_adj:
                 if len(pv_adj) == 24:
-                    df["adjusted_pv_kwh"] = df["adjusted_pv_kwh"] + hours.map(
+                    # Apply adjustment and clamp to 0 to prevent negative PV
+                    raw_pv = df["adjusted_pv_kwh"] + hours.map(
                         lambda h: float(pv_adj[h])
                     ).values
+                    df["adjusted_pv_kwh"] = raw_pv.clip(lower=0.0)
             if load_adj:
                 if len(load_adj) == 24:
                     # Apply adjustment and clamp to 0 to prevent negative load
@@ -1677,6 +1679,10 @@ class HeliosPlanner:
             else:
                 s_index_factor = min(base_factor, s_index_max)
                 s_index_debug["fallback"] = "static"
+                # Capture failure reason for diagnosis
+                if dynamic_debug:
+                    s_index_debug["dynamic_failure_reason"] = dynamic_debug.get("reason")
+                    s_index_debug["dynamic_debug_dump"] = dynamic_debug
 
         s_index_debug["factor"] = round(s_index_factor, 4)
         self.s_index_debug = s_index_debug

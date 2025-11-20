@@ -16,22 +16,22 @@ battery:
   efficiency_percent: 95.0
   max_charge_power_kw: 8
   max_discharge_power_kw: 8
-  max_soc_percent: 95
+  max_soc_percent: 100
   min_soc_percent: 15
   roundtrip_efficiency_percent: 95.0
 battery_economics:
   battery_cycle_cost_kwh: 0.2
 charging_strategy:
-  block_consolidation_tolerance_sek: 0.05
-  charge_threshold_percentile: 15
+  block_consolidation_tolerance_sek: 0.1
+  charge_threshold_percentile: 18
   cheap_price_tolerance_sek: 0.1
   consolidation_max_gap_slots: 0
-  price_smoothing_sek_kwh: 0.05
+  price_smoothing_sek_kwh: 0.1
 dashboard:
   auto_refresh_enabled: true
   overlay_defaults: charge, soctarget, socprojected, water, export, load_off
 debug:
-  enable_planner_debug: false
+  enable_planner_debug: true
   sample_size: 30
 decision_thresholds:
   battery_use_margin_sek: 0.1
@@ -94,7 +94,7 @@ s_index:
   max_factor: 2
   mode: dynamic
   pv_deficit_weight: 1
-  static_factor: 1.05
+  static_factor: 1.45
   temp_baseline_c: 20
   temp_cold_c: 0
   temp_weight: 0.5
@@ -116,12 +116,12 @@ system:
   inverter:
     max_power_kw: 10.0
   location:
-    latitude: 59.3293
-    longitude: 18.0686
+    latitude: 55.493221
+    longitude: 13.111221
   solar_array:
-    azimuth: 180
-    kwp: 8.5
-    tilt: 35
+    azimuth: 150
+    kwp: 10
+    tilt: 45
 timezone: Europe/Stockholm
 ui:
   theme: Ayu
