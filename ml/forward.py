@@ -30,7 +30,7 @@ def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
 
 
 def generate_forward_slots(
-    horizon_hours: int = 48,
+    horizon_hours: int = 168,  # Changed from 48 to 168 (7 days) for S-index support
     forecast_version: str = "aurora",
 ) -> None:
     """
@@ -50,6 +50,8 @@ def generate_forward_slots(
         slot_start += timedelta(minutes=15)
 
     horizon_end = slot_start + timedelta(hours=horizon_hours)
+    
+    print(f"🔮 Generating AURORA Forecast: {slot_start} -> {horizon_end} ({horizon_hours}h)")
 
     slots = pd.date_range(
         start=slot_start,
@@ -65,6 +67,7 @@ def generate_forward_slots(
     df = pd.DataFrame({"slot_start": slots})
 
     # Enrich with forecast weather
+    print("   Fetching weather data...")
     weather_df = get_weather_series(slot_start, horizon_end, config=engine.config)
     if not weather_df.empty:
         df = df.merge(weather_df, left_on="slot_start", right_index=True, how="left")
@@ -96,6 +99,7 @@ def generate_forward_slots(
         if feat in df.columns:
             feature_cols.append(feat)
 
+    print("   Running LightGBM inference...")
     X = df[feature_cols]
     models = _load_models()
     
@@ -118,6 +122,7 @@ def generate_forward_slots(
             pv_val = float(max(pv_pred[idx], 0.0))
             
             # Guardrail: STRICT Winter Night Clamp (17:00 - 07:00)
+            # Sweden winter: dark essentially from 15:30 to 08:00, but let's be safe
             hour = slot_start_ts.hour
             if hour < 7 or hour >= 17:
                 pv_val = 0.0
@@ -130,7 +135,6 @@ def generate_forward_slots(
             pv_series[idx] = pv_val
 
     # SMOOTHING: Apply a rolling average to PV to fix "Sawtooth"
-    # Window=3 (45 mins) gives a nice curve without losing peaks
     pv_series = pv_series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
 
     forecasts: List[Dict[str, Any]] = []
@@ -144,7 +148,7 @@ def generate_forward_slots(
 
     if forecasts:
         engine.store_forecasts(forecasts, forecast_version=forecast_version)
-        print(f"Stored {len(forecasts)} forward AURORA forecasts ({forecast_version}).")
+        print(f"✅ Stored {len(forecasts)} forward AURORA forecasts ({forecast_version}).")
 
 if __name__ == "__main__":
     generate_forward_slots()
