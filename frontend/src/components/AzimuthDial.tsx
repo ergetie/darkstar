@@ -1,4 +1,5 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
+import type { PointerEvent } from 'react'
 
 type AzimuthDialProps = {
     value: number | null
@@ -13,7 +14,9 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
         return v
     }, [value])
 
-    const handleClick: React.MouseEventHandler<HTMLDivElement> = (event) => {
+    const [dragging, setDragging] = useState(false)
+
+    const updateFromEvent = (event: PointerEvent<HTMLDivElement>) => {
         const rect = event.currentTarget.getBoundingClientRect()
         const cx = rect.left + rect.width / 2
         const cy = rect.top + rect.height / 2
@@ -25,7 +28,33 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
         const radians = Math.atan2(dx, -dy)
         let deg = (radians * 180) / Math.PI
         if (deg < 0) deg += 360
-        onChange(deg)
+        const snapped = Math.round(deg)
+        onChange(snapped)
+    }
+
+    const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+        setDragging(true)
+        try {
+            event.currentTarget.setPointerCapture(event.pointerId)
+        } catch {
+            // ignore if not supported
+        }
+        updateFromEvent(event)
+    }
+
+    const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+        if (!dragging) return
+        updateFromEvent(event)
+    }
+
+    const handlePointerUp = (event: PointerEvent<HTMLDivElement>) => {
+        if (!dragging) return
+        setDragging(false)
+        try {
+            event.currentTarget.releasePointerCapture(event.pointerId)
+        } catch {
+            // ignore if not supported
+        }
     }
 
     const pointerTransform = `rotate(${clampedValue} 24 24)`
@@ -34,7 +63,9 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
         <div className="flex items-center gap-3">
             <div
                 className="relative h-16 w-16 cursor-pointer"
-                onClick={handleClick}
+                onPointerDown={handlePointerDown}
+                onPointerMove={handlePointerMove}
+                onPointerUp={handlePointerUp}
                 aria-label="Solar azimuth dial"
                 role="slider"
                 aria-valuemin={0}
@@ -88,4 +119,3 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
         </div>
     )
 }
-
