@@ -125,7 +125,8 @@ def prepare_df(input_data: Dict[str, Any], tz_name: Optional[str] = None) -> pd.
         how="left",
     )
     df["pv_forecast_kwh"] = df["pv_forecast_kwh"].fillna(0.0)
-    df["load_forecast_kwh"] = df["load_forecast_kwh"].fillna(method="ffill").fillna(0.0)
+    # Fix FutureWarning: replace fillna(method='ffill') with ffill()
+    df["load_forecast_kwh"] = df["load_forecast_kwh"].ffill().fillna(0.0)
     return df.sort_index()
 
 
@@ -947,9 +948,11 @@ class HeliosPlanner:
                     ).values
             if load_adj:
                 if len(load_adj) == 24:
-                    df["adjusted_load_kwh"] = df["adjusted_load_kwh"] + hours.map(
+                    # Apply adjustment and clamp to 0 to prevent negative load
+                    raw_adjusted = df["adjusted_load_kwh"] + hours.map(
                         lambda h: float(load_adj[h])
                     ).values
+                    df["adjusted_load_kwh"] = raw_adjusted.clip(lower=0.0)
 
         return df
 
