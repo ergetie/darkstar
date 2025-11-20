@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Card from '../components/Card'
+import AzimuthDial from '../components/AzimuthDial'
 import { Api, ThemeInfo } from '../lib/api'
 import { cls } from '../theme'
 
@@ -750,24 +751,74 @@ export default function Settings() {
                             <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
                         </div>
                         <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                            {section.fields.map((field) => (
-                                <div key={field.key} className="space-y-1">
-                                    <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
-                                    <input
-                                        type={field.type === 'number' ? 'number' : 'text'}
-                                        inputMode={field.type === 'number' ? 'decimal' : undefined}
-                                        value={systemForm[field.key] ?? ''}
-                                        onChange={(event) => handleFieldChange(field.key, event.target.value)}
-                                        className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                    />
-                                    {field.helper && (
-                                        <p className="text-[11px] text-muted">{field.helper}</p>
-                                    )}
-                                    {systemFieldErrors[field.key] && (
-                                        <p className="text-[11px] text-red-400">{systemFieldErrors[field.key]}</p>
-                                    )}
-                                </div>
-                            ))}
+                            {section.fields.map((field) => {
+                                const isAzimuth = field.key === 'system.solar_array.azimuth'
+                                if (isAzimuth) {
+                                    const rawValue = systemForm[field.key]
+                                    const numericValue =
+                                        rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
+                                    return (
+                                        <div key={field.key} className="space-y-1">
+                                            <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                {field.label}
+                                            </label>
+                                            <AzimuthDial
+                                                value={
+                                                    typeof numericValue === 'number' &&
+                                                    !Number.isNaN(numericValue)
+                                                        ? numericValue
+                                                        : null
+                                                }
+                                                onChange={(deg) =>
+                                                    handleFieldChange(field.key, String(deg.toFixed(1)))
+                                                }
+                                            />
+                                            <input
+                                                type="number"
+                                                inputMode="decimal"
+                                                value={systemForm[field.key] ?? ''}
+                                                onChange={(event) =>
+                                                    handleFieldChange(field.key, event.target.value)
+                                                }
+                                                className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                            />
+                                            {field.helper && (
+                                                <p className="text-[11px] text-muted">{field.helper}</p>
+                                            )}
+                                            {systemFieldErrors[field.key] && (
+                                                <p className="text-[11px] text-red-400">
+                                                    {systemFieldErrors[field.key]}
+                                                </p>
+                                            )}
+                                        </div>
+                                    )
+                                }
+
+                                return (
+                                    <div key={field.key} className="space-y-1">
+                                        <label className="text-[10px] uppercase tracking-wide text-muted">
+                                            {field.label}
+                                        </label>
+                                        <input
+                                            type={field.type === 'number' ? 'number' : 'text'}
+                                            inputMode={field.type === 'number' ? 'decimal' : undefined}
+                                            value={systemForm[field.key] ?? ''}
+                                            onChange={(event) =>
+                                                handleFieldChange(field.key, event.target.value)
+                                            }
+                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                        />
+                                        {field.helper && (
+                                            <p className="text-[11px] text-muted">{field.helper}</p>
+                                        )}
+                                        {systemFieldErrors[field.key] && (
+                                            <p className="text-[11px] text-red-400">
+                                                {systemFieldErrors[field.key]}
+                                            </p>
+                                        )}
+                                    </div>
+                                )
+                            })}
                         </div>
                     </Card>
                 ))}
