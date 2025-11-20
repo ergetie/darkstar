@@ -188,7 +188,8 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             borderColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
             backgroundColor: themeColors['palette = 4'] ? `${getColor(4, '#2196F3')}20` : 'rgba(33,150,243,0.1)',
             yAxisID: 'y',
-            tension: 0.2,
+            tension: 0,
+            stepped: 'after',
             pointRadius: 0,
         },
         {
@@ -206,43 +207,56 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
             type: 'bar',
             label: 'Load (kW)',
             data: values.load,
-            backgroundColor: getColor(3, '#FF9800'), // palette 3 (yellow) or Material Orange
+            backgroundColor: `${getColor(3, '#FF9800')}CC`, // semi-transparent
             borderRadius: 6,
             yAxisID: 'y1',
             barPercentage: 1,
-            categoryPercentage: .9,
+            categoryPercentage: 1,
+            grouped: false,
         },
         {
             type: 'bar',
             label: 'Charge (kW)',
             data: values.charge ?? values.labels.map(() => null),
-            backgroundColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
+            backgroundColor: `${getColor(4, '#2196F3')}CC`, // semi-transparent
             hidden: true,
             yAxisID: 'y1',
+            barPercentage: 1,
+            categoryPercentage: 1,
+            grouped: false,
         },
         {
             type: 'bar',
             label: 'Discharge (kW)',
             data: values.discharge ?? values.labels.map(() => null),
-            backgroundColor: getColor(1, '#F44336'), // palette 1 (red) or Material Red
+            backgroundColor: `${getColor(1, '#F44336')}CC`, // semi-transparent
             hidden: true,
             yAxisID: 'y1',
+            barPercentage: 1,
+            categoryPercentage: 1,
+            grouped: false,
         },
         {
             type: 'bar',
             label: 'Export (kWh)',
             data: values.export ?? values.labels.map(() => null),
-            backgroundColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
+            backgroundColor: `${getColor(2, '#4CAF50')}CC`, // semi-transparent
             hidden: true,
             yAxisID: 'y2', // Use kWh axis
+            barPercentage: 1,
+            categoryPercentage: 1,
+            grouped: false,
         },
         {
             type: 'bar',
             label: 'Water Heating (kW)',
             data: values.water ?? values.labels.map(() => null),
-            backgroundColor: getColor(5, '#FF5722'), // palette 5 (pink) or Material Deep Orange
+            backgroundColor: `${getColor(5, '#FF5722')}CC`, // semi-transparent
             hidden: true,
             yAxisID: 'y1',
+            barPercentage: 1,
+            categoryPercentage: 1,
+            grouped: false,
         },
         {
             type: 'line',

@@ -6,7 +6,7 @@ import os
 DB_PATH = "data/planner_learning.db"
 
 def check_learning():
-    print(f"🔍 Inspecting {DB_PATH} for learned biases...")
+    print(f"🔍 Inspecting {DB_PATH}...")
     
     if not os.path.exists(DB_PATH):
         print("❌ Database not found.")
@@ -15,9 +15,9 @@ def check_learning():
     try:
         conn = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
         
-        # Get the latest learning metrics applied to the plan
+        # Get the latest metrics
         query = """
-        SELECT date, load_adjustment_by_hour_kwh, pv_adjustment_by_hour_kwh 
+        SELECT date, s_index_base_factor, load_adjustment_by_hour_kwh 
         FROM learning_daily_metrics 
         ORDER BY date DESC LIMIT 1
         """
@@ -25,18 +25,22 @@ def check_learning():
         
         if not df.empty:
             row = df.iloc[0]
-            print(f"📅 Latest Learning Date: {row['date']}")
+            print(f"📅 Date: {row['date']}")
             
+            # CHECK S-INDEX
+            s_index = row.get('s_index_base_factor')
+            print(f"\n🛡️  Stored S-Index Factor: {s_index}")
+            if s_index is not None:
+                print("   (⚠️  This value overrides your config.yaml!)")
+            else:
+                print("   (✅ None stored. Planner uses config.yaml)")
+
+            # CHECK LOAD BIAS
             load_adj = json.loads(row['load_adjustment_by_hour_kwh']) if row['load_adjustment_by_hour_kwh'] else []
-            
-            print("\n📉 Hourly Load Adjustments (kWh):")
-            print("(Negative values mean the AI reduces your forecast)")
-            for h, val in enumerate(load_adj):
-                flag = "⚠️ PROBLEM" if val < -0.2 else ""
-                print(f"  Hour {h:02d}: {val:.4f} {flag}")
-                
+            print(f"\n📉 Load Adjustments (First 5 hours): {load_adj[:5]}")
+
         else:
-            print("⚠️ No learning metrics found in DB.")
+            print("⚠️ No metrics found.")
 
     except Exception as e:
         print(f"❌ Error: {e}")
