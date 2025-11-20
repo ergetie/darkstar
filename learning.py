@@ -262,13 +262,23 @@ class LearningEngine:
         for token in ("energy", "power", "total", "_cumulative", "_kw", "_kwh"):
             stripped = stripped.replace(token, "")
         stripped = stripped.strip("_")
+        
+        # Explicit handling for compound names often found in HA
+        if stripped == "load_consumption":
+            return "load"
+        if stripped == "pv_production":
+            return "pv"
+        if stripped == "grid_import":
+            return "import"
+        if stripped == "grid_export":
+            return "export"
 
         aliases = {
-            "import": {"grid_import", "gridin", "import", "grid"},
-            "export": {"grid_export", "gridout", "export"},
-            "pv": {"pv", "solar", "pvproduction"},
-            "load": {"load", "consumption", "house", "usage"},
-            "water": {"water", "vvb", "waterheater"},
+            "import": {"grid_import", "gridin", "import", "grid", "from_grid"},
+            "export": {"grid_export", "gridout", "export", "to_grid"},
+            "pv": {"pv", "solar", "pvproduction", "production", "yield"},
+            "load": {"load", "consumption", "house", "usage", "load_consumption"},
+            "water": {"water", "vvb", "waterheater", "heater"},
             "soc": {"soc", "battery_soc", "socpercent"},
         }
         for canonical, names in aliases.items():
@@ -315,8 +325,18 @@ class LearningEngine:
         if not all_timestamps:
             return pd.DataFrame()
 
-        start_time = min(all_timestamps)
-        end_time = max(all_timestamps)
+        min_ts = min(all_timestamps)
+        max_ts = max(all_timestamps)
+
+        # Snap start_time to the nearest grid boundary (floor) to align with price slots
+        if min_ts.tzinfo is None:
+            min_ts = min_ts.replace(tzinfo=self.timezone)
+        else:
+            min_ts = min_ts.astimezone(self.timezone)
+
+        floored_minute = (min_ts.minute // resolution_minutes) * resolution_minutes
+        start_time = min_ts.replace(minute=floored_minute, second=0, microsecond=0)
+        end_time = max_ts
 
         # Generate regular slots
         slots = pd.date_range(
@@ -331,11 +351,24 @@ class LearningEngine:
         for sensor_name, df in slot_records.items():
             canonical = self._canonical_sensor_name(sensor_name)
             base_series = df.set_index("timestamp")["cumulative_value"]
-            reindexed = base_series.reindex(slots)
-            gaps = reindexed.isna()
-            reindexed = reindexed.ffill()
+            
+            # Use method='ffill' to propagate last known value to the grid slot
+            # instead of introducing NaNs for inexact matches.
+            reindexed = base_series.reindex(slots, method="ffill")
+            
+            # Handle any leading NaNs if grid starts before data
+            reindexed = reindexed.ffill().fillna(0)
 
             raw_diff = reindexed.diff().fillna(0)
+            
+            # SAFETY FILTER:
+            # 1. Negative diffs are Resets -> Clip to 0
+            # 2. Massive spikes (> 5 kWh in 15 min) are glitches -> Clip to 0
+            # 16A Fuse (~11kW) -> max ~2.75 kWh per 15 min.
+            # We set limit to 5.0 kWh to be safe but catch glitches.
+            mask_spike = raw_diff > 5.0
+            raw_diff[mask_spike] = 0.0
+            
             deltas = raw_diff.clip(lower=0)
 
             # Track resets (negative raw deltas before clipping)
@@ -361,7 +394,7 @@ class LearningEngine:
             soc_series = (
                 slot_records[soc_name]
                 .set_index("timestamp")["cumulative_value"]
-                .reindex(slots)
+                .reindex(slots, method="ffill")
                 .ffill()
             )
             slot_df["soc_start_percent"] = soc_series.iloc[:-1].values

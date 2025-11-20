@@ -22,9 +22,9 @@ change planner behaviour unless a future revision explicitly opts in via config.
 - Python 3.12.0 (see `.python-version`)
 - Virtual environment support
 
-### Installation
+### Installation & Setup
 
-1. **Clone and setup environment:**
+1. **Clone and setup the Python environment:**
 ```bash
 git clone <repository-url>
 cd darkstar
@@ -32,83 +32,94 @@ python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 ```
 
-2. **Install dependencies:**
+2. **Install all dependencies:**
+This project uses both Python and Node.js.
 ```bash
+# Install Python dependencies for the backend
 pip install -r requirements.txt
+
+# Install Node.js dependencies for the root and frontend
+npm install
+npm install --prefix frontend
 ```
 
-3. **Create planner data directory (for sqlite telemetry):**
+### Run the Development Environment
+
+To run the full application (both the Flask backend and the React frontend), use the following command from the project root:
 ```bash
-mkdir -p data
+npm run dev
 ```
+This will concurrently start:
+- The **Flask API backend** on `http://localhost:5000`
+- The **React frontend** on `http://localhost:5173`
 
-4. **Run the planner:**
-```bash
-python planner.py
-```
-
-This will generate `schedule.json` with the optimal energy management plan.
-
-### Test Data Fetching
-```bash
-python inputs.py
-```
+You can then access the web UI by navigating to **http://localhost:5173** in your browser. API requests are automatically proxied to the backend.
 
 ### Run Tests
 ```bash
 PYTHONPATH=. python -m pytest -q
 ```
 
-## Development
+## Development Guidelines
 
-1. Install the formatter/linter/runtime helpers:
-
+1. **Install the formatter/linter/runtime helpers:**
    ```bash
    source venv/bin/activate
    pip install black flake8 pre-commit
    ```
 
-2. Hook the repo and format/lint:
-
+2. **Hook the repo and format/lint:**
+   This will ensure your code is automatically formatted and linted before you commit.
    ```bash
    pre-commit install
+   # To run on all files immediately:
    pre-commit run --all-files
    ```
-
    *Note: The CI hooks download tools from GitHub and write into `~/.cache`, so AI agents running in a sandbox may not be able to complete this step. It’s fine for the human maintainer to skip the hook during AI commits and run `./lint.sh` (or the above commands) manually before pushing.*
 
-3. Keep docstrings/type annotations up to date for public helpers (`planner.prepare_df`, `planner.apply_manual_plan`, `webapp.debug_logs`, etc.) and rely on `black`/`flake8` for consistency.
+3. **Keep docstrings/type annotations up to date** for public helpers (`planner.prepare_df`, `planner.apply_manual_plan`, `webapp.debug_logs`, etc.) and rely on `black`/`flake8` for consistency.
 
-4. Use `PYTHONPATH=. python -m pytest -q` for regression testing after significant changes.
+4. **Use `PYTHONPATH=. python -m pytest -q` for regression testing** after significant changes.
+
+5. For more comprehensive guidelines on build commands, code style, error handling patterns, and testing requirements, please **see `AGENTS.md`**.
 
 ## Repository Structure
 
+An overview of the most important files and directories.
+
 ```
-darkstar/
-├─ backend/
-│  ├─ webapp.py        - Flask APIs, planner endpoints, diagnostics, theme serving
-│  ├─ static/          - Backend static assets (served under /static)
-│  └─ templates/       - Backend templates (used by Flask where appropriate)
+/
+├── backend/            # Flask backend that serves the API and a legacy UI.
+│   ├── static/         # Static assets (CSS, JS) for the legacy web UI.
+│   ├── templates/      # HTML templates for the legacy web UI.
+│   ├── webapp.py       # The main Flask application file.
+│   └── ...             # Other backend-related files and modules (e.g., API routes).
 │
-├─ frontend/
-│  ├─ src/             - React UI (Dashboard, Planning, Learning, Debug, Settings)
-│  ├─ index.html       - Vite entrypoint
-│  └─ ...              - Components, pages, theming helpers
+├── frontend/           # Modern React/Vite-based frontend application.
+│   ├── public/         # Public assets (e.g., favicon) for the Vite build.
+│   └── src/            # Frontend source code.
+│       ├── components/ # Reusable React components (cards, charts, etc.).
+│       ├── pages/      # Top-level page components that define the UI layout.
+│       ├── lib/        # API clients, type definitions, and helper functions.
+│       ├── App.tsx     # The main React application component.
+│       ├── main.tsx    # The entry point for the React application.
+│       └── ...         # Other source files like global styles or theme configurations.
 │
-├─ planner.py          - Core MPC scheduling logic
-├─ inputs.py           - External data fetching (Nordpool, forecasts, Home Assistant)
-├─ config.yaml         - Main runtime configuration (battery, thresholds, strategy)
-├─ schedule.json       - Latest generated schedule (JSON)
-├─ data/               - Learning SQLite DB (`planner_learning.db`) and telemetry
-├─ docs/               - Implementation plan and architecture docs
-├─ tests/              - Pytest-based regression tests
-├─ bin/                - Helper scripts (e.g. `run_planner.py`, `release.py`)
-├─ scripts/            - Dev and ops helpers
-├─ archive/
-│  └─ legacy_flask/    - Archived legacy Flask UI (`webapp.py`, templates, static, themes)
-├─ AGENTS.md           - Development guidelines for contributors
-├─ requirements.txt    - Python dependencies
-└─ README.md           - This file
+├── ml/                 # Machine learning models and associated scripts.
+│   ├── models/         # Stored model files (e.g., for PV generation forecast).
+│   ├── train.py        # Script for training the ML models.
+│   └── ...             # Other ML-related scripts and modules (e.g., data activators, feature contexts).
+│
+├── tests/              # Unit and integration tests for all backend logic.
+│
+├── AGENTS.md           # Documentation related to the project's agent definitions and usage.
+├── config.default.yaml # A template with default values for `config.yaml`.
+├── config.yaml         # Your local configuration (API keys, etc.). This file is not checked into git.
+├── GEMINI.md           # A context document for AI-assisted development.
+├── inputs.py           # Handles fetching data from all external APIs (Nordpool, Open-Meteo, Home Assistant).
+├── planner.py          # The core Model Predictive Control (MPC) planning logic.
+├── requirements.txt    # Python package dependencies for the backend.
+└── schedule.json       # The JSON output of a planner run, used by the frontend to visualize the energy plan.
 ```
 
 ## Configuration
@@ -353,21 +364,13 @@ FLASK_APP=backend.webapp flask run --host 0.0.0.0 --port 8000
 ```
 
 
-## Development
 
-See `AGENTS.md` for comprehensive development guidelines including:
-- Build and test commands
-- Code style and formatting standards
-- Error handling patterns
-- Testing and validation requirements
 
 ## Dependencies
 
-- `pandas` - Data manipulation and time-series analysis
-- `pyyaml` - Configuration file parsing
-- `nordpool` - Electricity price data fetching
-- `pytz` - Timezone handling
-- `flask` - Web UI and diagnostics API layer
+This project's dependencies are managed in two places:
+- **Backend (Python):** See `requirements.txt` for the full list of pip packages.
+- **Frontend & Dev Scripts (Node.js):** See `package.json` and `frontend/package.json` for the full list of npm packages.
 
 ## Home Assistant Integration
 
