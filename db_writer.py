@@ -254,9 +254,9 @@ def _write_merged_schedule(
                 "charge_kw",
                 "export_kw",
                 "water_kw",
-                "soc_target",
                 "planned_load_kwh",
                 "planned_pv_kwh",
+                "soc_target",
                 "soc_projected",
                 "planner_version",
             ]
@@ -383,9 +383,9 @@ def write_schedule_to_db(
         "charge_kw",
         "export_kw",
         "water_kw",
-        "soc_target",
         "planned_load_kwh",
         "planned_pv_kwh",
+        "soc_target",
         "soc_projected",
         "planner_version",
     ]
