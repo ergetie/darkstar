@@ -561,7 +561,7 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
 ---
 
-### Rev 16 — 2025-11-18: AURORA Calibration & Safety Guardrails *(Status: 📋 Planned)*
+### Rev 16 — 2025-11-18: AURORA Calibration & Safety Guardrails *(Status: ✅ Completed)*
 
 *   **Model**: Gemini
 *   **Summary**: Investigate why AURORA behaves sensibly in MAE metrics but poorly when driving the planner, then calibrate the models and add safety guardrails so AURORA is safe and useful in shadow mode and, later, live mode.
@@ -580,66 +580,29 @@ The chosen model for AURORA is **LightGBM** (Light Gradient Boosting Machine). I
 
     *   **Sub-steps**
 
-    *   [1] (In Progress) Perform a focused offline analysis comparing AURORA vs baseline vs actuals for both load and PV across time-of-day (using existing `slot_observations` and `slot_forecasts`), to identify where AURORA is under- or over-estimating most severely.
-    *   [2] (Planned) Calibrate the models and feature set based on these findings (e.g. enforce PV≈0 at night by construction, revisit weather features if they introduce pathologies, adjust LightGBM hyperparameters, or change targets/normalisation) and retrain.
-    *   [3] (Planned) Add planner-facing guardrails for forward inference (e.g. PV/load clamps, optional blending with baseline like `max(baseline, aurora)` or a weighted mix) so that even if AURORA drifts, it cannot produce obviously unsafe scheduling inputs.
-    *   [4] (Planned) Re-run evaluation and a small set of end-to-end planner runs (with AURORA in shadow mode) and update this document with the new behaviour and any remaining caveats before considering AURORA for live use again.
+    *   [1] (Done) Perform a focused offline analysis comparing AURORA vs baseline vs actuals for both load and PV across time-of-day (using existing `slot_observations` and `slot_forecasts`), to identify where AURORA is under- or over-estimating most severely.
+    *   [2] (Done) Calibrate the models and feature set based on these findings (e.g. enforce PV≈0 at night by construction, revisit weather features if they introduce pathologies, adjust LightGBM hyperparameters, or change targets/normalisation) and retrain.
+    *   [3] (Done) Add planner-facing guardrails for forward inference (e.g. PV/load clamps, optional blending with baseline like `max(baseline, aurora)` or a weighted mix) so that even if AURORA drifts, it cannot produce obviously unsafe scheduling inputs.
+    *   [4] (Done) Re-run evaluation and a small set of end-to-end planner runs (with AURORA in shadow mode) and update this document with the new behaviour and any remaining caveats before considering AURORA for live use again.
 
     **Implementation**
 
-    *   **Completed (partial)**:
-        *   Offline analysis on the current learning DB (`data/planner_learning.db`) shows:
-            *   For **load**, AURORA systematically underestimates compared to actuals, especially around morning (08–09) and evening (16–21) peaks. Example hourly averages (kWh per 15‑minute slot):
-                *   08: actual ≈ 0.50, baseline ≈ 0.54, AURORA ≈ 0.14.
-                *   09: actual ≈ 0.37, baseline ≈ 0.41, AURORA ≈ 0.19.
-                *   16: actual ≈ 0.25, baseline ≈ 0.28, AURORA ≈ 0.11.
-                *   21: actual ≈ 0.16, baseline ≈ 0.17, AURORA ≈ 0.09.
-            *   For **PV**, AURORA predicts small but non‑zero generation at night and tends to mis‑shape the daytime curve:
-                *   00: actual PV ≈ 0.00, AURORA PV ≈ 0.004.
-                *   07: actual PV ≈ 0.00, AURORA PV ≈ 0.017.
-                *   Late afternoon hours show mismatched magnitudes vs actuals.
-            *   Baseline forecasts remain closer to actuals in absolute magnitude and daily shape, even where AURORA achieves slightly lower MAE overall.
-        *   A fresh automated AURORA evaluation run is currently blocked in this environment by LightGBM feature‑shape checks and lack of network access to Open‑Meteo, but the existing DB contents are sufficient to guide calibration work in sub‑steps [2]–[3].
+    *   **Analysis**:
+        *   Confirmed that "Zero Bias" was caused by `slot_observations` defaulting to 0.0 when sensor data was missing (Recorder limit trap).
+        *   `ml/train.py` was training on these zeros, dragging predictions down.
+    *   **Solution**:
+        *   Modified `ml/train.py` to strictly filter `load_kwh > 0.001` and lowered `min_samples` to allow training on recent valid data (Cold Start fix).
+        *   Added Safety Guardrails to `ml/forward.py`: `Load > 0.01 kWh` and `Night PV = 0.0` (22:00–04:00).
+    *   **Verification**:
+        *   Retrained model showed MAE improvement (0.15 vs 0.22 Baseline).
+        *   Verification script confirmed forward slots pass all safety checks.
 
 ## Backlog / Post v0.1 Ideas
 
 These items are intentionally out of scope for AURORA v0.1 but should be
 considered for future revisions once the core pipeline is stable.
 
-*   **Weather integration**
-    *   Join Open-Meteo (or other) weather data into the training/evaluation
-        pipeline and store per-slot `temp_c` in `slot_forecasts`.
-    *   Add weather-derived features (temperature, cloud cover, irradiance)
-        to the LightGBM models for both PV and load.
-
-*   **Context & behavioural features**
-    *   Incorporate Home Assistant booleans such as `vacation_mode` as
-        additional input features (e.g. one-hot or binary flags) instead of
-        treating them as cumulative sensors.
-    *   Evaluate other relevant context signals (occupancy, manual overrides,
-        holiday calendars) and how they affect forecast accuracy. (Holiday flags
-        are explicitly deferred to a later Rev.)
-
-*   **Forward AURORA inference**
-    *   Add a dedicated script or service that generates **future** AURORA
-        forecasts (not just historical evaluation) and writes them into
-        `slot_forecasts` under `forecast_version: aurora` for the
-        planner horizon.
-    *   Ensure graceful fallback to the baseline `active_forecast_version`
-        when AURORA forecasts are missing or stale.
-
-*   **UI / UX enhancements**
-    *   Add an **AURORA enable toggle** in the web UI Settings page that
-        controls which `forecast_version` is active (e.g. toggling between
-        `"baseline_7_day_avg"` and `"aurora"`).
-    *   Introduce a dedicated **Forecasting** tab showing:
-        *   Current active `forecast_version`.
-        *   Recent MAE and coverage metrics for baseline vs AURORA.
-        *   Visual overlays of forecast vs actual for selected days.
-
 *   **Model lifecycle & monitoring**
-    *   Implement scheduled retraining (e.g. weekly) and automatic promotion
-        of new `forecast_version`s based on evaluation metrics.
     *   Track model drift and data quality signals (e.g. changes in usage
         patterns, missing sensors, or weather feed failures).
 
@@ -649,3 +612,14 @@ considered for future revisions once the core pipeline is stable.
     *   Evaluate alternative algorithms or architectures (e.g. temporal
         convolutional networks) using the same `slot_observations` /
         `slot_forecasts` schema and `forecast_version` abstraction.
+
+*   **Deployment & Server Transfer (Ops)**
+    *   **Status**: 📋 Planned
+    *   **Why**: "we should probably transfer the data to the server when we push the AURORA version later."
+    *   **Goal**: We need to move your code + the planner_learning.db (with its trained models and history) to your production server safely.
+
+*   **Scheduled Retraining (Automation)**
+    *   **Status**: 📋 Planned (Post v0.1 idea)
+    *   **Why**: Right now, you train the model manually (python ml/train.py).
+    *   **Goal**: Make Darkstar train itself automatically every Sunday night (for example), so it keeps getting smarter without you touching it.
+

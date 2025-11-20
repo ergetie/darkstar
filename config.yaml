@@ -29,7 +29,7 @@ charging_strategy:
   price_smoothing_sek_kwh: 0.05
 dashboard:
   auto_refresh_enabled: true
-  overlay_defaults: charge, socTarget, socProjected, water, discharge, export
+  overlay_defaults: charge, soctarget, socprojected, water, export
 debug:
   enable_planner_debug: false
   sample_size: 30
@@ -38,7 +38,7 @@ decision_thresholds:
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
 forecasting:
-  active_forecast_version: baseline_7_day_avg
+  active_forecast_version: aurora
   load_safety_margin_percent: 117.0
   pv_confidence_percent: 83.0
 input_sensors:

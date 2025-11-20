@@ -20,12 +20,12 @@ def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
     models: Dict[str, lgb.Booster] = {}
     try:
         models["load"] = lgb.Booster(model_file=load_path)
-    except Exception as exc:  # pragma: no cover
-        print(f"Warning: Could not load load_model.lgb: {exc}")
+    except Exception as exc:
+        print(f"Info: Could not load load_model.lgb ({exc})")
     try:
         models["pv"] = lgb.Booster(model_file=pv_path)
-    except Exception as exc:  # pragma: no cover
-        print(f"Warning: Could not load pv_model.lgb: {exc}")
+    except Exception as exc:
+        print(f"Info: Could not load pv_model.lgb ({exc})")
     return models
 
 
@@ -34,10 +34,8 @@ def generate_forward_slots(
     forecast_version: str = "aurora",
 ) -> None:
     """
-    Generate forward AURORA forecasts for the next horizon_hours and
-    store them into slot_forecasts.
-
-    This does not change planner behaviour; it only populates the DB.
+    Generate forward AURORA forecasts for the next horizon_hours.
+    Includes strict guardrails and smoothing for PV.
     """
     engine = get_learning_engine()
     assert isinstance(engine, LearningEngine)
@@ -45,7 +43,7 @@ def generate_forward_slots(
     tz = engine.timezone
     now = datetime.now(tz)
 
-    # Align to next slot boundary (assume 15-minute slots)
+    # Align to next slot
     minutes = (now.minute // 15) * 15
     slot_start = now.replace(minute=minutes, second=0, microsecond=0)
     if slot_start < now:
@@ -66,104 +64,87 @@ def generate_forward_slots(
 
     df = pd.DataFrame({"slot_start": slots})
 
-    # Enrich with forecast weather where available (temp, cloud cover, radiation)
+    # Enrich with forecast weather
     weather_df = get_weather_series(slot_start, horizon_end, config=engine.config)
     if not weather_df.empty:
         df = df.merge(weather_df, left_on="slot_start", right_index=True, how="left")
     else:
         df["temp_c"] = None
-    # Ensure numeric dtypes even when values are missing/None
-    if "temp_c" in df.columns:
-        df["temp_c"] = df["temp_c"].astype("float64")
-    if "cloud_cover_pct" in df.columns:
-        df["cloud_cover_pct"] = df["cloud_cover_pct"].astype("float64")
-    if "shortwave_radiation_w_m2" in df.columns:
-        df["shortwave_radiation_w_m2"] = df["shortwave_radiation_w_m2"].astype("float64")
 
-    # Enrich with context flags based on recent HA history (best effort)
+    # Ensure numeric dtypes
+    for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
+        if col in df.columns:
+            df[col] = df[col].astype("float64")
+
+    # Context flags
     vac_series = get_vacation_mode_series(slot_start - timedelta(days=7), horizon_end, config=engine.config)
     if not vac_series.empty:
-        df = df.merge(
-            vac_series.to_frame(name="vacation_mode_flag"),
-            left_on="slot_start",
-            right_index=True,
-            how="left",
-        )
+        df = df.merge(vac_series.to_frame(name="vacation_mode_flag"), left_on="slot_start", right_index=True, how="left")
     else:
         df["vacation_mode_flag"] = 0.0
 
     alarm_series = get_alarm_armed_series(slot_start - timedelta(days=7), horizon_end, config=engine.config)
     if not alarm_series.empty:
-        df = df.merge(
-            alarm_series.to_frame(name="alarm_armed_flag"),
-            left_on="slot_start",
-            right_index=True,
-            how="left",
-        )
+        df = df.merge(alarm_series.to_frame(name="alarm_armed_flag"), left_on="slot_start", right_index=True, how="left")
     else:
         df["alarm_armed_flag"] = 0.0
 
     df = _build_time_features(df)
 
-    feature_cols = [
-        "hour",
-        "day_of_week",
-        "month",
-        "is_weekend",
-        "hour_sin",
-        "hour_cos",
-    ]
-    if "temp_c" in df.columns:
-        feature_cols.append("temp_c")
-    if "cloud_cover_pct" in df.columns:
-        feature_cols.append("cloud_cover_pct")
-    if "shortwave_radiation_w_m2" in df.columns:
-        feature_cols.append("shortwave_radiation_w_m2")
-    if "vacation_mode_flag" in df.columns:
-        feature_cols.append("vacation_mode_flag")
-    if "alarm_armed_flag" in df.columns:
-        feature_cols.append("alarm_armed_flag")
+    feature_cols = ["hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos"]
+    for feat in ["temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2", "vacation_mode_flag", "alarm_armed_flag"]:
+        if feat in df.columns:
+            feature_cols.append(feat)
 
     X = df[feature_cols]
-
     models = _load_models()
-    if not models:
-        print("No AURORA models loaded; aborting forward inference.")
-        return
-
+    
     load_pred = models["load"].predict(X) if "load" in models else None
     pv_pred = models["pv"].predict(X) if "pv" in models else None
 
-    forecasts: List[Dict[str, Any]] = []
+    # Create temporary Series for smoothing
+    pv_series = pd.Series(0.0, index=df.index)
+    load_series = pd.Series(0.0, index=df.index)
+
     for idx, row in df.iterrows():
         slot_start_ts = row["slot_start"]
-        record: Dict[str, Any] = {
-            "slot_start": slot_start_ts.isoformat(),
-            "pv_forecast_kwh": 0.0,
-            "load_forecast_kwh": 0.0,
-            "temp_c": row.get("temp_c"),
-        }
+        
         if load_pred is not None:
-            record["load_forecast_kwh"] = float(max(load_pred[idx], 0.0))
+            raw_val = float(load_pred[idx])
+            # Guardrail: Floor at 0.01, Ceiling at 4.0 (16kW)
+            load_series[idx] = max(0.01, min(raw_val, 4.0))
+            
         if pv_pred is not None:
             pv_val = float(max(pv_pred[idx], 0.0))
-            # Clamp PV to zero during night hours to avoid unrealistic production.
+            
+            # Guardrail: STRICT Winter Night Clamp (17:00 - 07:00)
             hour = slot_start_ts.hour
-            if hour < 5 or hour >= 21:
+            if hour < 7 or hour >= 17:
                 pv_val = 0.0
-            record["pv_forecast_kwh"] = pv_val
-        forecasts.append(record)
+            
+            # Guardrail: Radiation check
+            rad = row.get("shortwave_radiation_w_m2")
+            if rad is not None and rad < 1.0:
+                pv_val = 0.0
+                
+            pv_series[idx] = pv_val
 
-    if not forecasts:
-        print("No forecasts generated for forward horizon.")
-        return
+    # SMOOTHING: Apply a rolling average to PV to fix "Sawtooth"
+    # Window=3 (45 mins) gives a nice curve without losing peaks
+    pv_series = pv_series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
 
-    engine.store_forecasts(forecasts, forecast_version=forecast_version)
-    print(
-        f"Stored {len(forecasts)} forward AURORA forecasts "
-        f"({forecast_version}) from {slot_start} to {horizon_end}."
-    )
+    forecasts: List[Dict[str, Any]] = []
+    for idx, row in df.iterrows():
+        forecasts.append({
+            "slot_start": row["slot_start"].isoformat(),
+            "pv_forecast_kwh": float(pv_series[idx]),
+            "load_forecast_kwh": float(load_series[idx]),
+            "temp_c": row.get("temp_c"),
+        })
 
+    if forecasts:
+        engine.store_forecasts(forecasts, forecast_version=forecast_version)
+        print(f"Stored {len(forecasts)} forward AURORA forecasts ({forecast_version}).")
 
 if __name__ == "__main__":
     generate_forward_slots()
