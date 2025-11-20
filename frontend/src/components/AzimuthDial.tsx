@@ -16,6 +16,21 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
 
     const [dragging, setDragging] = useState(false)
 
+    const snapAzimuth = (deg: number) => {
+        const base = Math.round(deg)
+        const preferred = [0, 45, 90, 135, 180, 225, 270, 315]
+        let best = base
+        let bestDiff = Infinity
+        for (const p of preferred) {
+            const diff = Math.abs(base - p)
+            if (diff < bestDiff && diff <= 7) {
+                bestDiff = diff
+                best = p
+            }
+        }
+        return best
+    }
+
     const updateFromEvent = (event: PointerEvent<HTMLDivElement>) => {
         const rect = event.currentTarget.getBoundingClientRect()
         const cx = rect.left + rect.width / 2
@@ -28,7 +43,7 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
         const radians = Math.atan2(dx, -dy)
         let deg = (radians * 180) / Math.PI
         if (deg < 0) deg += 360
-        const snapped = Math.round(deg)
+        const snapped = snapAzimuth(deg)
         onChange(snapped)
     }
 
@@ -80,6 +95,37 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
                         className="fill-surface2 stroke-line/60"
                         strokeWidth="2"
                     />
+                    {/* Tick marks */}
+                    <g>
+                        {Array.from({ length: 12 }).map((_, i) => {
+                            const angle = i * 30
+                            const isCardinal = angle % 90 === 0
+                            const isDiagonal = !isCardinal && angle % 45 === 0
+                            const outerR = 21
+                            const innerR = isCardinal ? 16 : isDiagonal ? 18 : 19
+                            const rad = ((angle - 90) * Math.PI) / 180
+                            const x1 = 24 + outerR * Math.cos(rad)
+                            const y1 = 24 + outerR * Math.sin(rad)
+                            const x2 = 24 + innerR * Math.cos(rad)
+                            const y2 = 24 + innerR * Math.sin(rad)
+                            const cls =
+                                isCardinal || isDiagonal
+                                    ? 'stroke-line/80'
+                                    : 'stroke-line/40'
+                            const width = isCardinal ? 1.6 : 1
+                            return (
+                                <line
+                                    key={angle}
+                                    x1={x1}
+                                    y1={y1}
+                                    x2={x2}
+                                    y2={y2}
+                                    className={cls}
+                                    strokeWidth={width}
+                                />
+                            )
+                        })}
+                    </g>
                     {/* Cardinal markers */}
                     <text x="24" y="9" textAnchor="middle" className="fill-muted text-[8px]">
                         N
