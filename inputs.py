@@ -454,6 +454,17 @@ def get_all_input_data(config_path="config.yaml"):
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
+    # --- AUTO-RUN ML INFERENCE IF AURORA IS ACTIVE ---
+    if config.get('forecasting', {}).get('active_forecast_version') == 'aurora':
+        try:
+            print("🧠 Running AURORA ML Inference...")
+            from ml.forward import generate_forward_slots
+            # Generate 7 days (168h) to ensure S-index has data
+            generate_forward_slots(horizon_hours=168)
+        except Exception as e:
+            print(f"⚠️ AURORA Inference Failed: {e}")
+    # -------------------------------------------------
+
     price_data = get_nordpool_data(config_path)
 
     # Run the async forecast function

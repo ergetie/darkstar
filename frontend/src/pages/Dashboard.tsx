@@ -5,6 +5,7 @@ import QuickActions from '../components/QuickActions'
 import Kpi from '../components/Kpi'
 import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
+import type { ScheduleSlot } from '../lib/types'
 import type { DaySel } from '../lib/time'
 
 type PlannerMeta = { plannedAt?: string; version?: string } | null
@@ -23,6 +24,9 @@ export default function Dashboard(){
     const [waterToday, setWaterToday] = useState<{kwh?: number; source?: string} | null>(null)
     const [learningStatus, setLearningStatus] = useState<{enabled?: boolean; status?: string; samples?: number} | null>(null)
     const [exportGuard, setExportGuard] = useState<{enabled?: boolean; mode?: string} | null>(null)
+    const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[] | null>(null)
+    const [serverScheduleLoading, setServerScheduleLoading] = useState(false)
+    const [serverScheduleError, setServerScheduleError] = useState<string | null>(null)
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
