@@ -2,13 +2,15 @@ import { useState } from 'react'
 import { cls } from '../theme'
 import { Rocket, CloudDownload, Upload, RotateCcw } from 'lucide-react'
 import { Api } from '../lib/api'
+import type { ScheduleSlot } from '../lib/types'
 
 interface QuickActionsProps {
     onDataRefresh?: () => void
     onPlanSourceChange?: (source: 'local' | 'server') => void
+    onServerScheduleLoaded?: (schedule: ScheduleSlot[]) => void
 }
 
-export default function QuickActions({ onDataRefresh, onPlanSourceChange }: QuickActionsProps){
+export default function QuickActions({ onDataRefresh, onPlanSourceChange, onServerScheduleLoaded }: QuickActionsProps){
     const [loading, setLoading] = useState<string | null>(null)
     const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
@@ -18,6 +20,11 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
         try {
             const result = await apiCall()
             setFeedback({ type: 'success', message: result.message || 'Success' })
+
+            if (action === 'load-server' && onServerScheduleLoaded) {
+                const schedule = Array.isArray(result.schedule) ? result.schedule : []
+                onServerScheduleLoaded(schedule)
+            }
             
             // Handle plan source changes
             if (onPlanSourceChange) {

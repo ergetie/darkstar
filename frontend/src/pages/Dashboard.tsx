@@ -38,6 +38,12 @@ export default function Dashboard(){
         setCurrentPlanSource(source)
     }, [])
 
+    const handleServerScheduleLoaded = useCallback((schedule: ScheduleSlot[]) => {
+        setServerSchedule(schedule ?? [])
+        setServerScheduleError(null)
+        setServerScheduleLoading(false)
+    }, [])
+
     const fetchAllData = useCallback(async () => {
         setIsRefreshing(true)
         setStatusMessage('Refreshing…')
@@ -312,7 +318,11 @@ export default function Dashboard(){
         </Card>
         <Card className="p-4 md:p-5">
         <div className="text-sm text-muted mb-3">Quick Actions</div>
-        <QuickActions onDataRefresh={fetchAllData} onPlanSourceChange={handlePlanSourceChange} />
+        <QuickActions
+            onDataRefresh={fetchAllData}
+            onPlanSourceChange={handlePlanSourceChange}
+            onServerScheduleLoaded={handleServerScheduleLoaded}
+        />
         </Card>
         </motion.div>
         </div>
