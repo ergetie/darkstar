@@ -33,7 +33,7 @@ def get_advice(analyst_report: Dict[str, Any], config: Dict[str, Any], secrets: 
     elif personality == "technical":
         system_prompt += "Include price delta and kWh details. Be precise."
     else:
-        system_prompt += "Be friendly and helpful. Use an emoji."
+        system_prompt += "Be friendly and helpful. Use an emoji. Max two sentences."
 
     try:
         response = requests.post(
