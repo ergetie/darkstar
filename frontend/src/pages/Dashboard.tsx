@@ -261,11 +261,20 @@ export default function Dashboard(){
 
 
 
+    const slotsOverride =
+        currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0
+            ? serverSchedule
+            : undefined
+
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <ChartCard useHistoryForToday refreshToken={chartRefreshToken} />
+        <ChartCard
+            useHistoryForToday={currentPlanSource === 'local'}
+            refreshToken={chartRefreshToken}
+            slotsOverride={slotsOverride}
+        />
         </motion.div>
         <motion.div className="space-y-4" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <Card className="p-4 md:p-5">
