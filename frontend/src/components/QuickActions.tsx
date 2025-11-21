@@ -54,47 +54,69 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onServ
     return (
         <div className="space-y-3">
             {feedback && (
-                <div className={`rounded-lg px-3 py-2 text-sm ${
-                    feedback.type === 'success' 
-                        ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
-                        : 'bg-red-500/20 text-red-300 border border-red-500/30'
-                }`}>
+                <div
+                    className={`rounded-lg px-3 py-2 text-sm ${
+                        feedback.type === 'success'
+                            ? 'bg-green-500/20 text-green-300 border border-green-500/30'
+                            : 'bg-red-500/20 text-red-300 border border-red-500/30'
+                    }`}
+                >
                     {feedback.message}
                 </div>
             )}
-            
-            <div className="flex flex-col gap-3">
-                <button 
-                    className={cls.iconBtn}
+
+            <div className="grid grid-cols-2 gap-3">
+                <button
+                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                        loading === 'run-planner'
+                            ? 'bg-accent/40 text-canvas/70 cursor-not-allowed'
+                            : 'bg-accent text-canvas hover:bg-accent2'
+                    }`}
                     onClick={() => handleAction('run-planner', () => Api.runPlanner())}
                     disabled={loading === 'run-planner'}
                     title="Run planner"
                 >
                     <Rocket className="h-4 w-4" />
+                    <span>Run planner</span>
                 </button>
-                <button 
-                    className={cls.iconBtn}
+                <button
+                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                        loading === 'load-server'
+                            ? 'bg-surface2/60 text-muted cursor-not-allowed'
+                            : 'bg-surface2 text-text border border-line/70 hover:border-accent'
+                    }`}
                     onClick={() => handleAction('load-server', () => Api.loadServerPlan())}
                     disabled={loading === 'load-server'}
                     title="Load server plan"
                 >
                     <CloudDownload className="h-4 w-4" />
+                    <span>Load DB plan</span>
                 </button>
-                <button 
-                    className={cls.iconBtn}
+                <button
+                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                        loading === 'push-db'
+                            ? 'bg-emerald-600/40 text-emerald-100/70 cursor-not-allowed'
+                            : 'bg-emerald-600 text-canvas hover:bg-emerald-500'
+                    }`}
                     onClick={() => handleAction('push-db', () => Api.pushToDb())}
                     disabled={loading === 'push-db'}
                     title="Push to DB"
                 >
                     <Upload className="h-4 w-4" />
+                    <span>Push to DB</span>
                 </button>
-                <button 
-                    className={cls.iconBtn}
+                <button
+                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold transition ${
+                        loading === 'reset'
+                            ? 'bg-red-600/40 text-red-100/70 cursor-not-allowed'
+                            : 'bg-red-600 text-canvas hover:bg-red-500'
+                    }`}
                     onClick={() => handleAction('reset', () => Api.resetToOptimal())}
                     disabled={loading === 'reset'}
                     title="Reset to optimal"
                 >
                     <RotateCcw className="h-4 w-4" />
+                    <span>Reset optimal</span>
                 </button>
             </div>
         </div>
