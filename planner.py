@@ -1030,58 +1030,99 @@ class HeliosPlanner:
 
     def _pass_1_identify_windows(self, df):
         """
-        Calculate price percentiles and apply cheap_price_tolerance_sek.
-        Identify and group consecutive cheap slots into charging 'windows'.
-        Detect if a strategic period is active (PV forecast < Load forecast).
+        Identify cheap windows with Dynamic Expansion (Smart Thresholds).
 
-        Args:
-            df (pd.DataFrame): DataFrame with prepared data
-
-        Returns:
-            pd.DataFrame: DataFrame with is_cheap column and strategic period set
+        Logic:
+        1. Identify baseline cheap slots (percentile based).
+        2. Check if these slots provide enough time to reach Strategic Target SoC.
+        3. If not, relax the price threshold to include more slots until demand is met.
         """
-        # Calculate price threshold using two-step logic with smoothing
+        # 1. Basic Config
         charge_threshold_percentile = self.charging_strategy.get("charge_threshold_percentile", 15)
         cheap_price_tolerance_sek = self.charging_strategy.get("cheap_price_tolerance_sek", 0.10)
         price_smoothing_sek_kwh = self.charging_strategy.get("price_smoothing_sek_kwh", 0.05)
 
-        # Step A: Initial cheap slots below percentile
+        # 2. Calculate Baseline Threshold
         quantile_value = df["import_price_sek_kwh"].quantile(charge_threshold_percentile / 100.0)
         if pd.isna(quantile_value):
-            quantile_value = df["import_price_sek_kwh"].dropna().median()
+            quantile_value = df["import_price_sek_kwh"].dropna().median() or 0.0
 
+        # Initial mask
         initial_cheap = df["import_price_sek_kwh"] <= quantile_value
 
-        # Step B: Maximum price among initial cheap slots
+        # Refine threshold based on tolerance
         cheap_subset = df.loc[initial_cheap, "import_price_sek_kwh"]
-        if cheap_subset.empty:
-            fallback_base = (
-                quantile_value
-                if pd.notna(quantile_value)
-                else df["import_price_sek_kwh"].dropna().median()
-            )
-            if pd.isna(fallback_base):
-                fallback_base = 0.0
-            max_price_in_initial = fallback_base
-        else:
-            max_price_in_initial = cheap_subset.max()
+        max_price_in_initial = cheap_subset.max() if not cheap_subset.empty else quantile_value
+        baseline_threshold = max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
 
-        # Step C: Final threshold with smoothing tolerance
-        cheap_price_threshold = (
-            max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
-        )
+        # -------------------------------------------------------
+        # REV 20: DYNAMIC WINDOW EXPANSION (Smart Thresholds)
+        # -------------------------------------------------------
+        final_threshold = baseline_threshold
 
-        # Step D: Final is_cheap with smoothing
+        # A. Calculate Required Energy
+        # We only look at the "Strategic Target" (e.g. 100% for tomorrow)
+        capacity_kwh = self.battery_config.get("capacity_kwh", 10.0)
+        max_soc_percent = self.battery_config.get("max_soc_percent", 100)
+
+        # Use manual override if present, else config target
+        target_percent = self.manual_planning.get("charge_target_percent")
+        if target_percent is None:
+            target_percent = self.strategic_charging.get("target_soc_percent", max_soc_percent)
+
+        current_kwh = self.state.get("battery_kwh", 0.0)
+        target_kwh = (target_percent / 100.0) * capacity_kwh
+
+        # Deficit we need to cover
+        deficit_kwh = max(0.0, target_kwh - current_kwh)
+
+        # B. Calculate Available Capacity in Baseline Window
+        # Only look at future slots (from now_slot)
+        now_slot = getattr(self, "now_slot", df.index[0])
+        future_mask = df.index >= now_slot
+
+        # Max charge per slot (kWh)
+        max_charge_kw = self.battery_config.get("max_charge_power_kw", 5.0)
+        slot_kwh_limit = max_charge_kw * 0.25
+
+        # Count slots currently marked as cheap
+        baseline_cheap_mask = (df["import_price_sek_kwh"] <= baseline_threshold) & future_mask
+        baseline_slots_count = baseline_cheap_mask.sum()
+        baseline_capacity_kwh = baseline_slots_count * slot_kwh_limit
+
+        # C. Expand if Deficit Exists
+        if deficit_kwh > baseline_capacity_kwh:
+            needed_slots = math.ceil(deficit_kwh / slot_kwh_limit)
+            # Find the price of the Nth cheapest slot in the future
+            future_prices = df.loc[future_mask, "import_price_sek_kwh"].sort_values()
+
+            if not future_prices.empty and needed_slots > 0:
+                idx = min(len(future_prices) - 1, needed_slots - 1)
+                target_price = future_prices.iloc[idx]
+
+                expanded_threshold = max(baseline_threshold, target_price + 0.0001)
+
+                print(
+                    f"   🚀 Smart Thresholds: Expanding window. Need {needed_slots} slots ({deficit_kwh:.1f} kWh). "
+                    f"Raising threshold {baseline_threshold:.2f} -> {expanded_threshold:.2f} SEK"
+                )
+
+                final_threshold = expanded_threshold
+
+        # -------------------------------------------------------
+
+        # Step D: Final is_cheap Application
         df["is_cheap"] = (
-            (df["import_price_sek_kwh"] <= cheap_price_threshold).fillna(False).astype(bool)
+            (df["import_price_sek_kwh"] <= final_threshold).fillna(False).astype(bool)
         )
 
-        self.cheap_price_threshold = cheap_price_threshold
+        # Metadata updates
+        self.cheap_price_threshold = final_threshold
         self.price_smoothing_tolerance = price_smoothing_sek_kwh
         self.cheap_slot_count = int(df["is_cheap"].sum())
         self.non_cheap_slot_count = len(df) - self.cheap_slot_count
 
-        # Detect strategic period
+        # Detect strategic period (Logic unchanged)
         total_pv = df["adjusted_pv_kwh"].sum()
         total_load = df["adjusted_load_kwh"].sum()
         self.is_strategic_period = total_pv < total_load

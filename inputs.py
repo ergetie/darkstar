@@ -72,6 +72,18 @@ def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> Opt
         return None
 
 
+def get_home_assistant_bool(entity_id: str, *, timeout: int = 10) -> bool:
+    """Return True if entity is 'on', 'true', 'armed', etc."""
+    state = _get_ha_entity_state(entity_id, timeout=timeout)
+    if not state:
+        return False
+
+    raw = str(state.get("state", "")).lower()
+    # Common 'on' states in Home Assistant
+    true_states = {"on", "true", "yes", "1", "armed_away", "armed_home", "armed_night"}
+    return raw in true_states
+
+
 def get_nordpool_data(config_path="config.yaml"):
     """
     Fetch day-ahead electricity prices from Nordpool for the next 24-47 hours.
@@ -443,31 +455,34 @@ def get_initial_state(config_path="config.yaml"):
 def get_all_input_data(config_path="config.yaml"):
     """
     Orchestrate all input data fetching.
-
-    Args:
-        config_path (str): Path to config file
-
-    Returns:
-        dict: Combined data with price_data, forecast_data, initial_state
     """
-    # Load config to pass to get_forecast_data
+    # Load config
     with open(config_path, "r") as f:
         config = yaml.safe_load(f)
 
     # --- AUTO-RUN ML INFERENCE IF AURORA IS ACTIVE ---
-    if config.get('forecasting', {}).get('active_forecast_version') == 'aurora':
+    if config.get("forecasting", {}).get("active_forecast_version") == "aurora":
         try:
             print("🧠 Running AURORA ML Inference...")
             from ml.forward import generate_forward_slots
-            # Generate 7 days (168h) to ensure S-index has data
+
             generate_forward_slots(horizon_hours=168)
         except Exception as e:
             print(f"⚠️ AURORA Inference Failed: {e}")
-    # -------------------------------------------------
+
+    # --- FETCH CONTEXT (New in Rev 19) ---
+    sensors = config.get("input_sensors", {})
+    vacation_id = sensors.get("vacation_mode")
+    alarm_id = sensors.get("alarm_state")
+
+    context = {
+        "vacation_mode": get_home_assistant_bool(vacation_id) if vacation_id else False,
+        "alarm_armed": get_home_assistant_bool(alarm_id) if alarm_id else False,
+    }
+    # -------------------------------------
 
     price_data = get_nordpool_data(config_path)
 
-    # Run the async forecast function
     import asyncio
 
     forecast_result = asyncio.run(get_forecast_data(price_data, config))
@@ -480,6 +495,7 @@ def get_all_input_data(config_path="config.yaml"):
         "initial_state": initial_state,
         "daily_pv_forecast": forecast_result.get("daily_pv_forecast", {}),
         "daily_load_forecast": forecast_result.get("daily_load_forecast", {}),
+        "context": context,
     }
 
 

@@ -26,10 +26,20 @@ class StrategyEngine:
                 Example: {'water_heating': {'min_hours_per_day': 0}}
         """
         overrides: Dict[str, Any] = {}
+        context = input_data.get("context", {})
 
-        # --- Placeholder for Rev 19 (Context Awareness) ---
-        # In the next revision, we will check inputs here.
-        # For now, we return an empty dict (Standard Behavior).
+        # --- Rule: Vacation Mode ---
+        # Only disable water heating if explicitly on Vacation.
+        # Alarm status is ignored for strategy (but used by ML for load forecast).
+        is_vacation = context.get("vacation_mode", False)
+
+        if is_vacation:
+            logger.info("Strategy: Disabling Water Heating due to Vacation Mode")
+
+            overrides["water_heating"] = {
+                "min_hours_per_day": 0.0,
+                "min_kwh_per_day": 0.0
+            }
 
         if overrides:
             logger.info(f"Strategy Engine active. Applying overrides: {overrides}")
