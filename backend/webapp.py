@@ -756,6 +756,37 @@ def db_current_schedule():
                 )
                 rows = cur.fetchall() or []
 
+        # Load execution history for today (latest executed_at per slot_start)
+        exec_map: dict[datetime, dict] = {}
+        today_local = datetime.now(tz).date()
+        try:
+            secrets = _load_yaml("secrets.yaml")
+            if secrets.get("mariadb"):
+                with _db_connect_from_secrets() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT e.*
+                            FROM execution_history e
+                            JOIN (
+                                SELECT slot_start, MAX(executed_at) AS max_executed_at
+                                FROM execution_history
+                                WHERE DATE(slot_start) = %s
+                                GROUP BY slot_start
+                            ) latest
+                            ON e.slot_start = latest.slot_start AND e.executed_at = latest.max_executed_at
+                            ORDER BY e.slot_start ASC
+                            """,
+                            (today_local.isoformat(),),
+                        )
+                        hist_rows = cur.fetchall() or []
+                for row in hist_rows:
+                    slot_start = row.get("slot_start")
+                    if isinstance(slot_start, datetime):
+                        exec_map[slot_start] = row
+        except Exception as exc:
+            logger.warning("Failed to read execution_history in /api/db/current_schedule: %s", exc)
+
         # Build a price map keyed by local naive start time so DB rows get price overlays
         price_map = {}
         try:
@@ -813,6 +844,30 @@ def db_current_schedule():
                     "soc_target_percent": round(float(r.get("soc_target") or 0.0), 2),
                     "projected_soc_percent": round(float(r.get("soc_projected") or 0.0), 2),
                 }
+
+            # Attach executed values if present for today's slots
+            try:
+                if isinstance(start, datetime) and start.date() == today_local:
+                    hist = exec_map.get(start)
+                    if hist:
+                        record["is_executed"] = True
+                        if hist.get("actual_soc") is not None:
+                            record["soc_actual_percent"] = float(hist.get("actual_soc") or 0.0)
+                        if hist.get("actual_charge_kw") is not None:
+                            record["actual_charge_kw"] = float(hist.get("actual_charge_kw") or 0.0)
+                        if hist.get("actual_export_kw") is not None:
+                            record["actual_export_kw"] = float(hist.get("actual_export_kw") or 0.0)
+                        if hist.get("actual_load_kwh") is not None:
+                            record["actual_load_kwh"] = float(hist.get("actual_load_kwh") or 0.0)
+                        if hist.get("actual_pv_kwh") is not None:
+                            record["actual_pv_kwh"] = float(hist.get("actual_pv_kwh") or 0.0)
+                    else:
+                        record["is_executed"] = False
+                else:
+                    record["is_executed"] = False
+            except Exception:
+                # If anything goes wrong with history lookup, fall back to plan-only view.
+                record.setdefault("is_executed", False)
             # Overlay import price if available
             try:
                 local_naive = (
