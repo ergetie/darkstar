@@ -1,3 +1,17 @@
+advisor:
+  enable_llm: true
+  model: gpt-5-nano
+  personality: friendly
+appliances:
+  dishwasher:
+    duration_hours: 1.0
+    label: Dishwasher
+  dryer:
+    duration_hours: 2.0
+    label: Dryer
+  washing_machine:
+    duration_hours: 2.0
+    label: Washing Machine
 arbitrage:
   enable_export: true
   enable_peak_only_export: true
@@ -9,7 +23,7 @@ arbitrage:
   future_price_guard_buffer_sek: 0.0
   protective_soc_strategy: gap_based
 automation:
-  enable_scheduler: false
+  enable_scheduler: true
   write_to_mariadb: false
 battery:
   capacity_kwh: 34.2
@@ -136,17 +150,3 @@ water_heating:
   plan_days_ahead: 1
   power_kw: 3.0
   schedule_future_only: true
-advisor:
-  enable_llm: true
-  model: "gpt-5-nano"
-  personality: "friendly" # concise, friendly, technical
-appliances:
-  dishwasher:
-    label: "Dishwasher"
-    duration_hours: 1.0
-  washing_machine:
-    label: "Washing Machine"
-    duration_hours: 2.0
-  dryer:
-    label: "Dryer"
-    duration_hours: 2.0
