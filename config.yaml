@@ -22,11 +22,11 @@ battery:
 battery_economics:
   battery_cycle_cost_kwh: 0.2
 charging_strategy:
-  block_consolidation_tolerance_sek: 0.1
-  charge_threshold_percentile: 18
-  cheap_price_tolerance_sek: 0.1
+  block_consolidation_tolerance_sek: 0.08
+  charge_threshold_percentile: 16
+  cheap_price_tolerance_sek: 0.08
   consolidation_max_gap_slots: 0
-  price_smoothing_sek_kwh: 0.1
+  price_smoothing_sek_kwh: 0.08
 dashboard:
   auto_refresh_enabled: true
   overlay_defaults: charge, soctarget, socprojected, water, export, load_off
@@ -86,18 +86,18 @@ pricing:
   grid_transfer_fee_sek: 0.2456
   vat_percent: 25.0
 s_index:
-  base_factor: 1.5
+  base_factor: 1.1
   days_ahead_for_sindex:
   - 2
   - 3
   - 4
-  max_factor: 2
+  max_factor: 1.4
   mode: dynamic
-  pv_deficit_weight: 1
-  static_factor: 1.45
+  pv_deficit_weight: 0.6
+  static_factor: 1.4
   temp_baseline_c: 20
   temp_cold_c: 0
-  temp_weight: 0.5
+  temp_weight: 0.3
 smoothing:
   charge_power_dwell_minutes: 0
   charge_power_step_kw: 0.5
