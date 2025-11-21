@@ -35,6 +35,7 @@ export default function Dashboard(){
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean } | null>(null)
+    const [automationSaving, setAutomationSaving] = useState(false)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -309,6 +310,24 @@ export default function Dashboard(){
         }
     }, [autoRefresh, fetchAllData])
 
+    const toggleAutomationScheduler = async () => {
+        if (automationSaving) return
+        const current = automationConfig?.enable_scheduler ?? false
+        const next = !current
+        setAutomationSaving(true)
+        try {
+            await Api.configSave({ automation: { enable_scheduler: next } })
+            setAutomationConfig(prev => ({
+                enable_scheduler: next,
+                write_to_mariadb: prev?.write_to_mariadb,
+            }))
+        } catch (err) {
+            console.error('Failed to toggle planner automation:', err)
+        } finally {
+            setAutomationSaving(false)
+        }
+    }
+
     const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
     const pvDays = horizon?.pvDays ?? '—'
     const weatherDays = horizon?.weatherDays ?? '—'
@@ -403,15 +422,25 @@ export default function Dashboard(){
         <Card className="p-4 md:p-5">
         <div className="flex items-baseline justify-between mb-2">
             <div className="text-sm text-muted">Planner Automation</div>
-            <div className="flex items-center gap-2 text-[10px] text-muted">
-            <span
-                className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                automationConfig?.enable_scheduler
-                    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
-                    : 'bg-line'
-                }`}
-            />
-            <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
+            <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-[10px] text-muted">
+                    <span
+                        className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                            automationConfig?.enable_scheduler
+                                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                                : 'bg-line'
+                        }`}
+                    />
+                    <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
+                </div>
+                <button
+                    type="button"
+                    onClick={toggleAutomationScheduler}
+                    disabled={automationSaving}
+                    className="rounded-pill px-3 py-1 text-[10px] font-semibold border border-line/60 text-muted hover:border-accent hover:text-accent disabled:opacity-50 transition"
+                >
+                    {automationConfig?.enable_scheduler ? 'Disable' : 'Enable'}
+                </button>
             </div>
         </div>
         <div className="text-[11px] text-muted">
