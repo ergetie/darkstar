@@ -34,6 +34,7 @@ export default function Dashboard(){
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean } | null>(null)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -171,6 +172,16 @@ export default function Dashboard(){
                     enabled: arbitrage.enable_export,
                     mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive'
                 })
+
+                // Automation / scheduler config
+                if (data.automation) {
+                    setAutomationConfig({
+                        enable_scheduler: data.automation.enable_scheduler,
+                        write_to_mariadb: data.automation.write_to_mariadb,
+                    })
+                } else {
+                    setAutomationConfig(null)
+                }
 
                 // Initialize auto-refresh from dashboard config if present
                 if (typeof data.dashboard?.auto_refresh_enabled === 'boolean') {
@@ -380,6 +391,7 @@ export default function Dashboard(){
         </Card>
         </motion.div>
         <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
+        <div className="space-y-4">
         <Card className="p-4 md:p-5">
         <div className="text-sm text-muted mb-3">Quick Actions</div>
         <QuickActions
@@ -388,6 +400,30 @@ export default function Dashboard(){
             onServerScheduleLoaded={handleServerScheduleLoaded}
         />
         </Card>
+        <Card className="p-4 md:p-5">
+        <div className="flex items-baseline justify-between mb-2">
+            <div className="text-sm text-muted">Planner Automation</div>
+            <div className="flex items-center gap-2 text-[10px] text-muted">
+            <span
+                className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                automationConfig?.enable_scheduler
+                    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                    : 'bg-line'
+                }`}
+            />
+            <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
+            </div>
+        </div>
+        <div className="text-[11px] text-muted">
+            {automationConfig?.enable_scheduler
+            ? 'Planner will auto-run on the configured schedule.'
+            : 'Auto-planner is off. Use Quick Actions to run manually.'}
+        </div>
+        <div className="mt-2 text-[10px] text-muted">
+            DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}
+        </div>
+        </Card>
+        </div>
         </motion.div>
         </div>
 
