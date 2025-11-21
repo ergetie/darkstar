@@ -63,7 +63,7 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onServ
                 </div>
             )}
             
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="flex flex-col gap-3">
                 <button 
                     className={cls.iconBtn}
                     onClick={() => handleAction('run-planner', () => Api.runPlanner())}

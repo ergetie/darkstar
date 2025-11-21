@@ -312,7 +312,7 @@ export default function Dashboard(){
             : undefined
 
     return (
-        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12 space-y-8">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12 space-y-10">
         {/* Row 1: Schedule Overview (48h) */}
         <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <ChartCard
