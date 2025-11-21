@@ -4,18 +4,21 @@ import { Api } from '../lib/api'
 
 export default function SmartAdvisor() {
   const [advice, setAdvice] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
+  const [disabled, setDisabled] = useState(false)
 
   const fetchAdvice = async () => {
     setLoading(true)
     setError(false)
     try {
       const res = await Api.getAdvice()
-      if ((res as any).status === 'disabled' || !res.advice) {
+      if ((res as any).status === 'disabled') {
+        setDisabled(true)
         setAdvice(null)
       } else {
-        setAdvice(res.advice)
+        setDisabled(false)
+        setAdvice(res.advice ?? null)
       }
     } catch (e) {
       console.error(e)
@@ -29,7 +32,7 @@ export default function SmartAdvisor() {
     fetchAdvice()
   }, [])
 
-  if (error || !advice) return null
+  if (error || disabled) return null
 
   return (
     <div className="card relative overflow-hidden border-l-4 border-l-accent p-4 bg-surface/50">
@@ -44,8 +47,10 @@ export default function SmartAdvisor() {
           <div className="text-text leading-relaxed">
             {loading ? (
               <span className="animate-pulse">Analyzing schedule...</span>
+            ) : advice ? (
+              advice
             ) : (
-              advice || 'No advice available.'
+              'No advice available.'
             )}
           </div>
         </div>
