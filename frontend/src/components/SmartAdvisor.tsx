@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Sparkles, RefreshCw } from 'lucide-react'
 import { Api } from '../lib/api'
+import Card from './Card'
 
 export default function SmartAdvisor() {
   const [advice, setAdvice] = useState<string | null>(null)
@@ -35,34 +36,30 @@ export default function SmartAdvisor() {
   if (error || disabled) return null
 
   return (
-    <div className="card relative overflow-hidden border-l-4 border-l-accent p-4 bg-surface/50">
-      <div className="flex items-start gap-3">
-        <div className="mt-1 p-2 rounded-full bg-accent/10 text-accent">
-          <Sparkles className="h-5 w-5" />
-        </div>
-        <div className="flex-1">
-          <h3 className="text-sm font-medium text-muted uppercase tracking-wider mb-1">
-            Aurora Advisor
-          </h3>
-          <div className="text-text leading-relaxed">
-            {loading ? (
-              <span className="animate-pulse">Analyzing schedule...</span>
-            ) : advice ? (
-              advice
-            ) : (
-              'No advice available.'
-            )}
-          </div>
+    <Card className="h-full p-4 md:p-5 flex flex-col">
+      <div className="flex items-baseline justify-between mb-3">
+        <div className="flex items-center gap-2 text-sm text-muted">
+          <Sparkles className="h-4 w-4 text-accent" />
+          <span>Aurora Advisor</span>
         </div>
         <button
           onClick={fetchAdvice}
           disabled={loading}
-          className="text-muted hover:text-text transition-colors p-1"
-          title="Refresh Advice"
+          className="text-[10px] text-muted hover:text-text transition-colors p-1"
+          title="Refresh advice"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
         </button>
       </div>
-    </div>
+      <div className="text-[11px] text-text leading-relaxed">
+        {loading ? (
+          <span className="animate-pulse">Analyzing schedule...</span>
+        ) : advice ? (
+          advice
+        ) : (
+          'No advice available.'
+        )}
+      </div>
+    </Card>
   )
 }
