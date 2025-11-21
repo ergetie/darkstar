@@ -39,9 +39,53 @@ export default function Dashboard(){
     }, [])
 
     const handleServerScheduleLoaded = useCallback((schedule: ScheduleSlot[]) => {
-        setServerSchedule(schedule ?? [])
+        setServerScheduleLoading(true)
         setServerScheduleError(null)
-        setServerScheduleLoading(false)
+
+        if (!schedule || schedule.length === 0) {
+            setServerSchedule([])
+            setServerScheduleLoading(false)
+            return
+        }
+
+        Api.scheduleTodayWithHistory()
+            .then((res) => {
+                const historySlots = res.slots ?? []
+                const byStart = new Map<string, any>()
+                historySlots.forEach((slot: any) => {
+                    if (slot.start_time) {
+                        byStart.set(String(slot.start_time), slot)
+                    }
+                })
+
+                const merged: ScheduleSlot[] = schedule.map((slot) => {
+                    const key = (slot as any).start_time
+                    const hist = key ? byStart.get(String(key)) : undefined
+                    if (!hist) return slot
+
+                    const anyHist = hist as any
+                    const mergedSlot: any = { ...slot }
+
+                    if (anyHist.soc_actual_percent != null) {
+                        mergedSlot.soc_actual_percent = anyHist.soc_actual_percent
+                    }
+                    if (anyHist.is_executed === true) {
+                        mergedSlot.is_executed = true
+                    }
+
+                    return mergedSlot as ScheduleSlot
+                })
+
+                setServerSchedule(merged)
+            })
+            .catch((err) => {
+                console.error('Failed to merge history into server schedule:', err)
+                setServerSchedule(schedule ?? [])
+                setServerScheduleError('Failed to merge execution history; showing DB plan only.')
+            })
+            .finally(() => {
+                setServerScheduleLoading(false)
+            })
     }, [])
 
     const fetchAllData = useCallback(async () => {

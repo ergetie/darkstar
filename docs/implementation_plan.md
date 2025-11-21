@@ -2138,12 +2138,12 @@
 
 ---
 
-## Rev 56 — Dashboard Server Plan Visualization *(Status: 📋 Planned)*
+## Rev 56 — Dashboard Server Plan Visualization *(Status: 🔄 In Progress)*
 
 * **Model**: GPT-5 Codex CLI  
-* **Summary**: Make the Dashboard chart and status clearly reflect whether the user is viewing the local (schedule.json) plan or the server (MariaDB current_schedule) plan by fetching and rendering the full server schedule on demand, without mutating the local plan file.
-* **Started**: —  
-* **Last Updated**: —  
+* **Summary**: Make the Dashboard chart and status clearly reflect whether the user is viewing the local (schedule.json) plan or the server (MariaDB current_schedule) plan by fetching and rendering the full server schedule on demand, while merging in execution history so SoC Actual and executed series remain accurate, without mutating the local plan file.
+* **Started**: 2025-11-21  
+* **Last Updated**: 2025-11-21  
 
 ### Plan
 
@@ -2153,10 +2153,11 @@
   * Make it visually obvious which plan the user is looking at (local vs server) so that debugging and operations are safe.
 
 * **Scope**:
-  * Frontend-only wiring in the React Dashboard, QuickActions, and ChartCard to:
+  * Frontend wiring in the React Dashboard, QuickActions, and ChartCard to:
     * Fetch `/api/db/current_schedule` on demand and store it in Dashboard state.
     * Pass the server plan into the chart via `slotsOverride` when the current plan source is `server`.
-  * No changes to planner behavior, `schedule.json`, or DB schema; this is a pure visualization and data-source-selection Rev.
+  * Backend enhancement of `/api/db/current_schedule` to merge in execution history from `execution_history` for today’s slots (SoC Actual and `actual_*` series), mirroring the behavior of `/api/schedule/today_with_history`.
+  * No changes to planner optimization behavior or `schedule.json` semantics; this Rev only affects how plans are surfaced and visualised.
 
 * **Dependencies**:
   * `/api/db/current_schedule` endpoint returning a full `schedule` array in the “UI shape” (slot_start/end, load/pv forecasts, charge/export/water, SoC fields, prices).
@@ -2184,27 +2185,26 @@
    * In `Dashboard`, adjust the `<ChartCard>` usage so that:
      * When `currentPlanSource === 'server'` and `serverSchedule` is non-null, pass `slotsOverride={serverSchedule}`.
      * When `currentPlanSource === 'local'`, omit `slotsOverride` so `ChartCard` falls back to its existing `/api/schedule` / `/api/schedule/today_with_history` loading.
-   * Leave `useHistoryForToday` semantics unchanged; when viewing the server plan, the chart should show the server schedule (plan-only) rather than mixing in execution history for now.
+   * Keep `useHistoryForToday` enabled only for the local plan; when viewing the server plan, the chart should rely on `/api/db/current_schedule` (which already has execution history merged for today) rather than calling `/api/schedule/today_with_history` again.
 
-4. **Status & UX Alignment**
-   * Keep the existing “Now showing: local/server plan · [planned_at/version]” indicator, but ensure it reflects the current `currentPlanSource` and metadata (local vs db) consistently.
-   * Add subtle visual cues (e.g. small “DB” badge near the chart title or a muted note under the Schedule Overview header) when the server plan is active to avoid confusion.
-   * Ensure Quick Actions semantics remain intuitive:
-     * “Run planner” and “Reset to optimal” should switch view back to `local`.
-     * “Load server plan” should leave the local plan untouched but switch the chart to the server schedule until the user explicitly changes source.
-
-5. **Error Handling & Edge Cases**
-   * Handle `/api/db/current_schedule` failures gracefully:
-     * Show a clear error toast/message from QuickActions.
-     * Keep the current chart view unchanged if the server plan cannot be loaded.
-   * If `current_schedule` is sparse (e.g. fewer slots or missing some hours), rely on ChartCard’s existing padding logic (or add a lightweight adapter) so the 24h/48h window remains coherent, with gaps represented as nulls rather than crashes.
-   * Guard against stale server plans:
-     * Optionally expose the DB `planner_version` and/or timestamp from `/api/db/current_schedule` meta in the “Now showing” text so it’s obvious when the server plan is outdated.
+4. **Merge Execution History into `/api/db/current_schedule`**
+   * Extend the backend `db_current_schedule` endpoint so that for slots on the local “today” date:
+     * It joins `current_schedule` with the latest `execution_history` row per `slot_start` (same logic as `/api/schedule/today_with_history`) and attaches `soc_actual_percent`, `is_executed`, and `actual_*` fields.
+     * It preserves all existing fields and response shape so existing consumers remain compatible.
+   * Leave future/tomorrow slots plan-only (no `soc_actual_percent`), matching the current Dashboard semantics.
 
 ### Implementation
 
-* **Completed**: —  
-* **In Progress**: —  
+* **Completed**:
+  * Step 1: Dashboard state for server schedule
+    * Added `serverSchedule`, `serverScheduleLoading`, and `serverScheduleError` state to `frontend/src/pages/Dashboard.tsx` to track the DB-backed schedule independently of the local plan and its metadata.
+  * Step 2: Fetch & cache server plan on “Load server plan”
+    * Updated `QuickActions` so the “Load server plan” button calls `Api.loadServerPlan()` and forwards the returned `schedule` into Dashboard via a new `onServerScheduleLoaded` callback.
+    * Dashboard now stores the server schedule in `serverSchedule` and switches the plan source badge to `server` without touching `schedule.json`.
+  * Step 3: Wire ChartCard to use server plan via `slotsOverride`
+    * Updated the Dashboard’s `<ChartCard>` usage so that when `currentPlanSource === 'server'`, it passes `slotsOverride={serverSchedule}` and disables `useHistoryForToday`, making the overview chart render the DB schedule across the 48h window while the local plan continues to use `/api/schedule/today_with_history`.
+* **In Progress**:
+  * Step 4: Backend merge of execution history into `/api/db/current_schedule` so SoC Actual and `actual_*` appear consistently when viewing the server plan.
 * **Blocked**: —  
 
 ---
