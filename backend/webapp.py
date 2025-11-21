@@ -30,6 +30,7 @@ from inputs import (
     load_home_assistant_config,
 )
 from learning import get_learning_engine
+from backend.strategy.engine import StrategyEngine
 
 app = Flask(__name__)
 
@@ -1226,8 +1227,18 @@ def reset_config():
 def run_planner():
     try:
         input_data = get_all_input_data()
+
+        # Load config raw to init engine
+        with open("config.yaml", "r") as f:
+            base_config = yaml.safe_load(f) or {}
+
+        # 1. Aurora Strategy Decision
+        strategy = StrategyEngine(base_config)
+        overrides = strategy.decide(input_data)
+
+        # 2. Planner Execution
         planner = HeliosPlanner("config.yaml")
-        df = planner.generate_schedule(input_data)
+        df = planner.generate_schedule(input_data, overrides=overrides)
 
         # Store per-slot PV/load forecasts in the learning database so
         # the learning engine can calibrate forecast accuracy over time.
