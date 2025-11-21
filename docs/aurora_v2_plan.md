@@ -52,35 +52,14 @@ We do not rewrite the deterministic Planner. Instead, we introduce a **Strategy 
 *   **Summary:** Added `/api/simulate` support for overrides. Created `Lab.tsx` UI for "What If?" scenarios (Battery Size, Max Power).
 *   **Files:** `backend/webapp.py`, `frontend/src/pages/Lab.tsx`.
 
-### Rev 22 — The Weather Strategist (S-Index Weights)
-*   **Goal:** AI manipulates S-Index *Weights* (not just the base factor) based on forecast uncertainty.
-*   **Logic:**
-    *   If `cloud_cover_variance` is high (uncertainty): Increase `pv_deficit_weight` (be paranoid about solar).
-    *   If `temperature_variance` is high: Increase `temp_weight`.
-*   **Scope:** `ml/weather.py` (new metric: variance), `backend/strategy/engine.py`.
-
-### Rev 23 — The Market Strategist (Price Variance)
-*   **Goal:** Adapt charging pickiness based on market volatility.
-*   **Logic:**
-    *   **Flat Prices:** Tighten `charge_threshold_percentile` (e.g., 10%). Don't cycle the battery for pennies.
-    *   **Volatile Prices:** Relax `charge_threshold_percentile` (e.g., 20%). Grab all cheap power to arbitrage the peaks.
-*   **Scope:** `backend/strategy/engine.py`.
-
-### Rev 24 — The Storm Guard
-*   **Goal:** Protect the home against grid outages during severe weather.
-*   **Logic:**
-    *   If `wind_speed > 20 m/s` OR `snowfall > X cm` (via Open-Meteo):
-    *   Override `battery.min_soc_percent` to 30% (or user configurable safety floor).
-*   **Scope:** `inputs.py` (fetch weather hazards), `backend/strategy/engine.py`.
-
-### Rev 25 — The Analyst (Manual Load Optimizer)
+### Rev 22 — The Analyst (Manual Load Optimizer) ✅ Completed
 *   **Goal:** Calculate the mathematically optimal time to run heavy appliances (Dishwasher, Dryer) over the next 48h.
 *   **Scope:**
     *   New logic in `backend/strategy/analyst.py`.
     *   Scans price/PV forecast to find "Golden Windows" (lowest cost for 3h block).
     *   Outputs a JSON recommendation (e.g., `{"dishwasher": {"start": "14:00", "saving": "5 SEK"}}`).
 
-### Rev 26 — The Voice (Smart Advisor)
+### Rev 23 — The Voice (Smart Advisor) ✅ Completed
 *   **Goal:** Present the Analyst's findings via a friendly "Assistant" using an LLM.
 *   **Scope:**
     *   `secrets.yaml`: OpenRouter API Key.
@@ -88,6 +67,12 @@ We do not rewrite the deterministic Planner. Instead, we introduce a **Strategy 
     *   **UI:** A "Smart Advisor" card on the Dashboard.
     *   **Prompt:** "Current price is High. Best time is 14:00. Tell the user what to do in one friendly sentence."
 
+### Rev 24 — The Weather Strategist (S-Index Weights)
+*   **Goal:** AI manipulates S-Index *Weights* (not just the base factor) based on forecast uncertainty.
+*   **Logic:**
+    *   If `cloud_cover_variance` is high (uncertainty): Increase `pv_deficit_weight` (be paranoid about solar).
+    *   If `temperature_variance` is high: Increase `temp_weight`.
+*   **Scope:** `ml/weather.py` (new metric: variance), `backend/strategy/engine.py`.
 ---
 
 ## 5. Backlog (Tactical Fixes)

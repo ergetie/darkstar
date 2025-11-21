@@ -313,10 +313,6 @@ export default function Dashboard(){
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
-        <div className="space-y-6">
-        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-        <SmartAdvisor />
-        </div>
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <ChartCard
@@ -326,6 +322,7 @@ export default function Dashboard(){
         />
         </motion.div>
         <motion.div className="space-y-4" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
+        <SmartAdvisor />
         <Card className="p-4 md:p-5">
         <div className="flex items-baseline justify-between mb-3">
         <div className="text-sm text-muted">System Status</div>
@@ -407,7 +404,6 @@ export default function Dashboard(){
             {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
         </div>
         </Card>
-        </div>
         </div>
         </main>
     )
