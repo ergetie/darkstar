@@ -36,6 +36,14 @@ def _make_ha_headers(token: str) -> Dict[str, str]:
     }
 
 
+def _load_yaml(path: str) -> Dict[str, Any]:
+    try:
+        with open(path, "r") as f:
+            return yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return {}
+
+
 def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> Optional[Dict[str, Any]]:
     """Fetch a single entity state from Home Assistant."""
     ha_config = load_home_assistant_config()

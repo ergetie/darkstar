@@ -4,6 +4,7 @@ import AzimuthDial from '../components/AzimuthDial'
 import TiltDial from '../components/TiltDial'
 import { Api, ThemeInfo } from '../lib/api'
 import { cls } from '../theme'
+import { Sparkles } from 'lucide-react'
 
 const tabs = [
     { id: 'system', label: 'System' },
@@ -169,6 +170,29 @@ const uiSections = [
                 helper: 'Enable automatic refresh of the dashboard schedule.',
                 path: ['dashboard', 'auto_refresh_enabled'],
                 type: 'boolean',
+            },
+        ],
+    },
+    {
+        title: 'AI Advisor',
+        description: 'Control the Smart Advisor LLM settings.',
+        fields: [
+            {
+                key: 'advisor.enable_llm',
+                label: 'Enable LLM advice',
+                path: ['advisor', 'enable_llm'],
+                type: 'boolean',
+            },
+            {
+                key: 'advisor.personality',
+                label: 'Advisor personality',
+                path: ['advisor', 'personality'],
+                type: 'select',
+                options: [
+                    { label: 'Concise (Money focus)', value: 'concise' },
+                    { label: 'Friendly (Emoji style)', value: 'friendly' },
+                    { label: 'Technical (Data heavy)', value: 'technical' },
+                ],
             },
         ],
     },

@@ -136,3 +136,17 @@ water_heating:
   plan_days_ahead: 1
   power_kw: 3.0
   schedule_future_only: true
+advisor:
+  enable_llm: true
+  model: "gpt-5-nano"
+  personality: "friendly" # concise, friendly, technical
+appliances:
+  dishwasher:
+    label: "Dishwasher"
+    duration_hours: 1.0
+  washing_machine:
+    label: "Washing Machine"
+    duration_hours: 2.0
+  dryer:
+    label: "Dryer"
+    duration_hours: 2.0

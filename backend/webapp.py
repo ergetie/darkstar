@@ -24,6 +24,7 @@ from planner import (
 )
 from db_writer import write_schedule_to_db
 from inputs import (
+    _load_yaml,
     get_all_input_data,
     _get_load_profile_from_ha,
     get_home_assistant_sensor_float,
@@ -31,6 +32,8 @@ from inputs import (
 )
 from learning import get_learning_engine
 from backend.strategy.engine import StrategyEngine
+from backend.strategy.analyst import EnergyAnalyst
+from backend.strategy.voice import get_advice
 
 app = Flask(__name__)
 
@@ -70,6 +73,8 @@ logger.setLevel(logging.INFO)
 if not any(isinstance(h, RingBufferHandler) for h in logger.handlers):
     logger.addHandler(_ring_buffer_handler)
 logger.propagate = False
+
+_advice_cache = {"planned_at": None, "text": None}
 
 
 def _get_git_version() -> str:
@@ -645,14 +650,6 @@ def schedule_today_with_history():
         merged_slots.append(slot)
 
     return jsonify({"slots": merged_slots, "timezone": tz_name})
-
-
-def _load_yaml(path: str) -> dict:
-    try:
-        with open(path, "r") as f:
-            return yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        return {}
 
 
 def _db_connect_from_secrets():
@@ -1268,6 +1265,57 @@ def run_planner():
         return jsonify({"status": "success", "message": "Planner run completed successfully."})
     except Exception as e:
         return jsonify({"status": "error", "message": f"An error occurred: {str(e)}"}), 500
+
+
+@app.route("/api/analyst/run", methods=["GET"])
+def run_analyst():
+    try:
+        with open("schedule.json", "r") as f:
+            schedule_data = json.load(f)
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        analyst = EnergyAnalyst(schedule_data, config)
+        report = analyst.analyze()
+        return jsonify(report)
+    except FileNotFoundError:
+        return jsonify({"error": "Data not found. Run planner first."}), 404
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/analyst/advice", methods=["GET"])
+def get_analyst_advice():
+    try:
+        with open("schedule.json", "r") as f:
+            schedule_data = json.load(f)
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+
+        if not config.get("advisor", {}).get("enable_llm", False):
+            return jsonify({"advice": None, "status": "disabled"})
+
+        current_planned_at = schedule_data.get("meta", {}).get("planned_at")
+        if _advice_cache["planned_at"] == current_planned_at and _advice_cache["text"]:
+            return jsonify(
+                {
+                    "advice": _advice_cache["text"],
+                    "cached": True,
+                    "report": None,
+                }
+            )
+
+        analyst = EnergyAnalyst(schedule_data, config)
+        report = analyst.analyze()
+
+        secrets = _load_yaml("secrets.yaml")
+        text = get_advice(report, config, secrets)
+
+        _advice_cache["planned_at"] = current_planned_at
+        _advice_cache["text"] = text
+
+        return jsonify({"advice": text, "cached": False, "report": report})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 
 @app.route("/api/ha/average", methods=["GET"])
