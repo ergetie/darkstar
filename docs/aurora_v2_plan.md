@@ -13,7 +13,7 @@ Aurora v2 is a butler. It observes the home's context (Alarm, Vacation, Weather,
 We do not rewrite the deterministic Planner. Instead, we introduce a **Strategy Layer**.
 
 **Flow:**
-1.  **Context:** `StrategyEngine` gathers data (Vacation? Alarm? Weather?).
+1.  **Context:** `StrategyEngine` gathers data (Vacation? Alarm? Weather? Prices?).
 2.  **Decision:** `StrategyEngine` generates a "Dynamic Config" (Overrides).
 3.  **History:** The decision is logged to SQLite (`strategy_log`) for audit/debugging.
 4.  **Execution:** `Planner` runs using `config.yaml` + `Overrides`.
@@ -33,55 +33,72 @@ We do not rewrite the deterministic Planner. Instead, we introduce a **Strategy 
 
 ---
 
-## 3. Implementation Plan
+## 3. Implementation Status
 
-### Rev 18 — Strategy Injection Interface (✅ Completed)
-*   **Goal:** Refactor `planner.py` to accept a runtime dictionary that overrides `config.yaml` values, and log these overrides to SQLite.
-*   **Scope:**
-    *   `planner.py`: Update `generate_schedule` to accept `overrides`.
-    *   `backend/strategy/engine.py`: Create the base class.
-    *   `backend/webapp.py`: Wire the engine to the planner call.
-*   **Verification Plan:**
-    *   [x] **Script**: `debug/test_overrides.py` injects battery SoC overrides and the planner honored them (`PYTHONPATH=. python debug/test_overrides.py`).
+#### Rev 18 — Strategy Injection Interface ✅ Completed
+*   **Summary:** Refactored `planner.py` to accept runtime config overrides. Created `backend/strategy/engine.py`. Added `strategy_log` table.
+*   **Validation:** `debug/test_overrides.py` confirmed planner respects injected `target_soc` and `price_thresholds`.
 
-### Rev 19 — Context Awareness (The "Vacation" Fix)
-*   **Goal:** Connect Strategy Engine to inputs to handle Vacation/Alarm states.
-*   **Scope:**
-    *   `inputs.py`: Fetch `vacation_mode` / `alarm_state`.
-    *   `backend/strategy/rules.py`: Implement `VacationRule`.
-    *   `planner.py`: Ensure water heating logic respects the override (0 hours).
-*   **Verification Plan:**
-    *   [ ] **Manual**: Toggle Vacation Mode in HA (or mock it), run planner, verify Water Heating is 0 in `schedule.json`.
+#### Rev 19 — Context Awareness ✅ Completed
+*   **Summary:** Connected `StrategyEngine` to `inputs.py`. Implemented `VacationMode` rule (disable water heating).
+*   **Fixes:** Rev 19.1 hotfix removed `alarm_armed` from water heating disable logic (occupants need hot water).
+*   **Validation:** `debug/test_vacation.py` confirmed `water_heating.min_hours` drops to 0 when vacation mode is simulated.
 
-### Rev 20 — Smart Thresholds (Dynamic Window Expansion)
-*   **Goal:** Expand charging windows if the "Cheap" window is too short to reach `target_soc`.
-*   **Scope:**
-    *   `planner.py`: Refactor `_pass_1_identify_windows`.
-    *   Calculate `Required Energy` vs `Window Capacity`.
-    *   Relax `cheap_threshold` if `Deficit > 0`.
-*   **Verification Plan:**
-    *   [ ] **Data Check**: Run with a short cheap window (mocked prices). Verify planner schedules charging in "slightly expensive" slots to hit 100% SoC.
+#### Rev 20 — Smart Thresholds (Dynamic Window Expansion) ✅ Completed
+*   **Summary:** Updated `_pass_1_identify_windows` in `planner.py`. Logic now calculates energy deficit vs window capacity and expands the "cheap" definition dynamically to meet `target_soc`.
+*   **Validation:** `debug/test_smart_thresholds.py` simulated a massive 100kWh empty battery with a strict 5% price threshold. Planner successfully expanded the window from ~10 slots to 89 slots to meet demand.
 
-### Rev 21 — "The Lab" (Simulation Playground)
-*   **Goal:** Add a UI view for "What If?" scenarios.
+#### Rev 21 — "The Lab" (Simulation Playground) ✅ Completed
+*   **Summary:** Added `/api/simulate` support for overrides. Created `Lab.tsx` UI for "What If?" scenarios (Battery Size, Max Power).
+*   **Files:** `backend/webapp.py`, `frontend/src/pages/Lab.tsx`.
+
+### Rev 22 — The Weather Strategist (S-Index Weights)
+*   **Goal:** AI manipulates S-Index *Weights* (not just the base factor) based on forecast uncertainty.
+*   **Logic:**
+    *   If `cloud_cover_variance` is high (uncertainty): Increase `pv_deficit_weight` (be paranoid about solar).
+    *   If `temperature_variance` is high: Increase `temp_weight`.
+*   **Scope:** `ml/weather.py` (new metric: variance), `backend/strategy/engine.py`.
+
+### Rev 23 — The Market Strategist (Price Variance)
+*   **Goal:** Adapt charging pickiness based on market volatility.
+*   **Logic:**
+    *   **Flat Prices:** Tighten `charge_threshold_percentile` (e.g., 10%). Don't cycle the battery for pennies.
+    *   **Volatile Prices:** Relax `charge_threshold_percentile` (e.g., 20%). Grab all cheap power to arbitrage the peaks.
+*   **Scope:** `backend/strategy/engine.py`.
+
+### Rev 24 — The Storm Guard
+*   **Goal:** Protect the home against grid outages during severe weather.
+*   **Logic:**
+    *   If `wind_speed > 20 m/s` OR `snowfall > X cm` (via Open-Meteo):
+    *   Override `battery.min_soc_percent` to 30% (or user configurable safety floor).
+*   **Scope:** `inputs.py` (fetch weather hazards), `backend/strategy/engine.py`.
+
+### Rev 25 — The Analyst (Manual Load Optimizer)
+*   **Goal:** Calculate the mathematically optimal time to run heavy appliances (Dishwasher, Dryer) over the next 48h.
 *   **Scope:**
-    *   `frontend/src/pages/Lab.tsx`: UI for overriding config.
-    *   `backend/webapp.py`: Ensure `/api/simulate` accepts overrides (done in Rev 18).
-*   **Verification Plan:**
-    *   [ ] **Manual**: Use The Lab to change Battery Size to 50kWh, run Sim, check the graph updates.
+    *   New logic in `backend/strategy/analyst.py`.
+    *   Scans price/PV forecast to find "Golden Windows" (lowest cost for 3h block).
+    *   Outputs a JSON recommendation (e.g., `{"dishwasher": {"start": "14:00", "saving": "5 SEK"}}`).
+
+### Rev 26 — The Voice (Smart Advisor)
+*   **Goal:** Present the Analyst's findings via a friendly "Assistant" using an LLM.
+*   **Scope:**
+    *   `secrets.yaml`: OpenRouter API Key.
+    *   `backend/llm_client.py`: Interface to OpenRouter (Google Gemini Flash 1.5 or similar).
+    *   **UI:** A "Smart Advisor" card on the Dashboard.
+    *   **Prompt:** "Current price is High. Best time is 14:00. Tell the user what to do in one friendly sentence."
 
 ---
 
-## 4. Backlog (Tactical Fixes)
-*Items discovered during development that need fixing but aren't strategic features.*
-*   [ ] (None yet)
+## 5. Backlog (Tactical Fixes)
+*   [ ] **Manual Plan Simulate:** Verify if manual block additions in Planning Tab still work correctly with the new `simulate` signature (regression testing).
 
 ---
 
-## 5. Future Ideas (Darkstar 2.0)
-*Strategic features out of scope for Aurora v2.*
-*   **Grid Peak Shaving (Effekttariff):** Detect predicted monthly peaks and force-discharge.
-*   **Smart EV Integration:** Prioritize home battery vs. EV charging.
-*   **Tariff Hopper:** Cost analyzer for different energy contracts.
-*   **Force Retrain Button:** UI control to clear learning cache.
-*   **Solar Config UI:** Move hardware settings to UI.
+## 6. Future Ideas (Darkstar 2.0)
+*Strategic features out of scope for current Aurora v2 cycle.*
+*   **Grid Peak Shaving (Effekttariff):** Detect predicted monthly peaks and force-discharge battery to cap grid import. (Planned for next year).
+*   **Smart EV Integration:** Prioritize home battery vs. EV charging based on "Departure Time".
+*   **Tariff Hopper:** Cost analyzer for different energy contracts (Hourly vs Monthly).
+*   **Solar Config UI:** Move hardware settings (Azimuth/Tilt/KwP) from YAML to UI.
+*   **Admin Tools:** Force Retrain button, Clear Learning Cache button.
