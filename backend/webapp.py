@@ -1372,10 +1372,40 @@ def simulate():
         # Load config manually
         with open("config.yaml", "r") as f:
             config_data = yaml.safe_load(f)
+        # --- REV 21 CHANGE: Handle Overrides ---
+        payload = request.get_json(silent=True) or {}
+        manual_plan_payload = payload.get("manual_plan")
+
+        if "manual_plan" not in payload and "overrides" not in payload:
+            manual_plan_payload = payload
+            overrides = {}
+        else:
+            overrides = payload.get("overrides", {})
+
+        # Apply overrides to config_data (Deep Merge)
+        if overrides:
+            def deep_merge(target, source):
+                for k, v in source.items():
+                    if k in target and isinstance(target[k], dict) and isinstance(v, dict):
+                        deep_merge(target[k], v)
+                    else:
+                        target[k] = v
+
+            deep_merge(config_data, overrides)
+            logger.info(f"Simulating with overrides: {overrides}")
+        # ---------------------------------------
+
         initial_state = input_data["initial_state"]
 
+        if "battery" in overrides and "capacity_kwh" in overrides["battery"]:
+            try:
+                new_cap = float(overrides["battery"]["capacity_kwh"])
+                current_soc_pct = initial_state.get("battery_soc_percent", 0)
+                initial_state["battery_kwh"] = (current_soc_pct / 100.0) * new_cap
+            except (TypeError, ValueError):
+                logger.warning("Invalid battery.capacity_kwh override, skipping capacity scaling.")
+
         df = prepare_df(input_data, tz_name=config_data.get("timezone", "Europe/Stockholm"))
-        manual_plan_payload = request.get_json(silent=True)
         df = apply_manual_plan(df, manual_plan_payload, config_data)
 
         if df.empty:

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Gauge, CalendarRange, BookOpenCheck, Bug, Settings, Bolt, Menu, X, Activity } from 'lucide-react'
+import { Gauge, CalendarRange, BookOpenCheck, Bug, Settings, Bolt, Menu, X, Activity, FlaskConical } from 'lucide-react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 
 const Item = ({to, icon:Icon, label, onClick}:{to?:string; icon:any; label:string; onClick?:() => void}) => {
@@ -46,6 +46,7 @@ export default function Sidebar(){
             <Item to="/planning" icon={CalendarRange} label="Plan" />
             <Item to="/forecasting" icon={Activity} label="Forecasts" />
             <Item to="/learning" icon={BookOpenCheck} label="Learning" />
+            <Item to="/lab" icon={FlaskConical} label="Lab" />
             <Item to="/debug" icon={Bug} label="Debug" />
             
             <div className="mt-auto mb-1 w-8 h-px bg-line/70" />
@@ -142,6 +143,19 @@ export default function Sidebar(){
                 <span className="flex items-center gap-2">
                     <BookOpenCheck className="h-4 w-4" />
                     <NavLink to="/learning">Learning</NavLink>
+                </span>
+                </button>
+
+                <button
+                type="button"
+                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${
+                    pathname === '/lab' ? 'bg-accent text-[#0F1216]' : 'bg-surface border border-line/60 text-muted'
+                }`}
+                onClick={closeMobile}
+                >
+                <span className="flex items-center gap-2">
+                    <FlaskConical className="h-4 w-4" />
+                    <NavLink to="/lab">Lab</NavLink>
                 </span>
                 </button>
 
