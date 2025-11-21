@@ -215,7 +215,15 @@ export const Api = {
   loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
   resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
-  simulate: (payload: any) => getJSON<SimulateResponse>('/api/simulate', 'POST', payload),
+  simulate: async (payload: any): Promise<ScheduleResponse> => {
+    const response = await fetch('/api/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) throw new Error('Simulation failed')
+    return response.json() as Promise<ScheduleResponse>
+  },
   debug: () => getJSON<DebugResponse>('/api/debug'),
   debugLogs: () => getJSON<DebugLogsResponse>('/api/debug/logs'),
   historySoc: (date: string | 'today' = 'today') =>
