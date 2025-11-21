@@ -2138,6 +2138,77 @@
 
 ---
 
+## Rev 56 — Dashboard Server Plan Visualization *(Status: 📋 Planned)*
+
+* **Model**: GPT-5 Codex CLI  
+* **Summary**: Make the Dashboard chart and status clearly reflect whether the user is viewing the local (schedule.json) plan or the server (MariaDB current_schedule) plan by fetching and rendering the full server schedule on demand, without mutating the local plan file.
+* **Started**: —  
+* **Last Updated**: —  
+
+### Plan
+
+* **Goals**:
+  * When the user clicks “Load server plan”, fetch the full `current_schedule` from the database and render it in the Dashboard chart so that all today/tomorrow hours reflect the server-side plan.
+  * Keep the local `schedule.json` untouched; treat the server plan as a read-only overlay that can be toggled on/off via the existing “Now showing: local/server plan” selector.
+  * Make it visually obvious which plan the user is looking at (local vs server) so that debugging and operations are safe.
+
+* **Scope**:
+  * Frontend-only wiring in the React Dashboard, QuickActions, and ChartCard to:
+    * Fetch `/api/db/current_schedule` on demand and store it in Dashboard state.
+    * Pass the server plan into the chart via `slotsOverride` when the current plan source is `server`.
+  * No changes to planner behavior, `schedule.json`, or DB schema; this is a pure visualization and data-source-selection Rev.
+
+* **Dependencies**:
+  * `/api/db/current_schedule` endpoint returning a full `schedule` array in the “UI shape” (slot_start/end, load/pv forecasts, charge/export/water, SoC fields, prices).
+  * Rev 41–47 Dashboard/ChartCard integration stable (48h logic, history overlay, price padding, SoC datasets).
+  * Quick Actions already wired to `/api/db/current_schedule` and `/api/schedule` for status metadata.
+
+### Implementation Steps
+
+1. **Dashboard State for Server Schedule**
+   * Extend `frontend/src/pages/Dashboard.tsx` to hold:
+     * `serverSchedule: ScheduleSlot[] | null` — the last fetched DB schedule, or `null` when not loaded.
+     * Optional `serverScheduleLoading`/`serverScheduleError` flags for UX feedback.
+   * Ensure this state is independent from the existing local schedule handling and status metadata.
+
+2. **Fetch & Cache Server Plan on “Load server plan”**
+   * Update `frontend/src/components/QuickActions.tsx` so that the `load-server` action:
+     * Calls `Api.loadServerPlan()` as today.
+     * Passes the returned `schedule` back up (e.g. via a new `onServerScheduleLoaded(schedule)` callback) instead of discarding it.
+   * In `Dashboard`, implement `handleServerScheduleLoaded` to:
+     * Store the received `schedule` in `serverSchedule`.
+     * Switch `currentPlanSource` to `'server'`.
+     * Optionally derive any lightweight metrics from the DB plan (e.g. PV totals) for future polish.
+
+3. **Wire ChartCard to Use Server Plan via slotsOverride**
+   * In `Dashboard`, adjust the `<ChartCard>` usage so that:
+     * When `currentPlanSource === 'server'` and `serverSchedule` is non-null, pass `slotsOverride={serverSchedule}`.
+     * When `currentPlanSource === 'local'`, omit `slotsOverride` so `ChartCard` falls back to its existing `/api/schedule` / `/api/schedule/today_with_history` loading.
+   * Leave `useHistoryForToday` semantics unchanged; when viewing the server plan, the chart should show the server schedule (plan-only) rather than mixing in execution history for now.
+
+4. **Status & UX Alignment**
+   * Keep the existing “Now showing: local/server plan · [planned_at/version]” indicator, but ensure it reflects the current `currentPlanSource` and metadata (local vs db) consistently.
+   * Add subtle visual cues (e.g. small “DB” badge near the chart title or a muted note under the Schedule Overview header) when the server plan is active to avoid confusion.
+   * Ensure Quick Actions semantics remain intuitive:
+     * “Run planner” and “Reset to optimal” should switch view back to `local`.
+     * “Load server plan” should leave the local plan untouched but switch the chart to the server schedule until the user explicitly changes source.
+
+5. **Error Handling & Edge Cases**
+   * Handle `/api/db/current_schedule` failures gracefully:
+     * Show a clear error toast/message from QuickActions.
+     * Keep the current chart view unchanged if the server plan cannot be loaded.
+   * If `current_schedule` is sparse (e.g. fewer slots or missing some hours), rely on ChartCard’s existing padding logic (or add a lightweight adapter) so the 24h/48h window remains coherent, with gaps represented as nulls rather than crashes.
+   * Guard against stale server plans:
+     * Optionally expose the DB `planner_version` and/or timestamp from `/api/db/current_schedule` meta in the “Now showing” text so it’s obvious when the server plan is outdated.
+
+### Implementation
+
+* **Completed**: —  
+* **In Progress**: —  
+* **Blocked**: —  
+
+---
+
 ## Backlog
 
 ### Dashboard Refinement
