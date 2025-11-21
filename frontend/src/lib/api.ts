@@ -167,6 +167,11 @@ export type ThemeResponse = {
   themes: ThemeInfo[]
 }
 
+export type AdviceResponse = {
+  advice: string
+  report: any
+}
+
 export type SimulateResponse = {
   schedule: import('./types').ScheduleSlot[]
   meta?: any
@@ -223,6 +228,11 @@ export const Api = {
     })
     if (!response.ok) throw new Error('Simulation failed')
     return response.json() as Promise<ScheduleResponse>
+  },
+  getAdvice: async (): Promise<AdviceResponse> => {
+    const response = await fetch('/api/analyst/advice')
+    if (!response.ok) throw new Error('Failed to fetch advice')
+    return response.json() as Promise<AdviceResponse>
   },
   debug: () => getJSON<DebugResponse>('/api/debug'),
   debugLogs: () => getJSON<DebugLogsResponse>('/api/debug/logs'),

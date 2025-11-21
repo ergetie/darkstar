@@ -7,6 +7,7 @@ import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import type { DaySel } from '../lib/time'
+import SmartAdvisor from '../components/SmartAdvisor'
 
 type PlannerMeta = { plannedAt?: string; version?: string } | null
 
@@ -312,6 +313,10 @@ export default function Dashboard(){
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
+        <div className="space-y-6">
+        <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+        <SmartAdvisor />
+        </div>
         <div className="grid gap-6 lg:grid-cols-3">
         <motion.div className="lg:col-span-2" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <ChartCard
@@ -402,6 +407,7 @@ export default function Dashboard(){
             {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
         </div>
         </Card>
+        </div>
         </div>
         </main>
     )
