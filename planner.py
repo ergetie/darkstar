@@ -1,3 +1,4 @@
+import copy
 import json
 import math
 import os
@@ -433,9 +434,70 @@ class HeliosPlanner:
                 )
                 """
             )
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS strategy_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT,
+                    timestamp TEXT NOT NULL,
+                    overrides_json TEXT,
+                    reason TEXT
+                )
+                """
+            )
             conn.commit()
 
         self._learning_schema_initialized = True
+
+    def _apply_overrides(self, overrides: Dict[str, Any]) -> None:
+        """
+        Deep merge runtime overrides into self.config.
+        This allows the Strategy Engine to manipulate parameters dynamically.
+        """
+        if not overrides:
+            return
+
+        def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> None:
+            for key, value in source.items():
+                if key in target and isinstance(target[key], dict) and isinstance(value, dict):
+                    deep_merge(target[key], value)
+                else:
+                    target[key] = value
+
+        updated_config = copy.deepcopy(self.config)
+        deep_merge(updated_config, overrides)
+        self.config = updated_config
+
+        self.battery_config = self.config.get("system", {}).get(
+            "battery", self.config.get("battery", {})
+        )
+        if not self.battery_config:
+            self.battery_config = self.config.get("battery", {})
+        self.water_heating_config = self.config.get("water_heating", {})
+        self.thresholds = self.config.get("decision_thresholds", {})
+        self.charging_strategy = self.config.get("charging_strategy", {})
+        self.strategic_charging = self.config.get("strategic_charging", {})
+        # Note: self._validate_config() is handled by the caller or assumed safe for now,
+        # but ideally we re-run it if critical values change.
+
+    def _log_strategy_decision(self, overrides: Dict[str, Any]) -> None:
+        """Log the applied strategy to SQLite for auditing."""
+        if not self._learning_enabled() or not overrides:
+            return
+
+        try:
+            self._ensure_learning_schema()
+            path = self._learning_db_path()
+            timestamp = datetime.now(timezone.utc).isoformat()
+
+            with sqlite3.connect(path) as conn:
+                conn.execute(
+                    "INSERT INTO strategy_log (timestamp, overrides_json, reason) VALUES (?, ?, ?)",
+                    (timestamp, json.dumps(overrides), "Aurora v2 Strategy"),
+                )
+                conn.commit()
+        except Exception as e:
+            print(f"Warning: Failed to log strategy decision: {e}")
 
     def _load_learning_overlays(self) -> dict:
         """
@@ -842,16 +904,24 @@ class HeliosPlanner:
         available = min(inverter_max, grid_max, battery_max) - water_kw - net_load_kw
         return max(0.0, available)
 
-    def generate_schedule(self, input_data):
+    def generate_schedule(
+        self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+    ):
         """
         The main method that executes all planning passes and returns the schedule.
 
         Args:
             input_data (dict): Dictionary containing nordpool data, forecast data, and initial state
+            overrides (dict, optional): Dynamic config overrides from Strategy Engine
 
         Returns:
             pd.DataFrame: Prepared DataFrame for now
         """
+        if overrides:
+            print(f"🧠 Strategy Engine: Applying {len(overrides)} overrides.")
+            self._apply_overrides(overrides)
+            self._log_strategy_decision(overrides)
+
         df = self._prepare_data_frame(input_data)
         self.state = input_data["initial_state"]
         max_soc_percent = self.battery_config.get("max_soc_percent")

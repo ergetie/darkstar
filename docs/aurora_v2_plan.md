@@ -35,14 +35,14 @@ We do not rewrite the deterministic Planner. Instead, we introduce a **Strategy 
 
 ## 3. Implementation Plan
 
-### Rev 18 — Strategy Injection Interface
+### Rev 18 — Strategy Injection Interface (✅ Completed)
 *   **Goal:** Refactor `planner.py` to accept a runtime dictionary that overrides `config.yaml` values, and log these overrides to SQLite.
 *   **Scope:**
     *   `planner.py`: Update `generate_schedule` to accept `overrides`.
     *   `backend/strategy/engine.py`: Create the base class.
     *   `backend/webapp.py`: Wire the engine to the planner call.
 *   **Verification Plan:**
-    *   [ ] **Script**: Create `debug/test_overrides.py` that forces a dummy override (e.g., `min_soc=99%`) and asserts the output `schedule.json` reflects it.
+    *   [x] **Script**: `debug/test_overrides.py` injects battery SoC overrides and the planner honored them (`PYTHONPATH=. python debug/test_overrides.py`).
 
 ### Rev 19 — Context Awareness (The "Vacation" Fix)
 *   **Goal:** Connect Strategy Engine to inputs to handle Vacation/Alarm states.
