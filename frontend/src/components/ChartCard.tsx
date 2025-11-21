@@ -594,21 +594,26 @@ function buildLiveData(
     if (range === 'day') {
         if (!filtered.length) {
             // No slots at all for this day → show explicit "no data" state
-            console.log(`[buildLiveData] No ${day} slots found, creating fallback`)
-            return {
-                labels: Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`),
-                price: Array(24).fill(null),
-                pv: Array(24).fill(null),
-                load: Array(24).fill(null),
-                charge: Array(24).fill(null),
-                discharge: Array(24).fill(null),
-                export: Array(24).fill(null),
-                water: Array(24).fill(null),
-                socTarget: Array(24).fill(null),
-                socProjected: Array(24).fill(null),
-                hasNoData: true,
-                day,
-            }
+            const labels = Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`)
+            const nulls = Array(24).fill(null)
+            return createChartData(
+                {
+                    labels,
+                    price: nulls.slice(),
+                    pv: nulls.slice(),
+                    load: nulls.slice(),
+                    charge: nulls.slice(),
+                    discharge: nulls.slice(),
+                    export: nulls.slice(),
+                    water: nulls.slice(),
+                    socTarget: nulls.slice(),
+                    socProjected: nulls.slice(),
+                    socActual: nulls.slice(),
+                    hasNoData: true,
+                    day,
+                },
+                themeColors,
+            )
         }
 
         const ordered = [...filtered].sort((a, b) => {
