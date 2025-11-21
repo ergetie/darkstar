@@ -804,6 +804,7 @@ def db_current_schedule():
             logger.warning("Price overlay unavailable in /api/db/current_schedule: %s", exc)
 
         schedule = []
+        seen_starts: set[datetime] = set()
         for r in rows:
             start = r["slot_start"]
             # slot_start is DATETIME; compute end_time from resolution
@@ -879,6 +880,42 @@ def db_current_schedule():
             except Exception:
                 pass
             schedule.append(record)
+            if isinstance(start, datetime):
+                seen_starts.add(start.replace(tzinfo=None))
+
+        # Pad in any history-only slots for today that don't exist in current_schedule
+        try:
+            for hist_start, hist in exec_map.items():
+                # hist_start is naive local datetime
+                if hist_start.date() != today_local:
+                    continue
+                if hist_start in seen_starts:
+                    continue
+                local_zoned = tz.localize(hist_start)
+                end = local_zoned + timedelta(minutes=resolution_minutes)
+                record = {
+                    "start_time": local_zoned.isoformat(),
+                    "end_time": end.isoformat(),
+                    "is_executed": True,
+                }
+                if hist.get("actual_soc") is not None:
+                    record["soc_actual_percent"] = float(hist.get("actual_soc") or 0.0)
+                if hist.get("actual_charge_kw") is not None:
+                    record["actual_charge_kw"] = float(hist.get("actual_charge_kw") or 0.0)
+                if hist.get("actual_export_kw") is not None:
+                    record["actual_export_kw"] = float(hist.get("actual_export_kw") or 0.0)
+                if hist.get("actual_load_kwh") is not None:
+                    record["actual_load_kwh"] = float(hist.get("actual_load_kwh") or 0.0)
+                if hist.get("actual_pv_kwh") is not None:
+                    record["actual_pv_kwh"] = float(hist.get("actual_pv_kwh") or 0.0)
+                # Overlay price for this history-only slot if available
+                local_naive = hist_start
+                price = price_map.get(local_naive)
+                if price is not None:
+                    record["import_price_sek_kwh"] = round(price, 4)
+                schedule.append(record)
+        except Exception as exc:
+            logger.warning("Failed to pad history-only slots in /api/db/current_schedule: %s", exc)
 
         meta = {
             "source": "mariadb",
