@@ -329,8 +329,8 @@ export default function Dashboard(){
         <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <SmartAdvisor />
         </motion.div>
-        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <Card className="h-full p-4 md:p-5 flex flex-col">
+        <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
+        <Card className="p-4 md:p-5">
         <div className="flex items-baseline justify-between mb-3">
         <div className="text-sm text-muted">System Status</div>
         <div className="flex items-center gap-2">
@@ -379,8 +379,8 @@ export default function Dashboard(){
         </div>
         </Card>
         </motion.div>
-        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <Card className="h-full p-4 md:p-5 flex flex-col">
+        <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
+        <Card className="p-4 md:p-5">
         <div className="text-sm text-muted mb-3">Quick Actions</div>
         <QuickActions
             onDataRefresh={fetchAllData}
