@@ -342,6 +342,7 @@ export default function ChartCard({
     slotsOverride,
 }: ChartCardProps){
     const [currentDay, setCurrentDay] = useState<DaySel>(day)
+    const [rangeState, setRangeState] = useState<ChartRange>(range)
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
     const [themeColors, setThemeColors] = useState<Record<string, string>>({})
@@ -358,6 +359,7 @@ export default function ChartCard({
         socProjected: false,
         socActual: true,
     })
+    const [showOverlayMenu, setShowOverlayMenu] = useState(false)
 
     // Load overlay defaults from config
     useEffect(() => {
@@ -440,11 +442,15 @@ export default function ChartCard({
     }
 
     useEffect(() => {
+        setRangeState(range)
+    }, [range])
+
+    useEffect(() => {
         const chartInstance = chartRef.current
         if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
         const applyData = (slots: ScheduleSlot[]) => {
                 if (!isChartUsable(chartRef.current)) return
-                const liveData = buildLiveData(slots, currentDay, range, themeColors)
+                const liveData = buildLiveData(slots, currentDay, rangeState, themeColors)
                 if (!liveData) return
                 setHasNoDataMessage(liveData.hasNoData ?? false)
                 const ds = liveData.datasets
@@ -490,7 +496,7 @@ export default function ChartCard({
         }
 
         const loader =
-            useHistoryForToday && range === 'day' && currentDay === 'today'
+            useHistoryForToday && rangeState === 'day' && currentDay === 'today'
                 ? Api.scheduleTodayWithHistory().then(res => ({ schedule: res.slots }))
                 : Api.schedule()
 
@@ -504,36 +510,75 @@ export default function ChartCard({
                 setHasNoDataMessage(true)
                 setNowPosition(null)
             })
-    }, [currentDay, overlays, themeColors, range, refreshToken, slotsOverride, useHistoryForToday])
+    }, [currentDay, overlays, themeColors, rangeState, refreshToken, slotsOverride, useHistoryForToday])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     
     return (
         <Card className="p-4 md:p-6 h-[380px]">
-        <div className="flex items-baseline justify-between pb-3">
+        <div className="flex items-baseline justify-between pb-2">
         <div className="text-sm text-muted">Schedule Overview</div>
         {showDayToggle && (
-            <div className="flex gap-1">
-                <button 
-                    className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                        currentDay === 'today' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                    }`}
-                    onClick={() => setCurrentDay('today')}
+            <div className="flex items-center gap-2">
+                <div className="flex gap-1">
+                    <button 
+                        className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                            rangeState === 'day' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                        }`}
+                        onClick={() => setRangeState('day')}
+                    >
+                        24h
+                    </button>
+                    <button 
+                        className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                            rangeState === '48h' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                        }`}
+                        onClick={() => setRangeState('48h')}
+                    >
+                        48h
+                    </button>
+                </div>
+                <button
+                    className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
+                    onClick={() => setShowOverlayMenu(v => !v)}
                 >
-                    Today
-                </button>
-                <button 
-                    className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                        currentDay === 'tomorrow' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                    }`}
-                    onClick={() => setCurrentDay('tomorrow')}
-                >
-                    Tomorrow
+                    Overlays
                 </button>
             </div>
         )}
         </div>
-        <div className="h-[310px] relative">
+        {showOverlayMenu && (
+            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                {([
+                    ['Price', 'price'],
+                    ['PV', 'pv'],
+                    ['Load', 'load'],
+                    ['Charge', 'charge'],
+                    ['Discharge', 'discharge'],
+                    ['Export', 'export'],
+                    ['Water', 'water'],
+                    ['SoC Target', 'socTarget'],
+                    ['SoC Projected', 'socProjected'],
+                    ['SoC Actual', 'socActual'],
+                ] as const).map(([label, key]) => (
+                    <button
+                        key={key}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            setOverlays(o => ({ ...o, [key]: !o[key as keyof typeof o] }))
+                        }}
+                        className={`rounded-pill px-3 py-1 border ${
+                            overlays[key as keyof typeof overlays]
+                                ? 'bg-accent text-canvas border-accent'
+                                : 'border-line/60 text-muted hover:border-accent'
+                        }`}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
+        )}
+        <div className="h-[310px] relative mt-1">
         {hasNoDataMessage && (
             <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
                 <div className="text-center">
@@ -551,28 +596,6 @@ export default function ChartCard({
             </div>
         )}
         <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }}/>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-        {([
-            ['Price', 'price'],
-            ['PV', 'pv'],
-            ['Load', 'load'],
-            ['Charge', 'charge'],
-            ['Discharge', 'discharge'],
-            ['Export', 'export'],
-            ['Water', 'water'],
-            ['SoC Target', 'socTarget'],
-            ['SoC Projected', 'socProjected'],
-            ['SoC Actual', 'socActual'],
-        ] as const).map(([label, key]) => (
-            <button
-                key={key}
-                onClick={(e) => { e.preventDefault(); setOverlays(o => ({...o, [key]: !o[key as keyof typeof o]})) }}
-                className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays] ? 'bg-accent text-canvas border-accent' : 'border-line/60 text-muted hover:border-accent'}`}
-            >
-                {label}
-            </button>
-        ))}
         </div>
         </Card>
     )
