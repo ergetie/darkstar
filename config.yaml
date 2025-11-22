@@ -24,11 +24,9 @@ arbitrage:
   protective_soc_strategy: gap_based
 automation:
   enable_scheduler: true
-  write_to_mariadb: false
   schedule:
     every_minutes: 60
-    # optional: 
-    #jitter_minutes: 5
+  write_to_mariadb: false
 battery:
   capacity_kwh: 34.2
   efficiency_percent: 95.0
@@ -142,8 +140,8 @@ system:
     tilt: 45
 timezone: Europe/Stockholm
 ui:
-  theme: Ayu
-  theme_accent_index: 6
+  theme: Material Design Colors
+  theme_accent_index: 3
 water_heating:
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
