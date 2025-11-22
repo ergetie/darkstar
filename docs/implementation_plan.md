@@ -2207,6 +2207,111 @@
   * Step 4: Backend merge of execution history into `/api/db/current_schedule` so SoC Actual and `actual_*` appear consistently when viewing the server plan.
 * **Blocked**: —  
 
+
+---
+
+## Rev 57 — In‑App Scheduler Orchestrator *(Status: 📋 Planned)*
+
+* **Model**: GPT-5 Codex CLI
+* **Summary**: Move planner automation from external systemd/cron into Darkstar itself via a dedicated scheduler component, with clear configuration, status APIs, and Dashboard integration (Planner Automation card).
+
+* **Started**: 2025-11-21
+* **Last Updated**: 2025-11-21
+
+### Plan
+
+* **Goals**:
+  * Eliminate the external dependency on systemd/cron for planner runs.
+  * Provide an in-app scheduler that can be controlled and inspected via config + API.
+  * Expose a clear “Next auto run” indicator and scheduler health in the Dashboard.
+  * Preserve at-least-once semantics and avoid duplicate runs when the backend is scaled.
+
+* **Scope**:
+  * Backend:
+    * Introduce a scheduler module (e.g. `backend/scheduler.py`) responsible for orchestrating planner runs.
+    * Support a simple, explicit schedule configuration (e.g. “every N minutes” and/or “run at HH:MM local”).
+    * Add API endpoints / helpers to surface scheduler status (enabled, last run, next run, last error).
+  * Frontend:
+    * Extend the Planner Automation card on the Dashboard with:
+      * “Next auto run” time.
+      * Last run timestamp and status (success/error).
+    * Wire the existing enable/disable toggle to the new scheduler config instead of just a boolean.
+  * Ops:
+    * Provide a clean migration story from systemd timer → in-app scheduler (including a “one or the other, not both” note).
+
+* **Dependencies**:
+  * Rev 40 (Dashboard completion & automation status card in React).
+  * Existing `bin/run_planner.py` as reference for planner invocation and DB push behavior.
+
+* **Acceptance Criteria**:
+  * When the in-app scheduler is enabled, it runs `HeliosPlanner` on the configured cadence, updates `schedule.json`, and (optionally) writes to DB when configured.
+  * The Dashboard’s Planner Automation card displays:
+    * Scheduler state (enabled/disabled) with a green/grey indicator.
+    * Next planned run time (local timezone).
+    * Last run time and status (success/error).
+  * No duplicate runs occur when there is more than one web worker/process.
+  * It is possible to fully disable the external systemd/cron timer without losing automation, and the migration path is documented.
+
+### Implementation
+
+* **Completed**: —
+* **In Progress**: —
+* **Blocked**: —
+
+* **Next Steps**:
+  1. **Design scheduler model**
+     * Decide on single-process mode vs. dedicated scheduler process.
+     * Choose implementation strategy (e.g. lightweight loop vs `APScheduler`), with a clear “one scheduler instance only” guarantee.
+  2. **Define scheduler configuration**
+     * Add `automation.schedule` fields in `config.yaml` (e.g. `cron`, `every_minutes`, `window_hours`).
+     * Document defaults and constraints (e.g. minimum interval).
+  3. **Implement backend scheduler module**
+     * Implement a scheduler entrypoint (e.g. `backend/scheduler.py`) that:
+       * Loads config and sleeps/wakes according to schedule.
+       * Calls an internal “run planner once” function (shared with `bin/run_planner.py` to avoid duplication).
+       * Records last/next run state (e.g. in memory, plus optional small SQLite/JSON for durability).
+     * Ensure only one scheduler is active (e.g. guard via `ENABLE_SCHEDULER_PROCESS` env or a simple lock).
+  4. **Expose scheduler status**
+     * Add a small API endpoint (e.g. `/api/scheduler/status`) returning:
+       * `enabled`, `next_run_at`, `last_run_at`, `last_run_status`, `last_error`.
+     * Wire the Dashboard Planner Automation card to this endpoint in addition to config.
+  5. **Integrate with Dashboard & Settings**
+     * Extend the Planner Automation card to show `next_run_at` and `last_run_at/status`.
+     * Optionally add a small “Run now” button that triggers a one-off run via API (respecting locking).
+     * Update Settings to allow editing the schedule configuration (where appropriate).
+  6. **Migration & docs**
+     * Add a section to README explaining:
+       * How to disable the old systemd timer.
+       * How to enable/configure the in-app scheduler.
+       * Caveats for multi-process deployments (e.g. “run scheduler in a separate process or single worker”).
+
+* **Technical Decisions** (planned):
+  * Prefer a small dedicated scheduler wrapper (invoked as a separate process) over burying scheduling in Flask workers, to avoid multi-worker duplication.
+  * Reuse the logic from `bin/run_planner.py` (planner invocation, DB write) via a shared function rather than duplicating behavior.
+
+* **Files Modified** (expected):
+  * `backend/scheduler.py` (new).
+  * `backend/webapp.py` (expose scheduler status endpoint).
+  * `bin/run_planner.py` (refactor shared run-planner helper).
+  * `config.yaml` / `config.default.yaml` (new `automation.schedule` fields).
+  * `frontend/src/pages/Dashboard.tsx` (extend Planner Automation card).
+  * `frontend/src/lib/api.ts` (add scheduler status client).
+
+* **Configuration**:
+  * New `automation` schedule fields with safe defaults.
+  * Optional env flag to enable the in-app scheduler process vs. external scheduler.
+
+### Verification
+
+* **Tests Status**:
+  * Unit-level: scheduler tick logic (interval/cron parsing, next_run computation).
+  * Integration-level: end-to-end “auto-run updates schedule.json and/or DB”, validated via API.
+* **Known Issues**:
+  * In multi-process deployments, only one scheduler process must be enabled; this will be documented and enforced via a simple convention/env.
+* **Rollback Plan**:
+  * Keep systemd/cron integration intact until the in-app scheduler is proven stable.
+  * If issues arise, disable the in-app scheduler and revert to the external timer using existing `bin/run_planner.py` flow.
+
 ---
 
 ## Backlog
@@ -2244,9 +2349,9 @@
 - [ ] Deployment configuration (serve `frontend/dist` from Flask or separate static host)
 - [ ] State management for user preferences and theme
 
----
-
 ## Appendix — Handover Notes
+
+---
 
 * **Monorepo rules**
 
