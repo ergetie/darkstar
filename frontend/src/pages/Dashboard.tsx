@@ -379,13 +379,13 @@ export default function Dashboard(){
         />
         </motion.div>
 
-        {/* Row 2: Advisor + System Status + Quick Actions */}
+        {/* Row 2: Advisor + System Status + Quick Actions / Automation */}
         <div className="grid gap-6 lg:grid-cols-3 items-stretch">
         <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <SmartAdvisor />
         </motion.div>
-        <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <Card className="p-4 md:p-5">
+        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
+        <Card className="h-full p-4 md:p-5">
         <div className="flex items-baseline justify-between mb-3">
         <div className="text-sm text-muted">System Status</div>
         <div className="flex items-center gap-2">
@@ -434,9 +434,9 @@ export default function Dashboard(){
         </div>
         </Card>
         </motion.div>
-        <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <div className="space-y-4">
-        <Card className="p-4 md:p-5">
+        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
+        <div className="flex h-full flex-col gap-6">
+        <Card className="flex-1 p-4 md:p-5">
         <div className="text-sm text-muted mb-3">Quick Actions</div>
         <QuickActions
             onDataRefresh={fetchAllData}
@@ -444,7 +444,7 @@ export default function Dashboard(){
             onServerScheduleLoaded={handleServerScheduleLoaded}
         />
         </Card>
-        <Card className="p-4 md:p-5">
+        <Card className="flex-1 p-4 md:p-5">
         <div className="flex items-baseline justify-between mb-2">
             <div className="text-sm text-muted">Planner Automation</div>
             <div className="flex items-center gap-3">
