@@ -2304,6 +2304,33 @@
       * Scheduler remains a **single external process**; we explicitly do not start it from Flask.
       * Status file writes are atomic at the process level (only scheduler writes; webapp only reads), minimising race conditions.
       * If status file is missing or corrupt, the scheduler will recreate it with sane defaults and log a warning.
+  * **Step 4 – Scheduler status API & Dashboard wiring design**
+    * Backend API:
+      * Add `/api/scheduler/status` in `backend/webapp.py` which:
+        * Reads `data/scheduler_status.json` (if present) plus current `automation` config from `config.yaml`.
+        * Returns a JSON payload, e.g.:
+          ```json
+          {
+            "enabled": true,
+            "every_minutes": 60,
+            "jitter_minutes": 5,
+            "last_run_at": "2025-11-22T07:15:00Z",
+            "next_run_at": "2025-11-22T08:15:00Z",
+            "last_run_status": "success",
+            "last_error": null,
+            "source": "in_app"  // vs "external" or "unknown"
+          }
+          ```
+        * Handles missing or malformed status file gracefully by returning `source: "unknown"` and `last_run_*` fields as `null`, but still reflecting `automation.enable_scheduler`.
+    * Frontend API client:
+      * Extend `frontend/src/lib/api.ts` with `schedulerStatus(): Promise<SchedulerStatus>` that calls `/api/scheduler/status` and maps the payload into a typed object.
+    * Dashboard Planner Automation card:
+      * On mount, call `Api.schedulerStatus()` and merge the result with existing `config.automation` state.
+      * Display:
+        * Status pill: “Active”/“Disabled” with green/grey dot driven by `enabled`.
+        * “Next auto run” line using `next_run_at` (converted to local time) when available; otherwise a subtle “No upcoming run (scheduler offline)” message.
+        * “Last run” line showing timestamp + `last_run_status` (success/error), with a small warning icon when `last_run_status === "error"` and optional tooltip with `last_error`.
+      * Keep the existing enable/disable toggle wired to `advisor.enable_scheduler` save logic, but also re-fetch `schedulerStatus` after a toggle to update `enabled` and `next_run_at`.
 * **In Progress**: —
 * **Blocked**: —
 
