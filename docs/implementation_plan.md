@@ -2254,17 +2254,38 @@
 
 ### Implementation
 
-* **Completed**: —
+* **Completed**:
+  * **Step 1 – Scheduler model design**
+    * Decide to run the scheduler as a **dedicated Python process** (e.g. `python -m backend.scheduler` or `bin/run_scheduler.py`) instead of embedding timers inside Flask workers, to avoid duplicate runs in multi‑worker setups.
+    * Scheduler will use a **simple fixed‑interval cadence** (initially `automation.every_minutes` in `config.yaml`) with room to add “run at HH:MM local” later if needed.
+    * Each tick will:
+      * Reload `config.yaml` to respect `automation.enable_scheduler` and cadence changes without restart.
+      * Compute `next_run_at` based on `every_minutes` and `last_run_at`.
+      * Call a shared `run_planner_once()` helper (factored out of `bin/run_planner.py`) when it is time to run.
+      * Persist status (`enabled`, `next_run_at`, `last_run_at`, `last_run_status`, `last_error`) to a small JSON file under `data/scheduler_status.json` so `backend/webapp.py` can serve `/api/scheduler/status` without tight coupling.
+    * Only one scheduler instance should run in production; this will be enforced operationally (one systemd unit or container) and documented in README.
+  * **Step 2 – Scheduler configuration definition**
+    * Extend the existing `automation` section in `config.yaml` with an explicit schedule block:
+      ```yaml
+      automation:
+        enable_scheduler: true        # master toggle for in-app scheduler
+        write_to_mariadb: true        # existing flag, respected by scheduler
+        schedule:
+          every_minutes: 60           # run planner every N minutes (minimum e.g. 15)
+          jitter_minutes: 5           # optional random +/- jitter to avoid thundering herd
+      ```
+    * Semantics:
+      * `enable_scheduler`: when `false`, scheduler runner stays idle but can still expose last/next run status.
+      * `schedule.every_minutes`:
+        * Primary cadence field for Rev 57; values below 15 will be clamped or rejected.
+        * Scheduler computes `next_run_at = last_run_at + every_minutes`.
+      * `schedule.jitter_minutes`:
+        * Optional small random offset applied per run to avoid multiple sites hitting Nordpool/HA at the exact same second.
+    * `config.default.yaml` will be updated with the same structure and safe defaults (`enable_scheduler: false` by default) to avoid accidental activation.
 * **In Progress**: —
 * **Blocked**: —
 
 * **Next Steps**:
-  1. **Design scheduler model**
-     * Decide on single-process mode vs. dedicated scheduler process.
-     * Choose implementation strategy (e.g. lightweight loop vs `APScheduler`), with a clear “one scheduler instance only” guarantee.
-  2. **Define scheduler configuration**
-     * Add `automation.schedule` fields in `config.yaml` (e.g. `cron`, `every_minutes`, `window_hours`).
-     * Document defaults and constraints (e.g. minimum interval).
   3. **Implement backend scheduler module**
      * Implement a scheduler entrypoint (e.g. `backend/scheduler.py`) that:
        * Loads config and sleeps/wakes according to schedule.
