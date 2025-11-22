@@ -2331,6 +2331,24 @@
         * “Next auto run” line using `next_run_at` (converted to local time) when available; otherwise a subtle “No upcoming run (scheduler offline)” message.
         * “Last run” line showing timestamp + `last_run_status` (success/error), with a small warning icon when `last_run_status === "error"` and optional tooltip with `last_error`.
       * Keep the existing enable/disable toggle wired to `advisor.enable_scheduler` save logic, but also re-fetch `schedulerStatus` after a toggle to update `enabled` and `next_run_at`.
+  * **Step 5 – Settings integration & migration documentation plan**
+    * Settings UI:
+      * Extend the Settings “Automation” / “Planner” section to expose:
+        * `Enable in-app scheduler` (checkbox bound to `automation.enable_scheduler`).
+        * `Run every` input (number + “minutes” select) bound to `automation.schedule.every_minutes`.
+        * `Jitter` input (optional, small number) bound to `automation.schedule.jitter_minutes`.
+      * Use the existing `updateConfig` helper so changes persist back to `config.yaml` via `/api/config/save`, and document that changes can take up to one tick to be picked up by the scheduler process.
+    * Optional “Run now”:
+      * Plan a small `/api/scheduler/run_now` endpoint that:
+        * Enqueues a one-off planner run if no run is currently `running`.
+        * Is implemented by directly calling the same shared `run_planner_once()` helper, with a minimal in-process lock so multiple clicks don’t stack runs.
+      * Dashboard “Run now” button would live in the Planner Automation card, next to the status lines, and fall back gracefully if the endpoint is unavailable.
+    * Migration & docs:
+      * Add a “Scheduler” section to README describing:
+        * How to start the scheduler process (e.g. `python -m backend.scheduler`) and recommended systemd unit.
+        * How to disable legacy systemd/cron timers to avoid double-runs.
+        * Recommended defaults for `every_minutes` and `jitter_minutes`.
+      * Note explicitly that only **one** scheduler process should be active per site.
 * **In Progress**: —
 * **Blocked**: —
 
