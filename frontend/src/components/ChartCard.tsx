@@ -13,6 +13,7 @@ import { filterSlotsByDay, formatHour, DaySel, isToday, isTomorrow } from '../li
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
     spanGaps: false,
+    animation: false,
     plugins: {
         legend: {
             display: false,
