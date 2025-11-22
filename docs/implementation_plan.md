@@ -2282,6 +2282,28 @@
       * `schedule.jitter_minutes`:
         * Optional small random offset applied per run to avoid multiple sites hitting Nordpool/HA at the exact same second.
     * `config.default.yaml` will be updated with the same structure and safe defaults (`enable_scheduler: false` by default) to avoid accidental activation.
+  * **Step 3 – Backend scheduler module design**
+    * Define `backend/scheduler.py` as the main entrypoint, with:
+      * `load_scheduler_config()` helper to read `config.yaml` and normalise `automation.schedule` (enforcing minimum interval and defaults).
+      * `load_status()` / `save_status()` helpers to read/write `data/scheduler_status.json` (with a simple schema: `enabled`, `every_minutes`, `jitter_minutes`, `last_run_at`, `next_run_at`, `last_run_status`, `last_error`).
+      * `run_planner_once(config_path: str = "config.yaml")` imported from a shared helper (to be factored out of `bin/run_planner.py` into e.g. `backend.scheduler_runner` or similar).
+    * Main loop sketch:
+      * On start, call `load_status()` and `load_scheduler_config()`.
+      * Compute `next_run_at` if missing, based on `every_minutes` and current time (+ optional jitter).
+      * Enter a loop that:
+        * Sleeps in short intervals (e.g. 30–60 seconds) to allow quick reaction to config changes.
+        * On each tick:
+          * Reload config via `load_scheduler_config()`.
+          * If `automation.enable_scheduler` is `False`, update status to `enabled=False`, keep `last_run_at`/`last_run_status` intact, and recompute `next_run_at` lazily when re-enabled.
+          * If `enabled` and current time >= `next_run_at`, run:
+            * Set `last_run_status = "running"` and persist.
+            * Call `run_planner_once()` inside try/except.
+            * On success: update `last_run_at`, set `last_run_status = "success"`, clear `last_error`, and compute a new `next_run_at = last_run_at + every_minutes (+ jitter)`.
+            * On failure: set `last_run_status = "error"`, record `last_error = str(e)`, still compute a new `next_run_at` to avoid tight retry loops.
+    * Concurrency considerations:
+      * Scheduler remains a **single external process**; we explicitly do not start it from Flask.
+      * Status file writes are atomic at the process level (only scheduler writes; webapp only reads), minimising race conditions.
+      * If status file is missing or corrupt, the scheduler will recreate it with sane defaults and log a warning.
 * **In Progress**: —
 * **Blocked**: —
 
