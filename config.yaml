@@ -25,6 +25,10 @@ arbitrage:
 automation:
   enable_scheduler: true
   write_to_mariadb: false
+  schedule:
+    every_minutes: 60
+    # optional: 
+    #jitter_minutes: 5
 battery:
   capacity_kwh: 34.2
   efficiency_percent: 95.0

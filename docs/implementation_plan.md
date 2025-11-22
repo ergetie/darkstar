@@ -2210,13 +2210,13 @@
 
 ---
 
-## Rev 57 — In‑App Scheduler Orchestrator *(Status: 📋 Planned)*
+## Rev 57 — In‑App Scheduler Orchestrator *(Status: ✅ Completed — Design Only)*
 
 * **Model**: GPT-5 Codex CLI
 * **Summary**: Move planner automation from external systemd/cron into Darkstar itself via a dedicated scheduler component, with clear configuration, status APIs, and Dashboard integration (Planner Automation card).
 
 * **Started**: 2025-11-21
-* **Last Updated**: 2025-11-21
+* **Last Updated**: 2025-11-22
 
 ### Plan
 
@@ -2349,8 +2349,9 @@
         * How to disable legacy systemd/cron timers to avoid double-runs.
         * Recommended defaults for `every_minutes` and `jitter_minutes`.
       * Note explicitly that only **one** scheduler process should be active per site.
-* **In Progress**: —
-* **Blocked**: —
+  * **Note**: This Rev covers **design and planning only**; actual scheduler code (`backend/scheduler.py`, status endpoint, and wiring) will be implemented in a future Rev building on this design.
+* **In Progress**: —  
+* **Blocked**: —  
 
 * **Next Steps**:
   3. **Implement backend scheduler module**

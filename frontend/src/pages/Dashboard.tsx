@@ -11,6 +11,16 @@ import SmartAdvisor from '../components/SmartAdvisor'
 
 type PlannerMeta = { plannedAt?: string; version?: string } | null
 
+function formatLocalIso(d: Date | null): string {
+    if (!d) return '—'
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    const hours = String(d.getHours()).padStart(2, '0')
+    const minutes = String(d.getMinutes()).padStart(2, '0')
+    return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
 export default function Dashboard(){
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
@@ -34,7 +44,7 @@ export default function Dashboard(){
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
-    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean } | null>(null)
+    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
@@ -176,9 +186,12 @@ export default function Dashboard(){
 
                 // Automation / scheduler config
                 if (data.automation) {
+                    const automation = data.automation
                     setAutomationConfig({
-                        enable_scheduler: data.automation.enable_scheduler,
-                        write_to_mariadb: data.automation.write_to_mariadb,
+                        enable_scheduler: automation.enable_scheduler,
+                        write_to_mariadb: automation.write_to_mariadb,
+                        // Optional Rev57-style schedule block; falls back to null when absent
+                        every_minutes: automation.schedule?.every_minutes ?? null,
                     })
                 } else {
                     setAutomationConfig(null)
@@ -320,6 +333,7 @@ export default function Dashboard(){
             setAutomationConfig(prev => ({
                 enable_scheduler: next,
                 write_to_mariadb: prev?.write_to_mariadb,
+                every_minutes: prev?.every_minutes ?? null,
             }))
         } catch (err) {
             console.error('Failed to toggle planner automation:', err)
@@ -333,6 +347,17 @@ export default function Dashboard(){
     const weatherDays = horizon?.weatherDays ?? '—'
     const planBadge = `${currentPlanSource} plan`
     const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
+
+    // Derive last/next planner runs for automation card
+    const lastRunIso = plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
+    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
+    const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
+        ? automationConfig.every_minutes
+        : null
+    let nextRunDate: Date | null = null
+    if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
+        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
+    }
 
 
 
@@ -445,11 +470,20 @@ export default function Dashboard(){
         </div>
         <div className="text-[11px] text-muted">
             {automationConfig?.enable_scheduler
-            ? 'Planner will auto-run on the configured schedule.'
-            : 'Auto-planner is off. Use Quick Actions to run manually.'}
+                ? 'Planner will auto-run on the configured schedule.'
+                : 'Auto-planner is off. Use Quick Actions to run manually.'}
         </div>
-        <div className="mt-2 text-[10px] text-muted">
-            DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}
+        <div className="mt-2 space-y-1 text-[10px] text-muted">
+            <div>
+                Last plan run: {formatLocalIso(lastRunDate)}
+            </div>
+            <div>
+                Next expected run:{' '}
+                {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
+            </div>
+            <div>
+                DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}
+            </div>
         </div>
         </Card>
         </div>
