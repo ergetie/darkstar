@@ -17,3 +17,53 @@ export type ScheduleSlot = {
 };
 
 export type Status = { value: number; timestamp: string; planned_at?: string; planner_version?: string; };
+
+export type AuroraGraduation = {
+  label: 'infant' | 'statistician' | 'graduate' | string;
+  runs: number;
+};
+
+export type AuroraRiskProfile = {
+  persona: string;
+  base_factor: number;
+  mode?: string;
+  max_factor?: number | null;
+  static_factor?: number | null;
+  raw?: Record<string, any>;
+};
+
+export type AuroraWeatherVolatility = {
+  cloud_volatility: number;
+  temp_volatility: number;
+  overall: number;
+};
+
+export type AuroraHorizonSlot = {
+  slot_start: string;
+  base: { pv_kwh: number; load_kwh: number };
+  correction: { pv_kwh: number; load_kwh: number };
+  final: { pv_kwh: number; load_kwh: number };
+};
+
+export type AuroraHorizon = {
+  start: string;
+  end: string;
+  forecast_version?: string;
+  slots: AuroraHorizonSlot[];
+};
+
+export type AuroraHistoryDay = {
+  date: string;
+  total_correction_kwh: number;
+};
+
+export type AuroraDashboardResponse = {
+  identity: { graduation: AuroraGraduation };
+  state: {
+    risk_profile: AuroraRiskProfile;
+    weather_volatility: AuroraWeatherVolatility;
+  };
+  horizon: AuroraHorizon;
+  history: { correction_volume_days: AuroraHistoryDay[] };
+  generated_at: string;
+};

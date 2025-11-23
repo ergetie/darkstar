@@ -34,8 +34,10 @@ from learning import get_learning_engine
 from backend.strategy.engine import StrategyEngine
 from backend.strategy.analyst import EnergyAnalyst
 from backend.strategy.voice import get_advice
+from backend.api.aurora import aurora_bp
 
 app = Flask(__name__)
+app.register_blueprint(aurora_bp)
 
 THEME_DIR = os.path.join(os.path.dirname(__file__), "themes")
 
