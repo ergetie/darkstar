@@ -19,6 +19,10 @@ This document contains the archive of all completed revisions. It serves as the 
 *   **Summary:** Implemented a dedicated in-app scheduler process (`backend/scheduler.py`) controlled by `automation.schedule` in `config.yaml`, exposed `/api/scheduler/status`, and wired the Dashboard’s Planner Automation card to show real last/next run status instead of computed guesses.
 *   **Status:** ✅ Completed (2025-11-23)
 
+### Rev 60 — Cross-Day Responsibility (Charging Ahead for Tomorrow)
+*   **Summary:** Updated `_pass_1_identify_windows` to consider total future net deficits vs. cheap-window capacity and expand cheap windows based on future price distribution when needed, so the planner charges in the cheapest remaining hours and preserves SoC for tomorrow’s high-price periods even when the battery is already near its target at runtime.
+*   **Status:** ✅ Completed (2025-11-23)
+
 ### Rev A22 — The Analyst (Manual Load Optimizer)
 *   **Summary:** Calculate the mathematically optimal time to run heavy appliances (Dishwasher, Dryer) over the next 48h.
 *   **Logic:** Scans price/PV forecast to find "Golden Windows" (lowest cost for 3h block). Outputs a JSON recommendation.

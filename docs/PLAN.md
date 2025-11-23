@@ -129,46 +129,6 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 *   Planner logs indicate the source of correction ("Applying ML Correction" vs "Applying Stats Fallback").
 *   Simulating a context change (e.g., cold snap) results in an immediate forecast adjustment *before* the event occurs.
 
-### Rev 60 — Cross-Day Responsibility (Charging Ahead for Tomorrow) *(Status: 📋 Planned)*
-
-*   **Goal**: Ensure the planner charges proactively in tonight’s lower-price windows to cover **tomorrow’s** high-price deficits, even when the battery is already near its strategic target at “now”.
-*   **Problem Statement**: With the current logic, `_pass_1_identify_windows` uses **current SoC vs. static target** to decide if dynamic cheap-window expansion is needed. When SoC is near target at `now_slot`, the deficit is ≈0, so no future slots are marked `is_cheap`, `windows` is empty in `_pass_4_allocate_cascading_responsibilities`, and tomorrow’s expensive gaps receive **zero responsibility**. The result is a flat `soc_target_percent = min_soc` tomorrow and no pre-charging tonight.
-
-**Design & Logic**
-
-1. **Future-Deficit-Aware Cheap Windows**
-    *   Extend `_pass_1_identify_windows` so that if `deficit_kwh` (current vs target) is small but **simulated future SoC** (from `_pass_3_simulate_baseline_depletion`) drops significantly below the strategic target during tomorrow’s high-price periods, those future deficits contribute to an effective `future_deficit_kwh`.
-    *   Use this `future_deficit_kwh` to drive dynamic window expansion:
-        *   If `future_deficit_kwh > baseline_capacity_kwh` and there are no future `is_cheap=True` slots, expand the threshold based on **future price distribution only** (prices where `df.index >= now_slot`).
-        *   Guarantee that at least some lower-priced future slots (tonight vs tomorrow peaks) become `is_cheap=True`, forming real cheap windows beyond “now”.
-
-2. **Cheapest-Future-Window Responsibility**
-    *   In `_pass_4_allocate_cascading_responsibilities`, when `windows` is empty but:
-        *   Tomorrow’s day has a complete price curve, and
-        *   Simulated SoC shows a drop towards `min_soc` while `import_price_sek_kwh` stays high,
-        create a synthetic cheap window over the **cheapest available future slots** (e.g., a block tonight) and assign responsibility for tomorrow’s net deficits to that window.
-    *   Responsibility should be based on:
-        *   `gap_net_load_kwh` computed from `adjusted_load_kwh - adjusted_pv_kwh` over tomorrow’s high-price intervals.
-        *   S-index factor (safety) on top of that, as today.
-
-3. **SoC Targets Reflect Future Responsibility**
-    *   Ensure `_apply_soc_target_percent` respects new “Charge” blocks assigned to cross-day responsibilities, raising `soc_target_percent` above `min_soc` for:
-        *   Tonight’s charge blocks.
-        *   Tomorrow’s protected intervals where we want to hold charge instead of resting at `min_soc`.
-
-**Scope**
-*   `planner.py`:
-    *   `_pass_1_identify_windows`: incorporate future deficits (via `simulated_soc_kwh` or equivalent) into cheap-window expansion, and fallback to a **future-only** price percentile when no future cheap slots exist.
-    *   `_pass_4_allocate_cascading_responsibilities`: add a fallback path when `windows` is empty but tomorrow’s prices and loads clearly imply a deficit, assigning responsibility to the cheapest future slots.
-    *   `_apply_soc_target_percent`: verify that new Charge blocks and Hold logic produce non-flat SoC targets across the night/tomorrow boundary.
-
-**Acceptance Criteria**
-*   With a scenario like the current one (cheap tonight, very expensive tomorrow, battery near target at “now”):
-    *   The planner produces **non-zero charging** in tonight’s lower-price slots.
-    *   `soc_target_percent` for tomorrow is **above `min_soc`** over at least the expensive periods where we want to use the battery.
-    *   `df["is_cheap"]` has `True` values for some future slots (after `now_slot`), and `_pass_4` generates `window_responsibilities` that cover tomorrow’s high-price deficits.
-*   When future prices are flat or tomorrow is not actually expensive relative to tonight, behavior remains close to current (no over-charging purely for the sake of it).
-
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
 ---
