@@ -6,6 +6,11 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ## Phase 4: Strategy Engine & Aurora v2 (The Agent)
 
+### Rev 58 — The Weather Strategist (Strategy Engine)
+*   **Summary:** Added a weather volatility metric over a 48h horizon using Open-Meteo (cloud cover and temperature), wired it into `inputs.py` as `context.weather_volatility`, and taught the Strategy Engine to increase `s_index.pv_deficit_weight` and `temp_weight` linearly with volatility while never dropping below `config.yaml` baselines.
+*   **Details:** `ml/weather.get_weather_volatility` computes normalized scores (`0.0-1.0`) based on standard deviation, `inputs.get_all_input_data` passes them as `{"cloud": x, "temp": y}`, and `backend.strategy.engine.StrategyEngine` scales weights by up to `+0.4` (PV deficit) and `+0.2` (temperature) with logging and a debug harness in `debug/test_strategy_weather.py`.
+*   **Status:** ✅ Completed (2025-11-23)
+
 ### Rev 60 — Cross-Day Responsibility (Charging Ahead for Tomorrow)
 *   **Summary:** Updated `_pass_1_identify_windows` to consider total future net deficits vs. cheap-window capacity and expand cheap windows based on future price distribution when needed, so the planner charges in the cheapest remaining hours and preserves SoC for tomorrow’s high-price periods even when the battery is already near its target at runtime.
 *   **Status:** ✅ Completed (2025-11-23)

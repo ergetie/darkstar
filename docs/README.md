@@ -118,7 +118,7 @@ System parameters are defined in `config.yaml`. Credentials live in `secrets.yam
 *   **Advanced Parameters**:
     *   **Charging Strategy**: `price_smoothing_sek_kwh` (hysteresis), `block_consolidation_tolerance` (merging adjacent slots), `gap_allowance`.
     *   **Export Controls**: `percentile_threshold` (peak-only export), `profit_margin`, `future_price_guard`.
-    *   **S-Index**: `base_factor`, `pv_deficit_weight`, `temp_weight`.
+    *   **S-Index**: `base_factor`, `pv_deficit_weight`, `temp_weight`. Weather volatility can dynamically scale these weights during chaotic cloud/temperature conditions.
 
 ### `secrets.yaml` (Credentials)
 *   **Home Assistant**: `url` and `token`.
