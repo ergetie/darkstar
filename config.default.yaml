@@ -117,6 +117,9 @@ debug:
 automation:
   enable_scheduler: false
   write_to_mariadb: false
+  schedule:
+    every_minutes: 60
+    jitter_minutes: 0
 
 # Learning Engine
 learning:

@@ -15,6 +15,10 @@ This document contains the archive of all completed revisions. It serves as the 
 *   **Summary:** Added a “Load DB plan” Quick Action, merged execution history into `/api/db/current_schedule`, and let the Dashboard chart show `current_schedule` slots with actual SoC/`actual_*` values without overwriting `schedule.json`.
 *   **Status:** ✅ Completed (2025-11-25)
 
+### Rev 57 — In-App Scheduler Orchestrator
+*   **Summary:** Implemented a dedicated in-app scheduler process (`backend/scheduler.py`) controlled by `automation.schedule` in `config.yaml`, exposed `/api/scheduler/status`, and wired the Dashboard’s Planner Automation card to show real last/next run status instead of computed guesses.
+*   **Status:** ✅ Completed (2025-11-23)
+
 ### Rev A22 — The Analyst (Manual Load Optimizer)
 *   **Summary:** Calculate the mathematically optimal time to run heavy appliances (Dishwasher, Dryer) over the next 48h.
 *   **Logic:** Scans price/PV forecast to find "Golden Windows" (lowest cost for 3h block). Outputs a JSON recommendation.
