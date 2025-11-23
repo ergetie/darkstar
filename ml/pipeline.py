@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
+import pandas as pd
 import pytz
 
 from learning import LearningEngine, get_learning_engine
@@ -34,6 +35,16 @@ def _apply_corrections_to_db(
             if slot_start is None:
                 continue
 
+            # Normalize timestamp exactly like learning.py (store_forecasts)
+            if hasattr(slot_start, "astimezone"):
+                ts_str = slot_start.astimezone(engine.timezone).isoformat()
+            else:
+                ts_str = (
+                    pd.to_datetime(slot_start)
+                    .astimezone(engine.timezone)
+                    .isoformat()
+                )
+
             pv_corr = float(row.get("pv_correction_kwh") or 0.0)
             load_corr = float(row.get("load_correction_kwh") or 0.0)
             source = row.get("correction_source") or "none"
@@ -48,13 +59,7 @@ def _apply_corrections_to_db(
                 WHERE slot_start = ?
                   AND forecast_version = ?
                 """,
-                (
-                    pv_corr,
-                    load_corr,
-                    source,
-                    slot_start.isoformat() if isinstance(slot_start, datetime) else str(slot_start),
-                    forecast_version,
-                ),
+                (pv_corr, load_corr, source, ts_str, forecast_version),
             )
 
         conn.commit()
