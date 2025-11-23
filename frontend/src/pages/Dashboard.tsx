@@ -103,7 +103,6 @@ export default function Dashboard(){
 
     const fetchAllData = useCallback(async () => {
         setIsRefreshing(true)
-        setStatusMessage('Refreshing…')
         let hadError = false
         try {
             // Parallel fetch all data
@@ -408,7 +407,9 @@ export default function Dashboard(){
                 }`}
                 title="Refresh data"
             >
-                {isRefreshing ? '⟳' : '↻'}
+                <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
+                    {isRefreshing ? '⟳' : '↻'}
+                </span>
             </button>
             <button
                 onClick={() => setAutoRefresh(!autoRefresh)}
