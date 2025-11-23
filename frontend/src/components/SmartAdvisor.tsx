@@ -5,20 +5,21 @@ import Card from './Card'
 
 export default function SmartAdvisor() {
   const [advice, setAdvice] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
-  const [disabled, setDisabled] = useState(false)
+  const [llmEnabled, setLlmEnabled] = useState<boolean | null>(null)
+  const [autoFetch, setAutoFetch] = useState<boolean>(true)
 
   const fetchAdvice = async () => {
+    if (!llmEnabled) return
     setLoading(true)
     setError(false)
     try {
       const res = await Api.getAdvice()
       if ((res as any).status === 'disabled') {
-        setDisabled(true)
+        setLlmEnabled(false)
         setAdvice(null)
       } else {
-        setDisabled(false)
         setAdvice(res.advice ?? null)
       }
     } catch (e) {
@@ -30,10 +31,25 @@ export default function SmartAdvisor() {
   }
 
   useEffect(() => {
-    fetchAdvice()
+    // Load advisor settings (enable_llm + auto_fetch) from config
+    Api.config()
+      .then((cfg) => {
+        const advisor = cfg.advisor || {}
+        const enabled = advisor.enable_llm !== false
+        const auto = advisor.auto_fetch !== false
+        setLlmEnabled(enabled)
+        setAutoFetch(auto)
+        if (enabled && auto) {
+          fetchAdvice()
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load advisor config:', err)
+        setLlmEnabled(false)
+      })
   }, [])
 
-  if (error || disabled) return null
+  const canRequest = !!llmEnabled && !loading
 
   return (
     <Card className="h-full p-4 md:p-5 flex flex-col">
@@ -42,22 +58,37 @@ export default function SmartAdvisor() {
           <Sparkles className="h-4 w-4 text-accent" />
           <span>Aurora Advisor</span>
         </div>
-        <button
-          onClick={fetchAdvice}
-          disabled={loading}
-          className="text-[10px] text-muted hover:text-text transition-colors p-1"
-          title="Refresh advice"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-        </button>
+        {llmEnabled !== null && (
+          <button
+            onClick={fetchAdvice}
+            disabled={!canRequest}
+            className="text-[10px] text-muted hover:text-text transition-colors p-1 disabled:opacity-40"
+            title={llmEnabled ? 'Fetch latest advice' : 'Enable LLM advice in Settings'}
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        )}
       </div>
       <div className="text-[11px] text-text leading-relaxed">
-        {loading ? (
-          <span className="animate-pulse">Analyzing schedule...</span>
-        ) : advice ? (
-          advice
-        ) : (
-          'No advice available.'
+        {llmEnabled === false && (
+          <span className="text-muted">
+            Smart Advisor is disabled. Enable LLM advice in Settings to get automated recommendations.
+          </span>
+        )}
+        {llmEnabled === true && (
+          <>
+            {loading && <span className="animate-pulse">Analyzing schedule...</span>}
+            {!loading && error && (
+              <span className="text-red-400">Unable to fetch advice. Check AI settings or try again.</span>
+            )}
+            {!loading && !error && !advice && !autoFetch && (
+              <span className="text-muted">Click the refresh icon to analyze your current schedule.</span>
+            )}
+            {!loading && !error && advice && <span>{advice}</span>}
+          </>
+        )}
+        {llmEnabled === null && !loading && !error && (
+          <span className="text-muted">Loading advisor settings…</span>
         )}
       </div>
     </Card>
