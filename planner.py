@@ -1125,23 +1125,33 @@ class HeliosPlanner:
         total_load = df["adjusted_load_kwh"].sum()
         self.is_strategic_period = total_pv < total_load
 
-        # Rev 60: ensure we have at least some future cheap slots when tomorrow is expensive.
-        # If there are no cheap slots at or after now_slot, recompute a fallback threshold
-        # using only the future price distribution so that the cheapest future hours form
-        # at least one cheap window for responsibility allocation.
+        # Rev 60: ensure future cheap capacity is sufficient for future deficits.
+        # If the capacity in future cheap slots is too small vs the net future deficit,
+        # recompute a threshold using only future prices so that enough of the cheapest
+        # future hours become cheap windows for responsibility allocation.
         now_slot = getattr(self, "now_slot", df.index[0])
         future_mask = df.index >= now_slot
-        future_cheap_mask = df["is_cheap"] & future_mask
-        if not future_cheap_mask.any():
-            future_prices = df.loc[future_mask, "import_price_sek_kwh"].dropna()
-            if not future_prices.empty:
-                future_quantile = future_prices.quantile(charge_threshold_percentile / 100.0)
-                if pd.isna(future_quantile):
-                    future_quantile = future_prices.median()
-                if not pd.isna(future_quantile):
+        if future_mask.any():
+            future_df = df.loc[future_mask]
+            # Net future deficit in kWh (load + water - PV), clamped to >= 0
+            future_net_deficit = float(
+                (future_df["adjusted_load_kwh"] - future_df["adjusted_pv_kwh"]).clip(lower=0.0).sum()
+            )
+            # Cheap capacity in future cheap slots (max_charge_kw per slot, ignoring other limits)
+            future_cheap_slots = int((future_df["is_cheap"]).sum())
+            slot_kwh_limit = max_charge_kw * 0.25
+            future_cheap_capacity = future_cheap_slots * slot_kwh_limit
+
+            # Only expand if there is a meaningful future deficit and capacity is clearly too small
+            if future_net_deficit > 0 and future_cheap_capacity + 1e-6 < future_net_deficit:
+                needed_slots = int(math.ceil(future_net_deficit / slot_kwh_limit))
+                future_prices = future_df["import_price_sek_kwh"].dropna().sort_values()
+                if not future_prices.empty and needed_slots > 0:
+                    idx = min(len(future_prices) - 1, needed_slots - 1)
+                    target_price = float(future_prices.iloc[idx])
                     fallback_threshold = max(
                         self.cheap_price_threshold,
-                        future_quantile + cheap_price_tolerance_sek + price_smoothing_sek_kwh,
+                        target_price + cheap_price_tolerance_sek + price_smoothing_sek_kwh,
                     )
                     df["is_cheap"] = (
                         df["import_price_sek_kwh"] <= fallback_threshold
