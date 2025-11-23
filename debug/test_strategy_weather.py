@@ -23,7 +23,7 @@ def main() -> None:
             "vacation_mode": False,
             "weather_volatility": {
                 "cloud": 0.9,
-                "temp": 0.0,
+                "temp": 0.9,
             },
         }
     }
@@ -41,9 +41,9 @@ def main() -> None:
     print("Adjusted pv_deficit_weight:", pv_weight)
     print("Base temp_weight:", base_temp_weight)
     print("Adjusted temp_weight:", temp_weight)
+    print("Delta temp_weight:", temp_weight - base_temp_weight)
     print("Overrides:", overrides)
 
 
 if __name__ == "__main__":
     main()
-
