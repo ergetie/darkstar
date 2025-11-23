@@ -68,7 +68,7 @@ Located in `ml/`, Aurora is a LightGBM-based machine learning engine.
 ### 2. Strategy Engine (The Context Layer)
 Located in `backend/strategy/`, this layer injects "common sense" overrides before the mathematical planner runs.
 *   **Vacation Mode**: Detects if the home is empty and suppresses water heating.
-*   **Weather Variance**: Increases safety margins (S-Index) if the weather forecast is highly uncertain.
+*   **Weather Variance & Forecast Uncertainty**: Increases safety margins (S-Index) when 48h weather forecasts (cloud cover/temperature) are volatile, effectively reacting to forecast uncertainty.
 *   **The Analyst**: Scans prices to find optimal windows for heavy appliances (Dishwasher/Dryer) and advises the user.
 
 ### 3. The Planner (The Optimizer)
