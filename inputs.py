@@ -9,6 +9,7 @@ from nordpool.elspot import Prices
 from open_meteo_solar_forecast import OpenMeteoSolarForecast
 
 from ml.api import get_forecast_slots
+from ml.weather import get_weather_volatility
 
 
 def load_home_assistant_config() -> Dict[str, Any]:
@@ -479,14 +480,27 @@ def get_all_input_data(config_path="config.yaml"):
         except Exception as e:
             print(f"⚠️ AURORA Inference Failed: {e}")
 
-    # --- FETCH CONTEXT (New in Rev 19) ---
+    # --- FETCH CONTEXT (New in Rev 19, extended in Rev 58) ---
     sensors = config.get("input_sensors", {})
     vacation_id = sensors.get("vacation_mode")
     alarm_id = sensors.get("alarm_state")
 
+    timezone_name = config.get("timezone", "Europe/Stockholm")
+    local_tz = pytz.timezone(timezone_name)
+    now_local = datetime.now(local_tz)
+    horizon_end = now_local + timedelta(hours=48)
+
+    volatility_raw = get_weather_volatility(now_local, horizon_end, config)
+    cloud_vol = float(volatility_raw.get("cloud_volatility", 0.0) or 0.0)
+    temp_vol = float(volatility_raw.get("temp_volatility", 0.0) or 0.0)
+
     context = {
         "vacation_mode": get_home_assistant_bool(vacation_id) if vacation_id else False,
         "alarm_armed": get_home_assistant_bool(alarm_id) if alarm_id else False,
+        "weather_volatility": {
+            "cloud": max(0.0, min(1.0, cloud_vol)),
+            "temp": max(0.0, min(1.0, temp_vol)),
+        },
     }
     # -------------------------------------
 
