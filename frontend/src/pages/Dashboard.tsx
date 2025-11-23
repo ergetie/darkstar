@@ -6,7 +6,7 @@ import Kpi from '../components/Kpi'
 import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import type { DaySel } from '../lib/time'
+import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 
 type PlannerMeta = { plannedAt?: string; version?: string } | null
@@ -47,6 +47,8 @@ export default function Dashboard(){
     const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
     const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
+    const [localSchedule, setLocalSchedule] = useState<ScheduleSlot[] | null>(null)
+    const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -116,6 +118,7 @@ export default function Dashboard(){
                 waterData,
                 learningData,
                 schedulerStatusData,
+                historyData,
             ] = await Promise.allSettled([
                 Api.status(),
                 Api.horizon(),
@@ -125,6 +128,7 @@ export default function Dashboard(){
                 Api.haWaterToday(),
                 Api.learningStatus(),
                 Api.schedulerStatus(),
+                Api.scheduleTodayWithHistory(),
             ])
 
             // Process status data
@@ -223,6 +227,8 @@ export default function Dashboard(){
             // Process schedule data
             if (scheduleData.status === 'fulfilled') {
                 const data = scheduleData.value
+                const sched = data.schedule ?? []
+                setLocalSchedule(sched)
                 // Calculate PV today from schedule data
                 const today = new Date().toISOString().split('T')[0]
                 const todaySlots = data.schedule?.filter(slot => 
@@ -235,7 +241,7 @@ export default function Dashboard(){
                 
                 // Get current slot target
                 const now = new Date()
-                const currentSlot = data.schedule?.find(slot => {
+                    const currentSlot = sched.find(slot => {
                     const slotTime = new Date(slot.start_time || '')
                     const slotEnd = new Date(slotTime.getTime() + 30 * 60 * 1000) // 30 min slots
                     return now >= slotTime && now < slotEnd
@@ -285,6 +291,15 @@ export default function Dashboard(){
                 })
             } else {
                 console.error('Failed to load scheduler status for Dashboard:', schedulerStatusData.reason)
+            }
+
+            // Process execution history for today (for SoC Actual in charts)
+            if (historyData.status === 'fulfilled') {
+                const data = historyData.value
+                const histSlots = data.slots ?? []
+                setHistorySlots(histSlots)
+            } else {
+                console.error('Failed to load schedule history for Dashboard:', historyData.reason)
             }
 
             setLastRefresh(new Date())
@@ -374,13 +389,24 @@ export default function Dashboard(){
     } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
         nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
     }
-
-
-
-    const slotsOverride =
-        currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0
-            ? serverSchedule
-            : undefined
+	    // Build slotsOverride for the chart:
+	    // - Server plan: use merged serverSchedule (already contains execution history).
+	    // - Local plan: mirror Planning view by merging today's history with tomorrow's schedule
+	    //   so SoC Actual appears in both 24h and 48h modes.
+	    let slotsOverride: ScheduleSlot[] | undefined
+	    if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
+	        slotsOverride = serverSchedule
+	    } else if (currentPlanSource === 'local' && localSchedule && localSchedule.length > 0) {
+	        const todayAndTomorrow = localSchedule.filter(
+	            slot => isToday(slot.start_time) || isTomorrow(slot.start_time),
+	        )
+	        if (historySlots && historySlots.length > 0) {
+	            const tomorrowSlots = todayAndTomorrow.filter(slot => isTomorrow(slot.start_time))
+	            slotsOverride = [...historySlots, ...tomorrowSlots]
+	        } else {
+	            slotsOverride = todayAndTomorrow
+	        }
+	    }
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12 space-y-10">
