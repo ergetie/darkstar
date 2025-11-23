@@ -478,12 +478,12 @@ def get_all_input_data(config_path="config.yaml"):
     # --- AUTO-RUN ML INFERENCE IF AURORA IS ACTIVE ---
     if config.get("forecasting", {}).get("active_forecast_version") == "aurora":
         try:
-            print("🧠 Running AURORA ML Inference...")
-            from ml.forward import generate_forward_slots
+            print("🧠 Running AURORA ML Inference Pipeline (base + correction)...")
+            from ml.pipeline import run_inference
 
-            generate_forward_slots(horizon_hours=168)
+            run_inference(horizon_hours=168, forecast_version="aurora")
         except Exception as e:
-            print(f"⚠️ AURORA Inference Failed: {e}")
+            print(f"⚠️ AURORA Inference Pipeline Failed: {e}")
 
     # --- FETCH CONTEXT (New in Rev 19, extended in Rev 58) ---
     sensors = config.get("input_sensors", {})
