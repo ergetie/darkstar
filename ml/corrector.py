@@ -149,7 +149,10 @@ def _train_error_models(
     X = df[feature_cols].fillna(0.0)
 
     models: Dict[str, lgb.Booster] = {}
-    for target, model_name in (("pv_residual", "pv_error.lgb"), ("load_residual", "load_error.lgb")):
+    for target, model_name in (
+        ("pv_residual", "pv_error.lgb"),
+        ("load_residual", "load_error.lgb"),
+    ):
         if target not in df.columns:
             continue
 
@@ -183,7 +186,10 @@ def train(models_dir: str = "ml/models") -> Dict[str, Any]:
     level = _determine_graduation_level(engine)
     if level.level < 2:
         # Not enough data for ML yet; rely on stats path.
-        return {"status": "skipped", "reason": f"insufficient data for ML (days={level.days_of_data})"}
+        return {
+            "status": "skipped",
+            "reason": f"insufficient data for ML (days={level.days_of_data})",
+        }
 
     df = _load_training_frame(engine)
     if df.empty:
@@ -210,7 +216,9 @@ def _load_error_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
     return models
 
 
-def _compute_stats_bias(engine: LearningEngine, days_back: int = 14) -> Dict[Tuple[int, int], Tuple[float, float]]:
+def _compute_stats_bias(
+    engine: LearningEngine, days_back: int = 14
+) -> Dict[Tuple[int, int], Tuple[float, float]]:
     """
     Compute rolling average residual per (day_of_week, hour) for PV and load.
     """
@@ -450,4 +458,3 @@ def predict_corrections(
         )
 
     return corrections, "ml"
-

@@ -1135,7 +1135,9 @@ class HeliosPlanner:
             future_df = df.loc[future_mask]
             # Net future deficit in kWh (load + water - PV), clamped to >= 0
             future_net_deficit = float(
-                (future_df["adjusted_load_kwh"] - future_df["adjusted_pv_kwh"]).clip(lower=0.0).sum()
+                (future_df["adjusted_load_kwh"] - future_df["adjusted_pv_kwh"])
+                .clip(lower=0.0)
+                .sum()
             )
             # Cheap capacity in future cheap slots (max_charge_kw per slot, ignoring other limits)
             future_cheap_slots = int((future_df["is_cheap"]).sum())
@@ -1154,8 +1156,10 @@ class HeliosPlanner:
                         target_price + cheap_price_tolerance_sek + price_smoothing_sek_kwh,
                     )
                     df["is_cheap"] = (
-                        df["import_price_sek_kwh"] <= fallback_threshold
-                    ).fillna(False).astype(bool)
+                        (df["import_price_sek_kwh"] <= fallback_threshold)
+                        .fillna(False)
+                        .astype(bool)
+                    )
                     self.cheap_price_threshold = fallback_threshold
                     self.cheap_slot_count = int(df["is_cheap"].sum())
                     self.non_cheap_slot_count = len(df) - self.cheap_slot_count
