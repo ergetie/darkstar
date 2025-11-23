@@ -11,6 +11,10 @@ This document contains the archive of all completed revisions. It serves as the 
 *   **Scope:** `secrets.yaml` (OpenRouter Key), `backend/llm_client.py` (Gemini Flash interface), UI "Smart Advisor" card.
 *   **Status:** ✅ Completed (2025-11-21)
 
+### Rev 56 — Dashboard Server Plan Visualization
+*   **Summary:** Added a “Load DB plan” Quick Action, merged execution history into `/api/db/current_schedule`, and let the Dashboard chart show `current_schedule` slots with actual SoC/`actual_*` values without overwriting `schedule.json`.
+*   **Status:** ✅ Completed (2025-11-25)
+
 ### Rev A22 — The Analyst (Manual Load Optimizer)
 *   **Summary:** Calculate the mathematically optimal time to run heavy appliances (Dishwasher, Dryer) over the next 48h.
 *   **Logic:** Scans price/PV forecast to find "Golden Windows" (lowest cost for 3h block). Outputs a JSON recommendation.
