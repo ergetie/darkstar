@@ -55,6 +55,8 @@ export type AuroraHorizon = {
 export type AuroraHistoryDay = {
   date: string;
   total_correction_kwh: number;
+  pv_correction_kwh?: number;
+  load_correction_kwh?: number;
 };
 
 export type AuroraDashboardResponse = {
