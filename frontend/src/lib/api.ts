@@ -154,6 +154,17 @@ export type LearningLoopsResponse = {
   [key: string]: any
 }
 
+export type SchedulerStatusResponse = {
+  enabled?: boolean
+  every_minutes?: number
+  jitter_minutes?: number
+  last_run_at?: string
+  next_run_at?: string
+  last_run_status?: string
+  last_error?: string
+  [key: string]: any
+}
+
 export type ThemeInfo = {
   name: string
   background: string
@@ -252,6 +263,7 @@ export const Api = {
     getJSON<{status: string}>('/api/forecast/run_eval', 'POST', { days_back: daysBack }),
   forecastRunForward: (horizonHours = 48) =>
     getJSON<{status: string}>('/api/forecast/run_forward', 'POST', { horizon_hours: horizonHours }),
+  schedulerStatus: () => getJSON<SchedulerStatusResponse>('/api/scheduler/status'),
 }
 
 export const Sel = {

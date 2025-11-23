@@ -313,9 +313,7 @@ def forecast_day():
     date_param = request.args.get("date")
     try:
         target_date = (
-            datetime.fromisoformat(date_param).date()
-            if date_param
-            else datetime.now(tz).date()
+            datetime.fromisoformat(date_param).date() if date_param else datetime.now(tz).date()
         )
     except Exception:
         target_date = datetime.now(tz).date()
@@ -385,18 +383,26 @@ def forecast_day():
                 "slot_start": pd.to_datetime(row["slot_start"]).isoformat(),
                 "pv_kwh": None if pd.isna(row.get("pv_kwh")) else float(row["pv_kwh"]),
                 "load_kwh": None if pd.isna(row.get("load_kwh")) else float(row["load_kwh"]),
-                "baseline_pv": None
-                if pd.isna(row.get("pv_forecast_kwh_baseline"))
-                else float(row["pv_forecast_kwh_baseline"]),
-                "baseline_load": None
-                if pd.isna(row.get("load_forecast_kwh_baseline"))
-                else float(row["load_forecast_kwh_baseline"]),
-                "aurora_pv": None
-                if pd.isna(row.get("pv_forecast_kwh_aurora"))
-                else float(row["pv_forecast_kwh_aurora"]),
-                "aurora_load": None
-                if pd.isna(row.get("load_forecast_kwh_aurora"))
-                else float(row["load_forecast_kwh_aurora"]),
+                "baseline_pv": (
+                    None
+                    if pd.isna(row.get("pv_forecast_kwh_baseline"))
+                    else float(row["pv_forecast_kwh_baseline"])
+                ),
+                "baseline_load": (
+                    None
+                    if pd.isna(row.get("load_forecast_kwh_baseline"))
+                    else float(row["load_forecast_kwh_baseline"])
+                ),
+                "aurora_pv": (
+                    None
+                    if pd.isna(row.get("pv_forecast_kwh_aurora"))
+                    else float(row["pv_forecast_kwh_aurora"])
+                ),
+                "aurora_load": (
+                    None
+                    if pd.isna(row.get("load_forecast_kwh_aurora"))
+                    else float(row["load_forecast_kwh_aurora"])
+                ),
             }
         )
 
@@ -620,9 +626,7 @@ def schedule_today_with_history():
         local_zoned = tz.localize(local_start)
         slot["start_time"] = local_zoned.isoformat()
         if "end_time" not in slot:
-            slot["end_time"] = (
-                local_zoned + timedelta(minutes=resolution_minutes)
-            ).isoformat()
+            slot["end_time"] = (local_zoned + timedelta(minutes=resolution_minutes)).isoformat()
 
         # Attach executed values if present
         if hist:
@@ -731,6 +735,41 @@ def planner_status():
 def api_version():
     return jsonify({"version": _get_git_version()})
 
+
+@app.route("/api/scheduler/status", methods=["GET"])
+def scheduler_status():
+    """Return the in-app scheduler status if available."""
+    status_path = os.path.join("data", "scheduler_status.json")
+    try:
+        with open(status_path, "r", encoding="utf-8") as f:
+            data = json.load(f) or {}
+    except FileNotFoundError:
+        data = {}
+    except Exception as exc:
+        logger.warning("Failed to read scheduler status: %s", exc)
+        data = {"last_run_status": "error", "last_error": str(exc)}
+
+    # Enrich with current automation config so UI always has a source of truth.
+    try:
+        cfg = _load_yaml("config.yaml")
+        automation = cfg.get("automation", {}) or {}
+        schedule = automation.get("schedule", {}) or {}
+        if "enabled" not in data:
+            data["enabled"] = bool(automation.get("enable_scheduler", False))
+        if "every_minutes" not in data and "every_minutes" in schedule:
+            try:
+                data["every_minutes"] = int(schedule.get("every_minutes"))
+            except (TypeError, ValueError):
+                pass
+        if "jitter_minutes" not in data and "jitter_minutes" in schedule:
+            try:
+                data["jitter_minutes"] = int(schedule.get("jitter_minutes"))
+            except (TypeError, ValueError):
+                pass
+    except Exception as exc:
+        logger.warning("Failed to enrich scheduler status from config.yaml: %s", exc)
+
+    return jsonify(data)
 
 @app.route("/api/db/current_schedule", methods=["GET"])
 def db_current_schedule():
@@ -1432,6 +1471,7 @@ def simulate():
 
         # Apply overrides to config_data (Deep Merge)
         if overrides:
+
             def deep_merge(target, source):
                 for k, v in source.items():
                     if k in target and isinstance(target[k], dict) and isinstance(v, dict):
@@ -1669,9 +1709,7 @@ def forecast_run_eval():
 def forecast_run_forward():
     """Trigger forward AURORA forecast generation for the planner horizon."""
     try:
-        horizon_hours = (
-            int(request.json.get("horizon_hours", 48)) if request.is_json else 48
-        )
+        horizon_hours = int(request.json.get("horizon_hours", 48)) if request.is_json else 48
     except Exception:
         horizon_hours = 48
 
@@ -1976,9 +2014,7 @@ def record_observation_from_current_state():
             # Fetch cumulative energy sensors from Home Assistant
             # These are total-increasing kWh counters on the inverter.
             sensor_totals = {
-                "pv_total": get_home_assistant_sensor_float(
-                    "sensor.inverter_total_production"
-                ),
+                "pv_total": get_home_assistant_sensor_float("sensor.inverter_total_production"),
                 "load_total": get_home_assistant_sensor_float(
                     "sensor.inverter_total_load_consumption"
                 ),
@@ -2021,9 +2057,7 @@ def record_observation_from_current_state():
                 for name, value in sensor_totals.items():
                     if value is None:
                         continue
-                    cursor.execute(
-                        "SELECT last_value FROM sensor_totals WHERE name = ?", (name,)
-                    )
+                    cursor.execute("SELECT last_value FROM sensor_totals WHERE name = ?", (name,))
                     row = cursor.fetchone()
                     if row is None:
                         # First observation for this sensor – initialise without delta

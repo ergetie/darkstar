@@ -46,6 +46,7 @@ export default function Dashboard(){
     const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
     const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
+    const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -113,7 +114,8 @@ export default function Dashboard(){
                 haAverageData,
                 scheduleData,
                 waterData,
-                learningData
+                learningData,
+                schedulerStatusData,
             ] = await Promise.allSettled([
                 Api.status(),
                 Api.horizon(),
@@ -121,7 +123,8 @@ export default function Dashboard(){
                 Api.haAverage(),
                 Api.schedule(),
                 Api.haWaterToday(),
-                Api.learningStatus()
+                Api.learningStatus(),
+                Api.schedulerStatus(),
             ])
 
             // Process status data
@@ -272,6 +275,18 @@ export default function Dashboard(){
                 console.error('Failed to load learning status for Dashboard:', learningData.reason)
             }
 
+            // Process scheduler status
+            if (schedulerStatusData.status === 'fulfilled') {
+                const data = schedulerStatusData.value
+                setSchedulerStatus({
+                    last_run_at: data.last_run_at ?? null,
+                    last_run_status: data.last_run_status ?? null,
+                    next_run_at: data.next_run_at ?? null,
+                })
+            } else {
+                console.error('Failed to load scheduler status for Dashboard:', schedulerStatusData.reason)
+            }
+
             setLastRefresh(new Date())
         } catch (error) {
             console.error('Error fetching dashboard data:', error)
@@ -348,13 +363,15 @@ export default function Dashboard(){
     const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
 
     // Derive last/next planner runs for automation card
-    const lastRunIso = plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
     const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
     const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
         ? automationConfig.every_minutes
         : null
     let nextRunDate: Date | null = null
-    if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
+    if (schedulerStatus?.next_run_at) {
+        nextRunDate = new Date(schedulerStatus.next_run_at)
+    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
         nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
     }
 
