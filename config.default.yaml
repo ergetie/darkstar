@@ -1,6 +1,12 @@
 # General System Settings
 timezone: "Europe/Stockholm"
 
+advisor:
+  enable_llm: false
+  model: gpt-5-nano
+  personality: concise
+  auto_fetch: true
+
 # System Parameters
 system:
   grid:

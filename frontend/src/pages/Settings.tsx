@@ -184,6 +184,12 @@ const uiSections = [
                 type: 'boolean',
             },
             {
+                key: 'advisor.auto_fetch',
+                label: 'Auto-fetch advice on dashboard load',
+                path: ['advisor', 'auto_fetch'],
+                type: 'boolean',
+            },
+            {
                 key: 'advisor.personality',
                 label: 'Advisor personality',
                 path: ['advisor', 'personality'],
