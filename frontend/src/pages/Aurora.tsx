@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Sparkles, Zap, SunMedium } from 'lucide-react'
+import { Shield, Sparkles, Zap, SunMedium } from 'lucide-react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import DecompositionChart from '../components/DecompositionChart'
@@ -13,9 +13,7 @@ export default function Aurora() {
   const [loading, setLoading] = useState(false)
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [riskBaseFactor, setRiskBaseFactor] = useState<number | null>(null)
-  const [initialRiskBaseFactor, setInitialRiskBaseFactor] = useState<number | null>(null)
   const [savingRisk, setSavingRisk] = useState(false)
-  const [riskMessage, setRiskMessage] = useState<string | null>(null)
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
 
   useEffect(() => {
@@ -27,7 +25,6 @@ export default function Aurora() {
         const bf = res.state?.risk_profile?.base_factor
         if (typeof bf === 'number') {
           setRiskBaseFactor(bf)
-          setInitialRiskBaseFactor(bf)
         }
       } catch (err) {
         console.error('Failed to load Aurora dashboard:', err)
@@ -55,21 +52,16 @@ export default function Aurora() {
 
   const handleRiskChange = async (value: number) => {
     if (value == null) return
-    setRiskBaseFactor(value)
     setSavingRisk(true)
-    setRiskMessage(null)
     try {
       await Api.configSave({ s_index: { base_factor: value } })
       const fresh = await Api.config()
       const bf = (fresh as any)?.s_index?.base_factor
       if (typeof bf === 'number') {
         setRiskBaseFactor(bf)
-        setInitialRiskBaseFactor(bf)
       }
-      setRiskMessage('Risk profile updated for future plans.')
     } catch (err) {
       console.error('Failed to save risk level (s_index.base_factor):', err)
-      setRiskMessage('Failed to update risk profile.')
     } finally {
       setSavingRisk(false)
     }
@@ -88,7 +80,14 @@ export default function Aurora() {
   const overallVol = volatility?.overall ?? 0
 
   const waveColor =
-    overallVol < 0.3 ? 'bg-accent/70' : overallVol < 0.7 ? 'bg-sky-400/80' : 'bg-amber-400/90'
+    overallVol < 0.3 ? 'bg-emerald-400/90' : overallVol < 0.7 ? 'bg-sky-400/90' : 'bg-amber-400/90'
+
+  const heroGradient =
+    overallVol < 0.3
+      ? 'from-emerald-900/60 via-surface to-surface'
+      : overallVol < 0.7
+      ? 'from-sky-900/60 via-surface to-surface'
+      : 'from-amber-900/60 via-surface to-surface'
 
   const horizonSlots = dashboard?.horizon?.slots ?? []
 
@@ -154,18 +153,12 @@ export default function Aurora() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-3 p-4 md:p-5">
+        <Card className={`md:col-span-3 p-4 md:p-5 bg-gradient-to-br ${heroGradient}`}>
           <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-surface2 border border-line/80 shadow-inner">
-              <span className="text-2xl">
-                {graduationLabel === 'graduate'
-                  ? '🎓'
-                  : graduationLabel === 'statistician'
-                  ? '📊'
-                  : '🍼'}
-              </span>
+            <div className="relative flex items-center justify-center w-16 h-16 rounded-3xl bg-surface/90 border border-line/80 shadow-float">
+              <Shield className="h-10 w-10 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
             </div>
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 flex-1">
               <div>
                 <div className="text-xs font-semibold text-text uppercase tracking-wide">
                   Aurora
@@ -174,15 +167,15 @@ export default function Aurora() {
                   {graduationLabel || 'infant'} mode
                 </div>
               </div>
-              <div className="flex flex-wrap gap-3 text-[11px] text-muted">
+              <div className="flex flex-wrap gap-4 text-[11px] text-muted">
                 <div>
-                  <span className="uppercase tracking-wide text-[10px]">Runs</span>
+                  <div className="uppercase tracking-wide text-[10px]">Experience</div>
                   <div className="font-mono text-text">
-                    {graduationRuns}
+                    {graduationRuns} runs
                   </div>
                 </div>
                 <div>
-                  <span className="uppercase tracking-wide text-[10px]">Risk</span>
+                  <div className="uppercase tracking-wide text-[10px]">Strategy</div>
                   <div className="text-text">
                     {riskLabel}{' '}
                     <span className="font-mono">
@@ -191,9 +184,9 @@ export default function Aurora() {
                   </div>
                 </div>
                 <div>
-                  <span className="uppercase tracking-wide text-[10px]">Today impact</span>
+                  <div className="uppercase tracking-wide text-[10px]">Today&apos;s Action</div>
                   <div className="text-text">
-                    {todayImpact != null ? `${todayImpact.toFixed(2)} kWh` : '—'}
+                    {todayImpact != null ? `${todayImpact.toFixed(2)} kWh corrected` : '—'}
                   </div>
                 </div>
               </div>
@@ -207,9 +200,9 @@ export default function Aurora() {
               </div>
               <div className="relative flex items-center justify-center h-10 w-10">
                 <div
-                  className={`absolute inset-1 rounded-full ${waveColor} opacity-30 animate-ping`}
+                  className={`absolute inset-0 rounded-full ${waveColor} opacity-30 animate-ping`}
                 />
-                <div className={`relative h-6 w-6 rounded-full ${waveColor.replace('/70', '/90')}`} />
+                <div className={`relative h-5 w-5 rounded-full ${waveColor}`} />
               </div>
             </div>
           </div>
@@ -240,14 +233,8 @@ export default function Aurora() {
             </button>
           </div>
           <div className="space-y-1">
-            <div className="text-[10px] font-semibold text-muted uppercase tracking-wide">
-              AURORA//LOG · Mode: {graduationLabel || 'infant'} · Persona: {riskLabel}{' '}
-              · Vol: {(overallVol * 100).toFixed(0)}% · Horizon: 48h
-            </div>
-            <div className="text-[12px] leading-relaxed text-text bg-surface2/60 border border-line/70 rounded-md px-3 py-3 font-mono tracking-tight">
-              {briefing
-                ? `> ${briefing}`
-                : '> No briefing yet. Click “Refresh briefing” to ask Aurora.'}
+            <div className="text-[12px] leading-relaxed bg-surface2/60 border border-line/70 rounded-md px-3 py-3 font-mono tracking-tight text-accent">
+              {briefing || 'No briefing yet. Click “Refresh briefing” to ask Aurora.'}
             </div>
             {briefingUpdatedAt && (
               <div className="text-[10px] text-muted">
@@ -292,6 +279,7 @@ export default function Aurora() {
                 onChange={(event) => {
                   const val = parseFloat(event.target.value)
                   setRiskBaseFactor(val)
+                  handleRiskChange(val)
                 }}
                 className="relative w-full bg-transparent accent-accent cursor-pointer"
               />
@@ -315,10 +303,21 @@ export default function Aurora() {
               </span>
             </div>
             <div className="text-[11px] text-muted space-y-1">
-              <div>
-                Current base factor:{' '}
-                <span className="font-mono text-text">
-                  {riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'}
+              <div className="flex items-center gap-2">
+                <span
+                  className={`inline-block h-2 w-2 rounded-full ${
+                    riskBaseFactor != null && riskBaseFactor < 1.0
+                      ? 'bg-emerald-400'
+                      : riskBaseFactor != null && riskBaseFactor > 1.2
+                      ? 'bg-amber-400'
+                      : 'bg-sky-400'
+                  }`}
+                />
+                <span>
+                  Current base factor:{' '}
+                  <span className="font-mono text-text">
+                    {riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'}
+                  </span>
                 </span>
               </div>
               <div className="text-[10px]">
@@ -331,38 +330,6 @@ export default function Aurora() {
                   riskBaseFactor > 1.2 &&
                   'Aurora will hold more reserve for uncertainty.'}
               </div>
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  disabled={savingRisk || riskBaseFactor == null}
-                  onClick={() => {
-                    if (riskBaseFactor != null) {
-                      handleRiskChange(riskBaseFactor)
-                    }
-                  }}
-                  className="rounded-pill border border-line/70 bg-surface2 px-2 py-0.5 text-[10px] text-text hover:border-accent disabled:opacity-50"
-                >
-                  Apply
-                </button>
-                <button
-                  type="button"
-                  disabled={savingRisk || initialRiskBaseFactor == null}
-                  onClick={() => {
-                    if (initialRiskBaseFactor != null) {
-                      setRiskBaseFactor(initialRiskBaseFactor)
-                      handleRiskChange(initialRiskBaseFactor)
-                    }
-                  }}
-                  className="rounded-pill border border-line/70 bg-surface px-2 py-0.5 text-[10px] text-muted hover:border-accent disabled:opacity-50"
-                >
-                  Reset
-                </button>
-              </div>
-              {riskMessage && (
-                <div className="text-[10px] text-muted pt-1">
-                  {riskMessage}
-                </div>
-              )}
             </div>
             {savingRisk && (
               <div className="text-[11px] text-muted">Saving and reloading config…</div>
