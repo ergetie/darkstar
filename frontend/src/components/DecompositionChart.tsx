@@ -40,7 +40,7 @@ export default function DecompositionChart({ slots, mode }: Props) {
   )
 
   const correctionColors = correctionSeries.map((v) =>
-    v >= 0 ? 'rgba(34, 197, 94, 0.65)' : 'rgba(239, 68, 68, 0.65)',
+    v >= 0 ? 'rgba(34, 197, 94, 0.45)' : 'rgba(239, 68, 68, 0.45)',
   )
 
   const data = {
@@ -50,9 +50,9 @@ export default function DecompositionChart({ slots, mode }: Props) {
         type: 'line' as const,
         label: isLoad ? 'Base load (kWh)' : 'Base solar (kWh)',
         data: baseSeries,
-        borderColor: 'rgba(148, 163, 184, 0.9)',
-        backgroundColor: 'rgba(148, 163, 184, 0.2)',
-        borderWidth: 1.5,
+        borderColor: 'rgba(148, 163, 184, 0.5)',
+        backgroundColor: 'rgba(148, 163, 184, 0.08)',
+        borderWidth: 1,
         tension: 0.25,
         pointRadius: 0,
       },
@@ -60,9 +60,9 @@ export default function DecompositionChart({ slots, mode }: Props) {
         type: 'line' as const,
         label: isLoad ? 'Final load (kWh)' : 'Final solar (kWh)',
         data: finalSeries,
-        borderColor: 'rgba(96, 165, 250, 0.95)',
-        backgroundColor: 'rgba(96, 165, 250, 0.2)',
-        borderWidth: 1.5,
+        borderColor: 'rgba(59, 130, 246, 0.98)',
+        backgroundColor: 'rgba(59, 130, 246, 0.3)',
+        borderWidth: 2,
         borderDash: [4, 3],
         tension: 0.25,
         pointRadius: 0,
@@ -93,11 +93,19 @@ export default function DecompositionChart({ slots, mode }: Props) {
         },
       },
       tooltip: {
+        backgroundColor: '#020617',
+        borderColor: '#4b5563',
+        borderWidth: 1,
+        titleColor: '#e5e7eb',
+        bodyColor: '#e5e7eb',
+        padding: 8,
         callbacks: {
           label(context: any) {
             const label = context.dataset.label || ''
             const value = context.parsed.y
-            return `${label}: ${typeof value === 'number' ? value.toFixed(3) : value}`
+            return `${label}: ${
+              typeof value === 'number' ? value.toFixed(2) : value
+            }`
           },
         },
       },
@@ -112,7 +120,7 @@ export default function DecompositionChart({ slots, mode }: Props) {
           font: { size: 9 },
         },
         grid: {
-          color: 'rgba(31, 41, 55, 0.8)',
+          display: false,
         },
       },
       y: {
@@ -121,7 +129,7 @@ export default function DecompositionChart({ slots, mode }: Props) {
           font: { size: 9 },
         },
         grid: {
-          color: 'rgba(31, 41, 55, 0.6)',
+          display: false,
         },
       },
     },
