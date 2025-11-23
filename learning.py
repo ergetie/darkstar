@@ -2021,6 +2021,16 @@ class NightlyOrchestrator:
             except Exception as exc:
                 print(f"Failed to store hourly forecast errors: {exc}")
 
+            # Rev 59: train / refresh Aurora Correction models nightly
+            try:
+                from ml import corrector
+
+                result = corrector.train()
+                if result.get("status") not in {"skipped", "trained"}:
+                    print(f"Aurora Correction training returned unexpected status: {result}")
+            except Exception as exc:
+                print(f"Failed to train Aurora Correction models: {exc}")
+
             return {
                 "status": "completed",
                 "run_id": run_id,
