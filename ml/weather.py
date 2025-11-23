@@ -121,6 +121,54 @@ def get_weather_series(
     return df
 
 
+def get_weather_volatility(
+    start_time: datetime,
+    end_time: datetime,
+    config: Dict | None = None,
+    *,
+    config_path: str = "config.yaml",
+) -> Dict[str, float]:
+    """
+    Calculate normalized volatility scores for cloud cover and temperature.
+
+    Volatility is defined as:
+        min(1.0, standard_deviation / normalization_factor)
+    where normalization_factor is 40.0 for cloud cover (percent) and
+    5.0 for temperature (deg C).
+
+    The function returns a dictionary:
+        {
+            "cloud_volatility": float,
+            "temp_volatility": float,
+        }
+    with each value in the range [0.0, 1.0].
+    """
+    df = get_weather_series(start_time, end_time, config=config, config_path=config_path)
+
+    if df.empty:
+        return {"cloud_volatility": 0.0, "temp_volatility": 0.0}
+
+    cloud_std = float(df["cloud_cover_pct"].std()) if "cloud_cover_pct" in df.columns else 0.0
+    temp_std = float(df["temp_c"].std()) if "temp_c" in df.columns else 0.0
+
+    cloud_norm = 40.0
+    temp_norm = 5.0
+
+    cloud_volatility = 0.0
+    temp_volatility = 0.0
+
+    if cloud_std > 0.0 and cloud_norm > 0.0:
+        cloud_volatility = min(1.0, cloud_std / cloud_norm)
+
+    if temp_std > 0.0 and temp_norm > 0.0:
+        temp_volatility = min(1.0, temp_std / temp_norm)
+
+    return {
+        "cloud_volatility": float(cloud_volatility),
+        "temp_volatility": float(temp_volatility),
+    }
+
+
 def get_temperature_series(
     start_time: datetime,
     end_time: datetime,

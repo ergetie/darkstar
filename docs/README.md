@@ -1,8 +1,3 @@
-Here is the final **README.md**. It combines the modern architecture of Darkstar v2 with the deep technical specifications and operational guides of the original documentation.
-
-***
-
-```markdown
 # Darkstar Energy Manager
 
 **An Intelligent Energy Agent for Residential Systems**
@@ -225,4 +220,3 @@ npm run dev  # OR run backend/scheduler separately
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
-```
