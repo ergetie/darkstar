@@ -6,6 +6,11 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ## Phase 4: Strategy Engine & Aurora v2 (The Agent)
 
+### Rev 59 — Intelligent Memory (Aurora Correction)
+*   **Summary:** Introduced a two-model Aurora pipeline where base forecasts (Model 1) are augmented by an Aurora Correction layer (Model 2) that predicts residuals from historical errors and adjusts PV/load forecasts while obeying a strict Graduation Path for safety.
+*   **Details:** Extended `slot_forecasts` schema with `pv_correction_kwh`, `load_correction_kwh`, and `correction_source`; added `ml/corrector.py` with Infant/Statistician/Graduate modes (0 days → no correction, 4–14 days → rolling hour/day-of-week bias, 14+ days → LightGBM error model with stats fallback and ±50% clamping); implemented `ml/pipeline.run_inference` to orchestrate forward + correction and write corrections back into SQLite; wired `inputs.py` to call the pipeline and consume `base + correction` when building forecasts.
+*   **Status:** ✅ Completed (2025-11-23)
+
 ### Rev 58 — The Weather Strategist (Strategy Engine)
 *   **Summary:** Added a weather volatility metric over a 48h horizon using Open-Meteo (cloud cover and temperature), wired it into `inputs.py` as `context.weather_volatility`, and taught the Strategy Engine to increase `s_index.pv_deficit_weight` and `temp_weight` linearly with volatility while never dropping below `config.yaml` baselines.
 *   **Details:** `ml/weather.get_weather_volatility` computes normalized scores (`0.0-1.0`) based on standard deviation, `inputs.get_all_input_data` passes them as `{"cloud": x, "temp": y}`, and `backend.strategy.engine.StrategyEngine` scales weights by up to `+0.4` (PV deficit) and `+0.2` (temperature) with logging and a debug harness in `debug/test_strategy_weather.py`.
