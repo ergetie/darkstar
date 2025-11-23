@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Shield, Sparkles, Zap, SunMedium } from 'lucide-react'
 import Card from '../components/Card'
-import ChartCard from '../components/ChartCard'
 import DecompositionChart from '../components/DecompositionChart'
+import CorrectionHistoryChart from '../components/CorrectionHistoryChart'
 import { Api } from '../lib/api'
 import type { AuroraDashboardResponse } from '../lib/api'
 
@@ -338,15 +338,14 @@ export default function Aurora() {
         </Card>
       </div>
 
-      <ChartCard
-        title={chartMode === 'load' ? 'Forecast Decomposition (Load)' : 'Forecast Decomposition (Solar)'}
-        subtitle={
-          chartMode === 'load'
-            ? 'Base vs correction vs final load over the next 48 hours.'
-            : 'Base vs correction vs final solar production over the next 48 hours.'
-        }
-      >
-        <div className="flex items-center justify-between px-4 pt-3">
+      <Card className="p-4 md:p-5">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <div className="text-xs font-medium text-text">Forecast Decomposition</div>
+            <div className="text-[11px] text-muted">
+              Base vs corrected forecast over the next 48 hours.
+            </div>
+          </div>
           <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px]">
             <button
               type="button"
@@ -377,70 +376,12 @@ export default function Aurora() {
         {loading ? (
           <div className="text-[11px] text-muted px-4 py-6">Loading Aurora horizon…</div>
         ) : (
-          <>
-            <DecompositionChart slots={horizonSlots} mode={chartMode} />
-            {horizonSummary && (
-              <div className="px-4 pb-3 pt-2 text-[10px] text-muted flex justify-between">
-                <span>
-                  Total correction:{' '}
-                  <span className="font-mono text-text">
-                    {horizonSummary.total.toFixed(2)} kWh
-                  </span>
-                </span>
-                {horizonSummary.peakLabel && (
-                  <span>
-                    Peak at{' '}
-                    <span className="font-mono text-text">
-                      {horizonSummary.peakLabel}
-                    </span>
-                  </span>
-                )}
-              </div>
-            )}
-          </>
+          <DecompositionChart slots={horizonSlots} mode={chartMode} />
         )}
-      </ChartCard>
+      </Card>
 
       {correctionHistory.length > 0 && (
-        <Card className="p-3 md:p-4">
-          <div className="mb-1">
-            <div className="text-xs font-medium text-text">Correction Volume (14d)</div>
-            <div className="text-[11px] text-muted">
-              Daily sum of absolute PV + load corrections used by Aurora.
-            </div>
-          </div>
-          <div className="flex gap-[3px] items-end h-16">
-            {correctionHistory.map((day) => {
-              const v = day.total_correction_kwh
-              const height = Math.min(100, v * 40)
-              return (
-                <div key={day.date} className="flex flex-col items-center gap-1">
-                  <div
-                    className="w-1.5 rounded-full bg-accent/70"
-                    style={{ height: `${height}%` }}
-                    title={`${day.date}: ${v.toFixed(3)} kWh`}
-                  />
-                  <span className="text-[9px] text-muted">
-                    {new Date(day.date).toLocaleDateString(undefined, {
-                      month: 'numeric',
-                      day: 'numeric',
-                    })}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-          {impactTrend && (
-            <div className="mt-1 text-[10px] text-muted">
-              Aurora has been{' '}
-              <span className="font-semibold text-text">
-                {impactTrend.delta > 0 ? 'more active' : 'less active'}
-              </span>{' '}
-              over the last week (avg {impactTrend.lastAvg.toFixed(2)} kWh/day vs{' '}
-              {impactTrend.prevAvg.toFixed(2)} kWh/day).
-            </div>
-          )}
-        </Card>
+        <CorrectionHistoryChart history={correctionHistory} impactTrend={impactTrend} />
       )}
     </div>
   )
