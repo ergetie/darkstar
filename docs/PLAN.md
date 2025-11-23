@@ -7,16 +7,6 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
-### Rev 58 — The Weather Strategist (Strategy Engine) *(Status: ✅ Completed)*
-
-*   **Goal**: Transform the Strategy Engine from static rules to reactive logic. It calculates forecast uncertainty (Volatility) over a 48h weather window and adjusts `s_index` weights dynamically to increase safety margins during chaotic weather.
-*   **Philosophy**: "When the forecast is unstable, trust the forecast less and the battery reserve more."
-*   **Implementation Snapshot**:
-    *   `ml/weather.get_weather_volatility(start_time, end_time, config)` computes normalized volatility scores (`0.0-1.0`) for cloud cover and temperature using standard deviation and fixed normalization factors (40% for cloud, 5°C for temperature).
-    *   `inputs.get_all_input_data` wires these metrics into `context.weather_volatility = {"cloud": x, "temp": y}` over a rolling 48h window.
-    *   `backend.strategy.engine.StrategyEngine.decide` scales `s_index.pv_deficit_weight` and `temp_weight` linearly with volatility by up to `+0.4` and `+0.2`, never dropping below the baseline values from `config.yaml`, and logs the adjustments.
-    *   `debug/test_strategy_weather.py` provides a small harness to validate that high volatility (e.g., `cloud=0.9`, `temp=0.9`) increases both weights while preserving safety.
-
 ### Rev 59 — Intelligent Memory (Aurora Correction) *(Status: 📋 Planned)*
 
 *   **Goal**: Upgrade the Learning Engine from a static statistical average to an ML-based **Aurora Correction** model. This model predicts the *error* of the base forecast based on context (weather, time), allowing Darkstar to adapt to changing conditions immediately rather than waiting for a "bad day" to drag down the average.
