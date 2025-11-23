@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Sparkles } from 'lucide-react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import DecompositionChart from '../components/DecompositionChart'
@@ -74,8 +75,8 @@ export default function Aurora() {
   const volatility = dashboard?.state?.weather_volatility
   const overallVol = volatility?.overall ?? 0
 
-  const pulseColor =
-    overallVol < 0.3 ? 'bg-emerald-400' : overallVol < 0.7 ? 'bg-amber-400' : 'bg-rose-500'
+  const waveColor =
+    overallVol < 0.3 ? 'bg-accent/70' : overallVol < 0.7 ? 'bg-sky-400/80' : 'bg-amber-400/90'
 
   const horizonSlots = dashboard?.horizon?.slots ?? []
 
@@ -93,10 +94,10 @@ export default function Aurora() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-2">
+        <Card className="md:col-span-3 bg-surface border border-line/60 shadow-float px-4 py-3">
           <div className="flex items-center gap-4">
-            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-surface2 border border-line/70">
-              <span className="text-xl">
+            <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-surface2 border border-line/80 shadow-inner">
+              <span className="text-2xl">
                 {graduationLabel === 'graduate'
                   ? '🎓'
                   : graduationLabel === 'statistician'
@@ -105,41 +106,44 @@ export default function Aurora() {
               </span>
             </div>
             <div className="flex flex-col gap-1">
-              <div className="text-sm font-medium text-text capitalize">
-                {graduationLabel || 'infant'}
+              <div className="text-xs font-semibold text-text uppercase tracking-wide">
+                Aurora
+              </div>
+              <div className="text-[13px] font-medium text-text capitalize">
+                {graduationLabel || 'infant'} mode
               </div>
               <div className="text-[11px] text-muted">
-                Learning runs: <span className="font-mono">{graduationRuns}</span>
+                Runs:{' '}
+                <span className="font-mono text-text">{graduationRuns}</span>
               </div>
               <div className="text-[11px] text-muted">
-                Risk persona:{' '}
+                Risk:{' '}
                 <span className="font-semibold text-text">
-                  {riskLabel} (
-                  {riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'})
+                  {riskLabel} ({riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'})
                 </span>
               </div>
             </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center justify-between mb-2">
-            <div>
-              <div className="text-xs font-medium text-text">Aurora Pulse</div>
-              <div className="text-[11px] text-muted">
-                Weather volatility: {(overallVol * 100).toFixed(0)}%
+            <div className="ml-auto flex items-center gap-3">
+              <div className="text-right text-[11px] text-muted">
+                <div className="uppercase tracking-wide text-[10px] text-muted">
+                  Volatility
+                </div>
+                <div>{(overallVol * 100).toFixed(0)}% (48h)</div>
+              </div>
+              <div className="flex items-end gap-[3px] h-8">
+                {[0, 1, 2].map((idx) => (
+                  // eslint-disable-next-line react/no-array-index-key
+                  <div
+                    key={idx}
+                    className={`w-1.5 rounded-full ${waveColor} animate-pulse`}
+                    style={{
+                      height: `${30 + idx * 15}%`,
+                      animationDelay: `${idx * 140}ms`,
+                    }}
+                  />
+                ))}
               </div>
             </div>
-            <div className="relative w-10 h-10">
-              <div
-                className={`absolute inset-0 rounded-full ${pulseColor} opacity-70 animate-ping`}
-              />
-              <div className={`absolute inset-2 rounded-full ${pulseColor}`} />
-            </div>
-          </div>
-          <div className="text-[11px] text-muted">
-            Stable when weather and corrections are predictable. Faster pulse indicates higher
-            uncertainty.
           </div>
         </Card>
       </div>
@@ -147,10 +151,15 @@ export default function Aurora() {
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-xs font-medium text-text">Daily Briefing</div>
-              <div className="text-[11px] text-muted">
-                Aurora explains how it feels about the next 48 hours.
+            <div className="flex items-center gap-2">
+              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-surface2 border border-line/70">
+                <Sparkles className="h-3 w-3 text-accent" />
+              </span>
+              <div>
+                <div className="text-xs font-medium text-text">Daily Briefing</div>
+                <div className="text-[11px] text-muted">
+                  Aurora explains how it feels about the next 48 hours.
+                </div>
               </div>
             </div>
             <button
@@ -162,7 +171,7 @@ export default function Aurora() {
               {briefingLoading ? 'Thinking…' : 'Refresh briefing'}
             </button>
           </div>
-          <div className="text-[12px] leading-relaxed text-text bg-surface2/60 border border-line/70 rounded-md px-3 py-3">
+          <div className="text-[12px] leading-relaxed text-text bg-surface2/60 border border-line/70 rounded-md px-3 py-3 font-mono tracking-tight">
             {briefing || 'No briefing yet. Click “Refresh briefing” to ask Aurora.'}
           </div>
         </Card>
@@ -176,32 +185,53 @@ export default function Aurora() {
               </div>
             </div>
           </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-[11px] text-muted">
-              <span>Gambler (0.8)</span>
-              <span>Balanced (1.1)</span>
-              <span>Paranoid (1.5)</span>
+            <div className="space-y-2">
+              <div className="flex justify-between text-[11px] text-muted">
+                <span>Gambler (0.8)</span>
+                <span>Balanced (1.1)</span>
+                <span>Paranoid (1.5)</span>
+              </div>
+            <div className="relative mt-1">
+              <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-gradient-to-r from-emerald-500/40 via-sky-500/50 to-amber-500/40" />
+              <input
+                type="range"
+                min={0.8}
+                max={1.5}
+                step={0.01}
+                value={riskBaseFactor ?? 1.1}
+                onChange={(event) => {
+                  const val = parseFloat(event.target.value)
+                  setRiskBaseFactor(val)
+                }}
+                onMouseUp={(event) => {
+                  const val = parseFloat((event.target as HTMLInputElement).value)
+                  handleRiskChange(val)
+                }}
+                onTouchEnd={(event) => {
+                  const val = parseFloat((event.target as HTMLInputElement).value)
+                  handleRiskChange(val)
+                }}
+                className="relative w-full bg-transparent accent-accent cursor-pointer"
+              />
             </div>
-            <input
-              type="range"
-              min={0.8}
-              max={1.5}
-              step={0.01}
-              value={riskBaseFactor ?? 1.1}
-              onChange={(event) => {
-                const val = parseFloat(event.target.value)
-                setRiskBaseFactor(val)
-              }}
-              onMouseUp={(event) => {
-                const val = parseFloat((event.target as HTMLInputElement).value)
-                handleRiskChange(val)
-              }}
-              onTouchEnd={(event) => {
-                const val = parseFloat((event.target as HTMLInputElement).value)
-                handleRiskChange(val)
-              }}
-              className="w-full accent-accent"
-            />
+            <div className="mt-1 flex justify-between text-[10px] text-muted">
+              <span className="flex flex-col items-start">
+                <span className="h-1 w-[1px] bg-line/80 mb-1" />
+                <span>0.8</span>
+              </span>
+              <span className="flex flex-col items-center">
+                <span className="h-2 w-[1px] bg-accent mb-1" />
+                <span>1.0</span>
+              </span>
+              <span className="flex flex-col items-center">
+                <span className="h-3 w-[1px] bg-accent mb-1" />
+                <span>1.2</span>
+              </span>
+              <span className="flex flex-col items-end">
+                <span className="h-1 w-[1px] bg-line/80 mb-1" />
+                <span>1.5</span>
+              </span>
+            </div>
             <div className="text-[11px] text-muted">
               Current base factor:{' '}
               <span className="font-mono text-text">
