@@ -1125,6 +1125,31 @@ class HeliosPlanner:
         total_load = df["adjusted_load_kwh"].sum()
         self.is_strategic_period = total_pv < total_load
 
+        # Rev 60: ensure we have at least some future cheap slots when tomorrow is expensive.
+        # If there are no cheap slots at or after now_slot, recompute a fallback threshold
+        # using only the future price distribution so that the cheapest future hours form
+        # at least one cheap window for responsibility allocation.
+        now_slot = getattr(self, "now_slot", df.index[0])
+        future_mask = df.index >= now_slot
+        future_cheap_mask = df["is_cheap"] & future_mask
+        if not future_cheap_mask.any():
+            future_prices = df.loc[future_mask, "import_price_sek_kwh"].dropna()
+            if not future_prices.empty:
+                future_quantile = future_prices.quantile(charge_threshold_percentile / 100.0)
+                if pd.isna(future_quantile):
+                    future_quantile = future_prices.median()
+                if not pd.isna(future_quantile):
+                    fallback_threshold = max(
+                        self.cheap_price_threshold,
+                        future_quantile + cheap_price_tolerance_sek + price_smoothing_sek_kwh,
+                    )
+                    df["is_cheap"] = (
+                        df["import_price_sek_kwh"] <= fallback_threshold
+                    ).fillna(False).astype(bool)
+                    self.cheap_price_threshold = fallback_threshold
+                    self.cheap_slot_count = int(df["is_cheap"].sum())
+                    self.non_cheap_slot_count = len(df) - self.cheap_slot_count
+
         return df
 
     def _pass_2_schedule_water_heating(self, df):

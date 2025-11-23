@@ -33,7 +33,7 @@ battery:
   efficiency_percent: 95.0
   max_charge_power_kw: 8
   max_discharge_power_kw: 8
-  max_soc_percent: 100
+  max_soc_percent: 95
   min_soc_percent: 15
   roundtrip_efficiency_percent: 95.0
 battery_economics:
