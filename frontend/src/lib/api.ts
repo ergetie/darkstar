@@ -201,6 +201,9 @@ export type ThemeSetResponse = {
   theme?: ThemeInfo
 }
 
+export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
+export type AuroraBriefingResponse = { briefing: string }
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = { 
     method,
@@ -264,6 +267,11 @@ export const Api = {
   forecastRunForward: (horizonHours = 48) =>
     getJSON<{status: string}>('/api/forecast/run_forward', 'POST', { horizon_hours: horizonHours }),
   schedulerStatus: () => getJSON<SchedulerStatusResponse>('/api/scheduler/status'),
+  aurora: {
+    dashboard: () => getJSON<AuroraDashboardResponse>('/api/aurora/dashboard'),
+    briefing: (payload: AuroraDashboardResponse) =>
+      getJSON<AuroraBriefingResponse>('/api/aurora/briefing', 'POST', payload),
+  },
 }
 
 export const Sel = {
