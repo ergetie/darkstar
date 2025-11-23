@@ -1,6 +1,6 @@
 advisor:
   auto_fetch: false
-  enable_llm: true
+  enable_llm: false
   model: gpt-5-nano
   personality: friendly
 appliances:

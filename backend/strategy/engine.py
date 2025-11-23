@@ -3,6 +3,7 @@ import logging
 
 logger = logging.getLogger("darkstar.strategy")
 
+
 class StrategyEngine:
     """
     The 'Brain' of Aurora v2.
@@ -36,10 +37,7 @@ class StrategyEngine:
         if is_vacation:
             logger.info("Strategy: Disabling Water Heating due to Vacation Mode")
 
-            overrides["water_heating"] = {
-                "min_hours_per_day": 0.0,
-                "min_kwh_per_day": 0.0
-            }
+            overrides["water_heating"] = {"min_hours_per_day": 0.0, "min_kwh_per_day": 0.0}
 
         if overrides:
             logger.info(f"Strategy Engine active. Applying overrides: {overrides}")

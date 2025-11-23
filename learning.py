@@ -262,7 +262,7 @@ class LearningEngine:
         for token in ("energy", "power", "total", "_cumulative", "_kw", "_kwh"):
             stripped = stripped.replace(token, "")
         stripped = stripped.strip("_")
-        
+
         # Explicit handling for compound names often found in HA
         if stripped == "load_consumption":
             return "load"
@@ -351,16 +351,16 @@ class LearningEngine:
         for sensor_name, df in slot_records.items():
             canonical = self._canonical_sensor_name(sensor_name)
             base_series = df.set_index("timestamp")["cumulative_value"]
-            
+
             # Use method='ffill' to propagate last known value to the grid slot
             # instead of introducing NaNs for inexact matches.
             reindexed = base_series.reindex(slots, method="ffill")
-            
+
             # Handle any leading NaNs if grid starts before data
             reindexed = reindexed.ffill().fillna(0)
 
             raw_diff = reindexed.diff().fillna(0)
-            
+
             # SAFETY FILTER:
             # 1. Negative diffs are Resets -> Clip to 0
             # 2. Massive spikes (> 5 kWh in 15 min) are glitches -> Clip to 0
@@ -368,7 +368,7 @@ class LearningEngine:
             # We set limit to 5.0 kWh to be safe but catch glitches.
             mask_spike = raw_diff > 5.0
             raw_diff[mask_spike] = 0.0
-            
+
             deltas = raw_diff.clip(lower=0)
 
             # Track resets (negative raw deltas before clipping)
@@ -966,6 +966,7 @@ class LearningEngine:
             "load_error_mean_abs_kwh": load_mae,
             "s_index_base_factor": s_index_base,
         }
+
 
 # Global instance for webapp
 _learning_engine = None
@@ -1959,7 +1960,9 @@ class NightlyOrchestrator:
             # Compute and persist hourly forecast error arrays for diagnostics and
             # future learning use (e.g. Helios-style load/PV adjustment per hour).
             try:
-                self.engine.store_hourly_forecast_errors(days_back=self.learning_config.get("horizon_days", 7))
+                self.engine.store_hourly_forecast_errors(
+                    days_back=self.learning_config.get("horizon_days", 7)
+                )
             except Exception as exc:
                 print(f"Failed to store hourly forecast errors: {exc}")
 
@@ -2049,9 +2052,9 @@ class NightlyOrchestrator:
                         return "export_guard_tuner"
                     return ""
 
-                reason_text = "; ".join(
-                    filter(None, [r.get("reason", "") for r in loop_results])
-                ) or None
+                reason_text = (
+                    "; ".join(filter(None, [r.get("reason", "") for r in loop_results])) or None
+                )
 
                 for key_path, change in diff_summary.items():
                     new_val = change.get("new")

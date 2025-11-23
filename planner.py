@@ -1014,16 +1014,14 @@ class HeliosPlanner:
             if pv_adj:
                 if len(pv_adj) == 24:
                     # Apply adjustment and clamp to 0 to prevent negative PV
-                    raw_pv = df["adjusted_pv_kwh"] + hours.map(
-                        lambda h: float(pv_adj[h])
-                    ).values
+                    raw_pv = df["adjusted_pv_kwh"] + hours.map(lambda h: float(pv_adj[h])).values
                     df["adjusted_pv_kwh"] = raw_pv.clip(lower=0.0)
             if load_adj:
                 if len(load_adj) == 24:
                     # Apply adjustment and clamp to 0 to prevent negative load
-                    raw_adjusted = df["adjusted_load_kwh"] + hours.map(
-                        lambda h: float(load_adj[h])
-                    ).values
+                    raw_adjusted = (
+                        df["adjusted_load_kwh"] + hours.map(lambda h: float(load_adj[h])).values
+                    )
                     df["adjusted_load_kwh"] = raw_adjusted.clip(lower=0.0)
 
         return df
@@ -1053,7 +1051,9 @@ class HeliosPlanner:
         # Refine threshold based on tolerance
         cheap_subset = df.loc[initial_cheap, "import_price_sek_kwh"]
         max_price_in_initial = cheap_subset.max() if not cheap_subset.empty else quantile_value
-        baseline_threshold = max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
+        baseline_threshold = (
+            max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
+        )
 
         # -------------------------------------------------------
         # REV 20: DYNAMIC WINDOW EXPANSION (Smart Thresholds)
@@ -1112,9 +1112,7 @@ class HeliosPlanner:
         # -------------------------------------------------------
 
         # Step D: Final is_cheap Application
-        df["is_cheap"] = (
-            (df["import_price_sek_kwh"] <= final_threshold).fillna(False).astype(bool)
-        )
+        df["is_cheap"] = (df["import_price_sek_kwh"] <= final_threshold).fillna(False).astype(bool)
 
         # Metadata updates
         self.cheap_price_threshold = final_threshold
@@ -1772,7 +1770,9 @@ class HeliosPlanner:
             except (TypeError, ValueError):
                 base_factor = base_factor
 
-        s_index_factor = min(base_factor if s_index_mode == "static" else static_factor, s_index_max)
+        s_index_factor = min(
+            base_factor if s_index_mode == "static" else static_factor, s_index_max
+        )
         s_index_debug = {
             "mode": s_index_mode,
             "static_factor": round(static_factor, 4),

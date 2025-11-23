@@ -6,6 +6,7 @@ from ml.data_activator import fetch_entity_history
 from inputs import load_home_assistant_config
 from learning import get_learning_engine
 
+
 def debug_night():
     print("🕵️‍♂️ INVESTIGATING NIGHT DATA LOSS")
 
@@ -18,7 +19,7 @@ def debug_night():
     end_time = now.replace(hour=6, minute=0, second=0, microsecond=0)
     if end_time > now:
         end_time -= timedelta(days=1)
-    start_time = end_time - timedelta(hours=8) # 22:00 previous day
+    start_time = end_time - timedelta(hours=8)  # 22:00 previous day
 
     print(f"📅 Inspecting window: {start_time} to {end_time}")
 
@@ -70,29 +71,30 @@ def debug_night():
         print(f"✅ Database has {len(df)} rows.")
         print(df.head(10).to_string(index=False))
 
-        non_zeros = df[df['load_kwh'] > 0.001]
+        non_zeros = df[df["load_kwh"] > 0.001]
         print(f"\nValid (>0.001) rows: {len(non_zeros)} / {len(df)}")
 
     # 5. DRY RUN ETL (Simulation)
     if history:
         print("\n--- STEP 3: ETL Simulation ---")
         # Mimic data_activator logic
-        data_map = {'total_load_consumption': history}
+        data_map = {"total_load_consumption": history}
         try:
             slot_df = engine.etl_cumulative_to_slots(data_map)
             # Filter for our specific night window
             # (ETL might produce slightly wider range, we just want to see if it generated valid load)
             print("ETL generated dataframe:")
-            if not slot_df.empty and 'load_kwh' in slot_df.columns:
+            if not slot_df.empty and "load_kwh" in slot_df.columns:
                 # Filter roughly to window
-                mask = (slot_df['slot_start'] >= start_time) & (slot_df['slot_start'] < end_time)
+                mask = (slot_df["slot_start"] >= start_time) & (slot_df["slot_start"] < end_time)
                 night_slots = slot_df[mask]
-                print(night_slots[['slot_start', 'load_kwh']].head(10).to_string())
+                print(night_slots[["slot_start", "load_kwh"]].head(10).to_string())
                 print(f"\nSum of ETL load: {night_slots['load_kwh'].sum():.4f} kWh")
             else:
                 print("ETL returned empty or missing load_kwh.")
         except Exception as e:
             print(f"ETL Failed: {e}")
+
 
 if __name__ == "__main__":
     debug_night()
