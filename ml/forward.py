@@ -50,7 +50,7 @@ def generate_forward_slots(
         slot_start += timedelta(minutes=15)
 
     horizon_end = slot_start + timedelta(hours=horizon_hours)
-    
+
     print(f"🔮 Generating AURORA Forecast: {slot_start} -> {horizon_end} ({horizon_hours}h)")
 
     slots = pd.date_range(
@@ -80,29 +80,49 @@ def generate_forward_slots(
             df[col] = df[col].astype("float64")
 
     # Context flags
-    vac_series = get_vacation_mode_series(slot_start - timedelta(days=7), horizon_end, config=engine.config)
+    vac_series = get_vacation_mode_series(
+        slot_start - timedelta(days=7), horizon_end, config=engine.config
+    )
     if not vac_series.empty:
-        df = df.merge(vac_series.to_frame(name="vacation_mode_flag"), left_on="slot_start", right_index=True, how="left")
+        df = df.merge(
+            vac_series.to_frame(name="vacation_mode_flag"),
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
     else:
         df["vacation_mode_flag"] = 0.0
 
-    alarm_series = get_alarm_armed_series(slot_start - timedelta(days=7), horizon_end, config=engine.config)
+    alarm_series = get_alarm_armed_series(
+        slot_start - timedelta(days=7), horizon_end, config=engine.config
+    )
     if not alarm_series.empty:
-        df = df.merge(alarm_series.to_frame(name="alarm_armed_flag"), left_on="slot_start", right_index=True, how="left")
+        df = df.merge(
+            alarm_series.to_frame(name="alarm_armed_flag"),
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
     else:
         df["alarm_armed_flag"] = 0.0
 
     df = _build_time_features(df)
 
     feature_cols = ["hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos"]
-    for feat in ["temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2", "vacation_mode_flag", "alarm_armed_flag"]:
+    for feat in [
+        "temp_c",
+        "cloud_cover_pct",
+        "shortwave_radiation_w_m2",
+        "vacation_mode_flag",
+        "alarm_armed_flag",
+    ]:
         if feat in df.columns:
             feature_cols.append(feat)
 
     print("   Running LightGBM inference...")
     X = df[feature_cols]
     models = _load_models()
-    
+
     load_pred = models["load"].predict(X) if "load" in models else None
     pv_pred = models["pv"].predict(X) if "pv" in models else None
 
@@ -112,26 +132,26 @@ def generate_forward_slots(
 
     for idx, row in df.iterrows():
         slot_start_ts = row["slot_start"]
-        
+
         if load_pred is not None:
             raw_val = float(load_pred[idx])
             # Guardrail: Floor at 0.01, Ceiling at 4.0 (16kW)
             load_series[idx] = max(0.01, min(raw_val, 4.0))
-            
+
         if pv_pred is not None:
             pv_val = float(max(pv_pred[idx], 0.0))
-            
+
             # Guardrail: STRICT Winter Night Clamp (17:00 - 07:00)
             # Sweden winter: dark essentially from 15:30 to 08:00, but let's be safe
             hour = slot_start_ts.hour
             if hour < 7 or hour >= 17:
                 pv_val = 0.0
-            
+
             # Guardrail: Radiation check
             rad = row.get("shortwave_radiation_w_m2")
             if rad is not None and rad < 1.0:
                 pv_val = 0.0
-                
+
             pv_series[idx] = pv_val
 
     # SMOOTHING: Apply a rolling average to PV to fix "Sawtooth"
@@ -139,16 +159,19 @@ def generate_forward_slots(
 
     forecasts: List[Dict[str, Any]] = []
     for idx, row in df.iterrows():
-        forecasts.append({
-            "slot_start": row["slot_start"].isoformat(),
-            "pv_forecast_kwh": float(pv_series[idx]),
-            "load_forecast_kwh": float(load_series[idx]),
-            "temp_c": row.get("temp_c"),
-        })
+        forecasts.append(
+            {
+                "slot_start": row["slot_start"].isoformat(),
+                "pv_forecast_kwh": float(pv_series[idx]),
+                "load_forecast_kwh": float(load_series[idx]),
+                "temp_c": row.get("temp_c"),
+            }
+        )
 
     if forecasts:
         engine.store_forecasts(forecasts, forecast_version=forecast_version)
         print(f"✅ Stored {len(forecasts)} forward AURORA forecasts ({forecast_version}).")
+
 
 if __name__ == "__main__":
     generate_forward_slots()

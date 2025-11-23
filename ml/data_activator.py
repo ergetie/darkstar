@@ -136,8 +136,7 @@ def _build_cumulative_data(
 
         cumulative_data[canonical_name] = history
         print(
-            f"Fetched {len(history)} samples for '{canonical_name}' "
-            f"from '{entity_id}'.",
+            f"Fetched {len(history)} samples for '{canonical_name}' " f"from '{entity_id}'.",
         )
 
     if not cumulative_data:
@@ -158,8 +157,7 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=30,
         help=(
-            "Number of days of history to backfill, counting backwards from now "
-            "(default: 30)."
+            "Number of days of history to backfill, counting backwards from now " "(default: 30)."
         ),
     )
     return parser.parse_args()
@@ -183,8 +181,7 @@ def main() -> None:
     end_time = now_utc
 
     print(
-        "Historical data range (UTC): "
-        f"{start_time.isoformat()} to {end_time.isoformat()}",
+        "Historical data range (UTC): " f"{start_time.isoformat()} to {end_time.isoformat()}",
     )
 
     cumulative_data = _build_cumulative_data(engine, start_time, end_time)
@@ -215,4 +212,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -14,6 +14,7 @@ from ml.forward import _load_models
 from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
+
 def diagnose():
     print("--- 🏥 AURORA DIAGNOSTICS TOOL (Fixed) ---")
     engine = get_learning_engine()
@@ -47,10 +48,12 @@ def diagnose():
 
     print(f"\n2. DISSECTING PREDICTION FOR: {target_time}")
 
-    obs = pd.DataFrame({'slot_start': [target_time]})
+    obs = pd.DataFrame({"slot_start": [target_time]})
 
     # Enrich (Robustly)
-    weather_df = get_weather_series(target_time, target_time + timedelta(minutes=15), config=engine.config)
+    weather_df = get_weather_series(
+        target_time, target_time + timedelta(minutes=15), config=engine.config
+    )
     if not weather_df.empty:
         obs = obs.merge(weather_df, left_on="slot_start", right_index=True, how="left")
     else:
@@ -59,18 +62,32 @@ def diagnose():
     # Ensure ALL potential features exist (Fixing the crash)
     for col in ["temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"]:
         if col not in obs.columns:
-            obs[col] = 0.0 # Default to 0/None if missing
+            obs[col] = 0.0  # Default to 0/None if missing
         obs[col] = obs[col].astype("float64")
 
-    vac_series = get_vacation_mode_series(target_time - timedelta(days=1), target_time + timedelta(days=1), config=engine.config)
+    vac_series = get_vacation_mode_series(
+        target_time - timedelta(days=1), target_time + timedelta(days=1), config=engine.config
+    )
     if not vac_series.empty:
-        obs = obs.merge(vac_series.to_frame(name="vacation_mode_flag"), left_on="slot_start", right_index=True, how="left")
+        obs = obs.merge(
+            vac_series.to_frame(name="vacation_mode_flag"),
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
     else:
         obs["vacation_mode_flag"] = 0.0
 
-    alarm_series = get_alarm_armed_series(target_time - timedelta(days=1), target_time + timedelta(days=1), config=engine.config)
+    alarm_series = get_alarm_armed_series(
+        target_time - timedelta(days=1), target_time + timedelta(days=1), config=engine.config
+    )
     if not alarm_series.empty:
-        obs = obs.merge(alarm_series.to_frame(name="alarm_armed_flag"), left_on="slot_start", right_index=True, how="left")
+        obs = obs.merge(
+            alarm_series.to_frame(name="alarm_armed_flag"),
+            left_on="slot_start",
+            right_index=True,
+            how="left",
+        )
     else:
         obs["alarm_armed_flag"] = 0.0
 
@@ -105,7 +122,7 @@ def diagnose():
     print(f"   🔮 Raw Model Prediction: {final_pred:.4f} kWh")
 
     if final_pred > 2.0:
-         print("   🚨 HIGH VALUE DETECTED.")
+        print("   🚨 HIGH VALUE DETECTED.")
 
     # Feature Contribution (SHAP-like)
     try:
@@ -120,6 +137,7 @@ def diagnose():
             print(f"      {feat:<25} {sign}{impact:.4f}")
     except Exception as e:
         print(f"   (Could not calculate detailed attribution: {e})")
+
 
 if __name__ == "__main__":
     diagnose()

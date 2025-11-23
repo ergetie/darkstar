@@ -105,11 +105,7 @@ def _generate_baseline_forecasts(
         if hour in grouped.index:
             load_forecast = float(grouped.loc[hour, "load_kwh"] or 0.0)
             pv_forecast = float(grouped.loc[hour, "pv_kwh"] or 0.0)
-            temp_c = (
-                None
-                if "temp_c" not in grouped.columns
-                else float(grouped.loc[hour, "temp_c"])
-            )
+            temp_c = None if "temp_c" not in grouped.columns else float(grouped.loc[hour, "temp_c"])
         else:
             load_forecast = 0.0
             pv_forecast = 0.0
@@ -278,11 +274,7 @@ def _print_segmented_mae(
     merged["load_err"] = (merged["load_kwh"] - merged["load_forecast_kwh"]).abs()
 
     # Weather bands: cold vs mild using s_index temp_baseline_c if available
-    temp_baseline = (
-        merged.get("temp_baseline_c")
-        if "temp_baseline_c" in merged
-        else None
-    )
+    temp_baseline = merged.get("temp_baseline_c") if "temp_baseline_c" in merged else None
     if temp_baseline is None:
         temp_baseline = (
             merged["temp_c"].median()

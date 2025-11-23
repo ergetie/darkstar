@@ -18,6 +18,8 @@
 - `pytz` - Timezone handling
 - `requests` - REST clients for Home Assistant and forecasts
 - `flask` - Web UI and diagnostics API layer
+- `lightgbm`: Aurora ML models
+
 
 ## Code Style Guidelines
 
@@ -85,14 +87,17 @@ from inputs import get_all_input_data
 
 ### Process Policy
 - Before implementing any newly drafted revision/plan section (e.g., after we agree on a fix plan), switch to the designated implementation model. Planning and discussion should happen first; code changes should only be made after switching models.
+- **Planning**: Before implementing, ensure the revision is active in `PLAN.md`.
+- **History**: Do not delete completed revisions; move them to `CHANGELOG.md`.
 
-### Project Structure
-- `config.yaml` - Master configuration file
-- `inputs.py` - Data fetching and external API integration
-- `planner.py` - Core MPC scheduling logic
-- `schedule.json` - Generated output schedule
-- `decision_maker.js` - Reference implementation (JavaScript)
-- `themes/` - UI theme files (JSON/YAML) scanned at startup
+## Project Structure
+- `backend/` - Flask API, Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
+- `frontend/` - React + Vite UI application.
+- `ml/` - Aurora Machine Learning pipeline (`train.py`, `forward.py`).
+- `inputs.py` - Data fetching (Home Assistant, Nordpool).
+- `planner.py` - Core MPC scheduling logic.
+- `config.yaml` - Master configuration.
+- `backend/themes/` - UI theme files (JSON/YAML).
 
 ### Key Business Logic
 - Multi-pass Model Predictive Control (MPC) approach

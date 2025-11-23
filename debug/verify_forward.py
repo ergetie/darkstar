@@ -6,6 +6,7 @@ import pytz
 
 DB_PATH = "data/planner_learning.db"
 
+
 def verify():
     print(f"🔍 Verifying Forward Forecasts in {DB_PATH}...")
 
@@ -37,15 +38,17 @@ def verify():
 
     # Fix timestamps and handle timezone
     try:
-        df['dt'] = pd.to_datetime(df['slot_start'], format='mixed', utc=True).dt.tz_convert('Europe/Stockholm')
+        df["dt"] = pd.to_datetime(df["slot_start"], format="mixed", utc=True).dt.tz_convert(
+            "Europe/Stockholm"
+        )
     except:
-        df['dt'] = pd.to_datetime(df['slot_start'], utc=True).dt.tz_convert('Europe/Stockholm')
+        df["dt"] = pd.to_datetime(df["slot_start"], utc=True).dt.tz_convert("Europe/Stockholm")
 
     # CRITICAL FIX: Only verify FUTURE slots (The Forward Forecasts)
     # The DB also contains PAST slots from the evaluation run (Backtest),
     # which intentionally lack guardrails to test raw model performance.
-    now = datetime.now(pytz.timezone('Europe/Stockholm'))
-    future_df = df[df['dt'] >= now].copy()
+    now = datetime.now(pytz.timezone("Europe/Stockholm"))
+    future_df = df[df["dt"] >= now].copy()
 
     print(f"✅ Found {len(df)} total rows (Backtest + Forward).")
 
@@ -56,7 +59,7 @@ def verify():
     print(f"🔮 Verifying only the {len(future_df)} FUTURE slots...\n")
 
     # TEST 1: Load Guardrail
-    min_load = future_df['load_forecast_kwh'].min()
+    min_load = future_df["load_forecast_kwh"].min()
     print(f"📉 Minimum Predicted Load: {min_load:.4f} kWh")
     if min_load >= 0.01:
         print("   ✅ PASS: Load Floor is working (>= 0.01)")
@@ -64,11 +67,11 @@ def verify():
         print(f"   ❌ FAIL: Found load below 0.01! ({min_load})")
 
     # TEST 2: Night PV Guardrail (22:00 - 04:00)
-    night_mask = (future_df['dt'].dt.hour >= 22) | (future_df['dt'].dt.hour < 4)
+    night_mask = (future_df["dt"].dt.hour >= 22) | (future_df["dt"].dt.hour < 4)
     night_df = future_df[night_mask]
 
     if not night_df.empty:
-        max_night_pv = night_df['pv_forecast_kwh'].max()
+        max_night_pv = night_df["pv_forecast_kwh"].max()
         print(f"🌑 Max PV at Night (22:00-04:00): {max_night_pv:.4f} kWh")
         if max_night_pv == 0.0:
             print("   ✅ PASS: Night PV is hard-clamped to 0.")
@@ -78,7 +81,12 @@ def verify():
         print("   ⚠️ Warning: No night slots found in future window.")
 
     print("\n📊 Sample Data (Next 5 slots):")
-    print(future_df[['slot_start', 'load_forecast_kwh', 'pv_forecast_kwh']].head(5).to_string(index=False))
+    print(
+        future_df[["slot_start", "load_forecast_kwh", "pv_forecast_kwh"]]
+        .head(5)
+        .to_string(index=False)
+    )
+
 
 if __name__ == "__main__":
     verify()

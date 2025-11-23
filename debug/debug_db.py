@@ -5,6 +5,7 @@ import pandas as pd
 # This matches the path in your file list
 DB_PATH = "data/planner_learning.db"
 
+
 def check_db():
     print(f"🔍 inspecting {DB_PATH}...")
 
@@ -32,8 +33,8 @@ def check_db():
 
         # We define "Zero" as anything less than 0.001 kWh (1 Watt-hour)
         # A real house basically never uses 0.000 kWh in 15 minutes.
-        zero_load = df[df['load_kwh'] <= 0.001]
-        valid_load = df[df['load_kwh'] > 0.001]
+        zero_load = df[df["load_kwh"] <= 0.001]
+        valid_load = df[df["load_kwh"] > 0.001]
 
         print("\n--- 🏠 LOAD (CONSUMPTION) DIAGNOSIS ---")
         print(f"Total Data Points:     {total_rows}")
@@ -44,24 +45,27 @@ def check_db():
             pct = (len(zero_load) / total_rows) * 100
             print(f"Data Corruption:       {pct:.1f}% of your data is zero.")
 
-            avg_with_zeros = df['load_kwh'].mean()
-            avg_without_zeros = valid_load['load_kwh'].mean()
+            avg_with_zeros = df["load_kwh"].mean()
+            avg_without_zeros = valid_load["load_kwh"].mean()
 
             print(f"\n📉 IMPACT ON AI:")
             print(f"   Average WITH zeros:    {avg_with_zeros:.3f} kWh")
             print(f"   Average WITHOUT zeros: {avg_without_zeros:.3f} kWh")
-            print(f"   >> The zeros are dragging predictions down by {avg_without_zeros - avg_with_zeros:.3f} kWh")
+            print(
+                f"   >> The zeros are dragging predictions down by {avg_without_zeros - avg_with_zeros:.3f} kWh"
+            )
 
             print("\n🕒 When are these zeros happening? (First 5 examples):")
-            print(zero_load[['slot_start', 'load_kwh']].head(5).to_string(index=False))
+            print(zero_load[["slot_start", "load_kwh"]].head(5).to_string(index=False))
         else:
             print("\n✅ No zero-load artifacts found! My hypothesis was wrong.")
 
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
     finally:
-        if 'conn' in locals():
+        if "conn" in locals():
             conn.close()
+
 
 if __name__ == "__main__":
     check_db()

@@ -37,8 +37,7 @@ def _parse_args() -> argparse.Namespace:
         type=int,
         default=90,
         help=(
-            "Number of days of historical slot_observations to use for training "
-            "(default: 90)."
+            "Number of days of historical slot_observations to use for training " "(default: 90)."
         ),
     )
     parser.add_argument(
@@ -231,8 +230,11 @@ def main() -> None:
 
     # Dynamically add optional features if they exist
     optional_features = [
-        "temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2",
-        "vacation_mode_flag", "alarm_armed_flag"
+        "temp_c",
+        "cloud_cover_pct",
+        "shortwave_radiation_w_m2",
+        "vacation_mode_flag",
+        "alarm_armed_flag",
     ]
     for feat in optional_features:
         if feat in observations.columns:

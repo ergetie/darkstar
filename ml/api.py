@@ -69,4 +69,3 @@ def get_forecast_slots(
             },
         )
     return records
-
