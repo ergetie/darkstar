@@ -16,9 +16,10 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 type Props = {
   slots: AuroraHorizonSlot[]
   mode: 'load' | 'pv'
+  highlightIndex?: number | null
 }
 
-export default function DecompositionChart({ slots, mode }: Props) {
+export default function DecompositionChart({ slots, mode, highlightIndex }: Props) {
   if (!slots || slots.length === 0) {
     return (
       <div className="text-[11px] text-muted px-4 py-6">
@@ -39,9 +40,14 @@ export default function DecompositionChart({ slots, mode }: Props) {
     isLoad ? s.correction.load_kwh : s.correction.pv_kwh,
   )
 
-  const correctionColors = correctionSeries.map((v) =>
-    v >= 0 ? 'rgba(34, 197, 94, 0.45)' : 'rgba(239, 68, 68, 0.45)',
-  )
+  const correctionColors = correctionSeries.map((v, idx) => {
+    const baseColor =
+      v >= 0 ? 'rgba(34, 197, 94, 0.45)' : 'rgba(239, 68, 68, 0.45)'
+    if (typeof highlightIndex === 'number' && idx === highlightIndex) {
+      return v >= 0 ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
+    }
+    return baseColor
+  })
 
   const data = {
     labels,
@@ -136,8 +142,8 @@ export default function DecompositionChart({ slots, mode }: Props) {
   }
 
   return (
-    <div className="w-full h-64">
-      <Line data={data} options={options} />
+    <div className="w-full h-64 transition-opacity duration-300">
+      <Line key={mode} data={data} options={options} />
     </div>
   )
 }

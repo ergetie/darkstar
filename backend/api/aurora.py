@@ -230,7 +230,8 @@ def _fetch_correction_history(engine: Any, config: Dict[str, Any]) -> List[Dict[
                 """
                 SELECT
                     DATE(slot_start) AS date,
-                    SUM(ABS(pv_correction_kwh) + ABS(load_correction_kwh)) AS total_corr
+                    SUM(ABS(pv_correction_kwh)) AS pv_corr,
+                    SUM(ABS(load_correction_kwh)) AS load_corr
                 FROM slot_forecasts
                 WHERE forecast_version = ?
                   AND DATE(slot_start) >= ?
@@ -239,11 +240,15 @@ def _fetch_correction_history(engine: Any, config: Dict[str, Any]) -> List[Dict[
                 """,
                 (active_version, cutoff_date),
             )
-            for date_str, total_corr in cursor.fetchall():
+            for date_str, pv_corr, load_corr in cursor.fetchall():
+                pv_total = float(pv_corr or 0.0)
+                load_total = float(load_corr or 0.0)
                 rows.append(
                     {
                         "date": date_str,
-                        "total_correction_kwh": float(total_corr or 0.0),
+                        "total_correction_kwh": pv_total + load_total,
+                        "pv_correction_kwh": pv_total,
+                        "load_correction_kwh": load_total,
                     }
                 )
     except sqlite3.Error as exc:  # pragma: no cover - defensive logging
@@ -376,4 +381,3 @@ def aurora_briefing():
 
     text = get_aurora_briefing(dashboard, config, secrets)
     return jsonify({"briefing": text})
-
