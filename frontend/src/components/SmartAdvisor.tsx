@@ -51,6 +51,19 @@ export default function SmartAdvisor() {
 
   const canRequest = !!llmEnabled && !loading
 
+  const toggleAutoFetch = async () => {
+    const next = !autoFetch
+    setAutoFetch(next)
+    try {
+      await Api.configSave({ advisor: { auto_fetch: next } })
+      if (next && llmEnabled && !advice) {
+        fetchAdvice()
+      }
+    } catch (err) {
+      console.error('Failed to update advisor auto_fetch setting:', err)
+    }
+  }
+
   return (
     <Card className="h-full p-4 md:p-5 flex flex-col">
       <div className="flex items-baseline justify-between mb-3">
@@ -58,16 +71,35 @@ export default function SmartAdvisor() {
           <Sparkles className="h-4 w-4 text-accent" />
           <span>Aurora Advisor</span>
         </div>
-        {llmEnabled !== null && (
-          <button
-            onClick={fetchAdvice}
-            disabled={!canRequest}
-            className="text-[10px] text-muted hover:text-text transition-colors p-1 disabled:opacity-40"
-            title={llmEnabled ? 'Fetch latest advice' : 'Enable LLM advice in Settings'}
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {llmEnabled && (
+            <button
+              onClick={toggleAutoFetch}
+              className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
+                autoFetch
+                  ? 'bg-accent text-canvas border border-accent'
+                  : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+              }`}
+              title={
+                autoFetch
+                  ? 'Disable auto-fetch (advisor runs only on manual request)'
+                  : 'Enable auto-fetch when the plan changes'
+              }
+            >
+              ⏱
+            </button>
+          )}
+          {llmEnabled !== null && (
+            <button
+              onClick={fetchAdvice}
+              disabled={!canRequest}
+              className="text-[10px] text-muted hover:text-text transition-colors p-1 disabled:opacity-40"
+              title={llmEnabled ? 'Fetch latest advice' : 'Enable LLM advice in Settings'}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+          )}
+        </div>
       </div>
       <div className="text-[11px] text-text leading-relaxed">
         {llmEnabled === false && (
