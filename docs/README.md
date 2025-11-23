@@ -62,7 +62,7 @@ Darkstar uses a three-layer brain to make decisions.
 ### 1. Aurora (The Predictor)
 Located in `ml/`, Aurora is a LightGBM-based machine learning engine.
 *   **Training**: Learns your home's specific patterns from historical data (`planner_learning.db`).
-*   **Inference**: Automatically generates 48h+ forecasts for PV and Load, adapting to weather forecasts (Cloud Cover, Temperature, Radiation).
+*   **Inference (Dual-Model Forecasting)**: Uses a two-stage pipeline where Model 1 generates base PV/Load forecasts and Model 2 (Aurora Correction) predicts forecast errors via Rolling Averages or LightGBM (depending on data depth), applying clamped corrections before the planner consumes the numbers.
 *   **Control**: You can toggle between "Baseline" (7-day average) and "Aurora" (ML) in the UI to verify performance.
 
 ### 2. Strategy Engine (The Context Layer)
