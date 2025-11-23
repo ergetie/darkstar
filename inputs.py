@@ -288,7 +288,7 @@ async def get_forecast_data(price_slots, config):
             horizon_days = max(4, max_days + 1)
             end_dt = start_dt + timedelta(days=horizon_days)
 
-            # Fetch extended records from DB
+            # Fetch extended records from DB (base + corrections)
             extended_records = get_forecast_slots(start_dt, end_dt, active_version)
 
             for rec in extended_records:
@@ -297,8 +297,13 @@ async def get_forecast_data(price_slots, config):
                     ts = pytz.UTC.localize(ts)
                 date_key = ts.astimezone(local_tz).date().isoformat()
 
-                pv_val = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
-                load_val = float(rec.get("load_forecast_kwh", 0.0) or 0.0)
+                base_pv = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
+                base_load = float(rec.get("load_forecast_kwh", 0.0) or 0.0)
+                pv_corr = float(rec.get("pv_correction_kwh", 0.0) or 0.0)
+                load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
+
+                pv_val = base_pv + pv_corr
+                load_val = base_load + load_corr
 
                 daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
                 daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val
@@ -583,8 +588,12 @@ def build_db_forecast_for_slots(
             pv = 0.0
             load = 0.0
         else:
-            pv = float(rec.get("pv_forecast_kwh") or 0.0)
-            load = float(rec.get("load_forecast_kwh") or 0.0)
+            base_pv = float(rec.get("pv_forecast_kwh") or 0.0)
+            base_load = float(rec.get("load_forecast_kwh") or 0.0)
+            pv_corr = float(rec.get("pv_correction_kwh") or 0.0)
+            load_corr = float(rec.get("load_correction_kwh") or 0.0)
+            pv = base_pv + pv_corr
+            load = base_load + load_corr
         result.append({"pv_forecast_kwh": pv, "load_forecast_kwh": load})
 
     return result

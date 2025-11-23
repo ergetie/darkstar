@@ -31,12 +31,23 @@ def get_forecast_slots(
         - load_forecast_kwh (float)
         - temp_c (float | None)
         - forecast_version (str)
+        - pv_correction_kwh (float)
+        - load_correction_kwh (float)
+        - correction_source (str)
     """
     engine = _get_engine()
 
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         query = """
-            SELECT slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version
+            SELECT
+                slot_start,
+                pv_forecast_kwh,
+                load_forecast_kwh,
+                temp_c,
+                forecast_version,
+                pv_correction_kwh,
+                load_correction_kwh,
+                correction_source
             FROM slot_forecasts
             WHERE slot_start >= ?
               AND slot_start < ?
@@ -66,6 +77,9 @@ def get_forecast_slots(
                 "load_forecast_kwh": float(row.get("load_forecast_kwh") or 0.0),
                 "temp_c": row.get("temp_c"),
                 "forecast_version": row.get("forecast_version"),
+                "pv_correction_kwh": float(row.get("pv_correction_kwh") or 0.0),
+                "load_correction_kwh": float(row.get("load_correction_kwh") or 0.0),
+                "correction_source": row.get("correction_source") or "none",
             },
         )
     return records
