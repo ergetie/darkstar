@@ -100,6 +100,7 @@ The planner treats water heating as a flexible load that must meet a daily quota
 *   **Cascading Responsibility**: A cheap window at 02:00 will charge enough to cover a deficit at 18:00.
 *   **Hold Logic**: If prices are low (e.g., 13:00), the battery will **hold** its charge (idle) rather than covering load, because that energy is worth more at 19:00.
 *   **S-Index (Safety Factor)**: A dynamic multiplier applied to charging targets based on solar uncertainty.
+*   **Cross-Day Responsibility (Rev 60)**: Cheap windows are expanded based on future (today+tomorrow) net deficits and price levels so the planner charges in the cheapest remaining hours and preserves SoC for tomorrow’s high-price periods, even when the battery is already near its target at runtime.
 
 ---
 
