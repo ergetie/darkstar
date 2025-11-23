@@ -94,7 +94,7 @@ export default function Aurora() {
       </div>
 
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="md:col-span-3 bg-surface border border-line/60 shadow-float px-4 py-3">
+        <Card className="md:col-span-3 p-4 md:p-5">
           <div className="flex items-center gap-4">
             <div className="flex items-center justify-center w-14 h-14 rounded-2xl bg-surface2 border border-line/80 shadow-inner">
               <span className="text-2xl">
@@ -149,7 +149,7 @@ export default function Aurora() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2">
+        <Card className="lg:col-span-2 p-4 md:p-5">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-surface2 border border-line/70">
@@ -176,7 +176,7 @@ export default function Aurora() {
           </div>
         </Card>
 
-        <Card>
+        <Card className="p-4 md:p-5">
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="text-xs font-medium text-text">Risk Dial</div>
@@ -283,7 +283,7 @@ export default function Aurora() {
       </ChartCard>
 
       {correctionHistory.length > 0 && (
-        <Card>
+        <Card className="p-4 md:p-5">
           <div className="mb-2">
             <div className="text-xs font-medium text-text">Correction Volume (14d)</div>
             <div className="text-[11px] text-muted">
