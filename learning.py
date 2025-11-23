@@ -76,7 +76,7 @@ class LearningEngine:
             """
             )
 
-            # Slot forecasts table
+            # Slot forecasts table (base forecasts + optional corrections)
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS slot_forecasts (
@@ -86,10 +86,37 @@ class LearningEngine:
                     load_forecast_kwh REAL DEFAULT 0.0,
                     temp_c REAL,
                     forecast_version TEXT NOT NULL,
+                    pv_correction_kwh REAL DEFAULT 0.0,
+                    load_correction_kwh REAL DEFAULT 0.0,
+                    correction_source TEXT DEFAULT 'none',
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(slot_start, forecast_version)
                 )
             """
+            )
+
+            # Migration: ensure correction columns exist on older databases
+            for column_name, ddl in (
+                ("pv_correction_kwh", "ALTER TABLE slot_forecasts ADD COLUMN pv_correction_kwh REAL DEFAULT 0.0"),
+                ("load_correction_kwh", "ALTER TABLE slot_forecasts ADD COLUMN load_correction_kwh REAL DEFAULT 0.0"),
+                ("correction_source", "ALTER TABLE slot_forecasts ADD COLUMN correction_source TEXT DEFAULT 'none'"),
+            ):
+                try:
+                    cursor.execute(ddl)
+                except sqlite3.OperationalError as exc:
+                    # Ignore duplicate-column errors; the column already exists.
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+
+            # Backfill NULLs in correction columns to safe defaults
+            cursor.execute(
+                """
+                UPDATE slot_forecasts
+                SET
+                    pv_correction_kwh = COALESCE(pv_correction_kwh, 0.0),
+                    load_correction_kwh = COALESCE(load_correction_kwh, 0.0),
+                    correction_source = COALESCE(correction_source, 'none')
+                """
             )
 
             # Config versions table
@@ -546,15 +573,43 @@ class LearningEngine:
                 cursor.execute(
                     """
                     INSERT OR REPLACE INTO slot_forecasts (
-                        slot_start, pv_forecast_kwh, load_forecast_kwh, temp_c, forecast_version
+                        slot_start,
+                        pv_forecast_kwh,
+                        load_forecast_kwh,
+                        temp_c,
+                        forecast_version,
+                        pv_correction_kwh,
+                        load_correction_kwh,
+                        correction_source
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, COALESCE(
+                                (SELECT pv_correction_kwh FROM slot_forecasts
+                                 WHERE slot_start = ? AND forecast_version = ?),
+                                0.0
+                            ),
+                            COALESCE(
+                                (SELECT load_correction_kwh FROM slot_forecasts
+                                 WHERE slot_start = ? AND forecast_version = ?),
+                                0.0
+                            ),
+                            COALESCE(
+                                (SELECT correction_source FROM slot_forecasts
+                                 WHERE slot_start = ? AND forecast_version = ?),
+                                'none'
+                            )
+                    )
                     """,
                     (
                         slot_start,
                         float(pv_forecast or 0.0),
                         float(load_forecast or 0.0),
                         None if temp_c is None else float(temp_c),
+                        forecast_version,
+                        slot_start,
+                        forecast_version,
+                        slot_start,
+                        forecast_version,
+                        slot_start,
                         forecast_version,
                     ),
                 )
