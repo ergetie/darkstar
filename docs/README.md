@@ -194,6 +194,8 @@ npm run dev  # OR run backend/scheduler separately
 # reattach later: tmux attach -t darkstar
 ```
 
+*   In development, `npm run dev` starts the frontend, backend, and the internal scheduler in one command.
+
 ### 4. Verifying Plans
 *   **Dashboard**: Shows the "Local Plan" (what the planner just thought) vs "Server Plan" (what is actually in the DB).
 *   **Forecasting Tab**: Compare Aurora predictions vs. Actuals to trust the ML.
