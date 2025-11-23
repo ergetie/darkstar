@@ -771,6 +771,7 @@ def scheduler_status():
 
     return jsonify(data)
 
+
 @app.route("/api/db/current_schedule", methods=["GET"])
 def db_current_schedule():
     """Return the current_schedule from MariaDB in the same shape used by the UI."""

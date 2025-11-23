@@ -107,9 +107,7 @@ def save_status(status: SchedulerStatus) -> None:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
-def _compute_next_run(
-    from_time: datetime, every_minutes: int, jitter_minutes: int
-) -> datetime:
+def _compute_next_run(from_time: datetime, every_minutes: int, jitter_minutes: int) -> datetime:
     base = from_time + timedelta(minutes=every_minutes)
     if jitter_minutes <= 0:
         return base
@@ -117,9 +115,7 @@ def _compute_next_run(
     return base + timedelta(minutes=jitter)
 
 
-def _maybe_init_next_run(
-    status: SchedulerStatus, cfg: SchedulerConfig
-) -> SchedulerStatus:
+def _maybe_init_next_run(status: SchedulerStatus, cfg: SchedulerConfig) -> SchedulerStatus:
     if status.next_run_at:
         return status
 
@@ -177,11 +173,7 @@ def main() -> int:
 
         now = datetime.now(timezone.utc)
         try:
-            next_run = (
-                datetime.fromisoformat(status.next_run_at)
-                if status.next_run_at
-                else now
-            )
+            next_run = datetime.fromisoformat(status.next_run_at) if status.next_run_at else now
         except Exception:
             next_run = now
 
@@ -195,7 +187,9 @@ def main() -> int:
         status.last_run_at = finished_at.isoformat()
         status.last_run_status = "success" if ok else "error"
         status.last_error = None if ok else error
-        status.next_run_at = _compute_next_run(finished_at, cfg.every_minutes, cfg.jitter_minutes).isoformat()
+        status.next_run_at = _compute_next_run(
+            finished_at, cfg.every_minutes, cfg.jitter_minutes
+        ).isoformat()
 
         save_status(status)
         print(

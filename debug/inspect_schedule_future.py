@@ -25,12 +25,10 @@ def main() -> None:
         print("No future (non-historical) slots found.")
         return
 
-    charge_kwh = sum(
-        max(float(s.get("battery_charge_kw") or 0.0), 0.0) for s in future_slots
-    ) / 4.0
-    discharge_kwh = sum(
-        max(float(s.get("battery_discharge_kw") or 0.0), 0.0) for s in future_slots
-    ) / 4.0
+    charge_kwh = sum(max(float(s.get("battery_charge_kw") or 0.0), 0.0) for s in future_slots) / 4.0
+    discharge_kwh = (
+        sum(max(float(s.get("battery_discharge_kw") or 0.0), 0.0) for s in future_slots) / 4.0
+    )
 
     print(f"Future slots: {len(future_slots)}")
     print(f"  Charge  ≈ {charge_kwh:.2f} kWh")
@@ -55,4 +53,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

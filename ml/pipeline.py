@@ -101,4 +101,3 @@ def run_inference(
 if __name__ == "__main__":
     result = run_inference()
     print(result)
-

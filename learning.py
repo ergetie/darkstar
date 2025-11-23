@@ -97,9 +97,18 @@ class LearningEngine:
 
             # Migration: ensure correction columns exist on older databases
             for column_name, ddl in (
-                ("pv_correction_kwh", "ALTER TABLE slot_forecasts ADD COLUMN pv_correction_kwh REAL DEFAULT 0.0"),
-                ("load_correction_kwh", "ALTER TABLE slot_forecasts ADD COLUMN load_correction_kwh REAL DEFAULT 0.0"),
-                ("correction_source", "ALTER TABLE slot_forecasts ADD COLUMN correction_source TEXT DEFAULT 'none'"),
+                (
+                    "pv_correction_kwh",
+                    "ALTER TABLE slot_forecasts ADD COLUMN pv_correction_kwh REAL DEFAULT 0.0",
+                ),
+                (
+                    "load_correction_kwh",
+                    "ALTER TABLE slot_forecasts ADD COLUMN load_correction_kwh REAL DEFAULT 0.0",
+                ),
+                (
+                    "correction_source",
+                    "ALTER TABLE slot_forecasts ADD COLUMN correction_source TEXT DEFAULT 'none'",
+                ),
             ):
                 try:
                     cursor.execute(ddl)
