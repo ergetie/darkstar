@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Sparkles, RefreshCw } from 'lucide-react'
-import { Api } from '../lib/api'
+import { Sparkles, RefreshCw, Zap, SunMedium } from 'lucide-react'
+import { Api, type AnalystReport } from '../lib/api'
 import Card from './Card'
 
 export default function SmartAdvisor() {
@@ -9,6 +9,7 @@ export default function SmartAdvisor() {
   const [error, setError] = useState(false)
   const [llmEnabled, setLlmEnabled] = useState<boolean | null>(null)
   const [autoFetch, setAutoFetch] = useState<boolean>(true)
+  const [analystReport, setAnalystReport] = useState<AnalystReport | null>(null)
 
   const fetchAdvice = async () => {
     if (!llmEnabled) return
@@ -30,6 +31,20 @@ export default function SmartAdvisor() {
     }
   }
 
+  const fetchAnalystSummary = async () => {
+    setLoading(true)
+    setError(false)
+    try {
+      const res = await Api.analystRun()
+      setAnalystReport(res)
+    } catch (e) {
+      console.error('Failed to fetch analyst summary:', e)
+      setError(true)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
     // Load advisor settings (enable_llm + auto_fetch) from config
     Api.config()
@@ -41,6 +56,9 @@ export default function SmartAdvisor() {
         setAutoFetch(auto)
         if (enabled && auto) {
           fetchAdvice()
+        }
+        if (!enabled) {
+          fetchAnalystSummary()
         }
       })
       .catch((err) => {
@@ -103,9 +121,60 @@ export default function SmartAdvisor() {
       </div>
       <div className="text-[11px] text-text leading-relaxed">
         {llmEnabled === false && (
-          <span className="text-muted">
-            Smart Advisor is disabled. Enable LLM advice in Settings to get automated recommendations.
-          </span>
+          <>
+            {loading && <span className="animate-pulse">Analyzing schedule (offline)…</span>}
+            {!loading && error && (
+              <span className="text-red-400">
+                Unable to analyze schedule. Check backend logs for details.
+              </span>
+            )}
+            {!loading && !error && analystReport && analystReport.recommendations && (
+              <div className="space-y-2">
+                {Object.entries(analystReport.recommendations)
+                  .slice(0, 3)
+                  .map(([key, value]) => {
+                    const rec: any = value ?? {}
+                    const label = rec.label || key
+                    const grid = rec.best_grid_window || {}
+                    const solar = rec.best_solar_window || {}
+                    const fmtTime = (iso?: string) =>
+                      iso && iso.length >= 16 ? iso.slice(11, 16) : '—'
+                    const gridText =
+                      grid.start && grid.end
+                        ? `${fmtTime(grid.start)}–${fmtTime(grid.end)} (${grid.avg_price?.toFixed?.(2) ?? '–'} SEK/kWh)`
+                        : null
+                    const solarText =
+                      solar.start && solar.end
+                        ? `${fmtTime(solar.start)}–${fmtTime(solar.end)} (${solar.avg_pv_surplus?.toFixed?.(2) ?? '–'} kW surplus)`
+                        : null
+                    return (
+                      <div key={key} className="flex flex-col gap-1">
+                        <div className="font-medium">{label}</div>
+                        <div className="flex flex-wrap gap-3 text-[10px] text-muted">
+                          {gridText && (
+                            <span className="inline-flex items-center gap-1">
+                              <Zap className="h-3 w-3 text-accent" />
+                              <span>Grid: {gridText}</span>
+                            </span>
+                          )}
+                          {solarText && (
+                            <span className="inline-flex items-center gap-1">
+                              <SunMedium className="h-3 w-3 text-accent" />
+                              <span>Solar: {solarText}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )
+                  })}
+              </div>
+            )}
+            {!loading && !error && (!analystReport || !analystReport.recommendations) && (
+              <span className="text-muted">
+                No appliance recommendations available. Configure appliances in Settings to see suggested run windows.
+              </span>
+            )}
+          </>
         )}
         {llmEnabled === true && (
           <>

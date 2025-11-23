@@ -172,6 +172,12 @@ export type AdviceResponse = {
   report: any
 }
 
+export type AnalystReport = {
+  analyzed_at?: string
+  recommendations?: Record<string, any>
+  [key: string]: any
+}
+
 export type SimulateResponse = {
   schedule: import('./types').ScheduleSlot[]
   meta?: any
@@ -234,6 +240,7 @@ export const Api = {
     if (!response.ok) throw new Error('Failed to fetch advice')
     return response.json() as Promise<AdviceResponse>
   },
+  analystRun: () => getJSON<AnalystReport>('/api/analyst/run'),
   debug: () => getJSON<DebugResponse>('/api/debug'),
   debugLogs: () => getJSON<DebugLogsResponse>('/api/debug/logs'),
   historySoc: (date: string | 'today' = 'today') =>
