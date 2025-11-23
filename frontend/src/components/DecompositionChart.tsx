@@ -42,7 +42,7 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
 
   const correctionColors = correctionSeries.map((v, idx) => {
     const baseColor =
-      v >= 0 ? 'rgba(34, 197, 94, 0.45)' : 'rgba(239, 68, 68, 0.45)'
+      v >= 0 ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)'
     if (typeof highlightIndex === 'number' && idx === highlightIndex) {
       return v >= 0 ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
     }
@@ -56,11 +56,12 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
         type: 'line' as const,
         label: isLoad ? 'Base load (kWh)' : 'Base solar (kWh)',
         data: baseSeries,
-        borderColor: 'rgba(148, 163, 184, 0.5)',
-        backgroundColor: 'rgba(148, 163, 184, 0.08)',
-        borderWidth: 1,
+        borderColor: 'rgba(148, 163, 184, 0.9)',
+        backgroundColor: 'rgba(56, 189, 248, 0.18)',
+        borderWidth: 1.5,
         tension: 0.25,
         pointRadius: 0,
+        fill: 'origin',
       },
       {
         type: 'line' as const,
