@@ -1890,10 +1890,7 @@ class HeliosPlanner:
                 }
             )
 
-        # Strategic override to absolute target
-        strategic_target_soc_percent = self.battery_config.get("max_soc_percent", 95)
-        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
-        for i in strategic_windows:
+        # Strategic override to absolute target        for i in strategic_windows:
             start_idx = windows[i]["start"]
             soc_at_window_start = df.loc[start_idx, "simulated_soc_kwh"]
             self.window_responsibilities[i]["total_responsibility_kwh"] = max(
@@ -2161,11 +2158,6 @@ class HeliosPlanner:
         capacity_kwh = self.battery_config.get("capacity_kwh", 10.0)
         min_soc_percent = self.battery_config.get("min_soc_percent", 15)
         max_soc_percent = self.battery_config.get("max_soc_percent", 95)
-
-        strategic_target_soc_percent = self.strategic_charging.get(
-            "target_soc_percent", max_soc_percent
-        )
-        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
 
         min_soc_kwh = min_soc_percent / 100.0 * capacity_kwh
         max_soc_kwh = max_soc_percent / 100.0 * capacity_kwh
@@ -2490,12 +2482,11 @@ class HeliosPlanner:
                 if can_export_battery:
                     remaining_resp = self._remaining_responsibility_after(idx)
                     responsibilities_met = remaining_resp <= 0.01
-                    strategic_ready = current_kwh >= strategic_target_kwh
-                    guard_floor = max(protective_soc_kwh, strategic_target_kwh)
+                    guard_floor = protective_soc_kwh
                     available_for_export = max(0.0, current_kwh - guard_floor)
                     export_from_battery = min(battery_export_capacity, available_for_export)
 
-                    if export_from_battery > 0 and responsibilities_met and strategic_ready:
+                    if export_from_battery > 0 and responsibilities_met:
                         slot_export_kwh = export_from_battery
                         slot_export_revenue = slot_export_kwh * net_export_price
                         battery_energy_used = self._battery_energy_for_output(export_from_battery)

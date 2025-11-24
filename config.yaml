@@ -1,6 +1,6 @@
 advisor:
   auto_fetch: false
-  enable_llm: false
+  enable_llm: true
   model: gpt-5-nano
   personality: friendly
 appliances:
@@ -17,12 +17,12 @@ arbitrage:
   enable_export: true
   enable_peak_only_export: true
   export_fees_sek_per_kwh: 0.0
-  export_future_price_guard: true
+  export_future_price_guard: false
   export_percentile_threshold: 15
   export_profit_margin_sek: 0.05
-  fixed_protective_soc_percent: 15.0
+  fixed_protective_soc_percent: 10.0
   future_price_guard_buffer_sek: 0.0
-  protective_soc_strategy: gap_based
+  protective_soc_strategy: gap_based #gap_based or fixed_protective_soc_percent
 automation:
   enable_scheduler: true
   schedule:
@@ -33,8 +33,8 @@ battery:
   efficiency_percent: 95.0
   max_charge_power_kw: 8
   max_discharge_power_kw: 8
-  max_soc_percent: 95
-  min_soc_percent: 15
+  max_soc_percent: 100
+  min_soc_percent: 10
   roundtrip_efficiency_percent: 95.0
 battery_economics:
   battery_cycle_cost_kwh: 0.2
