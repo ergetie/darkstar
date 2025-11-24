@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Shield, Sparkles, Zap, SunMedium } from 'lucide-react'
+import { Bot, Sparkles, Zap, SunMedium } from 'lucide-react'
 import Card from '../components/Card'
 import DecompositionChart from '../components/DecompositionChart'
 import CorrectionHistoryChart from '../components/CorrectionHistoryChart'
@@ -15,6 +15,8 @@ export default function Aurora() {
   const [riskBaseFactor, setRiskBaseFactor] = useState<number | null>(null)
   const [savingRisk, setSavingRisk] = useState(false)
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
+  const [effectiveSIndex, setEffectiveSIndex] = useState<number | null>(null)
+  const [effectiveSIndexMode, setEffectiveSIndexMode] = useState<string | null>(null)
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -33,6 +35,26 @@ export default function Aurora() {
       }
     }
     fetchDashboard()
+  }, [])
+
+  useEffect(() => {
+    const fetchDebug = async () => {
+      try {
+        const res = await Api.debug()
+        const sIndex = res.s_index
+        if (sIndex) {
+          setEffectiveSIndex(
+            typeof sIndex.factor === 'number' ? sIndex.factor : null,
+          )
+          setEffectiveSIndexMode(
+            typeof sIndex.mode === 'string' ? sIndex.mode : null,
+          )
+        }
+      } catch (err) {
+        console.error('Failed to load debug S-index for Aurora:', err)
+      }
+    }
+    fetchDebug()
   }, [])
 
   const handleBriefing = async () => {
@@ -141,6 +163,41 @@ export default function Aurora() {
     return { lastAvg, prevAvg, delta, pct }
   }, [correctionHistory])
 
+  const auroraMetrics = dashboard?.metrics
+
+  const pvImprovement = useMemo(() => {
+    const b = auroraMetrics?.mae_pv_baseline
+    const a = auroraMetrics?.mae_pv_aurora
+    if (b == null || a == null || b <= 0) return null
+    const delta = b - a
+    const pct = (delta / b) * 100
+    return { baseline: b, aurora: a, delta, pct }
+  }, [auroraMetrics])
+
+  const loadImprovement = useMemo(() => {
+    const b = auroraMetrics?.mae_load_baseline
+    const a = auroraMetrics?.mae_load_aurora
+    if (b == null || a == null || b <= 0) return null
+    const delta = b - a
+    const pct = (delta / b) * 100
+    return { baseline: b, aurora: a, delta, pct }
+  }, [auroraMetrics])
+
+  const sliderSteps = [0.9, 1.1, 1.5]
+
+  const snapToStep = (value: number): number => {
+    let closest = sliderSteps[0]
+    let minDiff = Math.abs(value - closest)
+    for (const step of sliderSteps) {
+      const diff = Math.abs(value - step)
+      if (diff < minDiff) {
+        minDiff = diff
+        closest = step
+      }
+    }
+    return closest
+  }
+
   return (
     <div className="px-4 pt-16 pb-10 lg:px-8 lg:pt-10 space-y-6">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
@@ -155,8 +212,13 @@ export default function Aurora() {
       <div className="grid gap-4 md:grid-cols-3">
         <Card className={`md:col-span-3 p-4 md:p-5 bg-gradient-to-br ${heroGradient}`}>
           <div className="flex items-center gap-4">
-            <div className="relative flex items-center justify-center w-16 h-16 rounded-3xl bg-surface/90 border border-line/80 shadow-float">
-              <Shield className="h-10 w-10 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
+            <div className="relative flex items-center justify-center">
+              <div
+                className={`absolute h-16 w-16 rounded-full ${waveColor} opacity-30 animate-pulse`}
+              />
+              <div className="relative flex items-center justify-center w-14 h-14 rounded-3xl bg-surface/90 border border-line/80 shadow-float">
+                <Bot className="h-9 w-9 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
+              </div>
             </div>
             <div className="flex flex-col gap-2 flex-1">
               <div>
@@ -191,19 +253,11 @@ export default function Aurora() {
                 </div>
               </div>
             </div>
-            <div className="ml-auto flex items-center gap-3">
-              <div className="text-right text-[11px] text-muted">
-                <div className="uppercase tracking-wide text-[10px] text-muted">
-                  Volatility
-                </div>
-                <div>{(overallVol * 100).toFixed(0)}% (48h)</div>
+            <div className="ml-auto text-right text-[11px] text-muted">
+              <div className="uppercase tracking-wide text-[10px] text-muted">
+                Volatility
               </div>
-              <div className="relative flex items-center justify-center h-10 w-10">
-                <div
-                  className={`absolute inset-0 rounded-full ${waveColor} opacity-30 animate-ping`}
-                />
-                <div className={`relative h-5 w-5 rounded-full ${waveColor}`} />
-              </div>
+              <div>{(overallVol * 100).toFixed(0)}% (48h)</div>
             </div>
           </div>
         </Card>
@@ -259,9 +313,9 @@ export default function Aurora() {
           </div>
             <div className="space-y-2">
               <div className="flex justify-between text-[11px] text-muted">
-                <span>Gambler (0.8)</span>
+                <span>Frugal (0.9)</span>
                 <span>Balanced (1.1)</span>
-                <span>Paranoid (1.5)</span>
+                <span>Fortified (1.5)</span>
               </div>
             <div className="relative mt-1">
               <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-surface2" />
@@ -272,14 +326,15 @@ export default function Aurora() {
               </div>
               <input
                 type="range"
-                min={0.8}
+                min={0.9}
                 max={1.5}
                 step={0.01}
                 value={riskBaseFactor ?? 1.1}
                 onChange={(event) => {
-                  const val = parseFloat(event.target.value)
-                  setRiskBaseFactor(val)
-                  handleRiskChange(val)
+                  const raw = parseFloat(event.target.value)
+                  const snapped = snapToStep(raw)
+                  setRiskBaseFactor(snapped)
+                  handleRiskChange(snapped)
                 }}
                 className="relative w-full bg-transparent accent-accent cursor-pointer"
               />
@@ -321,14 +376,9 @@ export default function Aurora() {
                 </span>
               </div>
               <div className="text-[10px]">
-                {riskBaseFactor != null && riskBaseFactor < 1.0 && 'Aurora will be more aggressive in cheap windows.'}
-                {riskBaseFactor != null &&
-                  riskBaseFactor >= 1.0 &&
-                  riskBaseFactor <= 1.2 &&
-                  'Aurora is balancing savings and safety.'}
-                {riskBaseFactor != null &&
-                  riskBaseFactor > 1.2 &&
-                  'Aurora will hold more reserve for uncertainty.'}
+                {riskBaseFactor === 0.9 && 'Aurora will be frugal, leaning into cheap windows.'}
+                {riskBaseFactor === 1.1 && 'Aurora balances savings with safety margins.'}
+                {riskBaseFactor === 1.5 && 'Aurora is fortified against forecast uncertainty.'}
               </div>
             </div>
             {savingRisk && (
@@ -380,9 +430,89 @@ export default function Aurora() {
         )}
       </Card>
 
-      {correctionHistory.length > 0 && (
-        <CorrectionHistoryChart history={correctionHistory} impactTrend={impactTrend} />
-      )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="p-4 md:p-5">
+          <div className="mb-2">
+            <div className="text-xs font-medium text-text">Aurora Performance</div>
+            <div className="text-[11px] text-muted">
+              Baseline vs Aurora forecast accuracy and effective S-index.
+            </div>
+          </div>
+          <div className="space-y-2 text-[11px] text-muted">
+            <div>
+              <div className="uppercase tracking-wide text-[10px]">PV MAE</div>
+              {pvImprovement ? (
+                <div>
+                  Baseline{' '}
+                  <span className="font-mono text-text">
+                    {pvImprovement.baseline.toFixed(3)}
+                  </span>{' '}
+                  → Aurora{' '}
+                  <span className="font-mono text-text">
+                    {pvImprovement.aurora.toFixed(3)}
+                  </span>{' '}
+                  kWh (
+                  <span className="font-mono text-text">
+                    {pvImprovement.pct.toFixed(1)}%
+                  </span>{' '}
+                  better)
+                </div>
+              ) : (
+                <div>Not enough PV data yet.</div>
+              )}
+            </div>
+            <div>
+              <div className="uppercase tracking-wide text-[10px]">Load MAE</div>
+              {loadImprovement ? (
+                <div>
+                  Baseline{' '}
+                  <span className="font-mono text-text">
+                    {loadImprovement.baseline.toFixed(3)}
+                  </span>{' '}
+                  → Aurora{' '}
+                  <span className="font-mono text-text">
+                    {loadImprovement.aurora.toFixed(3)}
+                  </span>{' '}
+                  kWh (
+                  <span className="font-mono text-text">
+                    {loadImprovement.pct.toFixed(1)}%
+                  </span>{' '}
+                  better)
+                </div>
+              ) : (
+                <div>Not enough load data yet.</div>
+              )}
+            </div>
+            <div>
+              <div className="uppercase tracking-wide text-[10px]">Effective S-index</div>
+              <div>
+                Base{' '}
+                <span className="font-mono text-text">
+                  {riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'}
+                </span>
+                {effectiveSIndex != null && (
+                  <>
+                    {' '}
+                    → Effective{' '}
+                    <span className="font-mono text-text">
+                      {effectiveSIndex.toFixed(2)}
+                    </span>
+                  </>
+                )}
+                {effectiveSIndexMode && (
+                  <span className="ml-1">
+                    ({effectiveSIndexMode})
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {correctionHistory.length > 0 && (
+          <CorrectionHistoryChart history={correctionHistory} impactTrend={impactTrend} />
+        )}
+      </div>
     </div>
   )
 }

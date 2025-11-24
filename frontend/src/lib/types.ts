@@ -67,5 +67,11 @@ export type AuroraDashboardResponse = {
   };
   horizon: AuroraHorizon;
   history: { correction_volume_days: AuroraHistoryDay[] };
+   metrics?: {
+    mae_pv_aurora?: number | null;
+    mae_pv_baseline?: number | null;
+    mae_load_aurora?: number | null;
+    mae_load_baseline?: number | null;
+  };
   generated_at: string;
 };
