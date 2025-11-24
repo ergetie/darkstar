@@ -6,19 +6,12 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ## Phase 4: Strategy Engine & Aurora v2 (The Agent)
 
-### Rev 59 — Intelligent Memory (Aurora Correction)
-*   **Summary:** Implemented Aurora Correction (Model 2) with a strict Graduation Path (Infant/Statistician/Graduate) so the system can predict and apply forecast error corrections safely as data accumulates.
-*   **Details:** Extended `slot_forecasts` with `pv_correction_kwh`, `load_correction_kwh`, and `correction_source`; added `ml/corrector.py` to compute residual-based corrections using Rolling Averages (Level 1) or LightGBM error models (Level 2) with ±50% clamping around the base forecast; implemented `ml/pipeline.run_inference` to orchestrate base forecasts (Model 1) plus corrections (Model 2) and persist them in SQLite; wired `inputs.py` to consume `base + correction` transparently when building planner forecasts.
-*   **Status:** ✅ Completed (2025-11-23)
-
-### Rev 58 — The Weather Strategist (Strategy Engine)
-*   **Summary:** Added a weather volatility metric over a 48h horizon using Open-Meteo (cloud cover and temperature), wired it into `inputs.py` as `context.weather_volatility`, and taught the Strategy Engine to increase `s_index.pv_deficit_weight` and `temp_weight` linearly with volatility while never dropping below `config.yaml` baselines.
-*   **Details:** `ml/weather.get_weather_volatility` computes normalized scores (`0.0-1.0`) based on standard deviation, `inputs.get_all_input_data` passes them as `{"cloud": x, "temp": y}`, and `backend.strategy.engine.StrategyEngine` scales weights by up to `+0.4` (PV deficit) and `+0.2` (temperature) with logging and a debug harness in `debug/test_strategy_weather.py`.
-*   **Status:** ✅ Completed (2025-11-23)
-
-### Rev 60 — Cross-Day Responsibility (Charging Ahead for Tomorrow)
-*   **Summary:** Updated `_pass_1_identify_windows` to consider total future net deficits vs. cheap-window capacity and expand cheap windows based on future price distribution when needed, so the planner charges in the cheapest remaining hours and preserves SoC for tomorrow’s high-price periods even when the battery is already near its target at runtime.
-*   **Status:** ✅ Completed (2025-11-23)
+### Rev 62 — Export Safety & Aurora Agent
+*   **Summary:** Decoupled battery export from `strategic_charging.target_soc_percent` and removed the non-decreasing responsibility gate so export can occur whenever price is profitable and SoC is above the protective export floor.
+*   **Details:**
+    *   Export now uses only `protective_soc_kwh` (gap-based or fixed) plus profitability checks, instead of treating the strategic charge target as a hard export floor.
+    *   Removed the redundant `responsibilities_met` guard, which previously never resolved and effectively disabled automatic export despite high spreads.
+*   **Status:** ✅ Completed (2025-11-24)
 
 ### Rev 61 — The Aurora Tab (AI Agent Interface)
 *   **Summary:** Introduced the Aurora tab (`/aurora`) as the system's "Brain" and Command Center. The tab explains *why* decisions are made, visualizes Aurora’s forecast corrections, and exposes a high-level risk control surface (S-index).
@@ -40,6 +33,20 @@ This document contains the archive of all completed revisions. It serves as the 
         *   Trend text summarizing whether Aurora has been more or less active in the last week vs the previous week.
 *   **UX Polish:** Iterated on gradients, spacing, and hierarchy so the Aurora tab feels like a high-end agent console rather than a debugging view, while keeping the layout consistent with Dashboard/Forecasting (hero → decomposition → impact).
 *   **Status:** ✅ Completed (2025-11-24)
+
+### Rev 60 — Cross-Day Responsibility (Charging Ahead for Tomorrow)
+*   **Summary:** Updated `_pass_1_identify_windows` to consider total future net deficits vs. cheap-window capacity and expand cheap windows based on future price distribution when needed, so the planner charges in the cheapest remaining hours and preserves SoC for tomorrow’s high-price periods even when the battery is already near its target at runtime.
+*   **Status:** ✅ Completed (2025-11-23)
+
+### Rev 59 — Intelligent Memory (Aurora Correction)
+*   **Summary:** Implemented Aurora Correction (Model 2) with a strict Graduation Path (Infant/Statistician/Graduate) so the system can predict and apply forecast error corrections safely as data accumulates.
+*   **Details:** Extended `slot_forecasts` with `pv_correction_kwh`, `load_correction_kwh`, and `correction_source`; added `ml/corrector.py` to compute residual-based corrections using Rolling Averages (Level 1) or LightGBM error models (Level 2) with ±50% clamping around the base forecast; implemented `ml/pipeline.run_inference` to orchestrate base forecasts (Model 1) plus corrections (Model 2) and persist them in SQLite; wired `inputs.py` to consume `base + correction` transparently when building planner forecasts.
+*   **Status:** ✅ Completed (2025-11-23)
+
+### Rev 58 — The Weather Strategist (Strategy Engine)
+*   **Summary:** Added a weather volatility metric over a 48h horizon using Open-Meteo (cloud cover and temperature), wired it into `inputs.py` as `context.weather_volatility`, and taught the Strategy Engine to increase `s_index.pv_deficit_weight` and `temp_weight` linearly with volatility while never dropping below `config.yaml` baselines.
+*   **Details:** `ml/weather.get_weather_volatility` computes normalized scores (`0.0-1.0`) based on standard deviation, `inputs.get_all_input_data` passes them as `{"cloud": x, "temp": y}`, and `backend.strategy.engine.StrategyEngine` scales weights by up to `+0.4` (PV deficit) and `+0.2` (temperature) with logging and a debug harness in `debug/test_strategy_weather.py`.
+*   **Status:** ✅ Completed (2025-11-23)
 
 ### Rev 57 — In-App Scheduler Orchestrator
 *   **Summary:** Implemented a dedicated in-app scheduler process (`backend/scheduler.py`) controlled by `automation.schedule` in `config.yaml`, exposed `/api/scheduler/status`, and wired the Dashboard’s Planner Automation card to show real last/next run status instead of computed guesses.
