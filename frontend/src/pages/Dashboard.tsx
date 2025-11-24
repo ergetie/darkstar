@@ -415,8 +415,8 @@ export default function Dashboard(){
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-10">
-        <div className="flex flex-col items-center mb-2">
-            <pre className="text-[9px] leading-[1.1] bg-gradient-to-b from-accent to-accent/20 bg-clip-text text-transparent font-mono text-center">
+        <div className="flex flex-col items-center mb-3">
+            <pre className="text-[10px] leading-[1.15] bg-gradient-to-b from-accent to-accent/20 bg-clip-text text-transparent font-mono text-center">
 {DARKSTAR_ASCII.map((line) => line).join('\n')}
             </pre>
         </div>
