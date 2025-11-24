@@ -57,7 +57,23 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
         label: isLoad ? 'Base load (kWh)' : 'Base solar (kWh)',
         data: baseSeries,
         borderColor: 'rgba(148, 163, 184, 0.9)',
-        backgroundColor: 'rgba(56, 189, 248, 0.18)',
+        // Vertical gradient fill under the base forecast line
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        backgroundColor: (context: any) => {
+          const chart = context.chart
+          const { ctx, chartArea } = chart
+          if (!chartArea) return 'rgba(56, 189, 248, 0.18)'
+          const gradient = ctx.createLinearGradient(
+            0,
+            chartArea.bottom,
+            0,
+            chartArea.top,
+          )
+          gradient.addColorStop(0, 'rgba(15, 23, 42, 0.0)')
+          gradient.addColorStop(0.5, 'rgba(56, 189, 248, 0.12)')
+          gradient.addColorStop(1, 'rgba(56, 189, 248, 0.25)')
+          return gradient
+        },
         borderWidth: 1.5,
         tension: 0.25,
         pointRadius: 0,
