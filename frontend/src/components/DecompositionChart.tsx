@@ -88,6 +88,7 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
 
   const options = {
     responsive: true,
+    maintainAspectRatio: false,
     interaction: {
       mode: 'index' as const,
       intersect: false,
@@ -143,7 +144,7 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
   }
 
   return (
-    <div className="w-full h-64 transition-opacity duration-300">
+    <div className="w-full h-60 transition-opacity duration-300">
       <Line key={mode} data={data} options={options} />
     </div>
   )
