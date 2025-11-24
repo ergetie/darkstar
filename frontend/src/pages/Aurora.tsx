@@ -326,13 +326,19 @@ export default function Aurora() {
               </div>
               <input
                 type="range"
-                min={0.9}
-                max={1.5}
-                step={0.01}
-                value={riskBaseFactor ?? 1.1}
+                min={0}
+                max={2}
+                step={1}
+                value={
+                  riskBaseFactor === 0.9
+                    ? 0
+                    : riskBaseFactor === 1.5
+                    ? 2
+                    : 1
+                }
                 onChange={(event) => {
-                  const raw = parseFloat(event.target.value)
-                  const snapped = snapToStep(raw)
+                  const idx = parseInt(event.target.value, 10)
+                  const snapped = sliderSteps[idx] ?? 1.1
                   setRiskBaseFactor(snapped)
                   handleRiskChange(snapped)
                 }}
@@ -342,11 +348,11 @@ export default function Aurora() {
             <div className="mt-1 flex justify-between text-[10px] text-muted">
               <span className="flex flex-col items-start">
                 <span className="h-1 w-[1px] bg-line/80 mb-1" />
-                <span>0.8</span>
+                <span>0.9</span>
               </span>
               <span className="flex flex-col items-center">
                 <span className="h-2 w-[1px] bg-accent mb-1" />
-                <span>1.0</span>
+                <span>1.1</span>
               </span>
               <span className="flex flex-col items-center">
                 <span className="h-3 w-[1px] bg-accent mb-1" />
