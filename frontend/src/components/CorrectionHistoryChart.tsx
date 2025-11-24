@@ -93,7 +93,7 @@ export default function CorrectionHistoryChart({ history, impactTrend }: Props) 
           Daily total correction volume. Taller bars mean more Aurora intervention.
         </div>
       </div>
-      <div className="h-32">
+      <div className="h-24">
         <Bar data={data} options={options} />
       </div>
       {impactTrend && (
@@ -109,4 +109,3 @@ export default function CorrectionHistoryChart({ history, impactTrend }: Props) 
     </div>
   )
 }
-
