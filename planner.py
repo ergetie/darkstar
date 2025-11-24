@@ -2480,13 +2480,11 @@ class HeliosPlanner:
                         )
 
                 if can_export_battery:
-                    remaining_resp = self._remaining_responsibility_after(idx)
-                    responsibilities_met = remaining_resp <= 0.01
                     guard_floor = protective_soc_kwh
                     available_for_export = max(0.0, current_kwh - guard_floor)
                     export_from_battery = min(battery_export_capacity, available_for_export)
 
-                    if export_from_battery > 0 and responsibilities_met:
+                    if export_from_battery > 0:
                         slot_export_kwh = export_from_battery
                         slot_export_revenue = slot_export_kwh * net_export_price
                         battery_energy_used = self._battery_energy_for_output(export_from_battery)
