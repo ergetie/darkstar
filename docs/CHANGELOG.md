@@ -201,6 +201,13 @@ This document contains the archive of all completed revisions. It serves as the 
 *   **Summary:** Added `npm run dev` to run Flask and Vite concurrently with a proxy.
 *   **Status:** ✅ Completed (2025-11-12)
 
+### Rev 62 — Export Safety & Aurora Agent
+*   **Summary:** Decoupled battery export from `strategic_charging.target_soc_percent` and removed the non-decreasing responsibility gate so export can occur whenever price is profitable and SoC is above the protective export floor.
+*   **Details:**
+    *   Export now uses only `protective_soc_kwh` (gap-based or fixed) plus profitability checks, instead of treating the strategic charge target as a hard export floor.
+    *   Removed the redundant `responsibilities_met` guard, which previously never resolved and effectively disabled automatic export despite high spreads.
+*   **Status:** ✅ Completed (2025-11-24)
+
 ### Rev 37 — Monorepo Skeleton
 *   **Summary:** Moved Flask app to `backend/` and React app to `frontend/`.
 *   **Status:** ✅ Completed (2025-11-12)
