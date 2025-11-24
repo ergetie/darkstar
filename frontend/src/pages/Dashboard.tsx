@@ -21,6 +21,11 @@ function formatLocalIso(d: Date | null): string {
     return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
+const DARKSTAR_ASCII = [
+    '█▀▄ ▄▀█ █▀█ █▄▀ █▀ ▀█▀ ▄▀█ █▀█',
+    '█▄▀ █▀█ █▀▄ █░█ ▄█ ░█░ █▀█ █▀▄',
+]
+
 export default function Dashboard(){
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
@@ -409,7 +414,12 @@ export default function Dashboard(){
 	    }
 
     return (
-        <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12 space-y-10">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-10">
+        <div className="flex flex-col items-center mb-2">
+            <pre className="text-[9px] leading-[1.1] bg-gradient-to-r from-accent via-sky-400 to-emerald-400 bg-clip-text text-transparent font-mono text-center">
+{DARKSTAR_ASCII.map((line) => line).join('\n')}
+            </pre>
+        </div>
         {/* Row 1: Schedule Overview (24h / 48h) */}
         <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
         <ChartCard

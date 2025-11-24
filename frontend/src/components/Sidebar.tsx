@@ -44,9 +44,7 @@ export default function Sidebar(){
             {/* Navigation Items */}
             <Item to="/" icon={Gauge} label="Dash" />
             <Item to="/planning" icon={CalendarRange} label="Plan" />
-            <Item to="/forecasting" icon={Activity} label="Forecasts" />
             <Item to="/aurora" icon={Bot} label="Aurora" />
-            <Item to="/learning" icon={BookOpenCheck} label="Learning" />
             <Item to="/lab" icon={FlaskConical} label="Lab" />
             <Item to="/debug" icon={Bug} label="Debug" />
             
@@ -124,19 +122,6 @@ export default function Sidebar(){
                 <button
                 type="button"
                 className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${
-                    pathname === '/forecasting' ? 'bg-accent text-[#0F1216]' : 'bg-surface border border-line/60 text-muted'
-                }`}
-                onClick={closeMobile}
-                >
-                <span className="flex items-center gap-2">
-                    <Activity className="h-4 w-4" />
-                    <NavLink to="/forecasting">Forecasting</NavLink>
-                </span>
-                </button>
-
-                <button
-                type="button"
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${
                     pathname === '/aurora' ? 'bg-accent text-[#0F1216]' : 'bg-surface border border-line/60 text-muted'
                 }`}
                 onClick={closeMobile}
@@ -144,19 +129,6 @@ export default function Sidebar(){
                 <span className="flex items-center gap-2">
                     <Bot className="h-4 w-4" />
                     <NavLink to="/aurora">Aurora</NavLink>
-                </span>
-                </button>
-
-                <button
-                type="button"
-                className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${
-                    pathname === '/learning' ? 'bg-accent text-[#0F1216]' : 'bg-surface border border-line/60 text-muted'
-                }`}
-                onClick={closeMobile}
-                >
-                <span className="flex items-center gap-2">
-                    <BookOpenCheck className="h-4 w-4" />
-                    <NavLink to="/learning">Learning</NavLink>
                 </span>
                 </button>
 
