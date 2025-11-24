@@ -354,10 +354,6 @@ export default function Aurora() {
                 <span className="h-2 w-[1px] bg-accent mb-1" />
                 <span>1.1</span>
               </span>
-              <span className="flex flex-col items-center">
-                <span className="h-3 w-[1px] bg-accent mb-1" />
-                <span>1.2</span>
-              </span>
               <span className="flex flex-col items-end">
                 <span className="h-1 w-[1px] bg-line/80 mb-1" />
                 <span>1.5</span>
