@@ -75,7 +75,7 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
           return gradient
         },
         borderWidth: 1.5,
-        tension: 0.25,
+        tension: 0.4,
         pointRadius: 0,
         fill: 'origin',
       },
@@ -87,7 +87,7 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
         backgroundColor: 'rgba(59, 130, 246, 0.3)',
         borderWidth: 2,
         borderDash: [4, 3],
-        tension: 0.25,
+        tension: 0.4,
         pointRadius: 0,
       },
       {

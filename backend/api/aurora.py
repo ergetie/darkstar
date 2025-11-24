@@ -257,6 +257,65 @@ def _fetch_correction_history(engine: Any, config: Dict[str, Any]) -> List[Dict[
     return rows
 
 
+def _compute_metrics(engine: Any, days_back: int = 7) -> Dict[str, float | None]:
+    """
+    Compute simple MAE metrics for baseline vs AURORA over recent days.
+    """
+    db_path = getattr(engine, "db_path", None) if engine is not None else None
+    if not db_path or not os.path.exists(db_path):
+        return {
+            "mae_pv_aurora": None,
+            "mae_pv_baseline": None,
+            "mae_load_aurora": None,
+            "mae_load_baseline": None,
+        }
+
+    tz = getattr(engine, "timezone", _get_timezone())
+    now = datetime.now(tz)
+    start_time = now - timedelta(days=max(days_back, 1))
+
+    metrics: Dict[str, float | None] = {
+        "mae_pv_aurora": None,
+        "mae_pv_baseline": None,
+        "mae_load_aurora": None,
+        "mae_load_baseline": None,
+    }
+
+    try:
+        with sqlite3.connect(db_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            rows = cursor.execute(
+                """
+                SELECT
+                    f.forecast_version,
+                    AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)) AS mae_pv,
+                    AVG(ABS(o.load_kwh - f.load_forecast_kwh)) AS mae_load
+                FROM slot_observations o
+                JOIN slot_forecasts f
+                  ON o.slot_start = f.slot_start
+                WHERE o.slot_start >= ? AND o.slot_start < ?
+                  AND f.forecast_version IN ('baseline_7_day_avg', 'aurora')
+                  AND o.pv_kwh IS NOT NULL AND f.pv_forecast_kwh IS NOT NULL
+                  AND o.load_kwh IS NOT NULL AND f.load_forecast_kwh IS NOT NULL
+                GROUP BY f.forecast_version
+                """,
+                (start_time.isoformat(), now.isoformat()),
+            ).fetchall()
+    except sqlite3.Error as exc:  # pragma: no cover - defensive logging
+        logger.warning("Failed to compute Aurora metrics: %s", exc)
+        return metrics
+
+    for version, mae_pv, mae_load in rows:
+        if version == "aurora":
+            metrics["mae_pv_aurora"] = None if mae_pv is None else float(mae_pv)
+            metrics["mae_load_aurora"] = None if mae_load is None else float(mae_load)
+        elif version == "baseline_7_day_avg":
+            metrics["mae_pv_baseline"] = None if mae_pv is None else float(mae_pv)
+            metrics["mae_load_baseline"] = None if mae_load is None else float(mae_load)
+
+    return metrics
+
+
 @aurora_bp.get("/dashboard")
 def aurora_dashboard():
     """
@@ -279,6 +338,7 @@ def aurora_dashboard():
     weather_volatility = _fetch_weather_volatility(slot_start, horizon_end, config)
     horizon = _fetch_horizon_series(engine, config)
     history = _fetch_correction_history(engine, config)
+    metrics = _compute_metrics(engine)
 
     payload = {
         "identity": {
@@ -292,6 +352,7 @@ def aurora_dashboard():
         "history": {
             "correction_volume_days": history,
         },
+        "metrics": metrics,
         "generated_at": datetime.now(tz).isoformat(),
     }
     return jsonify(payload)
