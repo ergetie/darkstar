@@ -464,10 +464,14 @@ export default function Aurora() {
                     {pvImprovement.aurora.toFixed(3)}
                   </span>{' '}
                   kWh (
-                  <span className="font-mono text-text">
-                    {pvImprovement.pct.toFixed(1)}%
-                  </span>{' '}
-                  better)
+                  <span
+                    className={`font-mono ${
+                      pvImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  >
+                    {pvImprovement.pct.toFixed(1)}% {pvImprovement.pct >= 0 ? 'better' : 'worse'}
+                  </span>
+                  )
                 </div>
               ) : (
                 <div>Not enough PV data yet.</div>
@@ -486,10 +490,15 @@ export default function Aurora() {
                     {loadImprovement.aurora.toFixed(3)}
                   </span>{' '}
                   kWh (
-                  <span className="font-mono text-text">
-                    {loadImprovement.pct.toFixed(1)}%
-                  </span>{' '}
-                  better)
+                  <span
+                    className={`font-mono ${
+                      loadImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  >
+                    {loadImprovement.pct.toFixed(1)}%{' '}
+                    {loadImprovement.pct >= 0 ? 'better' : 'worse'}
+                  </span>
+                  )
                 </div>
               ) : (
                 <div>Not enough load data yet.</div>
