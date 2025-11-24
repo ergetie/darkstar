@@ -1890,7 +1890,10 @@ class HeliosPlanner:
                 }
             )
 
-        # Strategic override to absolute target        for i in strategic_windows:
+        # Strategic override to absolute target
+        strategic_target_soc_percent = self.battery_config.get("max_soc_percent", 95)
+        strategic_target_kwh = strategic_target_soc_percent / 100.0 * capacity_kwh
+        for i in strategic_windows:
             start_idx = windows[i]["start"]
             soc_at_window_start = df.loc[start_idx, "simulated_soc_kwh"]
             self.window_responsibilities[i]["total_responsibility_kwh"] = max(
