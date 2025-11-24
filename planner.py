@@ -2547,7 +2547,6 @@ class HeliosPlanner:
         df["_entry_soc_percent"] = entry_soc_percent_series
         df["_entry_soc_kwh"] = entry_soc_kwh_series
         self._last_protective_soc_kwh = protective_soc_kwh
-        self._last_strategic_target_kwh = strategic_target_kwh
         self._slot_entry_soc_percent = pd.Series(entry_soc_percent_series, index=df.index)
         self._slot_entry_soc_kwh = pd.Series(entry_soc_kwh_series, index=df.index)
 
