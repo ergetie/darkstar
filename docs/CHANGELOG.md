@@ -20,6 +20,27 @@ This document contains the archive of all completed revisions. It serves as the 
 *   **Summary:** Updated `_pass_1_identify_windows` to consider total future net deficits vs. cheap-window capacity and expand cheap windows based on future price distribution when needed, so the planner charges in the cheapest remaining hours and preserves SoC for tomorrow’s high-price periods even when the battery is already near its target at runtime.
 *   **Status:** ✅ Completed (2025-11-23)
 
+### Rev 61 — The Aurora Tab (AI Agent Interface)
+*   **Summary:** Introduced the Aurora tab (`/aurora`) as the system's "Brain" and Command Center. The tab explains *why* decisions are made, visualizes Aurora’s forecast corrections, and exposes a high-level risk control surface (S-index).
+*   **Backend:** Added `backend/api/aurora.py` and registered `aurora_bp` in `backend/webapp.py`. Implemented:
+    *   `GET /api/aurora/dashboard` — returns identity (Graduation level from `learning_runs`), risk profile (persona derived from `s_index.base_factor`), weather volatility (via `ml.weather.get_weather_volatility`), a 48h horizon of base vs corrected forecasts (PV + load), and the last 14 days of per-day correction volume (PV + load, with separate fields).
+    *   `POST /api/aurora/briefing` — calls the LLM (via OpenRouter) with the dashboard JSON to generate a concise 1–2 sentence Aurora “Daily Briefing”.
+*   **Frontend Core:** Extended `frontend/src/lib/types.ts` and `frontend/src/lib/api.ts` with `AuroraDashboardResponse`, history types, and `Api.aurora.dashboard/briefing`.
+*   **Aurora UI:**
+    *   Built `frontend/src/pages/Aurora.tsx` as a dedicated Command Center:
+        *   Hero card with shield avatar, Graduation mode, Experience (runs), Strategy (risk persona + S-index factor), Today’s Action (kWh corrected), and a volatility-driven visual “signal”.
+        *   Daily Briefing card that renders the LLM output as terminal-style system text.
+        *   Risk Dial module wired to `s_index.base_factor`, with semantic regions (Gambler / Balanced / Paranoid), descriptive copy, and inline color indicator.
+    *   Implemented `frontend/src/components/DecompositionChart.tsx` (Chart.js) for a 48h Forecast Decomposition:
+        *   Base Forecast: solid line with vertical gradient area fill.
+        *   Final Forecast: thicker dashed line.
+        *   Correction: green (positive) / red (negative) bars, with the largest correction visually highlighted.
+    *   Implemented `frontend/src/components/CorrectionHistoryChart.tsx`:
+        *   Compact bar chart over 14 days of correction volume, with tooltip showing Date + Total kWh.
+        *   Trend text summarizing whether Aurora has been more or less active in the last week vs the previous week.
+*   **UX Polish:** Iterated on gradients, spacing, and hierarchy so the Aurora tab feels like a high-end agent console rather than a debugging view, while keeping the layout consistent with Dashboard/Forecasting (hero → decomposition → impact).
+*   **Status:** ✅ Completed (2025-11-24)
+
 ### Rev 57 — In-App Scheduler Orchestrator
 *   **Summary:** Implemented a dedicated in-app scheduler process (`backend/scheduler.py`) controlled by `automation.schedule` in `config.yaml`, exposed `/api/scheduler/status`, and wired the Dashboard’s Planner Automation card to show real last/next run status instead of computed guesses.
 *   **Status:** ✅ Completed (2025-11-23)
