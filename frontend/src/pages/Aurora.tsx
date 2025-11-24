@@ -74,14 +74,10 @@ export default function Aurora() {
 
   const handleRiskChange = async (value: number) => {
     if (value == null) return
+    setRiskBaseFactor(value)
     setSavingRisk(true)
     try {
       await Api.configSave({ s_index: { base_factor: value } })
-      const fresh = await Api.config()
-      const bf = (fresh as any)?.s_index?.base_factor
-      if (typeof bf === 'number') {
-        setRiskBaseFactor(bf)
-      }
     } catch (err) {
       console.error('Failed to save risk level (s_index.base_factor):', err)
     } finally {
