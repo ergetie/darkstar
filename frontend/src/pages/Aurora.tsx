@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Sparkles, Zap, SunMedium } from 'lucide-react'
 import Card from '../components/Card'
 import DecompositionChart from '../components/DecompositionChart'
@@ -17,6 +17,8 @@ export default function Aurora() {
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
   const [effectiveSIndex, setEffectiveSIndex] = useState<number | null>(null)
   const [effectiveSIndexMode, setEffectiveSIndexMode] = useState<string | null>(null)
+  const [riskStatus, setRiskStatus] = useState<string>('')
+  const riskStatusTimeoutRef = useRef<number | null>(null)
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -78,8 +80,17 @@ export default function Aurora() {
     setSavingRisk(true)
     try {
       await Api.configSave({ s_index: { base_factor: value } })
+      if (riskStatusTimeoutRef.current !== null) {
+        window.clearTimeout(riskStatusTimeoutRef.current)
+      }
+      setRiskStatus('Saved.')
+      riskStatusTimeoutRef.current = window.setTimeout(() => {
+        setRiskStatus('')
+        riskStatusTimeoutRef.current = null
+      }, 2000)
     } catch (err) {
       console.error('Failed to save risk level (s_index.base_factor):', err)
+      setRiskStatus('Failed to save.')
     } finally {
       setSavingRisk(false)
     }
@@ -378,10 +389,13 @@ export default function Aurora() {
                 {riskBaseFactor === 1.1 && 'Aurora balances savings with safety margins.'}
                 {riskBaseFactor === 1.5 && 'Aurora is fortified against forecast uncertainty.'}
               </div>
+              <div
+                className="text-[10px] text-muted min-h-[14px] transition-opacity duration-500"
+                style={{ opacity: riskStatus ? 1 : 0 }}
+              >
+                {riskStatus}
+              </div>
             </div>
-            {savingRisk && (
-              <div className="text-[11px] text-muted">Saving and reloading config…</div>
-            )}
           </div>
         </Card>
       </div>
