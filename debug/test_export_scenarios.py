@@ -79,6 +79,8 @@ def main() -> None:
 
     # 3) Compute safety and device limits
     capacity_kwh = float(planner.battery_config.get("capacity_kwh", 10.0))
+    min_soc_percent_cfg = float(planner.battery_config.get("min_soc_percent", 15.0))
+    min_soc_kwh = capacity_kwh * (min_soc_percent_cfg / 100.0)
     max_discharge_kw = float(planner.battery_config.get("max_discharge_power_kw", 5.0))
     slot_length_h = 0.25  # 15 minutes
     slot_discharge_cap_kwh = max_discharge_kw * slot_length_h
@@ -92,7 +94,7 @@ def main() -> None:
     battery_cycle_cost = float(planner.battery_economics.get("battery_cycle_cost_kwh", 0.0))
 
     print(f"SoC at peak: {soc_kwh_peak:.2f} kWh ({soc_percent_peak:.1f}%)")
-    print(f"Protective floor: {protective_soc_kwh:.2f} kWh")
+    print(f"Min SoC floor: {min_soc_kwh:.2f} kWh  ·  Protective floor (planner): {protective_soc_kwh:.2f} kWh")
 
     # 4) Build list of future slots after the peak, sorted by increasing price (for recharge)
     future_after_peak = df_future[df_future.index > peak_idx]
@@ -107,9 +109,10 @@ def main() -> None:
     results: List[ScenarioResult] = []
 
     for energy_kwh in scenarios_kwh:
-        # Respect slot discharge limit (delivered kWh) and SoC safety
-        # Max deliverable given SoC and protective floor
-        headroom_kwh = max(0.0, soc_kwh_peak - protective_soc_kwh)
+        # Respect slot discharge limit (delivered kWh) and SoC safety.
+        # For this what-if, we only enforce the configured min SoC floor,
+        # not the more conservative protective export floor.
+        headroom_kwh = max(0.0, soc_kwh_peak - min_soc_kwh)
         max_deliverable_from_headroom = headroom_kwh * discharge_eff
         deliverable_kwh = min(energy_kwh, slot_discharge_cap_kwh, max_deliverable_from_headroom)
 

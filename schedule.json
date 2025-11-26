@@ -4599,8 +4599,8 @@
     }
   ],
   "meta": {
-    "planned_at": "2025-11-26T15:04:20.988556",
-    "planner_version": "v1.1.0-86-gba1a2e8-dirty",
+    "planned_at": "2025-11-26T15:10:42.678137",
+    "planner_version": "v1.1.0-87-gf5ee75b-dirty",
     "forecast": {
       "pv_forecast_days": 4,
       "weather_forecast_days": 3
@@ -4666,8 +4666,8 @@
       "base_factor": 1.1,
       "max_factor": 1.4,
       "avg_deficit": 0.8491,
-      "pv_deficit_weight": 0.64,
-      "temp_weight": 0.41,
+      "pv_deficit_weight": 0.6,
+      "temp_weight": 0.3,
       "temp_adjustment": 0.6767,
       "mean_temperature_c": 6.47,
       "considered_days": [
@@ -4685,7 +4685,7 @@
         "3": 7.3,
         "4": 5.3
       },
-      "factor_unclamped": 1.9209,
+      "factor_unclamped": 1.8125,
       "factor": 1.4
     },
     "sample_schedule": [
