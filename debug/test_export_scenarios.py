@@ -12,7 +12,6 @@ if ROOT not in sys.path:
 
 from inputs import get_all_input_data  # type: ignore
 from planner import (  # type: ignore
-    HeliosPlanner,
     apply_manual_plan,
     prepare_df,
     simulate_schedule,
@@ -23,7 +22,8 @@ from learning import get_learning_engine, DeterministicSimulator  # type: ignore
 @dataclass
 class ScenarioResult:
     label: str
-    export_kwh: float
+    target_export_kwh: float
+    realized_export_kwh: float
     cost_sek: float
     revenue_sek: float
     wear_sek: float
@@ -43,47 +43,12 @@ def _evaluate_schedule(
 
 
 def main() -> None:
-    print("🧪 Export Scenario Explorer (full re-simulation)")
+    print("🧪 Export Scenario Explorer (full re-simulation, multi-slot)")
 
-    # 1) Baseline: run full planner schedule once
+    # 1) Build baseline inputs once
     input_data = get_all_input_data("config.yaml")
-    planner = HeliosPlanner("config.yaml")
-    baseline_df = planner.generate_schedule(input_data)
-
-    # Focus on future slots for evaluation (from now_slot onward)
-    now_slot = getattr(planner, "now_slot", None)
-    if now_slot is not None:
-        baseline_future = baseline_df[baseline_df.index >= now_slot]
-    else:
-        baseline_future = baseline_df
-
-    if baseline_future.empty:
-        print("No future slots found in baseline schedule; nothing to simulate.")
-        return
-
-    # Learning engine's deterministic simulator provides the cashflow model
     engine = get_learning_engine()
     simulator = DeterministicSimulator(engine)
-
-    base_cost, base_rev, base_wear, base_obj = _evaluate_schedule(simulator, baseline_future)
-    base_export = float(baseline_future.get("export_kwh", 0.0).sum())
-
-    print(
-        f"Baseline objective: cost={base_cost:.2f} SEK, revenue={base_rev:.2f} SEK, "
-        f"wear={base_wear:.2f} SEK, net={base_obj:.2f} SEK"
-    )
-    print(f"Baseline future export energy: {base_export:.2f} kWh\n")
-
-    # 2) Identify the highest-price future slot
-    peak_idx = baseline_future["import_price_sek_kwh"].idxmax()
-    peak_row = baseline_future.loc[peak_idx]
-    peak_start = peak_row.get("start_time")
-    peak_end = peak_row.get("end_time")
-    peak_price = float(peak_row.get("import_price_sek_kwh") or 0.0)
-
-    print(f"Peak slot (local): {peak_start} → {peak_end} @ {peak_price:.3f} SEK/kWh\n")
-
-    # 3) Scenarios: force an Export block at the peak slot and re-simulate via simulate_schedule
     config = engine.config
     timezone = config.get("timezone", "Europe/Stockholm")
     initial_state = input_data.get("initial_state") or {}
@@ -93,53 +58,97 @@ def main() -> None:
         print("Input DF is empty; cannot run simulate_schedule.")
         return
 
+    # Baseline schedule via simulate_schedule (no manual plan)
+    baseline_df = simulate_schedule(df_inputs, config, initial_state)
+    base_cost, base_rev, base_wear, base_obj = _evaluate_schedule(simulator, baseline_df)
+    base_export = float(baseline_df.get("export_kwh", 0.0).sum())
+
+    print(
+        f"Baseline objective: cost={base_cost:.2f} SEK, revenue={base_rev:.2f} SEK, "
+        f"wear={base_wear:.2f} SEK, net={base_obj:.2f} SEK"
+    )
+    print(f"Baseline export energy (simulated horizon): {base_export:.2f} kWh\n")
+
+    # 2) Rank future slots by price (highest first)
+    slots_sorted = baseline_df.sort_values("import_price_sek_kwh", ascending=False)
+    if slots_sorted.empty:
+        print("No slots with prices; aborting.")
+        return
+
+    # 3) Scenarios: target export energies; fill across multiple price slots if needed
+    target_kwh_values = [2.0, 4.0, 6.0, 10.0]
     scenarios: List[ScenarioResult] = []
 
-    # We test an increasing "strength" of export hint by duplicating the Export block;
-    # the planner will still respect device limits and safety guards internally.
-    for n_blocks in (1, 2, 3, 4):
-        manual_plan = {
-            "plan": [
-                {
-                    "id": f"export-peak-{n_blocks}",
-                    "group": "export",
-                    "action": "Export",
-                    "start": peak_start,
-                    "end": peak_end,
-                }
-            ]
-        }
+    for target_kwh in target_kwh_values:
+        chosen_indices: List[pd.Timestamp] = []
+        best_df = baseline_df
+        best_export = 0.0
+        best_cost = base_cost
+        best_rev = base_rev
+        best_wear = base_wear
+        best_obj = base_obj
 
-        df_manual = apply_manual_plan(df_inputs, manual_plan, config)
-        sim_df = simulate_schedule(df_manual, config, initial_state)
+        # Greedily add slots in descending price order until the planner actually
+        # exports close to the requested target_kwh or we run out of slots.
+        for idx in slots_sorted.index:
+            chosen_indices.append(idx)
 
-        sim_cost, sim_rev, sim_wear, sim_obj = _evaluate_schedule(simulator, sim_df)
-        sim_export = float(sim_df.get("export_kwh", 0.0).sum())
+            plan_entries = []
+            for ci in chosen_indices:
+                row = baseline_df.loc[ci]
+                start = row.get("start_time", ci)
+                end = row.get("end_time")
+                plan_entries.append(
+                    {
+                        "id": f"export-{ci.isoformat()}",
+                        "group": "export",
+                        "action": "Export",
+                        "start": start,
+                        "end": end,
+                    }
+                )
+
+            manual_plan = {"plan": plan_entries}
+            df_manual = apply_manual_plan(df_inputs, manual_plan, config)
+            sim_df = simulate_schedule(df_manual, config, initial_state)
+            sim_cost, sim_rev, sim_wear, sim_obj = _evaluate_schedule(simulator, sim_df)
+            sim_export = float(sim_df.get("export_kwh", 0.0).sum())
+
+            # Track the best approximation to the target so far
+            if sim_export > best_export:
+                best_export = sim_export
+                best_df = sim_df
+                best_cost, best_rev, best_wear, best_obj = sim_cost, sim_rev, sim_wear, sim_obj
+
+            # Stop if we're within 10% of the target
+            if sim_export >= target_kwh * 0.9:
+                break
 
         scenarios.append(
             ScenarioResult(
-                label=f"Export block x{n_blocks} at peak",
-                export_kwh=sim_export,
-                cost_sek=sim_cost,
-                revenue_sek=sim_rev,
-                wear_sek=sim_wear,
-                net_objective_sek=sim_obj,
+                label=f"Target ≈ {target_kwh:g} kWh across peaks",
+                target_export_kwh=target_kwh,
+                realized_export_kwh=best_export,
+                cost_sek=best_cost,
+                revenue_sek=best_rev,
+                wear_sek=best_wear,
+                net_objective_sek=best_obj,
             )
         )
 
     print("Scenario comparison (full-horizon objective vs baseline):")
     print("---------------------------------------------------------")
     print(
-        f"{'Scenario':32}  {'Export [kWh]':>12}  {'Net [SEK]':>11}  "
-        f"{'Δ vs baseline [SEK]':>20}"
+        f"{'Scenario':32}  {'Target [kWh]':>12}  {'Realized [kWh]':>15}  "
+        f"{'Net [SEK]':>11}  {'Δ vs baseline [SEK]':>20}"
     )
     for s in scenarios:
         delta = base_obj - s.net_objective_sek
         print(
-            f"{s.label:32}  {s.export_kwh:12.2f}  {s.net_objective_sek:11.2f}  {delta:20.2f}"
+            f"{s.label:32}  {s.target_export_kwh:12.2f}  {s.realized_export_kwh:15.2f}  "
+            f"{s.net_objective_sek:11.2f}  {delta:20.2f}"
         )
 
 
 if __name__ == "__main__":
     main()
-
