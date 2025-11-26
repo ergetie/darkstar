@@ -17,7 +17,7 @@ arbitrage:
   enable_export: true
   enable_peak_only_export: true
   export_fees_sek_per_kwh: 0.0
-  export_future_price_guard: false
+  export_future_price_guard: true
   export_percentile_threshold: 15
   export_profit_margin_sek: 0.05
   fixed_protective_soc_percent: 10.0
