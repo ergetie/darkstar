@@ -1,3 +1,4 @@
+import copy
 import os
 import sys
 from dataclasses import dataclass
@@ -42,6 +43,26 @@ def _evaluate_schedule(
     return cost, revenue, wear, objective
 
 
+def _build_sim_config(engine) -> dict:
+    """Return a deep-copied config with more permissive manual export settings."""
+    config = copy.deepcopy(engine.config)
+
+    system_batt = config.get("system", {}).get("battery", {}) or {}
+    legacy_batt = config.get("battery", {}) or {}
+    min_soc_percent = float(
+        system_batt.get("min_soc_percent")
+        or legacy_batt.get("min_soc_percent")
+        or 15.0
+    )
+
+    manual = config.setdefault("manual_planning", {})
+    manual.setdefault("export_target_percent", min_soc_percent)
+    manual.setdefault("override_hold_in_cheap", True)
+    manual.setdefault("force_discharge_on_deficit", True)
+
+    return config
+
+
 def main() -> None:
     print("🧪 Export Scenario Explorer (full re-simulation, multi-slot)")
 
@@ -49,8 +70,8 @@ def main() -> None:
     input_data = get_all_input_data("config.yaml")
     engine = get_learning_engine()
     simulator = DeterministicSimulator(engine)
-    config = engine.config
-    timezone = config.get("timezone", "Europe/Stockholm")
+    sim_config = _build_sim_config(engine)
+    timezone = sim_config.get("timezone", "Europe/Stockholm")
     initial_state = input_data.get("initial_state") or {}
 
     df_inputs = prepare_df(input_data, tz_name=timezone)
@@ -59,8 +80,8 @@ def main() -> None:
         return
 
     # Baseline schedule via simulate_schedule with an empty manual plan
-    baseline_input_df = apply_manual_plan(df_inputs, {"plan": []}, config)
-    baseline_df = simulate_schedule(baseline_input_df, config, initial_state)
+    baseline_input_df = apply_manual_plan(df_inputs, {"plan": []}, sim_config)
+    baseline_df = simulate_schedule(baseline_input_df, sim_config, initial_state)
     base_cost, base_rev, base_wear, base_obj = _evaluate_schedule(simulator, baseline_df)
     base_export = float(baseline_df.get("export_kwh", 0.0).sum())
 
@@ -82,7 +103,6 @@ def main() -> None:
 
     for target_kwh in target_kwh_values:
         chosen_indices: List[pd.Timestamp] = []
-        best_df = baseline_df
         best_export = 0.0
         best_cost = base_cost
         best_rev = base_rev
@@ -110,15 +130,14 @@ def main() -> None:
                 )
 
             manual_plan = {"plan": plan_entries}
-            df_manual = apply_manual_plan(df_inputs, manual_plan, config)
-            sim_df = simulate_schedule(df_manual, config, initial_state)
+            df_manual = apply_manual_plan(df_inputs, manual_plan, sim_config)
+            sim_df = simulate_schedule(df_manual, sim_config, initial_state)
             sim_cost, sim_rev, sim_wear, sim_obj = _evaluate_schedule(simulator, sim_df)
             sim_export = float(sim_df.get("export_kwh", 0.0).sum())
 
             # Track the best approximation to the target so far
             if sim_export > best_export:
                 best_export = sim_export
-                best_df = sim_df
                 best_cost, best_rev, best_wear, best_obj = sim_cost, sim_rev, sim_wear, sim_obj
 
             # Stop if we're within 10% of the target
