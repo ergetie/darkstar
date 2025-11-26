@@ -22,7 +22,7 @@ arbitrage:
   export_profit_margin_sek: 0.05
   fixed_protective_soc_percent: 10.0
   future_price_guard_buffer_sek: 0.0
-  protective_soc_strategy: gap_based #gap_based or fixed_protective_soc_percent
+  protective_soc_strategy: gap_based
 automation:
   enable_scheduler: true
   schedule:
@@ -146,7 +146,7 @@ ui:
 water_heating:
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
-  defer_up_to_hours: 3
+  defer_up_to_hours: 6
   max_blocks_per_day: 2
   min_hours_per_day: 2.0
   min_kwh_per_day: 6.0
