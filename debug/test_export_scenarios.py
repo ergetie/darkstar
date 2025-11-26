@@ -3,6 +3,8 @@ import sys
 from dataclasses import dataclass
 from typing import List, Tuple
 
+import pandas as pd
+
 # Ensure project root on path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -28,7 +30,9 @@ class ScenarioResult:
     net_objective_sek: float
 
 
-def _evaluate_schedule(simulator: DeterministicSimulator, df) -> Tuple[float, float, float, float]:
+def _evaluate_schedule(
+    simulator: DeterministicSimulator, df: pd.DataFrame
+) -> Tuple[float, float, float, float]:
     """Return (cost, revenue, wear, objective) for a schedule DataFrame."""
     metrics = simulator._evaluate_schedule(df)
     cost = float(metrics.get("cost_sek", 0.0))
@@ -46,9 +50,13 @@ def main() -> None:
     planner = HeliosPlanner("config.yaml")
     baseline_df = planner.generate_schedule(input_data)
 
-    # Focus on future slots for evaluation
-    future_mask = ~baseline_df.get("is_historical", False)
-    baseline_future = baseline_df[future_mask]
+    # Focus on future slots for evaluation (from now_slot onward)
+    now_slot = getattr(planner, "now_slot", None)
+    if now_slot is not None:
+        baseline_future = baseline_df[baseline_df.index >= now_slot]
+    else:
+        baseline_future = baseline_df
+
     if baseline_future.empty:
         print("No future slots found in baseline schedule; nothing to simulate.")
         return
