@@ -58,8 +58,9 @@ def main() -> None:
         print("Input DF is empty; cannot run simulate_schedule.")
         return
 
-    # Baseline schedule via simulate_schedule (no manual plan)
-    baseline_df = simulate_schedule(df_inputs, config, initial_state)
+    # Baseline schedule via simulate_schedule with an empty manual plan
+    baseline_input_df = apply_manual_plan(df_inputs, {"plan": []}, config)
+    baseline_df = simulate_schedule(baseline_input_df, config, initial_state)
     base_cost, base_rev, base_wear, base_obj = _evaluate_schedule(simulator, baseline_df)
     base_export = float(baseline_df.get("export_kwh", 0.0).sum())
 
