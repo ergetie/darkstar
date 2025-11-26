@@ -2,6 +2,7 @@ import copy
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from typing import List, Tuple
 
 import pandas as pd
@@ -11,7 +12,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from inputs import get_all_input_data  # type: ignore
 from planner import (  # type: ignore
     apply_manual_plan,
     prepare_df,
@@ -64,14 +64,20 @@ def _build_sim_config(engine) -> dict:
 
 
 def main() -> None:
-    print("🧪 Export Scenario Explorer (full re-simulation, multi-slot)")
+    print("🧪 Export Scenario Explorer (full-day re-simulation, multi-slot)")
 
-    # 1) Build baseline inputs once
-    input_data = get_all_input_data("config.yaml")
+    # 1) Build baseline inputs for TODAY (00:00–24:00) from learning DB
     engine = get_learning_engine()
     simulator = DeterministicSimulator(engine)
     sim_config = _build_sim_config(engine)
     timezone = sim_config.get("timezone", "Europe/Stockholm")
+    today = datetime.now(engine.timezone).date()
+
+    input_data = simulator._build_input_data_for_day(today)
+    if not input_data:
+        print(f"No historical price/forecast data found for {today}; aborting.")
+        return
+
     initial_state = input_data.get("initial_state") or {}
 
     df_inputs = prepare_df(input_data, tz_name=timezone)
