@@ -13,13 +13,15 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Scope:**
 *   Add a debug tool (`debug/test_export_scenarios.py`) that:
-    *   Runs the current HeliosPlanner schedule once to establish a baseline.
-    *   Uses the existing deterministic simulator (from `learning.py`) to compute full-horizon cashflow metrics (grid import cost, export revenue, battery wear) for baseline vs scenarios.
-    *   For each scenario, injects a manual “Export” block at the highest-price future slot using the same path as `/api/simulate` (`prepare_df` → `apply_manual_plan` → `simulate_schedule`) and re-evaluates the resulting schedule.
-    *   Reports total SEK delta (baseline vs scenario) plus exported energy and any safety violations, suitable for future Lab UI integration.
-*   Keep planner core logic untouched; reuse the existing `DeterministicSimulator._evaluate_schedule` cost model so the what-if analysis stays aligned with Learning and avoids duplicating cashflow logic.
+    *   Uses the Learning engine’s `DeterministicSimulator` and `simulate_schedule` to re-run a **full day** (00:00–24:00) through the planner.
+    *   Applies progressively stronger “export at peaks” manual plans across the highest-price slots, re-simulating the whole horizon each time.
+    *   Computes full-horizon cashflow metrics (grid import cost, export revenue, battery wear) for baseline vs scenarios using the existing `_evaluate_schedule` cost model.
+    *   Reports target vs realized export energy and net SEK deltas vs baseline for each scenario (prototype for Lab “Export What-If”).
+*   Planner core logic stays untouched; all what-if behaviour is driven via `prepare_df` → `apply_manual_plan` → `simulate_schedule`.
 
-**Next:** Once validated via CLI, wire this into the Lab tab as an “Export What-If” card so users can visually compare scenarios before relaxing protective export guards.
+**Current status:** Prototype script is in place and structurally correct, but with today’s conservative export economics most scenarios still realize ≈0 kWh of extra export (planner chooses to hold), so the tool currently acts as a “sanity check” rather than a tuner.
+
+**Next:** Switch the simulator to use **live Nordpool + Aurora forecasts** for an arbitrary day (not just data persisted in `planner_learning.db`), and add a dedicated “relaxed economics” mode (lower cycle cost / profit margin bounds) so the Lab UI can explore truly hypothetical export behaviour without changing production guardrails.
 
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 

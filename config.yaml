@@ -24,7 +24,7 @@ arbitrage:
   future_price_guard_buffer_sek: 0.0
   protective_soc_strategy: gap_based
 automation:
-  enable_scheduler: true
+  enable_scheduler: false
   schedule:
     every_minutes: 60
   write_to_mariadb: false
@@ -34,16 +34,16 @@ battery:
   max_charge_power_kw: 8
   max_discharge_power_kw: 8
   max_soc_percent: 100
-  min_soc_percent: 10
+  min_soc_percent: 12
   roundtrip_efficiency_percent: 95.0
 battery_economics:
   battery_cycle_cost_kwh: 0.2
 charging_strategy:
-  block_consolidation_tolerance_sek: 0.08
-  charge_threshold_percentile: 16
-  cheap_price_tolerance_sek: 0.08
+  block_consolidation_tolerance_sek: 0.05
+  charge_threshold_percentile: 15
+  cheap_price_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
-  price_smoothing_sek_kwh: 0.08
+  price_smoothing_sek_kwh: 0.05
 dashboard:
   auto_refresh_enabled: true
   overlay_defaults: charge, soctarget, socprojected, water, export, load_off
@@ -103,7 +103,7 @@ pricing:
   grid_transfer_fee_sek: 0.2456
   vat_percent: 25.0
 s_index:
-  base_factor: 1.1
+  base_factor: 0.9
   days_ahead_for_sindex:
   - 2
   - 3
@@ -111,7 +111,7 @@ s_index:
   max_factor: 1.4
   mode: dynamic
   pv_deficit_weight: 0.6
-  static_factor: 1.4
+  static_factor: 1.2
   temp_baseline_c: 20
   temp_cold_c: 0
   temp_weight: 0.3
