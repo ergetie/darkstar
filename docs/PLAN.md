@@ -7,6 +7,20 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 63 — Export What-If Simulator (Lab Prototype)
+
+**Goal:** Provide a deterministic, planner-consistent way to answer “what if we export X kWh at tomorrow’s price peak?” so users can see the net SEK impact before changing arbitrage settings.
+
+**Scope:**
+*   Add a debug tool (`debug/test_export_scenarios.py`) that:
+    *   Runs the current HeliosPlanner schedule once to establish a baseline.
+    *   Uses the existing deterministic simulator (from `learning.py`) to compute full-horizon cashflow metrics (grid import cost, export revenue, battery wear) for baseline vs scenarios.
+    *   For each scenario, injects a manual “Export” block at the highest-price future slot using the same path as `/api/simulate` (`prepare_df` → `apply_manual_plan` → `simulate_schedule`) and re-evaluates the resulting schedule.
+    *   Reports total SEK delta (baseline vs scenario) plus exported energy and any safety violations, suitable for future Lab UI integration.
+*   Keep planner core logic untouched; reuse the existing `DeterministicSimulator._evaluate_schedule` cost model so the what-if analysis stays aligned with Learning and avoids duplicating cashflow logic.
+
+**Next:** Once validated via CLI, wire this into the Lab tab as an “Export What-If” card so users can visually compare scenarios before relaxing protective export guards.
+
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
 ---
