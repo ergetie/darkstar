@@ -1275,9 +1275,11 @@ def run_planner():
         strategy = StrategyEngine(base_config)
         overrides = strategy.decide(input_data)
 
-        # 2. Planner Execution
+        # 2. Planner Execution (UI/Lab runs must not pollute training episodes)
         planner = HeliosPlanner("config.yaml")
-        df = planner.generate_schedule(input_data, overrides=overrides)
+        df = planner.generate_schedule(
+            input_data, overrides=overrides, record_training_episode=False
+        )
 
         # Store per-slot PV/load forecasts in the learning database so
         # the learning engine can calibrate forecast accuracy over time.

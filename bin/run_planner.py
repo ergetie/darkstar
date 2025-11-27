@@ -60,7 +60,7 @@ def main():
     # Build inputs and run planner
     input_data = get_all_input_data("config.yaml")
     planner = HeliosPlanner("config.yaml")
-    df = planner.generate_schedule(input_data)
+    df = planner.generate_schedule(input_data, record_training_episode=True)
 
     # Save schedule.json with meta
     schedule_path = write_schedule_json(df, "schedule.json")

@@ -905,7 +905,10 @@ class HeliosPlanner:
         return max(0.0, available)
 
     def generate_schedule(
-        self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+        self,
+        input_data: Dict[str, Any],
+        overrides: Optional[Dict[str, Any]] = None,
+        record_training_episode: bool = False,
     ):
         """
         The main method that executes all planning passes and returns the schedule.
@@ -965,6 +968,20 @@ class HeliosPlanner:
         df = self._apply_manual_lock(df)
         df = self._apply_soc_target_percent(df)
         self._save_schedule_to_json(df)
+
+        if record_training_episode and self._learning_enabled():
+            try:
+                from learning import get_learning_engine
+
+                engine = get_learning_engine()
+                engine.log_training_episode(
+                    input_data=input_data,
+                    schedule_df=df,
+                    config_overrides=overrides,
+                )
+            except Exception as exc:
+                print(f"[planner] Warning: Failed to log training episode: {exc}")
+
         return df
 
     def _prepare_data_frame(self, input_data):
