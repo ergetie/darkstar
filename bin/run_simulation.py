@@ -9,6 +9,7 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 
+import pandas as pd
 import pytz
 import yaml
 
@@ -140,34 +141,62 @@ def main() -> int:
                 print(f"[simulation] Empty schedule at {current.isoformat()}, stopping.")
                 break
 
-            projected_soc = schedule["projected_soc_percent"].iloc[0]
-            projected_kwh = schedule["projected_soc_kwh"].iloc[0]
-            projected_cost = schedule["projected_battery_cost"].iloc[0]
-            if projected_soc is None or projected_kwh is None:
-                print(f"[simulation] Invalid SOC data at {current.isoformat()}, stopping.")
-                break
+            # Find the row corresponding to the current simulation step
             try:
-                soc_float = float(projected_soc)
-                kwh_float = float(projected_kwh)
-            except (TypeError, ValueError):
-                print(f"[simulation] Cannot parse SOC at {current.isoformat()}, stopping.")
-                break
-            if math.isnan(soc_float) or math.isnan(kwh_float):
-                print(f"[simulation] SOC contains NaN at {current.isoformat()}, stopping.")
-                break
-            if projected_cost is None or (isinstance(projected_cost, float) and math.isnan(projected_cost)):
-                cost_float = initial_state["battery_cost_sek_per_kwh"]
-            else:
-                try:
-                    cost_float = float(projected_cost)
-                except (TypeError, ValueError):
-                    cost_float = initial_state["battery_cost_sek_per_kwh"]
+                target_idx = current
+                if getattr(schedule.index, "tz", None) is None:
+                    target_idx = current.replace(tzinfo=None)
 
-            initial_state = {
-                "battery_soc_percent": soc_float,
-                "battery_kwh": kwh_float,
-                "battery_cost_sek_per_kwh": cost_float,
-            }
+                step_row = schedule.loc[target_idx]
+                if isinstance(step_row, pd.DataFrame):
+                    # In the unlikely event of duplicate indices, use the first match.
+                    step_row = step_row.iloc[0]
+
+                projected_soc = step_row["projected_soc_percent"]
+                projected_kwh = step_row["projected_soc_kwh"]
+                projected_cost = step_row["projected_battery_cost"]
+
+                if projected_soc is None or projected_kwh is None:
+                    print(
+                        f"[simulation] Invalid SOC data at {current.isoformat()}, stopping."
+                    )
+                    break
+
+                try:
+                    soc_float = float(projected_soc)
+                    kwh_float = float(projected_kwh)
+                except (TypeError, ValueError):
+                    print(
+                        f"[simulation] Cannot parse SOC at {current.isoformat()}, stopping."
+                    )
+                    break
+
+                if math.isnan(soc_float) or math.isnan(kwh_float):
+                    print(
+                        f"[simulation] SOC contains NaN at {current.isoformat()}, stopping."
+                    )
+                    break
+
+                if projected_cost is None or (
+                    isinstance(projected_cost, float) and math.isnan(projected_cost)
+                ):
+                    cost_float = initial_state["battery_cost_sek_per_kwh"]
+                else:
+                    try:
+                        cost_float = float(projected_cost)
+                    except (TypeError, ValueError):
+                        cost_float = initial_state["battery_cost_sek_per_kwh"]
+
+                initial_state = {
+                    "battery_soc_percent": soc_float,
+                    "battery_kwh": kwh_float,
+                    "battery_cost_sek_per_kwh": cost_float,
+                }
+            except KeyError:
+                print(
+                    f"[simulation] Warning: Could not find row for {current} in schedule. "
+                    "Using previous state."
+                )
 
             print(
                 f"[simulation] {current.isoformat()} → SoC {initial_state['battery_soc_percent']:.2f}% "
