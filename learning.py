@@ -976,7 +976,14 @@ class LearningEngine:
             try:
                 from planner import dataframe_to_json_response
 
-                schedule_slots = dataframe_to_json_response(schedule_df)
+                # Prefer the planner's notion of "now" when available so that
+                # historical simulations use their time-travel reference instead
+                # of the wall-clock when deciding which slots are "future".
+                now_override = input_data.get("now_override")
+                schedule_slots = dataframe_to_json_response(
+                    schedule_df,
+                    now_override=now_override,
+                )
                 schedule_payload: Dict[str, Any] = {
                     "schedule": schedule_slots,
                     "meta": {

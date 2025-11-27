@@ -910,6 +910,7 @@ class HeliosPlanner:
         overrides: Optional[Dict[str, Any]] = None,
         record_training_episode: bool = False,
         now_override: Optional[datetime] = None,
+        save_to_file: bool = True,
     ):
         """
         The main method that executes all planning passes and returns the schedule.
@@ -917,10 +918,10 @@ class HeliosPlanner:
         Args:
             input_data (dict): Dictionary containing nordpool data, forecast data, and initial state
             overrides (dict, optional): Dynamic config overrides from Strategy Engine
-
-        Args:
+            record_training_episode (bool): When True, persist a learning episode.
             now_override (datetime, optional): Override for the planner's
                 "now" timestamp, allowing historical replay.
+            save_to_file (bool): When True, write schedule.json to disk.
 
         Returns:
             pd.DataFrame: Prepared DataFrame for now
@@ -967,6 +968,7 @@ class HeliosPlanner:
                 now_slot = pd.Timestamp.now(tz=timezone_name).ceil("15min")
             except Exception:
                 now_slot = pd.Timestamp.now(tz="Europe/Stockholm").ceil("15min")
+        # Expose the effective planning 'now' for downstream consumers.
         self.now_slot = now_slot
         df = self._pass_0_apply_safety_margins(df)
         df = self._pass_1_identify_windows(df)
@@ -979,7 +981,8 @@ class HeliosPlanner:
         df = self._pass_7_enforce_hysteresis(df)
         df = self._apply_manual_lock(df)
         df = self._apply_soc_target_percent(df)
-        self._save_schedule_to_json(df)
+        if save_to_file:
+            self._save_schedule_to_json(df)
 
         if record_training_episode and self._learning_enabled():
             try:
@@ -3127,7 +3130,7 @@ class HeliosPlanner:
         return json_windows
 
 
-def dataframe_to_json_response(df):
+def dataframe_to_json_response(df, now_override: Optional[datetime] = None):
     """
     Convert a DataFrame to the JSON response format required by the frontend.
     Only includes current and future slots (past slots are filtered out).
@@ -3164,7 +3167,14 @@ def dataframe_to_json_response(df):
         end_series = end_series.dt.tz_convert(tz)
     df_copy["end_time"] = end_series
 
-    now = datetime.now(tz)
+    if now_override is not None:
+        now = now_override
+        if now.tzinfo is None:
+            now = tz.localize(now)
+        else:
+            now = now.astimezone(tz)
+    else:
+        now = datetime.now(tz)
 
     # Filter DataFrame to only include slots from current time onwards
     future_df = df_copy[df_copy["start_time"] >= now]

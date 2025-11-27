@@ -126,10 +126,14 @@ def main() -> int:
                 "battery_cost_sek_per_kwh": initial_state["battery_cost_sek_per_kwh"],
             }
 
+            # Surface the simulation clock for downstream consumers (learning, JSON).
+            input_data["now_override"] = current
+
             schedule = planner.generate_schedule(
                 input_data,
                 record_training_episode=True,
                 now_override=current,
+                save_to_file=False,
             )
 
             if schedule.empty:
