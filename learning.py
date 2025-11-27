@@ -228,6 +228,20 @@ class LearningEngine:
                 """
             )
 
+            # Unified training episodes table for RL agent
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS training_episodes (
+                    episode_id TEXT PRIMARY KEY,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    inputs_json TEXT NOT NULL,
+                    context_json TEXT,
+                    schedule_json TEXT NOT NULL,
+                    config_overrides_json TEXT
+                )
+                """
+            )
+
             conn.commit()
 
     def store_slot_prices(self, price_rows: Iterable[Dict[str, Any]]) -> None:
