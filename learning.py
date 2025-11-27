@@ -10,6 +10,7 @@ import os
 import shutil
 import sqlite3
 import tempfile
+import uuid
 from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -897,6 +898,129 @@ class LearningEngine:
                 "error": str(e),
                 "last_updated": datetime.now(self.timezone).isoformat(),
             }
+
+    def log_training_episode(
+        self,
+        input_data: Dict[str, Any],
+        schedule_df: pd.DataFrame,
+        config_overrides: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Persist a unified snapshot of a planner run into training_episodes.
+
+        Args:
+            input_data: The full input payload used by HeliosPlanner
+                (typically from inputs.get_all_input_data).
+            schedule_df: The final schedule DataFrame returned by HeliosPlanner.
+            config_overrides: Dynamic config overrides applied by the Strategy Engine.
+        """
+        if not self.learning_config.get("enable", False):
+            return
+        if schedule_df is None or schedule_df.empty:
+            return
+
+        episode_id = str(uuid.uuid4())
+
+        def _to_iso(value: Any) -> Any:
+            if isinstance(value, (datetime, pd.Timestamp)):
+                try:
+                    if value.tzinfo is None:
+                        value = value.replace(tzinfo=self.timezone)
+                    else:
+                        value = value.astimezone(self.timezone)
+                except Exception:
+                    value = value
+                return value.isoformat()
+            return value
+
+        def _sanitize(obj: Any) -> Any:
+            if isinstance(obj, dict):
+                return {str(k): _sanitize(v) for k, v in obj.items()}
+            if isinstance(obj, (list, tuple)):
+                return [_sanitize(v) for v in obj]
+            if isinstance(obj, (pd.Timestamp, datetime)):
+                return _to_iso(obj)
+            if isinstance(obj, (pd.Series, pd.Index)):
+                return [_sanitize(v) for v in obj.tolist()]
+            if isinstance(obj, pd.DataFrame):
+                return _sanitize(obj.to_dict("records"))
+            if isinstance(obj, (float, int, str, bool)) or obj is None:
+                return obj
+            try:
+                return json.loads(json.dumps(obj, default=str))
+            except TypeError:
+                return str(obj)
+
+        try:
+            price_data = _sanitize(input_data.get("price_data") or [])
+            forecast_data = _sanitize(input_data.get("forecast_data") or [])
+            initial_state = _sanitize(input_data.get("initial_state") or {})
+            daily_pv = _sanitize(input_data.get("daily_pv_forecast") or {})
+            daily_load = _sanitize(input_data.get("daily_load_forecast") or {})
+
+            inputs_payload: Dict[str, Any] = {
+                "price_data": price_data,
+                "forecast_data": forecast_data,
+                "initial_state": initial_state,
+                "daily_pv_forecast": daily_pv,
+                "daily_load_forecast": daily_load,
+            }
+
+            context_payload: Dict[str, Any] = _sanitize(input_data.get("context") or {})
+
+            try:
+                from planner import dataframe_to_json_response
+
+                schedule_slots = dataframe_to_json_response(schedule_df)
+                schedule_payload: Dict[str, Any] = {
+                    "schedule": schedule_slots,
+                    "meta": {
+                        "planned_at": datetime.now(self.timezone).isoformat(),
+                        "timezone": self.config.get("timezone", "Europe/Stockholm"),
+                    },
+                }
+            except Exception:
+                schedule_payload = {
+                    "records": _sanitize(schedule_df.reset_index().to_dict("records")),
+                    "meta": {
+                        "planned_at": datetime.now(self.timezone).isoformat(),
+                        "timezone": self.config.get("timezone", "Europe/Stockholm"),
+                    },
+                }
+
+            overrides_payload = (
+                _sanitize(config_overrides) if config_overrides is not None else None
+            )
+
+            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO training_episodes (
+                        episode_id,
+                        inputs_json,
+                        context_json,
+                        schedule_json,
+                        config_overrides_json
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        episode_id,
+                        json.dumps(inputs_payload, ensure_ascii=False),
+                        json.dumps(context_payload, ensure_ascii=False)
+                        if context_payload
+                        else None,
+                        json.dumps(schedule_payload, ensure_ascii=False),
+                        json.dumps(overrides_payload, ensure_ascii=False)
+                        if overrides_payload is not None
+                        else None,
+                    ),
+                )
+                conn.commit()
+        except Exception as exc:
+            # Logging must never break planner runs; emit a warning and continue.
+            print(f"[learning] Warning: Failed to log training episode: {exc}")
 
     def upsert_daily_metrics(self, date: datetime.date, payload: Dict[str, Any]) -> None:
         """
