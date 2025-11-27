@@ -7,35 +7,62 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
-### Rev 64 — Antares Phase 1: Unified Data Collection (The Black Box)
+### Rev 65 — Antares Phase 1b: The Data Mirror
 
 **Goal:**
-Initialize "Project Antares" (RL Agent) by creating a unified training dataset. Currently, our data is split between MariaDB (Actions) and SQLite (Observations). To train an AI, we need to capture the exact **State** ($S_t$) and **Action** ($A_t$) in a single snapshot at the moment of decision.
+Enable centralized data collection. While SQLite (local) is the safety buffer, we need a "Live Feed" of training data from the Production Server to the Development Environment. We will implement a "Mirror" that pushes training episodes to a central MariaDB table (`antares_learning`) tagged with a `system_id`.
 
 **Scope:**
-1.  **Database Schema (SQLite)**: Create a new `training_episodes` table in `planner_learning.db` to store full JSON snapshots of every planning run.
-2.  **The Black Box Logger**: Implement the logging logic in `learning.py` to serialize inputs and outputs.
-3.  **Pollution Prevention**: Modify `planner.py` to accept a `record_training_episode` flag, ensuring only *real* automation runs log data, while UI/Lab simulations do not.
+1.  **Configuration**: Add `system_id` to `config.yaml` to identify the data source (e.g., "prod" vs "dev").
+2.  **MariaDB Schema**: Create `antares_learning` table in the central database (mirroring the SQLite structure + `system_id`).
+3.  **Mirror Logic**: Update `learning.py` to dual-write: always to SQLite, and optionally to MariaDB if secrets are available.
+
+**Implementation Details:**
+*   **`config.yaml`**:
+    *   Add `system.system_id` (Default: "dev").
+*   **`backend/learning.py`**:
+    *   Update `log_training_episode`:
+        *   Load `secrets.yaml`.
+        *   Check for `mariadb` credentials.
+        *   If present, connect using `pymysql`.
+        *   Execute `CREATE TABLE IF NOT EXISTS antares_learning (...)` (Schema: same as `training_episodes` but add `system_id VARCHAR(50)`).
+        *   Insert the episode data with the configured `system_id`.
+        *   Wrap in try/except to ensure MariaDB outages do not crash the local planner.
+
+**Verification Plan:**
+1.  Add `system_id: "dev"` to local config.
+2.  Run `python -m bin.run_planner` locally.
+3.  Check local SQLite: Row exists.
+4.  Check MariaDB (via CLI or GUI): Row exists in `antares_learning` with `system_id="dev"`.
+5.  (Later) Deploy to Server, set `system_id: "prod"`, and verify "prod" rows appear in MariaDB.
+
+
+### Rev 64 — Antares Phase 1: Unified Data Collection (The Black Box)
+
+**Status:** Completed
+
+**Summary:**
+- Added the `training_episodes` schema and a resilient `LearningEngine.log_training_episode` helper to persist sanitized input/context/schedule JSON payloads with UUID identifiers.
+- Extended `HeliosPlanner.generate_schedule` with a `record_training_episode` flag, wired it into the CLI/daemon entry points, and kept web UI runs clean of production telemetry.
+- Touched up `etl_cumulative_to_slots` gap handling plus the associated learning tests so the suite accurately validates the revised data flow.
 
 **Implementation Details:**
 *   **Schema**:
     *   Table: `training_episodes`
     *   Columns: `episode_id` (UUID), `created_at` (Timestamp), `inputs_json` (The State: Prices, Forecasts, SoC), `context_json` (Strategy Flags: Vacation, Volatility), `schedule_json` (The Action: The full 48h plan), `config_overrides_json` (What Strategy Engine changed).
 *   **`backend/learning.py`**:
-    *   Add `log_training_episode(input_data, schedule_df, config_overrides)` method.
-    *   Handle DataFrame serialization (ISO dates) and input sanitization.
+    *   Added `log_training_episode(input_data, schedule_df, config_overrides)` with careful serialization and sanitization of pandas objects.
+    *   Ensured ETL gap detection tracks null slots and filters spike suppression around them so cumulative deltas stay accurate.
 *   **`planner.py`**:
-    *   Update `generate_schedule` signature to accept `record_training_episode: bool = False`.
-    *   Inject logging hook at the end of the generation process: `if record_training_episode and self._learning_enabled(): ...`
+    *   Added the `record_training_episode` flag, saving episodes only when requested and learning is enabled.
 *   **Entry Points**:
-    *   Update `backend/scheduler.py` (The Daemon) to call planner with `record_training_episode=True`.
-    *   Update `bin/run_planner.py` (CLI Tool) to call planner with `record_training_episode=True`.
-    *   Ensure `backend/webapp.py` (UI/Lab) continues using the default `False` to prevent data pollution.
+    *   Both `backend/scheduler.py` and `bin/run_planner.py` now pass `record_training_episode=True` during automation runs.
+    *   `backend/webapp.py` keeps the flag at `False` to prevent Lab simulations from polluting training records.
 
 **Verification Plan:**
-1.  Run `python -m bin.run_planner`: Verify a new row appears in `training_episodes` with populated JSON fields.
-2.  Open Web UI → Planning Lab → "Run Simulation": Verify **NO** new row appears in `training_episodes`.
-3.  Check database size impact after 24h (verify it remains negligible).
+1.  Run `python -m bin.run_planner`: record training episodes for real scheduler runs.
+2.  Use the Planning Lab simulation: confirm no `training_episodes` rows appear.
+3.  Monitor DB size over 24h to ensure the new table stays lightweight.
 
 ### Rev 63 — Export What-If Simulator (Lab Prototype) (ongoing)
 
