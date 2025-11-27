@@ -7,7 +7,37 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
-### Rev 63 — Export What-If Simulator (Lab Prototype)
+### Rev 64 — Antares Phase 1: Unified Data Collection (The Black Box)
+
+**Goal:**
+Initialize "Project Antares" (RL Agent) by creating a unified training dataset. Currently, our data is split between MariaDB (Actions) and SQLite (Observations). To train an AI, we need to capture the exact **State** ($S_t$) and **Action** ($A_t$) in a single snapshot at the moment of decision.
+
+**Scope:**
+1.  **Database Schema (SQLite)**: Create a new `training_episodes` table in `planner_learning.db` to store full JSON snapshots of every planning run.
+2.  **The Black Box Logger**: Implement the logging logic in `learning.py` to serialize inputs and outputs.
+3.  **Pollution Prevention**: Modify `planner.py` to accept a `record_training_episode` flag, ensuring only *real* automation runs log data, while UI/Lab simulations do not.
+
+**Implementation Details:**
+*   **Schema**:
+    *   Table: `training_episodes`
+    *   Columns: `episode_id` (UUID), `created_at` (Timestamp), `inputs_json` (The State: Prices, Forecasts, SoC), `context_json` (Strategy Flags: Vacation, Volatility), `schedule_json` (The Action: The full 48h plan), `config_overrides_json` (What Strategy Engine changed).
+*   **`backend/learning.py`**:
+    *   Add `log_training_episode(input_data, schedule_df, config_overrides)` method.
+    *   Handle DataFrame serialization (ISO dates) and input sanitization.
+*   **`planner.py`**:
+    *   Update `generate_schedule` signature to accept `record_training_episode: bool = False`.
+    *   Inject logging hook at the end of the generation process: `if record_training_episode and self._learning_enabled(): ...`
+*   **Entry Points**:
+    *   Update `backend/scheduler.py` (The Daemon) to call planner with `record_training_episode=True`.
+    *   Update `bin/run_planner.py` (CLI Tool) to call planner with `record_training_episode=True`.
+    *   Ensure `backend/webapp.py` (UI/Lab) continues using the default `False` to prevent data pollution.
+
+**Verification Plan:**
+1.  Run `python -m bin.run_planner`: Verify a new row appears in `training_episodes` with populated JSON fields.
+2.  Open Web UI → Planning Lab → "Run Simulation": Verify **NO** new row appears in `training_episodes`.
+3.  Check database size impact after 24h (verify it remains negligible).
+
+### Rev 63 — Export What-If Simulator (Lab Prototype) (ongoing)
 
 **Goal:** Provide a deterministic, planner-consistent way to answer “what if we export X kWh at tomorrow’s price peak?” so users can see the net SEK impact before changing arbitrage settings.
 
