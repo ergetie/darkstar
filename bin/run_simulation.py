@@ -5,6 +5,7 @@ import copy
 import learning
 import math
 import os
+import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 
@@ -81,6 +82,18 @@ def main() -> int:
         learning._learning_engine = sim_engine
         planner = HeliosPlanner(temp_config_path)
         loader = SimulationDataLoader(temp_config_path)
+
+        # Discover available historical window for user feedback
+        first_slot = None
+        last_slot = None
+        try:
+            with sqlite3.connect(loader.db_path, timeout=30.0) as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT MIN(slot_start), MAX(slot_start) FROM slot_observations")
+                first_slot, last_slot = cur.fetchone()
+        except sqlite3.Error:
+            pass
+
         initial_state = loader.get_initial_state_from_history(start_time)
 
         current = start_time
@@ -88,6 +101,25 @@ def main() -> int:
 
         while current < end_time:
             input_data = loader.get_window_inputs(current)
+            price_slots = input_data.get("price_data") or []
+            if not price_slots:
+                window_end = current + timedelta(hours=loader.horizon_hours)
+                print(
+                    "[simulation] No price data in slot_observations for "
+                    f"window {current.isoformat()} → {window_end.isoformat()}."
+                )
+                if first_slot and last_slot:
+                    print(
+                        "[simulation] Available observation range is "
+                        f"{first_slot} → {last_slot}."
+                    )
+                else:
+                    print(
+                        "[simulation] slot_observations is empty or unreachable; "
+                        "run the planner / data_activator to populate it."
+                    )
+                break
+
             input_data["initial_state"] = {
                 "battery_soc_percent": initial_state["battery_soc_percent"],
                 "battery_kwh": initial_state["battery_kwh"],
