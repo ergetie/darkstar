@@ -1,0 +1,152 @@
+"""CLI for replaying historical data through the planner."""
+
+import argparse
+import copy
+import learning
+import math
+import os
+import tempfile
+from datetime import datetime, timedelta
+
+import pytz
+import yaml
+
+from ml.simulation.data_loader import SimulationDataLoader
+from planner import HeliosPlanner
+
+
+def _parse_date(value: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Dates must be ISO formatted (YYYY-MM-DD or YYYY-MM-DDTHH:MM).")
+
+
+def _build_sim_config(base_config: dict) -> dict:
+    sim_config = copy.deepcopy(base_config)
+    system_cfg = sim_config.setdefault("system", {})
+    system_cfg["system_id"] = "simulation"
+    return sim_config
+
+
+def _write_temp_config(sim_config: dict) -> str:
+    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".yaml", mode="w", encoding="utf-8")
+    yaml.safe_dump(sim_config, handle)
+    handle.flush()
+    handle.close()
+    return handle.name
+
+
+def _localize_datetime(value: datetime, timezone_name: str) -> datetime:
+    tz = pytz.timezone(timezone_name)
+    if value.tzinfo is None:
+        return tz.localize(value)
+    return value.astimezone(tz)
+
+
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run historical planner simulations.")
+    parser.add_argument("--start-date", required=True, type=_parse_date)
+    parser.add_argument("--end-date", required=True, type=_parse_date)
+    parser.add_argument("--step-minutes", type=int, default=15, help="Simulation increment in minutes.")
+    return parser
+
+
+def main() -> int:
+    parser = _build_arg_parser()
+    args = parser.parse_args()
+
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as fp:
+            base_config = yaml.safe_load(fp) or {}
+    except FileNotFoundError:
+        print("config.yaml not found. Please run from project root.")
+        return 1
+
+    timezone_name = base_config.get("timezone", "Europe/Stockholm")
+    start_time = _localize_datetime(args.start_date, timezone_name)
+    end_time = _localize_datetime(args.end_date, timezone_name)
+
+    if end_time <= start_time:
+        print("Error: end-date must be later than start-date.")
+        return 1
+
+    sim_config = _build_sim_config(base_config)
+    temp_config_path = _write_temp_config(sim_config)
+    previous_engine = None
+
+    try:
+        sim_engine = learning.LearningEngine(temp_config_path)
+        previous_engine = getattr(learning, "_learning_engine", None)
+        learning._learning_engine = sim_engine
+        planner = HeliosPlanner(temp_config_path)
+        loader = SimulationDataLoader(temp_config_path)
+        initial_state = loader.get_initial_state_from_history(start_time)
+
+        current = start_time
+        step = timedelta(minutes=args.step_minutes)
+
+        while current < end_time:
+            input_data = loader.get_window_inputs(current)
+            input_data["initial_state"] = {
+                "battery_soc_percent": initial_state["battery_soc_percent"],
+                "battery_kwh": initial_state["battery_kwh"],
+                "battery_cost_sek_per_kwh": initial_state["battery_cost_sek_per_kwh"],
+            }
+
+            schedule = planner.generate_schedule(
+                input_data,
+                record_training_episode=True,
+                now_override=current,
+            )
+
+            if schedule.empty:
+                print(f"[simulation] Empty schedule at {current.isoformat()}, stopping.")
+                break
+
+            projected_soc = schedule["projected_soc_percent"].iloc[0]
+            projected_kwh = schedule["projected_soc_kwh"].iloc[0]
+            projected_cost = schedule["projected_battery_cost"].iloc[0]
+            if projected_soc is None or projected_kwh is None:
+                print(f"[simulation] Invalid SOC data at {current.isoformat()}, stopping.")
+                break
+            try:
+                soc_float = float(projected_soc)
+                kwh_float = float(projected_kwh)
+            except (TypeError, ValueError):
+                print(f"[simulation] Cannot parse SOC at {current.isoformat()}, stopping.")
+                break
+            if math.isnan(soc_float) or math.isnan(kwh_float):
+                print(f"[simulation] SOC contains NaN at {current.isoformat()}, stopping.")
+                break
+            if projected_cost is None or (isinstance(projected_cost, float) and math.isnan(projected_cost)):
+                cost_float = initial_state["battery_cost_sek_per_kwh"]
+            else:
+                try:
+                    cost_float = float(projected_cost)
+                except (TypeError, ValueError):
+                    cost_float = initial_state["battery_cost_sek_per_kwh"]
+
+            initial_state = {
+                "battery_soc_percent": soc_float,
+                "battery_kwh": kwh_float,
+                "battery_cost_sek_per_kwh": cost_float,
+            }
+
+            print(
+                f"[simulation] {current.isoformat()} → SoC {initial_state['battery_soc_percent']:.2f}% "
+                f"(cost {initial_state['battery_cost_sek_per_kwh']:.2f})"
+            )
+
+            current += step
+
+    finally:
+        learning._learning_engine = previous_engine
+        if os.path.exists(temp_config_path):
+            os.remove(temp_config_path)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
