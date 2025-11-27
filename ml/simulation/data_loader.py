@@ -203,13 +203,17 @@ class SimulationDataLoader:
     def _build_naive_forecasts(
         self, start: datetime, end: datetime
     ) -> List[Dict[str, Any]]:
+        observations = self._build_forecasts_from_observations(start, end)
+        if observations:
+            return observations
+
         sensor_points = self._collect_sensor_points(start, end)
         load_slots = self._convert_sensor_points(
             sensor_points.get("load", []), "load_kwh"
         )
         pv_slots = self._convert_sensor_points(sensor_points.get("pv", []), "pv_kwh")
         if not load_slots and not pv_slots:
-            return self._build_forecasts_from_observations(start, end)
+            return []
         return self._merge_sensor_slots(load_slots, pv_slots)
 
     def _collect_sensor_points(
@@ -252,7 +256,7 @@ class SimulationDataLoader:
                 continue
             start = self._localize_datetime(start)
             end = self._localize_datetime(end)
-            base = {value_key: _safe_float(point.get("sum"))}
+            base = {value_key: _safe_float(point.get("change"))}
             records.extend(
                 self._split_slot(start, end, base, (value_key,))
             )
