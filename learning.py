@@ -403,6 +403,10 @@ class LearningEngine:
             canonical = self._canonical_sensor_name(sensor_name)
             base_series = df.set_index("timestamp")["cumulative_value"]
 
+            # Align to the grid slots without forward-filling yet so we can detect gaps.
+            aligned = base_series.reindex(slots)
+            gaps = aligned.isna()
+
             # Use method='ffill' to propagate last known value to the grid slot
             # instead of introducing NaNs for inexact matches.
             reindexed = base_series.reindex(slots, method="ffill")
@@ -417,7 +421,8 @@ class LearningEngine:
             # 2. Massive spikes (> 5 kWh in 15 min) are glitches -> Clip to 0
             # 16A Fuse (~11kW) -> max ~2.75 kWh per 15 min.
             # We set limit to 5.0 kWh to be safe but catch glitches.
-            mask_spike = raw_diff > 5.0
+            gap_mask = gaps | gaps.shift(1, fill_value=False)
+            mask_spike = (raw_diff > 5.0) & ~gap_mask
             raw_diff[mask_spike] = 0.0
 
             deltas = raw_diff.clip(lower=0)
