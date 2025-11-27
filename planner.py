@@ -1323,7 +1323,13 @@ class HeliosPlanner:
                 if slot_time not in df.index:
                     continue
                 df.loc[slot_time, "water_heating_kw"] = power_kw
-                local_date = local_dates.loc[slot_time]
+                # Derive local date directly from timestamp to avoid
+                # non-unique index lookup issues when local_dates has duplicates.
+                try:
+                    local_date = slot_time.tz_convert(tz).date()
+                except (AttributeError, TypeError):
+                    # Fallback if slot_time is naive or otherwise incompatible
+                    local_date = slot_time.date()
                 planned_energy_by_date[local_date] = (
                     planned_energy_by_date.get(local_date, 0.0) + slot_energy_kwh
                 )
