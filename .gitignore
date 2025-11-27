@@ -21,3 +21,9 @@ frontend/dist/
 
 # Temporary config snapshots
 temp_config_*.yaml
+
+# Database
+data/planner_learning.db
+
+# Schedule
+schedule.json

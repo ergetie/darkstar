@@ -909,6 +909,7 @@ class HeliosPlanner:
         input_data: Dict[str, Any],
         overrides: Optional[Dict[str, Any]] = None,
         record_training_episode: bool = False,
+        now_override: Optional[datetime] = None,
     ):
         """
         The main method that executes all planning passes and returns the schedule.
@@ -916,6 +917,10 @@ class HeliosPlanner:
         Args:
             input_data (dict): Dictionary containing nordpool data, forecast data, and initial state
             overrides (dict, optional): Dynamic config overrides from Strategy Engine
+
+        Args:
+            now_override (datetime, optional): Override for the planner's
+                "now" timestamp, allowing historical replay.
 
         Returns:
             pd.DataFrame: Prepared DataFrame for now
@@ -951,10 +956,17 @@ class HeliosPlanner:
         # Load latest learning adjustments (PV/load bias, S-index base_factor)
         self.learning_overlays = self._load_learning_overlays()
         # Compute 'now' rounded up to next 15-minute slot in configured timezone
-        try:
-            now_slot = pd.Timestamp.now(tz=self.timezone).ceil("15min")
-        except Exception:
-            now_slot = pd.Timestamp.now(tz="Europe/Stockholm").ceil("15min")
+        timezone_name = self.timezone or "Europe/Stockholm"
+        now_slot = None
+        if now_override is not None:
+            override_ts = _normalize_timestamp(now_override, timezone_name)
+            if override_ts is not pd.NaT:
+                now_slot = override_ts.ceil("15min")
+        if now_slot is None:
+            try:
+                now_slot = pd.Timestamp.now(tz=timezone_name).ceil("15min")
+            except Exception:
+                now_slot = pd.Timestamp.now(tz="Europe/Stockholm").ceil("15min")
         self.now_slot = now_slot
         df = self._pass_0_apply_safety_margins(df)
         df = self._pass_1_identify_windows(df)
