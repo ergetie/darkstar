@@ -997,6 +997,17 @@ class LearningEngine:
                 _sanitize(config_overrides) if config_overrides is not None else None
             )
 
+            inputs_json_str = json.dumps(inputs_payload, ensure_ascii=False)
+            context_json_str = (
+                json.dumps(context_payload, ensure_ascii=False) if context_payload else None
+            )
+            schedule_json_str = json.dumps(schedule_payload, ensure_ascii=False)
+            overrides_json_str = (
+                json.dumps(overrides_payload, ensure_ascii=False)
+                if overrides_payload is not None
+                else None
+            )
+
             with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 cursor = conn.cursor()
                 cursor.execute(
@@ -1012,20 +1023,117 @@ class LearningEngine:
                     """,
                     (
                         episode_id,
-                        json.dumps(inputs_payload, ensure_ascii=False),
-                        json.dumps(context_payload, ensure_ascii=False)
-                        if context_payload
-                        else None,
-                        json.dumps(schedule_payload, ensure_ascii=False),
-                        json.dumps(overrides_payload, ensure_ascii=False)
-                        if overrides_payload is not None
-                        else None,
+                        inputs_json_str,
+                        context_json_str,
+                        schedule_json_str,
+                        overrides_json_str,
                     ),
                 )
                 conn.commit()
+            system_id = str(self.config.get("system", {}).get("system_id", "dev"))
+            self._mirror_episode_to_mariadb(
+                episode_id,
+                inputs_json_str,
+                context_json_str,
+                schedule_json_str,
+                overrides_json_str,
+                system_id,
+            )
         except Exception as exc:
             # Logging must never break planner runs; emit a warning and continue.
             print(f"[learning] Warning: Failed to log training episode: {exc}")
+
+    def _mirror_episode_to_mariadb(
+        self,
+        episode_id: str,
+        inputs_json: str,
+        context_json: Optional[str],
+        schedule_json: str,
+        overrides_json: Optional[str],
+        system_id: str,
+    ) -> None:
+        """
+        Mirror the training episode to a central MariaDB if credentials are configured.
+        """
+        try:
+            with open("secrets.yaml", "r", encoding="utf-8") as handle:
+                secrets_cfg = yaml.safe_load(handle) or {}
+        except FileNotFoundError:
+            return
+
+        mariadb_cfg = (secrets_cfg.get("mariadb") or {}) if isinstance(secrets_cfg, dict) else {}
+        required = ("host", "user", "password", "database")
+        if not all(mariadb_cfg.get(key) for key in required):
+            return
+
+        try:
+            import pymysql
+        except ImportError:
+            print("[learning] Warning: pymysql is not installed; skipping MariaDB mirror.")
+            return
+
+        port = int(mariadb_cfg.get("port") or 3306)
+        host = mariadb_cfg["host"]
+        user = mariadb_cfg["user"]
+        password = mariadb_cfg["password"]
+        database = mariadb_cfg["database"]
+
+        create_sql = """
+            CREATE TABLE IF NOT EXISTS antares_learning (
+                episode_id VARCHAR(64) PRIMARY KEY,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                inputs_json LONGTEXT NOT NULL,
+                context_json LONGTEXT,
+                schedule_json LONGTEXT NOT NULL,
+                config_overrides_json LONGTEXT,
+                system_id VARCHAR(50) NOT NULL
+            )
+            """
+        insert_sql = """
+            INSERT INTO antares_learning (
+                episode_id,
+                inputs_json,
+                context_json,
+                schedule_json,
+                config_overrides_json,
+                system_id
+            ) VALUES (%s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                inputs_json = VALUES(inputs_json),
+                context_json = VALUES(context_json),
+                schedule_json = VALUES(schedule_json),
+                config_overrides_json = VALUES(config_overrides_json),
+                system_id = VALUES(system_id)
+            """
+
+        try:
+            connection = pymysql.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                database=database,
+                charset="utf8mb4",
+                cursorclass=pymysql.cursors.DictCursor,
+                autocommit=True,
+                connect_timeout=5,
+            )
+            with connection:
+                with connection.cursor() as cursor:
+                    cursor.execute(create_sql)
+                    cursor.execute(
+                        insert_sql,
+                        (
+                            episode_id,
+                            inputs_json,
+                            context_json,
+                            schedule_json,
+                            overrides_json,
+                            system_id,
+                        ),
+                    )
+        except Exception as exc:
+            print(f"[learning] Warning: Failed to mirror training episode to MariaDB: {exc}")
 
     def upsert_daily_metrics(self, date: datetime.date, payload: Dict[str, Any]) -> None:
         """
