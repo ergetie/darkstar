@@ -198,10 +198,29 @@ def main() -> int:
                     "Using previous state."
                 )
 
-            print(
-                f"[simulation] {current.isoformat()} → SoC {initial_state['battery_soc_percent']:.2f}% "
-                f"(cost {initial_state['battery_cost_sek_per_kwh']:.2f})"
-            )
+            # --- DEBUG LOGGING ---
+            try:
+                idx_search = current if schedule.index.tz else current.replace(tzinfo=None)
+                debug_row = schedule.loc[idx_search]
+                if isinstance(debug_row, pd.DataFrame):
+                    debug_row = debug_row.iloc[0]
+                price = float(debug_row.get("import_price_sek_kwh", 0))
+                load = float(debug_row.get("load_forecast_kwh", 0))
+                pv = float(debug_row.get("pv_forecast_kwh", 0))
+                action = debug_row.get("action", "Unknown")
+                chg = float(debug_row.get("battery_charge_kw", 0))
+                dis = float(debug_row.get("battery_discharge_kw", 0))
+                print(
+                    f"{current.strftime('%H:%M')} | "
+                    f"Price: {price:5.2f} kr | "
+                    f"Load: {load:4.2f} kWh | "
+                    f"PV: {pv:4.2f} kWh | "
+                    f"SoC: {initial_state['battery_soc_percent']:5.1f}% | "
+                    f"Action: {action:10} ({chg:.1f}/{dis:.1f} kW)"
+                )
+            except Exception as e:
+                print(f"{current} | Error logging debug row: {e}")
+            # ---------------------
 
             current += step
 
