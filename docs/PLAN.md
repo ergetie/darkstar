@@ -64,7 +64,7 @@ Enable centralized data collection. While SQLite (local) is the safety buffer, w
 2.  Use the Planning Lab simulation: confirm no `training_episodes` rows appear.
 3.  Monitor DB size over 24h to ensure the new table stays lightweight.
 
-### Rev 63 — Export What-If Simulator (Lab Prototype) (ongoing)
+### Rev 63 — Export What-If Simulator (Lab Prototype) (ongoing/on hold)
 
 **Goal:** Provide a deterministic, planner-consistent way to answer “what if we export X kWh at tomorrow’s price peak?” so users can see the net SEK impact before changing arbitrage settings.
 

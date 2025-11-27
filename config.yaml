@@ -24,7 +24,7 @@ arbitrage:
   future_price_guard_buffer_sek: 0.0
   protective_soc_strategy: gap_based
 automation:
-  enable_scheduler: false
+  enable_scheduler: true
   schedule:
     every_minutes: 60
   write_to_mariadb: false

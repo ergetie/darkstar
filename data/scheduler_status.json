@@ -1,9 +1,9 @@
 {
-  "enabled": false,
+  "enabled": true,
   "every_minutes": 60,
   "jitter_minutes": 0,
-  "last_run_at": "2025-11-26T22:42:21.167624+00:00",
-  "next_run_at": "2025-11-26T23:42:21.167624+00:00",
+  "last_run_at": "2025-11-27T14:24:18.268827+00:00",
+  "next_run_at": "2025-11-27T15:24:18.268827+00:00",
   "last_run_status": "success",
   "last_error": null
 }
