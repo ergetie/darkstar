@@ -14,11 +14,20 @@ fi
 python -m backend.scheduler &
 SCHED_PID=$!
 
+# Start live observation recorder (15-minute cadence) in the background for dev
+python -m backend.recorder &
+REC_PID=$!
+
 cleanup() {
   # Try to stop scheduler gracefully
   if kill -0 "$SCHED_PID" 2>/dev/null; then
     kill "$SCHED_PID" 2>/dev/null || true
     wait "$SCHED_PID" 2>/dev/null || true
+  fi
+  # Try to stop recorder gracefully
+  if kill -0 "$REC_PID" 2>/dev/null; then
+    kill "$REC_PID" 2>/dev/null || true
+    wait "$REC_PID" 2>/dev/null || true
   fi
 }
 
