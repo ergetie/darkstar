@@ -32,8 +32,14 @@ async def fetch_and_backfill(start_str, end_str):
     base_url = ha.get("url", "").rstrip("/")
     token = ha.get("token")
 
-    load_id = config.get("input_sensors", {}).get("total_load_consumption")
-    pv_id = config.get("input_sensors", {}).get("total_pv_production")
+    input_sensors = config.get("input_sensors", {}) or {}
+
+    load_id = input_sensors.get("total_load_consumption")
+    pv_id = input_sensors.get("total_pv_production")
+    import_id = input_sensors.get("total_grid_import")
+    export_id = input_sensors.get("total_grid_export")
+    batt_charge_id = input_sensors.get("total_battery_charge")
+    batt_discharge_id = input_sensors.get("total_battery_discharge")
 
     if base_url.startswith("https://"):
         ws_url = base_url.replace("https://", "wss://") + "/api/websocket"
@@ -63,7 +69,18 @@ async def fetch_and_backfill(start_str, end_str):
 
         total_slots = 0
 
-        while fetch_current <= target_end_dt:
+        # Build list of entities we will request from HA statistics
+        sensor_entities = [
+            ("load", load_id),
+            ("pv", pv_id),
+            ("import", import_id),
+            ("export", export_id),
+            ("batt_charge", batt_charge_id),
+            ("batt_discharge", batt_discharge_id),
+        ]
+        statistic_ids = [entity for _, entity in sensor_entities if entity]
+
+        while fetch_current <= target_end_dt and statistic_ids:
             chunk_end = fetch_current + timedelta(days=2)
 
             msg = {
@@ -71,7 +88,7 @@ async def fetch_and_backfill(start_str, end_str):
                 "type": "recorder/statistics_during_period",
                 "start_time": fetch_current.isoformat() + "Z",
                 "end_time": chunk_end.isoformat() + "Z",
-                "statistic_ids": [load_id, pv_id],
+                "statistic_ids": statistic_ids,
                 "period": "hour"
             }
             await ws.send(json.dumps(msg))
@@ -80,8 +97,22 @@ async def fetch_and_backfill(start_str, end_str):
 
             updates_map = {}
 
-            # Process Sensor Data
-            for sensor_type, entity in [('load', load_id), ('pv', pv_id)]:
+            # Index mapping for updates_map values
+            # 0: load_kwh, 1: pv_kwh, 2: import_kwh, 3: export_kwh,
+            # 4: batt_charge_kwh, 5: batt_discharge_kwh
+            index_map = {
+                "load": 0,
+                "pv": 1,
+                "import": 2,
+                "export": 3,
+                "batt_charge": 4,
+                "batt_discharge": 5,
+            }
+
+            # Process Sensor Data for all requested entities
+            for sensor_type, entity in sensor_entities:
+                if not entity:
+                    continue
                 points = result.get(entity, [])
                 for p in points:
                     ts_ms = p['start']
@@ -94,28 +125,44 @@ async def fetch_and_backfill(start_str, end_str):
                     val_15m = change / 4.0
 
                     for i in range(4):
-                        slot_time = dt_local + timedelta(minutes=15*i)
+                        slot_time = dt_local + timedelta(minutes=15 * i)
                         t_str = slot_time.isoformat()
 
                         # STRICT FILTER: Only save if this specific slot falls within target local dates
                         # This prevents overwriting previous/next day boundaries if running partials
                         if target_start_dt.date() <= slot_time.date() <= target_end_dt.date():
-                            if t_str not in updates_map: updates_map[t_str] = [0.0, 0.0]
-                            # Accumulate because we might process overlapping chunks
-                            if sensor_type == 'load':
-                                updates_map[t_str][0] = val_15m
-                            else:
-                                updates_map[t_str][1] = val_15m
+                            if t_str not in updates_map:
+                                updates_map[t_str] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+                            idx = index_map.get(sensor_type)
+                            if idx is not None:
+                                updates_map[t_str][idx] = val_15m
 
             db_rows = []
             for t_str, values in updates_map.items():
-                db_rows.append((values[0], values[1], t_str))
+                db_rows.append(
+                    (
+                        values[0],  # load_kwh
+                        values[1],  # pv_kwh
+                        values[2],  # import_kwh
+                        values[3],  # export_kwh
+                        values[4],  # batt_charge_kwh
+                        values[5],  # batt_discharge_kwh
+                        t_str,
+                    )
+                )
 
             if db_rows:
                 with sqlite3.connect(db_path) as conn:
                     conn.executemany("""
                         UPDATE slot_observations
-                        SET load_kwh = ?, pv_kwh = ?
+                        SET
+                            load_kwh = ?,
+                            pv_kwh = ?,
+                            import_kwh = ?,
+                            export_kwh = ?,
+                            batt_charge_kwh = ?,
+                            batt_discharge_kwh = ?
                         WHERE slot_start = ?
                     """, db_rows)
                     conn.commit()
