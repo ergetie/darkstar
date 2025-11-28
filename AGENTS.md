@@ -98,6 +98,11 @@ from inputs import get_all_input_data
   - `schedule.json`
 - When deploying to a server, prefer `git stash` / `git restore` to keep local DB and schedules, then `git checkout` the desired branch.
 
+### Tooling
+- After major code changes or a completed revision:
+  - Run `black .` (or the project’s configured formatter) to normalize formatting.
+  - Run `flake8 .` to catch style and lint issues before committing.
+
 ## Project Structure
 - `backend/` - Flask API, Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
 - `frontend/` - React + Vite UI application.
