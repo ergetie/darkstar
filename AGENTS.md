@@ -90,6 +90,14 @@ from inputs import get_all_input_data
 - **Planning**: Before implementing, ensure the revision is active in `PLAN.md`.
 - **History**: Do not delete completed revisions; move them to `CHANGELOG.md`.
 
+### Git & Data Hygiene
+- Treat `config.yaml` as environment-specific. Do **not** commit server-only edits; keep long-lived defaults in `config.default.yaml` and copy/merge locally.
+- Never commit runtime data:
+  - `data/planner_learning.db` (SQLite telemetry)
+  - `data/scheduler_status.json`
+  - `schedule.json`
+- When deploying to a server, prefer `git stash` / `git restore` to keep local DB and schedules, then `git checkout` the desired branch.
+
 ## Project Structure
 - `backend/` - Flask API, Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
 - `frontend/` - React + Vite UI application.
