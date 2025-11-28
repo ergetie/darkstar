@@ -48,7 +48,8 @@ Ensure the data foundation for Antares is trustworthy by validating the live tel
    - ▶️ Next: Document which episode time fields should be used for Antares training (slot timestamps / horizon start) and explicitly treat `created_at` as metadata only.
 3. **Historical Backfill Window [PENDING]:**
    - ✅ Validated the UTC-corrected HA backfill (`bin/backfill_ha.py`) on sample days (2025-07-03, 2025-08-15, 2025-09-15, 2025-10-15) against HA Energy; shapes and magnitudes are acceptable for Antares bootstrapping.
-   - ▶️ Next: After live telemetry is fixed, run `bin/backfill_ha.py` for the full July–October range, then re-spot-check random days (night + midday, load + PV) to confirm the window is clean.
+   - ✅ Verified via `debug/probe_ha_stats_ws.py` that HA LTS exposes hourly statistics not only for load/PV but also for grid import/export and battery charge/discharge (LTS-backed energy channels), with water heater consumption as the main non-LTS outlier.
+   - ▶️ Next: Extend `bin/backfill_ha.py` to request and apply LTS data for all supported cumulative inverter entities (load, PV, grid import/export, battery charge/discharge), use that for the older window (July → ~10 days ago), and reserve `ml.data_activator.py` for recent days and non-LTS sensors like water heater.
 4. **Recorder & Scheduler Topology [IN PROGRESS]:**
    - ✅ Mapped current topology: `backend.scheduler` drives planner runs (hourly with optional jitter) and implicitly drove observation recording, leading to sparse, spiky live data.
    - ✅ Implemented `backend.recorder` as a separate 15-minute loop and wired it into `scripts/dev-backend.sh` so dev `npm run dev` starts scheduler + recorder + backend.
