@@ -7,6 +7,31 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 68 — Antares Phase 2b: Simulation Episodes & Gym Interface
+
+**Goal:**
+Turn the validated historical replay engine into a clean dataset and environment interface for Antares by (a) generating large-scale MPC simulation episodes on top of `slot_observations`, and (b) exposing a thin Gym-style wrapper around the deterministic simulator for future RL agents.
+
+**Scope:**
+1. **Simulation Episode Generation:**
+   - Define a stable episode schema (day-level or horizon-level) for MPC runs (inputs, schedule, costs, metadata, `system_id="simulation"`).
+   - Use `bin/run_simulation.py` over the validated July–Present window to generate a first large batch of MPC episodes, ensuring that only days with good HA-aligned telemetry are included.
+2. **Environment Loader & API:**
+   - Wrap the existing `ml/simulation/data_loader.py` and deterministic simulator into a small environment class with:
+     - `reset(day)` → initial state for a chosen historical day.
+     - `step(action)` → runs a 15-minute slot and returns `(next_state, reward, done, info)`.
+   - Keep the state/action/reward spaces simple and documented, but focus this revision on wiring and data access, not on training a new agent.
+3. **Data Quality Filters:**
+   - Add simple filters/masks so obviously bad days (missing load/PV, corrupt spikes) are excluded from simulation runs and Gym episodes by default.
+   - Document how to regenerate episodes if the underlying `slot_observations` window is cleaned or backfilled further.
+
+**Verification Plan:**
+1. Run `bin/run_simulation.py` across a multi-week window and confirm that:
+   - The expected number of `system_id="simulation"` episodes appears in SQLite/MariaDB.
+   - Sample episodes have state/action/price/load/PV trajectories consistent with `slot_observations` and HA.
+2. Instantiate the Gym-style environment, call `reset(day)` and step through a full day with the MPC policy, verifying that cumulative reward and cost match the corresponding simulation episode.
+3. Ensure downstream training scripts (`ml/train.py` / future `ml/train_antares.py`) can read the new episodes and environment without additional schema changes.
+
 ### Rev 67 — Antares Data Foundation: Live Telemetry & Backfill Verification
 
 **Goal:**
