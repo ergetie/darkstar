@@ -7,6 +7,54 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 67 — Antares Data Foundation: Live Telemetry & Backfill Verification
+
+**Goal:**
+Ensure the data foundation for Antares is trustworthy by validating the live telemetry pipeline (SQLite + MariaDB) against Home Assistant and safely executing a full historical backfill without UTC/CEST artifacts.
+
+**Scope:**
+1. **Live Slot Observations (SQLite):** Compare recent days (e.g., 2025-11-15) against HA Energy to identify why live `slot_observations` under-report load/PV versus HA despite using the same entities.
+2. **MariaDB `antares_learning`:** Inspect schema and sample rows (especially `system_id="prod"`) to confirm time indexing, state/action payloads, and that `created_at` is treated as metadata, not the primary temporal axis.
+3. **Historical Backfill Window:** Once live telemetry is validated, run `bin/backfill_ha.py` for the full July–October range, then spot-check random days (load + PV, night + midday) against HA to confirm UTC/CEST handling is correct.
+4. **Documentation & Guardrails:** Capture the validation procedure (how to cross-check HA vs SQLite vs MariaDB) so future Antares phases can quickly re-verify data integrity after code changes.
+
+**Verification Plan:**
+1. For a recent live day (e.g., 2025-11-15), compute hourly load/PV from `slot_observations` and compare to HA Energy hourly values; differences must be within rounding/error bounds, not whole-order magnitude.
+2. Query `antares_learning` (MariaDB) for `system_id="prod"`; confirm episode timestamps line up with planner runs and that state/action fields can be joined back to historical prices and slot data.
+3. After running the July–October backfill, repeat the HA vs SQLite hourly comparison on a small sample of days (at least one per month, including a summer PV-heavy day and an autumn low-PV day).
+4. Run `bin/run_simulation.py` on a few validated days and confirm that simulated load/PV series match `slot_observations` (and thus HA) for the first hours of the day and midday peaks.
+
+### Rev 66 — Antares Phase 2: The Time Machine (Simulator)
+
+**Goal:**
+Build a historical replay engine that generates thousands of "Training Episodes" by running the Planner against past data (July 2025–Present). This creates the initial dataset needed to train the Antares AI.
+
+**Scope:**
+1.  **HA History Fetcher**: A dedicated WebSocket client (`ml/simulation/ha_client.py`) to fetch Long Term Statistics (LTS) for Load and PV from Home Assistant.
+2.  **The Upsampler**: Logic to convert 1-hour historical data (HA & pre-Sept Nordpool) into the 15-minute resolution required by the Planner.
+3.  **The Simulation Loop**: A script (`bin/run_simulation.py`) that:
+    *   Iterates through a date range (e.g., `2025-07-01` to `2025-11-27`).
+    *   Constructs the "State" for every 15 minutes (Price, Load, PV, Battery SoC).
+    *   Runs `planner.generate_schedule(record_training_episode=True)`.
+    *   Optionally applies "Data Augmentation" (e.g., +10% Load noise) to multiply the dataset size.
+
+**Implementation Details:**
+*   **`ml/simulation/ha_client.py`**:
+    *   Async class to handle Auth and `recorder/statistics_during_period` requests.
+    *   Caching mechanism (save fetched days to `data/cache/`) to avoid spamming HA.
+*   **`ml/simulation/data_loader.py`**:
+    *   Orchestrates fetching Prices (DB or Nordpool fallback) and Sensor Data (HA).
+    *   Handles **Resolution Alignment**: 1h -> 15m upsampling.
+*   **`bin/run_simulation.py`**:
+    *   CLI arguments: `--start-date`, `--end-date`, `--scenarios` (number of augmented runs per day).
+    *   Sets `system_id="simulation"` so these runs are distinct from "prod".
+
+**Verification Plan:**
+1.  Run `python -m bin.run_simulation --start-date 2025-08-01 --end-date 2025-08-02`.
+2.  Check MariaDB/SQLite for ~96 new rows with `system_id="simulation"`.
+3.  Verify the `inputs_json` in the DB matches the historical data (approx. 0.2 kWh load per hour).
+
+
 ### Rev 65 — Antares Phase 1b: The Data Mirror
 
 **Goal:**
