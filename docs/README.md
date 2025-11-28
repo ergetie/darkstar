@@ -162,11 +162,23 @@ Darkstar is a monorepo containing the Python backend, React frontend, and ML pip
 
 ## Deployment & Ops
 
-### 1. In-App Scheduler (Recommended)
-Darkstar v2 includes an internal scheduler to avoid race conditions.
-*   Enable in `config.yaml`: `automation.enable_scheduler: true`.
-*   Run the scheduler process: `python -m backend.scheduler`.
-*   *Note: Ensure you disable any old systemd/cron timers to prevent duplicate runs.*
+### 1. In-App Scheduler + Recorder
+Darkstar v2 includes an internal scheduler and a dedicated recorder.
+*   Enable planner automation in `config.yaml`:
+    ```yaml
+    automation:
+      enable_scheduler: true
+      schedule:
+        every_minutes: 60
+        jitter_minutes: 0
+    ```
+*   The scheduler runs the planner periodically: `python -m backend.scheduler`.
+*   The recorder logs live energy observations every 15 minutes: `python -m backend.recorder`.
+*   In development, `npm run dev` starts:
+    *   Frontend dev server
+    *   Flask backend
+    *   `backend.scheduler` (planner loop)
+    *   `backend.recorder` (15-minute observation loop)
 
 ### 2. Production Server (Git Flow)
 We recommend running Darkstar on a Proxmox LXC or dedicated Pi.
@@ -178,8 +190,38 @@ We recommend running Darkstar on a Proxmox LXC or dedicated Pi.
     pip install -r requirements.txt
     ```
 
-### 3. Tmux Cheat-Sheet
-Keep the backend and scheduler running in the background:
+### 3. Systemd + Tmux Cheat-Sheet
+
+**Systemd (server/LXC)**
+To auto-start Darkstar on boot via systemd:
+
+1. Create `/etc/systemd/system/darkstar.service`:
+    ```ini
+    [Unit]
+    Description=Darkstar dev stack (backend + recorder + frontend)
+    After=network-online.target
+    Wants=network-online.target
+
+    [Service]
+    Type=simple
+    WorkingDirectory=/opt/darkstar
+    ExecStart=/usr/bin/npm run dev
+    Restart=on-failure
+    Environment=NODE_ENV=production
+
+    [Install]
+    WantedBy=multi-user.target
+    ```
+2. Enable and start:
+    ```bash
+    systemctl daemon-reload
+    systemctl enable darkstar
+    systemctl start darkstar
+    systemctl status darkstar
+    ```
+
+**Tmux (manual/dev)**
+Keep the backend and scheduler/recorder running in the background:
 ```bash
 tmux new -s darkstar
 # inside tmux
@@ -188,8 +230,6 @@ npm run dev  # OR run backend/scheduler separately
 # detach: Ctrl-b then d
 # reattach later: tmux attach -t darkstar
 ```
-
-*   In development, `npm run dev` starts the frontend, backend, and the internal scheduler in one command.
 
 ### 4. Verifying Plans
 *   **Dashboard**: Shows the "Local Plan" (what the planner just thought) vs "Server Plan" (what is actually in the DB).
