@@ -41,16 +41,23 @@ The project is divided into five distinct, sequential phases. Each phase has a c
 ### **Phase 2: The Time Machine (Offline Simulation Environment)**
 
 *   **Goal:** Build the "Gym" where the AI will be trained. This environment will allow us to replay history and measure the performance of any given strategy (MPC, MILP, or Antares).
-*   **Key Tasks:**
-    1.  **Data Loader:** Create a Python utility to fetch historical episodes (`State`) from the `antares_learning` table.
-    2.  **The Environment:** Develop a class that wraps the existing `DeterministicSimulator`. It must conform to a standard reinforcement learning interface (e.g., Farama Gymnasium), with methods like:
-        *   `reset(day)`: Initializes the environment with data for a specific historical day.
-        *   `step(action)`: Takes an action, runs the simulation for one 15-minute slot, and returns `(next_state, reward, done, info)`.
-    3.  **Define the Vector Spaces:**
-        *   **State ($S_t$):** A normalized vector containing: SoC (0-1), current time (cyclical features), 48h forecast vectors (PV/Load, normalized by system capacity), 48h price vectors (normalized by daily average).
-        *   **Action ($A_t$):** A discrete set of high-level commands, e.g., `[0: Charge Full, 1: Hold, 2: Discharge to cover Load, 3: Discharge to Min SoC for Export]`.
-        *   **Reward ($R_{t+1}$):** A function that calculates the "score" for a single step. `Reward = (Export Revenue - Import Cost - Battery Cycle Cost)`.
-*   **Deliverable:** A script (`ml/simulate_day.py`) that can take a historical date and an agent (initially, the MPC planner itself) and prints the total simulated cost for that day. This proves the Time Machine works.
+*   **Key Tasks (as implemented/evolving):**
+    1.  **Historical Data Foundation:**
+        *   Use `slot_observations` in the local SQLite (`planner_learning.db`) as the canonical per-slot history (load, PV, import/export, SoC, prices).
+        *   Populate missing days from Home Assistant using dedicated backfill tools:
+            *   `bin/backfill_vattenfall.py` / `bin/fix_price_gaps.py` for prices.
+            *   `bin/backfill_ha.py` / `bin/explode_rows.py` / `ml/data_activator.py` for HA sensor history, converted to 15-minute slots.
+        *   Keep the live telemetry path healthy via `backend.recorder` (15-minute cumulative-delta recorder) so recent days can be replayed without extra ETL.
+    2.  **Simulation & Loader:**
+        *   Use `ml/simulation/data_loader.py` to build planner-ready state (prices, load, PV, SoC) from `slot_observations` for arbitrary historical days.
+        *   Use `bin/run_simulation.py` as the main "Time Machine" entry point that:
+            *   Iterates through a date range (e.g., `2025-07-01` to `2025-11-27`).
+            *   Runs the existing planner (`planner.generate_schedule(record_training_episode=True)`) on those historical slices.
+            *   Tags simulation episodes with `system_id="simulation"` so they are distinguishable from `system_id="prod"` in `antares_learning`.
+    3.  **(Still to be added in later sub-phases):**
+        *   A thin environment wrapper around the `DeterministicSimulator` that conforms to a Gym-like interface (`reset(day)`, `step(action)`).
+        *   Formalized state/action/reward vector spaces suitable for RL agents, built on top of the same historical loader.
+*   **Deliverable (Phase 2 current focus):** A robust historical replay engine (`bin/run_simulation.py` + backfill pipeline) that can generate thousands of MPC episodes from July 2025 onwards, with data quality validated against Home Assistant, forming the initial dataset for later Gym/Oracle/agent work.
 
 ---
 
