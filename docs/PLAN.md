@@ -16,7 +16,8 @@ Ensure the data foundation for Antares is trustworthy by validating the live tel
 1. **Live Slot Observations (SQLite) [IN PROGRESS]:**
    - ✅ Verified HA vs SQLite for several historical days (July–October); backfilled `slot_observations` now closely track HA Energy (within rounding) with correct UTC/CEST handling.
    - ✅ Confirmed that live observations on recent days (e.g., 2025-11-15, 2025-11-28) are under-reporting and/or bunching load/PV due to observations being tied to planner runs (irregular cadence), not a divide-by-4 bug.
-   - ▶️ Next: Introduce a dedicated recorder loop that runs every 15 minutes (00/15/30/45) and calls `record_observation_from_current_state` independently of the planner, so slot-level deltas are recorded even when the planner is idle.
+   - ✅ Implemented a dedicated recorder loop (`backend.recorder`) that runs every 15 minutes (00/15/30/45) and calls `record_observation_from_current_state` independently of the planner, so slot-level deltas are recorded even when the planner is idle.
+   - ▶️ Next: Validate a fresh live day (dev + server) by comparing HA Energy vs hourly sums from `slot_observations` and decide how to clean or backfill older “spiky/gappy” days.
 2. **MariaDB `antares_learning` [IN PROGRESS]:**
    - ✅ Confirmed irregular `created_at` timestamps (e.g., 09:25, 10:00, 10:25) for `system_id="prod"` episodes are expected based on scheduler jitter and do not affect the internal episode time fields.
    - ▶️ Next: Document which episode time fields should be used for Antares training (slot timestamps / horizon start) and explicitly treat `created_at` as metadata only.
@@ -24,8 +25,10 @@ Ensure the data foundation for Antares is trustworthy by validating the live tel
    - ✅ Validated the UTC-corrected HA backfill (`bin/backfill_ha.py`) on sample days (2025-07-03, 2025-08-15, 2025-09-15, 2025-10-15) against HA Energy; shapes and magnitudes are acceptable for Antares bootstrapping.
    - ▶️ Next: After live telemetry is fixed, run `bin/backfill_ha.py` for the full July–October range, then re-spot-check random days (night + midday, load + PV) to confirm the window is clean.
 4. **Recorder & Scheduler Topology [IN PROGRESS]:**
-   - ✅ Mapped current topology: `backend.scheduler` drives planner runs (hourly with optional jitter) and implicitly drives observation recording, leading to sparse, spiky live data.
-   - ▶️ Next: Implement `backend.recorder` as a separate 15-minute loop, update `scripts/dev-backend.sh` to start it alongside the scheduler, and provide a systemd-friendly entry point for production (LXC) so recording is robust and independent of manual planner runs.
+   - ✅ Mapped current topology: `backend.scheduler` drives planner runs (hourly with optional jitter) and implicitly drove observation recording, leading to sparse, spiky live data.
+   - ✅ Implemented `backend.recorder` as a separate 15-minute loop and wired it into `scripts/dev-backend.sh` so dev `npm run dev` starts scheduler + recorder + backend.
+   - ✅ Added a systemd unit (`darkstar.service`) on the server to run `npm run dev` (including scheduler + recorder) automatically on boot inside the LXC.
+   - ▶️ Next: Decide on a production cleanup/backfill strategy for days with broken live telemetry (e.g., 2025‑11‑15), and document how to enable/disable the recorder and scheduler independently if needed.
 5. **Documentation & Guardrails [PENDING]:**
    - ▶️ Capture the validation procedure (HA vs SQLite vs MariaDB) and the new recorder topology so future Antares phases can quickly re-verify data integrity after code or deployment changes.
 
