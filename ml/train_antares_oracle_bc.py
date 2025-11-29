@@ -8,6 +8,7 @@ Usage:
 """
 
 import argparse
+import json
 import sqlite3
 import uuid
 from dataclasses import dataclass, asdict
@@ -185,7 +186,19 @@ def main() -> int:
 
     X = np.concatenate(xs, axis=0)
     Y = np.concatenate(ys, axis=0)
-    print(f"[oracle-bc] Total samples: {len(X)}")
+
+    # Sanitize dataset: drop any rows with NaN/inf in state or action.
+    mask_finite = np.isfinite(X).all(axis=1) & np.isfinite(Y).all(axis=1)
+    if not mask_finite.any():
+        raise SystemExit("[oracle-bc] All samples contain NaN/inf; nothing to train on.")
+    if not mask_finite.all():
+        before = len(mask_finite)
+        after = int(mask_finite.sum())
+        print(f"[oracle-bc] Dropping {before - after} non-finite samples (keeping {after}).")
+    X = X[mask_finite]
+    Y = Y[mask_finite]
+
+    print(f"[oracle-bc] Total samples (finite): {len(X)}")
 
     dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(Y))
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
@@ -300,4 +313,3 @@ if __name__ == "__main__":
     import json
 
     raise SystemExit(main())
-
