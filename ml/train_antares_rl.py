@@ -89,9 +89,9 @@ def _make_vec_env(config_path: str = "config.yaml"):
         def __init__(self):
             super().__init__()
             self._env = AntaresRLEnv(config_path=config_path)
-            # State: 6-dim vector from AntaresMPCEnv
+            # State: 8-dim vector from AntaresMPCEnv (Rev 81)
             self.observation_space = gym.spaces.Box(
-                low=-np.inf, high=np.inf, shape=(6,), dtype=np.float32
+                low=-np.inf, high=np.inf, shape=(8,), dtype=np.float32
             )
             # Action: 3-dim [charge_kw, discharge_kw, export_kw]
             self.action_space = gym.spaces.Box(
