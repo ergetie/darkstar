@@ -175,3 +175,50 @@ This environment is the canonical interface for future Antares agents and RL
 experiments; later revisions may extend the `action` handling to override MPC
 decisions while keeping the same state/reward contract.
 
+## 7. Antares v1 Policy (Rev 72)
+
+The first Antares v1 policy is a simple MPC-imitating model trained on state
+vectors and MPC actions observed in `AntaresMPCEnv`.
+
+- Training:
+  - Script: `ml/train_antares_policy.py`.
+  - For each eligible day (from `data_quality_daily` with `status in {clean, mask_battery}`):
+    - Run `AntaresMPCEnv.reset(day)` to obtain the MPC schedule.
+    - For each slot:
+      - Build state vector via `AntaresMPCEnv._build_state_vector(row)`:
+        `[hour_of_day, load_forecast_kwh, pv_forecast_kwh, projected_soc_percent, import_price, export_price]`.
+      - Extract MPC actions:
+        - `battery_charge_kw` (from `battery_charge_kw` or `charge_kw`).
+        - `battery_discharge_kw`.
+        - `export_kw`.
+    - Train one LightGBM regressor per target on all collected `(state, action)` pairs.
+  - Models are saved under:
+    - `ml/models/antares_policy_v1/antares_policy_v1_<UTC_TIMESTAMP>_<RUN_ID_PREFIX>/`
+    - Filenames:
+      - `policy_battery_charge_kw.lgb`
+      - `policy_battery_discharge_kw.lgb`
+      - `policy_export_kw.lgb`
+  - Runs are logged in SQLite `antares_policy_runs`:
+    - `run_id` (TEXT, PRIMARY KEY)
+    - `created_at` (TEXT, UTC timestamp)
+    - `models_dir` (TEXT, path to the run directory)
+    - `target_names` (TEXT, comma-separated list of targets)
+    - `metrics_json` (TEXT, JSON with per-target training metrics)
+
+- Inference:
+  - Loader: `ml.policy.antares_policy.AntaresPolicyV1.load_from_dir(models_dir)`.
+  - `AntaresPolicyV1.predict(state: np.ndarray) -> Dict[str, float]` expects the
+    same 6-D state vector as `AntaresMPCEnv` and returns:
+    - `battery_charge_kw`
+    - `battery_discharge_kw`
+    - `export_kw`
+
+- Evaluation:
+  - Script: `ml/eval_antares_policy.py`.
+  - Reloads the latest `antares_policy_runs` entry, runs the policy for a sample
+    of recent days via `AntaresMPCEnv`, and compares predicted actions to MPC
+    actions using MAE/RMSE and relative error bars.
+
+This policy is offline-only and does not yet influence live schedules; it is a
+first “brain” to validate that we can learn a stable mapping from environment
+state to MPC-like actions before introducing Oracle-guided targets or online RL.
