@@ -51,11 +51,12 @@ def _build_mpc_schedule(day: str) -> pd.DataFrame:
 
     schedule["start_time"] = pd.to_datetime(schedule["start_time"])
     schedule = schedule.sort_values("start_time")
-    schedule["battery_charge_kw"] = schedule.get("battery_charge_kw", schedule.get("charge_kw", 0.0))
-    schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0)
-    schedule["net_battery_kw"] = (
-        schedule["battery_charge_kw"].astype(float) - schedule["battery_discharge_kw"].astype(float)
-    )
+    schedule["battery_charge_kw"] = schedule.get(
+        "battery_charge_kw", schedule.get("charge_kw", 0.0)
+    ).astype(float)
+    schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0).astype(float)
+    # Convention: positive net_battery_kw = discharge, negative = charge.
+    schedule["net_battery_kw"] = schedule["battery_discharge_kw"] - schedule["battery_charge_kw"]
     schedule["soc_percent"] = schedule.get("projected_soc_percent", 0.0).astype(float)
     schedule["import_price"] = schedule.get("import_price_sek_kwh", 0.0).astype(float)
     schedule["export_kwh"] = schedule.get("export_kwh", 0.0).astype(float)
@@ -80,8 +81,16 @@ def _build_rl_schedule(day: str, policy: AntaresRLPolicyV1) -> pd.DataFrame:
         export_kwh = float(row.get("export_kwh", 0.0) or 0.0)
 
         action = policy.predict(state)
-        charge_kw = float(action.get("battery_charge_kw", 0.0) or 0.0)
-        discharge_kw = float(action.get("battery_discharge_kw", 0.0) or 0.0)
+
+        # Sanitize and apply simple mutual exclusivity for plotting,
+        # mirroring the environment's clamp behaviour.
+        charge_kw = max(0.0, float(action.get("battery_charge_kw", 0.0) or 0.0))
+        discharge_kw = max(0.0, float(action.get("battery_discharge_kw", 0.0) or 0.0))
+        if charge_kw > 0.0 and discharge_kw > 0.0:
+            if discharge_kw >= charge_kw:
+                charge_kw = 0.0
+            else:
+                discharge_kw = 0.0
 
         result = env.step(action=action)
         soc_percent = float(result.next_state[3]) if len(result.next_state) > 3 else 0.0
@@ -93,7 +102,8 @@ def _build_rl_schedule(day: str, policy: AntaresRLPolicyV1) -> pd.DataFrame:
                 "export_price": export_price,
                 "rl_charge_kw": charge_kw,
                 "rl_discharge_kw": discharge_kw,
-                "rl_net_battery_kw": charge_kw - discharge_kw,
+                # Convention: positive = discharge, negative = charge.
+                "rl_net_battery_kw": discharge_kw - charge_kw,
                 "rl_soc_percent": soc_percent,
                 "export_kwh": export_kwh,
                 "export_kw": export_kwh * 4.0,
@@ -199,42 +209,46 @@ def main() -> int:
     )
     exp_min, exp_max = float(all_export.min()), float(all_export.max())
 
-    fig, axes = plt.subplots(3, 1, figsize=(16, 12), sharex=True)
+    fig, axes = plt.subplots(4, 1, figsize=(16, 14), sharex=True)
     fig.suptitle(f"Antares: MPC vs RL vs Oracle — {day}", fontsize=14)
 
+    # Panel 0: Price only (common)
+    ax_price = axes[0]
+    ax_price.set_title("Import price (common)")
+    ax_price.plot(mpc_df["start_time"], mpc_df["import_price"], color="tab:blue")
+    ax_price.set_ylabel("SEK/kWh")
+    ax_price.set_ylim(price_min * 0.9, price_max * 1.1)
+
+    max_abs_kw = max(abs(pb_min), abs(pb_max), 1.0)
+
     # Panel 1: MPC
-    ax = axes[0]
+    ax = axes[1]
     ax.set_title("MPC")
-    # Left axis: net battery kW + export kW (center 0); Right axis: SoC % and price
     ax1 = ax
     ax2 = ax1.twinx()
     ax1.plot(mpc_df["start_time"], mpc_df["net_battery_kw"], label="Net Batt kW", color="tab:green")
     ax1.plot(mpc_df["start_time"], mpc_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(mpc_df["start_time"], mpc_df["soc_percent"], label="SoC %", color="tab:orange")
-    ax2.plot(mpc_df["start_time"], mpc_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
     ax1.set_ylabel("kW")
-    ax2.set_ylabel("SoC % / Price")
-    # Center 0 for net battery kW
-    max_abs_kw = max(abs(pb_min), abs(pb_max), 1.0)
+    ax2.set_ylabel("SoC %")
     ax1.set_ylim(-max_abs_kw * 1.1, max_abs_kw * 1.1)
     ax2.set_ylim(soc_min * 0.9, soc_max * 1.1)
 
     # Panel 2: RL
-    ax = axes[1]
+    ax = axes[2]
     ax.set_title(f"RL (run {rl_run['run_id'][:8]})")
     ax1 = ax
     ax2 = ax1.twinx()
     ax1.plot(rl_df["start_time"], rl_df["rl_net_battery_kw"], label="Net Batt kW", color="tab:green")
     ax1.plot(rl_df["start_time"], rl_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(rl_df["start_time"], rl_df["rl_soc_percent"], label="SoC %", color="tab:orange")
-    ax2.plot(rl_df["start_time"], rl_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
     ax1.set_ylabel("kW")
-    ax2.set_ylabel("SoC % / Price")
+    ax2.set_ylabel("SoC %")
     ax1.set_ylim(-max_abs_kw * 1.1, max_abs_kw * 1.1)
     ax2.set_ylim(soc_min * 0.9, soc_max * 1.1)
 
     # Panel 3: Oracle
-    ax = axes[2]
+    ax = axes[3]
     ax.set_title("Oracle")
     ax1 = ax
     ax2 = ax1.twinx()
@@ -251,9 +265,8 @@ def main() -> int:
         label="SoC %",
         color="tab:orange",
     )
-    ax2.plot(oracle_df["start_time"], oracle_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
     ax1.set_ylabel("kW")
-    ax2.set_ylabel("SoC % / Price")
+    ax2.set_ylabel("SoC %")
     ax1.set_ylim(-max_abs_kw * 1.1, max_abs_kw * 1.1)
     ax2.set_ylim(soc_min * 0.9, soc_max * 1.1)
 
