@@ -207,6 +207,7 @@ class AntaresMPCEnv:
             effective_row = row
             charge_kw = float(row.get("battery_charge_kw", row.get("charge_kw", 0.0) or 0.0))
             discharge_kw = float(row.get("battery_discharge_kw", 0.0))
+            # Export is always taken from the planner schedule in v1.
             export_kwh = float(row.get("export_kwh", 0.0))
         else:
             effective_row = row.copy()
@@ -234,12 +235,10 @@ class AntaresMPCEnv:
             req_discharge_kw = float(
                 action.get("battery_discharge_kw", base_discharge_kw) or 0.0
             )
-            req_export_kw = float(action.get("export_kw", base_export_kwh / slot_hours) or 0.0)
 
             # Clamp to non-negative and power limits
             req_charge_kw = max(0.0, min(req_charge_kw, self._max_charge_power_kw))
             req_discharge_kw = max(0.0, min(req_discharge_kw, self._max_discharge_power_kw))
-            req_export_kw = max(0.0, min(req_export_kw, self._max_export_power_kw))
 
             # Enforce simple mutual exclusivity: prefer discharge over charge when both requested.
             if req_charge_kw > 0.0 and req_discharge_kw > 0.0:
@@ -265,7 +264,8 @@ class AntaresMPCEnv:
 
             charge_kw = req_charge_kw
             discharge_kw = req_discharge_kw
-            export_kwh = req_export_kw * slot_hours
+            # Export remains whatever the planner scheduled; RL does not override it in v1.
+            export_kwh = base_export_kwh
 
             effective_row["battery_charge_kw"] = charge_kw
             effective_row["battery_discharge_kw"] = discharge_kw
@@ -294,4 +294,3 @@ class AntaresMPCEnv:
             "done": done,
         }
         return StepResult(next_state=next_state, reward=reward, done=done, info=info)
-

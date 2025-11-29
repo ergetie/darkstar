@@ -316,22 +316,26 @@ The RL agent outputs a continuous action vector `a_t`:
 
 - `battery_charge_kw`  (≥ 0)
 - `battery_discharge_kw` (≥ 0)
-- `export_kw` (≥ 0, kW of export)
 
-These map directly to the override keys already used by `AntaresMPCEnv.step` and
-the supervised policy:
+For v1, export is **not** directly controlled by the RL policy:
+
+- Export `export_kwh` remains whatever the planner schedule specifies for the slot.
+- RL influences cost indirectly via charge/discharge decisions that affect
+  grid import and battery usage; export behaviour follows the MPC plan.
+
+These actions map directly to the override keys already used by
+`AntaresMPCEnv.step`:
 
 - `battery_charge_kw`: requested charge power into the battery.
 - `battery_discharge_kw`: requested discharge power from the battery.
-- `export_kw`: requested export power to the grid (kW, 15-min slots => kWh = kW/4).
 
 Actions are always clamped server-side before use:
 
 - Per-slot power limits from battery config:
   - `max_charge_power_kw`
   - `max_discharge_power_kw`
-- Export limit from inverter/grid config:
-  - `max_export_power_kw = min(system.grid.max_power_kw, system.inverter.max_power_kw)`
+- Export limit from inverter/grid config still applies to the underlying MPC
+  schedule, but RL v1 does not change export directly.
 - Mutual exclusivity:
   - If both charge and discharge are requested > 0, discharge is preferred and the
     smaller magnitude is zeroed.
