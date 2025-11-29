@@ -69,6 +69,30 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 
 **Next:** Switch the simulator to use **live Nordpool + Aurora forecasts** for an arbitrary day (not just data persisted in `planner_learning.db`), and add a dedicated “relaxed economics” mode (lower cycle cost / profit margin bounds) so the Lab UI can explore truly hypothetical export behaviour without changing production guardrails.
 
+### Rev 71 — Antares Oracle (MILP Benchmark) (Phase 3)
+
+**Goal:** Build a deterministic “Oracle” that computes the mathematically optimal daily schedule (under perfect hindsight) so we can benchmark MPC and future Antares agents against a clear upper bound.
+
+**Scope / Design Decisions:**
+*   Use a MILP solver (e.g. PuLP with CBC in-process) to optimize a single day’s schedule given perfect historical data: prices, load, PV, battery constraints, and simple export rules.
+*   Objective: minimize net energy cost (import cost + battery wear cost – export revenue) over the full day, subject to the same physical limits as the existing planner (battery capacity, charge/discharge limits, SoC bounds).
+*   Inputs come from the existing Time Machine / loader: per-slot load/PV/time/price for a given day (aligned with `slot_observations` and simulation episodes).
+*   Oracle is **offline only** and never used directly in production planning; it is a benchmark and training signal.
+
+**Implementation Steps:**
+1.  Implement `ml/benchmark/milp_solver.py` with a function like `solve_optimal_schedule(day)` that:
+    - Loads per-slot data for `day` via `SimulationDataLoader` or directly from `slot_observations` (same local 15-min grid and prices used by MPC).
+    - Builds a MILP model with decision variables for each slot: import/export, battery charge/discharge power or energy, and SoC.
+    - Enforces constraints: SoC dynamics, capacity bounds, max charge/discharge power, non-negativity of flows, and any simple export constraints we already enforce in the planner.
+    - Optimizes the day’s cost objective and returns a per-slot schedule (times, flows, SoC, cost components) in a DataFrame/dict structure compatible with our existing schedule schema.
+2.  Add a debug entrypoint (e.g. `debug/run_oracle_vs_mpc.py`) that:
+    - For a given day, runs both MPC (via `AntaresMPCEnv` / Time Machine) and the Oracle MILP.
+    - Computes and prints full-day cost for each (import, export, battery wear, total) plus simple deltas and optionally a short per-hour summary.
+3.  Define and document the Oracle schedule schema and cost components in `docs/ANTARES_MODEL_CONTRACT.md` (or a short `Oracle` subsection) so later Antares revisions can reuse the same format for training and evaluation.
+4.  (Optional if time allows) Add a small logging hook to persist Oracle runs (per-day results) into SQLite (e.g. `oracle_daily_results`) with date, cost breakdown, and a summary of how far MPC is from the Oracle for that day.
+
+**Status:** Planned (next active Antares revision; substantial MILP + evaluation work).
+
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
 ---
