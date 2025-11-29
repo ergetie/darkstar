@@ -84,6 +84,32 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** In progress (shadow gating added for RL, documentation to be extended and RL v2 lab to be developed on a dedicated branch).
 
+### Rev 84 — Antares RL v2 Lab (Sequence State + Model Search)
+
+**Goal:** Stand up a dedicated RL v2 “lab” inside the repo with a richer, sequence-based state and a clean place to run repeated BC/PPO experiments until we find a policy that consistently beats MPC on a wide held-out window.
+
+**Scope / Design Decisions:**
+*   Keep all RL v2 work clearly separated from v1: new modules under `ml/rl_v2/`, no changes to `planner.py` or the live scheduler.
+*   Move from a flat 8-D state to a sequence-based state capturing 24–48h of prices and net load (load–PV), plus current SoC and time-of-day.
+*   Use BC (Oracle imitation) as the primary teacher signal, with optional PPO fine-tuning on top, but always evaluate against MPC/Oracle before promoting any model.
+
+**Implementation Steps:**
+1.  RL v2 contract skeleton:
+    - Add `ml/rl_v2/contract.py` describing the v2 state/action spaces (Python module + docstring, not yet wired into the planner).
+    - Add `ml/rl_v2/env_v2.py` with a thin Gym-style wrapper around a sequence-based simulator that reuses `SimulationDataLoader` and Oracle dynamics but stays separate from `AntaresMPCEnv`.
+2.  Experiment harness:
+    - Add `ml/rl_v2/train_bc_v2.py` that:
+        - Builds a dataset of `(sequence_state, oracle_action)` from many historical days.
+        - Trains a sequence-aware MLP/1D-conv model and logs metrics to stdout and a small JSON summary file under `ml/models/antares_rl_v2_bc/`.
+    - Add `ml/rl_v2/eval_bc_v2_cost.py` mirroring the existing eval scripts but targeting the v2 models and the v2 env, reporting MPC vs RL v2 vs Oracle cost.
+3.  Model search loop (manual, but scripted):
+    - Provide a small “recipe” in `ml/rl_v2/README.md` showing how to:
+        - Run several BC v2 trainings with different seeds/hidden sizes.
+        - Evaluate each candidate on a fixed held-out window (e.g. 2025-11-01→2025-11-27).
+        - Compare aggregate cost vs MPC and the Oracle.
+
+**Status:** Planned (skeleton modules and scripts to be added under `ml/rl_v2/`; RL v2 experiments then run on a dev branch until a consistently-better-than-MPC model is found).
+
 ### Rev 80 — RL Price-Aware Gating (Phase 4/5)
 
 **Goal:** Make the v1 Antares RL agent behave economically sane per-slot (no discharging in cheap hours, prefer charging when prices are low, prefer discharging when prices are high), while keeping the core cost model and Oracle/MPC behaviour unchanged.
