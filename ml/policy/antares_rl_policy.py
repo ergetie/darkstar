@@ -58,3 +58,63 @@ class AntaresRLPolicyV1:
             "battery_discharge_kw": float(action[1]),
             "export_kw": float(action[2]),
         }
+
+
+@dataclass
+class AntaresRLPolicyOracleBC:
+    """
+    Oracle-guided Antares policy wrapper (v2, behaviour cloning).
+
+    Loads a simple PyTorch MLP trained to imitate the Oracle MILP actions
+    given the Rev 81 8-D state vector and exposes `.predict(state)` with
+    the same action dict as v1.
+    """
+
+    model: Any
+
+    @classmethod
+    def load_from_dir(cls, path: str | Path) -> "AntaresRLPolicyOracleBC":
+        import torch
+        from ml.train_antares_oracle_bc import OracleBcNet
+
+        base = Path(path)
+        model_path = base / "model.pt"
+        if not model_path.exists():
+            raise FileNotFoundError(f"Oracle BC model not found at {model_path}")
+
+        # Rev 81 state: 8-D, action: 3-D.
+        net = OracleBcNet(in_dim=8, hidden_dim=64, out_dim=3)
+        state_dict = torch.load(model_path.as_posix(), map_location="cpu")
+        net.load_state_dict(state_dict)
+        net.eval()
+        return cls(model=net)
+
+    def predict(self, state: np.ndarray) -> Dict[str, float]:
+        import torch
+
+        if self.model is None:
+            return {
+                "battery_charge_kw": 0.0,
+                "battery_discharge_kw": 0.0,
+                "export_kw": 0.0,
+            }
+
+        x = np.asarray(state, dtype=float).reshape(1, -1)
+        if not np.isfinite(x).all():
+            x = np.nan_to_num(x, nan=0.0, posinf=1e6, neginf=-1e6)
+
+        with torch.no_grad():
+            inp = torch.from_numpy(x.astype(np.float32))
+            out = self.model(inp).cpu().numpy().reshape(-1)
+
+        if out.shape[0] < 3 or not np.isfinite(out).all():
+            return {
+                "battery_charge_kw": 0.0,
+                "battery_discharge_kw": 0.0,
+                "export_kw": 0.0,
+            }
+        return {
+            "battery_charge_kw": float(out[0]),
+            "battery_discharge_kw": float(out[1]),
+            "export_kw": float(out[2]),
+        }

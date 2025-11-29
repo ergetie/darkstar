@@ -31,6 +31,36 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** In progress (state and shaping changes wired in; next step is to retrain RL v1.1 and compare cost/behaviour vs the Rev 80 baseline).
 
+### Rev 82 — Antares RL v2 (Oracle-Guided Imitation)
+
+**Goal:** Train an Antares policy that consistently beats MPC on historical tails by directly imitating the Oracle MILP decisions, then evaluating that imitation policy in the existing AntaresMPCEnv.
+
+**Scope / Design Decisions:**
+*   Use the existing MILP Oracle (`ml/benchmark/milp_solver.py`) as the “teacher” and the current RL state vector (Rev 81) as the “student input”.
+*   Train a small supervised policy network to approximate the Oracle’s per-slot actions (charge/discharge/export kW) across many historical days.
+*   Keep the evaluation pipeline unchanged in spirit (same env, same reward/cost), but load a different policy wrapper for the Oracle-guided policy.
+
+**Implementation Steps:**
+1.  Dataset builder:
+    - For a configurable list of `clean`/`mask_battery` days (from `data_quality_daily`), run:
+        - `AntaresMPCEnv.reset(day)` to access the per-slot schedule and build state vectors via the existing `_build_state_vector` (Rev 81: 8-D).
+        - `solve_optimal_schedule(day)` to get the Oracle decisions (`oracle_charge_kwh`, `oracle_discharge_kwh`, `oracle_grid_export_kwh`, `slot_hours`), converted to kW labels.
+    - Align on `start_time` and produce `(state, action)` pairs stored in memory (no new on-disk dataset format for now).
+2.  Supervised training script (`ml/train_antares_oracle_bc.py`):
+    - Train a compact MLP (`state_dim=8 -> 64 -> 64 -> action_dim=3`) with MSE loss between predicted and Oracle kW actions.
+    - Save weights under `ml/models/antares_rl_v2_bc/<timestamp_runid>/model.pt`.
+    - Log each run into `antares_rl_runs` with `algo='oracle_bc'`, `state_version='rl_state_v2_oracle_bc'`, and `artifact_dir` pointing to the saved model.
+3.  Policy wrapper + evaluation:
+    - Add `AntaresRLPolicyOracleBC` that loads the MLP weights and exposes `.predict(state)` → `{'battery_charge_kw', 'battery_discharge_kw', 'export_kw'}`.
+    - Add `ml/eval_antares_oracle_bc_cost.py` that:
+        - Picks the latest `algo='oracle_bc'` run from `antares_rl_runs`.
+        - Runs cost evaluation over recent tail days using `AntaresMPCEnv` + `AntaresRLPolicyOracleBC`, computing RL vs MPC vs Oracle costs as in `ml/eval_antares_rl_cost.py`.
+4.  Operational flow:
+    - Run `train_antares_oracle_bc.py` over a reasonably large historical window (e.g. July–tail clean/mask days).
+    - Then run `eval_antares_oracle_bc_cost.py --days 10` and compare the Oracle-guided policy vs MPC and the true Oracle; target is “strictly better than MPC” on most tail days.
+
+**Status:** In progress (BC training script, policy wrapper, and evaluation wiring to be added; first goal is an Oracle-guided policy that matches or beats MPC on the 2025-11-18→27 tail window).
+
 ### Rev 80 — RL Price-Aware Gating (Phase 4/5)
 
 **Goal:** Make the v1 Antares RL agent behave economically sane per-slot (no discharging in cheap hours, prefer charging when prices are low, prefer discharging when prices are high), while keeping the core cost model and Oracle/MPC behaviour unchanged.
