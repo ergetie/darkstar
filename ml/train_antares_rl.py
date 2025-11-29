@@ -160,9 +160,9 @@ def main() -> int:
     cfg = RlRunConfig(
         algo="ppo",
         timesteps=int(args.timesteps),
-        learning_rate=3e-4,
-        gamma=0.99,
-        n_steps=2048,
+        learning_rate=1e-4,
+        gamma=0.995,
+        n_steps=4096,
         batch_size=64,
         seed=int(args.seed),
     )
@@ -179,6 +179,7 @@ def main() -> int:
         batch_size=cfg.batch_size,
         verbose=1,
         seed=cfg.seed,
+        device="cpu",
     )
 
     model.learn(total_timesteps=cfg.timesteps)
@@ -252,4 +253,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

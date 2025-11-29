@@ -90,7 +90,7 @@ class AntaresRLEnv:
         Take an environment step.
 
         The action is expected to be a 3D vector:
-            [battery_charge_kw, battery_discharge_kw, export_kw]
+            [battery_charge_kw, battery_discharge_kw, export_kw_placeholder]
         """
         if action is None:
             action_dict: Dict[str, Any] = {}
@@ -101,7 +101,8 @@ class AntaresRLEnv:
             action_dict = {
                 "battery_charge_kw": float(action[0]),
                 "battery_discharge_kw": float(action[1]),
-                "export_kw": float(action[2]),
+                # RL v1 does not override export; third component is ignored.
+                "export_kw": 0.0,
             }
 
         result = self.env.step(action=action_dict)
