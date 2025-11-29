@@ -176,6 +176,20 @@ class AntaresMPCEnv:
         start_col = start_col.dt.tz_convert(self.timezone)
         schedule["hour_of_day"] = start_col.dt.hour
 
+        # Precompute simple per-day price quantiles for RL gating.
+        prices = (
+            pd.to_numeric(schedule.get("import_price_sek_kwh"), errors="coerce")
+            .dropna()
+            .astype(float)
+        )
+        prices = prices[prices > 0.0]
+        if not prices.empty:
+            self._price_q25 = float(prices.quantile(0.25))
+            self._price_q50 = float(prices.quantile(0.50))
+            self._price_q75 = float(prices.quantile(0.75))
+        else:
+            self._price_q25 = self._price_q50 = self._price_q75 = 0.0
+
         self._soc_kwh = float(initial_state.get("battery_kwh", 0.0))
         self._soc_kwh = max(
             self._capacity_kwh * self._min_soc_percent / 100.0,
@@ -203,32 +217,34 @@ class AntaresMPCEnv:
 
         row = self._schedule.iloc[self._current_idx]
 
+        # Default to the planner's baseline actions and export for this slot.
+        charge_kw = float(row.get("battery_charge_kw", row.get("charge_kw", 0.0) or 0.0))
+        discharge_kw = float(row.get("battery_discharge_kw", 0.0))
+        export_kwh = float(row.get("export_kwh", 0.0))
+
+        try:
+            start_ts = pd.Timestamp(row.get("start_time"))
+            end_ts = pd.Timestamp(row.get("end_time"))
+            if start_ts.tzinfo is None:
+                start_ts = start_ts.tz_localize(self.timezone)
+            if end_ts.tzinfo is None:
+                end_ts = end_ts.tz_localize(self.timezone)
+            slot_hours = max(0.25, (end_ts - start_ts).total_seconds() / 3600.0)
+        except Exception:
+            slot_hours = 0.25
+
         if action is None or not isinstance(action, dict):
             effective_row = row
-            charge_kw = float(row.get("battery_charge_kw", row.get("charge_kw", 0.0) or 0.0))
-            discharge_kw = float(row.get("battery_discharge_kw", 0.0))
-            # Export is always taken from the planner schedule in v1.
-            export_kwh = float(row.get("export_kwh", 0.0))
+            # Pure MPC replay: keep baseline charge/discharge/export. We do not
+            # currently evolve the internal SoC for this path; `_soc_kwh` is
+            # only used for RL clamping and diagnostics.
         else:
             effective_row = row.copy()
 
-            try:
-                start_ts = pd.Timestamp(row.get("start_time"))
-                end_ts = pd.Timestamp(row.get("end_time"))
-                if start_ts.tzinfo is None:
-                    start_ts = start_ts.tz_localize(self.timezone)
-                if end_ts.tzinfo is None:
-                    end_ts = end_ts.tz_localize(self.timezone)
-                slot_hours = max(0.25, (end_ts - start_ts).total_seconds() / 3600.0)
-            except Exception:
-                slot_hours = 0.25
-
             # MPC baseline values
-            base_charge_kw = float(
-                row.get("battery_charge_kw", row.get("charge_kw", 0.0) or 0.0)
-            )
-            base_discharge_kw = float(row.get("battery_discharge_kw", 0.0))
-            base_export_kwh = float(row.get("export_kwh", 0.0))
+            base_charge_kw = charge_kw
+            base_discharge_kw = discharge_kw
+            base_export_kwh = export_kwh
 
             # Requested actions
             req_charge_kw = float(action.get("battery_charge_kw", base_charge_kw) or 0.0)
@@ -240,12 +256,31 @@ class AntaresMPCEnv:
             req_charge_kw = max(0.0, min(req_charge_kw, self._max_charge_power_kw))
             req_discharge_kw = max(0.0, min(req_discharge_kw, self._max_discharge_power_kw))
 
-            # Enforce simple mutual exclusivity: prefer discharge over charge when both requested.
+            # Price-aware mutual exclusivity:
+            # - In cheap hours (price <= q25), prefer charging.
+            # - In expensive hours (price >= q75), prefer discharging.
+            # - Otherwise, fall back to magnitude-based tie-breaker.
+            current_price = float(row.get("import_price_sek_kwh", 0.0) or 0.0)
+            price_q25 = getattr(self, "_price_q25", 0.0)
+            price_q75 = getattr(self, "_price_q75", 0.0)
+
             if req_charge_kw > 0.0 and req_discharge_kw > 0.0:
-                if req_charge_kw >= req_discharge_kw:
+                if current_price <= price_q25:
+                    # Cheap slot: enforce pure charging.
                     req_discharge_kw = 0.0
-                else:
+                elif current_price >= price_q75:
+                    # Expensive slot: enforce pure discharging.
                     req_charge_kw = 0.0
+                else:
+                    # Mid-price: keep simple magnitude-based decision.
+                    if req_charge_kw >= req_discharge_kw:
+                        req_discharge_kw = 0.0
+                    else:
+                        req_charge_kw = 0.0
+
+            # Additional guard: never discharge in clearly cheap slots.
+            if current_price <= price_q25 and req_discharge_kw > 0.0 and req_charge_kw <= 0.0:
+                req_discharge_kw = 0.0
 
             # Clamp by SoC bounds
             if self._capacity_kwh > 0.0:
@@ -271,7 +306,8 @@ class AntaresMPCEnv:
             effective_row["battery_discharge_kw"] = discharge_kw
             effective_row["export_kwh"] = export_kwh
 
-            # Update internal SoC estimate
+            # Update internal SoC estimate based on effective charge/discharge.
+            # Convention: positive (charge_kw - discharge_kw) increases SoC.
             self._soc_kwh += (charge_kw - discharge_kw) * slot_hours
             min_soc_kwh = self._capacity_kwh * self._min_soc_percent / 100.0
             max_soc_kwh = self._capacity_kwh * self._max_soc_percent / 100.0
@@ -288,9 +324,25 @@ class AntaresMPCEnv:
             next_row = self._schedule.iloc[self._current_idx]
             next_state = self._build_state_vector(next_row)
 
+        if self._capacity_kwh > 0.0:
+            soc_percent_internal = 100.0 * self._soc_kwh / self._capacity_kwh
+        else:
+            soc_percent_internal = 0.0
+
         info = {
             "day": self._current_day.isoformat() if self._current_day else None,
             "index": self._current_idx - 1,
             "done": done,
+            # Effective actions and internal SoC used for this slot. These are
+            # the clamped values that actually drive reward and SoC updates.
+            "battery_charge_kw": float(charge_kw),
+            "battery_discharge_kw": float(discharge_kw),
+            # Convention: positive = charging the battery, negative = discharging.
+            "net_battery_kw": float(charge_kw - discharge_kw),
+            "export_kwh": float(export_kwh),
+            "slot_hours": float(slot_hours),
+            "soc_kwh": float(self._soc_kwh),
+            "soc_percent_internal": float(soc_percent_internal),
+            "projected_soc_percent": float(row.get("projected_soc_percent", 0.0) or 0.0),
         }
         return StepResult(next_state=next_state, reward=reward, done=done, info=info)

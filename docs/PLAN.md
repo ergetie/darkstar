@@ -7,6 +7,27 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 80 — RL Price-Aware Gating (Phase 4/5)
+
+**Goal:** Make the v1 Antares RL agent behave economically sane per-slot (no discharging in cheap hours, prefer charging when prices are low, prefer discharging when prices are high), while keeping the core cost model and Oracle/MPC behaviour unchanged.
+
+**Scope / Design Decisions:**
+*   Implement price-aware action gating inside `AntaresMPCEnv` so any RL-controlled episode automatically prefers charge vs discharge based on the day's own import price distribution.
+*   Keep this gating completely transparent to MPC and Oracle (they do not use the RL override path), and keep evaluation cost definition unchanged.
+*   Expose simple text diagnostics so we can quickly see how often MPC/RL/Oracle charge or discharge in cheap vs expensive slots for a given day.
+
+**Implementation Steps:**
+1.  Extend `AntaresMPCEnv.reset()` to precompute per-day import price quantiles (`q25`, `q50`, `q75`) from the generated MPC schedule (ignoring zero prices) and store them on the environment instance.
+2.  Update `AntaresMPCEnv.step()` RL override path so that when both `battery_charge_kw` and `battery_discharge_kw` are requested:
+    - In cheap slots (price ≤ `q25`), always prefer pure charging (set discharge to 0).
+    - In expensive slots (price ≥ `q75`), always prefer pure discharging (set charge to 0).
+    - In mid-price slots, keep the existing magnitude-based tie-breaker, but never allow pure discharge in clearly cheap slots.
+3.  Add a small debug helper `debug/inspect_mpc_rl_oracle_stats.py` that:
+    - For a given `--day`, runs a 24h MPC episode, an RL episode, and loads the Oracle schedule.
+    - Prints compact stats showing, for each of MPC/RL/Oracle, how many slots are net-charging vs net-discharging and their mean price/net power in those slots.
+
+**Status:** Completed (price-aware gating wired into `AntaresMPCEnv` RL overrides, MPC/Oracle behaviour unchanged, and `debug/inspect_mpc_rl_oracle_stats.py` available to quickly compare MPC/RL/Oracle charge/discharge patterns against the day’s price distribution).
+
 ### Rev 79 — RL Visual Diagnostics (MPC vs RL vs Oracle)
 
 **Goal:** Provide a simple, repeatable way to visually compare MPC, RL, and Oracle behaviour for a single day (battery power, SoC, prices, export) in one PNG image so humans can quickly judge whether the RL agent is behaving sensibly relative to MPC and the Oracle.
@@ -27,6 +48,45 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 3.  After saving, attempt to open the PNG with the default image viewer (e.g. using `xdg-open` on Linux); ignore failures so the script still completes in headless environments.
 
 **Status:** Completed (CLI script `debug/plot_day_mpc_rl_oracle.py` added; generates and opens a multi-panel PNG comparing MPC vs RL vs Oracle for a chosen day using the same schedules used in cost evaluation).
+
+### Rev 78 — Tail Zero-Price Repair (Phase 3/4)
+
+**Goal:** Ensure the recent tail of the historical window (including November 2025) has no bogus zero import prices on otherwise normal days, so MPC/RL/Oracle cost evaluations are trustworthy.
+
+**Scope / Design Decisions:**
+*   Treat mixed zero/non-zero prices within the same day as a data-quality issue, not a physical reality; Vattenfall spot prices are never actually zero for these slots.
+*   Repair only days where some slots have `import_price_sek_kwh = 0.0` and others have non-zero prices; leave fully empty/zero days untouched for separate inspection.
+
+**Implementation Steps:**
+1.  Add `debug/fix_zero_price_slots.py` that:
+    - Scans `slot_observations` for days where `import_price_sek_kwh` is zero for some slots and non-zero for others.
+    - For those days, treats zero prices as missing and forward/back-fills them from neighbouring non-zero prices within the same day.
+    - Leaves entire days with all-zero prices unchanged so they remain obvious for manual analysis.
+2.  Run the repair tool on the tail window (e.g. mid-November onward) and re-check:
+    - `MIN(import_price_sek_kwh) > 0` and zero-count = 0 for all affected days.
+    - RL/MPC/Oracle cost evaluations on these days now behave numerically sensibly (no “free energy” exploits).
+
+**Status:** Completed (zero-price slots repaired via `debug/fix_zero_price_slots.py`; tail days such as 2025-11-18 → 2025-11-27 now have realistic 15-minute prices with no zeros, and cost evaluations over this window are trusted).
+
+### Rev 77 — Antares RL Diagnostics & Reward Shaping (Phase 4/5)
+
+**Goal:** Add tooling and light reward shaping so we can understand what the RL agent is actually doing per slot and discourage clearly uneconomic behaviour (e.g. unnecessary discharging in cheap hours), without changing the core cost definition used for evaluation.
+
+**Scope / Design Decisions:**
+*   Keep the evaluation cost (import − export + wear) unchanged; use shaping only as a learning aid.
+*   Focus on diagnostics first (per-slot traces and graphs), then introduce minimal shaping (price-aware discharge penalty) to steer PPO away from obviously bad patterns.
+
+**Implementation Steps:**
+1.  Add `debug/run_rl_policy_for_day.py`:
+    - For a given `--day`, runs the latest RL policy through `AntaresMPCEnv` and logs per-slot:
+        - Start time, prices, MPC vs RL charge/discharge/export, and per-slot RL cost.
+    - Prints first/last slots and the total RL cost for the day as a quick sanity check.
+2.  Extend `ml/rl/antares_env.py` with:
+    - State/reward sanitisation (NaN/inf guards) so PPO never sees invalid values.
+    - A simple per-day “cheap price” threshold (80% of the median non-zero import price) and a small penalty for discharging below that threshold, used only for RL training reward shaping.
+3.  Document the RL reward-shaping contract in `docs/ANTARES_MODEL_CONTRACT.md` so future revisions know exactly what extra penalties are active during training.
+
+**Status:** Completed (diagnostic tools and mild price-aware discharge penalty added; RL evaluation still uses the unshaped cost function, and the latest PPO v1 baseline is ~+8% cost vs MPC over recent tail days with Oracle as the clear lower bound).
 
 ### Rev 76 — Antares RL Agent v1 (Phase 4/5)
 

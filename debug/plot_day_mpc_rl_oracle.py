@@ -55,8 +55,8 @@ def _build_mpc_schedule(day: str) -> pd.DataFrame:
         "battery_charge_kw", schedule.get("charge_kw", 0.0)
     ).astype(float)
     schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0).astype(float)
-    # Convention: positive net_battery_kw = discharge, negative = charge.
-    schedule["net_battery_kw"] = schedule["battery_discharge_kw"] - schedule["battery_charge_kw"]
+    # Convention: positive net_battery_kw = charging the battery, negative = discharging.
+    schedule["net_battery_kw"] = schedule["battery_charge_kw"] - schedule["battery_discharge_kw"]
     schedule["soc_percent"] = schedule.get("projected_soc_percent", 0.0).astype(float)
     schedule["import_price"] = schedule.get("import_price_sek_kwh", 0.0).astype(float)
     schedule["export_kwh"] = schedule.get("export_kwh", 0.0).astype(float)
@@ -74,37 +74,35 @@ def _build_rl_schedule(day: str, policy: AntaresRLPolicyV1) -> pd.DataFrame:
     rows: List[Dict[str, Any]] = []
     slot_index = 0
     while True:
-        row = schedule.iloc[slot_index]
+        row = schedule.iloc[slot_index].copy()
         start_time = pd.to_datetime(row["start_time"])
         import_price = float(row.get("import_price_sek_kwh", 0.0) or 0.0)
         export_price = float(row.get("export_price_sek_kwh", import_price) or import_price)
         export_kwh = float(row.get("export_kwh", 0.0) or 0.0)
 
+        # State fed to the policy; index 3 is projected SoC percent in the
+        # current contract.
         action = policy.predict(state)
 
-        # Sanitize and apply simple mutual exclusivity for plotting,
-        # mirroring the environment's clamp behaviour.
-        charge_kw = max(0.0, float(action.get("battery_charge_kw", 0.0) or 0.0))
-        discharge_kw = max(0.0, float(action.get("battery_discharge_kw", 0.0) or 0.0))
-        if charge_kw > 0.0 and discharge_kw > 0.0:
-            if discharge_kw >= charge_kw:
-                charge_kw = 0.0
-            else:
-                discharge_kw = 0.0
-
+        # Step the environment so we get the *effective* actions and SoC that
+        # were actually used after clamping and safety checks.
         result = env.step(action=action)
-        soc_percent = float(result.next_state[3]) if len(result.next_state) > 3 else 0.0
+
+        eff_charge = float(result.info.get("battery_charge_kw", 0.0))
+        eff_discharge = float(result.info.get("battery_discharge_kw", 0.0))
+        eff_net = float(result.info.get("net_battery_kw", eff_charge - eff_discharge))
+        soc_percent_internal = float(result.info.get("soc_percent_internal", 0.0))
 
         rows.append(
             {
                 "start_time": start_time,
                 "import_price": import_price,
                 "export_price": export_price,
-                "rl_charge_kw": charge_kw,
-                "rl_discharge_kw": discharge_kw,
-                # Convention: positive = discharge, negative = charge.
-                "rl_net_battery_kw": discharge_kw - charge_kw,
-                "rl_soc_percent": soc_percent,
+                "rl_charge_kw_eff": eff_charge,
+                "rl_discharge_kw_eff": eff_discharge,
+                # Convention: positive = charging, negative = discharging.
+                "rl_net_battery_kw": eff_net,
+                "rl_soc_percent": soc_percent_internal,
                 "export_kwh": export_kwh,
                 "export_kw": export_kwh * 4.0,
             }
@@ -130,6 +128,7 @@ def _build_oracle_schedule(day: str) -> pd.DataFrame:
     slot_hours = df.get("slot_hours", 0.25).astype(float).replace(0.0, 0.25)
     df["oracle_charge_kw"] = df["oracle_charge_kwh"].astype(float) / slot_hours
     df["oracle_discharge_kw"] = df["oracle_discharge_kwh"].astype(float) / slot_hours
+    # Convention: positive net_battery_kw = charging, negative = discharging.
     df["oracle_net_battery_kw"] = df["oracle_charge_kw"] - df["oracle_discharge_kw"]
     df["oracle_soc_percent"] = df.get("oracle_soc_percent", 0.0).astype(float)
     df["import_price"] = df.get("import_price_sek_kwh", 0.0).astype(float)
@@ -226,6 +225,7 @@ def main() -> int:
     ax.set_title("MPC")
     ax1 = ax
     ax2 = ax1.twinx()
+    ax1.axhline(0.0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
     ax1.plot(mpc_df["start_time"], mpc_df["net_battery_kw"], label="Net Batt kW", color="tab:green")
     ax1.plot(mpc_df["start_time"], mpc_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(mpc_df["start_time"], mpc_df["soc_percent"], label="SoC %", color="tab:orange")
@@ -239,6 +239,7 @@ def main() -> int:
     ax.set_title(f"RL (run {rl_run['run_id'][:8]})")
     ax1 = ax
     ax2 = ax1.twinx()
+    ax1.axhline(0.0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
     ax1.plot(rl_df["start_time"], rl_df["rl_net_battery_kw"], label="Net Batt kW", color="tab:green")
     ax1.plot(rl_df["start_time"], rl_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(rl_df["start_time"], rl_df["rl_soc_percent"], label="SoC %", color="tab:orange")
@@ -252,6 +253,7 @@ def main() -> int:
     ax.set_title("Oracle")
     ax1 = ax
     ax2 = ax1.twinx()
+    ax1.axhline(0.0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
     ax1.plot(
         oracle_df["start_time"],
         oracle_df["oracle_net_battery_kw"],
