@@ -281,13 +281,17 @@ class AntaresMPCEnv:
             req_charge_kw = max(0.0, min(req_charge_kw, self._max_charge_power_kw))
             req_discharge_kw = max(0.0, min(req_discharge_kw, self._max_discharge_power_kw))
 
-            # Price-aware mutual exclusivity:
+            # Price-aware mutual exclusivity and simple horizon-based guard.
             # - In cheap hours (price <= q25), prefer charging.
             # - In expensive hours (price >= q75), prefer discharging.
-            # - Otherwise, fall back to magnitude-based tie-breaker.
+            # - If a much higher price is coming soon, avoid discharging too early.
             current_price = float(row.get("import_price_sek_kwh", 0.0) or 0.0)
             price_q25 = getattr(self, "_price_q25", 0.0)
             price_q75 = getattr(self, "_price_q75", 0.0)
+            max_next_price = float(
+                row.get("max_import_price_next_12h", current_price) or current_price
+            )
+            peak_guard_delta = 0.30  # SEK/kWh considered a meaningful spread
 
             if req_charge_kw > 0.0 and req_discharge_kw > 0.0:
                 if current_price <= price_q25:
@@ -307,21 +311,16 @@ class AntaresMPCEnv:
             if current_price <= price_q25 and req_discharge_kw > 0.0 and req_charge_kw <= 0.0:
                 req_discharge_kw = 0.0
 
-            # If price is clearly cheap and SoC is not already near the soft max,
-            # gently bias towards charging even if the policy did not ask for it.
-            if current_price <= price_q25 and self._capacity_kwh > 0.0:
-                soc_soft_max_kwh = getattr(self, "_soc_soft_max_kwh", self._capacity_kwh)
-                soc_min_kwh = getattr(self, "_soc_min_kwh", 0.0)
-                if self._soc_kwh < soc_soft_max_kwh:
-                    # Headroom remaining for extra charge this slot.
-                    max_additional_charge_kw = max(
-                        0.0, (soc_soft_max_kwh - self._soc_kwh) / slot_hours
-                    )
-                    if max_additional_charge_kw > 0.0 and req_charge_kw <= 0.0:
-                        # Nudge towards a modest charge, respecting power/SOC limits.
-                        req_charge_kw = min(self._max_charge_power_kw, max_additional_charge_kw)
-                        # Ensure we do not discharge simultaneously.
-                        req_discharge_kw = 0.0
+            # Pre-peak guard: if a materially higher price is within the look-ahead
+            # window, avoid discharging unless SoC is already high.
+            if (
+                max_next_price >= current_price + peak_guard_delta
+                and req_discharge_kw > 0.0
+                and self._capacity_kwh > 0.0
+            ):
+                soc_pct_now = 100.0 * self._soc_kwh / self._capacity_kwh
+                if soc_pct_now < 90.0:
+                    req_discharge_kw = 0.0
 
             # Clamp by SoC bounds
             if self._capacity_kwh > 0.0:
