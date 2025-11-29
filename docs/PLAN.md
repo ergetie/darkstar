@@ -91,7 +91,29 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 3.  Define and document the Oracle schedule schema and cost components in `docs/ANTARES_MODEL_CONTRACT.md` (or a short `Oracle` subsection) so later Antares revisions can reuse the same format for training and evaluation.
 4.  (Optional if time allows) Add a small logging hook to persist Oracle runs (per-day results) into SQLite (e.g. `oracle_daily_results`) with date, cost breakdown, and a summary of how far MPC is from the Oracle for that day.
 
-**Status:** Planned (next active Antares revision; substantial MILP + evaluation work).
+**Status:** Completed (Oracle MILP solver, MPC comparison tool, and config wiring implemented in Rev 71).
+
+### Rev 72 — Antares v1 Policy (First Brain) (Phase 3)
+
+**Goal:** Train a first Antares v1 policy that leverages the Gym environment and/or Oracle signals to propose battery/export actions and evaluate them offline against MPC and the Oracle.
+
+**Scope / Design Decisions:**
+*   Start with a conservative approach: supervised or value-based learning on top of existing simulation/Oracle data before any online RL.
+*   Use `AntaresMPCEnv` for rollouts and `solve_optimal_schedule(day)` as an optional “teacher” for cost-to-go or improved action labels.
+*   Keep this revision offline-only: no changes to live planner control yet.
+
+**Implementation Steps:**
+1.  Define the Antares v1 policy interface and data structures (e.g. a small wrapper around the trained LightGBM models or a new model) so that given a state vector from `AntaresMPCEnv`, it can propose per-slot actions (charge/discharge/export levels).
+2.  Build an offline training script (e.g. `ml/train_antares_policy.py`) that:
+    - Samples episodes/days from the validated window via the Gym environment.
+    - Constructs training targets either from MPC actions (imitation) or from Oracle-improved actions/cost signals where available.
+    - Trains a first policy model and saves it under a versioned path (similar to Antares v1 regressors) with basic metrics.
+3.  Add an evaluation helper (e.g. `ml/eval_antares_policy.py`) that:
+    - Runs the learned policy in the Gym environment over a held-out set of days.
+    - Computes cost vs MPC and vs Oracle (where Oracle solutions exist) and prints simple cost comparison statistics.
+4.  Document the policy contract (inputs, outputs, where the model is stored, and how it will later be plugged into the scheduler) in `docs/ANTARES_MODEL_CONTRACT.md` so Phase 4 (shadow mode) can use it directly.
+
+**Status:** Planned (next active Antares revision; first Antares “brain” will be implemented here).
 
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
