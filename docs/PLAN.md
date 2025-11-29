@@ -7,6 +7,27 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 79 — RL Visual Diagnostics (MPC vs RL vs Oracle)
+
+**Goal:** Provide a simple, repeatable way to visually compare MPC, RL, and Oracle behaviour for a single day (battery power, SoC, prices, export) in one PNG image so humans can quickly judge whether the RL agent is behaving sensibly relative to MPC and the Oracle.
+
+**Scope / Design Decisions:**
+*   Use a CLI script that generates a single multi-panel PNG (MPC, RL, Oracle stacked) using Matplotlib and then opens it in the default image viewer, avoiding any new UI or frontend work.
+*   Reuse the existing environment and Oracle code paths to ensure the plotted schedules are exactly those used for cost evaluation.
+
+**Implementation Steps:**
+1.  Add a debug script (e.g. `debug/plot_day_mpc_rl_oracle.py`) that for a given `--day YYYY-MM-DD`:
+    - Builds the MPC schedule by running `AntaresMPCEnv` with no overrides and extracting per-slot `start_time`, price, battery charge/discharge, SoC, and export.
+    - Builds the RL schedule by running `AntaresMPCEnv` with the latest RL policy from `antares_rl_runs` (via `AntaresRLPolicyV1`) and recording the per-slot RL actions and resulting SoC.
+    - Builds the Oracle schedule for the same day via `solve_optimal_schedule(day)` and converts its kWh decisions to kW and SoC%.
+2.  Plot all three schedules into one PNG:
+    - Three stacked panels (MPC, RL, Oracle) sharing the same time axis.
+    - Each panel shows: price, net battery power (charge−discharge), SoC%, and export kW, with fixed y-axis ranges across panels for each quantity.
+    - Save the PNG to `debug/plots/mpc_rl_oracle_<YYYY-MM-DD>.png`.
+3.  After saving, attempt to open the PNG with the default image viewer (e.g. using `xdg-open` on Linux); ignore failures so the script still completes in headless environments.
+
+**Status:** Completed (CLI script `debug/plot_day_mpc_rl_oracle.py` added; generates and opens a multi-panel PNG comparing MPC vs RL vs Oracle for a chosen day using the same schedules used in cost evaluation).
+
 ### Rev 76 — Antares RL Agent v1 (Phase 4/5)
 
 **Goal:** Design, train, and wire up the first real Antares RL agent (actor–critic NN) that uses the existing AntaresMPCEnv, cost model, and shadow plumbing, so we can evaluate a genuine learning-based policy in parallel with MPC and Oracle on historical data and (via shadow mode) on live production days.
