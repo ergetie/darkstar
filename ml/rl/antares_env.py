@@ -85,10 +85,12 @@ class AntaresRLEnv:
             raise RuntimeError("No candidate days available for AntaresRLEnv.")
         self._current_day = day
         state = self.env.reset(day)
-        # Compute a simple per-day low-price threshold for reward shaping:
-        # use 80% of the median non-zero import price for the day.
+        # Compute simple per-day price thresholds for reward shaping:
+        # - low threshold: 80% of median non-zero import price
+        # - high threshold: 120% of median (rough proxy for "expensive")
         schedule = getattr(self.env, "_schedule", None)
         threshold: Optional[float] = None
+        high_threshold: Optional[float] = None
         if schedule is not None:
             df = schedule.copy()
             if df.index.name in {"start_time", "slot_start"} and "start_time" not in df.columns:
@@ -102,7 +104,9 @@ class AntaresRLEnv:
             if not prices.empty:
                 median_price = float(prices.median())
                 threshold = 0.8 * median_price
+                high_threshold = 1.2 * median_price
         self._low_price_threshold = threshold
+        self._high_price_threshold = high_threshold
 
         return self._sanitize_state(state)
 
@@ -130,10 +134,9 @@ class AntaresRLEnv:
         next_state = self._sanitize_state(result.next_state)
 
         reward = float(result.reward)
-        # Reward shaping: discourage discharging when price is below a per-day
-        # threshold (roughly "cheap" hours). This does not change the cost
-        # metric used for evaluation, only the learning signal.
-        if self._low_price_threshold is not None and action is not None:
+        # Reward shaping around cheap/expensive prices. This does not change
+        # the cost metric used for evaluation, only the learning signal.
+        if (self._low_price_threshold is not None or self._high_price_threshold is not None) and action is not None:
             try:
                 # result.info["index"] holds the slot index in the schedule.
                 idx = int(result.info.get("index", -1))
@@ -141,10 +144,40 @@ class AntaresRLEnv:
                 if schedule is not None and 0 <= idx < len(schedule):
                     row = schedule.iloc[idx]
                     price = float(row.get("import_price_sek_kwh", 0.0) or 0.0)
-                    discharge_kw = float(action_dict.get("battery_discharge_kw", 0.0) or 0.0)
-                    if price < self._low_price_threshold and discharge_kw > 0.0:
-                        # Apply a modest penalty per kW of discharge in cheap hours.
-                        reward -= 0.25 * discharge_kw
+                    low_thr = self._low_price_threshold
+                    high_thr = self._high_price_threshold
+
+                    charge_kw = float(
+                        result.info.get(
+                            "battery_charge_kw",
+                            action_dict.get("battery_charge_kw", 0.0),
+                        )
+                        or 0.0
+                    )
+                    discharge_kw = float(
+                        result.info.get(
+                            "battery_discharge_kw",
+                            action_dict.get("battery_discharge_kw", 0.0),
+                        )
+                        or 0.0
+                    )
+                    soc_pct = float(result.info.get("soc_percent_internal", 0.0) or 0.0)
+
+                    # Cheap hours: strongly discourage discharging, gently reward charging
+                    # when SoC is not already high.
+                    if low_thr is not None and price < low_thr:
+                        if discharge_kw > 0.0:
+                            # Stronger penalty per kW of discharge in cheap hours.
+                            reward -= 0.5 * discharge_kw
+                        if soc_pct < 80.0 and charge_kw > 0.0:
+                            # Small bonus for charging when cheap and SoC < 80%.
+                            reward += 0.1 * charge_kw
+
+                    # Expensive hours: mild penalty for sitting on energy when SoC is high
+                    # and very little discharge is used.
+                    if high_thr is not None and price > high_thr and soc_pct > 60.0:
+                        if discharge_kw < 0.25:
+                            reward -= 0.1
             except Exception:
                 # Never let shaping break the environment.
                 pass
