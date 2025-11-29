@@ -68,6 +68,14 @@ class AntaresRLEnv:
         self._iterator = DayIterator(self.days)
         self._current_day: Optional[str] = None
 
+    @staticmethod
+    def _sanitize_state(state: np.ndarray) -> np.ndarray:
+        """Replace NaN/inf in the state vector with finite fallbacks."""
+        arr = np.asarray(state, dtype=np.float32)
+        if not np.isfinite(arr).all():
+            arr = np.nan_to_num(arr, nan=0.0, posinf=1e6, neginf=-1e6)
+        return arr
+
     def reset(self) -> np.ndarray:
         """Reset to the next day and return initial state."""
         day = self._iterator.next_day()
@@ -75,7 +83,7 @@ class AntaresRLEnv:
             raise RuntimeError("No candidate days available for AntaresRLEnv.")
         self._current_day = day
         state = self.env.reset(day)
-        return state
+        return self._sanitize_state(state)
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         """
@@ -97,8 +105,8 @@ class AntaresRLEnv:
             }
 
         result = self.env.step(action=action_dict)
+        next_state = self._sanitize_state(result.next_state)
         info = dict(result.info)
         if self._current_day is not None:
             info.setdefault("day", self._current_day)
-        return result.next_state, float(result.reward), bool(result.done), info
-
+        return next_state, float(result.reward), bool(result.done), info
