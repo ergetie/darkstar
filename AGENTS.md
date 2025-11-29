@@ -6,6 +6,7 @@
 - **Python version**: 3.12.0 (see .python-version)
 - **Virtual environment**: Located in `venv/` directory
 - **Install dependencies**: `pip install -r requirements.txt` (if available) or install packages individually
+- **Preferred interpreter for project-aware scripts**: `./venv/bin/python` (use this explicitly if sandboxed tooling cannot import site packages like `pandas` or project modules; assume `PYTHONPATH=.` when running repo-local tools).
 - **Run main planner**: `python planner.py`
 - **Test inputs module**: `python inputs.py`
 - **Run full test suite**: `PYTHONPATH=. python -m pytest -q`
