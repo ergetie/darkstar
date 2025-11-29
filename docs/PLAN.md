@@ -26,7 +26,7 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 3.  Document the environment contract (state vector fields, reward semantics, episode definition, and future `action` hook) in `docs/ANTARES_MODEL_CONTRACT.md` or a short new subsection so later Antares revisions can rely on it without re-reading the code.
 4.  Add a small debug CLI helper (e.g. `debug/run_antares_env_episode.py`) that runs through a sample day, prints a few `(time, reward)` lines, and confirms the environment is deterministic and stable for a fixed day across runs.
 
-**Status:** Planned (next active Antares revision; ready for implementation when approved).
+**Status:** Completed (environment, reward, docs, and debug runner implemented in Rev 70).
 
 ### Rev 69 — Antares v1 Training Pipeline (Phase 3)
 
