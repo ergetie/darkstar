@@ -136,6 +136,27 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
+### Rev 74 — Tail Window Price Backfill & Final Data Sanity (Phase 3)
+
+**Goal:** Fix and validate the recent tail of the July–now window (e.g. late November days with zero prices) so Phase 3 ends with a fully clean, production-grade dataset for both MPC and Antares training/evaluation.
+
+**Scope / Design Decisions:**
+*   Treat `slot_observations` as canonical; zero `import_price_sek_kwh` / `export_price_sek_kwh` on “normal” days are data issues, not physics.
+*   Use the existing Vattenfall price backfill tools (`bin/backfill_vattenfall.py` / `bin/fix_price_gaps.py`) to repopulate missing/zero price slots over the recent window where the new recorder was not yet active.
+*   Re-run the existing validation scanners and Antares cost eval tools to confirm the tail matches the rest of the window in quality.
+
+**Implementation Steps:**
+1.  Identify all days in `data/planner_learning.db: slot_observations` where:
+    - `date(slot_start)` is in the recent window (e.g. `>= 2025-11-18`), and
+    - `import_price_sek_kwh` (and/or `export_price_sek_kwh`) are zero or NULL for most/all slots; list these as “price-bad” days.
+2.  Configure and run the price backfill pipeline (Vattenfall API + gap fixer) over the exact range covering those days, ensuring it targets only the affected dates and updates the SQLite `slot_observations` prices in-place.
+3.  Re-run:
+    - `debug/validate_ha_vs_sqlite_window.py` over the tail window to confirm energy + price consistency.
+    - `debug/run_policy_cost_for_day.py` and/or `ml/eval_antares_policy_cost.py` on at least one summer day (e.g. 2025-08-01) and one fixed tail day to verify MPC/policy/Oracle costs are finite and sane.
+4.  Update documentation (brief note in `docs/ANTARES_EPISODE_SCHEMA.md` or `ANTARES_MODEL_CONTRACT.md`) summarising that the July–now window, including the tail, is price-complete and ready for Antares training/eval.
+
+**Status:** Planned (final Phase 3 data-cleanup revision before Phase 4 / shadow mode).
+
 ---
 
 ## Backlog
