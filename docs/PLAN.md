@@ -7,6 +7,51 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 76 — Antares RL Agent v1 (Phase 4/5)
+
+**Goal:** Design, train, and wire up the first real Antares RL agent (actor–critic NN) that uses the existing AntaresMPCEnv, cost model, and shadow plumbing, so we can evaluate a genuine learning-based policy in parallel with MPC and Oracle on historical data and (via shadow mode) on live production days.
+
+**Scope / Design Decisions:**
+*   Use the current `AntaresMPCEnv` state and reward as the RL contract: state = (time, load/pv, SoC, prices, etc.), action = continuous battery charge/discharge/export power; reward = negative cost (import – export + wear + penalties).
+*   Introduce a single, well-supported RL stack (PyTorch + PPO/SAC-style algorithm) and keep the model small (MLP) but production-ready (versioned artefacts, run metadata, deterministic seeds where practical).
+*   Reuse existing data-quality guards (`data_quality_daily`) and episode filters so the RL agent only trains and evaluates on `clean`/`mask_battery` days, and uses the same cost metrics as Phase 3 for comparison vs MPC/Oracle.
+
+**Implementation Steps:**
+1.  RL formulation + contracts:
+    - Add a short Phase 4/5 RL section to `docs/ANTARES_MODEL_CONTRACT.md` that freezes:
+        - State vector layout (starting from `AntaresMPCEnv` state) and any extra features (e.g. day-of-week, month).
+        - Action space (continuous `[charge_kw, discharge_kw, export_kw]` with bounds) and how clamping is applied.
+        - Reward definition (slot cost + wear + constraint penalties) and episode termination (per-day).
+    - Ensure this contract is clearly marked as v1 so future changes can be versioned.
+2.  RL dependencies and scaffolding:
+    - Add PyTorch (and, if needed, a minimal RL helper library) to the Python environment via `requirements.txt` / `pyproject.toml`, matching project style.
+    - Implement a light-weight Gym-style wrapper around `AntaresMPCEnv` (e.g. `ml/rl/antares_env.py`) exposing `reset()` / `step(action)` with `numpy` states and rewards, and handling date selection from the `clean`/`mask_battery` day list.
+3.  RL training pipeline:
+    - Create `ml/train_antares_rl.py` that:
+        - Builds train/validation day splits over the July–now `clean`/`mask_battery` window (e.g. time-based split).
+        - Trains an actor–critic RL agent (PPO/SAC-style) on the train days, with configurable hyperparameters and seeds.
+        - Logs each run into a new SQLite table (e.g. `antares_rl_runs`) with: `run_id`, algo, model_version, hyperparams, train/val windows, core metrics (average reward, cost, SoC/water violations), and artefact path.
+        - Saves model weights and normalisation stats under `ml/models/antares_rl_v1/<timestamp_runid>/`.
+4.  RL policy wrapper + shadow integration:
+    - Implement `AntaresRLPolicyV1` (e.g. `ml/policy/antares_rl_policy.py`) that:
+        - Loads a chosen `antares_rl_runs` entry and its weights from the artefact directory.
+        - Exposes `.predict(state)` returning an action dict compatible with the existing override path (`battery_charge_kw`, `battery_discharge_kw`, `export_kw`).
+    - Extend the shadow runner (`ml/policy/shadow_runner.py`) and planner hook so that:
+        - We can select which policy to use in shadow mode (`lightgbm` vs `rl`) via config (e.g. `antares.shadow_policy_type`).
+        - Shadow schedules produced by the RL policy are written to `antares_plan_history` with the RL `run_id` and a distinct `system_id` suffix (e.g. `prod_shadow_rl_v1`).
+5.  RL evaluation and comparison:
+    - Add `ml/eval_antares_rl_cost.py` (or extend existing eval scripts) to:
+        - Run the RL policy over a validation window of historical days in `AntaresMPCEnv`, computing MPC vs RL vs Oracle cost per day and in aggregate.
+        - Report safety-related metrics (SoC limit breaches, unmet water heating) for RL vs MPC.
+    - Update `debug/compare_shadow_vs_mpc.py` (if needed) so it can explicitly reference RL runs (e.g. filter by `system_id` suffix) when comparing MPC vs Antares on production-shadow days.
+6.  Verification and documentation:
+    - Run RL training for at least one v1 configuration, then:
+        - Evaluate on a held-out historical window and confirm results are numerically sane (even if not yet better than MPC).
+        - Enable RL shadow mode in a dev/QA environment (config change only) and confirm `antares_plan_history` starts collecting RL-based shadow plans without affecting HA.
+    - Document in `docs/PLAN.md` and `docs/ANTARES_MODEL_CONTRACT.md` which RL run/version is considered the current v1 baseline for Phase 4/5, and how to retrain/evaluate it.
+
+**Status:** Planned (next major Antares revision; first real RL agent and RL-driven shadow mode).
+
 ### Rev 75 — Antares Shadow Challenger v1 (Phase 4)
 
 **Goal:** Run the latest Antares policy in shadow mode alongside the live MPC planner, persist daily shadow schedules with costs, and provide basic tooling to compare MPC vs Antares on real production data (no hardware control yet).
