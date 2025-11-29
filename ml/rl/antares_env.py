@@ -106,7 +106,12 @@ class AntaresRLEnv:
 
         result = self.env.step(action=action_dict)
         next_state = self._sanitize_state(result.next_state)
+
+        reward = float(result.reward)
+        if not np.isfinite(reward):
+            reward = 0.0
+
         info = dict(result.info)
         if self._current_day is not None:
             info.setdefault("day", self._current_day)
-        return next_state, float(result.reward), bool(result.done), info
+        return next_state, reward, bool(result.done), info
