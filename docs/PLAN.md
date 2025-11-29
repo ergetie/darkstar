@@ -143,7 +143,10 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 **Scope / Design Decisions:**
 *   Treat `slot_observations` as canonical; zero `import_price_sek_kwh` / `export_price_sek_kwh` on “normal” days are data issues, not physics.
 *   Use the existing Vattenfall price backfill tools (`bin/backfill_vattenfall.py` / `bin/fix_price_gaps.py`) to repopulate missing/zero price slots over the recent window where the new recorder was not yet active.
-*   Re-run the existing validation scanners and Antares cost eval tools to confirm the tail matches the rest of the window in quality.
+*   Re-run the existing validation scanners and Antares cost eval tools to confirm the tail matches the rest of the window 
+
+**Status:** Completed (tail prices backfilled via Vattenfall + fix_price_gaps; 2025-11-18 → 2025-11-27 now have realistic prices, validation scanner passes, and policy/MPC/Oracle cost evals run with finite costs on tail days).
+in quality.
 
 **Implementation Steps:**
 1.  Identify all days in `data/planner_learning.db: slot_observations` where:

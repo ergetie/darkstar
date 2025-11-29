@@ -52,6 +52,16 @@ not a direct control target in v1.
 
 ## 2. Dataset and Split
 
+**Phase 3 data window completeness (Rev 74):** The canonical Antares v1
+dataset uses the July 2025 → latest validated date window from
+`slot_observations` in `data/planner_learning.db`. Energy flows for this
+window are validated against Home Assistant (via `data_quality_daily`), and
+price data (import/export SEK/kWh) is backfilled and gap-fixed, including
+late-November tail days where the recorder was not yet active. This window
+is considered price- and energy-complete for Antares Phase 3 training and
+evaluation.
+
+
 The training dataset consists of slots from simulation episodes where:
 
 - `system_id="simulation"`.
