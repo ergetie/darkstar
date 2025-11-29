@@ -34,35 +34,32 @@ Turn the validated historical replay engine into a clean dataset and environment
 
 ### Rev 67 — Antares Data Foundation: Live Telemetry & Backfill Verification
 
+**Status:** Completed (Phase 2.5 data window ready for Antares)
+
 **Goal:**
 Ensure the data foundation for Antares is trustworthy by validating the live telemetry pipeline (SQLite + MariaDB) against Home Assistant and safely executing a full historical backfill without UTC/CEST artifacts.
 
-**Scope (Status / Next Steps):**
-1. **Live Slot Observations (SQLite) [IN PROGRESS]:**
-   - ✅ Verified HA vs SQLite for several historical days (July–October); backfilled `slot_observations` now closely track HA Energy (within rounding) with correct UTC/CEST handling.
-   - ✅ Confirmed that live observations on recent days (e.g., 2025-11-15, 2025-11-28) are under-reporting and/or bunching load/PV due to observations being tied to planner runs (irregular cadence), not a divide-by-4 bug.
-   - ✅ Implemented a dedicated recorder loop (`backend.recorder`) that runs every 15 minutes (00/15/30/45) and calls `record_observation_from_current_state` independently of the planner, so slot-level deltas are recorded even when the planner is idle.
-   - ▶️ Next: Validate a fresh live day (dev + server) by comparing HA Energy vs hourly sums from `slot_observations` and decide how to clean or backfill older “spiky/gappy” days.
-2. **MariaDB `antares_learning` [IN PROGRESS]:**
-   - ✅ Confirmed irregular `created_at` timestamps (e.g., 09:25, 10:00, 10:25) for `system_id="prod"` episodes are expected based on scheduler jitter and do not affect the internal episode time fields.
-   - ▶️ Next: Document which episode time fields should be used for Antares training (slot timestamps / horizon start) and explicitly treat `created_at` as metadata only.
-3. **Historical Backfill Window [PENDING]:**
-   - ✅ Validated the UTC-corrected HA backfill (`bin/backfill_ha.py`) on sample days (2025-07-03, 2025-08-15, 2025-09-15, 2025-10-15) against HA Energy; shapes and magnitudes are acceptable for Antares bootstrapping.
-   - ✅ Verified via `debug/probe_ha_stats_ws.py` that HA LTS exposes hourly statistics not only for load/PV but also for grid import/export and battery charge/discharge (LTS-backed energy channels), with water heater consumption as the main non-LTS outlier.
-   - ▶️ Next: Extend `bin/backfill_ha.py` to request and apply LTS data for all supported cumulative inverter entities (load, PV, grid import/export, battery charge/discharge), use that for the older window (July → ~10 days ago), and reserve `ml.data_activator.py` for recent days and non-LTS sensors like water heater.
-4. **Recorder & Scheduler Topology [IN PROGRESS]:**
-   - ✅ Mapped current topology: `backend.scheduler` drives planner runs (hourly with optional jitter) and implicitly drove observation recording, leading to sparse, spiky live data.
-   - ✅ Implemented `backend.recorder` as a separate 15-minute loop and wired it into `scripts/dev-backend.sh` so dev `npm run dev` starts scheduler + recorder + backend.
-   - ✅ Added a systemd unit (`darkstar.service`) on the server to run `npm run dev` (including scheduler + recorder) automatically on boot inside the LXC.
-   - ▶️ Next: Decide on a production cleanup/backfill strategy for days with broken live telemetry (e.g., 2025‑11‑15), and document how to enable/disable the recorder and scheduler independently if needed.
-5. **Documentation & Guardrails [PENDING]:**
-   - ▶️ Capture the validation procedure (HA vs SQLite vs MariaDB) and the new recorder topology so future Antares phases can quickly re-verify data integrity after code or deployment changes.
-
-**Verification Plan:**
-1. For a recent live day (e.g., 2025-11-15), compute hourly load/PV from `slot_observations` and compare to HA Energy hourly values; differences must be within rounding/error bounds, not whole-order magnitude.
-2. Query `antares_learning` (MariaDB) for `system_id="prod"`; confirm episode timestamps line up with planner runs and that state/action fields can be joined back to historical prices and slot data.
-3. After running the July–October backfill, repeat the HA vs SQLite hourly comparison on a small sample of days (at least one per month, including a summer PV-heavy day and an autumn low-PV day).
-4. Run `bin/run_simulation.py` on a few validated days and confirm that simulated load/PV series match `slot_observations` (and thus HA) for the first hours of the day and midday peaks.
+**Scope (Final State):**
+1. **Live Slot Observations (SQLite):**
+   - Verified HA vs SQLite for multiple historical days (July–October); backfilled `slot_observations` now track HA Energy within ≈0.1–0.2 kWh per hour with correct UTC/CEST handling.
+   - Confirmed that old “spiky/gappy” live data came from planner-coupled observations (irregular cadence), not arithmetic bugs.
+   - Implemented and deployed the dedicated recorder loop (`backend.recorder`) that runs every 15 minutes (00/15/30/45) and calls `record_observation_from_current_state` independently of the planner, so all future live days are recorded at slot resolution.
+2. **Historical Backfill Window (SQLite):**
+   - Extended `bin/backfill_ha.py` to consume HA LTS for all inverter energy channels: load, PV, grid import/export, battery charge/discharge.
+   - Ran a full backfill for the July → recent window using LTS for older days and `ml.data_activator.etl_cumulative_to_slots` for the last ~10 days and water heater.
+   - Used `bin/explode_rows.py` and `bin/fix_load_gaps.py` to eliminate the old “only :00 rows” and hourly lumping issues.
+   - Repaired rare missing-slot days (e.g. 2025-11-16) with a small repair helper, then re-ran backfill so all target days have 96 slots.
+3. **Automated HA vs SQLite Validation (`data_quality_daily`):**
+   - Added `debug/validate_ha_vs_sqlite_window.py` to:
+     - Fetch HA LTS hourly `change` values for load/PV/import/export (+ battery optional).
+     - Aggregate `slot_observations` to hourly sums for the same channels.
+     - Classify each day as `clean`, `mask_battery`, or `exclude` based on hourly |DB − HA| > 0.2 kWh, missing slots, and SoC anomalies.
+   - Persisted results into `data_quality_daily` in `planner_learning.db`:
+     - Window: `2025-07-03` → `2025-11-28`.
+     - Final counts: 138 `clean`, 10 `mask_battery`, 1 `exclude` (today / partial).
+4. **MariaDB `antares_learning`:**
+   - Confirmed that `created_at` jitter for `system_id="prod"` episodes is expected and that training should rely on episode/context timestamps instead.
+   - Implemented a robust mirror helper (`debug/mirror_simulation_episodes_to_mariadb.py`) that replays simulation episodes from SQLite `training_episodes` into MariaDB when the DB has been offline.
 
 ### Rev 66 — Antares Phase 2: The Time Machine (Simulator)
 

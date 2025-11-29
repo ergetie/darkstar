@@ -6,6 +6,16 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ## Phase 4: Strategy Engine & Aurora v2 (The Agent)
 
+### Rev 67 — Antares Data Foundation: Live Telemetry & Backfill Verification (Phase 2.5)
+*   **Summary:** Hardened the historical data window (July 2025 → present) so `slot_observations` in `planner_learning.db` is a HA-aligned, 15-minute, timezone-correct ground truth suitable for replay and Antares training, and added explicit data-quality labels and mirroring tools.
+*   **Details:**
+    *   Extended HA LTS backfill (`bin/backfill_ha.py`) to cover load, PV, grid import/export, and battery charge/discharge, and combined it with `ml.data_activator.etl_cumulative_to_slots` for recent days and water heater.
+    *   Introduced `debug/validate_ha_vs_sqlite_window.py` to compare HA hourly `change` vs SQLite hourly sums and classify days as `clean`, `mask_battery`, or `exclude`, persisting results in `data_quality_daily` (138 clean, 10 mask_battery, 1 exclude across 2025-07-03 → 2025-11-28).
+    *   Added `debug/repair_missing_slots.py` to insert missing 15-minute slots for edge-case days (e.g. 2025-11-16) before re-running backfill.
+    *   Ensured `backend.recorder` runs as an independent 15-minute loop in dev and server so future live telemetry is always captured at slot resolution, decoupled from planner cadence.
+    *   Implemented `debug/mirror_simulation_episodes_to_mariadb.py` so simulation episodes (`system_id="simulation"`) logged in SQLite can be reliably mirrored into MariaDB `antares_learning` after DB outages.
+*   **Status:** ✅ Completed (2025-11-28)
+
 ### Rev 62 — Export Safety & Aurora Agent
 *   **Summary:** Decoupled battery export from `strategic_charging.target_soc_percent` and removed the non-decreasing responsibility gate so export can occur whenever price is profitable and SoC is above the protective export floor.
 *   **Details:**

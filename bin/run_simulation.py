@@ -84,6 +84,21 @@ def main() -> int:
         planner = HeliosPlanner(temp_config_path)
         loader = SimulationDataLoader(temp_config_path)
 
+        # Load per-day data quality classifications, if available, so that
+        # only clean/mask_battery days produce simulation episodes.
+        quality_by_date = {}
+        try:
+            with sqlite3.connect(loader.db_path, timeout=30.0) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT date, status FROM data_quality_daily"
+                )
+                quality_by_date = {
+                    row[0]: row[1] for row in cur.fetchall() if row and row[0]
+                }
+        except sqlite3.Error:
+            quality_by_date = {}
+
         # Discover available historical window for user feedback
         first_slot = None
         last_slot = None
@@ -130,9 +145,29 @@ def main() -> int:
             # Surface the simulation clock for downstream consumers (learning, JSON).
             input_data["now_override"] = current
 
+            # Enrich context so logged episodes can be aligned back to
+            # slot_observations and data_quality_daily.
+            context = dict(input_data.get("context") or {})
+            current_day = current.date().isoformat()
+            quality_status = quality_by_date.get(current_day, "unknown")
+            context.update(
+                {
+                    "episode_start_local": current.isoformat(),
+                    "episode_date": current_day,
+                    "system_id": sim_config.get("system", {}).get(
+                        "system_id", "simulation"
+                    ),
+                    "data_quality_status": quality_status,
+                }
+            )
+            input_data["context"] = context
+
+            # Only log training episodes for days that pass data-quality filters.
+            record_episode = quality_status in {"clean", "mask_battery"} or not quality_by_date
+
             schedule = planner.generate_schedule(
                 input_data,
-                record_training_episode=True,
+                record_training_episode=record_episode,
                 now_override=current,
                 save_to_file=False,
             )
