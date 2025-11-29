@@ -27,7 +27,7 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 4.  Add a lightweight CLI/entrypoint (kept within `ml/train_antares.py`) that prints a concise training summary (data sizes, metrics, cost comparison vs MPC on the validation window) and records a row in `antares_training_runs`.
 5.  Document the v1 model contract (inputs, targets, artifact naming, and where to load it from) in `docs/ANTARES_EPISODE_SCHEMA.md` or a new short `docs/ANTARES_MODEL_CONTRACT.md` so later Antares phases and tools can consume it without re-reading the training code.
 
-**Status:** Planned (next active Antares revision; ready for implementation when approved).
+**Status:** Completed (training pipeline, logging, and eval helper implemented in Rev 69).
 
 **Verification Plan:**
 1.  Run `python -m bin.run_planner`: record training episodes for real scheduler runs.
