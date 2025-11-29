@@ -7,6 +7,7 @@ import pandas as pd
 import sqlite3
 
 from learning import LearningEngine, get_learning_engine
+from ml.simulation.dataset import AntaresSlotRecord, build_antares_training_dataset
 
 
 def _get_engine() -> LearningEngine:
@@ -83,3 +84,45 @@ def get_forecast_slots(
             },
         )
     return records
+
+
+def get_antares_slots(dataset_version: str = "v1") -> pd.DataFrame:
+    """
+    Return the Antares v1 simulation training dataset as a DataFrame.
+
+    - Currently supports dataset_version=\"v1\" only.
+    - Wraps `build_antares_training_dataset` and converts records to a stable
+      tabular form for downstream training/analysis.
+    """
+    if dataset_version != "v1":
+        raise ValueError(f"Unsupported dataset_version: {dataset_version}")
+
+    records: List[AntaresSlotRecord] = build_antares_training_dataset()
+    if not records:
+        return pd.DataFrame()
+
+    rows: List[Dict[str, Any]] = []
+    for rec in records:
+        rows.append(
+            {
+                "episode_id": rec.episode_id,
+                "episode_date": rec.episode_date,
+                "system_id": rec.system_id,
+                "data_quality_status": rec.data_quality_status,
+                "slot_start": rec.slot_start,
+                "import_price_sek_kwh": rec.import_price_sek_kwh,
+                "export_price_sek_kwh": rec.export_price_sek_kwh,
+                "load_kwh": rec.load_kwh,
+                "pv_kwh": rec.pv_kwh,
+                "import_kwh": rec.import_kwh,
+                "export_kwh": rec.export_kwh,
+                "batt_charge_kwh": rec.batt_charge_kwh,
+                "batt_discharge_kwh": rec.batt_discharge_kwh,
+                "soc_start_percent": rec.soc_start_percent,
+                "soc_end_percent": rec.soc_end_percent,
+                "battery_masked": rec.battery_masked,
+                "dataset_version": dataset_version,
+            }
+        )
+
+    return pd.DataFrame(rows)
