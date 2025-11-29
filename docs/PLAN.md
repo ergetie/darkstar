@@ -61,6 +61,29 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** In progress (BC training script, policy wrapper, and evaluation wiring to be added; first goal is an Oracle-guided policy that matches or beats MPC on the 2025-11-18→27 tail window).
 
+### Rev 83 — RL v1 Stabilisation and RL v2 Lab Split
+
+**Goal:** Stabilise RL v1 as a diagnostics-only baseline for Darkstar v2, ensure MPC remains the sole production decision-maker, and carve out a clean space (branch + tooling) for RL v2 experimentation without risking core planner behaviour.
+
+**Scope / Design Decisions:**
+*   MPC remains the production planner; RL (v1/v2) runs only in shadow/diagnostic modes until it has proven superiority over MPC on large held-out windows.
+*   RL shadow mode must be explicitly enabled via config; default behaviour must never load RL in production paths.
+*   RL v2 experimentation (state redesign, new architectures, Oracle-BC v2, PPO v2) should live on a dedicated branch and not change `planner.py` or live scheduler behaviour until promoted.
+
+**Implementation Steps:**
+1.  Shadow gating (stabilise RL v1 usage):
+    - Update `ml/policy/shadow_runner.py` so that RL shadow plans (`policy_type='rl'`) are only generated when `antares.enable_rl_shadow_mode` is explicitly true in config; otherwise, RL shadow is skipped and a clear log message is printed.
+    - Keep `policy_type='lightgbm'` as the default and safe choice for any existing `enable_shadow_mode` usage.
+2.  Documentation and process:
+    - Document in `docs/ANTARES_MODEL_CONTRACT.md` and `AGENTS.md` that:
+        - RL v1 (Rev 81) is “diagnostics only; not used for live control”.
+        - Any RL v2 work should be done on a feature branch (e.g. `feature/antares-rl-v2`) and only merged after passing the same cost/safety gates as MPC.
+3.  RL v2 lab scaffold (branch-level, not on planner hot path):
+    - Add high-level design notes for RL v2 state and architecture (e.g. 24–48h sequences + sequence encoder) to `docs/PLAN.md` and `docs/ANTARES_MODEL_CONTRACT.md`.
+    - Keep all RL v2 training/eval scripts under `ml/rl_v2/` or similar, with no changes to existing planner or shadow execution until a candidate model demonstrates consistent wins over MPC/Oracle in backtests.
+
+**Status:** In progress (shadow gating added for RL, documentation to be extended and RL v2 lab to be developed on a dedicated branch).
+
 ### Rev 80 — RL Price-Aware Gating (Phase 4/5)
 
 **Goal:** Make the v1 Antares RL agent behave economically sane per-slot (no discharging in cheap hours, prefer charging when prices are low, prefer discharging when prices are high), while keeping the core cost model and Oracle/MPC behaviour unchanged.

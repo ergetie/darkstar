@@ -199,6 +199,13 @@ def run_shadow_for_schedule(
     """
     engine = get_learning_engine()
     if policy_type == "rl":
+        antares_cfg = engine.config.get("antares", {}) or {}
+        if not bool(antares_cfg.get("enable_rl_shadow_mode", False)):
+            print(
+                "[shadow] RL shadow mode requested but antares.enable_rl_shadow_mode "
+                "is false; skipping RL shadow plan."
+            )
+            return None
         run = _load_latest_rl_run(engine)
         if run is None:
             print("[shadow] No entries in antares_rl_runs; skipping RL shadow plan.")
