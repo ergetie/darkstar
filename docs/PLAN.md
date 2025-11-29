@@ -28,6 +28,18 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** Completed (price-aware gating wired into `AntaresMPCEnv` RL overrides, MPC/Oracle behaviour unchanged, and `debug/inspect_mpc_rl_oracle_stats.py` available to quickly compare MPC/RL/Oracle charge/discharge patterns against the day’s price distribution).
 
+**Operational Notes / Retrain Sequence (RL v1 with gating):**
+*   Training (rough pass, ~1M timesteps) – from project root:
+    - `PYTHONPATH=. ./venv/bin/python ml/train_antares_rl.py --timesteps 1_000_000`
+*   Evaluation on recent tail days (uses latest `antares_rl_runs` entry):
+    - `PYTHONPATH=. ./venv/bin/python ml/eval_antares_rl_cost.py --days 10`
+*   Per-day behavioural check (MPC/RL/Oracle stats + graph), e.g. for 2025-11-20:
+    - `PYTHONPATH=. ./venv/bin/python debug/inspect_mpc_rl_oracle_stats.py --day 2025-11-20`
+    - `PYTHONPATH=. ./venv/bin/python debug/plot_day_mpc_rl_oracle.py --day 2025-11-20`
+*   If the 1M run looks promising but still noisy, run a deeper pass:
+    - `PYTHONPATH=. ./venv/bin/python ml/train_antares_rl.py --timesteps 2_000_000`
+    - Repeat the evaluation + per-day checks with the new latest run.
+
 ### Rev 79 — RL Visual Diagnostics (MPC vs RL vs Oracle)
 
 **Goal:** Provide a simple, repeatable way to visually compare MPC, RL, and Oracle behaviour for a single day (battery power, SoC, prices, export) in one PNG image so humans can quickly judge whether the RL agent is behaving sensibly relative to MPC and the Oracle.
