@@ -198,7 +198,7 @@ def main() -> int:
         "run_id": run_id,
         "created_at": datetime.utcnow().isoformat(),
         "algo": cfg.algo,
-        "state_version": "rl_state_v1",
+        "state_version": "rl_state_v1_1",
         "action_version": "rl_action_v1",
         "train_start_date": split["train_start_date"],
         "train_end_date": split["train_end_date"],

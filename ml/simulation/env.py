@@ -85,6 +85,8 @@ class AntaresMPCEnv:
             row.get("projected_soc_percent", 0.0),
             row.get("import_price_sek_kwh", 0.0),
             row.get("export_price_sek_kwh", row.get("import_price_sek_kwh", 0.0)),
+            row.get("hours_until_end", 0.0),
+            row.get("max_import_price_next_12h", row.get("import_price_sek_kwh", 0.0)),
         ]
         return np.array([float(x) for x in features], dtype=np.float32)
 
@@ -175,6 +177,24 @@ class AntaresMPCEnv:
             start_col = pd.to_datetime(schedule.index)
         start_col = start_col.dt.tz_convert(self.timezone)
         schedule["hour_of_day"] = start_col.dt.hour
+
+        # Day-end reference for horizon features.
+        day_start = start_dt
+        day_end = day_start + timedelta(days=1)
+        schedule["hours_until_end"] = (
+            (day_end - start_col).dt.total_seconds() / 3600.0
+        ).astype(float)
+
+        # Precompute rolling max import price over the next ~12 hours (48 slots).
+        prices_series = pd.to_numeric(
+            schedule.get("import_price_sek_kwh"), errors="coerce"
+        ).astype(float)
+        prices_series = prices_series.fillna(0.0)
+        window_slots = 48
+        max_next = prices_series.iloc[::-1].rolling(
+            window=window_slots, min_periods=1
+        ).max().iloc[::-1]
+        schedule["max_import_price_next_12h"] = max_next
 
         # Precompute simple per-day price quantiles for RL gating.
         prices = (

@@ -69,6 +69,8 @@ class AntaresRLEnv:
         self._iterator = DayIterator(self.days)
         self._current_day: Optional[str] = None
         self._low_price_threshold: Optional[float] = None
+        self._high_price_threshold: Optional[float] = None
+        self._initial_soc_percent: Optional[float] = None
 
     @staticmethod
     def _sanitize_state(state: np.ndarray) -> np.ndarray:
@@ -107,6 +109,17 @@ class AntaresRLEnv:
                 high_threshold = 1.2 * median_price
         self._low_price_threshold = threshold
         self._high_price_threshold = high_threshold
+
+        # Cache initial SoC percent for terminal shaping.
+        try:
+            capacity_kwh = float(getattr(self.env, "_capacity_kwh", 0.0) or 0.0)
+            soc_kwh = float(getattr(self.env, "_soc_kwh", 0.0) or 0.0)
+            if capacity_kwh > 0.0:
+                self._initial_soc_percent = 100.0 * soc_kwh / capacity_kwh
+            else:
+                self._initial_soc_percent = None
+        except Exception:
+            self._initial_soc_percent = None
 
         return self._sanitize_state(state)
 
@@ -180,6 +193,15 @@ class AntaresRLEnv:
                             reward -= 0.1
             except Exception:
                 # Never let shaping break the environment.
+                pass
+        # Terminal shaping: encourage ending the day near the initial SoC.
+        if result.done and self._initial_soc_percent is not None:
+            try:
+                final_soc_pct = float(result.info.get("soc_percent_internal", 0.0) or 0.0)
+                diff = abs(final_soc_pct - self._initial_soc_percent)
+                # Small penalty proportional to deviation from starting SoC.
+                reward -= 0.05 * diff
+            except Exception:
                 pass
         if not np.isfinite(reward):
             reward = 0.0

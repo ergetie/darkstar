@@ -7,6 +7,30 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## Active Revisions
 
+### Rev 81 — Antares RL v1.1 (Horizon-Aware State + Terminal SoC Shaping)
+
+**Goal:** Move RL from locally price-aware to day-aware so it charges enough before known evening peaks and avoids running empty too early, while staying within the existing AntaresMPCEnv cost model.
+
+**Scope / Design Decisions:**
+*   Extend the RL state with simple horizon features (time-to-end-of-day and a short-horizon peak-price indicator) so the policy can “see” that high prices are coming later.
+*   Add a small terminal SoC shaping term so the agent is nudged to end the day with SoC close to the starting level (Oracle-style), discouraging both “empty too early” and “full with no peaks left.”
+*   Keep the core per-slot cost (import − export + wear) and MPC/Oracle behaviour unchanged; only the RL contract and reward shaping are updated.
+
+**Implementation Steps:**
+1.  Extend `AntaresMPCEnv` state vector to include:
+    - `hours_until_end_of_day` for each slot, based on the schedule window.
+    - `max_import_price_next_12h` (rolling max of import price over the next ~12h of slots), computed once per day in `reset()` and exposed via `_build_state_vector`.
+2.  Update `AntaresRLEnv` / training wrapper so the observation space reflects the new 8-D state and bump the logged `state_version` for new RL runs (v1.1).
+3.  Add terminal SoC shaping in `AntaresRLEnv.step()`:
+    - When an episode ends, apply a small penalty proportional to `|final_soc_percent − initial_soc_percent|` so the policy is biased towards ending the day near its starting SoC, Oracle-style.
+4.  Retrain the RL agent with the updated contract (1–2M timesteps), then re-run:
+    - `ml/eval_antares_rl_cost.py --days 10`
+    - `debug/inspect_mpc_rl_oracle_stats.py --day YYYY-MM-DD`
+    - `debug/plot_day_mpc_rl_oracle.py --day YYYY-MM-DD`
+    to verify that RL holds more energy for evening peaks and stays closer to MPC/Oracle timing.
+
+**Status:** In progress (state and shaping changes wired in; next step is to retrain RL v1.1 and compare cost/behaviour vs the Rev 80 baseline).
+
 ### Rev 80 — RL Price-Aware Gating (Phase 4/5)
 
 **Goal:** Make the v1 Antares RL agent behave economically sane per-slot (no discharging in cheap hours, prefer charging when prices are low, prefer discharging when prices are high), while keeping the core cost model and Oracle/MPC behaviour unchanged.
