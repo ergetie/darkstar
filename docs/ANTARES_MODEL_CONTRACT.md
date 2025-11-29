@@ -222,3 +222,44 @@ vectors and MPC actions observed in `AntaresMPCEnv`.
 This policy is offline-only and does not yet influence live schedules; it is a
 first “brain” to validate that we can learn a stable mapping from environment
 state to MPC-like actions before introducing Oracle-guided targets or online RL.
+
+## 8. Policy Action Overrides & Cost Evaluation (Rev 73)
+
+Rev 73 extends the Gym environment and adds cost evaluation for Antares
+policies.
+
+- Environment action overrides:
+  - `AntaresMPCEnv.step(action)` now accepts an optional `action` dict:
+    - Keys (all optional):
+      - `battery_charge_kw`
+      - `battery_discharge_kw`
+      - `export_kw`
+    - Behaviour:
+      - If `action` is `None` or not a dict, the env replays pure MPC decisions.
+      - If provided, action values override the MPC slot flows for that step,
+        after clamping to physical limits:
+        - Non-negative.
+        - Bounded by config `battery.max_charge_power_kw` /
+          `battery.max_discharge_power_kw` and an internal export power limit
+          (`min(system.grid.max_power_kw, system.inverter.max_power_kw)`).
+        - Further clamped by an internal SoC tracker so that SoC stays within
+          `[battery.min_soc_percent, battery.max_soc_percent]`.
+      - Overrides are applied only for cost/reward and internal SoC; the
+        underlying MPC schedule remains unchanged.
+
+- Cost evaluation:
+  - Script: `ml/eval_antares_policy_cost.py`.
+  - For a configurable number of recent days:
+    - Loads the latest policy from `antares_policy_runs`.
+    - Runs three cost baselines per day:
+      - MPC replay (no overrides) via `AntaresMPCEnv`.
+      - Policy-driven rollouts (policy actions passed into `step(action)`).
+      - Oracle cost, where `solve_optimal_schedule(day)` succeeds.
+    - Prints per-day and aggregate cost comparisons:
+      - `Policy vs MPC`
+      - `MPC vs Oracle`
+      - `Policy vs Oracle` on the subset with Oracle solutions.
+
+These additions keep all policy experimentation strictly offline while providing
+clear SEK-based benchmarks for how Antares policies perform relative to MPC
+and the Oracle on historical data.

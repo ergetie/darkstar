@@ -42,6 +42,27 @@ class AntaresMPCEnv:
         self.timezone = pytz.timezone(self.loader.timezone_name)
         self.planner = HeliosPlanner(config_path)
 
+        battery_cfg = self.loader.config.get("battery", {}) or {}
+        system_cfg = self.loader.config.get("system", {}) or {}
+        grid_cfg = system_cfg.get("grid", {}) or {}
+        inverter_cfg = system_cfg.get("inverter", {}) or {}
+
+        self._capacity_kwh: float = float(
+            battery_cfg.get("capacity_kwh", self.loader.battery_capacity_kwh)
+        )
+        self._min_soc_percent: float = float(battery_cfg.get("min_soc_percent", 10.0))
+        self._max_soc_percent: float = float(battery_cfg.get("max_soc_percent", 100.0))
+        self._max_charge_power_kw: float = float(battery_cfg.get("max_charge_power_kw", 3.0))
+        self._max_discharge_power_kw: float = float(
+            battery_cfg.get("max_discharge_power_kw", 3.0)
+        )
+
+        inverter_limit = float(inverter_cfg.get("max_power_kw", 10.0))
+        grid_limit = float(grid_cfg.get("max_power_kw", inverter_limit))
+        self._max_export_power_kw: float = min(inverter_limit, grid_limit)
+
+        self._soc_kwh: float = 0.0
+
         self._schedule: Optional[pd.DataFrame] = None
         self._current_idx: int = 0
         self._current_day: Optional[date] = None
@@ -155,6 +176,12 @@ class AntaresMPCEnv:
         start_col = start_col.dt.tz_convert(self.timezone)
         schedule["hour_of_day"] = start_col.dt.hour
 
+        self._soc_kwh = float(initial_state.get("battery_kwh", 0.0))
+        self._soc_kwh = max(
+            self._capacity_kwh * self._min_soc_percent / 100.0,
+            min(self._soc_kwh, self._capacity_kwh * self._max_soc_percent / 100.0),
+        )
+
         self._schedule = schedule
         self._current_idx = 0
         self._current_day = target_day
@@ -163,18 +190,94 @@ class AntaresMPCEnv:
         return self._build_state_vector(first_row)
 
     def step(self, action: Optional[Any] = None) -> StepResult:
-        """Advance one 15-minute slot following the MPC schedule.
+        """Advance one 15-minute slot, optionally overriding MPC actions.
 
-        The `action` parameter is reserved for future extensions where
-        agents can deviate from the baseline MPC decisions. For now it
-        is ignored and the deterministic schedule is replayed.
+        - If `action` is None, the deterministic MPC schedule is replayed.
+        - If `action` is a dict with keys like `battery_charge_kw`,
+          `battery_discharge_kw`, or `export_kw`, these are used to
+          override the slot flows (clamped to physical limits) before
+          computing reward.
         """
         if self._schedule is None:
             raise RuntimeError("Environment not initialized. Call reset(day) first.")
 
         row = self._schedule.iloc[self._current_idx]
 
-        reward = self._compute_reward(row)
+        if action is None or not isinstance(action, dict):
+            effective_row = row
+            charge_kw = float(row.get("battery_charge_kw", row.get("charge_kw", 0.0) or 0.0))
+            discharge_kw = float(row.get("battery_discharge_kw", 0.0))
+            export_kwh = float(row.get("export_kwh", 0.0))
+        else:
+            effective_row = row.copy()
+
+            try:
+                start_ts = pd.Timestamp(row.get("start_time"))
+                end_ts = pd.Timestamp(row.get("end_time"))
+                if start_ts.tzinfo is None:
+                    start_ts = start_ts.tz_localize(self.timezone)
+                if end_ts.tzinfo is None:
+                    end_ts = end_ts.tz_localize(self.timezone)
+                slot_hours = max(0.25, (end_ts - start_ts).total_seconds() / 3600.0)
+            except Exception:
+                slot_hours = 0.25
+
+            # MPC baseline values
+            base_charge_kw = float(
+                row.get("battery_charge_kw", row.get("charge_kw", 0.0) or 0.0)
+            )
+            base_discharge_kw = float(row.get("battery_discharge_kw", 0.0))
+            base_export_kwh = float(row.get("export_kwh", 0.0))
+
+            # Requested actions
+            req_charge_kw = float(action.get("battery_charge_kw", base_charge_kw) or 0.0)
+            req_discharge_kw = float(
+                action.get("battery_discharge_kw", base_discharge_kw) or 0.0
+            )
+            req_export_kw = float(action.get("export_kw", base_export_kwh / slot_hours) or 0.0)
+
+            # Clamp to non-negative and power limits
+            req_charge_kw = max(0.0, min(req_charge_kw, self._max_charge_power_kw))
+            req_discharge_kw = max(0.0, min(req_discharge_kw, self._max_discharge_power_kw))
+            req_export_kw = max(0.0, min(req_export_kw, self._max_export_power_kw))
+
+            # Enforce simple mutual exclusivity: prefer discharge over charge when both requested.
+            if req_charge_kw > 0.0 and req_discharge_kw > 0.0:
+                if req_charge_kw >= req_discharge_kw:
+                    req_discharge_kw = 0.0
+                else:
+                    req_charge_kw = 0.0
+
+            # Clamp by SoC bounds
+            if self._capacity_kwh > 0.0:
+                max_charge_by_soc = max(
+                    0.0,
+                    (self._capacity_kwh * self._max_soc_percent / 100.0 - self._soc_kwh)
+                    / slot_hours,
+                )
+                max_discharge_by_soc = max(
+                    0.0,
+                    (self._soc_kwh - self._capacity_kwh * self._min_soc_percent / 100.0)
+                    / slot_hours,
+                )
+                req_charge_kw = min(req_charge_kw, max_charge_by_soc)
+                req_discharge_kw = min(req_discharge_kw, max_discharge_by_soc)
+
+            charge_kw = req_charge_kw
+            discharge_kw = req_discharge_kw
+            export_kwh = req_export_kw * slot_hours
+
+            effective_row["battery_charge_kw"] = charge_kw
+            effective_row["battery_discharge_kw"] = discharge_kw
+            effective_row["export_kwh"] = export_kwh
+
+            # Update internal SoC estimate
+            self._soc_kwh += (charge_kw - discharge_kw) * slot_hours
+            min_soc_kwh = self._capacity_kwh * self._min_soc_percent / 100.0
+            max_soc_kwh = self._capacity_kwh * self._max_soc_percent / 100.0
+            self._soc_kwh = max(min_soc_kwh, min(self._soc_kwh, max_soc_kwh))
+
+        reward = self._compute_reward(effective_row)
 
         self._current_idx += 1
         done = self._current_idx >= len(self._schedule)
@@ -191,5 +294,4 @@ class AntaresMPCEnv:
             "done": done,
         }
         return StepResult(next_state=next_state, reward=reward, done=done, info=info)
-
 
