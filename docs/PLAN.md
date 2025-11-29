@@ -34,7 +34,7 @@ Turn the validated historical replay engine into a clean dataset and environment
 
 ### Rev 67 — Antares Data Foundation: Live Telemetry & Backfill Verification
 
-**Status:** Completed (Phase 2.5 data window ready for Antares)
+**Status:** ✅ Completed (Phase 2.5 data window ready for Antares)
 
 **Goal:**
 Ensure the data foundation for Antares is trustworthy by validating the live telemetry pipeline (SQLite + MariaDB) against Home Assistant and safely executing a full historical backfill without UTC/CEST artifacts.
@@ -62,6 +62,8 @@ Ensure the data foundation for Antares is trustworthy by validating the live tel
    - Implemented a robust mirror helper (`debug/mirror_simulation_episodes_to_mariadb.py`) that replays simulation episodes from SQLite `training_episodes` into MariaDB when the DB has been offline.
 
 ### Rev 66 — Antares Phase 2: The Time Machine (Simulator)
+
+**Status:** ✅ Completed
 
 **Goal:**
 Build a historical replay engine that generates thousands of "Training Episodes" by running the Planner against past data (July 2025–Present). This creates the initial dataset needed to train the Antares AI.
@@ -94,6 +96,8 @@ Build a historical replay engine that generates thousands of "Training Episodes"
 
 ### Rev 65 — Antares Phase 1b: The Data Mirror
 
+**Status:** ✅ Completed
+
 **Goal:**
 Enable centralized data collection. While SQLite (local) is the safety buffer, we need a "Live Feed" of training data from the Production Server to the Development Environment. We will implement a "Mirror" that pushes training episodes to a central MariaDB table (`antares_learning`) tagged with a `system_id`.
 
@@ -124,7 +128,7 @@ Enable centralized data collection. While SQLite (local) is the safety buffer, w
 
 ### Rev 64 — Antares Phase 1: Unified Data Collection (The Black Box)
 
-**Status:** Completed
+**Status:** ✅ Completed
 
 **Summary:**
 - Added the `training_episodes` schema and a resilient `LearningEngine.log_training_episode` helper to persist sanitized input/context/schedule JSON payloads with UUID identifiers.
