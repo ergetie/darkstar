@@ -113,7 +113,7 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
     - Computes cost vs MPC and vs Oracle (where Oracle solutions exist) and prints simple cost comparison statistics.
 4.  Document the policy contract (inputs, outputs, where the model is stored, and how it will later be plugged into the scheduler) in `docs/ANTARES_MODEL_CONTRACT.md` so Phase 4 (shadow mode) can use it directly.
 
-**Status:** Planned (next active Antares revision; first Antares “brain” will be implemented here).
+**Status:** Completed (offline MPC-imitating policy, training, eval, and contract implemented in Rev 72).
 
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
