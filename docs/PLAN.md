@@ -115,6 +115,25 @@ No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `do
 
 **Status:** Completed (offline MPC-imitating policy, training, eval, and contract implemented in Rev 72).
 
+### Rev 73 — Antares Policy Cost Evaluation & Action Overrides (Phase 3)
+
+**Goal:** Evaluate the Antares v1 policy in terms of full-day cost (not just action MAE) by letting it drive the Gym environment, and compare that cost against MPC and the Oracle on historical days.
+
+**Scope / Design Decisions:**
+*   Extend `AntaresMPCEnv` with a safe action-override hook so a policy can propose per-slot actions (charge/discharge/export) while still respecting battery constraints and using the existing cost model for reward.
+*   Keep this revision strictly offline: the policy will only control the simulated environment, never live hardware.
+*   Use both MPC and Oracle as baselines: MPC as the current production behaviour, Oracle as the theoretical lower bound.
+
+**Implementation Steps:**
+1.  Extend `AntaresMPCEnv.step(action)` so that, when an action dict is provided, it overrides MPC’s charge/discharge/export decisions for that slot (clamped to physical limits) before computing reward and updating internal state; preserve a mode where it still replays pure MPC for baseline runs.
+2.  Add a cost-evaluation script (e.g. `ml/eval_antares_policy_cost.py`) that:
+    - Loads the latest Antares v1 policy from `antares_policy_runs`.
+    - For a configurable set of days, runs three rollouts per day: MPC-only, policy-driven, and (where available) Oracle cost from `solve_optimal_schedule(day)`.
+    - Computes and prints per-day and aggregate cost statistics (import, export, wear, total) and simple deltas: `policy vs MPC`, `MPC vs Oracle`, `policy vs Oracle`.
+3.  Document the action-override contract (expected action keys, clamping rules, and how the environment combines them with existing schedule context) in `docs/ANTARES_MODEL_CONTRACT.md` so future policy revisions and Phase 4 (shadow mode) can rely on the same semantics.
+
+**Status:** Planned (next active Antares revision; will produce a cost-based policy vs MPC/Oracle benchmark).
+
 ### Rev XX - PUT THE NEXT REVISION ABOVE THIS LINE!
 
 ---
