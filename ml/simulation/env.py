@@ -190,6 +190,11 @@ class AntaresMPCEnv:
         else:
             self._price_q25 = self._price_q50 = self._price_q75 = 0.0
 
+        # Cache simple SoC thresholds for cheap-hour charging guards.
+        self._soc_min_kwh = self._capacity_kwh * self._min_soc_percent / 100.0
+        # Aim to keep some headroom; treat ~90% as a soft upper bound for auto-charging.
+        self._soc_soft_max_kwh = self._capacity_kwh * 0.90
+
         self._soc_kwh = float(initial_state.get("battery_kwh", 0.0))
         self._soc_kwh = max(
             self._capacity_kwh * self._min_soc_percent / 100.0,
@@ -281,6 +286,22 @@ class AntaresMPCEnv:
             # Additional guard: never discharge in clearly cheap slots.
             if current_price <= price_q25 and req_discharge_kw > 0.0 and req_charge_kw <= 0.0:
                 req_discharge_kw = 0.0
+
+            # If price is clearly cheap and SoC is not already near the soft max,
+            # gently bias towards charging even if the policy did not ask for it.
+            if current_price <= price_q25 and self._capacity_kwh > 0.0:
+                soc_soft_max_kwh = getattr(self, "_soc_soft_max_kwh", self._capacity_kwh)
+                soc_min_kwh = getattr(self, "_soc_min_kwh", 0.0)
+                if self._soc_kwh < soc_soft_max_kwh:
+                    # Headroom remaining for extra charge this slot.
+                    max_additional_charge_kw = max(
+                        0.0, (soc_soft_max_kwh - self._soc_kwh) / slot_hours
+                    )
+                    if max_additional_charge_kw > 0.0 and req_charge_kw <= 0.0:
+                        # Nudge towards a modest charge, respecting power/SOC limits.
+                        req_charge_kw = min(self._max_charge_power_kw, max_additional_charge_kw)
+                        # Ensure we do not discharge simultaneously.
+                        req_discharge_kw = 0.0
 
             # Clamp by SoC bounds
             if self._capacity_kwh > 0.0:

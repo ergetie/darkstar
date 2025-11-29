@@ -58,6 +58,17 @@ def _build_mpc_schedule(day: str) -> pd.DataFrame:
     # Convention: positive net_battery_kw = charging the battery, negative = discharging.
     schedule["net_battery_kw"] = schedule["battery_charge_kw"] - schedule["battery_discharge_kw"]
     schedule["soc_percent"] = schedule.get("projected_soc_percent", 0.0).astype(float)
+    # Load/PV (kWh -> kW) for price panel context.
+    if "adjusted_load_kwh" in schedule.columns:
+        load_kwh = schedule["adjusted_load_kwh"].astype(float)
+    else:
+        load_kwh = schedule.get("load_forecast_kwh", 0.0).astype(float)
+    if "adjusted_pv_kwh" in schedule.columns:
+        pv_kwh = schedule["adjusted_pv_kwh"].astype(float)
+    else:
+        pv_kwh = schedule.get("pv_forecast_kwh", 0.0).astype(float)
+    schedule["load_kw"] = load_kwh * 4.0
+    schedule["pv_kw"] = pv_kwh * 4.0
     schedule["import_price"] = schedule.get("import_price_sek_kwh", 0.0).astype(float)
     schedule["export_kwh"] = schedule.get("export_kwh", 0.0).astype(float)
     schedule["export_kw"] = schedule["export_kwh"] * 4.0
@@ -213,10 +224,29 @@ def main() -> int:
 
     # Panel 0: Price only (common)
     ax_price = axes[0]
-    ax_price.set_title("Import price (common)")
-    ax_price.plot(mpc_df["start_time"], mpc_df["import_price"], color="tab:blue")
+    ax_price.set_title("Price, load, PV (common)")
+    ax_price.plot(mpc_df["start_time"], mpc_df["import_price"], color="tab:blue", label="Price")
     ax_price.set_ylabel("SEK/kWh")
     ax_price.set_ylim(price_min * 0.9, price_max * 1.1)
+    # Secondary axis: load and PV power (kW) for context.
+    ax_price2 = ax_price.twinx()
+    if "load_kw" in mpc_df.columns:
+        ax_price2.plot(
+            mpc_df["start_time"],
+            mpc_df["load_kw"],
+            color="tab:gray",
+            alpha=0.7,
+            label="Load kW",
+        )
+    if "pv_kw" in mpc_df.columns:
+        ax_price2.plot(
+            mpc_df["start_time"],
+            mpc_df["pv_kw"],
+            color="tab:olive",
+            alpha=0.7,
+            label="PV kW",
+        )
+    ax_price2.set_ylabel("kW")
 
     max_abs_kw = max(abs(pb_min), abs(pb_max), 1.0)
 
