@@ -67,6 +67,7 @@ class AntaresRLEnv:
         self.days = _load_candidate_days(self.engine)
         self._iterator = DayIterator(self.days)
         self._current_day: Optional[str] = None
+        self._low_price_threshold: Optional[float] = None
 
     @staticmethod
     def _sanitize_state(state: np.ndarray) -> np.ndarray:
@@ -83,6 +84,25 @@ class AntaresRLEnv:
             raise RuntimeError("No candidate days available for AntaresRLEnv.")
         self._current_day = day
         state = self.env.reset(day)
+        # Compute a simple per-day low-price threshold for reward shaping:
+        # use 80% of the median non-zero import price for the day.
+        schedule = getattr(self.env, "_schedule", None)
+        threshold: Optional[float] = None
+        if schedule is not None:
+            df = schedule.copy()
+            if df.index.name in {"start_time", "slot_start"} and "start_time" not in df.columns:
+                df = df.reset_index()
+            prices = (
+                pd.to_numeric(df.get("import_price_sek_kwh"), errors="coerce")
+                .dropna()
+                .astype(float)
+            )
+            prices = prices[prices > 0.0]
+            if not prices.empty:
+                median_price = float(prices.median())
+                threshold = 0.8 * median_price
+        self._low_price_threshold = threshold
+
         return self._sanitize_state(state)
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
@@ -109,6 +129,24 @@ class AntaresRLEnv:
         next_state = self._sanitize_state(result.next_state)
 
         reward = float(result.reward)
+        # Reward shaping: discourage discharging when price is below a per-day
+        # threshold (roughly "cheap" hours). This does not change the cost
+        # metric used for evaluation, only the learning signal.
+        if self._low_price_threshold is not None and action is not None:
+            try:
+                # result.info["index"] holds the slot index in the schedule.
+                idx = int(result.info.get("index", -1))
+                schedule = getattr(self.env, "_schedule", None)
+                if schedule is not None and 0 <= idx < len(schedule):
+                    row = schedule.iloc[idx]
+                    price = float(row.get("import_price_sek_kwh", 0.0) or 0.0)
+                    discharge_kw = float(action_dict.get("battery_discharge_kw", 0.0) or 0.0)
+                    if price < self._low_price_threshold and discharge_kw > 0.0:
+                        # Apply a modest penalty per kW of discharge in cheap hours.
+                        reward -= 0.25 * discharge_kw
+            except Exception:
+                # Never let shaping break the environment.
+                pass
         if not np.isfinite(reward):
             reward = 0.0
 

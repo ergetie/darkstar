@@ -357,7 +357,7 @@ Per-slot quantities:
 
 - `grid_import_kwh` computed from forecast load/PV/water and battery flows.
 - `import_price_sek_kwh`, `export_price_sek_kwh`.
-- `export_kwh` (from action).
+- `export_kwh` from the MPC schedule (RL v1 does not change export directly).
 - `charge_kwh`, `discharge_kwh` (from action).
 
 Reward:
@@ -376,6 +376,11 @@ Where:
   - SoC breaches (projected SoC below `min_soc_percent`).
   - Unmet water-heating demand where water is modeled (same signal as in
     `_evaluate_schedule`).
+  - Additional shaping used only for RL training (not evaluation):
+    - Gentle penalty for discharging in "cheap" hours: if the slot import price
+      is below a per-day threshold (80% of the median non-zero import price)
+      and `battery_discharge_kw > 0`, a small extra cost term is added to
+      discourage unnecessary cycling when electricity is cheap.
 
 The episode terminates after the last slot for the day (`done=True`).
 

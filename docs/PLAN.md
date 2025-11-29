@@ -50,7 +50,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
         - Enable RL shadow mode in a dev/QA environment (config change only) and confirm `antares_plan_history` starts collecting RL-based shadow plans without affecting HA.
     - Document in `docs/PLAN.md` and `docs/ANTARES_MODEL_CONTRACT.md` which RL run/version is considered the current v1 baseline for Phase 4/5, and how to retrain/evaluate it.
 
-**Status:** Planned (next major Antares revision; first real RL agent and RL-driven shadow mode).
+**Status:** Completed (RL v1 agent scaffolded with PPO, RL runs logged to `antares_rl_runs`, models stored under `ml/models/antares_rl_v1/...`, evaluation script `ml/eval_antares_rl_cost.py` in place; latest RL baseline run is ~+8% cost vs MPC over recent tail days with Oracle as clear best, ready for further tuning in Rev 77+).
 
 ### Rev 75 — Antares Shadow Challenger v1 (Phase 4)
 
