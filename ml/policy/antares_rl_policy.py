@@ -26,7 +26,8 @@ class AntaresRLPolicyV1:
         model_path = Path(path) / "model.zip"
         if not model_path.exists():
             raise FileNotFoundError(f"RL model not found at {model_path}")
-        model = PPO.load(model_path.as_posix())
+        # Always load RL models on CPU to avoid CUDA issues on older GPUs.
+        model = PPO.load(model_path.as_posix(), device="cpu")
         return cls(model=model)
 
     def predict(self, state: np.ndarray) -> Dict[str, float]:
@@ -36,10 +37,17 @@ class AntaresRLPolicyV1:
                 "battery_discharge_kw": 0.0,
                 "export_kw": 0.0,
             }
+
+        # Sanitize input state to avoid NaNs propagating through the network.
         x = np.asarray(state, dtype=float).reshape(1, -1)
+        if not np.isfinite(x).all():
+            x = np.nan_to_num(x, nan=0.0, posinf=1e6, neginf=-1e6)
+
         action, _ = self.model.predict(x, deterministic=True)
         action = np.asarray(action, dtype=float).flatten()
-        if action.shape[0] < 3:
+
+        # If network outputs NaNs or infs, fall back to safe zeros.
+        if action.shape[0] < 3 or not np.isfinite(action).all():
             return {
                 "battery_charge_kw": 0.0,
                 "battery_discharge_kw": 0.0,
@@ -50,4 +58,3 @@ class AntaresRLPolicyV1:
             "battery_discharge_kw": float(action[1]),
             "export_kw": float(action[2]),
         }
-
