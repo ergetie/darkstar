@@ -176,3 +176,5 @@ This dataset is built by `ml/simulation/dataset.py::build_antares_training_datas
   - Exclude `"exclude"` days entirely from training.
 - Future phases may extend the schema, but the fields and contracts described here should remain stable for backward compatibility.
 
+For the Antares v1 model inputs/targets and training artifact contract, see
+`docs/ANTARES_MODEL_CONTRACT.md`.

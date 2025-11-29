@@ -9,6 +9,26 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `docs/CHANGELOG.md` and `docs/ANTARES_EPISODE_SCHEMA.md` for details.
 
+### Rev 69 — Antares v1 Training Pipeline (Phase 3)
+
+**Goal:** Train the first Antares v1 supervised model that imitates MPC’s per-slot decisions on validated `system_id="simulation"` data (battery + export focus) and establishes a baseline cost performance.
+
+**Scope / Design Decisions:**
+*   Targets: next-slot MPC control signals derived from simulation episodes (e.g. `battery_charge_kw`, `battery_discharge_kw`, and `export_kwh`), optionally extended later; `water_kwh` stays deterministic/context in v1.
+*   Inputs: features built on top of `ml.api.get_antares_slots(dataset_version="v1")`, including time (hour-of-day, day-of-week), prices, `load_kwh`, `pv_kwh`, SoC, and recent history; days with `status="mask_battery"` are used but battery targets are ignored/zero-weighted where `battery_masked=True`.
+*   Data split: use a time-based split over the July–now window (e.g. train on July–Oct `clean` + `mask_battery` days, validate on Nov+ `clean` + `mask_battery` days) with a fixed random seed and recorded date bounds so the dataset is reproducible.
+*   Model family: LightGBM (or equivalent gradient-boosted trees) as the only supported model type for Rev 69; RL and neural networks are explicitly deferred to later Antares revisions in Phase 3.
+*   Metrics: primary metrics are MAE/RMSE for each target plus cost-based evaluation on the validation slice by replaying predicted actions through the existing cost model (versus MPC baseline).
+
+**Implementation Steps:**
+1.  Define the exact feature/target contract for Antares v1 (Python dataclass or documented schema) based on `get_antares_slots("v1")`, including how `battery_masked` days are filtered or down-weighted per target.
+2.  Create an `antares_training_runs` table in SQLite (`data/planner_learning.db`) to log each training run with: `run_id`, timestamps, dataset_version, date range, target set, model type, hyperparameters, metrics (per-target + cost-based), and artifact paths; add an optional mirror to MariaDB later.
+3.  Extend `ml/train_antares.py` to: load the v1 dataset, apply the time-based train/validation split, build feature matrices/target vectors, train one LightGBM model per target (or a multi-output variant), and persist artifacts with versioned filenames (e.g. `models/antares_v1_<date>_<hash>.joblib`).
+4.  Add a lightweight CLI/entrypoint (kept within `ml/train_antares.py`) that prints a concise training summary (data sizes, metrics, cost comparison vs MPC on the validation window) and records a row in `antares_training_runs`.
+5.  Document the v1 model contract (inputs, targets, artifact naming, and where to load it from) in `docs/ANTARES_EPISODE_SCHEMA.md` or a new short `docs/ANTARES_MODEL_CONTRACT.md` so later Antares phases and tools can consume it without re-reading the training code.
+
+**Status:** Planned (next active Antares revision; ready for implementation when approved).
+
 **Verification Plan:**
 1.  Run `python -m bin.run_planner`: record training episodes for real scheduler runs.
 2.  Use the Planning Lab simulation: confirm no `training_episodes` rows appear.
