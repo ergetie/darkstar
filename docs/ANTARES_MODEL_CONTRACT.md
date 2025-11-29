@@ -138,3 +138,40 @@ actions.
   `artifact_dir` recorded in `antares_training_runs` rather than hard-coding
   paths.
 
+## 6. Antares Gym Environment (Rev 70)
+
+The Gym-style environment for simulation-based agents is implemented in
+`ml/simulation/env.py` as `AntaresMPCEnv`.
+
+- `reset(day)`:
+  - `day` is a local calendar day (`YYYY-MM-DD` string, `datetime.date`, or
+    `datetime`).
+  - Uses `SimulationDataLoader` to build planner inputs and initial state, then
+    runs the existing MPC planner to generate a full schedule for that day.
+  - Initializes an internal pointer to the first slot and returns the initial
+    state vector.
+- `step(action)`:
+  - Advances one slot along the MPC schedule and returns a `StepResult`:
+    - `next_state`: NumPy array with:
+      - hour-of-day
+      - load forecast (kWh)
+      - PV forecast (kWh)
+      - projected SoC (%)
+      - import price (SEK/kWh)
+      - export price (SEK/kWh)
+    - `reward`: scalar float, defined as negative net cost for the slot:
+      `-(import_cost - export_revenue + battery_wear_cost)`.
+    - `done`: `True` when the end of the day’s schedule is reached.
+    - `info`: dict with metadata (`day`, slot index, etc.).
+  - In Rev 70 the `action` argument is accepted but ignored; the environment
+    always replays the deterministic MPC decisions.
+
+Episodes:
+
+- One episode corresponds to one historical day in the validated window
+  (July–now), using the same data-quality gating as for simulation episodes.
+
+This environment is the canonical interface for future Antares agents and RL
+experiments; later revisions may extend the `action` handling to override MPC
+decisions while keeping the same state/reward contract.
+
