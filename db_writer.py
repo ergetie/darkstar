@@ -410,3 +410,93 @@ def write_schedule_to_db(
             )
 
     return len(mapped)
+
+
+def write_antares_shadow_to_mariadb(
+    shadow_payload: Dict[str, Any],
+    planner_version: str,
+    config: Dict[str, Any],
+    secrets: Dict[str, Any],
+) -> int:
+    """
+    Persist a single Antares shadow schedule into MariaDB antares_plan_history.
+
+    This is strictly read-only from a control perspective: it never affects
+    Home Assistant or the live schedule; it only records what Antares would
+    have done for later analysis.
+    """
+    if not shadow_payload:
+        return 0
+
+    if not secrets or not secrets.get("mariadb"):
+        return 0
+
+    tz_name = (config or {}).get("timezone", "Europe/Stockholm")
+
+    system_id = str(shadow_payload.get("system_id") or "prod_shadow_v1")
+    plan_date_str = str(shadow_payload.get("plan_date") or "")
+    episode_start_local_raw = shadow_payload.get("episode_start_local")
+    policy_run_id = shadow_payload.get("policy_run_id")
+
+    if not episode_start_local_raw:
+        return 0
+
+    episode_start_local = _localize_to_tz(episode_start_local_raw, tz_name).replace(tzinfo=None)
+    if not plan_date_str:
+        plan_date_str = episode_start_local.date().isoformat()
+
+    schedule = shadow_payload.get("schedule") or []
+    metrics = shadow_payload.get("metrics") or {}
+
+    payload = {
+        "schedule": schedule,
+        "metrics": metrics,
+    }
+
+    # JSON-encode schedule and metrics
+    shadow_schedule_json = json.dumps(schedule, ensure_ascii=False)
+    metrics_json = json.dumps(metrics, ensure_ascii=False)
+
+    with _connect_mysql(secrets) as conn:
+        with conn.cursor() as cur:
+            # Ensure antares_plan_history exists
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS antares_plan_history (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    system_id VARCHAR(64) NOT NULL,
+                    plan_date DATE NOT NULL,
+                    episode_start_local DATETIME NOT NULL,
+                    policy_run_id VARCHAR(64),
+                    planner_version VARCHAR(64),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    shadow_schedule_json LONGTEXT NOT NULL,
+                    metrics_json LONGTEXT
+                )
+                """
+            )
+
+            cur.execute(
+                """
+                INSERT INTO antares_plan_history (
+                    system_id,
+                    plan_date,
+                    episode_start_local,
+                    policy_run_id,
+                    planner_version,
+                    shadow_schedule_json,
+                    metrics_json
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    system_id,
+                    plan_date_str,
+                    episode_start_local,
+                    policy_run_id,
+                    planner_version,
+                    shadow_schedule_json,
+                    metrics_json,
+                ),
+            )
+
+    return 1

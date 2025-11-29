@@ -73,6 +73,39 @@ def main():
     else:
         print("[planner] Skipped DB write (automation.write_to_mariadb is false)")
 
+    # Optional Antares shadow-mode plan (Phase 4)
+    antares_cfg = config.get("antares", {}) or {}
+    enable_shadow = bool(antares_cfg.get("enable_shadow_mode", False))
+    if enable_shadow:
+        try:
+            from db_writer import write_antares_shadow_to_mariadb
+            from ml.policy.shadow_runner import run_shadow_for_schedule
+
+            shadow_payload = run_shadow_for_schedule(df)
+            if shadow_payload is None:
+                print("[planner] Antares shadow mode enabled but no policy; skipping shadow write")
+            else:
+                secrets = load_yaml("secrets.yaml")
+                planner_version = get_version_string()
+                rows = write_antares_shadow_to_mariadb(
+                    shadow_payload,
+                    planner_version,
+                    config,
+                    secrets,
+                )
+                if rows > 0:
+                    print(
+                        "[planner] Wrote Antares shadow plan to MariaDB "
+                        f"antares_plan_history (plan_date={shadow_payload.get('plan_date')})"
+                    )
+                else:
+                    print(
+                        "[planner] Antares shadow mode enabled but MariaDB write was skipped "
+                        "(missing or incomplete secrets)"
+                    )
+        except Exception as exc:
+            print(f"[planner] Warning: Failed to generate/write Antares shadow plan: {exc}")
+
     return 0
 
 
