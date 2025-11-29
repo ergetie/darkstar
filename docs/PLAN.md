@@ -9,6 +9,25 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 No active Antares Phase 2 revisions. Phase 2 (Rev 64–68) is completed; see `docs/CHANGELOG.md` and `docs/ANTARES_EPISODE_SCHEMA.md` for details.
 
+### Rev 70 — Antares Gym Environment & Cost Reward (Phase 3)
+
+**Goal:** Provide a stable Gym-style environment around the existing deterministic simulator and cost model so any future Antares agent (supervised or RL) can be trained and evaluated offline on historical data.
+
+**Scope / Design Decisions:**
+*   Environment focus: wrap the existing Time Machine (`SimulationDataLoader` + MPC planner) and slot-level cost logic into a thin `AntaresMPCEnv` with `reset(day)` / `step(action)` that replays historical days.
+*   Reward definition: reuse the existing cost model semantics (import cost, export revenue, battery wear) to compute per-slot reward `R_t = -(cost_t - revenue_t + wear_t)` in local currency.
+*   Action space (Rev 70): keep `action` as a no-op placeholder (environment follows MPC actions only), but define the hook where future revisions can inject action overrides before computing reward.
+*   State vector: expose a simple, documented state vector per slot including time-of-day, prices, SoC, and basic load/PV context, derived from schedule/slot data.
+*   Episodes: one environment episode corresponds to one historical day; we use the same date window and data-quality gating as the simulation episodes (`system_id="simulation"`, `data_quality_daily`).
+
+**Implementation Steps:**
+1.  Finalize `ml/simulation/env.py::AntaresMPCEnv` so that `reset(day)` builds planner inputs via `SimulationDataLoader`, generates an MPC schedule for that day, and initializes an internal pointer over the schedule slots (with timezone-safe timestamps and basic time features).
+2.  Implement `_compute_reward` in `AntaresMPCEnv` based on slot-level cost (grid import, export, battery wear) using existing planner economics from config, and wire `step(action)` to advance one slot, return `(next_state, reward, done, info)` and ignore `action` for now.
+3.  Document the environment contract (state vector fields, reward semantics, episode definition, and future `action` hook) in `docs/ANTARES_MODEL_CONTRACT.md` or a short new subsection so later Antares revisions can rely on it without re-reading the code.
+4.  Add a small debug CLI helper (e.g. `debug/run_antares_env_episode.py`) that runs through a sample day, prints a few `(time, reward)` lines, and confirms the environment is deterministic and stable for a fixed day across runs.
+
+**Status:** Planned (next active Antares revision; ready for implementation when approved).
+
 ### Rev 69 — Antares v1 Training Pipeline (Phase 3)
 
 **Goal:** Train the first Antares v1 supervised model that imitates MPC’s per-slot decisions on validated `system_id="simulation"` data (battery + export focus) and establishes a baseline cost performance.
