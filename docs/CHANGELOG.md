@@ -4,7 +4,16 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ---
 
-## Phase 4: Strategy Engine & Aurora v2 (The Agent)
+## Phase 5: Antares Phase 1–2 (Data & Simulation)
+
+### Rev 68 — Antares Phase 2b: Simulation Episodes & Gym Interface
+*   **Summary:** Turned the validated historical replay engine into a clean simulation episode dataset (`system_id="simulation"`) and a thin environment interface for Antares, plus a stable v1 training dataset API.
+*   **Details:**
+    *   Ran `bin/run_simulation.py` over the July–now window, gated by `data_quality_daily`, to generate and log ~14k simulation episodes into SQLite `training_episodes` and MariaDB `antares_learning` with `system_id="simulation"`, `episode_start_local`, `episode_date`, and `data_quality_status`.
+    *   Added `ml/simulation/env.py` (`AntaresMPCEnv`) to replay MPC schedules as a simple Gym-style environment with `reset(day)` / `step(action)`.
+    *   Defined `docs/ANTARES_EPISODE_SCHEMA.md` as the canonical episode + slot schema and implemented `ml/simulation/dataset.py` to build a battery-masked slot-level training dataset.
+    *   Exposed a stable dataset API via `ml.api.get_antares_slots(dataset_version="v1")` and added `ml/train_antares.py` as the canonical training entrypoint (currently schema/stats only).
+*   **Status:** ✅ Completed (2025-11-29)
 
 ### Rev 67 — Antares Data Foundation: Live Telemetry & Backfill Verification (Phase 2.5)
 *   **Summary:** Hardened the historical data window (July 2025 → present) so `slot_observations` in `planner_learning.db` is a HA-aligned, 15-minute, timezone-correct ground truth suitable for replay and Antares training, and added explicit data-quality labels and mirroring tools.
@@ -15,6 +24,32 @@ This document contains the archive of all completed revisions. It serves as the 
     *   Ensured `backend.recorder` runs as an independent 15-minute loop in dev and server so future live telemetry is always captured at slot resolution, decoupled from planner cadence.
     *   Implemented `debug/mirror_simulation_episodes_to_mariadb.py` so simulation episodes (`system_id="simulation"`) logged in SQLite can be reliably mirrored into MariaDB `antares_learning` after DB outages.
 *   **Status:** ✅ Completed (2025-11-28)
+
+### Rev 66 — Antares Phase 2: The Time Machine (Simulator)
+*   **Summary:** Built the historical replay engine that runs the planner across past days to generate training episodes, using HA history (LTS + raw) and Nordpool prices to reconstruct planner-ready state.
+*   **Details:**
+    *   Added `ml/simulation/ha_client.py` to fetch HA Long Term Statistics (hourly) for load/PV and support upsampling to 15-minute slots.
+    *   Implemented `ml/simulation/data_loader.py` to orchestrate price/sensor loading, resolution alignment, and initial state reconstruction for simulation windows.
+    *   Implemented `bin/run_simulation.py` to step through historical windows, build inputs, call `HeliosPlanner.generate_schedule(record_training_episode=True)`, and surface per-slot debug logs.
+*   **Status:** ✅ Completed (2025-11-28)
+
+### Rev 65 — Antares Phase 1b: The Data Mirror
+*   **Summary:** Enabled dual-write of training episodes to a central MariaDB `antares_learning` table, so dev and prod systems share a unified episode lake.
+*   **Details:**
+    *   Added `system.system_id` to `config.yaml` and wired it into `LearningEngine.log_training_episode` / `_mirror_episode_to_mariadb`.
+    *   Created the `antares_learning` schema in MariaDB to mirror `training_episodes` plus `system_id`.
+    *   Ensured MariaDB outages do not affect planner runs by fully isolating mirror errors.
+*   **Status:** ✅ Completed (2025-11-17)
+
+### Rev 64 — Antares Phase 1: Unified Data Collection (The Black Box)
+*   **Summary:** Introduced the `training_episodes` table and logging helper so planner runs can be captured as consistent episodes (inputs + context + schedule) for both live and simulated data.
+*   **Details:**
+    *   Added `training_episodes` schema in SQLite and `LearningEngine.log_training_episode` to serialize planner inputs/context/schedule.
+    *   Wired `record_training_episode=True` into scheduler and CLI entrypoints while keeping web UI simulations clean.
+    *   Updated cumulative ETL gap handling and tests to ensure recorded episodes are based on accurate slot-level data.
+*   **Status:** ✅ Completed (2025-11-16)
+
+## Phase 4: Strategy Engine & Aurora v2 (The Agent)
 
 ### Rev 62 — Export Safety & Aurora Agent
 *   **Summary:** Decoupled battery export from `strategic_charging.target_soc_percent` and removed the non-decreasing responsibility gate so export can occur whenever price is profitable and SoC is above the protective export floor.
