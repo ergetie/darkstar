@@ -273,3 +273,144 @@ policies.
 These additions keep all policy experimentation strictly offline while providing
 clear SEK-based benchmarks for how Antares policies perform relative to MPC
 and the Oracle on historical data.
+
+## 6. Antares RL Agent v1 (Rev 76 / Phase 4–5)
+
+Rev 76 introduces the first real RL-based Antares policy on top of the same
+environment and cost model. This section freezes the RL-facing contract so the
+agent, shadow mode, and evaluators all agree on state, action, and reward.
+
+### 6.1 RL State Vector (v1)
+
+The Antares RL agent uses the same core information as `AntaresMPCEnv`, encoded
+into a fixed-length numeric state vector `s_t` per slot:
+
+- Time context:
+  - `hour_of_day` (0–23, local time).
+- Forecast context (for the slot being controlled):
+  - `load_forecast_kwh`
+  - `pv_forecast_kwh`
+- Battery context:
+  - `projected_soc_percent` (0–100), MPC’s projected SoC at the end of slot.
+- Price context:
+  - `import_price_sek_kwh`
+  - `export_price_sek_kwh` (falls back to import price if missing).
+
+The RL state layout for v1 is therefore:
+
+```text
+[hour_of_day,
+ load_forecast_kwh,
+ pv_forecast_kwh,
+ projected_soc_percent,
+ import_price_sek_kwh,
+ export_price_sek_kwh]
+```
+
+Future revisions may append additional features (e.g. day-of-week, month,
+weather), but those changes must be versioned (e.g. `rl_state_version=2`).
+
+### 6.2 RL Action Space (v1)
+
+The RL agent outputs a continuous action vector `a_t`:
+
+- `battery_charge_kw`  (≥ 0)
+- `battery_discharge_kw` (≥ 0)
+- `export_kw` (≥ 0, kW of export)
+
+These map directly to the override keys already used by `AntaresMPCEnv.step` and
+the supervised policy:
+
+- `battery_charge_kw`: requested charge power into the battery.
+- `battery_discharge_kw`: requested discharge power from the battery.
+- `export_kw`: requested export power to the grid (kW, 15-min slots => kWh = kW/4).
+
+Actions are always clamped server-side before use:
+
+- Per-slot power limits from battery config:
+  - `max_charge_power_kw`
+  - `max_discharge_power_kw`
+- Export limit from inverter/grid config:
+  - `max_export_power_kw = min(system.grid.max_power_kw, system.inverter.max_power_kw)`
+- Mutual exclusivity:
+  - If both charge and discharge are requested > 0, discharge is preferred and the
+    smaller magnitude is zeroed.
+
+These clamps are applied inside the environment / shadow runner and are not
+optional for the RL policy.
+
+### 6.3 RL Reward and Episodes
+
+Episodes are one full historical or simulated day (96 slots):
+
+- `reset()` selects a day from the `clean` / `mask_battery` window and replays
+  the MPC schedule through `AntaresMPCEnv` to obtain prices, forecasts, and
+  baseline context.
+- `step(action)` applies the RL action (after clamping) and computes a reward
+  based on the same cost model as the supervised evaluation:
+
+Per-slot quantities:
+
+- `grid_import_kwh` computed from forecast load/PV/water and battery flows.
+- `import_price_sek_kwh`, `export_price_sek_kwh`.
+- `export_kwh` (from action).
+- `charge_kwh`, `discharge_kwh` (from action).
+
+Reward:
+
+```text
+r_t = - (import_cost_sek - export_revenue_sek + wear_cost_sek + penalties_t)
+```
+
+Where:
+
+- `import_cost_sek = grid_import_kwh * import_price_sek_kwh`
+- `export_revenue_sek = export_kwh * export_price_sek_kwh`
+- `wear_cost_sek` uses the existing `battery_economics.battery_cycle_cost_kwh`
+  and `(charge_kwh + discharge_kwh)`.
+- `penalties_t` includes:
+  - SoC breaches (projected SoC below `min_soc_percent`).
+  - Unmet water-heating demand where water is modeled (same signal as in
+    `_evaluate_schedule`).
+
+The episode terminates after the last slot for the day (`done=True`).
+
+### 6.4 RL Artefacts and Runs
+
+RL runs are logged in a dedicated SQLite table `antares_rl_runs`:
+
+- `run_id` (TEXT, PRIMARY KEY): UUIDv4 for the RL run.
+- `created_at` (TEXT): UTC timestamp.
+- `algo` (TEXT): e.g. `ppo`, `sac`.
+- `state_version` (TEXT): e.g. `rl_state_v1`.
+- `action_version` (TEXT): e.g. `rl_action_v1`.
+- `train_start_date` / `train_end_date` (TEXT): training window.
+- `val_start_date` / `val_end_date` (TEXT, nullable): validation window.
+- `hyperparams_json` (TEXT): RL hyperparameters.
+- `metrics_json` (TEXT): training/validation reward and cost metrics.
+- `artifact_dir` (TEXT): path under `ml/models/antares_rl_v1/...`.
+
+RL model files are stored under:
+
+- Base directory: `ml/models/antares_rl_v1/`
+- Per-run directory:
+  - `ml/models/antares_rl_v1/antares_rl_v1_<UTC_TIMESTAMP>_<RUN_ID_PREFIX>/`
+- Contents:
+  - RL library checkpoint (e.g. Stable-Baselines3 `.zip` file).
+  - Any normalisation / scaler parameters needed for inference.
+
+### 6.5 RL Policy in Shadow Mode
+
+In Phase 4–5 the RL policy is only used in **shadow mode**:
+
+- Backend planner hook builds the normal MPC schedule and then, if
+  `antares.enable_shadow_mode` is true, runs a configured Antares policy type:
+  - `shadow_policy_type: lightgbm` (existing supervised policy).
+  - `shadow_policy_type: rl` (new RL policy).
+- The RL policy wrapper exposes `.predict(state)` with the contract above and
+shadow schedules are written to `antares_plan_history` with:
+  - `system_id` suffix like `prod_shadow_rl_v1`.
+  - `policy_run_id` from `antares_rl_runs`.
+
+Shadow schedules never affect Home Assistant; they are purely for evaluation
+and comparison against MPC and Oracle on real production days.

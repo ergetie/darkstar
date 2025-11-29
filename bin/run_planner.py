@@ -81,7 +81,11 @@ def main():
             from db_writer import write_antares_shadow_to_mariadb
             from ml.policy.shadow_runner import run_shadow_for_schedule
 
-            shadow_payload = run_shadow_for_schedule(df)
+            policy_type = str(antares_cfg.get("shadow_policy_type", "lightgbm")).lower()
+            if policy_type not in {"lightgbm", "rl"}:
+                policy_type = "lightgbm"
+
+            shadow_payload = run_shadow_for_schedule(df, policy_type=policy_type)
             if shadow_payload is None:
                 print("[planner] Antares shadow mode enabled but no policy; skipping shadow write")
             else:

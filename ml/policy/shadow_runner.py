@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -9,16 +8,18 @@ import pandas as pd
 
 from learning import LearningEngine, get_learning_engine
 from ml.policy.antares_policy import AntaresPolicyV1
+from ml.policy.antares_rl_policy import AntaresRLPolicyV1
 
 
 @dataclass
 class PolicyRunInfo:
     run_id: str
     models_dir: str
+    kind: str  # 'supervised' or 'rl'
 
 
-def _load_latest_policy_run(engine: LearningEngine) -> Optional[PolicyRunInfo]:
-    """Load the most recent Antares policy run metadata from SQLite."""
+def _load_latest_supervised_run(engine: LearningEngine) -> Optional[PolicyRunInfo]:
+    """Load the most recent supervised (LightGBM) policy run metadata from SQLite."""
     import sqlite3
 
     try:
@@ -36,7 +37,29 @@ def _load_latest_policy_run(engine: LearningEngine) -> Optional[PolicyRunInfo]:
 
     if row is None:
         return None
-    return PolicyRunInfo(run_id=str(row[0]), models_dir=str(row[1]))
+    return PolicyRunInfo(run_id=str(row[0]), models_dir=str(row[1]), kind="supervised")
+
+
+def _load_latest_rl_run(engine: LearningEngine) -> Optional[PolicyRunInfo]:
+    """Load the most recent RL policy run metadata from SQLite."""
+    import sqlite3
+
+    try:
+        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+            row = conn.execute(
+                """
+                SELECT run_id, artifact_dir
+                FROM antares_rl_runs
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            ).fetchone()
+    except sqlite3.Error:
+        row = None
+
+    if row is None:
+        return None
+    return PolicyRunInfo(run_id=str(row[0]), models_dir=str(row[1]), kind="rl")
 
 
 def _build_state_from_row(row: pd.Series, *, hour_of_day: int) -> np.ndarray:
@@ -93,7 +116,7 @@ def _apply_action_clamps(
 
 def _build_shadow_schedule_df(
     schedule_df: pd.DataFrame,
-    policy: AntaresPolicyV1,
+    policy: Any,
     engine: LearningEngine,
 ) -> pd.DataFrame:
     """Return a copy of the schedule with Antares actions applied."""
@@ -158,7 +181,8 @@ def _build_shadow_schedule_df(
 def run_shadow_for_schedule(
     schedule_df: pd.DataFrame,
     *,
-    system_suffix: str = "shadow_v1",
+    policy_type: str = "lightgbm",
+    system_suffix: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Build an Antares shadow schedule payload for the given planner schedule.
@@ -174,12 +198,20 @@ def run_shadow_for_schedule(
         Or None if no policy is available.
     """
     engine = get_learning_engine()
-    run = _load_latest_policy_run(engine)
-    if run is None:
-        print("[shadow] No entries in antares_policy_runs; skipping shadow plan.")
-        return None
-
-    policy = AntaresPolicyV1.load_from_dir(run.models_dir)
+    if policy_type == "rl":
+        run = _load_latest_rl_run(engine)
+        if run is None:
+            print("[shadow] No entries in antares_rl_runs; skipping RL shadow plan.")
+            return None
+        policy = AntaresRLPolicyV1.load_from_dir(run.models_dir)
+        effective_suffix = system_suffix or "shadow_rl_v1"
+    else:
+        run = _load_latest_supervised_run(engine)
+        if run is None:
+            print("[shadow] No entries in antares_policy_runs; skipping shadow plan.")
+            return None
+        policy = AntaresPolicyV1.load_from_dir(run.models_dir)
+        effective_suffix = system_suffix or "shadow_v1"
 
     shadow_df = _build_shadow_schedule_df(schedule_df, policy, engine)
     if shadow_df.empty:
@@ -198,7 +230,7 @@ def run_shadow_for_schedule(
     episode_start_local = first_ts.replace(microsecond=0).isoformat()
 
     base_system_id = str(engine.config.get("system", {}).get("system_id", "prod"))
-    system_id = f"{base_system_id}_{system_suffix}"
+    system_id = f"{base_system_id}_{effective_suffix}"
 
     schedule_records = shadow_df.to_dict(orient="records")
     metrics = {
@@ -214,4 +246,3 @@ def run_shadow_for_schedule(
         "metrics": metrics,
     }
     return payload
-
