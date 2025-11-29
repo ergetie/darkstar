@@ -147,17 +147,24 @@ def main() -> int:
     print(f"[plot-day] Solving Oracle schedule for {day}...")
     oracle_df = _build_oracle_schedule(day)
 
-    # Align x-axis across all
-    xmin = min(
-        mpc_df["start_time"].min(),
-        rl_df["start_time"].min(),
-        oracle_df["start_time"].min(),
-    )
-    xmax = max(
-        mpc_df["start_time"].max(),
-        rl_df["start_time"].max(),
-        oracle_df["start_time"].max(),
-    )
+    # Restrict all schedules to the calendar day window [day 00:00, day+1 00:00)
+    day_ts = pd.Timestamp(day)
+    tz = mpc_df["start_time"].dt.tz if mpc_df["start_time"].dt.tz is not None else None
+    if tz is not None:
+        day_start = day_ts.tz_localize(tz)
+    else:
+        day_start = day_ts
+    day_end = day_start + pd.Timedelta(days=1)
+
+    mpc_df = mpc_df[(mpc_df["start_time"] >= day_start) & (mpc_df["start_time"] < day_end)].copy()
+    rl_df = rl_df[(rl_df["start_time"] >= day_start) & (rl_df["start_time"] < day_end)].copy()
+    oracle_df = oracle_df[
+        (oracle_df["start_time"] >= day_start) & (oracle_df["start_time"] < day_end)
+    ].copy()
+
+    # Align x-axis across all (same 24h window)
+    xmin = day_start
+    xmax = day_end
 
     # Common y-limits
     all_price = pd.concat(
@@ -198,51 +205,57 @@ def main() -> int:
     # Panel 1: MPC
     ax = axes[0]
     ax.set_title("MPC")
-    ax.plot(mpc_df["start_time"], mpc_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
-    ax2 = ax.twinx()
-    ax2.plot(mpc_df["start_time"], mpc_df["net_battery_kw"], label="Net Batt kW", color="tab:green")
+    # Left axis: net battery kW + export kW (center 0); Right axis: SoC % and price
+    ax1 = ax
+    ax2 = ax1.twinx()
+    ax1.plot(mpc_df["start_time"], mpc_df["net_battery_kw"], label="Net Batt kW", color="tab:green")
+    ax1.plot(mpc_df["start_time"], mpc_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(mpc_df["start_time"], mpc_df["soc_percent"], label="SoC %", color="tab:orange")
-    ax2.plot(mpc_df["start_time"], mpc_df["export_kw"], label="Export kW", color="tab:red")
-    ax.set_ylabel("Price")
-    ax2.set_ylabel("kW / SoC %")
-    ax.set_ylim(price_min, price_max * 1.1)
-    ax2.set_ylim(min(pb_min, 0) * 1.1, max(pb_max, soc_max) * 1.1)
+    ax2.plot(mpc_df["start_time"], mpc_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
+    ax1.set_ylabel("kW")
+    ax2.set_ylabel("SoC % / Price")
+    # Center 0 for net battery kW
+    max_abs_kw = max(abs(pb_min), abs(pb_max), 1.0)
+    ax1.set_ylim(-max_abs_kw * 1.1, max_abs_kw * 1.1)
+    ax2.set_ylim(soc_min * 0.9, soc_max * 1.1)
 
     # Panel 2: RL
     ax = axes[1]
     ax.set_title(f"RL (run {rl_run['run_id'][:8]})")
-    ax.plot(rl_df["start_time"], rl_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
-    ax2 = ax.twinx()
-    ax2.plot(rl_df["start_time"], rl_df["rl_net_battery_kw"], label="Net Batt kW", color="tab:green")
+    ax1 = ax
+    ax2 = ax1.twinx()
+    ax1.plot(rl_df["start_time"], rl_df["rl_net_battery_kw"], label="Net Batt kW", color="tab:green")
+    ax1.plot(rl_df["start_time"], rl_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(rl_df["start_time"], rl_df["rl_soc_percent"], label="SoC %", color="tab:orange")
-    ax2.plot(rl_df["start_time"], rl_df["export_kw"], label="Export kW", color="tab:red")
-    ax.set_ylabel("Price")
-    ax2.set_ylabel("kW / SoC %")
-    ax.set_ylim(price_min, price_max * 1.1)
-    ax2.set_ylim(min(pb_min, 0) * 1.1, max(pb_max, soc_max) * 1.1)
+    ax2.plot(rl_df["start_time"], rl_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
+    ax1.set_ylabel("kW")
+    ax2.set_ylabel("SoC % / Price")
+    ax1.set_ylim(-max_abs_kw * 1.1, max_abs_kw * 1.1)
+    ax2.set_ylim(soc_min * 0.9, soc_max * 1.1)
 
     # Panel 3: Oracle
     ax = axes[2]
     ax.set_title("Oracle")
-    ax.plot(oracle_df["start_time"], oracle_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
-    ax2 = ax.twinx()
-    ax2.plot(
+    ax1 = ax
+    ax2 = ax1.twinx()
+    ax1.plot(
         oracle_df["start_time"],
         oracle_df["oracle_net_battery_kw"],
         label="Net Batt kW",
         color="tab:green",
     )
+    ax1.plot(oracle_df["start_time"], oracle_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(
         oracle_df["start_time"],
         oracle_df["oracle_soc_percent"],
         label="SoC %",
         color="tab:orange",
     )
-    ax2.plot(oracle_df["start_time"], oracle_df["export_kw"], label="Export kW", color="tab:red")
-    ax.set_ylabel("Price")
-    ax2.set_ylabel("kW / SoC %")
-    ax.set_ylim(price_min, price_max * 1.1)
-    ax2.set_ylim(min(pb_min, 0) * 1.1, max(pb_max, soc_max) * 1.1)
+    ax2.plot(oracle_df["start_time"], oracle_df["import_price"], label="Price (SEK/kWh)", color="tab:blue")
+    ax1.set_ylabel("kW")
+    ax2.set_ylabel("SoC % / Price")
+    ax1.set_ylim(-max_abs_kw * 1.1, max_abs_kw * 1.1)
+    ax2.set_ylim(soc_min * 0.9, soc_max * 1.1)
 
     axes[-1].set_xlim(xmin, xmax)
     axes[-1].set_xlabel("Time")
@@ -276,4 +289,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
