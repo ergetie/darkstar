@@ -90,10 +90,10 @@ from inputs import get_all_input_data
 - **Planning**: Before implementing, ensure the revision is active in `PLAN.md`.
 - **History / Archival**:
   - A revision may be moved from `PLAN.md` to `CHANGELOG.md` **only** when:
-    - The relevant project phase (e.g. an Antares phase) is fully completed and validated, and
+    - The relevant project phase is fully completed and validated, and
     - The Product Owner has explicitly confirmed that the revision is ready to be archived.
   - Once moved, the revision should live in **one place only** (the changelog), not duplicated in `PLAN.md` (a short pointer is fine if needed).
-  - While an Antares phase is active, keep its revisions in `PLAN.md` for context; do not archive them without prior confirmation.
+  - While a project phase is active, keep its revisions in `PLAN.md` for context; do not archive them without prior confirmation.
 
 ### Git & Data Hygiene
 - Treat `config.yaml` as environment-specific. Do **not** commit server-only edits; keep long-lived defaults in `config.default.yaml` and copy/merge locally.
