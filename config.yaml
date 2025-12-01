@@ -3,6 +3,10 @@ advisor:
   enable_llm: true
   model: gpt-5-nano
   personality: friendly
+kepler:
+  enabled: true
+  shadow_mode: true
+  primary_planner: true
 appliances:
   dishwasher:
     duration_hours: 1.0
@@ -125,13 +129,13 @@ smoothing:
   min_on_slots_discharge: 2
   min_on_slots_export: 2
 strategic_charging:
-  carry_forward_tolerance_ratio: 0.1
-  price_threshold_sek: 0.9
-  target_soc_percent: 95
+  carry_forward_tolerance_ratio: 0.05
+  price_threshold_sek: 0.85
+  target_soc_percent: 80
 system:
   system_id: dev
   grid:
-    max_power_kw: 11
+    max_power_kw: 8
   inverter:
     max_power_kw: 10.0
   location:

@@ -1,0 +1,21 @@
+🧠 Running AURORA ML Inference Pipeline (base + correction)...
+🔮 Generating AURORA Forecast: 2025-11-30 23:45:00+01:00 -> 2025-12-07 23:45:00+01:00 (168h)
+   Fetching weather data...
+   Running LightGBM inference...
+✅ Stored 672 forward AURORA forecasts (aurora).
+Info: Using AURORA forecasts from learning DB (aurora).
+DEBUG: planner.py initial_soc_kwh passed to Kepler: 14.706000000000001
+🔭 Kepler Primary: Solving...
+DEBUG: KeplerSolver config: max_import=8.0, max_charge=8.0, max_discharge=8.0
+DEBUG: KeplerSolver input: initial_soc_kwh=14.706000000000001
+DEBUG: soc[0] (start) = 14.706
+DEBUG: soc[1] (end) = 14.706
+DEBUG: charge[0] = 0.0
+DEBUG: discharge[0] = 0.0
+🔭 Kepler Primary: Optimal. Cost: 130.26 SEK
+DEBUG: Consolidated Charge Block 12-12: setting target to 46.329321637426894
+DEBUG: Consolidated Charge Block 20-27: setting target to 74.96500292397661
+DEBUG: Consolidated Charge Block 94-107: setting target to 93.7321812865497
+DEBUG: Consolidated Charge Block 112-114: setting target to 100.0
+[preservation] Loaded 92 past slots from database
+Successfully generated and saved schedule to schedule.json

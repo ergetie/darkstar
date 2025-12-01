@@ -904,6 +904,174 @@ class HeliosPlanner:
         available = min(inverter_max, grid_max, battery_max) - water_kw - net_load_kw
         return max(0.0, available)
 
+    def run_kepler_shadow(self, df: pd.DataFrame, input_data: Dict[str, Any]) -> None:
+        """
+        Run the Kepler MILP solver in shadow mode (if enabled) and log the result.
+        This does not affect the actual schedule returned by the planner.
+        """
+        kepler_cfg = self.config.get("kepler", {})
+        if not kepler_cfg.get("enabled", False) or not kepler_cfg.get("shadow_mode", False):
+            return
+
+        try:
+            from backend.kepler.solver import KeplerSolver
+            from backend.kepler.adapter import (
+                planner_to_kepler_input, 
+                config_to_kepler_config, 
+                kepler_result_to_dataframe
+            )
+        except ImportError as e:
+            print(f"Warning: Kepler dependencies missing, skipping shadow run: {e}")
+            return
+
+        try:
+            # Prepare inputs
+            # Use the initial state from input_data for SoC
+            initial_soc_kwh = float(input_data.get("initial_state", {}).get("battery_kwh", 0.0))
+            
+            k_input = planner_to_kepler_input(df, initial_soc_kwh)
+            k_config = config_to_kepler_config(self.config)
+            
+            # Solve
+            solver = KeplerSolver()
+            result = solver.solve(k_input, k_config)
+            
+            # Log result
+            if result.is_optimal:
+                print(f"🔭 Kepler Shadow: Optimal schedule found. Cost: {result.total_cost_sek:.2f} SEK")
+                # TODO: Persist to DB if needed, for now just print
+            else:
+                print(f"🔭 Kepler Shadow: Solver failed: {result.status_msg}")
+                
+        except Exception as e:
+            print(f"Error running Kepler shadow mode: {e}")
+
+    def run_kepler_primary(self, input_data: Dict[str, Any]) -> pd.DataFrame:
+        """
+        Run Kepler as the primary planner.
+        """
+        try:
+            try:
+                from backend.kepler.solver import KeplerSolver
+                from backend.kepler.adapter import (
+                    planner_to_kepler_input, 
+                    config_to_kepler_config, 
+                    kepler_result_to_dataframe
+                )
+            except ImportError as e:
+                print(f"Critical: Kepler dependencies missing: {e}")
+                raise
+
+            # Prepare Data
+            # We need a base DataFrame for the adapter (timestamps, forecasts)
+            # We can reuse _prepare_data_frame but skip the passes
+            df = self._prepare_data_frame(input_data)
+            
+            # Populate metadata attributes required by _save_schedule_to_json
+            self.daily_pv_forecast = input_data.get("daily_pv_forecast", {})
+            self.daily_load_forecast = input_data.get("daily_load_forecast", {})
+            # Mock s_index_debug and _last_temperature_forecast to prevent API errors
+            self.s_index_debug = {"s_index": 0, "s_prime": 0, "components": {}}
+            self._last_temperature_forecast = input_data.get("weather_forecast", [])
+            
+            # Compute 'now' rounded up to next 15-minute slot in configured timezone
+            timezone_name = self.timezone or "Europe/Stockholm"
+            try:
+                self.now_slot = pd.Timestamp.now(tz=timezone_name).floor("15min")
+            except Exception:
+                self.now_slot = pd.Timestamp.now(tz="Europe/Stockholm").floor("15min")
+            
+            # Apply safety margins (Pass 0) - essential for robust planning
+            df = self._pass_0_apply_safety_margins(df)
+            
+            self.state = input_data.get("initial_state", {})
+            
+            # Identify windows (Pass 1) - needed for water heating logic
+            df = self._pass_1_identify_windows(df)
+            
+            # Schedule Water Heating (Pass 2) - Heuristic pass
+            # This populates 'water_heating_kw' which Kepler will treat as committed load
+            df = self._pass_2_schedule_water_heating(df)
+            
+            initial_soc_kwh = float(input_data.get("initial_state", {}).get("battery_kwh", 0.0))
+            
+            # SLICE: Only plan for the future (from now_slot onwards)
+            # This prevents "time travel" where we apply current SoC to midnight
+            future_mask = df.index >= self.now_slot
+            future_df = df.loc[future_mask].copy()
+            
+            if future_df.empty:
+                print("Warning: No future slots to plan. Returning original dataframe.")
+                return df
+
+            k_input = planner_to_kepler_input(future_df, initial_soc_kwh)
+            k_config = config_to_kepler_config(self.config)
+            
+            print(f"🔭 Kepler Primary: Solving for {len(future_df)} slots from {self.now_slot}...")
+            solver = KeplerSolver()
+            result = solver.solve(k_input, k_config)
+            
+            if not result.is_optimal:
+                print(f"🔭 Kepler Primary: Solver failed with status {result.status_msg}")
+            else:
+                print(f"🔭 Kepler Primary: Optimal. Cost: {result.total_cost_sek:.2f} SEK")
+
+            # Convert back to DataFrame (only covers future slots)
+            kepler_df = kepler_result_to_dataframe(result, capacity_kwh=k_config.capacity_kwh, initial_soc_kwh=initial_soc_kwh)
+            
+            # Merge back into the main DataFrame
+            # We update the future rows in 'df' with values from 'kepler_df'
+            # We must ensure columns exist in 'df' before updating
+            
+            # Columns that Kepler calculates and we want to update
+            kepler_cols = [
+                "battery_charge_kw", "battery_discharge_kw", 
+                "grid_import_kw", "grid_export_kw",
+                "import_kwh", "export_kwh",
+                "projected_soc_kwh", "projected_soc_percent",
+                "_entry_soc_percent", "action",
+                "kepler_charge_kwh", "kepler_discharge_kwh",
+                "kepler_import_kwh", "kepler_export_kwh",
+                "kepler_soc_kwh", "kepler_cost_sek",
+                # Missing columns required by UI/Debug payload
+                "water_from_pv_kwh", "water_from_battery_kwh", 
+                "water_from_grid_kwh", "projected_battery_cost"
+            ]
+            
+            # Initialize columns in main df if missing (with 0 or appropriate default)
+            for col in kepler_cols:
+                if col not in df.columns:
+                    df[col] = 0.0 if "action" not in col else "Hold"
+                    
+            # Update future rows
+            df.update(kepler_df)
+            
+            # For the return value, we want the full dataframe (history + future)
+            final_df = df
+            
+            # Calculate revenue/cost columns required by UI (for the whole day)
+            # Note: History rows might have 0s if not populated by actuals, but that's expected for now.
+            final_df["export_revenue"] = final_df["export_kwh"] * final_df["export_price_sek_kwh"]
+            final_df["import_cost"] = final_df["import_kwh"] * final_df["import_price_sek_kwh"]
+            
+            # Apply SoC Target Logic (Inverter Control Signal)
+            final_df = self._apply_soc_target_percent(final_df)
+            
+            return final_df
+
+        except Exception as e:
+            import traceback
+            error_msg = f"CRITICAL PLANNER ERROR: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            try:
+                with open("/tmp/darkstar_planner.log", "a") as logf:
+                    logf.write(f"{datetime.now()} - {error_msg}\n")
+            except:
+                pass
+            raise
+
+
+
     def generate_schedule(
         self,
         input_data: Dict[str, Any],
@@ -931,9 +1099,15 @@ class HeliosPlanner:
             self._apply_overrides(overrides)
             self._log_strategy_decision(overrides)
 
+        # Check for Kepler Primary Mode
+        if self.config.get("kepler", {}).get("primary_planner", False):
+            df = self.run_kepler_primary(input_data)
+            if save_to_file:
+                self._save_schedule_to_json(df)
+            return df
+
         df = self._prepare_data_frame(input_data)
         self.state = input_data["initial_state"]
-        max_soc_percent = self.battery_config.get("max_soc_percent")
         current_soc = self.state.get("battery_soc_percent")
         try:
             if (
@@ -965,9 +1139,9 @@ class HeliosPlanner:
                 now_slot = override_ts.ceil("15min")
         if now_slot is None:
             try:
-                now_slot = pd.Timestamp.now(tz=timezone_name).ceil("15min")
+                now_slot = pd.Timestamp.now(tz=timezone_name).floor("15min")
             except Exception:
-                now_slot = pd.Timestamp.now(tz="Europe/Stockholm").ceil("15min")
+                now_slot = pd.Timestamp.now(tz="Europe/Stockholm").floor("15min")
         # Expose the effective planning 'now' for downstream consumers.
         self.now_slot = now_slot
         df = self._pass_0_apply_safety_margins(df)
@@ -983,6 +1157,13 @@ class HeliosPlanner:
         df = self._apply_soc_target_percent(df)
         if save_to_file:
             self._save_schedule_to_json(df)
+
+        # Run Kepler Shadow Mode (after main planner, so we have the full context if needed)
+        # Note: We pass the *final* df to Kepler? No, Kepler needs the *inputs*.
+        # But 'df' at this point has been modified by passes.
+        # However, the adapter looks for 'load_forecast_kwh'/'adjusted_load_kwh' which are preserved.
+        # So passing 'df' is fine.
+        self.run_kepler_shadow(df, input_data)
 
         if record_training_episode and self._learning_enabled():
             try:
@@ -2837,30 +3018,74 @@ class HeliosPlanner:
                 targets[i] = min_soc_percent
 
         # Apply block-level adjustments for charge and export
-        i = start_idx
-        while i < len(df):
-            if actions[i] == "Charge":
-                start = i
-                manual_block = manual_actions[i] == "charge"
-                while i + 1 < len(df) and actions[i + 1] == "Charge":
-                    i += 1
-                    if manual_actions[i] == "charge":
-                        manual_block = True
-                end = i
+                i += 1
+            else:
+                # Check if this is a small gap between charge blocks
+                # If next slot is Charge, and gap is small (e.g. 1 slot), treat as part of block?
+                # But the loop structure handles contiguous blocks.
+                # To consolidate, we need to look ahead before processing the block.
+                # Let's rewrite the loop to find ALL charge indices first, then group them.
+                i += 1
+
+        # Refactored Charge Block Logic with Consolidation
+        charge_indices = [idx for idx, a in enumerate(actions) if a == "Charge"]
+        if charge_indices:
+            # Group indices into blocks allowing for gaps
+            blocks = []
+            if not charge_indices:
+                pass
+            else:
+                current_block = [charge_indices[0]]
+                for idx in charge_indices[1:]:
+                    if idx <= current_block[-1] + 2: # Allow 1 slot gap
+                        # Fill the gap indices as well if we want to bridge them
+                        # But we only want to set targets for the Charge slots (and maybe the gap?)
+                        # User wants "All of the ones close to each other should have the same soc_target"
+                        # If we bridge, we should probably set the gap target too?
+                        # But gap action is Hold/Discharge.
+                        # Setting target high for Hold is fine (it will just hold).
+                        # Setting target high for Discharge might stop discharge?
+                        # But if it's a 1-slot gap, maybe we shouldn't discharge?
+                        # Let's just group the Charge slots for target calculation purposes.
+                        current_block.append(idx)
+                    else:
+                        blocks.append(current_block)
+                        current_block = [idx]
+                blocks.append(current_block)
+
+            for block in blocks:
+                if not block:
+                    continue
+                start = block[0]
+                end = block[-1]
+                
+                # Determine target from the END of the consolidated block
                 block_target = projected[end]
                 if block_target is None:
                     block_target = projected[start]
                 if block_target is None and entry_list[start] is not None:
                     block_target = entry_list[start]
+                
                 block_value = float(block_target) if block_target is not None else targets[start]
                 block_value = max(min_soc_percent, min(max_soc_percent, block_value))
+                
+                # Check for manual constraints in the block
+                manual_block = any(manual_actions[k] == "charge" for k in block)
                 if manual_block:
-                    block_value = min(block_value, manual_charge_target_percent)
+                     block_value = min(block_value, manual_charge_target_percent)
+
+                # Apply to all slots in the range [start, end], including gaps
                 for j in range(start, end + 1):
+                    # Only apply if action is Charge or Hold (don't override Discharge?)
+                    # Actually, if we are bridging, we probably want to override Discharge too if it's a small gap?
+                    # But if Kepler planned Discharge, we shouldn't force Charge target?
+                    # But soc_target is for the inverter.
+                    # If we set high target, inverter will charge from grid if PV insufficient.
+                    # If Kepler planned Discharge, it means it wants to export or cover load.
+                    # If we set high target, we prevent discharge.
+                    # User wants "same soc_target".
+                    # So we apply to all.
                     targets[j] = block_value
-                i += 1
-            else:
-                i += 1
 
         i = start_idx
         while i < len(df):
@@ -2930,7 +3155,9 @@ class HeliosPlanner:
             schedule_df (pd.DataFrame): The final schedule DataFrame
         """
         # Generate new future schedule
-        new_future_records = dataframe_to_json_response(schedule_df)
+        # Use self.now_slot if available to ensure we include the current slot
+        now_ref = getattr(self, "now_slot", None)
+        new_future_records = dataframe_to_json_response(schedule_df, now_override=now_ref)
 
         # Add is_historical: false to new slots
         for record in new_future_records:
@@ -2949,13 +3176,22 @@ class HeliosPlanner:
             # Get current time in local timezone
             tz_name = self.config.get("timezone", "Europe/Stockholm")
             tz = pytz.timezone(tz_name)
+            tz = pytz.timezone(tz_name)
             now = datetime.now(tz)
+            
+            # Use self.now_slot as the cutoff for preservation if available
+            # This ensures we don't preserve the current slot if we just re-planned it
+            preservation_cutoff = now
+            if hasattr(self, "now_slot") and self.now_slot is not None:
+                # Convert pandas Timestamp to python datetime
+                preservation_cutoff = self.now_slot.to_pydatetime()
+            
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
             # Use shared preservation logic (tries DB first, falls back to local)
             from db_writer import get_preserved_slots
 
-            existing_past_slots = get_preserved_slots(today_start, now, secrets, tz_name=tz_name)
+            existing_past_slots = get_preserved_slots(today_start, preservation_cutoff, secrets, tz_name=tz_name)
 
         except Exception as e:
             print(f"[planner] Warning: Could not preserve past slots: {e}")

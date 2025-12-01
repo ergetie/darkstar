@@ -450,8 +450,10 @@ def get_initial_state(config_path="config.yaml"):
     battery_cost_sek_per_kwh = 0.20
 
     # Prefer Home Assistant SoC when available
-    ha_config = load_home_assistant_config()
-    soc_entity_id = ha_config.get("battery_soc_entity_id", "sensor.inverter_battery")
+    # Read entity ID from config.yaml (input_sensors)
+    input_sensors = config.get("input_sensors", {})
+    soc_entity_id = input_sensors.get("battery_soc", "sensor.inverter_battery")
+    
     ha_soc = get_home_assistant_sensor_float(soc_entity_id) if soc_entity_id else None
 
     if ha_soc is not None:
@@ -613,7 +615,10 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
     token = ha_config.get("token")
-    entity_id = ha_config.get("consumption_entity_id")
+    
+    # Read entity ID from config.yaml
+    input_sensors = config.get("input_sensors", {})
+    entity_id = input_sensors.get("total_load_consumption", ha_config.get("consumption_entity_id"))
 
     if not all([url, token, entity_id]):
         print("Warning: Missing Home Assistant configuration for load profile")

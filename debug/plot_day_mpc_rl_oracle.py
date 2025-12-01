@@ -28,17 +28,22 @@ from ml.simulation.env import AntaresMPCEnv
 
 
 def _load_latest_rl_run(engine: LearningEngine) -> Dict[str, str]:
+    # Only consider PPO-style RL runs that have a Stable Baselines model.zip.
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         row = conn.execute(
             """
             SELECT run_id, artifact_dir
             FROM antares_rl_runs
+            WHERE algo LIKE 'ppo%'
             ORDER BY created_at DESC
             LIMIT 1
             """
         ).fetchone()
     if row is None:
-        raise SystemExit("[plot-day] No antares_rl_runs rows; train RL first.")
+        raise SystemExit(
+            "[plot-day] No PPO RL runs found in antares_rl_runs; "
+            "train RL v1/v1.1 first."
+        )
     return {"run_id": row[0], "artifact_dir": row[1]}
 
 

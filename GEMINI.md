@@ -6,29 +6,30 @@ This document provides a comprehensive overview of the Darkstar Energy Manager p
 
 Darkstar Energy Manager is a sophisticated, Python-based Model Predictive Control (MPC) system designed for optimizing residential energy usage. It focuses on intelligent battery scheduling and water heating to minimize energy costs.
 
-The system operates in a multi-pass process to generate an optimal energy plan:
+The system is transitioning to a **Kepler (MILP)** centric architecture:
 
-1.  **Data Ingestion**: Fetches electricity prices from the Nordpool API, PV generation forecasts from Open-Meteo, and real-time sensor data (like battery state-of-charge) from Home Assistant.
-2.  **MPC Planning**: The core logic, implemented in `planner.py`, runs a series of passes to build an optimized schedule. This includes identifying cheap charging windows, scheduling water heating, and simulating battery depletion.
-3.  **Cascading Responsibility**: A key feature is the "cascading responsibility" logic, where cheap charging windows are allocated the task of charging for future, more expensive periods.
-4.  **Web UI**: A Flask-based web application (`webapp.py`) provides a dashboard for visualizing the energy schedule, system status, and manual control over the planner.
+1.  **Data Ingestion**: Fetches electricity prices from the Nordpool API, PV generation forecasts from Open-Meteo, and real-time sensor data from Home Assistant.
+2.  **Aurora Forecasting**: Uses LightGBM models (`ml/`) to predict load and PV generation with uncertainty.
+3.  **Strategy Engine**: An RL/Policy layer (`backend/strategy/`) that assesses risk and sets parameters (`θ`) for the planner.
+4.  **Kepler Planner**: The core MILP solver (`planner.py` / `ml/benchmark/milp_solver.py`) that generates the optimal schedule based on forecasts and strategy parameters.
+5.  **Web UI**: A Flask + React web application provides a dashboard for visualizing the energy schedule and system status.
 
 ### Key Technologies
 
 *   **Backend**: Python
-*   **Core Logic**: Pandas for data manipulation and time-series analysis.
-*   **Web Framework**: Flask
+*   **Core Logic**: Pandas, PuLP (MILP Solver)
+*   **Web Framework**: Flask + React (Vite)
 *   **Configuration**: YAML (`config.yaml`)
-*   **Frontend**: JavaScript, with `vis-timeline` for charting.
 *   **Data Sources**: Nordpool API, Open-Meteo API, Home Assistant.
 
 ### Core Files
 
-*   `planner.py`: The main MPC planning and scheduling logic.
+*   `planner.py`: The main planning logic (transitioning to MILP).
+*   `ml/benchmark/milp_solver.py`: The Kepler MILP solver prototype.
+*   `backend/strategy/engine.py`: The Strategy Engine.
 *   `inputs.py`: Handles all external data fetching.
-*   `webapp.py`: The Flask web application and API.
-*   `config.yaml`: The central configuration file for all system parameters.
-*   `requirements.txt`: Lists all Python dependencies.
+*   `config.yaml`: The central configuration file.
+*   `AGENTS.md`: Development guidelines and protocols.
 
 ## Building and Running
 

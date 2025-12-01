@@ -4,6 +4,78 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ---
 
+## Phase 6: Kepler (MILP Planner)
+
+### Rev K1 — Kepler Foundation (MILP Solver)
+*   **Goal:** Implement the core Kepler MILP solver as a production-grade component, replacing the `ml/benchmark/milp_solver.py` prototype, and integrate it into the backend for shadow execution.
+*   **Status:** Completed (Kepler backend implemented in `backend/kepler/`, integrated into `planner.py` in shadow mode, and verified against MPC on historical data with ~16.8% cost savings).
+
+## Phase 5: Antares (Archived / Pivoted to Kepler)
+
+### Rev 84 — Antares RL v2 Lab (Sequence State + Model Search)
+*   **Goal:** Stand up a dedicated RL v2 “lab” inside the repo with a richer, sequence-based state and a clean place to run repeated BC/PPO experiments until we find a policy that consistently beats MPC on a wide held-out window.
+*   **Status:** In progress (RL v2 contract + env + BC v2 train/eval scripts are available under `ml/rl_v2/`; BC v2 now uses SoC + cost‑weighted loss and plots via `debug/plot_day_mpc_bcv2_oracle.py`. A lab‑only PPO trainer (`ml/rl_v2/train_ppo_v2.py` + `AntaresRLEnvV2`) and cost eval (`ml/rl_v2/eval_ppo_v2_cost.py`) are available with shared SoC drift reporting across MPC/PPO/Oracle. PPO v2 is currently a lab artefact only: it can outperform MPC under an Oracle‑style terminal SoC penalty but does not yet match Oracle’s qualitative behaviour on all days. RL v2 remains off the planner hot path; focus for production planning is converging on a MILP‑centric planner as described in `docs/darkstar_milp.md`, with RL/BC used for lab diagnostics and policy discovery.)
+
+### Rev 83 — RL v1 Stabilisation and RL v2 Lab Split
+*   **Goal:** Stabilise RL v1 as a diagnostics-only baseline for Darkstar v2, ensure MPC remains the sole production decision-maker, and carve out a clean space (branch + tooling) for RL v2 experimentation without risking core planner behaviour.
+*   **Status:** In progress (shadow gating added for RL, documentation to be extended and RL v2 lab to be developed on a dedicated branch).
+
+### Rev 82 — Antares RL v2 (Oracle-Guided Imitation)
+*   **Goal:** Train an Antares policy that consistently beats MPC on historical tails by directly imitating the Oracle MILP decisions, then evaluating that imitation policy in the existing AntaresMPCEnv.
+*   **Status:** In progress (BC training script, policy wrapper, and evaluation wiring to be added; first goal is an Oracle-guided policy that matches or beats MPC on the 2025-11-18→27 tail window).
+
+### Rev 81 — Antares RL v1.1 (Horizon-Aware State + Terminal SoC Shaping)
+*   **Goal:** Move RL from locally price-aware to day-aware so it charges enough before known evening peaks and avoids running empty too early, while staying within the existing AntaresMPCEnv cost model.
+*   **Status:** In progress (state and shaping changes wired in; next step is to retrain RL v1.1 and compare cost/behaviour vs the Rev 80 baseline).
+
+### Rev 80 — RL Price-Aware Gating (Phase 4/5)
+*   **Goal:** Make the v1 Antares RL agent behave economically sane per-slot (no discharging in cheap hours, prefer charging when prices are low, prefer discharging when prices are high), while keeping the core cost model and Oracle/MPC behaviour unchanged.
+*   **Status:** Completed (price-aware gating wired into `AntaresMPCEnv` RL overrides, MPC/Oracle behaviour unchanged, and `debug/inspect_mpc_rl_oracle_stats.py` available to quickly compare MPC/RL/Oracle charge/discharge patterns against the day’s price distribution).
+
+### Rev 79 — RL Visual Diagnostics (MPC vs RL vs Oracle)
+*   **Goal:** Provide a simple, repeatable way to visually compare MPC, RL, and Oracle behaviour for a single day (battery power, SoC, prices, export) in one PNG image so humans can quickly judge whether the RL agent is behaving sensibly relative to MPC and the Oracle.
+*   **Status:** Completed (CLI script `debug/plot_day_mpc_rl_oracle.py` added; generates and opens a multi-panel PNG comparing MPC vs RL vs Oracle for a chosen day using the same schedules used in cost evaluation).
+
+### Rev 78 — Tail Zero-Price Repair (Phase 3/4)
+*   **Goal:** Ensure the recent tail of the historical window (including November 2025) has no bogus zero import prices on otherwise normal days, so MPC/RL/Oracle cost evaluations are trustworthy.
+*   **Status:** Completed (zero-price slots repaired via `debug/fix_zero_price_slots.py`; tail days such as 2025-11-18 → 2025-11-27 now have realistic 15-minute prices with no zeros, and cost evaluations over this window are trusted).
+
+### Rev 77 — Antares RL Diagnostics & Reward Shaping (Phase 4/5)
+*   **Goal:** Add tooling and light reward shaping so we can understand what the RL agent is actually doing per slot and discourage clearly uneconomic behaviour (e.g. unnecessary discharging in cheap hours), without changing the core cost definition used for evaluation.
+*   **Status:** Completed (diagnostic tools and mild price-aware discharge penalty added; RL evaluation still uses the unshaped cost function, and the latest PPO v1 baseline is ~+8% cost vs MPC over recent tail days with Oracle as the clear lower bound).
+
+### Rev 76 — Antares RL Agent v1 (Phase 4/5)
+*   **Goal:** Design, train, and wire up the first real Antares RL agent (actor–critic NN) that uses the existing AntaresMPCEnv, cost model, and shadow plumbing, so we can evaluate a genuine learning-based policy in parallel with MPC and Oracle on historical data and (via shadow mode) on live production days.
+*   **Status:** Completed (RL v1 agent scaffolded with PPO, RL runs logged to `antares_rl_runs`, models stored under `ml/models/antares_rl_v1/...`, evaluation script `ml/eval_antares_rl_cost.py` in place; latest RL baseline run is ~+8% cost vs MPC over recent tail days with Oracle as clear best, ready for further tuning in Rev 77+).
+
+### Rev 75 — Antares Shadow Challenger v1 (Phase 4)
+*   **Goal:** Run the latest Antares policy in shadow mode alongside the live MPC planner, persist daily shadow schedules with costs, and provide basic tooling to compare MPC vs Antares on real production data (no hardware control yet).
+*   **Status:** Planned (first Phase 4 revision; enables production shadow runs and MPC vs Antares cost comparison on real data).
+
+### Rev 74 — Tail Window Price Backfill & Final Data Sanity (Phase 3)
+*   **Goal:** Fix and validate the recent tail of the July–now window (e.g. late November days with zero prices) so Phase 3 ends with a fully clean, production-grade dataset for both MPC and Antares training/evaluation.
+*   **Status:** Planned (final Phase 3 data-cleanup revision before Phase 4 / shadow mode).
+
+### Rev 73 — Antares Policy Cost Evaluation & Action Overrides (Phase 3)
+*   **Goal:** Evaluate the Antares v1 policy in terms of full-day cost (not just action MAE) by letting it drive the Gym environment, and compare that cost against MPC and the Oracle on historical days.
+*   **Status:** Planned (next active Antares revision; will produce a cost-based policy vs MPC/Oracle benchmark).
+
+### Rev 72 — Antares v1 Policy (First Brain) (Phase 3)
+*   **Goal:** Train a first Antares v1 policy that leverages the Gym environment and/or Oracle signals to propose battery/export actions and evaluate them offline against MPC and the Oracle.
+*   **Status:** Completed (offline MPC-imitating policy, training, eval, and contract implemented in Rev 72).
+
+### Rev 71 — Antares Oracle (MILP Benchmark) (Phase 3)
+*   **Goal:** Build a deterministic “Oracle” that computes the mathematically optimal daily schedule (under perfect hindsight) so we can benchmark MPC and future Antares agents against a clear upper bound.
+*   **Status:** Completed (Oracle MILP solver, MPC comparison tool, and config wiring implemented in Rev 71).
+
+### Rev 70 — Antares Gym Environment & Cost Reward (Phase 3)
+*   **Goal:** Provide a stable Gym-style environment around the existing deterministic simulator and cost model so any future Antares agent (supervised or RL) can be trained and evaluated offline on historical data.
+*   **Status:** Completed (environment, reward, docs, and debug runner implemented in Rev 70).
+
+### Rev 69 — Antares v1 Training Pipeline (Phase 3)
+*   **Goal:** Train the first Antares v1 supervised model that imitates MPC’s per-slot decisions on validated `system_id="simulation"` data (battery + export focus) and establishes a baseline cost performance.
+*   **Status:** Completed (training pipeline, logging, and eval helper implemented in Rev 69).
+
 ## Phase 5: Antares Phase 1–2 (Data & Simulation)
 
 ### Rev 68 — Antares Phase 2b: Simulation Episodes & Gym Interface
@@ -273,3 +345,7 @@ This document contains the archive of all completed revisions. It serves as the 
 *   **Export**: Peak-only export logic and profitability guards.
 *   **Manual Planning**: Semantics for manual blocks (Charge/Water/Export/Hold) merged with MPC.
 *   **Infrastructure**: SQLite learning DB, MariaDB history sync, Nordpool/HA integration.
+
+---
+
+

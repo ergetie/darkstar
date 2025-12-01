@@ -1424,15 +1424,18 @@ def forecast_horizon():
 def ha_water_today():
     """Return today's water heater energy usage from HA or sqlite fallback."""
     try:
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+
         ha_config = load_home_assistant_config()
-        entity_id = ha_config.get("water_heater_daily_entity_id", "sensor.vvb_energy_daily")
+        # Read entity ID from config.yaml
+        input_sensors = config.get("input_sensors", {})
+        entity_id = input_sensors.get("water_heater_consumption", ha_config.get("water_heater_daily_entity_id", "sensor.vvb_energy_daily"))
+        
         ha_value = get_home_assistant_sensor_float(entity_id) if entity_id else None
 
         if ha_value is not None:
             return jsonify({"source": "home_assistant", "water_kwh_today": round(ha_value, 2)})
-
-        with open("config.yaml", "r") as f:
-            config = yaml.safe_load(f)
 
         learning_cfg = config.get("learning", {})
         sqlite_path = learning_cfg.get("sqlite_path", "data/planner_learning.db")

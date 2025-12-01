@@ -22,6 +22,11 @@ sensors = config.get("input_sensors", {})
 # Note: LTS usually requires the cumulative entity (kWh), not power (W)
 # We will try the load entity defined in config
 entity_id = sensors.get("total_load_consumption")
+#entity_id = sensors.get("total_grid_import")
+#entity_id = sensors.get("total_grid_export")
+#entity_id = sensors.get("total_battery_charge")
+#entity_id = sensors.get("total_battery_discharge")
+
 
 print(f"--- Probing HA Statistics for {entity_id} ---")
 
