@@ -141,12 +141,12 @@ To get a self-learning system without relying on RL for raw control, we use the 
 
 ## 6. Roadmap
 
-1.  **Short term**:
-    -   Rename `Oracle` to `Kepler`.
-    -   Fix "sawtooth" behavior in `milp_solver.py` (add ramping costs).
-    -   Integrate Kepler into `planner.py` as a selectable engine.
+1.  **Short term** (Completed):
+    -   [x] Rename `Oracle` to `Kepler`.
+    -   [x] Fix "sawtooth" behavior in `milp_solver.py` (add ramping costs).
+    -   [x] Integrate Kepler into `planner.py` as a selectable engine.
 2.  **Medium term**:
-    -   Promote Kepler to **default planner**.
-    -   Wire Strategy Engine to tune Kepler parameters.
+    -   [x] Promote Kepler to **default planner**.
+    -   [ ] Wire Strategy Engine to tune Kepler parameters.
 3.  **Long term**:
     -   Full "Agent" mode where Strategy Engine autonomously manages risk.

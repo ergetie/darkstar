@@ -109,6 +109,14 @@ from inputs import get_all_input_data
   - Run `black .` (or the project’s configured formatter) to normalize formatting.
   - Run `flake8 .` to catch style and lint issues before committing.
 
+### Development Protocol
+- **Regular Commits**: Commit changes after completing a defined task or revision.
+- **Documentation**: Update `architecture.md`, `GEMINI.md`, and other relevant docs when making significant changes.
+- **User Consultation**: Consult the user before:
+  - Making major architectural changes.
+  - Archiving revisions.
+  - **Updating any files in the `docs/` directory.**
+
 ## Project Structure
 - `backend/` - Flask API, Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
 - `frontend/` - React + Vite UI application.
