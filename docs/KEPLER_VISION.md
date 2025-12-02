@@ -141,12 +141,29 @@ To get a self-learning system without relying on RL for raw control, we use the 
 
 ## 6. Roadmap
 
-1.  **Short term** (Completed):
-    -   [x] Rename `Oracle` to `Kepler`.
-    -   [x] Fix "sawtooth" behavior in `milp_solver.py` (add ramping costs).
-    -   [x] Integrate Kepler into `planner.py` as a selectable engine.
-2.  **Medium term**:
-    -   [x] Promote Kepler to **default planner**.
-    -   [ ] Wire Strategy Engine to tune Kepler parameters.
-3.  **Long term**:
-    -   Full "Agent" mode where Strategy Engine autonomously manages risk.
+### Phase 1: Foundation (Completed)
+- [x] **Kepler Core**: Rename Oracle to Kepler, fix sawtooth (ramping), integrate as default planner.
+- [x] **Strategic S-Index**: Decouple safety (load inflation) from strategy (target SoC).
+- [x] **Basic Strategy**: `StrategyEngine` class that handles Vacation Mode and basic Weather Volatility.
+
+### Phase 2: The Strategy Engine (Next)
+- [x] **Dynamic Parameters (K5)**:
+    - Wire `wear_cost`, `ramping_cost`, and `export_threshold` to be dynamically tunable per-plan.
+    - Allow Strategy Engine to override these based on context (e.g., "Aggressive Export" mode).
+- [ ] **Context Awareness**:
+    - Ingest Price Trends (e.g., "Price Plunge coming in 3 days") to adjust long-term buffers.
+    - Ingest Grid Constraints (e.g., "Grid Peak Shaving" requirements).
+
+### Phase 3: The Learning Loop
+- [ ] **Learning Engine**:
+    - Create a dedicated module to track "Plan vs Actual" metrics (Forecast Error, Cost Deviation).
+    - Persist these metrics to `planner_learning.db`.
+- [ ] **Feedback Loops**:
+    - **Short-term**: Feed recent errors back to Aurora (already partially done).
+    - **Long-term**: Auto-tune `base_load_factor` or `battery_efficiency` based on historical bias.
+
+### Phase 4: Full Autonomy ("Agent Mode")
+- [ ] **Policy Learning**:
+    - Replace heuristic `if/else` rules in Strategy Engine with a learned policy or advanced lookups.
+- [ ] **Risk Agent**:
+    - Autonomous management of risk appetite (e.g., "High Risk" strategy when savings potential is huge).

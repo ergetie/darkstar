@@ -49,6 +49,13 @@ class KeplerSolver:
         # Slack variables for Min SoC violation
         soc_violation = pulp.LpVariable.dicts("soc_violation_kwh", range(T + 1), lowBound=0.0)
 
+        # Ramping variables (T-1 transitions)
+        # We model change in net battery flow: (Charge - Discharge)
+        # delta[t] = (charge[t] - discharge[t]) - (charge[t-1] - discharge[t-1])
+        # delta[t] = ramp_up[t] - ramp_down[t]
+        ramp_up = pulp.LpVariable.dicts("ramp_up_kwh", range(T), lowBound=0.0)
+        ramp_down = pulp.LpVariable.dicts("ramp_down_kwh", range(T), lowBound=0.0)
+
         # Initial SoC Constraint
         # We allow initial_soc to be whatever (clamped to physical bounds 0-Capacity)
         initial_soc = max(0.0, min(config.capacity_kwh, input_data.initial_soc_kwh))
@@ -76,25 +83,6 @@ class KeplerSolver:
             )
 
             # 2. Battery Dynamics Constraint
-            # SoC[t+1] = SoC[t] + (Charge * eff_c) - (Discharge / eff_d)
-            # Note: Efficiency is usually applied such that you pay more to charge or get less from discharge.
-            # Standard model: 
-            #   Stored = Charge * eff_c
-            #   Released = Discharge / eff_d  (requires more stored energy to release X)
-            #   OR Released = Discharge * eff_d (if Discharge is "energy leaving battery")
-            
-            # Let's stick to the definition where charge/discharge variables are "energy at the inverter/grid side".
-            # If charge[t] is energy FROM grid/pv INTO system -> Battery receives charge[t] * eff_c
-            # If discharge[t] is energy FROM system TO grid/load -> Battery loses discharge[t] / eff_d
-            
-            # However, in the prototype `milp_solver.py`, it was:
-            # soc[t+1] == soc[t] + charge[t] - discharge[t] (Ideal battery)
-            # The config has `charge_efficiency` and `discharge_efficiency`.
-            # Let's implement the efficiency model.
-            
-            # If eff=1.0, it simplifies to ideal.
-            # If eff=0.95 roundtrip, maybe sqrt(0.95) each way.
-            
             prob += (
                 soc[t+1] == soc[t] 
                 + charge[t] * config.charge_efficiency 
@@ -115,31 +103,51 @@ class KeplerSolver:
             if config.max_import_power_kw is not None:
                 prob += grid_import[t] <= config.max_import_power_kw * h
 
-            # 4. Objective Terms
-            # Cost = Import * Price - Export * Price + Wear Cost
-            # Wear cost is usually applied to throughput (charge + discharge)
-            
-            # Use export price if available, else import price (net metering / fallback)
-            # But usually export price is distinct.
-            
-            # Note: In prototype, wear cost was applied to (charge + discharge).
-            # We will stick to that.
+            # 4. Ramping Constraints
+            # For t=0, we assume previous state was 0 flow (or we could pass initial flow)
+            # Let's assume 0 flow for now to keep it simple, or ignore t=0 ramping.
+            # Ignoring t=0 is safer to avoid startup penalties.
+            if t > 0:
+                # Flow at t: charge[t] - discharge[t]
+                # Flow at t-1: charge[t-1] - discharge[t-1]
+                # Diff = Flow[t] - Flow[t-1] = ramp_up - ramp_down
+                prob += (
+                    (charge[t] - discharge[t]) - (charge[t-1] - discharge[t-1])
+                    == ramp_up[t] - ramp_down[t]
+                )
+            else:
+                # No ramping cost for first slot transition from "unknown"
+                prob += ramp_up[t] == 0
+                prob += ramp_down[t] == 0
+
+            # 5. Objective Terms
+            # Cost = Import * Price - Export * (Price - Threshold) + Wear Cost + Ramping Cost
             
             slot_wear_cost = (charge[t] + discharge[t]) * config.wear_cost_sek_per_kwh
             slot_import_cost = grid_import[t] * s.import_price_sek_kwh
-            slot_export_revenue = grid_export[t] * s.export_price_sek_kwh
+            
+            # Export Revenue with Hurdle Rate (Threshold)
+            # If Price < Threshold, (Price - Threshold) is negative -> Cost constraint
+            effective_export_price = s.export_price_sek_kwh - config.export_threshold_sek_per_kwh
+            slot_export_revenue = grid_export[t] * effective_export_price
+            
+            # Ramping Cost (converted from SEK/kW to SEK/kWh approx or just penalty on magnitude)
+            # config.ramping_cost is SEK/kW (per power change).
+            # Our variables are kWh. Power = Energy / h.
+            # Change in Power (kW) = (ramp_up_kwh - ramp_down_kwh) / h
+            # Cost = (|Delta kW|) * cost_per_kw
+            # Cost = ((ramp_up + ramp_down) / h) * cost_per_kw
+            slot_ramping_cost = ((ramp_up[t] + ramp_down[t]) / h) * config.ramping_cost_sek_per_kw
+            
             slot_curtailment_cost = curtailment[t] * CURTAILMENT_PENALTY
             slot_shedding_cost = load_shedding[t] * LOAD_SHEDDING_PENALTY
             
-            total_cost.append(slot_import_cost - slot_export_revenue + slot_wear_cost + slot_curtailment_cost + slot_shedding_cost)
+            total_cost.append(slot_import_cost - slot_export_revenue + slot_wear_cost + slot_ramping_cost + slot_curtailment_cost + slot_shedding_cost)
             
             # Soft Min SoC Constraint for t
-            # soc[t] >= min_soc_kwh - soc_violation[t]
             prob += soc[t] >= min_soc_kwh - soc_violation[t]
             
-            # Soft Max SoC Constraint (optional, usually hard physical limit is fine)
-            # But config.max_soc_percent might be < 100%.
-            # Let's make it hard constraint for now as it's usually not a feasibility issue (just stop charging).
+            # Soft Max SoC Constraint
             prob += soc[t] <= max_soc_kwh
 
         # Soft constraints for terminal state T
@@ -147,28 +155,11 @@ class KeplerSolver:
         prob += soc[T] <= max_soc_kwh
 
         # Terminal SoC Constraint (Target)
-        # Use target_soc_kwh if provided, otherwise default to min_soc
-        # We make this soft too? Or keep it hard >= Target?
-        # If Target > Min, and we are struggling, hard constraint might be infeasible.
-        # Let's make it soft too via separate violation variable?
-        # Or just rely on Min SoC soft constraint if Target is None.
-        # If target is explicit, it's usually for strategic reasons.
-        # Let's keep it simple: If target is set, add it as a soft constraint with lower penalty?
-        # For now, let's stick to the original logic but allow violation via soc_violation if target == min_soc.
-        
         target_soc = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
-        # If target > min_soc, we might want a separate slack.
-        # But for benchmark, target is usually None (so Min SoC).
-        # So soc[T] >= min_soc - violation[T] covers it.
-        # If target is explicit, we enforce it.
         if config.target_soc_kwh is not None:
-             prob += soc[T] >= target_soc # Hard constraint for explicit target?
-             # If explicit target is infeasible, we crash.
-             # Ideally soft too. But let's leave it for now.
+             prob += soc[T] >= target_soc 
         
         # Terminal Value (Soft Constraint / Incentive)
-        # If terminal_value_sek_kwh > 0, we subtract (SoC[T] * Value) from cost.
-        # This incentivizes ending with higher SoC if the energy is valuable.
         terminal_value = soc[T] * config.terminal_value_sek_kwh
         
         # Set Objective

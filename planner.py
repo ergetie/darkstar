@@ -1017,11 +1017,10 @@ class HeliosPlanner:
                 # TODO: Persist to DB if needed, for now just print
             else:
                 print(f"🔭 Kepler Shadow: Solver failed: {result.status_msg}")
-                
         except Exception as e:
             print(f"Error running Kepler shadow mode: {e}")
 
-    def run_kepler_primary(self, input_data: Dict[str, Any]) -> pd.DataFrame:
+    def run_kepler_primary(self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
         """
         Run Kepler as the primary planner.
         """
@@ -1080,7 +1079,7 @@ class HeliosPlanner:
                 return df
 
             k_input = planner_to_kepler_input(future_df, initial_soc_kwh)
-            k_config = config_to_kepler_config(self.config)
+            k_config = config_to_kepler_config(self.config, overrides=overrides)
             
             # Inject Dynamic Target SoC (Strategic Buffer)
             # This was calculated in _pass_0 based on S-Index D2
@@ -1193,7 +1192,7 @@ class HeliosPlanner:
 
         # Check for Kepler Primary Mode
         if self.config.get("kepler", {}).get("primary_planner", False):
-            df = self.run_kepler_primary(input_data)
+            df = self.run_kepler_primary(input_data, overrides=overrides)
             if save_to_file:
                 self._save_schedule_to_json(df)
             return df

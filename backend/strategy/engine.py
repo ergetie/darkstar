@@ -82,7 +82,65 @@ class StrategyEngine:
                 temp_weight_adj,
             )
 
+        # --- Rule: Price Volatility (Kepler Tuning) ---
+        prices = input_data.get("prices", [])
+        if prices:
+            volatility_data = self._analyze_price_volatility(prices)
+            spread = volatility_data.get("spread", 0.0)
+            
+            # Default config values (baseline)
+            # We need to fetch them from self.config if available, else defaults
+            # But here we only set overrides if we deviate from "Standard" behavior.
+            
+            # Logic:
+            # High Spread (> 1.5 SEK): Aggressive Mode.
+            #   - Wear Cost -> 0 (Cycle hard)
+            #   - Ramping Cost -> Low (React fast)
+            #   - Export Threshold -> Low (Capture all profit)
+            
+            # Low Spread (< 0.5 SEK): Conservative Mode.
+            #   - Wear Cost -> High (Save battery)
+            #   - Ramping Cost -> High (Smooth)
+            #   - Export Threshold -> High (Don't bother)
+            
+            kepler_overrides = {}
+            
+            if spread > 1.5:
+                logger.info(f"Strategy: High Price Volatility (Spread {spread:.2f} SEK). Engaging Aggressive Mode.")
+                kepler_overrides["wear_cost_sek_per_kwh"] = 0.0
+                kepler_overrides["ramping_cost_sek_per_kw"] = 0.01 # Very low
+                kepler_overrides["export_threshold_sek_per_kwh"] = 0.05
+                
+            elif spread < 0.5:
+                logger.info(f"Strategy: Low Price Volatility (Spread {spread:.2f} SEK). Engaging Conservative Mode.")
+                # Assuming default wear cost is around 0.5-1.0 in config.
+                # We force it higher to discourage usage.
+                kepler_overrides["wear_cost_sek_per_kwh"] = 1.0 
+                kepler_overrides["ramping_cost_sek_per_kw"] = 0.5 # High damping
+                kepler_overrides["export_threshold_sek_per_kwh"] = 0.2 # Need 20 ore spread
+            
+            if kepler_overrides:
+                overrides["kepler"] = kepler_overrides
+
         if overrides:
             logger.info(f"Strategy Engine active. Applying overrides: {overrides}")
 
         return overrides
+
+    def _analyze_price_volatility(self, prices: list) -> Dict[str, float]:
+        """
+        Calculate price volatility metrics.
+        Expects list of dicts with 'value' key (SEK/kWh).
+        """
+        if not prices:
+            return {"spread": 0.0}
+            
+        values = [p.get("value", 0.0) for p in prices]
+        if not values:
+            return {"spread": 0.0}
+            
+        min_p = min(values)
+        max_p = max(values)
+        spread = max_p - min_p
+        
+        return {"spread": spread, "min": min_p, "max": max_p}

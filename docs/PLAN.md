@@ -56,6 +56,34 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** Completed.
 
+### Rev K5 — Strategy Engine Expansion (The Tuner)
+
+**Goal:** Empower the Strategy Engine to dynamically tune all key Kepler parameters (`wear_cost`, `ramping_cost`, `export_threshold`) based on context.
+
+**Scope:**
+*   **Kepler Solver:** Expose `wear_cost`, `ramping_cost`, `export_threshold` as runtime arguments in `solve()`.
+*   **Strategy Engine:** Implement logic to override these parameters based on context (e.g., Price Volatility, Grid Constraints).
+*   **Integration:** Ensure `planner.py` -> `adapter.py` -> `KeplerSolver` pipeline passes these overrides correctly.
+
+**Implementation Steps:**
+1.  **Solver Update:** Modify `KeplerSolver` to accept and use parameter overrides.
+2.  **Strategy Logic:** Add new rules to `StrategyEngine` (e.g., "High Price Spread -> Lower Export Threshold").
+3.  **Wiring:** Update `adapter.py` to map strategy output to solver inputs.
+4.  **Verification:** Verify that changing context (e.g., via mock) alters the solver's internal parameters and resulting schedule.
+
+**Status:** Completed.
+
+### Rev K6 — The Learning Engine (Metrics & Feedback)
+
+**Goal:** Close the loop by measuring "Plan vs Actual" performance to enable data-driven tuning of the Strategy Engine.
+
+**Scope:**
+*   **Metrics:** Track `forecast_error`, `cost_deviation`, and `battery_efficiency_realized`.
+*   **Persistence:** Store daily metrics in `planner_learning.db`.
+*   **Feedback:** Use these metrics to auto-adjust `s_index` or `wear_cost` baselines (Phase 3).
+
+**Status:** Planned.
+
 ---
 
 ## Backlog

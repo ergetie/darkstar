@@ -53,7 +53,7 @@ def planner_to_kepler_input(
 
     return KeplerInput(slots=slots, initial_soc_kwh=initial_soc_kwh)
 
-def config_to_kepler_config(planner_config: Dict[str, Any]) -> KeplerConfig:
+def config_to_kepler_config(planner_config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None) -> KeplerConfig:
     """
     Convert the main config dictionary to KeplerConfig.
     """
@@ -61,11 +61,26 @@ def config_to_kepler_config(planner_config: Dict[str, Any]) -> KeplerConfig:
     battery = system.get("battery", planner_config.get("battery", {}))
     learning = planner_config.get("learning", {})
     
+    # Apply overrides if present (specifically for 'kepler' section)
+    # The Strategy Engine returns a deep dict, e.g. {'kepler': {'wear_cost_sek_per_kwh': 0.0}}
+    kepler_overrides = {}
+    if overrides and "kepler" in overrides:
+        kepler_overrides = overrides["kepler"]
+    
     capacity = float(battery.get("capacity_kwh", 0.0))
     
     # Efficiency: try roundtrip first, then separate
     roundtrip = float(battery.get("roundtrip_efficiency_percent", 95.0))
     eff_one_way = (roundtrip / 100.0) ** 0.5
+    
+    # Helper to get value with override priority
+    def get_val(key: str, default: float) -> float:
+        if key in kepler_overrides:
+            return float(kepler_overrides[key])
+        return default
+
+    # For wear cost, default comes from learning config
+    default_wear = float(learning.get("default_battery_cost_sek_per_kwh", 0.0))
     
     return KeplerConfig(
         capacity_kwh=capacity,
@@ -75,9 +90,11 @@ def config_to_kepler_config(planner_config: Dict[str, Any]) -> KeplerConfig:
         max_discharge_power_kw=float(battery.get("max_discharge_power_kw", 0.0)),
         charge_efficiency=eff_one_way,
         discharge_efficiency=eff_one_way,
-        wear_cost_sek_per_kwh=float(learning.get("default_battery_cost_sek_per_kwh", 0.0)),
+        wear_cost_sek_per_kwh=get_val("wear_cost_sek_per_kwh", default_wear),
         max_export_power_kw=float(system.get("grid", {}).get("max_power_kw")) if system.get("grid", {}).get("max_power_kw") else None,
-        max_import_power_kw=float(system.get("grid", {}).get("max_power_kw")) if system.get("grid", {}).get("max_power_kw") else None
+        max_import_power_kw=float(system.get("grid", {}).get("max_power_kw")) if system.get("grid", {}).get("max_power_kw") else None,
+        ramping_cost_sek_per_kw=get_val("ramping_cost_sek_per_kw", 0.0),
+        export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0)
     )
 
 def kepler_result_to_dataframe(result: KeplerResult, capacity_kwh: float = 0.0, initial_soc_kwh: float = 0.0) -> pd.DataFrame:

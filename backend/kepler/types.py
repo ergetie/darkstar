@@ -18,6 +18,8 @@ class KeplerConfig:
     max_import_power_kw: Optional[float] = None
     target_soc_kwh: Optional[float] = None  # Minimum SoC at end of horizon
     terminal_value_sek_kwh: float = 0.0  # Value of energy left in battery at end of horizon
+    ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes between slots
+    export_threshold_sek_per_kwh: float = 0.0  # Min price spread required to export
 
 @dataclass
 class KeplerInputSlot:
