@@ -384,70 +384,8 @@ class HeliosPlanner:
 
     def _ensure_learning_schema(self) -> None:
         """Create sqlite tables when learning is enabled."""
-        if not self._learning_enabled():
-            return
-        if getattr(self, "_learning_schema_initialized", False):
-            return
-
-        path = self._learning_db_path()
-        with sqlite3.connect(path) as conn:
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS schedule_planned (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT NOT NULL,
-                    planned_kwh REAL NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_schedule_planned_date ON schedule_planned(date)"
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS realized_energy (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    slot_start TEXT NOT NULL,
-                    slot_end TEXT NOT NULL,
-                    action TEXT,
-                    energy_kwh REAL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS daily_water (
-                    date TEXT PRIMARY KEY,
-                    used_kwh REAL NOT NULL DEFAULT 0,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS planner_debug (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT NOT NULL,
-                    payload TEXT NOT NULL
-                )
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS strategy_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT,
-                    timestamp TEXT NOT NULL,
-                    overrides_json TEXT,
-                    reason TEXT
-                )
-                """
-            )
-            conn.commit()
-
-        self._learning_schema_initialized = True
+        # Schema initialization is now handled by LearningStore in backend.learning
+        pass
 
     def _apply_overrides(self, overrides: Dict[str, Any]) -> None:
         """
@@ -1259,7 +1197,7 @@ class HeliosPlanner:
 
         if record_training_episode and self._learning_enabled():
             try:
-                from learning import get_learning_engine
+                from backend.learning import get_learning_engine
 
                 engine = get_learning_engine()
                 engine.log_training_episode(

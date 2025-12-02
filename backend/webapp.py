@@ -30,7 +30,7 @@ from inputs import (
     get_home_assistant_sensor_float,
     load_home_assistant_config,
 )
-from learning import get_learning_engine
+from backend.learning import get_learning_engine
 from backend.strategy.engine import StrategyEngine
 from backend.strategy.analyst import EnergyAnalyst
 from backend.strategy.voice import get_advice
@@ -1973,7 +1973,7 @@ def historic_soc():
 def record_observation_from_current_state():
     """Record current system state as observation for learning engine."""
     try:
-        from learning import get_learning_engine
+        from backend.learning import get_learning_engine
         import pandas as pd
         from datetime import datetime, timedelta
         import pytz
