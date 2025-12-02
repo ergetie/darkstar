@@ -30,7 +30,31 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     *   **UI Check:** Verify the dashboard renders the Kepler schedule correctly.
     *   **Production Rollout:** Enable on the live system and monitor for 24h.
 
-**Status:** Planned.
+**Status:** Completed.
+
+### Rev K3 — Strategic S-Index (Decoupled Strategy)
+
+**Goal:** Implement a robust risk management strategy that balances intra-day safety with inter-day optimization.
+
+**Scope:**
+*   **Decoupled Strategy:**
+    *   **Load Inflation:** Static `base_factor` (e.g., 1.1x) for D1 forecast error safety.
+    *   **Target SoC:** Dynamic Hard Constraint based on D2/D3 risk (Temperature/PV).
+*   **Dynamic Target SoC:** `Target % = Min % + (Risk - 1.0) * Scaling`.
+*   **UI:** Display S-Index and Target SoC on dashboard.
+
+**Status:** Completed.
+
+### Rev K4 — Kepler Vision & Benchmarking
+
+**Goal:** Further refine Kepler and benchmark its performance against legacy MCP.
+
+**Scope:**
+*   **Benchmarking:** Compare MCP vs Kepler plans for Today and Tomorrow.
+*   **Kepler Vision:** Implement features from `KEPLER_VISION.md`.
+*   **Refinement:** Tune S-Index parameters based on real-world data.
+
+**Status:** Completed.
 
 ---
 

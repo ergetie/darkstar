@@ -19,7 +19,10 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None:
             return default
-        return float(value)
+        val = float(value)
+        if math.isnan(val) or math.isinf(val):
+            return default
+        return val
     except (TypeError, ValueError):
         return default
 
@@ -30,6 +33,11 @@ def _parse_iso(value: Any) -> Optional[datetime]:
         return None
     if isinstance(value, datetime):
         return value
+    if isinstance(value, (int, float)):
+        # Assume milliseconds if > 1e11 (valid for ~1973 onwards)
+        if value > 1e11:
+            value = value / 1000.0
+        return datetime.fromtimestamp(value, tz=pytz.UTC)
     text = str(value)
     if text.endswith("Z"):
         text = f"{text[:-1]}+00:00"

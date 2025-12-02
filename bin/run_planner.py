@@ -59,6 +59,26 @@ def main():
 
     # Build inputs and run planner
     input_data = get_all_input_data("config.yaml")
+
+    # Persist inputs to Learning DB (Prices & Forecasts)
+    try:
+        from learning import LearningEngine
+        engine = LearningEngine("config.yaml")
+        
+        if "price_data" in input_data:
+            engine.store_slot_prices(input_data["price_data"])
+            print(f"[planner] Stored {len(input_data['price_data'])} price slots to DB")
+            
+        if "forecast_data" in input_data:
+            # Forecasts need a version, default to 'aurora' or 'baseline'
+            # We can get it from config or default
+            f_ver = config.get("forecasting", {}).get("active_forecast_version", "aurora")
+            engine.store_forecasts(input_data["forecast_data"], forecast_version=f_ver)
+            print(f"[planner] Stored {len(input_data['forecast_data'])} forecast slots to DB")
+            
+    except Exception as e:
+        print(f"[planner] Warning: Failed to persist inputs to DB: {e}")
+
     planner = HeliosPlanner("config.yaml")
     df = planner.generate_schedule(input_data, record_training_episode=True)
 

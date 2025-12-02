@@ -17,6 +17,7 @@ class KeplerConfig:
     max_export_power_kw: Optional[float] = None
     max_import_power_kw: Optional[float] = None
     target_soc_kwh: Optional[float] = None  # Minimum SoC at end of horizon
+    terminal_value_sek_kwh: float = 0.0  # Value of energy left in battery at end of horizon
 
 @dataclass
 class KeplerInputSlot:
@@ -45,6 +46,8 @@ class KeplerResultSlot:
     grid_export_kwh: float
     soc_kwh: float
     cost_sek: float
+    import_price_sek_kwh: float = 0.0
+    export_price_sek_kwh: float = 0.0
     is_optimal: bool = True
 
 @dataclass

@@ -1,7 +1,7 @@
 export type StatusResponse = {
   current_soc?: { value: number; timestamp: string; source?: string }
-  local?: { planned_at?: string; planner_version?: string }
-  db?: { planned_at?: string; planner_version?: string } | { error?: string }
+  local?: { planned_at?: string; planner_version?: string; s_index?: any }
+  db?: { planned_at?: string; planner_version?: string; s_index?: any } | { error?: string }
 }
 
 export type HorizonResponse = {
@@ -205,7 +205,7 @@ export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
 export type AuroraBriefingResponse = { briefing: string }
 
 async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
-  const options: RequestInit = { 
+  const options: RequestInit = {
     method,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' }
   }
@@ -225,7 +225,7 @@ export const Api = {
   config: () => getJSON<ConfigResponse>('/api/config'),
   configSave: (payload: Record<string, any>) =>
     getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
-  configReset: () => getJSON<{status: string}>('/api/config/reset', 'POST'),
+  configReset: () => getJSON<{ status: string }>('/api/config/reset', 'POST'),
   setTheme: (payload: { theme: string; accent_index?: number | null }) =>
     getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
@@ -263,9 +263,9 @@ export const Api = {
   forecastDay: (date?: string) =>
     getJSON<any>(date ? `/api/forecast/day?date=${date}` : '/api/forecast/day'),
   forecastRunEval: (daysBack = 7) =>
-    getJSON<{status: string}>('/api/forecast/run_eval', 'POST', { days_back: daysBack }),
+    getJSON<{ status: string }>('/api/forecast/run_eval', 'POST', { days_back: daysBack }),
   forecastRunForward: (horizonHours = 48) =>
-    getJSON<{status: string}>('/api/forecast/run_forward', 'POST', { horizon_hours: horizonHours }),
+    getJSON<{ status: string }>('/api/forecast/run_forward', 'POST', { horizon_hours: horizonHours }),
   schedulerStatus: () => getJSON<SchedulerStatusResponse>('/api/scheduler/status'),
   aurora: {
     dashboard: () => getJSON<AuroraDashboardResponse>('/api/aurora/dashboard'),

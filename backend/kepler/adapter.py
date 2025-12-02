@@ -129,6 +129,7 @@ def kepler_result_to_dataframe(result: KeplerResult, capacity_kwh: float = 0.0, 
             # Legacy UI columns
             "battery_charge_kw": charge_kw,
             "battery_discharge_kw": discharge_kw,
+            "charge_kw": min(s.charge_kwh, s.grid_import_kwh) / duration_h,  # Legacy grid charge (approx)
             "projected_soc_kwh": s.soc_kwh,
             "projected_soc_percent": (s.soc_kwh / capacity_kwh * 100.0) if capacity_kwh > 0 else 0.0,
             # "soc_target_percent": ... # Removed simple alias, will be calculated by planner

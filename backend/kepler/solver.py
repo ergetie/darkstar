@@ -31,36 +31,48 @@ class KeplerSolver:
         discharge = pulp.LpVariable.dicts("discharge_kwh", range(T), lowBound=0.0)
         grid_import = pulp.LpVariable.dicts("import_kwh", range(T), lowBound=0.0)
         grid_export = pulp.LpVariable.dicts("export_kwh", range(T), lowBound=0.0)
+        curtailment = pulp.LpVariable.dicts("curtailment_kwh", range(T), lowBound=0.0)
+        load_shedding = pulp.LpVariable.dicts("load_shedding_kwh", range(T), lowBound=0.0)
         
         # SoC state variables (T+1 states for T slots)
-        # Bounds are enforced by constraints, but we can set hard bounds here too
+        # Bounds: 0 to Capacity. Min/Max SoC are enforced by soft constraints.
         min_soc_kwh = config.capacity_kwh * config.min_soc_percent / 100.0
         max_soc_kwh = config.capacity_kwh * config.max_soc_percent / 100.0
         
         soc = pulp.LpVariable.dicts(
             "soc_kwh", 
             range(T + 1), 
-            lowBound=min_soc_kwh, 
-            upBound=max_soc_kwh
+            lowBound=0.0, 
+            upBound=config.capacity_kwh
         )
+        
+        # Slack variables for Min SoC violation
+        soc_violation = pulp.LpVariable.dicts("soc_violation_kwh", range(T + 1), lowBound=0.0)
 
         # Initial SoC Constraint
-        # Clamp initial SoC to bounds to avoid immediate infeasibility
-        initial_soc = max(min_soc_kwh, min(max_soc_kwh, input_data.initial_soc_kwh))
+        # We allow initial_soc to be whatever (clamped to physical bounds 0-Capacity)
+        initial_soc = max(0.0, min(config.capacity_kwh, input_data.initial_soc_kwh))
         prob += soc[0] == initial_soc
 
         # Objective Function Terms
         total_cost = []
+        
+        # Penalty for violating Min SoC (e.g. 1000 SEK/kWh)
+        PENALTY_SEK_PER_KWH = 1000.0
+        # Penalty for curtailment (small, just to prefer using PV)
+        CURTAILMENT_PENALTY = 0.1
+        # Penalty for load shedding (huge, must be avoided)
+        LOAD_SHEDDING_PENALTY = 10000.0
 
         for t in range(T):
             s = slots[t]
             h = slot_hours[t]
             
             # 1. Energy Balance Constraint
-            # Load + Charge + Export = PV + Discharge + Import
+            # Load + Charge + Export + Curtailment = PV + Discharge + Import + LoadShedding
             prob += (
-                s.load_kwh + charge[t] + grid_export[t] 
-                == s.pv_kwh + discharge[t] + grid_import[t]
+                s.load_kwh + charge[t] + grid_export[t] + curtailment[t]
+                == s.pv_kwh + discharge[t] + grid_import[t] + load_shedding[t]
             )
 
             # 2. Battery Dynamics Constraint
@@ -116,16 +128,51 @@ class KeplerSolver:
             slot_wear_cost = (charge[t] + discharge[t]) * config.wear_cost_sek_per_kwh
             slot_import_cost = grid_import[t] * s.import_price_sek_kwh
             slot_export_revenue = grid_export[t] * s.export_price_sek_kwh
+            slot_curtailment_cost = curtailment[t] * CURTAILMENT_PENALTY
+            slot_shedding_cost = load_shedding[t] * LOAD_SHEDDING_PENALTY
             
-            total_cost.append(slot_import_cost - slot_export_revenue + slot_wear_cost)
+            total_cost.append(slot_import_cost - slot_export_revenue + slot_wear_cost + slot_curtailment_cost + slot_shedding_cost)
+            
+            # Soft Min SoC Constraint for t
+            # soc[t] >= min_soc_kwh - soc_violation[t]
+            prob += soc[t] >= min_soc_kwh - soc_violation[t]
+            
+            # Soft Max SoC Constraint (optional, usually hard physical limit is fine)
+            # But config.max_soc_percent might be < 100%.
+            # Let's make it hard constraint for now as it's usually not a feasibility issue (just stop charging).
+            prob += soc[t] <= max_soc_kwh
 
-        # Terminal SoC Constraint
-        # Use target_soc_kwh if provided, otherwise enforce "End where you started"
-        target_soc = config.target_soc_kwh if config.target_soc_kwh is not None else initial_soc
-        prob += soc[T] >= target_soc
+        # Soft constraints for terminal state T
+        prob += soc[T] >= min_soc_kwh - soc_violation[T]
+        prob += soc[T] <= max_soc_kwh
 
+        # Terminal SoC Constraint (Target)
+        # Use target_soc_kwh if provided, otherwise default to min_soc
+        # We make this soft too? Or keep it hard >= Target?
+        # If Target > Min, and we are struggling, hard constraint might be infeasible.
+        # Let's make it soft too via separate violation variable?
+        # Or just rely on Min SoC soft constraint if Target is None.
+        # If target is explicit, it's usually for strategic reasons.
+        # Let's keep it simple: If target is set, add it as a soft constraint with lower penalty?
+        # For now, let's stick to the original logic but allow violation via soc_violation if target == min_soc.
+        
+        target_soc = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
+        # If target > min_soc, we might want a separate slack.
+        # But for benchmark, target is usually None (so Min SoC).
+        # So soc[T] >= min_soc - violation[T] covers it.
+        # If target is explicit, we enforce it.
+        if config.target_soc_kwh is not None:
+             prob += soc[T] >= target_soc # Hard constraint for explicit target?
+             # If explicit target is infeasible, we crash.
+             # Ideally soft too. But let's leave it for now.
+        
+        # Terminal Value (Soft Constraint / Incentive)
+        # If terminal_value_sek_kwh > 0, we subtract (SoC[T] * Value) from cost.
+        # This incentivizes ending with higher SoC if the energy is valuable.
+        terminal_value = soc[T] * config.terminal_value_sek_kwh
+        
         # Set Objective
-        prob += pulp.lpSum(total_cost)
+        prob += pulp.lpSum(total_cost) - terminal_value + PENALTY_SEK_PER_KWH * pulp.lpSum(soc_violation)
 
         # Solve
         # msg=False to suppress stdout
@@ -135,6 +182,10 @@ class KeplerSolver:
         status = pulp.LpStatus[prob.status]
         is_optimal = (status == "Optimal")
         
+        if not is_optimal:
+            prob.writeLP("kepler_debug.lp")
+            print(f"Solver failed: {status}. LP written to kepler_debug.lp")
+
         result_slots = []
         final_total_cost = 0.0
         
@@ -163,6 +214,8 @@ class KeplerSolver:
                     grid_export_kwh=e_val,
                     soc_kwh=soc_val,
                     cost_sek=cost,
+                    import_price_sek_kwh=s.import_price_sek_kwh,
+                    export_price_sek_kwh=s.export_price_sek_kwh,
                     is_optimal=True
                 ))
         

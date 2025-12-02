@@ -273,16 +273,24 @@ async def get_forecast_data(price_slots, config):
 
             # Calculate required horizon based on config
             s_index_cfg = config.get("s_index", {})
-            days_list = s_index_cfg.get("days_ahead_for_sindex", [2, 3, 4])
-
-            # Handle both list and single integer input types safely
-            if isinstance(days_list, list):
-                max_days = max(days_list) if days_list else 4
-            else:
+            
+            # Check for new integer config first
+            horizon_days_cfg = s_index_cfg.get("s_index_horizon_days")
+            if horizon_days_cfg is not None:
                 try:
-                    max_days = int(days_list)
+                    max_days = int(horizon_days_cfg)
                 except (TypeError, ValueError):
                     max_days = 4
+            else:
+                # Fallback to legacy list
+                days_list = s_index_cfg.get("days_ahead_for_sindex", [2, 3, 4])
+                if isinstance(days_list, list):
+                    max_days = max(days_list) if days_list else 4
+                else:
+                    try:
+                        max_days = int(days_list)
+                    except (TypeError, ValueError):
+                        max_days = 4
 
             # Ensure we fetch at least enough to cover the config
             horizon_days = max(4, max_days + 1)

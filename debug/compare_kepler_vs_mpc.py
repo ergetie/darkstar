@@ -41,6 +41,39 @@ def main():
     input_data = loader.get_window_inputs(start_dt)
     input_data["initial_state"] = loader.get_initial_state_from_history(start_dt)
     
+    # DEBUG: Check Input Data Quality
+    print("\n--- Input Data Check ---")
+    print(f"Initial SoC: {input_data['initial_state'].get('battery_kwh', 'N/A')} kWh")
+    
+    # Check Forecasts
+    if "daily_load_forecast" in input_data:
+        print(f"Daily Load Forecast: {input_data['daily_load_forecast']}")
+    
+    # Check DataFrame content (prices, forecasts)
+    # We need to peek at what loader.get_window_inputs returns. 
+    # It returns a dict, but usually contains 'nordpool_prices', 'pv_forecast', etc.
+    # Wait, get_window_inputs returns a dict with keys like 'nordpool_prices', 'weather_forecast', etc.
+    # It does NOT return a DataFrame directly. The planner builds it.
+    
+    # Let's inspect the raw lists/dicts
+    prices = input_data.get("price_data", [])
+    if prices:
+        avg_price = sum(p["import_price_sek_kwh"] for p in prices) / len(prices)
+        print(f"Nordpool Prices: {len(prices)} slots, Avg: {avg_price:.2f} SEK/kWh")
+    else:
+        print("⚠️ Nordpool Prices: MISSING")
+        
+    forecasts = input_data.get("forecast_data", [])
+    if forecasts:
+        total_pv = sum(p["pv_forecast_kwh"] for p in forecasts)
+        total_load = sum(p["load_forecast_kwh"] for p in forecasts)
+        print(f"Forecasts: {len(forecasts)} slots")
+        print(f"  Total PV: {total_pv:.2f} kWh")
+        print(f"  Total Load: {total_load:.2f} kWh")
+    else:
+        print("⚠️ Forecasts: MISSING")
+    print("------------------------\n")
+    
     # Run MPC Planner
     planner = HeliosPlanner(config_path=args.config)
     

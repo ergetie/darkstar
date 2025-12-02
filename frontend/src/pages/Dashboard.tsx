@@ -9,7 +9,7 @@ import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 
-type PlannerMeta = { plannedAt?: string; version?: string } | null
+type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
 
 function formatLocalIso(d: Date | null): string {
     if (!d) return '—'
@@ -26,20 +26,20 @@ const DARKSTAR_ASCII = [
     '█▄▀ █▀█ █▀▄ █░█ ▄█ ░█░ █▀█ █▀▄',
 ]
 
-export default function Dashboard(){
+export default function Dashboard() {
     const [soc, setSoc] = useState<number | null>(null)
-    const [horizon, setHorizon] = useState<{pvDays?: number; weatherDays?: number} | null>(null)
+    const [horizon, setHorizon] = useState<{ pvDays?: number; weatherDays?: number } | null>(null)
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
     const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null)
     const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
     const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
     const [batteryCapacity, setBatteryCapacity] = useState<number | null>(null)
     const [pvToday, setPvToday] = useState<number | null>(null)
-    const [avgLoad, setAvgLoad] = useState<{kw?: number; dailyKwh?: number} | null>(null)
+    const [avgLoad, setAvgLoad] = useState<{ kw?: number; dailyKwh?: number } | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
-    const [waterToday, setWaterToday] = useState<{kwh?: number; source?: string} | null>(null)
-    const [learningStatus, setLearningStatus] = useState<{enabled?: boolean; status?: string; samples?: number} | null>(null)
-    const [exportGuard, setExportGuard] = useState<{enabled?: boolean; mode?: string} | null>(null)
+    const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
+    const [learningStatus, setLearningStatus] = useState<{ enabled?: boolean; status?: string; samples?: number } | null>(null)
+    const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
     const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[] | null>(null)
     const [serverScheduleLoading, setServerScheduleLoading] = useState(false)
     const [serverScheduleError, setServerScheduleError] = useState<string | null>(null)
@@ -48,7 +48,7 @@ export default function Dashboard(){
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
-    const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
+    const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
     const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
@@ -146,11 +146,11 @@ export default function Dashboard(){
 
                 const nextLocalMeta: PlannerMeta =
                     local?.planned_at || local?.planner_version
-                        ? { plannedAt: local.planned_at, version: local.planner_version }
+                        ? { plannedAt: local.planned_at, version: local.planner_version, sIndex: local.s_index }
                         : null
                 const nextDbMeta: PlannerMeta =
                     db?.planned_at || db?.planner_version
-                        ? { plannedAt: db.planned_at, version: db.planner_version }
+                        ? { plannedAt: db.planned_at, version: db.planner_version, sIndex: db.s_index }
                         : null
 
                 setPlannerLocalMeta(nextLocalMeta)
@@ -236,17 +236,17 @@ export default function Dashboard(){
                 setLocalSchedule(sched)
                 // Calculate PV today from schedule data
                 const today = new Date().toISOString().split('T')[0]
-                const todaySlots = data.schedule?.filter(slot => 
+                const todaySlots = data.schedule?.filter(slot =>
                     slot.start_time?.startsWith(today)
                 ) || []
-                const pvTotal = todaySlots.reduce((sum, slot) => 
+                const pvTotal = todaySlots.reduce((sum, slot) =>
                     sum + (slot.pv_forecast_kwh || 0), 0
                 )
                 setPvToday(pvTotal)
-                
+
                 // Get current slot target
                 const now = new Date()
-                    const currentSlot = sched.find(slot => {
+                const currentSlot = sched.find(slot => {
                     const slotTime = new Date(slot.start_time || '')
                     const slotEnd = new Date(slotTime.getTime() + 30 * 60 * 1000) // 30 min slots
                     return now >= slotTime && now < slotEnd
@@ -394,180 +394,183 @@ export default function Dashboard(){
     } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
         nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
     }
-	    // Build slotsOverride for the chart:
-	    // - Server plan: use merged serverSchedule (already contains execution history).
-	    // - Local plan: mirror Planning view by merging today's history with tomorrow's schedule
-	    //   so SoC Actual appears in both 24h and 48h modes.
-	    let slotsOverride: ScheduleSlot[] | undefined
-	    if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
-	        slotsOverride = serverSchedule
-	    } else if (currentPlanSource === 'local' && localSchedule && localSchedule.length > 0) {
-	        const todayAndTomorrow = localSchedule.filter(
-	            slot => isToday(slot.start_time) || isTomorrow(slot.start_time),
-	        )
-	        if (historySlots && historySlots.length > 0) {
-	            const tomorrowSlots = todayAndTomorrow.filter(slot => isTomorrow(slot.start_time))
-	            slotsOverride = [...historySlots, ...tomorrowSlots]
-	        } else {
-	            slotsOverride = todayAndTomorrow
-	        }
-	    }
+    // Build slotsOverride for the chart:
+    // - Server plan: use merged serverSchedule (already contains execution history).
+    // - Local plan: mirror Planning view by merging today's history with tomorrow's schedule
+    //   so SoC Actual appears in both 24h and 48h modes.
+    let slotsOverride: ScheduleSlot[] | undefined
+    if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
+        slotsOverride = serverSchedule
+    } else if (currentPlanSource === 'local' && localSchedule && localSchedule.length > 0) {
+        const todayAndTomorrow = localSchedule.filter(
+            slot => isToday(slot.start_time) || isTomorrow(slot.start_time),
+        )
+        if (historySlots && historySlots.length > 0) {
+            const tomorrowSlots = todayAndTomorrow.filter(slot => isTomorrow(slot.start_time))
+            slotsOverride = [...historySlots, ...tomorrowSlots]
+        } else {
+            slotsOverride = todayAndTomorrow
+        }
+    }
+
+    // S-Index Display Logic
+    const sIndexVal = plannerMeta?.sIndex?.effective_load_margin
+    const targetSocVal = plannerMeta?.sIndex?.target_soc?.target_percent
+    const sIndexDisplay = sIndexVal ? `x${sIndexVal.toFixed(2)}` : '—'
+    const termDisplay = targetSocVal ? `Target ${targetSocVal.toFixed(0)}%` : ''
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-10">
-        <div className="flex flex-col items-center mb-3">
-            <pre className="text-[10px] leading-[1.15] bg-gradient-to-b from-accent to-accent/20 bg-clip-text text-transparent font-mono text-center">
-{DARKSTAR_ASCII.map((line) => line).join('\n')}
-            </pre>
-        </div>
-        {/* Row 1: Schedule Overview (24h / 48h) */}
-        <motion.div initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <ChartCard
-            useHistoryForToday={currentPlanSource === 'local'}
-            refreshToken={chartRefreshToken}
-            slotsOverride={slotsOverride}
-            range="48h"
-            showDayToggle={true}
-        />
-        </motion.div>
+            <div className="flex flex-col items-center mb-3">
+                <pre className="text-[10px] leading-[1.15] bg-gradient-to-b from-accent to-accent/20 bg-clip-text text-transparent font-mono text-center">
+                    {DARKSTAR_ASCII.map((line) => line).join('\n')}
+                </pre>
+            </div>
+            {/* Row 1: Schedule Overview (24h / 48h) */}
+            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                <ChartCard
+                    useHistoryForToday={currentPlanSource === 'local'}
+                    refreshToken={chartRefreshToken}
+                    slotsOverride={slotsOverride}
+                    range="48h"
+                    showDayToggle={true}
+                />
+            </motion.div>
 
-        {/* Row 2: Advisor + System Status + Quick Actions / Automation */}
-        <div className="grid gap-6 lg:grid-cols-3 items-stretch">
-        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <SmartAdvisor />
-        </motion.div>
-        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <Card className="h-full p-4 md:p-5">
-        <div className="flex items-baseline justify-between mb-3">
-        <div className="text-sm text-muted">System Status</div>
-        <div className="flex items-center gap-2">
-            <div className="text-[10px] text-muted">
-                {autoRefresh ? 'auto-refresh' : 'manual'}
-                {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
+            {/* Row 2: Advisor + System Status + Quick Actions / Automation */}
+            <div className="grid gap-6 lg:grid-cols-3 items-stretch">
+                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    <SmartAdvisor />
+                </motion.div>
+                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    <Card className="h-full p-4 md:p-5">
+                        <div className="flex items-baseline justify-between mb-3">
+                            <div className="text-sm text-muted">System Status</div>
+                            <div className="flex items-center gap-2">
+                                <div className="text-[10px] text-muted">
+                                    {autoRefresh ? 'auto-refresh' : 'manual'}
+                                    {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
+                                </div>
+                                {statusMessage && (
+                                    <div className="text-[10px] text-amber-400">
+                                        {statusMessage}
+                                    </div>
+                                )}
+                                <button
+                                    onClick={() => fetchAllData()}
+                                    disabled={isRefreshing}
+                                    className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
+                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
+                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                        }`}
+                                    title="Refresh data"
+                                >
+                                    <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
+                                        {isRefreshing ? '⟳' : '↻'}
+                                    </span>
+                                </button>
+                                <button
+                                    onClick={() => setAutoRefresh(!autoRefresh)}
+                                    className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${autoRefresh
+                                        ? 'bg-accent text-canvas border border-accent'
+                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                        }`}
+                                    title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
+                                >
+                                    ⏱
+                                </button>
+                            </div>
+                        </div>
+                        <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
+                            <div className="text-text">Now showing: {planBadge}{planMeta}</div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                            <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `target ${currentSlotTarget.toFixed(0)}%` : 'target —%'} />
+                            <Kpi label="S-Index" value={sIndexDisplay} hint={termDisplay} />
+                            <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
+                            <Kpi label="Avg Load" value={avgLoad?.kw !== undefined ? `${avgLoad.kw.toFixed(1)} kW` : '— kW'} hint={avgLoad?.dailyKwh !== undefined ? `HA ${avgLoad.dailyKwh.toFixed(1)} kWh/day` : ''} />
+                        </div>
+                    </Card>
+                </motion.div>
+                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    <div className="flex h-full flex-col gap-6">
+                        <Card className="flex-1 p-4 md:p-5">
+                            <div className="text-sm text-muted mb-3">Quick Actions</div>
+                            <QuickActions
+                                onDataRefresh={fetchAllData}
+                                onPlanSourceChange={handlePlanSourceChange}
+                                onServerScheduleLoaded={handleServerScheduleLoaded}
+                            />
+                        </Card>
+                        <Card className="flex-1 p-4 md:p-5">
+                            <div className="flex items-baseline justify-between mb-2">
+                                <div className="text-sm text-muted">Planner Automation</div>
+                                <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2 text-[10px] text-muted">
+                                        <span
+                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${automationConfig?.enable_scheduler
+                                                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                                                : 'bg-line'
+                                                }`}
+                                        />
+                                        <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={toggleAutomationScheduler}
+                                        disabled={automationSaving}
+                                        className="rounded-pill px-3 py-1 text-[10px] font-semibold border border-line/60 text-muted hover:border-accent hover:text-accent disabled:opacity-50 transition"
+                                    >
+                                        {automationConfig?.enable_scheduler ? 'Disable' : 'Enable'}
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="text-[11px] text-muted">
+                                {automationConfig?.enable_scheduler
+                                    ? 'Planner will auto-run on the configured schedule.'
+                                    : 'Auto-planner is off. Use Quick Actions to run manually.'}
+                            </div>
+                            <div className="mt-2 space-y-1 text-[10px] text-muted">
+                                <div>
+                                    Last plan run: {formatLocalIso(lastRunDate)}
+                                </div>
+                                <div>
+                                    Next expected run:{' '}
+                                    {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
+                                </div>
+                                <div>
+                                    DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}
+                                </div>
+                            </div>
+                        </Card>
+                    </div>
+                </motion.div>
             </div>
-            {statusMessage && (
-                <div className="text-[10px] text-amber-400">
-                    {statusMessage}
-                </div>
-            )}
-            <button
-                onClick={() => fetchAllData()}
-                disabled={isRefreshing}
-                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
-                    isRefreshing 
-                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed' 
-                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                }`}
-                title="Refresh data"
-            >
-                <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
-                    {isRefreshing ? '⟳' : '↻'}
-                </span>
-            </button>
-            <button
-                onClick={() => setAutoRefresh(!autoRefresh)}
-                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
-                    autoRefresh 
-                        ? 'bg-accent text-canvas border border-accent' 
-                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                }`}
-                title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
-            >
-                ⏱
-            </button>
-        </div>
-        </div>
-        <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
-        <div className="text-text">Now showing: {planBadge}{planMeta}</div>
-        </div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `target ${currentSlotTarget.toFixed(0)}%` : 'target —%'} />
-        <Kpi label="Battery Cap" value={batteryCapacity !== null ? `${batteryCapacity.toFixed(1)} kWh` : '— kWh'} />
-        <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
-        <Kpi label="Avg Load" value={avgLoad?.kw !== undefined ? `${avgLoad.kw.toFixed(1)} kW` : '— kW'} hint={avgLoad?.dailyKwh !== undefined ? `HA ${avgLoad.dailyKwh.toFixed(1)} kWh/day` : ''} />
-        </div>
-        </Card>
-        </motion.div>
-        <motion.div className="h-full" initial={{opacity:0, y:8}} animate={{opacity:1,y:0}}>
-        <div className="flex h-full flex-col gap-6">
-        <Card className="flex-1 p-4 md:p-5">
-        <div className="text-sm text-muted mb-3">Quick Actions</div>
-        <QuickActions
-            onDataRefresh={fetchAllData}
-            onPlanSourceChange={handlePlanSourceChange}
-            onServerScheduleLoaded={handleServerScheduleLoaded}
-        />
-        </Card>
-        <Card className="flex-1 p-4 md:p-5">
-        <div className="flex items-baseline justify-between mb-2">
-            <div className="text-sm text-muted">Planner Automation</div>
-            <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 text-[10px] text-muted">
-                    <span
-                        className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                            automationConfig?.enable_scheduler
-                                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
-                                : 'bg-line'
-                        }`}
-                    />
-                    <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
-                </div>
-                <button
-                    type="button"
-                    onClick={toggleAutomationScheduler}
-                    disabled={automationSaving}
-                    className="rounded-pill px-3 py-1 text-[10px] font-semibold border border-line/60 text-muted hover:border-accent hover:text-accent disabled:opacity-50 transition"
-                >
-                    {automationConfig?.enable_scheduler ? 'Disable' : 'Enable'}
-                </button>
-            </div>
-        </div>
-        <div className="text-[11px] text-muted">
-            {automationConfig?.enable_scheduler
-                ? 'Planner will auto-run on the configured schedule.'
-                : 'Auto-planner is off. Use Quick Actions to run manually.'}
-        </div>
-        <div className="mt-2 space-y-1 text-[10px] text-muted">
-            <div>
-                Last plan run: {formatLocalIso(lastRunDate)}
-            </div>
-            <div>
-                Next expected run:{' '}
-                {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
-            </div>
-            <div>
-                DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}
-            </div>
-        </div>
-        </Card>
-        </div>
-        </motion.div>
-        </div>
 
-        {/* Row 3: Context Cards */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <Card className="p-5">
-        <div className="text-sm text-muted mb-3">Water heater</div>
-        <div className="flex items-center justify-between">
-        <div className="text-2xl">Eco mode</div>
-        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
-            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
-        </div>
-        </div>
-        </Card>
-        <Card className="p-5">
-        <div className="text-sm text-muted mb-3">Export guard</div>
-        <div className="text-2xl capitalize">
-            {exportGuard?.enabled ? (exportGuard?.mode || 'passive') : 'disabled'}
-        </div>
-        </Card>
-        <Card className="p-5">
-        <div className="text-sm text-muted mb-3">Learning</div>
-        <div className="text-2xl capitalize">
-            {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
-        </div>
-        </Card>
-        </div>
+            {/* Row 3: Context Cards */}
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                <Card className="p-5">
+                    <div className="text-sm text-muted mb-3">Water heater</div>
+                    <div className="flex items-center justify-between">
+                        <div className="text-2xl">Eco mode</div>
+                        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
+                            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
+                        </div>
+                    </div>
+                </Card>
+                <Card className="p-5">
+                    <div className="text-sm text-muted mb-3">Export guard</div>
+                    <div className="text-2xl capitalize">
+                        {exportGuard?.enabled ? (exportGuard?.mode || 'passive') : 'disabled'}
+                    </div>
+                </Card>
+                <Card className="p-5">
+                    <div className="text-sm text-muted mb-3">Learning</div>
+                    <div className="text-2xl capitalize">
+                        {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
+                    </div>
+                </Card>
+            </div>
         </main>
     )
 }

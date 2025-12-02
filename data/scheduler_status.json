@@ -2,8 +2,8 @@
   "enabled": true,
   "every_minutes": 60,
   "jitter_minutes": 0,
-  "last_run_at": "2025-12-01T10:58:34.064853+00:00",
-  "next_run_at": "2025-12-01T11:58:34.064853+00:00",
-  "last_run_status": "error",
-  "last_error": "'water_from_pv_kwh'"
+  "last_run_at": "2025-12-02T20:34:28.698621+00:00",
+  "next_run_at": "2025-12-02T21:34:28.698621+00:00",
+  "last_run_status": "success",
+  "last_error": null
 }

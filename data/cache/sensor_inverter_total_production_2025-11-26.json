@@ -1,0 +1,1 @@
+{"entity_id": "sensor.inverter_total_production", "start_time": "2025-11-26T08:00:00+00:00", "end_time": "2025-11-26T08:45:00+00:00", "period": "hour", "result": [{"start": 1764144000000, "end": 1764147600000, "state": 2084.5, "last_reset": null, "sum": 2082.6, "change": 0.09999999999990905}]}

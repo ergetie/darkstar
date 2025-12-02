@@ -286,11 +286,11 @@ class LearningEngine:
                         slot_end = COALESCE(excluded.slot_end, slot_observations.slot_end),
                         import_price_sek_kwh = COALESCE(
                             excluded.import_price_sek_kwh,
-                            slot_observations.import_price_sek_kwh,
+                            slot_observations.import_price_sek_kwh
                         ),
                         export_price_sek_kwh = COALESCE(
                             excluded.export_price_sek_kwh,
-                            slot_observations.export_price_sek_kwh,
+                            slot_observations.export_price_sek_kwh
                         )
                     """,
                     (

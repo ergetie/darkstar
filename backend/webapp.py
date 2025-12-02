@@ -691,6 +691,7 @@ def planner_status():
         status["local"] = {
             "planned_at": meta.get("planned_at"),
             "planner_version": meta.get("planner_version"),
+            "s_index": meta.get("s_index"),
         }
     except Exception:
         pass

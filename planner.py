@@ -748,9 +748,19 @@ class HeliosPlanner:
         temp_baseline = float(s_index_cfg.get("temp_baseline_c", 20.0))
         temp_cold = float(s_index_cfg.get("temp_cold_c", -15.0))
 
-        day_offsets = s_index_cfg.get("days_ahead_for_sindex", [2, 3, 4])
-        if not isinstance(day_offsets, (list, tuple)):
-            day_offsets = [2, 3, 4]
+        # Determine days to check (Config Migration: list -> int)
+        horizon_days = s_index_cfg.get("s_index_horizon_days")
+        if horizon_days is not None:
+            try:
+                # If set to 4, we check days 1, 2, 3, 4
+                day_offsets = list(range(1, int(horizon_days) + 1))
+            except (ValueError, TypeError):
+                day_offsets = [1, 2, 3, 4]
+        else:
+            # Legacy fallback
+            day_offsets = s_index_cfg.get("days_ahead_for_sindex", [1, 2, 3, 4])
+            if not isinstance(day_offsets, (list, tuple)):
+                day_offsets = [1, 2, 3, 4]
 
         normalized_days: list[int] = []
         for offset in day_offsets:
@@ -786,8 +796,9 @@ class HeliosPlanner:
             mask = local_dates == target_date
             if mask.any():
                 considered_days.append(offset)
-                load_sum = float(df.loc[mask, "adjusted_load_kwh"].sum())
-                pv_sum = float(df.loc[mask, "adjusted_pv_kwh"].sum())
+                # Use RAW forecasts to calculate deficit, not adjusted (circular dependency)
+                load_sum = float(df.loc[mask, "load_forecast_kwh"].sum())
+                pv_sum = float(df.loc[mask, "pv_forecast_kwh"].sum())
             else:
                 key = target_date.isoformat()
                 load_sum = float(daily_load_map.get(key, 0.0))
@@ -848,6 +859,70 @@ class HeliosPlanner:
         }
 
         return factor, debug_data
+
+    def _calculate_future_risk_factor(self, df: pd.DataFrame, s_index_cfg: dict) -> tuple[float, dict]:
+        """
+        Calculate S-Index for the Future (D2) to determine Terminal Value.
+        Uses D2 Temperature and PV forecasts.
+        """
+        # Configuration
+        base_factor = float(s_index_cfg.get("base_factor", 1.05))
+        max_factor = float(s_index_cfg.get("max_factor", 1.50))
+        temp_weight = float(s_index_cfg.get("temp_weight", 0.0))
+        temp_baseline = float(s_index_cfg.get("temp_baseline_c", 20.0))
+        temp_cold = float(s_index_cfg.get("temp_cold_c", -15.0))
+        
+        # Determine D2 horizon (approx 24-48h ahead)
+        tz = pytz.timezone(self.timezone)
+        today = datetime.now(tz).date()
+        d2_date = today + timedelta(days=2) # Day after tomorrow
+        
+        # Fetch D2 Temperature
+        temps_map = self._fetch_temperature_forecast([2], tz)
+        d2_temp = temps_map.get(2)
+        
+        temp_adjustment = 0.0
+        if d2_temp is not None and temp_weight > 0:
+            span = temp_baseline - temp_cold
+            if span <= 0: span = 1.0
+            # Cold temp -> High adjustment (risk)
+            temp_adjustment = max(0.0, min(1.0, (temp_baseline - d2_temp) / span))
+            
+        # Calculate Risk Factor
+        # Note: We don't have D2 PV deficit easily accessible without full forecast, 
+        # so we rely primarily on Temperature for D2 risk.
+        raw_factor = base_factor + (temp_weight * temp_adjustment)
+        risk_factor = min(max_factor, max(0.0, raw_factor))
+        
+        debug = {
+            "d2_date": d2_date.isoformat(),
+            "d2_temp_c": d2_temp,
+            "temp_adjustment": round(temp_adjustment, 4),
+            "risk_factor": round(risk_factor, 4)
+        }
+        return risk_factor, debug
+
+    def _calculate_terminal_value(self, df: pd.DataFrame, risk_factor: float) -> tuple[float, dict]:
+        """
+        Calculate the value of energy remaining in the battery at the end of the horizon.
+        Terminal Value = Average Price (D1) * Risk Factor (D2).
+        """
+        # Calculate Average Price for the known horizon (D0+D1)
+        # Ideally we want D1 average, but full horizon average is a good proxy.
+        if df.empty:
+            return 0.0, {}
+            
+        avg_price = df["import_price_sek_kwh"].mean()
+        
+        # Terminal Value
+        terminal_value = avg_price * risk_factor
+        
+        debug = {
+            "avg_price_sek_kwh": round(avg_price, 4),
+            "risk_factor_d2": round(risk_factor, 4),
+            "terminal_value_sek_kwh": round(terminal_value, 4)
+        }
+        return terminal_value, debug
 
     def _record_debug_payload(self, payload: dict) -> None:
         """Persist planner debug payloads for observability."""
@@ -1007,7 +1082,13 @@ class HeliosPlanner:
             k_input = planner_to_kepler_input(future_df, initial_soc_kwh)
             k_config = config_to_kepler_config(self.config)
             
+            # Inject Dynamic Target SoC (Strategic Buffer)
+            # This was calculated in _pass_0 based on S-Index D2
+            k_config.target_soc_kwh = getattr(self, "target_soc_kwh", None)
+            k_config.terminal_value_sek_kwh = getattr(self, "terminal_value_sek_kwh", 0.0)
+            
             print(f"🔭 Kepler Primary: Solving for {len(future_df)} slots from {self.now_slot}...")
+            print(f"   Target SoC: {k_config.target_soc_kwh:.2f} kWh (Terminal Value: {k_config.terminal_value_sek_kwh:.4f})")
             solver = KeplerSolver()
             result = solver.solve(k_input, k_config)
             
@@ -1033,15 +1114,26 @@ class HeliosPlanner:
                 "kepler_charge_kwh", "kepler_discharge_kwh",
                 "kepler_import_kwh", "kepler_export_kwh",
                 "kepler_soc_kwh", "kepler_cost_sek",
-                # Missing columns required by UI/Debug payload
-                "water_from_pv_kwh", "water_from_battery_kwh", 
-                "water_from_grid_kwh", "projected_battery_cost"
+                # "water_from_pv_kwh", "water_from_battery_kwh", 
+                # "water_from_grid_kwh", "projected_battery_cost"
+                "projected_battery_cost"
             ]
+            
+            # Remove water heating columns from kepler_df if present to prevent overwriting
+            # the schedule generated by _pass_2_schedule_water_heating
+            cols_to_drop = ["water_heating_kw", "water_from_grid_kwh", "water_from_pv_kwh", "water_from_battery_kwh"]
+            kepler_df = kepler_df.drop(columns=[c for c in cols_to_drop if c in kepler_df.columns])
             
             # Initialize columns in main df if missing (with 0 or appropriate default)
             for col in kepler_cols:
                 if col not in df.columns:
                     df[col] = 0.0 if "action" not in col else "Hold"
+            
+            # Explicitly initialize water breakdown columns (removed from kepler_cols)
+            # to ensure debug payload generation works
+            for col in ["water_from_grid_kwh", "water_from_pv_kwh", "water_from_battery_kwh"]:
+                if col not in df.columns:
+                    df[col] = 0.0
                     
             # Update future rows
             df.update(kepler_df)
@@ -1109,6 +1201,7 @@ class HeliosPlanner:
         df = self._prepare_data_frame(input_data)
         self.state = input_data["initial_state"]
         current_soc = self.state.get("battery_soc_percent")
+        max_soc_percent = self.battery_config.get("max_soc_percent", 100.0)
         try:
             if (
                 current_soc is not None
@@ -1204,9 +1297,73 @@ class HeliosPlanner:
         """
         forecasting = self.config.get("forecasting", {})
         pv_confidence = forecasting.get("pv_confidence_percent", 90.0) / 100.0
-        load_margin = forecasting.get("load_safety_margin_percent", 110.0) / 100.0
+
+        # S-index factor (static or dynamic, optionally adjusted by learning)
+        s_index_cfg = self.config.get("s_index", {})
+        s_index_mode = (s_index_cfg.get("mode") or "static").lower()
+        s_index_max = float(s_index_cfg.get("max_factor", 1.50))
+        static_factor = float(s_index_cfg.get("static_factor", 1.05))
+        base_factor = float(s_index_cfg.get("base_factor", static_factor))
+
+        # Apply learned base_factor if available
+        overlays = getattr(self, "learning_overlays", {}) or {}
+        learned_base = overlays.get("s_index_base_factor")
+        if isinstance(learned_base, (int, float)):
+            base_factor = float(learned_base)
+
+        # Determine effective s-index (Decoupled Strategy)
+        # 1. Load Inflation: Purely for D1 Forecast Error (Intra-day Safety).
+        # We use static base_factor (e.g. 1.1) to buffer against today's uncertainties.
+        # We do NOT use dynamic D2/D3 risk here to avoid "Double Buffering".
+        s_index_factor = base_factor
+        
+        s_index_debug = {
+            "mode": "decoupled",
+            "base_factor": base_factor,
+            "static_factor": static_factor,
+            "max_factor": s_index_max,
+            "note": "Load Inflation is static (D1 Safety). Target SoC is dynamic (D2 Strategy)."
+        }
+
+        # _calculate_dynamic_s_index is no longer used for Load Inflation.
+        # It was causing the "Steep Decline" / Double Buffering issue.
+
+        # Use S-Index directly for load adjustment (Inflated Demand Strategy)
+        effective_load_margin = s_index_factor
+        s_index_debug["effective_load_margin"] = effective_load_margin
+        s_index_debug["source"] = "base_factor"
+        
+        # --- Strategic S-Index Logic (Dynamic Target SoC) ---
+        # 1. Calculate Risk Factor (D2/D3 lookahead)
+        risk_factor, future_risk = self._calculate_future_risk_factor(df, s_index_cfg)
+
+        # 2. Calculate Dynamic Target SoC (Hard Constraint)
+        # Target % = Min % + (Risk - 1.0) * Scaling
+        min_soc_pct = float(self.battery_config.get("min_soc_percent", 10.0))
+        soc_scaling = float(s_index_cfg.get("soc_scaling_factor", 50.0))
+        
+        target_soc_pct = min_soc_pct + max(0.0, (risk_factor - 1.0) * soc_scaling)
+        target_soc_pct = min(100.0, target_soc_pct)
+        
+        capacity_kwh = float(self.battery_config.get("capacity_kwh", 0.0))
+        target_soc_kwh = (target_soc_pct / 100.0) * capacity_kwh if capacity_kwh > 0 else 0.0
+        
+        self.target_soc_kwh = target_soc_kwh
+        self.terminal_value_sek_kwh = 0.0 # Disabled in favor of Target SoC
+        
+        s_index_debug["future_risk"] = future_risk
+        s_index_debug["target_soc"] = {
+            "risk_factor": risk_factor,
+            "scaling_factor": soc_scaling,
+            "target_percent": round(target_soc_pct, 2),
+            "target_kwh": round(target_soc_kwh, 2)
+        }
+        
+        # Store for Kepler
+        self.s_index_debug = s_index_debug
+
         df["adjusted_pv_kwh"] = df["pv_forecast_kwh"] * pv_confidence
-        df["adjusted_load_kwh"] = df["load_forecast_kwh"] * load_margin
+        df["adjusted_load_kwh"] = df["load_forecast_kwh"] * effective_load_margin
 
         # Apply per-hour learning adjustments if available
         overlays = getattr(self, "learning_overlays", {}) or {}
@@ -3233,10 +3390,11 @@ class HeliosPlanner:
         output = {
             "schedule": merged_schedule,
             "meta": {
-                "planned_at": datetime.now().isoformat(),
-                "planner_version": version,
-                "forecast": forecast_meta,
-            },
+            "planned_at": datetime.now().isoformat(),
+            "planner_version": version,
+            "forecast": forecast_meta,
+            "s_index": getattr(self, "s_index_debug", {}),
+        },
         }
 
         # Add debug payload if enabled
@@ -3451,7 +3609,9 @@ def dataframe_to_json_response(df, now_override: Optional[datetime] = None):
             reason = "expensive_grid_power"
             priority = "high"
         elif charge_kw > 0:
-            if grid_charge_kw > 0:
+            # Robustness: Check if we are importing from grid, even if charge_kw (legacy) is 0
+            is_importing = grid_charge_kw > 0 or float(record.get("import_kwh") or record.get("grid_import_kw") or 0.0) > 0
+            if is_importing:
                 reason = "cheap_grid_power"
             else:
                 reason = "excess_pv"
