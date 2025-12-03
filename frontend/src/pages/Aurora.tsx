@@ -19,6 +19,8 @@ export default function Aurora() {
   const [effectiveSIndexMode, setEffectiveSIndexMode] = useState<string | null>(null)
   const [riskStatus, setRiskStatus] = useState<string>('')
   const riskStatusTimeoutRef = useRef<number | null>(null)
+  const [autoTuneEnabled, setAutoTuneEnabled] = useState<boolean>(false)
+  const [togglingAutoTune, setTogglingAutoTune] = useState(false)
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -30,6 +32,7 @@ export default function Aurora() {
         if (typeof bf === 'number') {
           setRiskBaseFactor(bf)
         }
+        setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
       } catch (err) {
         console.error('Failed to load Aurora dashboard:', err)
       } finally {
@@ -96,6 +99,20 @@ export default function Aurora() {
     }
   }
 
+  const handleAutoTuneToggle = async () => {
+    const newValue = !autoTuneEnabled
+    setAutoTuneEnabled(newValue)
+    setTogglingAutoTune(true)
+    try {
+      await Api.configSave({ learning: { auto_tune_enabled: newValue } })
+    } catch (err) {
+      console.error('Failed to toggle auto-tune:', err)
+      setAutoTuneEnabled(!newValue) // Revert on error
+    } finally {
+      setTogglingAutoTune(false)
+    }
+  }
+
   const riskLabel = useMemo(() => {
     const persona = dashboard?.state?.risk_profile?.persona
     if (!persona) return 'Unknown'
@@ -115,8 +132,8 @@ export default function Aurora() {
     overallVol < 0.3
       ? 'from-emerald-900/60 via-surface to-surface'
       : overallVol < 0.7
-      ? 'from-sky-900/60 via-surface to-surface'
-      : 'from-amber-900/60 via-surface to-surface'
+        ? 'from-sky-900/60 via-surface to-surface'
+        : 'from-amber-900/60 via-surface to-surface'
 
   const horizonSlots = dashboard?.horizon?.slots ?? []
 
@@ -266,6 +283,21 @@ export default function Aurora() {
               </div>
               <div>{(overallVol * 100).toFixed(0)}% (48h)</div>
             </div>
+            <div className="ml-4 border-l border-white/10 pl-4 flex flex-col items-center justify-center">
+              <div className="text-[10px] uppercase tracking-wide text-muted mb-1">Auto-Tuner</div>
+              <button
+                type="button"
+                onClick={handleAutoTuneToggle}
+                disabled={togglingAutoTune}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${autoTuneEnabled ? 'bg-accent' : 'bg-surface2'
+                  }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${autoTuneEnabled ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                />
+              </button>
+            </div>
           </div>
         </Card>
       </div>
@@ -318,12 +350,12 @@ export default function Aurora() {
               </div>
             </div>
           </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-[11px] text-muted">
-                <span>Frugal (0.9)</span>
-                <span>Balanced (1.1)</span>
-                <span>Fortified (1.5)</span>
-              </div>
+          <div className="space-y-2">
+            <div className="flex justify-between text-[11px] text-muted">
+              <span>Frugal (0.9)</span>
+              <span>Balanced (1.1)</span>
+              <span>Fortified (1.5)</span>
+            </div>
             <div className="relative mt-1">
               <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-surface2" />
               <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 flex">
@@ -340,8 +372,8 @@ export default function Aurora() {
                   riskBaseFactor === 0.9
                     ? 0
                     : riskBaseFactor === 1.5
-                    ? 2
-                    : 1
+                      ? 2
+                      : 1
                 }
                 onChange={(event) => {
                   const idx = parseInt(event.target.value, 10)
@@ -369,13 +401,12 @@ export default function Aurora() {
             <div className="text-[11px] text-muted space-y-1">
               <div className="flex items-center gap-2">
                 <span
-                  className={`inline-block h-2 w-2 rounded-full ${
-                    riskBaseFactor != null && riskBaseFactor < 1.0
+                  className={`inline-block h-2 w-2 rounded-full ${riskBaseFactor != null && riskBaseFactor < 1.0
                       ? 'bg-emerald-400'
                       : riskBaseFactor != null && riskBaseFactor > 1.2
-                      ? 'bg-amber-400'
-                      : 'bg-sky-400'
-                  }`}
+                        ? 'bg-amber-400'
+                        : 'bg-sky-400'
+                    }`}
                 />
                 <span>
                   Current base factor:{' '}
@@ -411,9 +442,8 @@ export default function Aurora() {
           <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px]">
             <button
               type="button"
-              className={`px-2 py-0.5 rounded-full ${
-                chartMode === 'load' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-              }`}
+              className={`px-2 py-0.5 rounded-full ${chartMode === 'load' ? 'bg-accent text-[#0F1216]' : 'text-muted'
+                }`}
               onClick={() => setChartMode('load')}
             >
               <span className="inline-flex items-center gap-1">
@@ -423,9 +453,8 @@ export default function Aurora() {
             </button>
             <button
               type="button"
-              className={`px-2 py-0.5 rounded-full ${
-                chartMode === 'pv' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-              }`}
+              className={`px-2 py-0.5 rounded-full ${chartMode === 'pv' ? 'bg-accent text-[#0F1216]' : 'text-muted'
+                }`}
               onClick={() => setChartMode('pv')}
             >
               <span className="inline-flex items-center gap-1">
@@ -465,9 +494,8 @@ export default function Aurora() {
                   </span>{' '}
                   kWh (
                   <span
-                    className={`font-mono ${
-                      pvImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
+                    className={`font-mono ${pvImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                      }`}
                   >
                     {pvImprovement.pct.toFixed(1)}% {pvImprovement.pct >= 0 ? 'better' : 'worse'}
                   </span>
@@ -491,9 +519,8 @@ export default function Aurora() {
                   </span>{' '}
                   kWh (
                   <span
-                    className={`font-mono ${
-                      loadImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
-                    }`}
+                    className={`font-mono ${loadImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
+                      }`}
                   >
                     {loadImprovement.pct.toFixed(1)}%{' '}
                     {loadImprovement.pct >= 0 ? 'better' : 'worse'}

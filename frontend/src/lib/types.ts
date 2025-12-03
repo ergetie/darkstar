@@ -64,10 +64,11 @@ export type AuroraDashboardResponse = {
   state: {
     risk_profile: AuroraRiskProfile;
     weather_volatility: AuroraWeatherVolatility;
+    auto_tune_enabled: boolean;
   };
   horizon: AuroraHorizon;
   history: { correction_volume_days: AuroraHistoryDay[] };
-   metrics?: {
+  metrics?: {
     mae_pv_aurora?: number | null;
     mae_pv_baseline?: number | null;
     mae_load_aurora?: number | null;

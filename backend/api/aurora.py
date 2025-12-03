@@ -347,6 +347,7 @@ def aurora_dashboard():
         "state": {
             "risk_profile": risk_profile,
             "weather_volatility": weather_volatility,
+            "auto_tune_enabled": bool(config.get("learning", {}).get("auto_tune_enabled", False)),
         },
         "horizon": horizon,
         "history": {
