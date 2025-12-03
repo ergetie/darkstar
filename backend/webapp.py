@@ -1646,6 +1646,18 @@ def learning_run():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/performance/data", methods=["GET"])
+def performance_data():
+    """Return performance data for visualization."""
+    try:
+        days = int(request.args.get("days", 7))
+        engine = get_learning_engine()
+        data = engine.get_performance_series(days_back=days)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/learning/loops", methods=["GET"])
 def learning_loops():
     """Get status of individual learning loops."""
@@ -1970,6 +1982,22 @@ def historic_soc():
         return jsonify({"error": f"Failed to fetch historical SoC data: {str(e)}"}), 500
 
 
+@app.route("/performance")
+def performance_page():
+    """Render the performance dashboard."""
+    return render_template("performance.html")
+
+@app.route("/api/performance/metrics")
+def get_performance_metrics():
+    """Get performance metrics for charts."""
+    try:
+        engine = get_learning_engine()
+        days = request.args.get("days", 7, type=int)
+        data = engine.get_performance_series(days_back=days)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 def record_observation_from_current_state():
     """Record current system state as observation for learning engine."""
     try:
@@ -1988,12 +2016,31 @@ def record_observation_from_current_state():
 
         # Get current system state
         try:
-            from inputs import get_initial_state
+            from inputs import get_initial_state, get_nordpool_data
 
             initial_state = get_initial_state()
 
             if not initial_state:
                 return  # No data available
+
+            # Fetch current prices
+            try:
+                price_data = get_nordpool_data()
+                current_import_price = 0.0
+                current_export_price = 0.0
+                
+                # Find price for current slot
+                # We use current_slot_start which is timezone-aware (from now)
+                # price_data slots are also timezone-aware
+                for slot in price_data:
+                    if slot["start_time"] <= now < slot["end_time"]:
+                        current_import_price = slot["import_price_sek_kwh"]
+                        current_export_price = slot["export_price_sek_kwh"]
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to fetch current prices: {e}")
+                current_import_price = 0.0
+                current_export_price = 0.0
 
             # Create observation record aligned to 15-minute slots
             current_slot_start = now.replace(
@@ -2113,8 +2160,9 @@ def record_observation_from_current_state():
                 "batt_discharge_kwh": deltas["batt_discharge_kwh"],
                 "soc_start_percent": initial_state.get("battery_soc_percent", 0),
                 "soc_end_percent": initial_state.get("battery_soc_percent", 0),
-                "import_price_sek_kwh": 0.0,
-                "export_price_sek_kwh": 0.0,
+                "soc_end_percent": initial_state.get("battery_soc_percent", 0),
+                "import_price_sek_kwh": current_import_price,
+                "export_price_sek_kwh": current_export_price,
                 "quality_flags": "auto_recorded",
             }
 

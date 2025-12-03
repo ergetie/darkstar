@@ -12,7 +12,7 @@ import requests
 from flask import Blueprint, jsonify, request
 
 from inputs import _load_yaml
-from learning import get_learning_engine
+from backend.learning import get_learning_engine
 from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
 

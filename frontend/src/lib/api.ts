@@ -272,6 +272,7 @@ export const Api = {
     briefing: (payload: AuroraDashboardResponse) =>
       getJSON<AuroraBriefingResponse>('/api/aurora/briefing', 'POST', payload),
   },
+  performanceData: (days = 7) => getJSON<any>(`/api/performance/data?days=${days}`),
 }
 
 export const Sel = {

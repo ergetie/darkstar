@@ -82,7 +82,18 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 *   **Persistence:** Store daily metrics in `planner_learning.db`.
 *   **Feedback:** Use these metrics to auto-adjust `s_index` or `wear_cost` baselines (Phase 3).
 
-**Status:** Planned.
+**Status:** Completed.
+**Outcome:** `planner_learning.db` now tracks planned vs actuals.
+
+### Rev K7 — The Mirror (Backfill & Visualization)
+
+**Goal:** Ensure data continuity and visualize performance.
+
+**Scope:**
+*   Implement auto-backfill from HA on startup.
+*   Create "Performance" tab in Web UI (SoC Tunnel, Cost Reality).
+
+**Status:** Completed.
 
 ---
 

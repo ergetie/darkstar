@@ -2,6 +2,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from backend.webapp import record_observation_from_current_state
+from backend.learning.backfill import BackfillEngine
 
 
 def _sleep_until_next_quarter() -> None:
@@ -17,6 +18,14 @@ def _sleep_until_next_quarter() -> None:
 def main() -> int:
     """Background recorder loop: capture observations every 15 minutes."""
     print("[recorder] Starting live observation recorder (15m cadence)")
+
+    # Run backfill on startup
+    try:
+        print("[recorder] Running startup backfill...")
+        backfill = BackfillEngine()
+        backfill.run()
+    except Exception as e:
+        print(f"[recorder] Backfill failed: {e}")
 
     while True:
         try:

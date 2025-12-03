@@ -189,6 +189,8 @@ pricing:
   grid_transfer_fee_sek: 0.2456
   # VAT: Value Added Tax (%).
   vat_percent: 25.0
+  # Subscription Fee: Fixed monthly cost (SEK).
+  subscription_fee_sek_per_month: 593.0
 
 s_index:
   # Base Factor: The starting multiplier for load (Inflated Demand).

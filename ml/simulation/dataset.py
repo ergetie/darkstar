@@ -7,7 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import pandas as pd
 import sqlite3
 
-from learning import LearningEngine
+from backend.learning import LearningEngine
 
 
 @dataclass

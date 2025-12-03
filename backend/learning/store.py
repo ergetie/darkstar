@@ -582,3 +582,44 @@ class LearningStore:
                     )
                 )
             conn.commit()
+
+    def store_training_episode(self, episode_id: str, inputs_json: str, schedule_json: str, context_json: str = None, config_overrides_json: str = None) -> None:
+        """Store a training episode for RL."""
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO training_episodes (
+                    episode_id,
+                    inputs_json,
+                    schedule_json,
+                    context_json,
+                    config_overrides_json
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    episode_id,
+                    inputs_json,
+                    schedule_json,
+                    context_json,
+                    config_overrides_json,
+                ),
+            )
+            conn.commit()
+
+    def get_last_observation_time(self) -> Optional[datetime]:
+        """Get the timestamp of the last recorded observation."""
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT MAX(slot_start) FROM slot_observations")
+            row = cursor.fetchone()
+            if row and row[0]:
+                # Parse ISO string
+                dt = datetime.fromisoformat(row[0])
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=self.timezone)
+                else:
+                    dt = dt.astimezone(self.timezone)
+                return dt
+            return None

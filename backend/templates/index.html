@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,6 +11,7 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <script src="/static/vis-timeline/8.4.0/js/vis-timeline-graph2d.min.js"></script>
 </head>
+
 <body>
     <header>
         <nav class="tabs">
@@ -18,6 +20,8 @@
             <button class="tab-button" data-tab="learning">Learning</button>
             <button class="tab-button" data-tab="debug">Debug</button>
             <button class="tab-button" data-tab="system">System</button>
+            <a href="/performance" class="tab-button"
+                style="text-decoration: none; display: flex; align-items: center;">Performance</a>
         </nav>
     </header>
     <main>
@@ -29,12 +33,12 @@
         <div id="dashboard" class="tab-content active">
             <div id="now-showing" class="now-showing">now showing: local plan</div>
             <div class="stats-group">
-              <fieldset class="stats-box">
-                <legend>Stats</legend>
-                <div id="stats-content">
-                  <!-- This will be populated by JavaScript -->
-                </div>
-              </fieldset>
+                <fieldset class="stats-box">
+                    <legend>Stats</legend>
+                    <div id="stats-content">
+                        <!-- This will be populated by JavaScript -->
+                    </div>
+                </fieldset>
             </div>
             <canvas id="scheduleChart"></canvas>
             <div class="timeline-layout">
@@ -61,26 +65,36 @@
             <form id="settings-form">
                 <fieldset>
                     <legend>Decision Thresholds</legend>
-                    <label>Battery Use Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.battery_use_margin_sek"></label>
-                    <label>Export Profit Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.export_profit_margin_sek"></label>
-                    <label>Battery Water Margin (SEK): <input type="number" step="0.01" name="decision_thresholds.battery_water_margin_sek"></label>
+                    <label>Battery Use Margin (SEK): <input type="number" step="0.01"
+                            name="decision_thresholds.battery_use_margin_sek"></label>
+                    <label>Export Profit Margin (SEK): <input type="number" step="0.01"
+                            name="decision_thresholds.export_profit_margin_sek"></label>
+                    <label>Battery Water Margin (SEK): <input type="number" step="0.01"
+                            name="decision_thresholds.battery_water_margin_sek"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Battery Economics</legend>
-                    <label>Cycle Cost (SEK/kWh): <input type="number" step="0.01" name="battery_economics.battery_cycle_cost_kwh"></label>
-                    <label>Round-trip Efficiency (%): <input type="number" step="0.1" name="battery.roundtrip_efficiency_percent"></label>
+                    <label>Cycle Cost (SEK/kWh): <input type="number" step="0.01"
+                            name="battery_economics.battery_cycle_cost_kwh"></label>
+                    <label>Round-trip Efficiency (%): <input type="number" step="0.1"
+                            name="battery.roundtrip_efficiency_percent"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Charging Strategy</legend>
-                    <label>Cheap Percentile (%): <input type="number" step="1" name="charging_strategy.charge_threshold_percentile"></label>
-                    <label>Cheap Price Tolerance (SEK): <input type="number" step="0.01" name="charging_strategy.cheap_price_tolerance_sek"></label>
-                    <label>Price Smoothing (SEK/kWh): <input type="number" step="0.01" name="charging_strategy.price_smoothing_sek_kwh"></label>
+                    <label>Cheap Percentile (%): <input type="number" step="1"
+                            name="charging_strategy.charge_threshold_percentile"></label>
+                    <label>Cheap Price Tolerance (SEK): <input type="number" step="0.01"
+                            name="charging_strategy.cheap_price_tolerance_sek"></label>
+                    <label>Price Smoothing (SEK/kWh): <input type="number" step="0.01"
+                            name="charging_strategy.price_smoothing_sek_kwh"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Strategic Charging</legend>
-                    <label>Price Threshold (SEK): <input type="number" step="0.01" name="strategic_charging.price_threshold_sek"></label>
+                    <label>Price Threshold (SEK): <input type="number" step="0.01"
+                            name="strategic_charging.price_threshold_sek"></label>
                     <label>Target SoC (%): <input type="number" name="strategic_charging.target_soc_percent"></label>
-                    <label>Carry-forward Tolerance Ratio: <input type="number" step="0.01" name="strategic_charging.carry_forward_tolerance_ratio"></label>
+                    <label>Carry-forward Tolerance Ratio: <input type="number" step="0.01"
+                            name="strategic_charging.carry_forward_tolerance_ratio"></label>
                 </fieldset>
                 <fieldset>
                     <legend>S-Index Safety</legend>
@@ -97,17 +111,23 @@
                     <label>Temperature Weight: <input type="number" step="0.01" name="s_index.temp_weight"></label>
                     <label>Temp Baseline (°C): <input type="number" step="0.1" name="s_index.temp_baseline_c"></label>
                     <label>Temp Cold (°C): <input type="number" step="0.1" name="s_index.temp_cold_c"></label>
-                    <label>Days Ahead (comma-separated): <input type="text" name="s_index.days_ahead_for_sindex"></label>
+                    <label>Days Ahead (comma-separated): <input type="text"
+                            name="s_index.days_ahead_for_sindex"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Water Heating</legend>
                     <label>Power (kW): <input type="number" step="0.1" name="water_heating.power_kw"></label>
-                    <label>Min Hours/Day: <input type="number" step="0.1" name="water_heating.min_hours_per_day"></label>
+                    <label>Min Hours/Day: <input type="number" step="0.1"
+                            name="water_heating.min_hours_per_day"></label>
                     <label>Min kWh/Day: <input type="number" step="0.1" name="water_heating.min_kwh_per_day"></label>
-                    <label>Max Blocks/Day: <input type="number" step="1" name="water_heating.max_blocks_per_day"></label>
-                    <label>Block Price Tolerance (SEK): <input type="number" step="0.01" name="water_heating.block_consolidation_tolerance_sek"></label>
-                    <label>Max Gap Slots: <input type="number" step="1" name="water_heating.consolidation_max_gap_slots"></label>
-                    <label>Defer Up To (hours): <input type="number" step="0.5" name="water_heating.defer_up_to_hours"></label>
+                    <label>Max Blocks/Day: <input type="number" step="1"
+                            name="water_heating.max_blocks_per_day"></label>
+                    <label>Block Price Tolerance (SEK): <input type="number" step="0.01"
+                            name="water_heating.block_consolidation_tolerance_sek"></label>
+                    <label>Max Gap Slots: <input type="number" step="1"
+                            name="water_heating.consolidation_max_gap_slots"></label>
+                    <label>Defer Up To (hours): <input type="number" step="0.5"
+                            name="water_heating.defer_up_to_hours"></label>
                     <p class="note">Water heating always schedules future slots only.</p>
                 </fieldset>
                 <fieldset>
@@ -116,16 +136,20 @@
                         <input type="checkbox" name="arbitrage.enable_export">
                         Enable Export
                     </label>
-                    <label>Export Fees (SEK/kWh): <input type="number" step="0.01" name="arbitrage.export_fees_sek_per_kwh"></label>
-                    <label>Export Profit Margin (SEK): <input type="number" step="0.01" name="arbitrage.export_profit_margin_sek"></label>
-                    <label>Export Percentile Threshold (%): <input type="number" step="1" name="arbitrage.export_percentile_threshold"></label>
+                    <label>Export Fees (SEK/kWh): <input type="number" step="0.01"
+                            name="arbitrage.export_fees_sek_per_kwh"></label>
+                    <label>Export Profit Margin (SEK): <input type="number" step="0.01"
+                            name="arbitrage.export_profit_margin_sek"></label>
+                    <label>Export Percentile Threshold (%): <input type="number" step="1"
+                            name="arbitrage.export_percentile_threshold"></label>
                     <label>Protective Strategy:
                         <select name="arbitrage.protective_soc_strategy">
                             <option value="gap_based">gap_based</option>
                             <option value="fixed">fixed</option>
                         </select>
                     </label>
-                    <label>Fixed Protective SoC (%): <input type="number" step="0.1" name="arbitrage.fixed_protective_soc_percent"></label>
+                    <label>Fixed Protective SoC (%): <input type="number" step="0.1"
+                            name="arbitrage.fixed_protective_soc_percent"></label>
                     <label>
                         <input type="checkbox" name="arbitrage.enable_peak_only_export">
                         Peak-only Export
@@ -134,22 +158,31 @@
                         <input type="checkbox" name="arbitrage.export_future_price_guard">
                         Future Price Guard
                     </label>
-                    <label>Future Price Guard Buffer (SEK): <input type="number" step="0.01" name="arbitrage.future_price_guard_buffer_sek"></label>
+                    <label>Future Price Guard Buffer (SEK): <input type="number" step="0.01"
+                            name="arbitrage.future_price_guard_buffer_sek"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Smoothing / Hysteresis</legend>
-                    <label>Min On Slots (Charge): <input type="number" step="1" name="smoothing.min_on_slots_charge"></label>
-                    <label>Min Off Slots (Charge): <input type="number" step="1" name="smoothing.min_off_slots_charge"></label>
-                    <label>Charge Power Step (kW): <input type="number" step="0.1" name="smoothing.charge_power_step_kw"></label>
-                    <label>Charge Power Dwell (minutes): <input type="number" step="15" name="smoothing.charge_power_dwell_minutes"></label>
-                    <label>Min On Slots (Discharge): <input type="number" step="1" name="smoothing.min_on_slots_discharge"></label>
-                    <label>Min Off Slots (Discharge): <input type="number" step="1" name="smoothing.min_off_slots_discharge"></label>
-                    <label>Min On Slots (Export): <input type="number" step="1" name="smoothing.min_on_slots_export"></label>
+                    <label>Min On Slots (Charge): <input type="number" step="1"
+                            name="smoothing.min_on_slots_charge"></label>
+                    <label>Min Off Slots (Charge): <input type="number" step="1"
+                            name="smoothing.min_off_slots_charge"></label>
+                    <label>Charge Power Step (kW): <input type="number" step="0.1"
+                            name="smoothing.charge_power_step_kw"></label>
+                    <label>Charge Power Dwell (minutes): <input type="number" step="15"
+                            name="smoothing.charge_power_dwell_minutes"></label>
+                    <label>Min On Slots (Discharge): <input type="number" step="1"
+                            name="smoothing.min_on_slots_discharge"></label>
+                    <label>Min Off Slots (Discharge): <input type="number" step="1"
+                            name="smoothing.min_off_slots_discharge"></label>
+                    <label>Min On Slots (Export): <input type="number" step="1"
+                            name="smoothing.min_on_slots_export"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Pricing</legend>
                     <label>VAT (%): <input type="number" step="0.1" name="pricing.vat_percent"></label>
-                    <label>Grid Transfer Fee (SEK): <input type="number" step="0.0001" name="pricing.grid_transfer_fee_sek"></label>
+                    <label>Grid Transfer Fee (SEK): <input type="number" step="0.0001"
+                            name="pricing.grid_transfer_fee_sek"></label>
                     <label>Energy Tax (SEK): <input type="number" step="0.001" name="pricing.energy_tax_sek"></label>
                 </fieldset>
                 <fieldset>
@@ -170,9 +203,11 @@
                         Enable Learning Telemetry
                     </label>
                     <label>SQLite Path: <input type="text" name="learning.sqlite_path"></label>
-                    <label>Sync Interval (minutes): <input type="number" step="1" name="learning.sync_interval_minutes"></label>
+                    <label>Sync Interval (minutes): <input type="number" step="1"
+                            name="learning.sync_interval_minutes"></label>
                     <label>Horizon Days: <input type="number" step="1" name="learning.horizon_days"></label>
-                    <label>Min Improvement Threshold: <input type="number" step="0.001" name="learning.min_improvement_threshold"></label>
+                    <label>Min Improvement Threshold: <input type="number" step="0.001"
+                            name="learning.min_improvement_threshold"></label>
                     <label>
                         <input type="checkbox" name="learning.auto_apply">
                         Auto-apply Changes
@@ -180,14 +215,22 @@
                 </fieldset>
                 <fieldset>
                     <legend>Learning Parameter Limits</legend>
-                    <label>PV Confidence Daily Change (%): <input type="number" step="0.1" name="learning.max_daily_param_change.pv_confidence_percent"></label>
-                    <label>Load Safety Margin Daily Change (%): <input type="number" step="0.1" name="learning.max_daily_param_change.load_safety_margin_percent"></label>
-                    <label>Battery Use Margin Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.battery_use_margin_sek"></label>
-                    <label>Export Profit Margin Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.export_profit_margin_sek"></label>
-                    <label>S-index Base Factor Daily Change: <input type="number" step="0.001" name="learning.max_daily_param_change.s_index_base_factor"></label>
-                    <label>S-index PV Deficit Weight Daily Change: <input type="number" step="0.001" name="learning.max_daily_param_change.s_index_pv_deficit_weight"></label>
-                    <label>S-index Temperature Weight Daily Change: <input type="number" step="0.001" name="learning.max_daily_param_change.s_index_temp_weight"></label>
-                    <label>Export Guard Buffer Daily Change (SEK): <input type="number" step="0.001" name="learning.max_daily_param_change.future_price_guard_buffer_sek"></label>
+                    <label>PV Confidence Daily Change (%): <input type="number" step="0.1"
+                            name="learning.max_daily_param_change.pv_confidence_percent"></label>
+                    <label>Load Safety Margin Daily Change (%): <input type="number" step="0.1"
+                            name="learning.max_daily_param_change.load_safety_margin_percent"></label>
+                    <label>Battery Use Margin Daily Change (SEK): <input type="number" step="0.001"
+                            name="learning.max_daily_param_change.battery_use_margin_sek"></label>
+                    <label>Export Profit Margin Daily Change (SEK): <input type="number" step="0.001"
+                            name="learning.max_daily_param_change.export_profit_margin_sek"></label>
+                    <label>S-index Base Factor Daily Change: <input type="number" step="0.001"
+                            name="learning.max_daily_param_change.s_index_base_factor"></label>
+                    <label>S-index PV Deficit Weight Daily Change: <input type="number" step="0.001"
+                            name="learning.max_daily_param_change.s_index_pv_deficit_weight"></label>
+                    <label>S-index Temperature Weight Daily Change: <input type="number" step="0.001"
+                            name="learning.max_daily_param_change.s_index_temp_weight"></label>
+                    <label>Export Guard Buffer Daily Change (SEK): <input type="number" step="0.001"
+                            name="learning.max_daily_param_change.future_price_guard_buffer_sek"></label>
                 </fieldset>
                 <fieldset>
                     <legend>Automation</legend>
@@ -246,8 +289,10 @@
                 <fieldset>
                     <legend>Battery</legend>
                     <label>Capacity (kWh): <input type="number" step="0.1" name="system.battery.capacity_kwh"></label>
-                    <label>Max Charge Power (kW): <input type="number" step="0.1" name="system.battery.max_charge_power_kw"></label>
-                    <label>Max Discharge Power (kW): <input type="number" step="0.1" name="system.battery.max_discharge_power_kw"></label>
+                    <label>Max Charge Power (kW): <input type="number" step="0.1"
+                            name="system.battery.max_charge_power_kw"></label>
+                    <label>Max Discharge Power (kW): <input type="number" step="0.1"
+                            name="system.battery.max_discharge_power_kw"></label>
                     <label>Min SoC (%): <input type="number" step="0.1" name="system.battery.min_soc_percent"></label>
                     <label>Max SoC (%): <input type="number" step="0.1" name="system.battery.max_soc_percent"></label>
                 </fieldset>
@@ -284,28 +329,28 @@
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="learning-metrics">
                     <legend>Performance Metrics</legend>
                     <div id="learning-metrics-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="learning-loops">
                     <legend>Learning Loops Status</legend>
                     <div id="learning-loops-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="learning-changes">
                     <legend>Recent Configuration Changes</legend>
                     <div id="learning-changes-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <div class="learning-controls">
                     <button id="run-learning-btn">> Run Learning Now</button>
                     <button id="refresh-learning-btn">> Refresh Status</button>
@@ -321,49 +366,49 @@
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-charging">
                     <legend>Charging Plan Analysis</legend>
                     <div id="debug-charging-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-sindex">
                     <legend>S-Index Calculations</legend>
                     <div id="debug-sindex-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-windows">
                     <legend>Price Windows Analysis</legend>
                     <div id="debug-windows-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-export">
                     <legend>Export Guard Analysis</legend>
                     <div id="debug-export-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-etl">
                     <legend>ETL Status</legend>
                     <div id="debug-etl-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-samples">
                     <legend>Debug Samples</legend>
                     <div id="debug-samples-content">
                         <!-- Populated by JavaScript -->
                     </div>
                 </fieldset>
-                
+
                 <fieldset class="debug-logs">
                     <legend>Live Logs</legend>
                     <div class="debug-log-controls">
@@ -377,7 +422,7 @@
                     </div>
                     <pre id="debug-log-viewport" class="debug-log-viewport"></pre>
                 </fieldset>
-                
+
                 <div class="debug-controls">
                     <button id="refresh-debug-btn">> Refresh Debug Data</button>
                     <span id="debug-refresh-status"></span>
@@ -390,4 +435,5 @@
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-moment@1.0.1/dist/chartjs-adapter-moment.min.js"></script>
     <script src="/static/js/app.js"></script>
 </body>
+
 </html>

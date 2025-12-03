@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 import pandas as pd
 import sqlite3
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.simulation.dataset import AntaresSlotRecord, build_antares_training_dataset
 
 

@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
@@ -53,8 +54,21 @@ class LearningEngine:
         Log a training episode (inputs + outputs) for RL.
         Also logs the planned schedule to slot_plans for metric tracking.
         """
-        # 1. Log to training_episodes (existing logic, can be moved to store if needed)
-        # For now, we focus on K6 goal: tracking plans.
+        # 1. Log to training_episodes
+        episode_id = str(uuid.uuid4())
+        
+        inputs_json = json.dumps(input_data, default=str)
+        schedule_json = schedule_df.to_json(orient="records", date_format="iso")
+        context_json = None # TODO: Capture context if available
+        config_overrides_json = json.dumps(config_overrides) if config_overrides else None
+        
+        self.store.store_training_episode(
+            episode_id=episode_id,
+            inputs_json=inputs_json,
+            schedule_json=schedule_json,
+            context_json=context_json,
+            config_overrides_json=config_overrides_json
+        )
         
         # 2. Log to slot_plans
         self.store.store_plan(schedule_df)
@@ -229,3 +243,80 @@ class LearningEngine:
                 metrics["cost_deviation"] = round(abs(cost_res[0] - cost_res[1]), 2)
 
             return metrics
+
+            return metrics
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get current status of the learning engine."""
+        last_obs = self.store.get_last_observation_time()
+        
+        # Count training episodes
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            episodes = conn.execute("SELECT COUNT(*) FROM training_episodes").fetchone()[0]
+            
+        return {
+            "status": "active",
+            "last_observation": last_obs.isoformat() if last_obs else None,
+            "training_episodes": episodes,
+            "db_path": self.db_path,
+            "timezone": str(self.timezone)
+        }
+
+    def get_performance_series(self, days_back: int = 7) -> Dict[str, List[Dict]]:
+        """
+        Get time-series data for performance visualization.
+        Returns:
+            {
+                "soc_series": [{"time": iso, "planned": float, "actual": float}, ...],
+                "cost_series": [{"date": iso, "planned": float, "realized": float}, ...]
+            }
+        """
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
+            
+            # 1. SoC Series (15-min resolution)
+            soc_query = """
+                SELECT 
+                    o.slot_start,
+                    p.planned_soc_percent,
+                    o.soc_end_percent
+                FROM slot_observations o
+                LEFT JOIN slot_plans p ON o.slot_start = p.slot_start
+                WHERE DATE(o.slot_start) >= ?
+                ORDER BY o.slot_start ASC
+            """
+            cursor = conn.execute(soc_query, (cutoff_date.isoformat(),))
+            soc_series = []
+            for row in cursor:
+                soc_series.append({
+                    "time": row[0],
+                    "planned": row[1],
+                    "actual": row[2]
+                })
+                
+            # 2. Cost Series (Daily resolution)
+            cost_query = """
+                SELECT 
+                    DATE(o.slot_start) as day,
+                    SUM(p.planned_cost_sek) as planned_cost,
+                    SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost
+                FROM slot_observations o
+                LEFT JOIN slot_plans p ON o.slot_start = p.slot_start
+                WHERE DATE(o.slot_start) >= ?
+                  AND o.import_price_sek_kwh IS NOT NULL
+                GROUP BY day
+                ORDER BY day ASC
+            """
+            cursor = conn.execute(cost_query, (cutoff_date.isoformat(),))
+            cost_series = []
+            for row in cursor:
+                cost_series.append({
+                    "date": row[0],
+                    "planned": row[1] if row[1] is not None else 0.0,
+                    "realized": row[2] if row[2] is not None else 0.0
+                })
+                
+            return {
+                "soc_series": soc_series,
+                "cost_series": cost_series
+            }

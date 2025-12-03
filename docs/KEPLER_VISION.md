@@ -155,9 +155,8 @@ To get a self-learning system without relying on RL for raw control, we use the 
     - Ingest Grid Constraints (e.g., "Grid Peak Shaving" requirements).
 
 ### Phase 3: The Learning Loop
-- [ ] **Learning Engine**:
-    - Create a dedicated module to track "Plan vs Actual" metrics (Forecast Error, Cost Deviation).
-    - Persist these metrics to `planner_learning.db`.
+- [x] **K6: The Learning Engine** (Plan vs Actuals)
+- [ ] **K7: The Mirror** (Backfill & Visualization)
 - [ ] **Feedback Loops**:
     - **Short-term**: Feed recent errors back to Aurora (already partially done).
     - **Long-term**: Auto-tune `base_load_factor` or `battery_efficiency` based on historical bias.

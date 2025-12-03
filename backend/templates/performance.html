@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kepler Performance - The Mirror</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <style>
+        body { background-color: #0f172a; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .card { background-color: #1e293b; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body class="min-h-screen p-6">
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <div class="flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
+                    The Mirror
+                </h1>
+                <p class="text-slate-400">Plan vs Actual Performance</p>
+            </div>
+            <a href="/" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors">
+                Back to Dashboard
+            </a>
+        </div>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            
+            <!-- SoC Tunnel -->
+            <div class="card col-span-2">
+                <h2 class="text-xl font-semibold mb-4 text-blue-400">SoC Tunnel: Plan vs Reality</h2>
+                <div class="relative h-96 w-full">
+                    <canvas id="socChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Cost Reality -->
+            <div class="card col-span-2 lg:col-span-1">
+                <h2 class="text-xl font-semibold mb-4 text-emerald-400">Cost Reality (Daily)</h2>
+                <div class="relative h-80 w-full">
+                    <canvas id="costChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Metrics Summary -->
+            <div class="card col-span-2 lg:col-span-1">
+                <h2 class="text-xl font-semibold mb-4 text-purple-400">Performance Metrics (7 Days)</h2>
+                <div class="grid grid-cols-2 gap-4" id="metricsGrid">
+                    <!-- Populated by JS -->
+                    <div class="p-4 bg-slate-800 rounded-lg">
+                        <p class="text-sm text-slate-400">Total Planned Cost</p>
+                        <p class="text-2xl font-bold" id="metric-planned-cost">-</p>
+                    </div>
+                    <div class="p-4 bg-slate-800 rounded-lg">
+                        <p class="text-sm text-slate-400">Total Realized Cost</p>
+                        <p class="text-2xl font-bold" id="metric-realized-cost">-</p>
+                    </div>
+                    <div class="p-4 bg-slate-800 rounded-lg">
+                        <p class="text-sm text-slate-400">Cost Deviation</p>
+                        <p class="text-2xl font-bold" id="metric-cost-dev">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadData() {
+            try {
+                const response = await fetch('/api/performance/metrics?days=7');
+                const data = await response.json();
+                
+                renderSoCChart(data.soc_series);
+                renderCostChart(data.cost_series);
+                updateMetrics(data.cost_series);
+            } catch (e) {
+                console.error("Failed to load data:", e);
+            }
+        }
+
+        function renderSoCChart(series) {
+            const ctx = document.getElementById('socChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    datasets: [
+                        {
+                            label: 'Planned SoC',
+                            data: series.map(d => ({x: d.time, y: d.planned})),
+                            borderColor: '#94a3b8', // Slate 400
+                            borderDash: [5, 5],
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Actual SoC',
+                            data: series.map(d => ({x: d.time, y: d.actual})),
+                            borderColor: '#60a5fa', // Blue 400
+                            backgroundColor: 'rgba(96, 165, 250, 0.1)',
+                            borderWidth: 2,
+                            pointRadius: 0,
+                            fill: true,
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        y: {
+                            min: 0, max: 100,
+                            grid: { color: '#334155' },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+        }
+
+        function renderCostChart(series) {
+            const ctx = document.getElementById('costChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: series.map(d => d.date),
+                    datasets: [
+                        {
+                            label: 'Planned',
+                            data: series.map(d => d.planned),
+                            backgroundColor: '#94a3b8',
+                            borderRadius: 4
+                        },
+                        {
+                            label: 'Realized',
+                            data: series.map(d => d.realized),
+                            backgroundColor: series.map(d => d.realized <= d.planned ? '#34d399' : '#f87171'), // Green if saved, Red if over
+                            borderRadius: 4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                        y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+        }
+
+        function updateMetrics(costSeries) {
+            const totalPlanned = costSeries.reduce((sum, d) => sum + d.planned, 0);
+            const totalRealized = costSeries.reduce((sum, d) => sum + d.realized, 0);
+            const deviation = Math.abs(totalPlanned - totalRealized);
+
+            document.getElementById('metric-planned-cost').textContent = `${totalPlanned.toFixed(2)} SEK`;
+            document.getElementById('metric-realized-cost').textContent = `${totalRealized.toFixed(2)} SEK`;
+            
+            const devEl = document.getElementById('metric-cost-dev');
+            devEl.textContent = `${deviation.toFixed(2)} SEK`;
+            devEl.classList.add(totalRealized <= totalPlanned ? 'text-emerald-400' : 'text-red-400');
+        }
+
+        loadData();
+    </script>
+</body>
+</html>
