@@ -182,6 +182,11 @@ nordpool:
   # Resolution: Data resolution in minutes (15 or 60).
   resolution_minutes: 15
 
+grid:
+  # Maximum allowed grid import power in kW (e.g., main fuse limit or tariff tier)
+  # 11.0 kW ~= 16A * 230V * 3 phases
+  import_limit_kw: 11.0
+
 pricing:
   # Energy Tax: Fixed tax per kWh (SEK).
   energy_tax_sek: 0.439

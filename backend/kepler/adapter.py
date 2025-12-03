@@ -94,7 +94,8 @@ def config_to_kepler_config(planner_config: Dict[str, Any], overrides: Optional[
         max_export_power_kw=float(system.get("grid", {}).get("max_power_kw")) if system.get("grid", {}).get("max_power_kw") else None,
         max_import_power_kw=float(system.get("grid", {}).get("max_power_kw")) if system.get("grid", {}).get("max_power_kw") else None,
         ramping_cost_sek_per_kw=get_val("ramping_cost_sek_per_kw", 0.0),
-        export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0)
+        export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
+        grid_import_limit_kw=float(planner_config.get("grid", {}).get("import_limit_kw")) if planner_config.get("grid", {}).get("import_limit_kw") else None
     )
 
 def kepler_result_to_dataframe(result: KeplerResult, capacity_kwh: float = 0.0, initial_soc_kwh: float = 0.0) -> pd.DataFrame:

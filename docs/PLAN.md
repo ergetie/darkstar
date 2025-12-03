@@ -95,6 +95,17 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** Completed.
 
+### Rev K8 — The Analyst (Grid Peak Shaving)
+
+**Goal:** Implement "Grid Peak Shaving" to cap grid import peaks, avoiding high power tariffs or blown fuses.
+
+**Scope:**
+*   **Config:** Add `grid.import_limit_kw` (e.g., 11.0).
+*   **Kepler:** Add hard constraint `grid_import_t <= limit`.
+*   **Strategy:** Allow dynamic adjustment of this limit (e.g., "Vacation Mode" might lower it, or "Emergency" might raise it).
+
+**Status:** Completed.
+
 ---
 
 ## Backlog

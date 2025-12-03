@@ -48,6 +48,9 @@ class KeplerSolver:
         
         # Slack variables for Min SoC violation
         soc_violation = pulp.LpVariable.dicts("soc_violation_kwh", range(T + 1), lowBound=0.0)
+        
+        # Slack variables for Grid Import Limit violation
+        import_breach = pulp.LpVariable.dicts("import_breach_kwh", range(T), lowBound=0.0)
 
         # Ramping variables (T-1 transitions)
         # We model change in net battery flow: (Charge - Discharge)
@@ -70,6 +73,8 @@ class KeplerSolver:
         CURTAILMENT_PENALTY = 0.1
         # Penalty for load shedding (huge, must be avoided)
         LOAD_SHEDDING_PENALTY = 10000.0
+        # Penalty for breaching Grid Import Limit (huge, but soft)
+        IMPORT_BREACH_PENALTY = 5000.0
 
         for t in range(T):
             s = slots[t]
@@ -102,6 +107,11 @@ class KeplerSolver:
             
             if config.max_import_power_kw is not None:
                 prob += grid_import[t] <= config.max_import_power_kw * h
+
+            # Soft Grid Import Limit (Peak Shaving)
+            if config.grid_import_limit_kw is not None:
+                limit_kwh = config.grid_import_limit_kw * h
+                prob += grid_import[t] <= limit_kwh + import_breach[t]
 
             # 4. Ramping Constraints
             # For t=0, we assume previous state was 0 flow (or we could pass initial flow)
@@ -141,8 +151,9 @@ class KeplerSolver:
             
             slot_curtailment_cost = curtailment[t] * CURTAILMENT_PENALTY
             slot_shedding_cost = load_shedding[t] * LOAD_SHEDDING_PENALTY
+            slot_import_breach_cost = import_breach[t] * IMPORT_BREACH_PENALTY
             
-            total_cost.append(slot_import_cost - slot_export_revenue + slot_wear_cost + slot_ramping_cost + slot_curtailment_cost + slot_shedding_cost)
+            total_cost.append(slot_import_cost - slot_export_revenue + slot_wear_cost + slot_ramping_cost + slot_curtailment_cost + slot_shedding_cost + slot_import_breach_cost)
             
             # Soft Min SoC Constraint for t
             prob += soc[t] >= min_soc_kwh - soc_violation[t]
