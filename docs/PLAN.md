@@ -106,6 +106,12 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** Completed.
 
+### [COMPLETED] Rev K9: The Learning Loop (Feedback)
+**Goal:** Close the loop by analyzing forecast errors and adjusting planner parameters automatically.
+- **Analyst:** New component to calculate bias (Forecast vs Actual).
+- **Auto-Tune:** Write adjustments to `learning_daily_metrics`.
+- **Status:** Completed. Analyst implemented and verified.
+
 ---
 
 ## Backlog

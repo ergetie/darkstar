@@ -27,6 +27,23 @@ def main() -> int:
     except Exception as e:
         print(f"[recorder] Backfill failed: {e}")
 
+    # Run Analyst (Learning Loop) on startup
+    try:
+        from backend.learning.analyst import Analyst
+        from inputs import load_home_assistant_config
+        # We need the main config, but recorder doesn't load it directly usually.
+        # Let's load it via inputs or just instantiate Analyst which loads its own store?
+        # Analyst needs the full config dict.
+        import yaml
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+            
+        print("[recorder] Running Analyst (Learning Loop)...")
+        analyst = Analyst(config)
+        analyst.update_learning_overlays()
+    except Exception as e:
+        print(f"[recorder] Analyst failed: {e}")
+
     while True:
         try:
             record_observation_from_current_state()
