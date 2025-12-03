@@ -133,15 +133,14 @@ kepler:
   shadow_mode: true
 
 learning:
-  # Auto Apply: Automatically apply learned parametlearning:
-  enable: true
-  sqlite_path: "data/planner_learning.db"
-  # Auto-Tune: Automatically adjust planner parameters based on historical bias.
-  auto_tune_enabled: false
-  # Default battery wear cost if not learned/overridden
-  default_battery_cost_sek_per_kwh: 0.02
   # Enable: Enable the Aurora Learning Engine.
   enable: true
+  # Auto-Tune: Automatically adjust planner parameters based on historical bias.
+  auto_tune_enabled: false
+  # SQLite Path: Path to the learning database.
+  sqlite_path: "data/planner_learning.db"
+  # Default battery wear cost if not learned/overridden
+  default_battery_cost_sek_per_kwh: 0.02
   # Horizon: Days of history to use for learning.
   horizon_days: 7
   # Max Daily Change: Limits on how much parameters can change per day.
