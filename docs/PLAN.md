@@ -130,7 +130,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     - **UI:** Toggle control in Aurora Tab.
 - **Status:** Completed.
 
-### Rev K12 — Aurora Reflex Completion (The Analyzers)
+### [COMPLETED] Rev K12 — Aurora Reflex Completion (The Analyzers)
 
 **Goal:** Complete the placeholder analyzer implementations in `backend/learning/reflex.py` so that Aurora Reflex actually tunes parameters based on historical data.
 
@@ -161,7 +161,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     - Estimate: `cycles = Σ(charge_kwh) / battery_capacity`.
     - If `profit / cycles` is significantly higher than current `battery_cycle_cost_kwh`, we're being too conservative.
     - If lower, we're cycling too aggressively.
-*   **Output:** Tune `battery_economics.battery_cycle_cost_kwh` (0.3-1.5 SEK range).
+*   **Output:** Tune `battery_economics.battery_cycle_cost_kwh` (0.1-0.5 SEK range).
 
 #### Phase D: Capacity Analyzer (`battery.capacity_kwh`)
 *   **Signal:** Look for cliffs in SoC vs energy delivered.
@@ -200,7 +200,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 *   **Dry Run:** `python -m backend.learning.reflex` should output sensible proposals.
 *   **Production Validation:** Enable `learning.reflex_enabled`, monitor for 7 days, verify no wild swings.
 
-**Status:** Not Started.
+**Status:** Completed.
 
 ---
 
