@@ -77,6 +77,7 @@ kepler:
   shadow_mode: true
 learning:
   auto_tune_enabled: false
+  reflex_enabled: false
   default_battery_cost_sek_per_kwh: 0.02
   enable: true
   horizon_days: 7

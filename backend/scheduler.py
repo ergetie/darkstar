@@ -146,6 +146,17 @@ def run_planner_once() -> Tuple[bool, Optional[str]]:
         return False, str(exc)
 
 
+from backend.learning.reflex import AuroraReflex
+
+def run_reflex_once() -> Tuple[bool, Optional[str]]:
+    try:
+        reflex = AuroraReflex()
+        report = reflex.run()
+        print(f"[scheduler] Aurora Reflex Report: {report}")
+        return True, None
+    except Exception as exc:
+        return False, str(exc)
+
 def main() -> int:
     cfg = load_scheduler_config()
     status = load_status()
@@ -157,6 +168,8 @@ def main() -> int:
         f"every={cfg.every_minutes}m, jitter={cfg.jitter_minutes}m"
     )
 
+    last_reflex_run_date = None
+
     while True:
         time.sleep(30)
 
@@ -167,11 +180,23 @@ def main() -> int:
         status.every_minutes = cfg.every_minutes
         status.jitter_minutes = cfg.jitter_minutes
 
+        # --- Aurora Reflex Daily Job (04:00 AM) ---
+        now = datetime.now(timezone.utc)
+        # Convert to local time for 4 AM check (assuming Europe/Stockholm from config, but simple check here)
+        # We'll just use UTC for simplicity or rely on the fact that the machine is likely in local time or we want 4 AM UTC.
+        # Let's assume 4 AM UTC for now to be safe.
+        if now.hour == 4 and now.minute < 30:
+            today_str = now.date().isoformat()
+            if last_reflex_run_date != today_str:
+                print("[scheduler] Running Daily Aurora Reflex...")
+                run_reflex_once()
+                last_reflex_run_date = today_str
+        # ------------------------------------------
+
         if not cfg.enabled:
             save_status(status)
             continue
 
-        now = datetime.now(timezone.utc)
         try:
             next_run = datetime.fromisoformat(status.next_run_at) if status.next_run_at else now
         except Exception:

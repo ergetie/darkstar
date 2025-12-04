@@ -446,3 +446,33 @@ def aurora_briefing():
 
     text = get_aurora_briefing(dashboard, config, secrets)
     return jsonify({"briefing": text})
+
+
+@aurora_bp.post("/config/toggle_reflex")
+def toggle_reflex():
+    """
+    Toggle the Aurora Reflex (auto-tuning) feature.
+    """
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get("enabled", False))
+
+    try:
+        from ruamel.yaml import YAML
+        yaml = YAML()
+        yaml.preserve_quotes = True
+        
+        config_path = "config.yaml"
+        with open(config_path, "r", encoding="utf-8") as f:
+            data = yaml.load(f)
+            
+        learning = data.setdefault("learning", {})
+        learning["reflex_enabled"] = enabled
+        
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(data, f)
+            
+        return jsonify({"status": "success", "enabled": enabled})
+        
+    except Exception as exc:
+        logger.error("Failed to toggle Aurora Reflex: %s", exc)
+        return jsonify({"error": str(exc)}), 500

@@ -1,20 +1,21 @@
 # Kepler Vision: The Intelligent Energy Agent
 
-This document describes the long-term vision where **Kepler (MILP)** becomes the primary planner for Darkstar, tightly integrated with:
+This document describes the long-term vision where **Kepler (MILP)** becomes the primary planner for Darkstar, driven by the **Aurora Intelligence Suite**.
 
-- **Aurora** (LightGBM forecasting) for prices, load and PV.
-- The **Strategy Engine** (RL/Policy) for context-aware policy decisions.
-- The **Learning Engine** for metrics, experimentation and tuning.
+## The Aurora Architecture
+
+"Aurora" is the umbrella term for the intelligent components of Darkstar:
+
+1.  **Aurora Vision** (formerly Forecasting): The "Eyes".
+    *   Predicts the future (Load, PV, Prices) using LightGBM.
+2.  **Aurora Strategy** (formerly Strategy Engine): The "Brain".
+    *   Makes high-level decisions (Risk tolerance, S-Index, Target SoC) based on context.
+3.  **Aurora Reflex** (formerly Learning Engine): The "Inner Ear".
+    *   Maintains balance by tuning the other components based on feedback (Short-term bias & Long-term drift).
 
 The core loop is:
 
-> **Forecast (Aurora)** → **Strategize (Strategy Engine)** → **Plan (Kepler)** → **Execute** → **Learn**
-
-The aim is to get a **smart, self-learning system** with:
-
-- Deterministic, auditable schedules.
-- Clear comfort and safety guarantees.
-- Automatic tuning over months of data.
+> **Aurora Vision** → **Aurora Strategy** → **Kepler (Planner)** → **Execute** → **Aurora Reflex**
 
 ---
 
@@ -33,9 +34,9 @@ Darkstar’s end goal is not “fancy RL” but **reliable, intelligent energy m
 - It is **transparent and deterministic**:
   - Same inputs → same plan; easy to reason about and regression-test.
 - It plays beautifully with **forecasts**:
-  - Aurora gives us best-guess futures; Kepler computes the best response.
+  - Aurora Vision gives us best-guess futures; Kepler computes the best response.
 - It can be **parameterised by “policy knobs”**:
-  - We can embed comfort vs cost trade-offs via weights and constraints that the Strategy Engine can learn over time.
+  - We can embed comfort vs cost trade-offs via weights and constraints that Aurora Strategy can learn over time.
 
 RL remains valuable, but as a **Strategy Engine**:
 - It helps discover good policies and test cost models.
@@ -46,24 +47,24 @@ RL remains valuable, but as a **Strategy Engine**:
 
 ## 2. High-Level Architecture
 
-1. **Data & Metrics (Learning Engine)**
+1. **Aurora Reflex (Learning & Metrics)**
    - Consolidated metrics from `slot_observations`, forecasts, and schedules.
-2. **Aurora Forecasting**
+2. **Aurora Vision (Forecasting)**
    - Load/PV forecasts with uncertainty.
-3. **Strategy Engine + Policy Learner**
+3. **Aurora Strategy (Policy)**
    - Chooses policy parameters (`θ`) for Kepler based on context (Weather, Risk, Prices).
 4. **Kepler Planner**
    - Given forecasts, tariffs and policy parameters (`θ`), solves for a cost-optimal schedule over 24–48h.
 5. **Evaluation & Feedback**
-   - Compares realised outcomes vs expectations; Learning Engine updates metrics and feeds model training.
+   - Compares realised outcomes vs expectations; Aurora Reflex updates metrics and feeds model training.
 
 Conceptually:
 
 ```text
-Historical data ──► Learning Engine ──► Aurora (forecasts)
+Historical data ──► Aurora Reflex ──► Aurora Vision (forecasts)
                          ▲                     │
                          │                     ▼
-                   Metrics & runs       Strategy Engine (RL/Policy)
+                   Metrics & runs       Aurora Strategy (RL/Policy)
                          │                     │
                          ▼                     ▼
                    Policy learner       Kepler Planner (MILP)
@@ -113,20 +114,20 @@ minimise  Σ_t (grid_import_t * import_price_t
 
 ---
 
-## 4. Integration with Aurora & Forecasting
+## 4. Integration with Aurora Vision
 
-Kepler is only as good as its inputs. Aurora becomes the default world model:
+Kepler is only as good as its inputs. Aurora Vision becomes the default world model:
 
 - **Forecast inputs per slot:** `load`, `pv`.
 - **Uncertainty:**
-  - Aurora provides uncertainty measures (p10/p50/p90).
-  - Strategy Engine uses this to adjust Kepler's safety margins (e.g. `min_soc`).
+  - Aurora Vision provides uncertainty measures (p10/p50/p90).
+  - Aurora Strategy uses this to adjust Kepler's safety margins (e.g. `min_soc`).
 
 ---
 
-## 5. Strategy Engine: The "Brain"
+## 5. Aurora Strategy: The "Brain"
 
-To get a self-learning system without relying on RL for raw control, we use the Strategy Engine to tune **Kepler policy parameters (`θ`)**:
+To get a self-learning system without relying on RL for raw control, we use Aurora Strategy to tune **Kepler policy parameters (`θ`)**:
 
 - `θ_soc_reserve_peak`: minimum SoC during defined peak windows.
 - `θ_export_threshold`: minimum price spread vs future to export aggressively.
@@ -134,7 +135,7 @@ To get a self-learning system without relying on RL for raw control, we use the 
 - `θ_ramping_cost`: penalty for rapid power changes.
 
 **Online Adaptation:**
-- **Strategy Engine**: Reads current context (Aurora forecasts, tariffs, weather). Queries a policy model to choose `θ_today`.
+- **Aurora Strategy**: Reads current context (Aurora Vision forecasts, tariffs, weather). Queries a policy model to choose `θ_today`.
 - **Kepler**: Uses `θ_today` to build and solve the optimisation.
 
 ---
@@ -146,7 +147,7 @@ To get a self-learning system without relying on RL for raw control, we use the 
 - [x] **Strategic S-Index**: Decouple safety (load inflation) from strategy (target SoC).
 - [x] **Basic Strategy**: `StrategyEngine` class that handles Vacation Mode and basic Weather Volatility.
 
-### Phase 2: The Strategy Engine (Next)
+### Phase 2: Aurora Strategy (Next)
 - [x] **Dynamic Parameters (K5)**:
     - Wire `wear_cost`, `ramping_cost`, and `export_threshold` to be dynamically tunable per-plan.
     - Allow Strategy Engine to override these based on context (e.g., "Aggressive Export" mode).
@@ -154,15 +155,20 @@ To get a self-learning system without relying on RL for raw control, we use the 
     - Ingest Price Trends (e.g., "Price Plunge coming in 3 days") to adjust long-term buffers.
     - [x] **Grid Constraints** (K8): "Grid Peak Shaving" requirements.
 
-### Phase 3: The Learning Loop
+### Phase 3: Aurora Reflex (The Learning Loop)
 - [x] **K6: The Learning Engine** (Plan vs Actuals)
 - [x] **K7: The Mirror** (Backfill & Visualization)
-- [x] **Feedback Loops**:
-    - [x] **Short-term** (K9): Feed recent errors back to Aurora (Analyst & Auto-Tuner).
-    - **Long-term**: Auto-tune `base_load_factor` or `battery_efficiency` based on historical bias.
+- [ ] **Feedback Loops**:
+    - [x] **Short-term** (K9): Feed recent errors back to Aurora Vision (Analyst & Auto-Tuner).
+    - [ ] **Long-term**: Auto-tune physical constants based on historical drift.
+        - **A. Efficiency**: Tune `battery.roundtrip_efficiency_percent` (Degradation).
+        - **B. Safety Margin**: Tune `s_index.base_factor` (Lifestyle Creep).
+        - **C. Confidence**: Tune `forecasting.pv_confidence_percent` (Dirty Panels).
+        - **D. Virtual Cost**: Tune `battery_economics.battery_cycle_cost_kwh` (ROI Calibration).
+        - **E. Capacity**: Tune `battery.capacity_kwh` (Capacity Fade).
 
 ### Phase 4: Full Autonomy ("Agent Mode")
 - [ ] **Policy Learning**:
-    - Replace heuristic `if/else` rules in Strategy Engine with a learned policy or advanced lookups.
+    - Replace heuristic `if/else` rules in Aurora Strategy with a learned policy or advanced lookups.
 - [ ] **Risk Agent**:
     - Autonomous management of risk appetite (e.g., "High Risk" strategy when savings potential is huge).

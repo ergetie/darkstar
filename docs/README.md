@@ -59,17 +59,23 @@ For complete requirements, see `requirements.txt`.
 
 Darkstar uses a three-layer brain to make decisions.
 
-### 1. Aurora (The Predictor)
-Located in `ml/`, Aurora is a LightGBM-based machine learning engine.
+### 1. Aurora Vision (The Predictor)
+Located in `ml/`, Aurora Vision is a LightGBM-based machine learning engine.
 *   **Training**: Learns your home's specific patterns from historical data (`planner_learning.db`).
-*   **Inference (Dual-Model Forecasting)**: Uses a two-stage pipeline where Model 1 generates base PV/Load forecasts and Model 2 (Aurora Correction) predicts forecast errors via Rolling Averages or LightGBM (depending on data depth), applying clamped corrections before the planner consumes the numbers.
-*   **Control**: You can toggle between "Baseline" (7-day average) and "Aurora" (ML) in the UI to verify performance.
+*   **Inference**: Generates base PV/Load forecasts and predicts forecast errors via Rolling Averages or LightGBM (depending on data depth).
+*   **Control**: You can toggle between "Baseline" (7-day average) and "Aurora" (ML) in the UI.
 
-### 2. Strategy Engine (The Context Layer)
+### 2. Aurora Strategy (The Context Layer)
 Located in `backend/strategy/`, this layer injects "common sense" overrides before the mathematical planner runs.
 *   **Vacation Mode**: Detects if the home is empty and suppresses water heating.
-*   **Weather Variance & Forecast Uncertainty**: Increases safety margins (S-Index) when 48h weather forecasts (cloud cover/temperature) are volatile, effectively reacting to forecast uncertainty.
-*   **The Analyst**: Scans prices to find optimal windows for heavy appliances (Dishwasher/Dryer) and advises the user.
+*   **Weather Variance**: Increases safety margins (S-Index) when 48h weather forecasts are volatile.
+*   **The Analyst**: Scans prices to find optimal windows for heavy appliances.
+
+### 3. Aurora Reflex (The Balancer)
+Located in `backend/learning/reflex.py`, this is the long-term feedback loop.
+*   **Auto-Tuning**: Analyzes historical drift to tune physical constants (e.g., Battery Capacity) and policy weights (e.g., Safety Margins).
+*   **Safe Updates**: Automatically updates `config.yaml` while preserving comments and logging changes.
+*   **Analyzers**: Monitors Safety (S-Index), Confidence (PV Bias), ROI (Virtual Cost), and Capacity.
 
 ### 3. The Planner (The Optimizer)
 Located in `planner.py`, the system now uses **Kepler**, a Mixed-Integer Linear Programming (MILP) solver, to generate optimal schedules.

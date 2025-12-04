@@ -44,12 +44,27 @@ This ensures we don't inflate today's load just because tomorrow is cold (which 
 
 ---
 
-## 4. Aurora Learning Engine
-Aurora provides the intelligence behind the forecasts.
+## 4. Aurora Intelligence Suite
+Darkstar's intelligence is powered by the **Aurora Suite**, which consists of three pillars:
 
-*   **Forecasting**: Generates PV and Load forecasts.
-*   **Correction**: Learns from recent errors (last 7 days) to adjust the baseline forecast.
-*   **Feedback Loop**: The planner feeds actuals back to Aurora to improve future predictions.
+### 4.1 Aurora Vision (The Eyes)
+*   **Role**: Forecasting.
+*   **Mechanism**: LightGBM models predict Load and PV generation.
+*   **Uncertainty**: Provides p10/p50/p90 confidence intervals.
+
+### 4.2 Aurora Strategy (The Brain)
+*   **Role**: Decision Making.
+*   **Mechanism**: Determines high-level policy parameters (`θ`) for Kepler based on context (Weather, Risk, Prices).
+*   **Outputs**: Target SoC, Export Thresholds, Risk Appetite.
+
+### 4.3 Aurora Reflex (The Inner Ear)
+*   **Role**: Learning & Balance.
+*   **Mechanism**: Long-term feedback loop that auto-tunes physical constants and policy weights based on historical drift.
+*   **Analyzers**:
+    *   **Safety**: Tunes `s_index.base_factor` (Lifestyle Creep).
+    *   **Confidence**: Tunes `forecasting.pv_confidence_percent` (Dirty Panels).
+    *   **ROI**: Tunes `battery_economics.battery_cycle_cost_kwh` (Virtual Cost).
+    *   **Capacity**: Tunes `battery.capacity_kwh` (Capacity Fade).
 
 ---
 

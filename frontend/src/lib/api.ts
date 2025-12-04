@@ -271,6 +271,8 @@ export const Api = {
     dashboard: () => getJSON<AuroraDashboardResponse>('/api/aurora/dashboard'),
     briefing: (payload: AuroraDashboardResponse) =>
       getJSON<AuroraBriefingResponse>('/api/aurora/briefing', 'POST', payload),
+    toggleReflex: (enabled: boolean) =>
+      getJSON<{ status: string; enabled: boolean }>('/api/aurora/config/toggle_reflex', 'POST', { enabled }),
   },
   performanceData: (days = 7) => getJSON<any>(`/api/performance/data?days=${days}`),
 }

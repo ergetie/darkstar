@@ -4,6 +4,7 @@ import Card from '../components/Card'
 import DecompositionChart from '../components/DecompositionChart'
 import ContextRadar from '../components/ContextRadar'
 import ActivityLog from '../components/ActivityLog'
+import KPIStrip from '../components/KPIStrip'
 import { Line, Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
 import type { AuroraDashboardResponse } from '../lib/api'
@@ -48,6 +49,8 @@ export default function Aurora() {
   const riskStatusTimeoutRef = useRef<number | null>(null)
   const [autoTuneEnabled, setAutoTuneEnabled] = useState<boolean>(false)
   const [togglingAutoTune, setTogglingAutoTune] = useState(false)
+  const [reflexEnabled, setReflexEnabled] = useState<boolean>(false)
+  const [togglingReflex, setTogglingReflex] = useState(false)
 
   // Performance Data State
   const [perfData, setPerfData] = useState<any>(null)
@@ -64,6 +67,8 @@ export default function Aurora() {
           setRiskBaseFactor(bf)
         }
         setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
+        // @ts-ignore
+        setReflexEnabled(!!res.state?.reflex_enabled)
       } catch (err) {
         console.error('Failed to load Aurora dashboard:', err)
       } finally {
@@ -136,6 +141,20 @@ export default function Aurora() {
       setAutoTuneEnabled(!newValue) // Revert on error
     } finally {
       setTogglingAutoTune(false)
+    }
+  }
+
+  const handleReflexToggle = async () => {
+    const newValue = !reflexEnabled
+    setReflexEnabled(newValue)
+    setTogglingReflex(true)
+    try {
+      await Api.aurora.toggleReflex(newValue)
+    } catch (err) {
+      console.error('Failed to toggle reflex:', err)
+      setReflexEnabled(!newValue) // Revert on error
+    } finally {
+      setTogglingReflex(false)
     }
   }
 
@@ -238,7 +257,7 @@ export default function Aurora() {
       <div className="grid gap-4 lg:grid-cols-12">
 
         {/* Identity & Status Card */}
-        <Card className={`lg:col-span-8 p-4 md:p-5 bg-gradient-to-br ${heroGradient} relative overflow-hidden`}>
+        <Card className={`lg:col-span-6 p-4 md:p-5 bg-gradient-to-br ${heroGradient} relative overflow-hidden`}>
           <div className="relative z-10 flex flex-col md:flex-row gap-6">
             {/* Avatar & Pulse */}
             <div className="flex items-center gap-4">
@@ -283,7 +302,7 @@ export default function Aurora() {
         </Card>
 
         {/* Risk Dial (Control) */}
-        <Card className="lg:col-span-4 p-4 md:p-5 flex flex-col justify-center">
+        <Card className="lg:col-span-3 p-4 md:p-5 flex flex-col justify-center">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Shield className="h-4 w-4 text-accent" />
@@ -323,7 +342,58 @@ export default function Aurora() {
             {riskStatus || (riskBaseFactor === 1.5 ? "Prioritizing safety over profit." : "Prioritizing profit over safety.")}
           </div>
         </Card>
+
+        {/* Controls Card (Auto-Tuner) */}
+        <Card className="lg:col-span-3 p-4 md:p-5 flex flex-col">
+          <div className="flex items-center gap-2 mb-4">
+            <Zap className="h-4 w-4 text-accent" />
+            <span className="text-xs font-medium text-text">Controls</span>
+          </div>
+
+          <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-text">Auto-Tuner</span>
+              <span className="text-[9px] text-muted">Allow Aurora to act</span>
+            </div>
+            <button
+              onClick={handleAutoTuneToggle}
+              disabled={togglingAutoTune}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${autoTuneEnabled ? 'bg-accent' : 'bg-surface2'
+                }`}
+            >
+              <span
+                className={`${autoTuneEnabled ? 'translate-x-5' : 'translate-x-1'
+                  } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50 mt-2">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-text">Aurora Reflex</span>
+              <span className="text-[9px] text-muted">Long-term auto-tuning</span>
+            </div>
+            <button
+              onClick={handleReflexToggle}
+              disabled={togglingReflex}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${reflexEnabled ? 'bg-accent' : 'bg-surface2'
+                }`}
+            >
+              <span
+                className={`${reflexEnabled ? 'translate-x-5' : 'translate-x-1'
+                  } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
+              />
+            </button>
+          </div>
+
+          <div className="mt-auto pt-2 text-center text-[10px] text-muted">
+            More controls coming soon.
+          </div>
+        </Card>
       </div>
+
+      {/* 1.5 KPI STRIP */}
+      <KPIStrip metrics={dashboard?.metrics} perfData={perfData} />
 
       {/* 2. THE DASHBOARD (Middle Section) */}
       <div className="grid gap-4 lg:grid-cols-12 lg:min-h-[400px]">
