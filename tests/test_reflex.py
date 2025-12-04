@@ -25,6 +25,9 @@ from backend.learning.reflex import (
     CONFIDENCE_BIAS_THRESHOLD,
     CONFIDENCE_MIN_SAMPLES,
     CONFIDENCE_LOOKBACK_DAYS,
+    ROI_LOOKBACK_DAYS,
+    ROI_MIN_CYCLES,
+    CAPACITY_FADE_THRESHOLD,
 )
 
 
@@ -558,3 +561,222 @@ class TestConstants:
         assert min_val == 80
         assert max_val == 100
 
+    def test_bounds_for_cycle_cost(self):
+        """battery_cycle_cost_kwh bounds should be 0.1 to 0.5."""
+        min_val, max_val = BOUNDS["battery_economics.battery_cycle_cost_kwh"]
+        assert min_val == 0.1
+        assert max_val == 0.5
+
+
+class TestArbitrageStats:
+    """Test the get_arbitrage_stats query method."""
+
+    def test_empty_returns_zeros(self, temp_db):
+        """Empty database should return zeros."""
+        db_path, store, tz = temp_db
+        
+        stats = store.get_arbitrage_stats(days_back=30)
+        assert stats["total_export_revenue"] == 0.0
+        assert stats["total_import_cost"] == 0.0
+        assert stats["total_charge_kwh"] == 0.0
+
+    def test_calculates_profit(self, temp_db):
+        """Should calculate profit from export and import."""
+        db_path, store, tz = temp_db
+        
+        now = datetime.now(tz)
+        slot_time = now.replace(hour=12, minute=0, second=0, microsecond=0)
+        
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO slot_observations 
+                    (slot_start, slot_end, export_kwh, import_kwh, 
+                     export_price_sek_kwh, import_price_sek_kwh,
+                     batt_charge_kwh, batt_discharge_kwh)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(),
+                 5.0, 2.0, 1.5, 0.5, 2.0, 5.0),
+            )
+            conn.commit()
+        
+        stats = store.get_arbitrage_stats(days_back=30)
+        
+        # export_revenue = 5.0 * 1.5 = 7.5
+        # import_cost = 2.0 * 0.5 = 1.0
+        # net_profit = 7.5 - 1.0 = 6.5
+        assert stats["total_export_revenue"] == 7.5
+        assert stats["total_import_cost"] == 1.0
+        assert stats["net_profit"] == 6.5
+        assert stats["total_charge_kwh"] == 2.0
+
+
+class TestAnalyzeROI:
+    """Test the analyze_roi analyzer logic."""
+
+    def _insert_arbitrage_data(self, conn, tz, total_charge, net_profit):
+        """Helper to insert arbitrage data."""
+        now = datetime.now(tz)
+        slot_time = now.replace(hour=12, minute=0, second=0, microsecond=0)
+        
+        # Calculate values to achieve desired totals
+        export_kwh = net_profit / 1.5 + 1.0  # At 1.5 SEK/kWh, get net_profit
+        import_kwh = 1.0
+        
+        conn.execute(
+            """
+            INSERT INTO slot_observations 
+                (slot_start, slot_end, export_kwh, import_kwh, 
+                 export_price_sek_kwh, import_price_sek_kwh,
+                 batt_charge_kwh, batt_discharge_kwh)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(),
+             export_kwh, import_kwh, 1.5, 0.5, total_charge, export_kwh),
+        )
+        conn.commit()
+
+    def test_insufficient_cycles(self, temp_db, mock_config):
+        """With too few cycles, should not make changes."""
+        db_path, store, tz = temp_db
+        
+        # Insert small amount of data (< 5 cycles at 34 kWh)
+        with sqlite3.connect(db_path) as conn:
+            self._insert_arbitrage_data(conn, tz, 50, 10)  # ~1.5 cycles
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_roi()
+            
+            assert updates == {}
+            assert "Insufficient cycles" in msg
+
+    def test_high_profit_increases_cost(self, temp_db, mock_config):
+        """High profit per kWh should increase cycle cost estimate."""
+        db_path, store, tz = temp_db
+        
+        # Set current cost low
+        mock_config["battery_economics"]["battery_cycle_cost_kwh"] = 0.2
+        
+        # Insert data with high profit per kWh (> 0.1 gap)
+        # cycles = 200 / 34.2 ≈ 5.8
+        # profit_per_kwh = 100 / 200 = 0.5 SEK/kWh
+        # gap = 0.5 - 0.2 = 0.3
+        with sqlite3.connect(db_path) as conn:
+            self._insert_arbitrage_data(conn, tz, 200, 100)
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_roi()
+            
+            # Should propose increase
+            if "battery_economics.battery_cycle_cost_kwh" in updates:
+                assert updates["battery_economics.battery_cycle_cost_kwh"] > 0.2
+
+
+class TestCapacityEstimate:
+    """Test the get_capacity_estimate query method."""
+
+    def test_insufficient_data_returns_none(self, temp_db):
+        """With insufficient data, should return None."""
+        db_path, store, tz = temp_db
+        
+        estimated = store.get_capacity_estimate(days_back=30)
+        assert estimated is None
+
+    def test_estimates_capacity(self, temp_db):
+        """Should estimate capacity from discharge data."""
+        db_path, store, tz = temp_db
+        
+        now = datetime.now(tz)
+        
+        # Insert discharge observations
+        # If we discharge 3.0 kWh and SoC drops from 50% to 40%, 
+        # capacity ≈ 3.0 / 0.10 = 30 kWh
+        with sqlite3.connect(db_path) as conn:
+            for i in range(20):
+                slot_time = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
+                conn.execute(
+                    """
+                    INSERT INTO slot_observations 
+                        (slot_start, slot_end, soc_start_percent, soc_end_percent, batt_discharge_kwh)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(),
+                     50.0 - i * 0.5, 45.0 - i * 0.5, 1.5),  # ~5% drop, 1.5 kWh = 30 kWh capacity
+                )
+            conn.commit()
+        
+        estimated = store.get_capacity_estimate(days_back=30)
+        
+        # Should estimate around 30 kWh
+        assert estimated is not None
+        assert 25 < estimated < 35
+
+
+class TestAnalyzeCapacity:
+    """Test the analyze_capacity analyzer logic."""
+
+    def test_insufficient_data_no_change(self, temp_db, mock_config):
+        """With insufficient data, should not make changes."""
+        db_path, store, tz = temp_db
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_capacity()
+            
+            assert updates == {}
+            assert "Insufficient data" in msg
+
+    def test_healthy_capacity_no_change(self, temp_db, mock_config):
+        """When capacity is healthy, should not make changes."""
+        db_path, store, tz = temp_db
+        
+        # Set configured capacity
+        mock_config["battery"]["capacity_kwh"] = 34.0
+        
+        now = datetime.now(tz)
+        
+        # Insert data showing healthy capacity (~34 kWh)
+        with sqlite3.connect(db_path) as conn:
+            for i in range(20):
+                slot_time = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
+                # 3.4 kWh per 10% = 34 kWh capacity
+                conn.execute(
+                    """
+                    INSERT INTO slot_observations 
+                        (slot_start, slot_end, soc_start_percent, soc_end_percent, batt_discharge_kwh)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(),
+                     50.0, 40.0, 3.4),  # 10% drop, 3.4 kWh = 34 kWh capacity
+                )
+            conn.commit()
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_capacity()
+            
+            assert updates == {}
+            assert "Healthy" in msg

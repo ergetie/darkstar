@@ -43,6 +43,16 @@ CONFIDENCE_BIAS_THRESHOLD = 0.5  # kWh/slot avg bias to trigger adjustment
 CONFIDENCE_MIN_SAMPLES = 100  # Minimum data points for reliable bias calculation
 CONFIDENCE_LOOKBACK_DAYS = 14  # Days to analyze for bias
 
+# ROI analyzer thresholds
+ROI_LOOKBACK_DAYS = 30  # Days to analyze for arbitrage
+ROI_MIN_CYCLES = 5  # Minimum cycles for reliable analysis
+ROI_ADJUSTMENT_FACTOR = 0.3  # How much of the gap to close per adjustment
+
+# Capacity analyzer thresholds
+CAPACITY_LOOKBACK_DAYS = 30  # Days to analyze
+CAPACITY_FADE_THRESHOLD = 0.95  # Report fade if <95% of nameplate
+CAPACITY_MIN_DATA_POINTS = 10  # Minimum observations needed
+
 
 class AuroraReflex:
     """
@@ -311,21 +321,122 @@ class AuroraReflex:
 
     def analyze_roi(self) -> Tuple[Dict, str]:
         """
-        Analyze battery ROI.
-        Target: battery_economics.battery_cycle_cost_kwh
+        Analyze battery ROI by comparing realized profit per cycle vs configured cost.
         
-        TODO: Implement in Phase C
+        If profit/cycle >> battery_cycle_cost, we're being too conservative (holding back arbitrage).
+        If profit/cycle << battery_cycle_cost, we're cycling too aggressively.
+        
+        Target: battery_economics.battery_cycle_cost_kwh
         """
-        return {}, "ROI: Stable (not implemented)"
+        param_path = "battery_economics.battery_cycle_cost_kwh"
+        
+        # Check rate limit
+        if not self._can_update(param_path):
+            return {}, "ROI: Rate limited (changed today already)"
+        
+        # Get arbitrage stats
+        stats = self.store.get_arbitrage_stats(days_back=ROI_LOOKBACK_DAYS)
+        
+        total_charge = stats.get("total_charge_kwh", 0)
+        net_profit = stats.get("net_profit", 0)
+        
+        # Get battery capacity for cycle calculation
+        battery_capacity = self.config.get("battery", {}).get("capacity_kwh", 34.0)
+        
+        if battery_capacity <= 0:
+            return {}, "ROI: Invalid battery capacity"
+        
+        cycles = total_charge / battery_capacity
+        
+        if cycles < ROI_MIN_CYCLES:
+            return (
+                {},
+                f"ROI: Insufficient cycles ({cycles:.1f} < {ROI_MIN_CYCLES})",
+            )
+        
+        # Calculate realized profit per cycle
+        profit_per_cycle = net_profit / cycles if cycles > 0 else 0
+        
+        current_cost = self.config.get("battery_economics", {}).get(
+            "battery_cycle_cost_kwh", 0.2
+        )
+        min_val, max_val = BOUNDS[param_path]
+        max_change = MAX_DAILY_CHANGE[param_path]
+        
+        # Compare profit per kWh charged vs current cost
+        profit_per_kwh = net_profit / total_charge if total_charge > 0 else 0
+        
+        # If profit per kWh is significantly different from current cost estimate
+        gap = profit_per_kwh - current_cost
+        
+        if abs(gap) > 0.1:  # Significant gap (0.1 SEK/kWh)
+            # Move toward the realized value, but only by adjustment factor
+            proposed = current_cost + (gap * ROI_ADJUSTMENT_FACTOR)
+            new_value = self._clamp_value(param_path, current_cost, proposed)
+            
+            if abs(new_value - current_cost) > 0.001:
+                direction = "up" if new_value > current_cost else "down"
+                logger.info(
+                    f"ROI: Realized {profit_per_kwh:.2f} SEK/kWh vs current {current_cost:.2f} → "
+                    f"adjusting {direction} to {new_value:.2f}"
+                )
+                return (
+                    {param_path: round(new_value, 2)},
+                    f"ROI: Realized {profit_per_kwh:.2f} SEK/kWh ({cycles:.1f} cycles) → "
+                    f"cost {current_cost:.2f} → {new_value:.2f}",
+                )
+        
+        return (
+            {},
+            f"ROI: Stable (profit={profit_per_kwh:.2f} SEK/kWh, {cycles:.1f} cycles, cost={current_cost:.2f})",
+        )
 
     def analyze_capacity(self) -> Tuple[Dict, str]:
         """
-        Detect capacity fade.
-        Target: battery.capacity_kwh
+        Detect battery capacity fade by analyzing discharge efficiency.
         
-        TODO: Implement in Phase D
+        Compares estimated effective capacity vs configured capacity.
+        Only decreases (never increases beyond original nameplate).
+        
+        Target: battery.capacity_kwh
         """
-        return {}, "Capacity: Stable (not implemented)"
+        param_path = "battery.capacity_kwh"
+        
+        # Check rate limit
+        if not self._can_update(param_path):
+            return {}, "Capacity: Rate limited (changed today already)"
+        
+        # Get capacity estimate
+        estimated = self.store.get_capacity_estimate(days_back=CAPACITY_LOOKBACK_DAYS)
+        
+        if estimated is None:
+            return {}, "Capacity: Insufficient data for estimation"
+        
+        current_capacity = self.config.get("battery", {}).get("capacity_kwh", 34.0)
+        max_change = MAX_DAILY_CHANGE[param_path]
+        
+        # Only decrease capacity (fade detection), never increase
+        if estimated < current_capacity * CAPACITY_FADE_THRESHOLD:
+            # Significant fade detected
+            proposed = max(estimated, current_capacity - max_change)
+            new_value = max(proposed, 0)  # Never go negative
+            
+            if new_value < current_capacity:
+                fade_percent = ((current_capacity - estimated) / current_capacity) * 100
+                logger.info(
+                    f"Capacity: Fade detected ({fade_percent:.1f}%) → "
+                    f"reducing {current_capacity:.1f} → {new_value:.1f} kWh"
+                )
+                return (
+                    {param_path: round(new_value, 1)},
+                    f"Capacity: Fade detected (estimated {estimated:.1f} kWh) → "
+                    f"{current_capacity:.1f} → {new_value:.1f} kWh",
+                )
+        
+        return (
+            {},
+            f"Capacity: Healthy (estimated {estimated:.1f} kWh, configured {current_capacity:.1f} kWh)",
+        )
 
     def update_config(self, updates: Dict[str, Any], dry_run: bool) -> None:
         """

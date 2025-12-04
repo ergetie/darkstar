@@ -772,3 +772,106 @@ class LearningStore:
             df = pd.read_sql_query(query, conn, params=(cutoff_date,))
             return df
 
+    def get_arbitrage_stats(self, days_back: int = 30) -> Dict[str, Any]:
+        """
+        Calculate arbitrage statistics for ROI analysis.
+        
+        Args:
+            days_back: How many days to look back
+        
+        Returns:
+            Dict with:
+                - total_export_revenue: SEK earned from exports
+                - total_import_cost: SEK spent on imports (for charging)
+                - total_charge_kwh: Total energy charged
+                - total_discharge_kwh: Total energy discharged
+                - cycles: Estimated battery cycles (charge_kwh / capacity placeholder)
+                - profit_per_cycle: Revenue / cycles
+        """
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cutoff_date = (
+                datetime.now(self.timezone) - timedelta(days=days_back)
+            ).date().isoformat()
+            
+            query = """
+                SELECT 
+                    SUM(export_kwh * export_price_sek_kwh) as export_revenue,
+                    SUM(import_kwh * import_price_sek_kwh) as import_cost,
+                    SUM(batt_charge_kwh) as total_charge,
+                    SUM(batt_discharge_kwh) as total_discharge
+                FROM slot_observations
+                WHERE DATE(slot_start) >= ?
+                  AND export_price_sek_kwh IS NOT NULL
+                  AND import_price_sek_kwh IS NOT NULL
+            """
+            
+            row = conn.execute(query, (cutoff_date,)).fetchone()
+            
+            export_revenue = row[0] or 0.0
+            import_cost = row[1] or 0.0
+            total_charge = row[2] or 0.0
+            total_discharge = row[3] or 0.0
+            
+            return {
+                "total_export_revenue": round(export_revenue, 2),
+                "total_import_cost": round(import_cost, 2),
+                "total_charge_kwh": round(total_charge, 2),
+                "total_discharge_kwh": round(total_discharge, 2),
+                "net_profit": round(export_revenue - import_cost, 2),
+            }
+
+    def get_capacity_estimate(self, days_back: int = 30) -> Optional[float]:
+        """
+        Estimate effective battery capacity from discharge observations.
+        
+        Looks for large discharge events (SoC drop > 30%) and calculates
+        the ratio of energy discharged to SoC percentage dropped.
+        
+        Args:
+            days_back: How many days to look back
+        
+        Returns:
+            Estimated capacity in kWh, or None if insufficient data.
+        """
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cutoff_date = (
+                datetime.now(self.timezone) - timedelta(days=days_back)
+            ).date().isoformat()
+            
+            # Look for slots with significant discharge
+            query = """
+                SELECT 
+                    soc_start_percent,
+                    soc_end_percent,
+                    batt_discharge_kwh
+                FROM slot_observations
+                WHERE DATE(slot_start) >= ?
+                  AND soc_start_percent IS NOT NULL
+                  AND soc_end_percent IS NOT NULL
+                  AND batt_discharge_kwh IS NOT NULL
+                  AND batt_discharge_kwh > 0.1
+                  AND soc_start_percent > soc_end_percent
+            """
+            
+            rows = conn.execute(query, (cutoff_date,)).fetchall()
+            
+            if len(rows) < 10:
+                return None
+            
+            # Calculate effective capacity from each observation
+            estimates = []
+            for soc_start, soc_end, discharge_kwh in rows:
+                soc_drop = soc_start - soc_end
+                if soc_drop > 0.5:  # At least 0.5% drop
+                    # effective_capacity = discharge / (soc_drop/100)
+                    estimated_cap = discharge_kwh / (soc_drop / 100.0)
+                    if 10 < estimated_cap < 100:  # Sanity check
+                        estimates.append(estimated_cap)
+            
+            if len(estimates) < 5:
+                return None
+            
+            # Use median to be robust to outliers
+            estimates.sort()
+            median_idx = len(estimates) // 2
+            return round(estimates[median_idx], 1)
