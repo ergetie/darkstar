@@ -727,3 +727,48 @@ class LearningStore:
                 (param_path, new_value, now)
             )
             conn.commit()
+
+    def get_forecast_vs_actual(
+        self,
+        days_back: int = 14,
+        target: str = "pv",
+    ) -> pd.DataFrame:
+        """
+        Compare forecast vs actual values for PV or load.
+        
+        Args:
+            days_back: How many days to look back
+            target: 'pv' or 'load'
+        
+        Returns:
+            DataFrame with columns: slot_start, forecast, actual, error (forecast - actual)
+        """
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cutoff_date = (
+                datetime.now(self.timezone) - timedelta(days=days_back)
+            ).date().isoformat()
+            
+            if target == "pv":
+                forecast_col = "f.pv_forecast_kwh"
+                actual_col = "o.pv_kwh"
+            else:
+                forecast_col = "f.load_forecast_kwh"
+                actual_col = "o.load_kwh"
+            
+            query = f"""
+                SELECT 
+                    o.slot_start,
+                    {forecast_col} as forecast,
+                    {actual_col} as actual,
+                    ({forecast_col} - {actual_col}) as error
+                FROM slot_observations o
+                JOIN slot_forecasts f ON o.slot_start = f.slot_start
+                WHERE DATE(o.slot_start) >= ?
+                  AND {actual_col} IS NOT NULL
+                  AND {forecast_col} IS NOT NULL
+                ORDER BY o.slot_start ASC
+            """
+            
+            df = pd.read_sql_query(query, conn, params=(cutoff_date,))
+            return df
+

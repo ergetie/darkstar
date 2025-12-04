@@ -38,6 +38,11 @@ SAFETY_PEAK_HOURS = (16, 20)  # Peak demand window
 SAFETY_CRITICAL_EVENT_COUNT = 3  # Events in 30d to trigger increase
 SAFETY_RELAXATION_DAYS = 60  # No events for this long to trigger decrease
 
+# Confidence analyzer thresholds
+CONFIDENCE_BIAS_THRESHOLD = 0.5  # kWh/slot avg bias to trigger adjustment
+CONFIDENCE_MIN_SAMPLES = 100  # Minimum data points for reliable bias calculation
+CONFIDENCE_LOOKBACK_DAYS = 14  # Days to analyze for bias
+
 
 class AuroraReflex:
     """
@@ -231,15 +236,78 @@ class AuroraReflex:
 
     def analyze_confidence(self) -> Tuple[Dict, str]:
         """
-        Compare PV forecast vs actuals.
+        Compare PV forecast vs actuals to detect systematic bias.
+        If over-predicting (positive bias), lower confidence to increase safety margin.
+        If under-predicting (negative bias), increase confidence.
+        
         Target: forecasting.pv_confidence_percent
-        
-        TODO: Implement in Phase B
         """
-        metrics = self.learning_engine.calculate_metrics(days_back=14)
-        mae_pv = metrics.get("mae_pv", 0.0)
+        param_path = "forecasting.pv_confidence_percent"
         
-        return {}, f"Confidence: Stable (MAE PV={mae_pv:.2f} kWh)"
+        # Check rate limit
+        if not self._can_update(param_path):
+            return {}, "Confidence: Rate limited (changed today already)"
+        
+        # Get forecast vs actual data
+        df = self.store.get_forecast_vs_actual(
+            days_back=CONFIDENCE_LOOKBACK_DAYS,
+            target="pv",
+        )
+        
+        if len(df) < CONFIDENCE_MIN_SAMPLES:
+            return (
+                {},
+                f"Confidence: Insufficient data ({len(df)} samples, need {CONFIDENCE_MIN_SAMPLES})",
+            )
+        
+        # Calculate bias (positive = over-prediction, negative = under-prediction)
+        mean_bias = df["error"].mean()
+        mae = df["error"].abs().mean()
+        
+        current_value = self.config.get("forecasting", {}).get("pv_confidence_percent", 90)
+        min_val, max_val = BOUNDS[param_path]
+        max_change = MAX_DAILY_CHANGE[param_path]
+        
+        if mean_bias > CONFIDENCE_BIAS_THRESHOLD:
+            # Systematic over-prediction → lower confidence (be more conservative)
+            proposed = current_value - max_change
+            new_value = self._clamp_value(param_path, current_value, proposed)
+            
+            if new_value < current_value:
+                logger.info(
+                    f"Confidence: Over-predicting PV (bias={mean_bias:.2f} kWh/slot) → "
+                    f"lowering confidence {current_value:.1f}% → {new_value:.1f}%"
+                )
+                return (
+                    {param_path: round(new_value, 1)},
+                    f"Confidence: Over-predicting PV (bias=+{mean_bias:.2f} kWh) → "
+                    f"confidence {current_value:.1f}% → {new_value:.1f}%",
+                )
+            else:
+                return {}, f"Confidence: Over-predicting but already at min ({min_val}%)"
+        
+        elif mean_bias < -CONFIDENCE_BIAS_THRESHOLD:
+            # Systematic under-prediction → raise confidence (we're too conservative)
+            proposed = current_value + max_change
+            new_value = self._clamp_value(param_path, current_value, proposed)
+            
+            if new_value > current_value:
+                logger.info(
+                    f"Confidence: Under-predicting PV (bias={mean_bias:.2f} kWh/slot) → "
+                    f"raising confidence {current_value:.1f}% → {new_value:.1f}%"
+                )
+                return (
+                    {param_path: round(new_value, 1)},
+                    f"Confidence: Under-predicting PV (bias={mean_bias:.2f} kWh) → "
+                    f"confidence {current_value:.1f}% → {new_value:.1f}%",
+                )
+            else:
+                return {}, f"Confidence: Under-predicting but already at max ({max_val}%)"
+        
+        return (
+            {},
+            f"Confidence: Stable (bias={mean_bias:.2f} kWh, MAE={mae:.2f} kWh, {len(df)} samples)",
+        )
 
     def analyze_roi(self) -> Tuple[Dict, str]:
         """

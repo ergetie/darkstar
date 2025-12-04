@@ -1,8 +1,8 @@
 """
-Tests for Aurora Reflex: Phase A (Safety Analyzer)
+Tests for Aurora Reflex: Phase A (Safety Analyzer) and Phase B (Confidence Analyzer)
 
-Tests the analyze_safety() method which tunes s_index.base_factor
-based on historical low-SoC events during peak hours.
+Tests the analyzers which tune s_index.base_factor and forecasting.pv_confidence_percent
+based on historical data.
 """
 import os
 import sqlite3
@@ -22,6 +22,9 @@ from backend.learning.reflex import (
     SAFETY_LOW_SOC_THRESHOLD,
     SAFETY_PEAK_HOURS,
     SAFETY_RELAXATION_DAYS,
+    CONFIDENCE_BIAS_THRESHOLD,
+    CONFIDENCE_MIN_SAMPLES,
+    CONFIDENCE_LOOKBACK_DAYS,
 )
 
 
@@ -342,6 +345,187 @@ class TestAnalyzeSafety:
             assert "at min" in msg or "Stable" in msg
 
 
+class TestForecastVsActualQuery:
+    """Test the get_forecast_vs_actual query method."""
+
+    def test_no_data_returns_empty_df(self, temp_db):
+        """When no forecast data exists, return empty DataFrame."""
+        db_path, store, tz = temp_db
+        
+        df = store.get_forecast_vs_actual(days_back=14, target="pv")
+        assert len(df) == 0
+
+    def test_returns_matched_data(self, temp_db):
+        """Should return matched forecast and observation data."""
+        db_path, store, tz = temp_db
+        
+        now = datetime.now(tz)
+        slot_time = now.replace(hour=12, minute=0, second=0, microsecond=0)
+        
+        with sqlite3.connect(db_path) as conn:
+            # Insert observation
+            conn.execute(
+                """
+                INSERT INTO slot_observations (slot_start, slot_end, pv_kwh)
+                VALUES (?, ?, ?)
+                """,
+                (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(), 2.5),
+            )
+            # Insert forecast
+            conn.execute(
+                """
+                INSERT INTO slot_forecasts (slot_start, pv_forecast_kwh, forecast_version)
+                VALUES (?, ?, ?)
+                """,
+                (slot_time.isoformat(), 3.0, "test"),
+            )
+            conn.commit()
+        
+        df = store.get_forecast_vs_actual(days_back=14, target="pv")
+        
+        assert len(df) == 1
+        assert df.iloc[0]["forecast"] == 3.0
+        assert df.iloc[0]["actual"] == 2.5
+        assert df.iloc[0]["error"] == 0.5  # forecast - actual = 3.0 - 2.5
+
+
+class TestAnalyzeConfidence:
+    """Test the analyze_confidence analyzer logic."""
+
+    def _insert_forecast_data(self, conn, tz, num_samples, bias):
+        """Helper to insert forecast vs actual data with specified bias."""
+        now = datetime.now(tz)
+        for i in range(num_samples):
+            slot_time = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
+            actual = 1.0  # Fixed actual
+            forecast = actual + bias  # Add bias to forecast
+            
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO slot_observations (slot_start, slot_end, pv_kwh)
+                VALUES (?, ?, ?)
+                """,
+                (slot_time.isoformat(), (slot_time + timedelta(minutes=15)).isoformat(), actual),
+            )
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO slot_forecasts (slot_start, pv_forecast_kwh, forecast_version)
+                VALUES (?, ?, ?)
+                """,
+                (slot_time.isoformat(), forecast, "test"),
+            )
+        conn.commit()
+
+    def test_insufficient_data_no_change(self, temp_db, mock_config):
+        """With insufficient data, should not make changes."""
+        db_path, store, tz = temp_db
+        
+        # Insert fewer than CONFIDENCE_MIN_SAMPLES
+        with sqlite3.connect(db_path) as conn:
+            self._insert_forecast_data(conn, tz, 50, 0.0)
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_confidence()
+            
+            assert updates == {}
+            assert "Insufficient data" in msg
+
+    def test_over_prediction_lowers_confidence(self, temp_db, mock_config):
+        """Systematic over-prediction should lower confidence."""
+        db_path, store, tz = temp_db
+        
+        # Insert data with positive bias (over-prediction)
+        with sqlite3.connect(db_path) as conn:
+            self._insert_forecast_data(conn, tz, 150, 0.8)  # bias > 0.5
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_confidence()
+            
+            assert "forecasting.pv_confidence_percent" in updates
+            new_value = updates["forecasting.pv_confidence_percent"]
+            # Should decrease by max_change (2.0) from 90 to 88
+            assert new_value == 88.0
+            assert "Over-predicting" in msg
+
+    def test_under_prediction_raises_confidence(self, temp_db, mock_config):
+        """Systematic under-prediction should raise confidence."""
+        db_path, store, tz = temp_db
+        
+        # Insert data with negative bias (under-prediction)
+        with sqlite3.connect(db_path) as conn:
+            self._insert_forecast_data(conn, tz, 150, -0.8)  # bias < -0.5
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_confidence()
+            
+            assert "forecasting.pv_confidence_percent" in updates
+            new_value = updates["forecasting.pv_confidence_percent"]
+            # Should increase by max_change (2.0) from 90 to 92
+            assert new_value == 92.0
+            assert "Under-predicting" in msg
+
+    def test_small_bias_is_stable(self, temp_db, mock_config):
+        """Small bias within threshold should be stable."""
+        db_path, store, tz = temp_db
+        
+        # Insert data with small bias
+        with sqlite3.connect(db_path) as conn:
+            self._insert_forecast_data(conn, tz, 150, 0.3)  # |bias| < 0.5
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_confidence()
+            
+            assert updates == {}
+            assert "Stable" in msg
+
+    def test_respects_confidence_bounds(self, temp_db, mock_config):
+        """Should not go below 80% or above 100%."""
+        db_path, store, tz = temp_db
+        
+        # Set to max
+        mock_config["forecasting"]["pv_confidence_percent"] = 100
+        
+        # Insert data with negative bias (would want to increase)
+        with sqlite3.connect(db_path) as conn:
+            self._insert_forecast_data(conn, tz, 150, -0.8)
+        
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.store = store
+            reflex.timezone = tz
+            reflex.learning_engine = MagicMock()
+            
+            updates, msg = reflex.analyze_confidence()
+            
+            assert updates == {}
+            assert "at max" in msg
+
+
 class TestConstants:
     """Verify the constants are set correctly."""
 
@@ -361,3 +545,16 @@ class TestConstants:
         assert SAFETY_PEAK_HOURS == (16, 20)
         assert SAFETY_CRITICAL_EVENT_COUNT == 3
         assert SAFETY_RELAXATION_DAYS == 60
+
+    def test_confidence_thresholds(self):
+        """Confidence thresholds should match plan."""
+        assert CONFIDENCE_BIAS_THRESHOLD == 0.5
+        assert CONFIDENCE_MIN_SAMPLES == 100
+        assert CONFIDENCE_LOOKBACK_DAYS == 14
+
+    def test_bounds_for_confidence(self):
+        """pv_confidence_percent bounds should be 80 to 100."""
+        min_val, max_val = BOUNDS["forecasting.pv_confidence_percent"]
+        assert min_val == 80
+        assert max_val == 100
+
