@@ -363,6 +363,18 @@ def aurora_dashboard():
 
     metrics["max_price_spread"] = max_spread
 
+    # Calculate Forecast Bias (mean error, positive = over-predicting)
+    forecast_bias = None
+    try:
+        if engine is not None and hasattr(engine, 'store'):
+            df = engine.store.get_forecast_vs_actual(days_back=14, target="pv")
+            if len(df) >= 50:
+                forecast_bias = round(df["error"].mean(), 3)
+    except Exception as exc:
+        logger.warning("Failed to calculate forecast bias: %s", exc)
+    
+    metrics["forecast_bias"] = forecast_bias
+
     payload = {
         "identity": {
             "graduation": graduation,

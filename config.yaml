@@ -76,8 +76,7 @@ kepler:
   primary_planner: true
   shadow_mode: true
 learning:
-  auto_tune_enabled: false
-  reflex_enabled: false
+  auto_tune_enabled: true
   default_battery_cost_sek_per_kwh: 0.02
   enable: true
   horizon_days: 7
@@ -92,6 +91,7 @@ learning:
     s_index_temp_weight: 0.1
   min_improvement_threshold: 0.015
   min_sample_threshold: 2
+  reflex_enabled: true
   sensor_map: {}
   sqlite_path: data/planner_learning.db
   sync_interval_minutes: 5

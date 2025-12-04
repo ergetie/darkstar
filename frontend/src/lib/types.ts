@@ -85,6 +85,7 @@ export type AuroraDashboardResponse = {
     mae_load_aurora?: number | null;
     mae_load_baseline?: number | null;
     max_price_spread?: number | null;
+    forecast_bias?: number | null;
   };
   generated_at: string;
 };

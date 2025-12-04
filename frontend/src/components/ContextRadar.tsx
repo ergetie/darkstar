@@ -26,12 +26,16 @@ interface ContextRadarProps {
     }
     riskFactor: number // 0.9 to 1.5 usually
     forecastAccuracy: number // 0 to 100 (derived from MAE)
+    priceSpread?: number | null // SEK/kWh, typically 0.5 to 2.5
+    forecastBias?: number | null // kWh, -2 to +2 typical range
 }
 
 export default function ContextRadar({
     weatherVolatility,
     riskFactor,
     forecastAccuracy,
+    priceSpread,
+    forecastBias,
 }: ContextRadarProps) {
     // Normalize values to 0-100 scale for the chart
     const cloudScore = Math.min(100, weatherVolatility.cloud * 100)
@@ -41,19 +45,43 @@ export default function ContextRadar({
     const riskScore = Math.max(0, Math.min(100, ((riskFactor - 0.9) / 0.6) * 100))
 
     // Forecast Confidence: Inverse of error? Or just passed in accuracy.
-    // Let's assume passed in is "Confidence %"
     const confidenceScore = forecastAccuracy
 
-    const labels = ['Cloud Volatility', 'Temp Volatility', 'Strategy Aggression', 'Forecast Confidence']
-    const pointColors = ['#38bdf8', '#f472b6', '#fbbf24', '#34d399'] // Sky, Pink, Amber, Emerald
+    // Price Spread: 0 SEK = 0, 2.5 SEK = 100 (high opportunity)
+    const spreadScore = priceSpread != null
+        ? Math.max(0, Math.min(100, (priceSpread / 2.5) * 100))
+        : 50 // Default to middle
+
+    // Forecast Bias: 0 = centered (50), ±2 kWh = extremes
+    // Positive bias = over-predicting (cautious), negative = under-predicting (risky)
+    const biasScore = forecastBias != null
+        ? Math.max(0, Math.min(100, ((forecastBias + 2) / 4) * 100))
+        : 50 // Default to centered
+
+    const labels = [
+        'Cloud Vol.',
+        'Temp Vol.',
+        'Aggression',
+        'Accuracy',
+        'Spread',
+        'Bias'
+    ]
+    const pointColors = [
+        '#38bdf8', // Sky - Cloud
+        '#f472b6', // Pink - Temp
+        '#fbbf24', // Amber - Aggression
+        '#34d399', // Emerald - Accuracy
+        '#a78bfa', // Violet - Spread
+        '#fb923c', // Orange - Bias
+    ]
 
     const data = {
         labels,
         datasets: [
             {
                 label: 'Current Context',
-                data: [cloudScore, tempScore, riskScore, confidenceScore],
-                backgroundColor: 'rgba(56, 189, 248, 0.2)',
+                data: [cloudScore, tempScore, riskScore, confidenceScore, spreadScore, biasScore],
+                backgroundColor: 'rgba(56, 189, 248, 0.15)',
                 borderColor: 'rgba(56, 189, 248, 0.5)',
                 borderWidth: 2,
                 pointBackgroundColor: pointColors,
@@ -89,6 +117,10 @@ export default function ContextRadar({
         maintainAspectRatio: false,
     }
 
+    // Compact legend with 2 columns
+    const leftLabels = labels.slice(0, 3)
+    const rightLabels = labels.slice(3)
+
     return (
         <div className="relative w-full h-full min-h-[200px]">
             {/* Chart Container - Absolute to prevent layout locking */}
@@ -96,20 +128,36 @@ export default function ContextRadar({
                 <Radar data={data} options={options} />
             </div>
 
-            {/* Legend - Bottom Left */}
-            <div className="absolute bottom-0 left-0 flex flex-col gap-1.5 p-3 z-10">
-                {labels.map((label, idx) => (
-                    <div key={label} className="flex items-center gap-2">
-                        <div
-                            className="w-2 h-2 rounded-full shadow-sm ring-1 ring-white/10"
-                            style={{ backgroundColor: pointColors[idx] }}
-                        />
-                        <span className="text-[10px] text-muted font-medium leading-tight">
-                            {label}
-                        </span>
-                    </div>
-                ))}
+            {/* Legend - Bottom with 2 columns */}
+            <div className="absolute bottom-0 left-0 right-0 flex justify-between px-3 pb-2 z-10">
+                <div className="flex flex-col gap-1">
+                    {leftLabels.map((label, idx) => (
+                        <div key={label} className="flex items-center gap-1.5">
+                            <div
+                                className="w-2 h-2 rounded-full shadow-sm ring-1 ring-white/10"
+                                style={{ backgroundColor: pointColors[idx] }}
+                            />
+                            <span className="text-[9px] text-muted font-medium leading-tight">
+                                {label}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+                <div className="flex flex-col gap-1">
+                    {rightLabels.map((label, idx) => (
+                        <div key={label} className="flex items-center gap-1.5">
+                            <div
+                                className="w-2 h-2 rounded-full shadow-sm ring-1 ring-white/10"
+                                style={{ backgroundColor: pointColors[idx + 3] }}
+                            />
+                            <span className="text-[9px] text-muted font-medium leading-tight">
+                                {label}
+                            </span>
+                        </div>
+                    ))}
+                </div>
             </div>
         </div>
     )
 }
+

@@ -414,7 +414,11 @@ export default function Aurora() {
                 overall: overallVol
               }}
               riskFactor={riskBaseFactor ?? 1.1}
-              forecastAccuracy={85} // Placeholder until we wire up real confidence
+              forecastAccuracy={dashboard?.metrics?.mae_pv_aurora != null
+                ? Math.max(0, 100 - dashboard.metrics.mae_pv_aurora * 20)
+                : 85}
+              priceSpread={dashboard?.metrics?.max_price_spread}
+              forecastBias={dashboard?.metrics?.forecast_bias}
             />
           </div>
         </Card>
