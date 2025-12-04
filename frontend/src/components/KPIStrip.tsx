@@ -5,6 +5,7 @@ interface KPIStripProps {
     metrics?: {
         mae_pv_aurora?: number | null
         mae_load_aurora?: number | null
+        max_price_spread?: number | null
     }
     perfData?: {
         cost_series: Array<{
@@ -38,8 +39,13 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
     const pvMae = metrics?.mae_pv_aurora?.toFixed(2) ?? 'N/A'
     const loadMae = metrics?.mae_load_aurora?.toFixed(2) ?? 'N/A'
 
+    // 3. Max Price Spread
+    const maxSpread = metrics?.max_price_spread
+    const spreadLabel = maxSpread != null ? `${maxSpread.toFixed(2)} SEK` : 'N/A'
+    const isProfitable = maxSpread != null && maxSpread > 0
+
     return (
-        <div className="grid gap-4 grid-cols-1 md:grid-cols-3">
+        <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
             {/* Cost Drift */}
             <Card className="p-4 flex items-center justify-between relative overflow-hidden group">
                 <div className={`absolute inset-0 opacity-[0.03] ${isSaving ? 'bg-emerald-500' : 'bg-rose-500'}`} />
@@ -60,6 +66,30 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
                         <TrendingDown className="h-4 w-4 text-emerald-500 ml-auto" />
                     ) : (
                         <TrendingUp className="h-4 w-4 text-rose-500 ml-auto" />
+                    )}
+                </div>
+            </Card>
+
+            {/* Max Price Spread */}
+            <Card className="p-4 flex items-center justify-between relative overflow-hidden">
+                <div className={`absolute inset-0 opacity-[0.03] ${isProfitable ? 'bg-emerald-500' : 'bg-rose-500'}`} />
+                <div className="flex items-center gap-3 relative z-10">
+                    <div className={`p-2 rounded-full ${isProfitable ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        <Activity className="h-5 w-5" />
+                    </div>
+                    <div>
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">Max Price Spread</div>
+                        <div className={`text-lg font-semibold ${isProfitable ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {spreadLabel}
+                        </div>
+                    </div>
+                </div>
+                <div className="text-right relative z-10">
+                    <div className="text-[10px] text-muted">Arbitrage</div>
+                    {isProfitable ? (
+                        <TrendingUp className="h-4 w-4 text-emerald-500 ml-auto" />
+                    ) : (
+                        <TrendingDown className="h-4 w-4 text-rose-500 ml-auto" />
                     )}
                 </div>
             </Card>

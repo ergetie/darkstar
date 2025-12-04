@@ -1,5 +1,20 @@
 [
   {
+    "timestamp": "2025-12-04T22:52:20.838554",
+    "type": "REFLEX_PROPOSAL",
+    "message": "Aurora Reflex proposes 1 change(s)",
+    "details": {
+      "changes": [
+        {
+          "param": "s_index.base_factor",
+          "old": 1.1,
+          "new": 1.09
+        }
+      ],
+      "dry_run": true
+    }
+  },
+  {
     "timestamp": "2025-12-04T16:00:20.070261",
     "type": "WEATHER_ADJUSTMENT",
     "message": "High volatility (Cloud: 0.01, Temp: 0.11). Raised S-Index weights.",

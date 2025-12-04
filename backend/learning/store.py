@@ -1,7 +1,7 @@
 import sqlite3
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 import pandas as pd
 import pytz
@@ -280,6 +280,18 @@ class LearningStore:
                     timestamp TEXT NOT NULL,
                     overrides_json TEXT,
                     reason TEXT
+                )
+                """
+            )
+
+            # Reflex state table for rate limiting parameter updates
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS reflex_state (
+                    param_path TEXT PRIMARY KEY,
+                    last_value REAL,
+                    last_updated TEXT,
+                    change_count INTEGER DEFAULT 0
                 )
                 """
             )
@@ -623,3 +635,95 @@ class LearningStore:
                     dt = dt.astimezone(self.timezone)
                 return dt
             return None
+
+    def get_low_soc_events(
+        self,
+        days_back: int = 30,
+        threshold_percent: float = 5.0,
+        peak_hours: Tuple[int, int] = (16, 20),
+    ) -> List[Dict[str, Any]]:
+        """
+        Query slot_observations for low-SoC events during peak hours.
+        
+        Args:
+            days_back: How many days to look back
+            threshold_percent: SoC below this is considered critical
+            peak_hours: Tuple of (start_hour, end_hour) for peak demand window
+        
+        Returns:
+            List of {date, slot_start, soc_end_percent} for each critical event.
+        """
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cutoff_date = (
+                datetime.now(self.timezone) - timedelta(days=days_back)
+            ).date().isoformat()
+            
+            start_hour, end_hour = peak_hours
+            
+            query = """
+                SELECT 
+                    DATE(slot_start) as date,
+                    slot_start,
+                    soc_end_percent
+                FROM slot_observations
+                WHERE DATE(slot_start) >= ?
+                  AND soc_end_percent IS NOT NULL
+                  AND soc_end_percent < ?
+                  AND CAST(strftime('%H', slot_start) AS INTEGER) >= ?
+                  AND CAST(strftime('%H', slot_start) AS INTEGER) < ?
+                ORDER BY slot_start DESC
+            """
+            cursor = conn.execute(
+                query, (cutoff_date, threshold_percent, start_hour, end_hour)
+            )
+            
+            events = []
+            for row in cursor:
+                events.append({
+                    "date": row[0],
+                    "slot_start": row[1],
+                    "soc_end_percent": row[2],
+                })
+            return events
+
+    def get_reflex_state(self, param_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get the last update state for a parameter.
+        
+        Returns:
+            Dict with {last_value, last_updated, change_count} or None if never updated.
+        """
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            cursor = conn.execute(
+                "SELECT last_value, last_updated, change_count FROM reflex_state WHERE param_path = ?",
+                (param_path,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return {
+                    "last_value": row[0],
+                    "last_updated": row[1],
+                    "change_count": row[2],
+                }
+            return None
+
+    def update_reflex_state(
+        self, param_path: str, new_value: float
+    ) -> None:
+        """
+        Update the reflex state for a parameter after a change.
+        """
+        now = datetime.now(self.timezone).isoformat()
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.execute(
+                """
+                INSERT INTO reflex_state (param_path, last_value, last_updated, change_count)
+                VALUES (?, ?, ?, 1)
+                ON CONFLICT(param_path) DO UPDATE SET
+                    last_value = excluded.last_value,
+                    last_updated = excluded.last_updated,
+                    change_count = change_count + 1
+                """,
+                (param_path, new_value, now)
+            )
+            conn.commit()

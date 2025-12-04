@@ -130,6 +130,78 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     - **UI:** Toggle control in Aurora Tab.
 - **Status:** Completed.
 
+### Rev K12 — Aurora Reflex Completion (The Analyzers)
+
+**Goal:** Complete the placeholder analyzer implementations in `backend/learning/reflex.py` so that Aurora Reflex actually tunes parameters based on historical data.
+
+**Background:** Rev K11 created the Reflex framework with `run()`, `update_config()`, and UI toggle. However, the four core analyzers (`analyze_safety`, `analyze_confidence`, `analyze_roi`, `analyze_capacity`) are stubs that return placeholder messages without querying data or proposing updates.
+
+**Scope:**
+
+#### Phase A: Safety Analyzer (`s_index.base_factor`)
+*   **Signal:** Query `slot_observations` for low-SoC events (SoC < 5% during peak hours 16:00-20:00).
+*   **Logic:**
+    - Count days in last 30d with critical low-SoC events.
+    - If > 3 events: propose `base_factor += 0.02` (max 1.3).
+    - If 0 events for 60+ days: propose `base_factor -= 0.01` (min 1.0) to relax.
+*   **Output:** `{"s_index.base_factor": new_value}` or empty dict.
+
+#### Phase B: Confidence Analyzer (`forecasting.pv_confidence_percent`)
+*   **Signal:** Compare `slot_forecasts.pv_forecast_kwh` vs `slot_observations.pv_kwh` over last 14 days.
+*   **Logic:**
+    - Calculate bias: `mean(forecast - actual)`.
+    - If systematic over-prediction (bias > 0.5 kWh/slot avg): lower confidence → increase `pv_safety_margin`.
+    - If systematic under-prediction (bias < -0.5 kWh/slot avg): we're too conservative.
+*   **Output:** Tune `forecasting.pv_confidence_percent` (80-100 range).
+
+#### Phase C: ROI Analyzer (`battery_economics.battery_cycle_cost_kwh`)
+*   **Signal:** Calculate realized arbitrage profit vs battery cycles over last 30 days.
+*   **Logic:**
+    - Estimate: `profit = Σ(export_revenue - import_cost_for_charging)`.
+    - Estimate: `cycles = Σ(charge_kwh) / battery_capacity`.
+    - If `profit / cycles` is significantly higher than current `battery_cycle_cost_kwh`, we're being too conservative.
+    - If lower, we're cycling too aggressively.
+*   **Output:** Tune `battery_economics.battery_cycle_cost_kwh` (0.3-1.5 SEK range).
+
+#### Phase D: Capacity Analyzer (`battery.capacity_kwh`)
+*   **Signal:** Look for cliffs in SoC vs energy delivered.
+*   **Logic:**
+    - If SoC drops from 100% to 20% but only ~X kWh was discharged (vs expected ~0.8 * capacity), capacity has faded.
+    - Use `Σ(discharge_kwh) / Δ(SoC%)` to estimate effective capacity.
+*   **Output:** Tune `battery.capacity_kwh` (only decrease, never increase beyond nameplate).
+
+#### Phase E: Guardrails & Rate Limits
+*   **Hard Clamps:** Each parameter has min/max bounds.
+*   **Rate Limits:** Max change per day (e.g., `base_factor` change ≤ 0.02/day).
+*   **Audit Log:** Log all proposed/applied changes to `strategy_log` for visibility.
+
+**Implementation Steps:**
+
+1.  **Add Query Methods to LearningStore:**
+    *   `get_low_soc_events(days_back, threshold_percent, peak_hours)` → returns count/list.
+    *   `get_forecast_vs_actual(days_back, target='pv')` → returns DataFrame with paired data.
+    *   `get_arbitrage_stats(days_back)` → returns profit, cycles, avg price spread.
+    *   `get_capacity_estimate(days_back)` → returns estimated effective capacity.
+
+2.  **Implement Analyzers in `reflex.py`:**
+    *   Replace placeholder logic with actual queries and decision rules.
+    *   Add `BOUNDS` and `MAX_DAILY_CHANGE` constants at top of file.
+
+3.  **Add Audit Logging:**
+    *   Call `append_strategy_event()` for each proposed/applied change.
+    *   Show reflex activity in Aurora UI Strategy Log.
+
+4.  **Testing:**
+    *   Unit tests for each analyzer with mock data.
+    *   Integration test: run `reflex.run(dry_run=True)` and verify proposals.
+
+**Verification:**
+*   **Unit Tests:** `tests/test_reflex.py` with fixture data covering edge cases.
+*   **Dry Run:** `python -m backend.learning.reflex` should output sensible proposals.
+*   **Production Validation:** Enable `learning.reflex_enabled`, monitor for 7 days, verify no wild swings.
+
+**Status:** Not Started.
+
 ---
 
 ## Backlog

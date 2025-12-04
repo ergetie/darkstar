@@ -72,6 +72,7 @@ export type AuroraDashboardResponse = {
     risk_profile: AuroraRiskProfile;
     weather_volatility: AuroraWeatherVolatility;
     auto_tune_enabled: boolean;
+    reflex_enabled?: boolean;
   };
   horizon: AuroraHorizon;
   history: {
@@ -83,6 +84,7 @@ export type AuroraDashboardResponse = {
     mae_pv_baseline?: number | null;
     mae_load_aurora?: number | null;
     mae_load_baseline?: number | null;
+    max_price_spread?: number | null;
   };
   generated_at: string;
 };

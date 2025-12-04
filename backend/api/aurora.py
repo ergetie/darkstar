@@ -342,6 +342,27 @@ def aurora_dashboard():
     metrics = _compute_metrics(engine)
     strategy_history = get_strategy_history(limit=50)
 
+    # Calculate Max Price Spread (Today + Tomorrow)
+    max_spread = None
+    try:
+        from inputs import get_nordpool_data
+        prices = get_nordpool_data()
+        
+        # Filter for today and tomorrow
+        relevant_prices = [
+            p for p in prices 
+            if p["start_time"] >= now.replace(hour=0, minute=0, second=0, microsecond=0)
+        ]
+        
+        if relevant_prices:
+            min_import = min(p["import_price_sek_kwh"] for p in relevant_prices)
+            max_export = max(p["export_price_sek_kwh"] for p in relevant_prices)
+            max_spread = round(max_export - min_import, 4)
+    except Exception as exc:
+        logger.warning("Failed to calculate max price spread: %s", exc)
+
+    metrics["max_price_spread"] = max_spread
+
     payload = {
         "identity": {
             "graduation": graduation,
@@ -350,6 +371,7 @@ def aurora_dashboard():
             "risk_profile": risk_profile,
             "weather_volatility": weather_volatility,
             "auto_tune_enabled": bool(config.get("learning", {}).get("auto_tune_enabled", False)),
+            "reflex_enabled": bool(config.get("learning", {}).get("reflex_enabled", False)),
         },
         "horizon": horizon,
         "history": {
