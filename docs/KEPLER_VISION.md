@@ -160,12 +160,12 @@ To get a self-learning system without relying on RL for raw control, we use Auro
 - [x] **K7: The Mirror** (Backfill & Visualization)
 - [ ] **Feedback Loops**:
     - [x] **Short-term** (K9): Feed recent errors back to Aurora Vision (Analyst & Auto-Tuner).
-    - [ ] **Long-term**: Auto-tune physical constants based on historical drift.
-        - **A. Efficiency**: Tune `battery.roundtrip_efficiency_percent` (Degradation).
-        - **B. Safety Margin**: Tune `s_index.base_factor` (Lifestyle Creep).
-        - **C. Confidence**: Tune `forecasting.pv_confidence_percent` (Dirty Panels).
-        - **D. Virtual Cost**: Tune `battery_economics.battery_cycle_cost_kwh` (ROI Calibration).
-        - **E. Capacity**: Tune `battery.capacity_kwh` (Capacity Fade).
+    - [x] **Long-term** (Aurora Reflex): Auto-tune physical constants based on historical drift.
+        - **A. Efficiency**: Skipped (Ambiguous signal).
+        - [x] **B. Safety Margin**: Tune `s_index.base_factor` (Lifestyle Creep).
+        - [x] **C. Confidence**: Tune `forecasting.pv_confidence_percent` (Dirty Panels).
+        - [x] **D. Virtual Cost**: Tune `battery_economics.battery_cycle_cost_kwh` (ROI Calibration).
+        - [x] **E. Capacity**: Tune `battery.capacity_kwh` (Capacity Fade).
 
 ### Phase 4: Full Autonomy ("Agent Mode")
 - [ ] **Policy Learning**:

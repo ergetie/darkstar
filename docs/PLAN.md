@@ -119,6 +119,15 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     - **Strategy Log:** Backend mechanism to log and display AI decisions.
     - **Context Radar:** Visualization of risk factors (Weather, Price, Forecast).
     - **Performance Mirror:** Merged "SoC Tunnel" and "Cost Reality" charts from deprecated Performance tab.
+    - **Performance Mirror:** Merged "SoC Tunnel" and "Cost Reality" charts from deprecated Performance tab.
+- **Status:** Completed.
+
+### [COMPLETED] Rev K11 — Aurora Reflex (Long-Term Tuning)
+**Goal:** Implement the "Inner Ear" of the system to auto-tune parameters based on long-term drift.
+- **Scope:**
+    - **Reflex Engine:** Daily analysis of Safety, Confidence, ROI, and Capacity.
+    - **Safe Updates:** Use `ruamel.yaml` to preserve comments in `config.yaml`.
+    - **UI:** Toggle control in Aurora Tab.
 - **Status:** Completed.
 
 ---
