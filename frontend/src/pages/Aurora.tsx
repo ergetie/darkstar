@@ -1,10 +1,39 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Sparkles, Zap, SunMedium } from 'lucide-react'
+import { Bot, Sparkles, Zap, SunMedium, Activity, Shield, Brain } from 'lucide-react'
 import Card from '../components/Card'
 import DecompositionChart from '../components/DecompositionChart'
-import CorrectionHistoryChart from '../components/CorrectionHistoryChart'
+import ContextRadar from '../components/ContextRadar'
+import ActivityLog from '../components/ActivityLog'
+import { Line, Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
 import type { AuroraDashboardResponse } from '../lib/api'
+
+// Import ChartJS components for the inline charts
+import {
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  TimeScale
+} from 'chart.js'
+import 'chartjs-adapter-moment'
+
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend,
+  TimeScale
+)
 
 export default function Aurora() {
   const [dashboard, setDashboard] = useState<AuroraDashboardResponse | null>(null)
@@ -15,12 +44,14 @@ export default function Aurora() {
   const [riskBaseFactor, setRiskBaseFactor] = useState<number | null>(null)
   const [savingRisk, setSavingRisk] = useState(false)
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
-  const [effectiveSIndex, setEffectiveSIndex] = useState<number | null>(null)
-  const [effectiveSIndexMode, setEffectiveSIndexMode] = useState<string | null>(null)
   const [riskStatus, setRiskStatus] = useState<string>('')
   const riskStatusTimeoutRef = useRef<number | null>(null)
   const [autoTuneEnabled, setAutoTuneEnabled] = useState<boolean>(false)
   const [togglingAutoTune, setTogglingAutoTune] = useState(false)
+
+  // Performance Data State
+  const [perfData, setPerfData] = useState<any>(null)
+  const [perfLoading, setPerfLoading] = useState(true)
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -43,23 +74,18 @@ export default function Aurora() {
   }, [])
 
   useEffect(() => {
-    const fetchDebug = async () => {
+    // Fetch Performance Data (merged from Performance.tsx)
+    const fetchPerf = async () => {
       try {
-        const res = await Api.debug()
-        const sIndex = res.s_index
-        if (sIndex) {
-          setEffectiveSIndex(
-            typeof sIndex.factor === 'number' ? sIndex.factor : null,
-          )
-          setEffectiveSIndexMode(
-            typeof sIndex.mode === 'string' ? sIndex.mode : null,
-          )
-        }
+        const data = await Api.performanceData(7)
+        setPerfData(data)
       } catch (err) {
-        console.error('Failed to load debug S-index for Aurora:', err)
+        console.error('Failed to load performance data:', err)
+      } finally {
+        setPerfLoading(false)
       }
     }
-    fetchDebug()
+    fetchPerf()
   }, [])
 
   const handleBriefing = async () => {
@@ -137,429 +163,296 @@ export default function Aurora() {
 
   const horizonSlots = dashboard?.horizon?.slots ?? []
 
-  const correctionHistory = dashboard?.history?.correction_volume_days ?? []
+  // Extract Strategy History
+  const strategyEvents = dashboard?.history?.strategy_events ?? []
 
-  const todayImpact = useMemo(() => {
-    if (!correctionHistory || correctionHistory.length === 0) return null
-    const todayIso = new Date().toISOString().slice(0, 10)
-    const match = correctionHistory.find((d) => d.date === todayIso)
-    return match ? match.total_correction_kwh : null
-  }, [correctionHistory])
-
-  const horizonSummary = useMemo(() => {
-    if (!horizonSlots || horizonSlots.length === 0) return null
-    let total = 0
-    let peakAbs = 0
-    let peakLabel: string | null = null
-    horizonSlots.forEach((slot) => {
-      const corr = chartMode === 'load' ? slot.correction.load_kwh : slot.correction.pv_kwh
-      const v = typeof corr === 'number' ? corr : 0
-      total += v
-      const abs = Math.abs(v)
-      if (abs > peakAbs) {
-        peakAbs = abs
-        peakLabel = new Date(slot.slot_start).toLocaleTimeString([], {
-          hour: '2-digit',
-          minute: '2-digit',
-        })
-      }
-    })
+  // Performance Charts Data
+  const socChartData = useMemo(() => {
+    if (!perfData) return null
     return {
-      total,
-      peakAbs,
-      peakLabel,
+      datasets: [
+        {
+          label: 'Planned',
+          data: perfData.soc_series.map((d: any) => ({ x: d.time, y: d.planned })),
+          borderColor: '#94a3b8',
+          borderDash: [5, 5],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.4
+        },
+        {
+          label: 'Actual',
+          data: perfData.soc_series.map((d: any) => ({ x: d.time, y: d.actual })),
+          borderColor: '#60a5fa',
+          backgroundColor: 'rgba(96, 165, 250, 0.1)',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill: true,
+          tension: 0.4
+        }
+      ]
     }
-  }, [horizonSlots, chartMode])
+  }, [perfData])
 
-  const impactTrend = useMemo(() => {
-    if (!correctionHistory || correctionHistory.length < 4) return null
-    const sorted = [...correctionHistory].sort((a, b) => a.date.localeCompare(b.date))
-    const last7 = sorted.slice(-7)
-    const prev7 = sorted.slice(-14, -7)
-    if (last7.length === 0 || prev7.length === 0) return null
-    const avg = (rows: typeof sorted) =>
-      rows.reduce((sum, r) => sum + (r.total_correction_kwh || 0), 0) / rows.length
-    const lastAvg = avg(last7)
-    const prevAvg = avg(prev7)
-    if (!isFinite(lastAvg) || !isFinite(prevAvg) || prevAvg === 0) return null
-    const delta = lastAvg - prevAvg
-    const pct = (delta / prevAvg) * 100
-    return { lastAvg, prevAvg, delta, pct }
-  }, [correctionHistory])
-
-  const auroraMetrics = dashboard?.metrics
-
-  const pvImprovement = useMemo(() => {
-    const b = auroraMetrics?.mae_pv_baseline
-    const a = auroraMetrics?.mae_pv_aurora
-    if (b == null || a == null || b <= 0) return null
-    const delta = b - a
-    const pct = (delta / b) * 100
-    return { baseline: b, aurora: a, delta, pct }
-  }, [auroraMetrics])
-
-  const loadImprovement = useMemo(() => {
-    const b = auroraMetrics?.mae_load_baseline
-    const a = auroraMetrics?.mae_load_aurora
-    if (b == null || a == null || b <= 0) return null
-    const delta = b - a
-    const pct = (delta / b) * 100
-    return { baseline: b, aurora: a, delta, pct }
-  }, [auroraMetrics])
+  const costChartData = useMemo(() => {
+    if (!perfData) return null
+    return {
+      labels: perfData.cost_series.map((d: any) => d.date.slice(5)), // MM-DD
+      datasets: [
+        {
+          label: 'Plan',
+          data: perfData.cost_series.map((d: any) => d.planned),
+          backgroundColor: '#94a3b8',
+          borderRadius: 2
+        },
+        {
+          label: 'Real',
+          data: perfData.cost_series.map((d: any) => d.realized),
+          backgroundColor: perfData.cost_series.map((d: any) => d.realized <= d.planned ? '#34d399' : '#f87171'),
+          borderRadius: 2
+        }
+      ]
+    }
+  }, [perfData])
 
   const sliderSteps = [0.9, 1.1, 1.5]
 
-  const snapToStep = (value: number): number => {
-    let closest = sliderSteps[0]
-    let minDiff = Math.abs(value - closest)
-    for (const step of sliderSteps) {
-      const diff = Math.abs(value - step)
-      if (diff < minDiff) {
-        minDiff = diff
-        closest = step
-      }
-    }
-    return closest
-  }
-
   return (
     <div className="px-4 pt-16 pb-10 lg:px-8 lg:pt-10 space-y-6">
+      {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
-          <h1 className="text-lg font-medium text-text">Aurora</h1>
+          <h1 className="text-lg font-medium text-text flex items-center gap-2">
+            Aurora Command Center
+            <span className="px-2 py-0.5 rounded-full bg-surface2 border border-line/50 text-[10px] text-muted uppercase tracking-wider">
+              {graduationLabel}
+            </span>
+          </h1>
           <p className="text-[11px] text-muted">
-            The brain of Darkstar. Identity, risk, and forecast corrections.
+            The Mastermind. Observing context, managing risk, and learning from reality.
           </p>
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className={`md:col-span-3 p-4 md:p-5 bg-gradient-to-br ${heroGradient}`}>
-          <div className="flex items-center gap-4">
-            <div className="relative flex items-center justify-center">
-              <div
-                className={`absolute h-16 w-16 rounded-full ${waveColor} opacity-30 animate-pulse`}
-              />
-              <div className="relative flex items-center justify-center w-14 h-14 rounded-3xl bg-surface/90 border border-line/80 shadow-float">
-                <Bot className="h-9 w-9 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
+      {/* 1. THE BRIDGE (Top Section) */}
+      <div className="grid gap-4 lg:grid-cols-12">
+
+        {/* Identity & Status Card */}
+        <Card className={`lg:col-span-8 p-4 md:p-5 bg-gradient-to-br ${heroGradient} relative overflow-hidden`}>
+          <div className="relative z-10 flex flex-col md:flex-row gap-6">
+            {/* Avatar & Pulse */}
+            <div className="flex items-center gap-4">
+              <div className="relative flex items-center justify-center">
+                <div className={`absolute h-16 w-16 rounded-full ${waveColor} opacity-30 animate-pulse`} />
+                <div className="relative flex items-center justify-center w-14 h-14 rounded-3xl bg-surface/90 border border-line/80 shadow-float">
+                  <Bot className="h-9 w-9 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
+                </div>
               </div>
-            </div>
-            <div className="flex flex-col gap-2 flex-1">
               <div>
-                <div className="text-xs font-semibold text-text uppercase tracking-wide">
-                  Aurora
+                <div className="text-xs font-semibold text-text uppercase tracking-wide">Status</div>
+                <div className="text-lg font-medium text-text">
+                  {overallVol > 0.6 ? 'Defensive Mode' : overallVol > 0.3 ? 'Cautious Mode' : 'Optimal Mode'}
                 </div>
-                <div className="text-[13px] font-medium text-text capitalize">
-                  {graduationLabel || 'infant'} mode
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-4 text-[11px] text-muted">
-                <div>
-                  <div className="uppercase tracking-wide text-[10px]">Experience</div>
-                  <div className="font-mono text-text">
-                    {graduationRuns} runs
-                  </div>
-                </div>
-                <div>
-                  <div className="uppercase tracking-wide text-[10px]">Strategy</div>
-                  <div className="text-text">
-                    {riskLabel}{' '}
-                    <span className="font-mono">
-                      ({riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'})
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <div className="uppercase tracking-wide text-[10px]">Today&apos;s Action</div>
-                  <div className="text-text">
-                    {todayImpact != null ? `${todayImpact.toFixed(2)} kWh corrected` : '—'}
-                  </div>
+                <div className="text-[11px] text-muted flex items-center gap-2">
+                  <span className={`h-1.5 w-1.5 rounded-full ${overallVol > 0.6 ? 'bg-amber-400' : 'bg-emerald-400'}`} />
+                  {overallVol > 0.6 ? 'High Volatility Detected' : 'Conditions Stable'}
                 </div>
               </div>
             </div>
-            <div className="ml-auto text-right text-[11px] text-muted">
-              <div className="uppercase tracking-wide text-[10px] text-muted">
-                Volatility
+
+            {/* Briefing */}
+            <div className="flex-1 bg-surface/40 rounded-xl p-3 border border-white/5 backdrop-blur-sm">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2 text-[11px] text-text font-medium">
+                  <Sparkles className="h-3 w-3 text-accent" />
+                  Daily Briefing
+                </div>
+                <button
+                  onClick={handleBriefing}
+                  disabled={!dashboard || briefingLoading}
+                  className="text-[10px] text-muted hover:text-accent disabled:opacity-50 transition-colors"
+                >
+                  {briefingLoading ? 'Thinking...' : 'Refresh'}
+                </button>
               </div>
-              <div>{(overallVol * 100).toFixed(0)}% (48h)</div>
+              <div className="text-[11px] leading-relaxed text-muted/90 font-mono">
+                {briefing || 'Aurora is analyzing current market and weather conditions...'}
+              </div>
             </div>
-            <div className="ml-4 border-l border-white/10 pl-4 flex flex-col items-center justify-center">
-              <div className="text-[10px] uppercase tracking-wide text-muted mb-1">Auto-Tuner</div>
-              <button
-                type="button"
-                onClick={handleAutoTuneToggle}
-                disabled={togglingAutoTune}
-                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${autoTuneEnabled ? 'bg-accent' : 'bg-surface2'
-                  }`}
-              >
-                <span
-                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${autoTuneEnabled ? 'translate-x-5' : 'translate-x-1'
-                    }`}
-                />
-              </button>
+          </div>
+        </Card>
+
+        {/* Risk Dial (Control) */}
+        <Card className="lg:col-span-4 p-4 md:p-5 flex flex-col justify-center">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-accent" />
+              <span className="text-xs font-medium text-text">Risk Appetite</span>
             </div>
+            <span className="text-[10px] font-mono text-muted">S-Index: {riskBaseFactor?.toFixed(2)}</span>
+          </div>
+
+          <div className="relative px-2 py-2">
+            <div className="absolute inset-x-2 top-1/2 h-1 -translate-y-1/2 rounded-full bg-surface2" />
+            <div className="absolute inset-x-2 top-1/2 h-1 -translate-y-1/2 flex opacity-50">
+              <div className="flex-1 bg-emerald-500/50 rounded-l-full" />
+              <div className="flex-1 bg-sky-500/50" />
+              <div className="flex-1 bg-amber-500/50 rounded-r-full" />
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={2}
+              step={1}
+              value={riskBaseFactor === 0.9 ? 0 : riskBaseFactor === 1.5 ? 2 : 1}
+              onChange={(e) => {
+                const idx = parseInt(e.target.value, 10)
+                const val = sliderSteps[idx] ?? 1.1
+                setRiskBaseFactor(val)
+                handleRiskChange(val)
+              }}
+              className="relative w-full bg-transparent accent-accent cursor-pointer z-10"
+            />
+            <div className="flex justify-between mt-2 text-[10px] text-muted font-medium">
+              <span>Frugal</span>
+              <span>Balanced</span>
+              <span>Fortified</span>
+            </div>
+          </div>
+          <div className="mt-auto pt-2 text-center text-[10px] text-muted">
+            {riskStatus || (riskBaseFactor === 1.5 ? "Prioritizing safety over profit." : "Prioritizing profit over safety.")}
           </div>
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-2 p-4 md:p-5">
-          <div className="flex items-center justify-between mb-3">
+      {/* 2. THE DASHBOARD (Middle Section) */}
+      <div className="grid gap-4 lg:grid-cols-12 lg:min-h-[400px]">
+
+        {/* Context Radar */}
+        <Card className="lg:col-span-4 p-4 flex flex-col">
+          <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-surface2 border border-line/70">
-                <Sparkles className="h-3 w-3 text-accent" />
-              </span>
-              <div>
-                <div className="text-xs font-medium text-text">Daily Briefing</div>
-                <div className="text-[11px] text-muted">
-                  Aurora explains how it feels about the next 48 hours.
-                </div>
-              </div>
+              <Activity className="h-4 w-4 text-accent" />
+              <span className="text-xs font-medium text-text">Context Radar</span>
             </div>
-            <button
-              type="button"
-              onClick={handleBriefing}
-              disabled={!dashboard || briefingLoading}
-              className="rounded-full border border-line/80 bg-surface2 px-3 py-1 text-[11px] text-white hover:border-accent disabled:opacity-50"
-            >
-              {briefingLoading ? 'Thinking…' : 'Refresh briefing'}
-            </button>
           </div>
-          <div className="space-y-1">
-            <div className="text-[12px] leading-relaxed bg-surface2/60 border border-line/70 rounded-md px-3 py-3 font-mono tracking-tight text-accent">
-              {briefing || 'No briefing yet. Click “Refresh briefing” to ask Aurora.'}
+          <div className="flex-1 min-h-0 relative">
+            <ContextRadar
+              weatherVolatility={{
+                cloud: volatility?.cloud_volatility ?? 0,
+                temp: volatility?.temp_volatility ?? 0,
+                overall: overallVol
+              }}
+              riskFactor={riskBaseFactor ?? 1.1}
+              forecastAccuracy={85} // Placeholder until we wire up real confidence
+            />
+          </div>
+        </Card>
+
+        {/* Activity Log */}
+        <Card className="lg:col-span-4 p-4 flex flex-col">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Brain className="h-4 w-4 text-accent" />
+              <span className="text-xs font-medium text-text">Activity Log</span>
             </div>
-            {briefingUpdatedAt && (
-              <div className="text-[10px] text-muted">
-                Last updated:{' '}
-                {new Date(briefingUpdatedAt).toLocaleTimeString([], {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </div>
+            <span className="text-[10px] text-muted">{strategyEvents.length} events</span>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto pr-2 custom-scrollbar">
+            <ActivityLog events={strategyEvents} />
+          </div>
+        </Card>
+
+        {/* Forecast Decomposition (Existing) */}
+        <Card className="lg:col-span-4 p-4 flex flex-col">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-xs font-medium text-text">Forecast View</div>
+            </div>
+            <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px]">
+              <button
+                type="button"
+                className={`px-2 py-0.5 rounded-full ${chartMode === 'load' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
+                onClick={() => setChartMode('load')}
+              >
+                <Zap className="h-3 w-3" />
+              </button>
+              <button
+                type="button"
+                className={`px-2 py-0.5 rounded-full ${chartMode === 'pv' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
+                onClick={() => setChartMode('pv')}
+              >
+                <SunMedium className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0">
+            {loading ? (
+              <div className="text-[11px] text-muted">Loading...</div>
+            ) : (
+              <DecompositionChart slots={horizonSlots} mode={chartMode} />
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* 3. THE MIRROR (Bottom Section - Merged Performance) */}
+      <div className="grid gap-4 lg:grid-cols-12">
+        <Card className="lg:col-span-8 p-4 md:p-5">
+          <div className="mb-4">
+            <div className="text-xs font-medium text-text">SoC Tunnel (Plan vs Reality)</div>
+            <div className="text-[11px] text-muted">Did we stick to the plan?</div>
+          </div>
+          <div className="h-64 w-full">
+            {socChartData && (
+              <Line
+                data={socChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  interaction: { mode: 'index', intersect: false },
+                  scales: {
+                    x: {
+                      type: 'time',
+                      time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+                      grid: { color: '#334155' },
+                      ticks: { color: '#94a3b8' }
+                    },
+                    y: {
+                      min: 0, max: 100,
+                      grid: { color: '#334155' },
+                      ticks: { color: '#94a3b8' }
+                    }
+                  },
+                  plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 10 } } } }
+                }}
+              />
             )}
           </div>
         </Card>
 
-        <Card className="p-4 md:p-5">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-xs font-medium text-text">Risk Dial</div>
-              <div className="text-[11px] text-muted">
-                Tune base S-index factor. Lower is bolder, higher is cautious.
-              </div>
-            </div>
+        <Card className="lg:col-span-4 p-4 md:p-5">
+          <div className="mb-4">
+            <div className="text-xs font-medium text-text">Cost Reality</div>
+            <div className="text-[11px] text-muted">Daily financial outcome</div>
           </div>
-          <div className="space-y-2">
-            <div className="flex justify-between text-[11px] text-muted">
-              <span>Frugal (0.9)</span>
-              <span>Balanced (1.1)</span>
-              <span>Fortified (1.5)</span>
-            </div>
-            <div className="relative mt-1">
-              <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 rounded-full bg-surface2" />
-              <div className="absolute inset-x-0 top-1/2 h-[3px] -translate-y-1/2 flex">
-                <div className="flex-1 bg-emerald-500/25 rounded-l-full" />
-                <div className="flex-1 bg-sky-500/20" />
-                <div className="flex-1 bg-amber-500/25 rounded-r-full" />
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={2}
-                step={1}
-                value={
-                  riskBaseFactor === 0.9
-                    ? 0
-                    : riskBaseFactor === 1.5
-                      ? 2
-                      : 1
-                }
-                onChange={(event) => {
-                  const idx = parseInt(event.target.value, 10)
-                  const snapped = sliderSteps[idx] ?? 1.1
-                  setRiskBaseFactor(snapped)
-                  handleRiskChange(snapped)
+          <div className="h-64 w-full">
+            {costChartData && (
+              <Bar
+                data={costChartData}
+                options={{
+                  responsive: true,
+                  maintainAspectRatio: false,
+                  scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 10 } } },
+                    y: { grid: { color: '#334155' }, ticks: { color: '#94a3b8' } }
+                  },
+                  plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 10 } } } }
                 }}
-                className="relative w-full bg-transparent accent-accent cursor-pointer"
               />
-            </div>
-            <div className="mt-1 flex justify-between text-[10px] text-muted">
-              <span className="flex flex-col items-start">
-                <span className="h-1 w-[1px] bg-line/80 mb-1" />
-                <span>0.9</span>
-              </span>
-              <span className="flex flex-col items-center">
-                <span className="h-2 w-[1px] bg-accent mb-1" />
-                <span>1.1</span>
-              </span>
-              <span className="flex flex-col items-end">
-                <span className="h-1 w-[1px] bg-line/80 mb-1" />
-                <span>1.5</span>
-              </span>
-            </div>
-            <div className="text-[11px] text-muted space-y-1">
-              <div className="flex items-center gap-2">
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${riskBaseFactor != null && riskBaseFactor < 1.0
-                      ? 'bg-emerald-400'
-                      : riskBaseFactor != null && riskBaseFactor > 1.2
-                        ? 'bg-amber-400'
-                        : 'bg-sky-400'
-                    }`}
-                />
-                <span>
-                  Current base factor:{' '}
-                  <span className="font-mono text-text">
-                    {riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'}
-                  </span>
-                </span>
-              </div>
-              <div className="text-[10px]">
-                {riskBaseFactor === 0.9 && 'Aurora will be frugal, leaning into cheap windows.'}
-                {riskBaseFactor === 1.1 && 'Aurora balances savings with safety margins.'}
-                {riskBaseFactor === 1.5 && 'Aurora is fortified against forecast uncertainty.'}
-              </div>
-              <div
-                className="text-[10px] text-muted min-h-[14px] transition-opacity duration-500"
-                style={{ opacity: riskStatus ? 1 : 0 }}
-              >
-                {riskStatus}
-              </div>
-            </div>
+            )}
           </div>
         </Card>
-      </div>
-
-      <Card className="p-4 md:p-5">
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <div className="text-xs font-medium text-text">Forecast Decomposition</div>
-            <div className="text-[11px] text-muted">
-              Base vs corrected forecast over the next 48 hours.
-            </div>
-          </div>
-          <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px]">
-            <button
-              type="button"
-              className={`px-2 py-0.5 rounded-full ${chartMode === 'load' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-                }`}
-              onClick={() => setChartMode('load')}
-            >
-              <span className="inline-flex items-center gap-1">
-                <Zap className="h-3 w-3" />
-                <span>Load</span>
-              </span>
-            </button>
-            <button
-              type="button"
-              className={`px-2 py-0.5 rounded-full ${chartMode === 'pv' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-                }`}
-              onClick={() => setChartMode('pv')}
-            >
-              <span className="inline-flex items-center gap-1">
-                <SunMedium className="h-3 w-3" />
-                <span>Solar</span>
-              </span>
-            </button>
-          </div>
-        </div>
-        {loading ? (
-          <div className="text-[11px] text-muted px-4 py-6">Loading Aurora horizon…</div>
-        ) : (
-          <DecompositionChart slots={horizonSlots} mode={chartMode} />
-        )}
-      </Card>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card className="p-4 md:p-5">
-          <div className="mb-2">
-            <div className="text-xs font-medium text-text">Aurora Performance</div>
-            <div className="text-[11px] text-muted">
-              Baseline vs Aurora forecast accuracy and effective S-index.
-            </div>
-          </div>
-          <div className="space-y-2 text-[11px] text-muted">
-            <div>
-              <div className="uppercase tracking-wide text-[10px]">PV MAE</div>
-              {pvImprovement ? (
-                <div>
-                  Baseline{' '}
-                  <span className="font-mono text-text">
-                    {pvImprovement.baseline.toFixed(3)}
-                  </span>{' '}
-                  → Aurora{' '}
-                  <span className="font-mono text-text">
-                    {pvImprovement.aurora.toFixed(3)}
-                  </span>{' '}
-                  kWh (
-                  <span
-                    className={`font-mono ${pvImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                  >
-                    {pvImprovement.pct.toFixed(1)}% {pvImprovement.pct >= 0 ? 'better' : 'worse'}
-                  </span>
-                  )
-                </div>
-              ) : (
-                <div>Not enough PV data yet.</div>
-              )}
-            </div>
-            <div>
-              <div className="uppercase tracking-wide text-[10px]">Load MAE</div>
-              {loadImprovement ? (
-                <div>
-                  Baseline{' '}
-                  <span className="font-mono text-text">
-                    {loadImprovement.baseline.toFixed(3)}
-                  </span>{' '}
-                  → Aurora{' '}
-                  <span className="font-mono text-text">
-                    {loadImprovement.aurora.toFixed(3)}
-                  </span>{' '}
-                  kWh (
-                  <span
-                    className={`font-mono ${loadImprovement.pct >= 0 ? 'text-emerald-400' : 'text-amber-400'
-                      }`}
-                  >
-                    {loadImprovement.pct.toFixed(1)}%{' '}
-                    {loadImprovement.pct >= 0 ? 'better' : 'worse'}
-                  </span>
-                  )
-                </div>
-              ) : (
-                <div>Not enough load data yet.</div>
-              )}
-            </div>
-            <div>
-              <div className="uppercase tracking-wide text-[10px]">Effective S-index</div>
-              <div>
-                Base{' '}
-                <span className="font-mono text-text">
-                  {riskBaseFactor != null ? riskBaseFactor.toFixed(2) : '—'}
-                </span>
-                {effectiveSIndex != null && (
-                  <>
-                    {' '}
-                    → Effective{' '}
-                    <span className="font-mono text-text">
-                      {effectiveSIndex.toFixed(2)}
-                    </span>
-                  </>
-                )}
-                {effectiveSIndexMode && (
-                  <span className="ml-1">
-                    ({effectiveSIndexMode})
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </Card>
-
-        {correctionHistory.length > 0 && (
-          <CorrectionHistoryChart history={correctionHistory} impactTrend={impactTrend} />
-        )}
       </div>
     </div>
   )

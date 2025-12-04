@@ -3,7 +3,6 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import Dashboard from './pages/Dashboard'
 import Planning from './pages/Planning'
-import PerformancePage from './pages/Performance'
 import Learning from './pages/Learning'
 import Debug from './pages/Debug'
 import Settings from './pages/Settings'
@@ -55,7 +54,6 @@ export default function App() {
                 <Routes>
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/planning" element={<Planning />} />
-                    <Route path="/performance" element={<PerformancePage />} />
                     <Route path="/forecasting" element={<Forecasting />} />
                     <Route path="/aurora" element={<Aurora />} />
                     <Route path="/learning" element={<Learning />} />

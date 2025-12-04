@@ -15,6 +15,7 @@ from inputs import _load_yaml
 from backend.learning import get_learning_engine
 from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
+from backend.strategy.history import get_strategy_history
 
 logger = logging.getLogger("darkstar.aurora")
 
@@ -339,6 +340,7 @@ def aurora_dashboard():
     horizon = _fetch_horizon_series(engine, config)
     history = _fetch_correction_history(engine, config)
     metrics = _compute_metrics(engine)
+    strategy_history = get_strategy_history(limit=50)
 
     payload = {
         "identity": {
@@ -352,6 +354,7 @@ def aurora_dashboard():
         "horizon": horizon,
         "history": {
             "correction_volume_days": history,
+            "strategy_events": strategy_history,
         },
         "metrics": metrics,
         "generated_at": datetime.now(tz).isoformat(),

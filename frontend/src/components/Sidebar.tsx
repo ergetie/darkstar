@@ -45,7 +45,6 @@ export default function Sidebar() {
                     <Item to="/" icon={Gauge} label="Dash" />
                     <Item to="/planning" icon={CalendarRange} label="Plan" />
                     <Item to="/aurora" icon={Bot} label="Aurora" />
-                    <Item to="/performance" icon={Activity} label="Perf" />
                     <Item to="/lab" icon={FlaskConical} label="Lab" />
                     <Item to="/debug" icon={Bug} label="Debug" />
 

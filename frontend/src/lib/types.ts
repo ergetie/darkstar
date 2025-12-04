@@ -59,6 +59,13 @@ export type AuroraHistoryDay = {
   load_correction_kwh?: number;
 };
 
+export type StrategyEvent = {
+  timestamp: string;
+  type: string;
+  message: string;
+  details?: Record<string, any>;
+};
+
 export type AuroraDashboardResponse = {
   identity: { graduation: AuroraGraduation };
   state: {
@@ -67,7 +74,10 @@ export type AuroraDashboardResponse = {
     auto_tune_enabled: boolean;
   };
   horizon: AuroraHorizon;
-  history: { correction_volume_days: AuroraHistoryDay[] };
+  history: {
+    correction_volume_days: AuroraHistoryDay[];
+    strategy_events?: StrategyEvent[];
+  };
   metrics?: {
     mae_pv_aurora?: number | null;
     mae_pv_baseline?: number | null;
