@@ -16,7 +16,7 @@ import pandas as pd
 import pytz
 
 from ml.simulation.data_loader import SimulationDataLoader
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 
 @dataclass

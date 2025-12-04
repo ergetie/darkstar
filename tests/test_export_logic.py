@@ -5,7 +5,7 @@ Test export logic with protective SoC calculations.
 import math
 import pandas as pd
 import pytest
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 
 class TestExportLogic:

@@ -13,7 +13,7 @@ import pytest
 import pytz
 
 import inputs
-import planner as planner_module
+import planner_legacy as planner_module
 
 
 class DummyResponse:

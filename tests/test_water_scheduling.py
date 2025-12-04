@@ -9,7 +9,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 
 class TestWaterHeatingScheduling:

@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.append(ROOT)
 
-from planner import (  # type: ignore
+from planner_legacy import (  # type: ignore
     apply_manual_plan,
     prepare_df,
     simulate_schedule,

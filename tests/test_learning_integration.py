@@ -6,7 +6,7 @@ import sqlite3
 import pandas as pd
 import pytest
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 
 @pytest.fixture

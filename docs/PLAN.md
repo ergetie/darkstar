@@ -202,6 +202,235 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Status:** Completed.
 
+### Rev K13 — Planner Modularization (Production Architecture)
+
+**Goal:** Refactor the monolithic `planner.py` (3,637 lines) into a production-grade modular `planner/` package with clear separation of concerns, typed contracts, and testable components.
+
+**Background:** The current `planner.py` is a "God class" containing input processing, legacy MPC logic, Kepler integration, S-Index calculation, water heating, learning hooks, and output formatting. This makes it difficult to test, understand, and extend.
+
+**Target Architecture:**
+
+```
+planner/                          # NEW package
+├── __init__.py                   # Public API: PlannerPipeline, generate_schedule()
+├── pipeline.py                   # Main orchestrator (~200 lines)
+│
+├── inputs/                       # Input Layer
+│   ├── __init__.py
+│   ├── data_prep.py              # prepare_df(), price/forecast dataframe building
+│   └── types.py                  # PlannerInput, SlotData, ForecastData dataclasses
+│
+├── strategy/                     # Strategy Layer (Aurora integration points)
+│   ├── __init__.py
+│   ├── s_index.py                # S-Index calculation & dynamic weights
+│   ├── target_soc.py             # Inter-day target SoC logic
+│   ├── overlays.py               # Learning overlays, Aurora bias corrections
+│   └── manual_plan.py            # apply_manual_plan()
+│
+├── scheduling/                   # Pre-solver Scheduling
+│   ├── __init__.py
+│   ├── water_heating.py          # Water heater window selection
+│   └── terminal_value.py         # Terminal value calculation
+│
+├── solver/                       # Kepler MILP
+│   ├── __init__.py
+│   ├── kepler.py                 # KeplerSolver (from backend/kepler/solver.py)
+│   ├── adapter.py                # DataFrame ↔ Kepler types (from backend/kepler/)
+│   └── types.py                  # KeplerConfig, KeplerInput, KeplerResult
+│
+├── output/                       # Output Layer
+│   ├── __init__.py
+│   ├── schedule.py               # Build schedule DataFrame, schedule.json
+│   └── debug_payload.py          # Generate planner_debug JSON
+│
+└── observability/                # Cross-cutting
+    ├── __init__.py
+    ├── logging.py                # Structured planner logging
+    └── learning_hook.py          # Training episode recording
+
+archive/                          # Reference only (not imported)
+└── legacy_mpc.py                 # Full 7-pass heuristic for historical reference
+```
+
+**Key Type Contracts:**
+
+```python
+# planner/inputs/types.py
+@dataclass(frozen=True)
+class SlotData:
+    start_time: datetime
+    import_price_sek: float
+    export_price_sek: float
+    pv_forecast_kwh: float
+    load_forecast_kwh: float
+    water_heater_kwh: float = 0.0
+
+@dataclass(frozen=True)
+class PlannerInput:
+    horizon_start: datetime
+    horizon_end: datetime
+    slots: Tuple[SlotData, ...]
+    initial_soc_percent: float
+    battery_capacity_kwh: float
+    context: Dict[str, Any]  # vacation_mode, weather, etc.
+
+# planner/solver/types.py
+@dataclass(frozen=True)
+class KeplerResult:
+    slots: Tuple[KeplerSlotResult, ...]
+    objective_value: float
+    status: str  # 'Optimal', 'Infeasible', 'Timeout'
+    solve_time_ms: float
+```
+
+**Comparison Mode (Kepler ± Aurora):**
+The pipeline will support a `mode` parameter:
+*   `"full"` (default): Aurora overlays + Strategy + Kepler (production)
+*   `"baseline"`: Kepler only, no Aurora overlays (for A/B comparison)
+
+This allows comparing Aurora's contribution without involving Legacy MPC.
+
+---
+
+**Scope:**
+
+#### Phase A: Preparation & Types
+*   Create `planner/` package directory structure.
+*   Define all dataclass types in `planner/inputs/types.py` and `planner/solver/types.py`.
+*   Ensure frozen dataclasses for immutability.
+*   Add `planner/__init__.py` with public API stub.
+
+#### Phase B: Input Layer Extraction
+*   Extract from `planner.py`:
+    *   `_normalize_timestamp()` → `planner/inputs/data_prep.py`
+    *   `_build_price_dataframe()` → `planner/inputs/data_prep.py`
+    *   `_build_forecast_dataframe()` → `planner/inputs/data_prep.py`
+    *   `prepare_df()` → `planner/inputs/data_prep.py`
+*   Add function to convert DataFrame → `PlannerInput` dataclass.
+*   Unit tests: `tests/planner/test_data_prep.py`.
+
+#### Phase C: Strategy Layer Extraction
+*   Extract from `HeliosPlanner`:
+    *   `_calculate_s_index()` → `planner/strategy/s_index.py`
+    *   `_calculate_dynamic_target_soc()` → `planner/strategy/target_soc.py`
+    *   `_load_learning_overlays()` → `planner/strategy/overlays.py`
+    *   `apply_manual_plan()` → `planner/strategy/manual_plan.py`
+*   Unit tests: `tests/planner/test_s_index.py`, `tests/planner/test_target_soc.py`.
+
+#### Phase D: Scheduling Layer Extraction
+*   Extract from `HeliosPlanner`:
+    *   Water heating window selection logic → `planner/scheduling/water_heating.py`
+    *   `_calculate_terminal_value()` → `planner/scheduling/terminal_value.py`
+*   Unit tests: `tests/planner/test_water_heating.py`.
+
+#### Phase E: Solver Migration
+*   Move from `backend/kepler/`:
+    *   `solver.py` → `planner/solver/kepler.py`
+    *   `adapter.py` → `planner/solver/adapter.py`
+    *   `types.py` → `planner/solver/types.py`
+*   Update adapter to work with new dataclass types.
+*   Delete `backend/kepler/` directory after migration.
+*   Unit tests: Update existing Kepler tests to new paths.
+
+#### Phase F: Output Layer Extraction
+*   Extract from `HeliosPlanner`:
+    *   Schedule DataFrame building → `planner/output/schedule.py`
+    *   `_record_debug_payload()` → `planner/output/debug_payload.py`
+*   Unit tests: `tests/planner/test_schedule_output.py`.
+
+#### Phase G: Observability Layer
+*   Extract from `HeliosPlanner`:
+    *   Logging configuration → `planner/observability/logging.py`
+    *   Training episode recording → `planner/observability/learning_hook.py`
+*   Integrate with existing `LearningEngine`.
+
+#### Phase H: Pipeline Orchestrator
+*   Create `planner/pipeline.py` with:
+    *   `PlannerPipeline` class that orchestrates all layers.
+    *   `generate_schedule(input_data, config, mode="full")` main entry point.
+    *   Clear step-by-step flow with logging at each stage.
+*   Less than 200 lines of orchestration code.
+
+#### Phase I: Legacy Archival & Cleanup
+*   Copy full legacy 7-pass heuristic logic to `archive/legacy_mpc.py`.
+*   Add docstring explaining it's archived for reference, not imported.
+*   Delete monolithic `planner.py`.
+*   Update all imports across codebase:
+    *   `backend/webapp.py`
+    *   `backend/scheduler.py`
+    *   `bin/` scripts
+    *   `tests/`
+*   Verify no remaining references to old `planner.py`.
+
+#### Phase J: Integration Testing
+*   Create `tests/planner/test_integration.py`:
+    *   Test full pipeline produces valid schedule.
+    *   Test `mode="full"` vs `mode="baseline"` both work.
+    *   Test schedule.json output matches expected schema.
+*   Run existing tests to ensure backward compatibility.
+
+---
+
+**Implementation Steps:**
+
+1.  **Create Package Structure:**
+    *   `mkdir -p planner/{inputs,strategy,scheduling,solver,output,observability}`
+    *   Create all `__init__.py` files.
+
+2.  **Define Types First (Phase A):**
+    *   Implement all dataclasses before extracting logic.
+    *   This forces clear interfaces between modules.
+
+3.  **Extract Layer by Layer (Phases B-G):**
+    *   For each extraction:
+        1.  Copy function to new module.
+        2.  Adapt to use new types.
+        3.  Add unit test.
+        4.  Update old `planner.py` to import from new module.
+        5.  Run full test suite.
+    *   This ensures working code at every step.
+
+4.  **Build Orchestrator (Phase H):**
+    *   Once all pieces are extracted, build the pipeline.
+    *   Replace `HeliosPlanner.generate_schedule()` with `PlannerPipeline`.
+
+5.  **Archive & Cleanup (Phase I):**
+    *   Only after full pipeline works, archive legacy.
+    *   Global search-replace of imports.
+
+6.  **Final Validation (Phase J):**
+    *   Run all tests.
+    *   Manual test: Run planner, check schedule.json, verify UI works.
+
+---
+
+**Verification:**
+
+*   **Unit Tests:**
+    *   `tests/planner/test_data_prep.py` — Input layer.
+    *   `tests/planner/test_s_index.py` — S-Index calculation.
+    *   `tests/planner/test_target_soc.py` — Target SoC logic.
+    *   `tests/planner/test_water_heating.py` — Water heating.
+    *   `tests/planner/test_schedule_output.py` — Output formatting.
+    *   Run: `PYTHONPATH=. python -m pytest tests/planner/ -v`
+
+*   **Integration Tests:**
+    *   `tests/planner/test_integration.py` — Full pipeline.
+    *   Run: `PYTHONPATH=. python -m pytest tests/planner/test_integration.py -v`
+
+*   **Existing Test Suite:**
+    *   Run: `PYTHONPATH=. python -m pytest -q`
+    *   All existing tests must pass.
+
+*   **Manual Validation:**
+    1.  Start dev server: `npm run dev`
+    2.  Trigger planner run via UI or: `python -c "from planner import generate_schedule; ..."`
+    3.  Verify `schedule.json` is created and valid.
+    4.  Check Dashboard displays schedule correctly.
+    5.  Verify Aurora tab shows Kepler debug info.
+
+**Status:** Not Started.
+
 ---
 
 ## Backlog

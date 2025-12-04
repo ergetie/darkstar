@@ -4,7 +4,7 @@ from datetime import timedelta
 import pandas as pd
 import pytest
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 
 def _build_planner():

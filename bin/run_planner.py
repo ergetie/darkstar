@@ -5,7 +5,7 @@ from datetime import datetime
 
 import yaml
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 from inputs import get_all_input_data
 
 
@@ -29,7 +29,7 @@ def get_version_string():
 
 
 def write_schedule_json(df, out_path="schedule.json"):
-    from planner import dataframe_to_json_response
+    from planner_legacy import dataframe_to_json_response
 
     payload = {"schedule": dataframe_to_json_response(df)}
     # Attach meta with planner_version and timestamp

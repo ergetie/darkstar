@@ -2,7 +2,7 @@
 Test hysteresis and smoothing behavior.
 """
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 
 class TestHysteresis:

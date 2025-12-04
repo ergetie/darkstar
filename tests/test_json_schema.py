@@ -2,7 +2,7 @@
 Test JSON schema validation and output format.
 """
 
-from planner import HeliosPlanner, dataframe_to_json_response
+from planner_legacy import HeliosPlanner, dataframe_to_json_response
 
 
 class TestJsonSchema:

@@ -8,7 +8,7 @@ from pathlib import Path
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 from backend.learning import get_learning_engine
 
 def main():

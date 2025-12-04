@@ -14,7 +14,7 @@ from flask import Flask, jsonify, render_template, request
 import pymysql
 import subprocess
 
-from planner import (
+from planner_legacy import (
     HeliosPlanner,
     apply_manual_plan,
     dataframe_to_json_response,

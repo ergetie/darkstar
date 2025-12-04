@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 
 def debug_planner_full():
     print("🧪 Debugging Planner Full Run...")

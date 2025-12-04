@@ -7,7 +7,7 @@ import os
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from planner import HeliosPlanner
+from planner_legacy import HeliosPlanner
 from ml.simulation.data_loader import SimulationDataLoader
 from backend.kepler.solver import KeplerSolver
 from backend.kepler.adapter import planner_to_kepler_input, config_to_kepler_config
