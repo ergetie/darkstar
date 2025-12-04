@@ -114,8 +114,12 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ### Rev K10 — Aurora UI Makeover
 **Goal:** Revamp the "Aurora" tab in the Web UI to serve as the central command center for the AI agent.
-- **Scope:** TBD (Placeholder).
-- **Status:** Planned.
+- **Scope:**
+    - **Cockpit Layout:** High-density dashboard with "Bridge", "Radar", and "Log".
+    - **Strategy Log:** Backend mechanism to log and display AI decisions.
+    - **Context Radar:** Visualization of risk factors (Weather, Price, Forecast).
+    - **Performance Mirror:** Merged "SoC Tunnel" and "Cost Reality" charts from deprecated Performance tab.
+- **Status:** Completed.
 
 ---
 
