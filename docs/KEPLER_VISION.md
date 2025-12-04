@@ -150,15 +150,15 @@ To get a self-learning system without relying on RL for raw control, we use the 
 - [x] **Dynamic Parameters (K5)**:
     - Wire `wear_cost`, `ramping_cost`, and `export_threshold` to be dynamically tunable per-plan.
     - Allow Strategy Engine to override these based on context (e.g., "Aggressive Export" mode).
-- [ ] **Context Awareness**:
+- [x] **Context Awareness**:
     - Ingest Price Trends (e.g., "Price Plunge coming in 3 days") to adjust long-term buffers.
-    - Ingest Grid Constraints (e.g., "Grid Peak Shaving" requirements).
+    - [x] **Grid Constraints** (K8): "Grid Peak Shaving" requirements.
 
 ### Phase 3: The Learning Loop
 - [x] **K6: The Learning Engine** (Plan vs Actuals)
 - [x] **K7: The Mirror** (Backfill & Visualization)
-- [ ] **Feedback Loops**:
-    - **Short-term**: Feed recent errors back to Aurora (already partially done).
+- [x] **Feedback Loops**:
+    - [x] **Short-term** (K9): Feed recent errors back to Aurora (Analyst & Auto-Tuner).
     - **Long-term**: Auto-tune `base_load_factor` or `battery_efficiency` based on historical bias.
 
 ### Phase 4: Full Autonomy ("Agent Mode")
