@@ -1,27 +1,19 @@
 #!/usr/bin/env bash
-# Darkstar startup script - auto-updates all dependencies
+# Darkstar startup - auto-updates all dependencies then starts
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 echo "🔄 Updating dependencies..."
 
-# Backend: Python requirements
-if [ -d "venv" ]; then
-  source venv/bin/activate
-  pip install -q -r requirements.txt
-  echo "✅ Python dependencies updated"
-fi
+# Frontend npm packages
+npm --prefix frontend install --silent 2>/dev/null || npm --prefix frontend install
 
-# Frontend: npm packages  
-if [ -d "frontend" ]; then
-  npm --prefix frontend install --silent
-  echo "✅ Frontend dependencies updated"
-fi
-
-# Root npm (concurrently, etc.)
-npm install --silent
-echo "✅ Root dependencies updated"
+# Root npm (concurrently)
+npm install --silent 2>/dev/null || npm install
 
 echo "🚀 Starting Darkstar..."
+
+# dev-backend.sh handles Python requirements + backend
+# concurrently runs frontend + backend together
 exec npm run dev
