@@ -8,6 +8,8 @@ export PYTHONPATH="${PYTHONPATH:-.}:."
 if [ -d "venv" ]; then
   # shellcheck disable=SC1091
   source venv/bin/activate
+  # Auto-install/update requirements on startup
+  pip install -q -r requirements.txt
 fi
 
 # Start in-app scheduler in the background for dev
