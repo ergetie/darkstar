@@ -1,5 +1,23 @@
 [
   {
+    "timestamp": "2025-12-05T01:03:18.462862",
+    "type": "PRICE_VOLATILITY",
+    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
+    "details": {
+      "spread": 0.30000000000000004,
+      "mode": "conservative"
+    }
+  },
+  {
+    "timestamp": "2025-12-05T01:03:18.462200",
+    "type": "PRICE_VOLATILITY",
+    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
+    "details": {
+      "spread": 1.9,
+      "mode": "aggressive"
+    }
+  },
+  {
     "timestamp": "2025-12-05T00:59:38.775762",
     "type": "PRICE_VOLATILITY",
     "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
