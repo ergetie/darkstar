@@ -33,6 +33,7 @@ from planner.solver.adapter import (
 )
 from planner.solver.kepler import KeplerSolver
 from planner.output.schedule import save_schedule_to_json
+from planner.output.soc_target import apply_soc_target_percent
 
 logger = logging.getLogger("darkstar.planner")
 
@@ -253,10 +254,9 @@ class PlannerPipeline:
         # Kepler only planned future slots, so result_df matches future_df indices
         final_df = future_df.join(result_df, rsuffix="_kepler")
         
-        # Overwrite columns in final_df with result_df columns (they should align now)
+        # Copy ALL columns from result_df to final_df (overwrite existing, add new)
         for col in result_df.columns:
-            if col in final_df.columns:
-                final_df[col] = result_df[col].values
+            final_df[col] = result_df[col].values
         
         # Restore water_heating_kw (it was set in schedule_water_heating but overwritten above)
         if water_heating_series is not None:
@@ -265,9 +265,10 @@ class PlannerPipeline:
         # 6. Manual Plan
         final_df = apply_manual_plan(final_df, active_config)
         
-        # Add soc_target_percent to each slot (UI needs this for visualization)
-        if mode == "full" and 'target_soc_pct' in dir() and target_soc_pct > 0:
-            final_df["soc_target_percent"] = target_soc_pct
+        # 7. Apply dynamic soc_target_percent based on actions
+        # This sets per-slot targets: Charge blocks → projected end SoC,
+        # Export blocks → projected end SoC, Discharge → min_soc, Hold → entry SoC
+        final_df = apply_soc_target_percent(final_df, active_config, now_slot)
         
         # 7. Output & Observability
         if save_to_file:
