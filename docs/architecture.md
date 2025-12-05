@@ -68,11 +68,64 @@ Darkstar's intelligence is powered by the **Aurora Suite**, which consists of th
 
 ---
 
-## 5. Data Flow
-1.  **Inputs**: Nordpool Prices, Weather Forecasts, Home Assistant Sensors.
-2.  **Aurora**: Generates/Corrects Forecasts.
-3.  **Planner (Pass 0)**: Applies S-Index (Safety Margins) & Calculates Terminal Value.
-4.  **Planner (Pass 1-4)**: Identifies windows, schedules water heating.
-5.  **Adapter**: Converts Planner Data -> Kepler Input.
-6.  **Kepler Solver**: Solves for Optimal Schedule.
-7.  **Output**: `schedule.json` (consumed by UI and Home Assistant).
+## 5. Modular Planner Pipeline
+
+The planner has been refactored from a monolithic "God class" into a modular `planner/` package:
+
+```
+planner/
+├── pipeline.py           # Main orchestrator (PlannerPipeline)
+├── inputs/               # Input Layer
+│   ├── data_prep.py      # prepare_df(), apply_safety_margins()
+│   ├── learning.py       # Aurora overlay loading
+│   └── weather.py        # Temperature forecast fetching
+├── strategy/             # Strategy Layer
+│   ├── s_index.py        # S-Index calculation (dynamic risk factor)
+│   ├── windows.py        # Cheap window identification
+│   └── manual_plan.py    # Manual override application
+├── scheduling/           # Pre-solver Scheduling
+│   └── water_heating.py  # Water heater window selection
+├── solver/               # Kepler MILP Integration
+│   ├── kepler.py         # KeplerSolver (MILP optimization)
+│   └── adapter.py        # DataFrame ↔ Kepler types conversion
+└── output/               # Output Layer
+    ├── schedule.py       # schedule.json generation
+    ├── soc_target.py     # Per-slot soc_target_percent calculation
+    └── formatter.py      # DataFrame → JSON formatting
+```
+
+### Data Flow
+
+```mermaid
+flowchart LR
+    A[Inputs<br/>Prices, Forecasts, HA State] --> B[Data Prep<br/>+ Safety Margins]
+    B --> C[Strategy<br/>S-Index, Target SoC]
+    C --> D[Scheduling<br/>Water Heating]
+    D --> E[Kepler Solver<br/>MILP Optimization]
+    E --> F[SoC Target<br/>Per-slot targets]
+    F --> G[Output<br/>schedule.json]
+```
+
+1. **Inputs**: Nordpool Prices, Weather Forecasts, Home Assistant Sensors.
+2. **Data Prep**: `prepare_df()` + `apply_safety_margins()` (S-Index inflation).
+3. **Strategy**: Calculate S-Index, Terminal Value, Dynamic Target SoC.
+4. **Scheduling**: Schedule water heating into cheap windows.
+5. **Kepler Solver**: MILP optimization for optimal charge/discharge schedule.
+6. **SoC Target**: Apply per-slot `soc_target_percent` based on action type:
+   - Charge blocks → Projected SoC at block end
+   - Export blocks → Projected SoC at block end (with guard floor)
+   - Hold → Entry SoC (current battery state)
+   - Discharge → Minimum SoC
+7. **Output**: `schedule.json` consumed by UI and Home Assistant automation.
+
+### Key Entry Point
+
+```python
+from planner.pipeline import PlannerPipeline, generate_schedule
+
+# Production usage
+pipeline = PlannerPipeline(config)
+schedule_df = pipeline.generate_schedule(input_data, mode="full")
+```
+
+**Legacy Reference**: The original 3,600-line heuristic planner is archived at `archive/legacy_mpc.py` with documentation in `docs/LEGACY_MPC.md`.
