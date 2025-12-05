@@ -265,6 +265,10 @@ class PlannerPipeline:
         # 6. Manual Plan
         final_df = apply_manual_plan(final_df, active_config)
         
+        # Add soc_target_percent to each slot (UI needs this for visualization)
+        if mode == "full" and 'target_soc_pct' in dir() and target_soc_pct > 0:
+            final_df["soc_target_percent"] = target_soc_pct
+        
         # 7. Output & Observability
         if save_to_file:
             # Prepare window responsibilities (placeholder, Kepler doesn't return windows yet)
