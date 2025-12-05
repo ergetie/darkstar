@@ -1,15 +1,61 @@
 """
-Observability Module
+Observability Logging
 
-Logging and debugging utilities for the planner.
-Placeholder for future extraction of debug payload generation.
+Handles persistence of debug payloads and other observability metrics.
 """
 
-from __future__ import annotations
+import json
+import sqlite3
+import os
+from datetime import datetime, timezone
+from typing import Dict, Any
 
-from typing import Any, Dict
 
-# The actual debug payload generation remains in planner_legacy.py
-# This module provides a clean interface for future extraction
+def ensure_learning_schema(db_path: str) -> None:
+    """Create sqlite tables when learning is enabled."""
+    # Ensure directory exists
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS planner_debug (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at TEXT NOT NULL,
+                payload TEXT NOT NULL
+            )
+            """
+        )
+        conn.commit()
 
-__all__ = []
+
+def record_debug_payload(payload: Dict[str, Any], learning_config: Dict[str, Any]) -> None:
+    """
+    Persist planner debug payloads for observability.
+    
+    Args:
+        payload: The debug payload dictionary
+        learning_config: Learning configuration dictionary
+    """
+    if not learning_config.get("enable", False):
+        return
+
+    db_path = learning_config.get("sqlite_path", "data/learning.db")
+    
+    # Ensure schema exists
+    ensure_learning_schema(db_path)
+    
+    timestamp = datetime.now(timezone.utc).isoformat()
+    
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO planner_debug (created_at, payload)
+                VALUES (?, ?)
+                """,
+                (timestamp, json.dumps(payload)),
+            )
+            conn.commit()
+    except Exception as e:
+        print(f"[observability] Failed to record debug payload: {e}")

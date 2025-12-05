@@ -152,7 +152,66 @@ def prepare_df(input_data: Dict[str, Any], tz_name: Optional[str] = None) -> pd.
     return df.sort_index()
 
 
+
+def apply_safety_margins(
+    df: pd.DataFrame,
+    config: Dict[str, Any],
+    overlays: Dict[str, Any],
+    effective_load_margin: float,
+) -> pd.DataFrame:
+    """
+    Apply safety margins to PV and load forecasts.
+    
+    Args:
+        df: DataFrame with forecasts
+        config: Full configuration dictionary
+        overlays: Learning overlays dictionary
+        effective_load_margin: Calculated load inflation factor (S-Index)
+        
+    Returns:
+        DataFrame with adjusted forecasts (adjusted_pv_kwh, adjusted_load_kwh)
+    """
+    forecasting = config.get("forecasting", {})
+    pv_confidence = forecasting.get("pv_confidence_percent", 90.0) / 100.0
+
+    df["adjusted_pv_kwh"] = df["pv_forecast_kwh"] * pv_confidence
+    df["adjusted_load_kwh"] = df["load_forecast_kwh"] * effective_load_margin
+
+    # Apply per-hour learning adjustments if available
+    pv_adj = overlays.get("pv_adjustment_by_hour_kwh")
+    load_adj = overlays.get("load_adjustment_by_hour_kwh")
+    
+    if pv_adj or load_adj:
+        try:
+            timezone_name = config.get("timezone", "Europe/Stockholm")
+            tz = pytz.timezone(timezone_name)
+        except Exception:
+            tz = pytz.timezone("Europe/Stockholm")
+
+        try:
+            local_index = df.index.tz_convert(tz)
+        except TypeError:
+            local_index = df.index.tz_localize(tz)
+
+        hours = local_index.hour
+        if pv_adj:
+            if len(pv_adj) == 24:
+                # Apply adjustment and clamp to 0 to prevent negative PV
+                raw_pv = df["adjusted_pv_kwh"] + hours.map(lambda h: float(pv_adj[h])).values
+                df["adjusted_pv_kwh"] = raw_pv.clip(lower=0.0)
+        if load_adj:
+            if len(load_adj) == 24:
+                # Apply adjustment and clamp to 0 to prevent negative load
+                raw_adjusted = (
+                    df["adjusted_load_kwh"] + hours.map(lambda h: float(load_adj[h])).values
+                )
+                df["adjusted_load_kwh"] = raw_adjusted.clip(lower=0.0)
+
+    return df
+
+
 # Legacy aliases for backward compatibility
 _normalize_timestamp = normalize_timestamp
 _build_price_dataframe = build_price_dataframe
 _build_forecast_dataframe = build_forecast_dataframe
+

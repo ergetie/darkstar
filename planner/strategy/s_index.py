@@ -194,6 +194,7 @@ def calculate_future_risk_factor(
     raw_factor = base_factor + (temp_weight * temp_adjustment)
     risk_factor = min(max_factor, max(0.0, raw_factor))
     
+
     debug = {
         "d2_date": d2_date.isoformat(),
         "d2_temp_c": d2_temp,
@@ -201,3 +202,39 @@ def calculate_future_risk_factor(
         "risk_factor": round(risk_factor, 4)
     }
     return risk_factor, debug
+
+
+def calculate_dynamic_target_soc(
+    risk_factor: float,
+    battery_config: Dict[str, Any],
+    s_index_cfg: Dict[str, Any],
+) -> Tuple[float, float, Dict[str, Any]]:
+    """
+    Calculate Dynamic Target SoC based on risk factor.
+    
+    Args:
+        risk_factor: Calculated future risk factor
+        battery_config: Battery configuration
+        s_index_cfg: S-index configuration
+        
+    Returns:
+        Tuple of (target_soc_pct, target_soc_kwh, debug_data)
+    """
+    min_soc_pct = float(battery_config.get("min_soc_percent", 10.0))
+    soc_scaling = float(s_index_cfg.get("soc_scaling_factor", 50.0))
+    
+    target_soc_pct = min_soc_pct + max(0.0, (risk_factor - 1.0) * soc_scaling)
+    target_soc_pct = min(100.0, target_soc_pct)
+    
+    capacity_kwh = float(battery_config.get("capacity_kwh", 0.0))
+    target_soc_kwh = (target_soc_pct / 100.0) * capacity_kwh if capacity_kwh > 0 else 0.0
+    
+    debug = {
+        "risk_factor": risk_factor,
+        "scaling_factor": soc_scaling,
+        "target_percent": round(target_soc_pct, 2),
+        "target_kwh": round(target_soc_kwh, 2)
+    }
+    
+    return target_soc_pct, target_soc_kwh, debug
+
