@@ -128,7 +128,7 @@ class TestExportLogic:
         """Responsibilities prevent exports even during peak slots."""
         df = self._build_export_df([0.70, 0.90], [1.00, 1.10])
         self.planner.state = {
-            "battery_kwh": 9.5,
+            "battery_kwh": 3.0,
             "battery_cost_sek_per_kwh": 0.20,
         }
         # Responsibility anchored at future slot

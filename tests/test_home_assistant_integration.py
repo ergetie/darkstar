@@ -59,7 +59,7 @@ def test_get_initial_state_prefers_home_assistant(monkeypatch, tmp_path):
 def _load_webapp():
     """Import webapp lazily so tests skip if Flask is unavailable."""
     pytest.importorskip("flask", reason="Flask is required for webapp endpoint tests")
-    return importlib.import_module("webapp")
+    return importlib.import_module("backend.webapp")
 
 
 def test_water_today_endpoint_ha(monkeypatch):
@@ -161,8 +161,8 @@ def test_calculate_dynamic_s_index(monkeypatch):
     dates = pd.date_range(base_date + pd.Timedelta(days=2), periods=96 * 3, freq="15min", tz=tz)
     df = pd.DataFrame(
         {
-            "adjusted_load_kwh": [1.0] * len(dates),
-            "adjusted_pv_kwh": [0.2] * len(dates),
+            "load_forecast_kwh": [1.0] * len(dates),
+            "pv_forecast_kwh": [0.2] * len(dates),
         },
         index=dates,
     )

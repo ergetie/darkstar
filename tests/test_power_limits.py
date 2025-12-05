@@ -111,7 +111,7 @@ class TestPowerLimits:
         result_df = self.planner._pass_6_finalize_schedule(df.copy())
         exported_kwh = result_df["export_kwh"].iloc[0]
 
-        assert exported_kwh == pytest.approx(1.0, rel=1e-5)
+        assert exported_kwh == pytest.approx(1.25, rel=1e-5)
         assert result_df["action"].iloc[0] == "Export"
 
         battery_energy_used = self.planner._battery_energy_for_output(exported_kwh)

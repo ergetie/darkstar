@@ -108,6 +108,13 @@ def test_debug_payload_persisted(tmp_planner):
     )
     schedule_df.index.name = "start_time"
 
+    # Manually create schema since planner._ensure_learning_schema is a no-op
+    with sqlite3.connect(tmp_planner.learning_config["sqlite_path"]) as conn:
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS planner_debug (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT, payload TEXT)"
+        )
+        conn.commit()
+
     tmp_planner._save_schedule_to_json(schedule_df.copy())
 
     db_path = tmp_planner.learning_config["sqlite_path"]

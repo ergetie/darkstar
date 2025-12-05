@@ -33,7 +33,7 @@ def test_kepler_solver_basic():
         discharge_efficiency=1.0,
         min_soc_percent=0.0,
         max_soc_percent=100.0,
-        wear_cost_sek_per_kwh=0.0, # No wear cost to encourage usage
+        wear_cost_sek_per_kwh=0.01, # Small wear cost to prevent free dumping
         target_soc_kwh=0.0 # Allow depletion
     )
     

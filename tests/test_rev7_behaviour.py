@@ -66,6 +66,8 @@ def _build_planner():
     planner.discharge_efficiency = efficiency_component
     planner.cycle_cost = 0.20
     planner._max_soc_warning_emitted = False
+    planner._home_assistant_water_checked = False
+    planner._home_assistant_water_today = None
     return planner
 
 
