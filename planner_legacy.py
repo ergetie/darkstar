@@ -2896,22 +2896,14 @@ class HeliosPlanner:
             if action == "Hold" and entry is not None:
                 targets[i] = float(entry)
             elif action == "Export":
+                # Initial pass uses guard floor; block logic below will refine to projected end
                 if manual_actions[i] == "export":
                     targets[i] = manual_export_target_percent
                 else:
                     targets[i] = guard_floor_percent
             elif action == "Discharge":
+                # Discharge to load uses min_soc (no export reserve needed)
                 targets[i] = min_soc_percent
-
-        # Apply block-level adjustments for charge and export
-                i += 1
-            else:
-                # Check if this is a small gap between charge blocks
-                # If next slot is Charge, and gap is small (e.g. 1 slot), treat as part of block?
-                # But the loop structure handles contiguous blocks.
-                # To consolidate, we need to look ahead before processing the block.
-                # Let's rewrite the loop to find ALL charge indices first, then group them.
-                i += 1
 
         # Refactored Charge Block Logic with Consolidation
         charge_indices = [idx for idx, a in enumerate(actions) if a == "Charge"]
@@ -2983,7 +2975,21 @@ class HeliosPlanner:
                     if manual_actions[i] == "export":
                         manual_block = True
                 end = i
-                block_value = manual_export_target_percent if manual_block else guard_floor_percent
+                
+                # FIX: Use the projected SoC at END of export block as target floor
+                # This ensures the inverter maintains the planned reserve during export.
+                # If we're exporting from 80% to 30%, target should be 30% (not min_soc).
+                if manual_block:
+                    block_value = manual_export_target_percent
+                else:
+                    # Get the projected SoC at end of the export block
+                    end_projected = projected[end]
+                    if end_projected is not None:
+                        # Use end-of-block projected SoC, but clamp to guard floor as safety minimum
+                        block_value = max(guard_floor_percent, float(end_projected))
+                    else:
+                        block_value = guard_floor_percent
+                
                 for j in range(start, end + 1):
                     targets[j] = block_value
                 i += 1

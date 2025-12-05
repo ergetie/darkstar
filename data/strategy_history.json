@@ -1,5 +1,67 @@
 [
   {
+    "timestamp": "2025-12-05T08:51:37.012494",
+    "type": "PRICE_VOLATILITY",
+    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
+    "details": {
+      "spread": 0.30000000000000004,
+      "mode": "conservative"
+    }
+  },
+  {
+    "timestamp": "2025-12-05T08:51:37.011675",
+    "type": "PRICE_VOLATILITY",
+    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
+    "details": {
+      "spread": 1.9,
+      "mode": "aggressive"
+    }
+  },
+  {
+    "timestamp": "2025-12-05T08:47:40.426748",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.02, Temp: 0.14). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.018586759853292657,
+      "temp_vol": 0.13914569638582086,
+      "pv_weight_adj": 0.21,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-05T08:46:44.321607",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.02, Temp: 0.14). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.018586759853292657,
+      "temp_vol": 0.13914569638582086,
+      "pv_weight_adj": 0.21,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-05T01:26:17.188386",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.04, Temp: 0.12). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.03759960176905454,
+      "temp_vol": 0.11846536436102954,
+      "pv_weight_adj": 0.22,
+      "temp_weight_adj": 0.32
+    }
+  },
+  {
+    "timestamp": "2025-12-05T01:26:08.434365",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.04, Temp: 0.12). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.03759960176905454,
+      "temp_vol": 0.11846536436102954,
+      "pv_weight_adj": 0.22,
+      "temp_weight_adj": 0.32
+    }
+  },
+  {
     "timestamp": "2025-12-05T01:24:55.063622",
     "type": "PRICE_VOLATILITY",
     "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
