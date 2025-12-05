@@ -396,11 +396,11 @@ export default function Aurora() {
       <KPIStrip metrics={dashboard?.metrics} perfData={perfData} />
 
       {/* 2. THE DASHBOARD (Middle Section) */}
-      <div className="grid gap-4 lg:grid-cols-12 lg:min-h-[400px]">
+      <div className="grid gap-4 lg:grid-cols-12 lg:h-[450px]">
 
         {/* Context Radar */}
-        <Card className="lg:col-span-4 p-4 flex flex-col">
-          <div className="mb-4 flex items-center justify-between">
+        <Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="mb-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-accent" />
               <span className="text-xs font-medium text-text">Context Radar</span>
@@ -424,8 +424,8 @@ export default function Aurora() {
         </Card>
 
         {/* Activity Log */}
-        <Card className="lg:col-span-4 p-4 flex flex-col">
-          <div className="mb-4 flex items-center justify-between">
+        <Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="mb-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Brain className="h-4 w-4 text-accent" />
               <span className="text-xs font-medium text-text">Activity Log</span>
@@ -438,8 +438,8 @@ export default function Aurora() {
         </Card>
 
         {/* Forecast Decomposition (Existing) */}
-        <Card className="lg:col-span-4 p-4 flex flex-col">
-          <div className="flex items-center justify-between mb-3">
+        <Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="flex items-center justify-between mb-3 shrink-0">
             <div>
               <div className="text-xs font-medium text-text">Forecast View</div>
             </div>
