@@ -6,10 +6,8 @@
     "dev:frontend": "npm --prefix frontend run dev",
     "dev:backend": "bash scripts/dev-backend.sh"
   },
-  "devDependencies": {
-    "concurrently": "^9.0.0"
-  },
   "dependencies": {
-    "chartjs-plugin-annotation": "^3.1.0"
+    "chartjs-plugin-annotation": "^3.1.0",
+    "concurrently": "^9.0.0"
   }
 }

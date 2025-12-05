@@ -1,19 +1,15 @@
 #!/usr/bin/env bash
-# Darkstar startup - auto-updates all dependencies then starts
+# Darkstar startup - auto-updates dependencies then starts
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+cd /opt/darkstar
+export HOME=/root
 
 echo "🔄 Updating dependencies..."
-
-# Frontend npm packages
-npm --prefix frontend install --silent 2>/dev/null || npm --prefix frontend install
-
-# Root npm (concurrently)
-npm install --silent 2>/dev/null || npm install
+npm install
+npm --prefix frontend install
 
 echo "🚀 Starting Darkstar..."
-
-# dev-backend.sh handles Python requirements + backend
-# concurrently runs frontend + backend together
-exec npm run dev
+exec /opt/darkstar/node_modules/.bin/concurrently -k -n FRONTEND,BACKEND \
+  "npm --prefix frontend run dev" \
+  "bash scripts/dev-backend.sh"
