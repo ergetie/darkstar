@@ -13,7 +13,7 @@ import pytest
 import pytz
 
 import inputs
-import planner_legacy as planner_module
+import archive.legacy_mpc as planner_module
 
 
 class DummyResponse:

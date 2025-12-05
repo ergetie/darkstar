@@ -6,7 +6,7 @@ import yaml
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 from inputs import get_all_input_data
 
 
@@ -36,7 +36,7 @@ def test_smart_expansion():
     df = planner.generate_schedule(input_data, overrides=overrides)
 
     cheap_slots = df["is_cheap"].sum()
-    charge_slots = (df["charge_kw"] > 0).sum()
+    charge_slots = (df["battery_charge_kw"] > 0).sum()
 
     print(f"   🔍 Cheap Slots Found: {cheap_slots}")
     print(f"   ⚡ Charged Slots: {charge_slots}")

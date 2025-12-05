@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 from backend.kepler.types import KeplerConfig
 
 def test_strategic_s_index():

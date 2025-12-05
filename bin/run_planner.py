@@ -1,11 +1,15 @@
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime
+
+# Add project root to sys.path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import yaml
 
-from planner_legacy import HeliosPlanner
+from planner.pipeline import generate_schedule
 from inputs import get_all_input_data
 
 
@@ -26,19 +30,6 @@ def get_version_string():
         return out.decode("utf-8").strip()
     except Exception:
         return os.environ.get("DARKSTAR_VERSION", "dev")
-
-
-def write_schedule_json(df, out_path="schedule.json"):
-    from planner_legacy import dataframe_to_json_response
-
-    payload = {"schedule": dataframe_to_json_response(df)}
-    # Attach meta with planner_version and timestamp
-    payload["meta"] = payload.get("meta", {})
-    payload["meta"]["planner_version"] = get_version_string()
-    payload["meta"]["planned_at"] = datetime.now().isoformat()
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False)
-    return out_path
 
 
 def write_to_mariadb(schedule_path, config_path="config.yaml", secrets_path="secrets.yaml"):
@@ -62,7 +53,7 @@ def main():
 
     # Persist inputs to Learning DB (Prices & Forecasts)
     try:
-        from learning import LearningEngine
+        from backend.learning import LearningEngine
         engine = LearningEngine("config.yaml")
         
         if "price_data" in input_data:
@@ -79,11 +70,16 @@ def main():
     except Exception as e:
         print(f"[planner] Warning: Failed to persist inputs to DB: {e}")
 
-    planner = HeliosPlanner("config.yaml")
-    df = planner.generate_schedule(input_data, record_training_episode=True)
-
-    # Save schedule.json with meta
-    schedule_path = write_schedule_json(df, "schedule.json")
+    # Run Planner Pipeline
+    # This will generate and save schedule.json
+    df = generate_schedule(
+        input_data, 
+        config=config, 
+        mode="full", 
+        save_to_file=True
+    )
+    
+    schedule_path = "schedule.json"
     print(f"[planner] Wrote schedule to {schedule_path}")
 
     # Optional DB write

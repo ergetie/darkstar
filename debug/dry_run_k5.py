@@ -5,7 +5,7 @@ import logging
 # Add project root to path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 from backend.strategy.engine import StrategyEngine
 
 # Mock Config

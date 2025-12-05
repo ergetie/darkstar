@@ -15,13 +15,11 @@ from flask import Flask, jsonify, render_template, request
 import pymysql
 import subprocess
 
-from planner_legacy import (
-    HeliosPlanner,
-    apply_manual_plan,
-    dataframe_to_json_response,
-    prepare_df,
-    simulate_schedule,
-)
+from planner.pipeline import generate_schedule, PlannerPipeline
+from planner.simulation import simulate_schedule
+from planner.inputs.data_prep import prepare_df
+from planner.output.formatter import dataframe_to_json_response
+from planner.strategy.manual_plan import apply_manual_plan
 from db_writer import write_schedule_to_db
 from inputs import (
     _load_yaml,
@@ -1277,8 +1275,9 @@ def run_planner():
         overrides = strategy.decide(input_data)
 
         # 2. Planner Execution (UI/Lab runs must not pollute training episodes)
-        planner = HeliosPlanner("config.yaml")
-        df = planner.generate_schedule(
+        # 2. Planner Execution (UI/Lab runs must not pollute training episodes)
+        pipeline = PlannerPipeline(base_config)
+        df = pipeline.generate_schedule(
             input_data, overrides=overrides, record_training_episode=False
         )
 

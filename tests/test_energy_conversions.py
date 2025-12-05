@@ -3,7 +3,7 @@ Test energy and cost conversion helpers in the planner.
 """
 
 import math
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 
 
 class TestEnergyConversions:

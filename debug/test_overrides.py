@@ -6,7 +6,7 @@ import yaml
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 from inputs import get_all_input_data
 
 
