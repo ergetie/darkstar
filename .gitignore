@@ -27,3 +27,5 @@ data/planner_learning.db
 
 # Schedule
 schedule.json
+data/*.backup*
+*.backup*.db

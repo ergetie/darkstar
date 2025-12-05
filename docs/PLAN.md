@@ -429,7 +429,7 @@ This allows comparing Aurora's contribution without involving Legacy MPC.
     4.  Check Dashboard displays schedule correctly.
     5.  Verify Aurora tab shows Kepler debug info.
 
-**Status:** Not Started.
+**Status:** Completed.
 
 ---
 

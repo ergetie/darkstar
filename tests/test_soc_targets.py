@@ -8,7 +8,7 @@ import math
 import pandas as pd
 import pytest
 
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 
 
 def build_planner() -> HeliosPlanner:

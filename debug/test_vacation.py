@@ -8,7 +8,7 @@ sys.path.append(os.getcwd())
 
 from backend.strategy.engine import StrategyEngine
 from inputs import get_all_input_data
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 
 
 def test_vacation_strategy():

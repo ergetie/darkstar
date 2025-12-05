@@ -8,7 +8,7 @@ import tempfile
 import pandas as pd
 import yaml
 
-from planner_legacy import HeliosPlanner
+from archive.legacy_mpc import HeliosPlanner
 
 
 class TestGapResponsibilities:
