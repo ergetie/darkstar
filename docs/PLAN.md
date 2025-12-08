@@ -463,7 +463,21 @@ This allows comparing Aurora's contribution without involving Legacy MPC.
 *   **Planner Integration:**
     *   Update S-Index logic to use `p90_load` and `p10_pv` for "Conservative" risk calculations instead of arbitrary multipliers.
 
-**Status:** Not Started.
+**Status:** In Progress (Planning Complete)
+
+**Detailed Plan:**
+1.  **ML Foundation:**
+    *   Update `ml/train.py` to train Quantile Regression models (p10/p50/p90).
+    *   Update `ml/forward.py` to generate and store all bands.
+2.  **Storage:**
+    *   Add `pv_p10`, `pv_p90`, `load_p10`, `load_p90` to `slot_forecasts` table.
+3.  **Strategy:**
+    *   Implement `probabilistic` mode in S-Index.
+    *   Use `load_p90` and `pv_p10` for conservative planning.
+4.  **UI:**
+    *   Visualize confidence bands in Forecasting tab.
+5.  **Validation:**
+    *   A/B test logging (Heuristic vs Probabilistic).
 
 ---
 
