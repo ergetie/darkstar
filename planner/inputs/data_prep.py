@@ -114,12 +114,16 @@ def build_forecast_dataframe(forecast_data: list, tz_name: str) -> pd.DataFrame:
                 "start_time": start,
                 "pv_forecast_kwh": float(slot.get("pv_forecast_kwh") or 0.0),
                 "load_forecast_kwh": float(slot.get("load_forecast_kwh") or 0.0),
+                "pv_p10": float(slot.get("pv_p10") or 0.0) if slot.get("pv_p10") is not None else None,
+                "pv_p90": float(slot.get("pv_p90") or 0.0) if slot.get("pv_p90") is not None else None,
+                "load_p10": float(slot.get("load_p10") or 0.0) if slot.get("load_p10") is not None else None,
+                "load_p90": float(slot.get("load_p90") or 0.0) if slot.get("load_p90") is not None else None,
             }
         )
 
     if not records:
         return pd.DataFrame(
-            columns=["pv_forecast_kwh", "load_forecast_kwh"],
+            columns=["pv_forecast_kwh", "load_forecast_kwh", "pv_p10", "pv_p90", "load_p10", "load_p90"],
             index=empty_idx,
         )
 
@@ -143,8 +147,14 @@ def prepare_df(input_data: Dict[str, Any], tz_name: Optional[str] = None) -> pd.
     price_df = build_price_dataframe(input_data.get("price_data") or [], timezone_str)
     forecast_df = build_forecast_dataframe(input_data.get("forecast_data") or [], timezone_str)
 
+    # Join including new probabilistic columns
+    cols_to_join = ["pv_forecast_kwh", "load_forecast_kwh"]
+    for col in ["pv_p10", "pv_p90", "load_p10", "load_p90"]:
+        if col in forecast_df.columns:
+            cols_to_join.append(col)
+
     df = price_df.join(
-        forecast_df[["pv_forecast_kwh", "load_forecast_kwh"]],
+        forecast_df[cols_to_join],
         how="left",
     )
     df["pv_forecast_kwh"] = df["pv_forecast_kwh"].fillna(0.0)

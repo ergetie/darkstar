@@ -110,8 +110,9 @@ def _train_regressor(
     features: pd.DataFrame,
     target: pd.Series,
     min_samples: int,
+    alpha: float = 0.5,
 ) -> lgb.LGBMRegressor | None:
-    """Train a LightGBM regressor if enough samples are available."""
+    """Train a LightGBM regressor (Quantile Regression) if enough samples are available."""
     if len(features) < min_samples:
         print(
             f"Skipping training: only {len(features)} samples available; "
@@ -119,7 +120,10 @@ def _train_regressor(
         )
         return None
 
+    # Use quantile objective
     model = lgb.LGBMRegressor(
+        objective="quantile",
+        alpha=alpha,
         n_estimators=200,
         learning_rate=0.05,
         max_depth=-1,
@@ -127,6 +131,7 @@ def _train_regressor(
         colsample_bytree=0.8,
         random_state=42,
         n_jobs=os.cpu_count() or 1,
+        verbosity=-1,
     )
 
     model.fit(features, target)
@@ -145,7 +150,7 @@ def main() -> None:
     args = _parse_args()
     cfg = TrainingConfig(days_back=args.days_back, min_samples=args.min_samples)
 
-    print("--- Starting AURORA Training (Rev 4+16) ---")
+    print("--- Starting AURORA Training (Rev K15: Probabilistic) ---")
 
     try:
         engine = get_learning_engine()
@@ -240,43 +245,58 @@ def main() -> None:
         if feat in observations.columns:
             feature_cols.append(feat)
 
-    # Train load model
-    # Filter outliers again just in case (sanity check)
-    load_df = observations[observations["load_kwh"] > 0.001].copy()
-    load_model_path = cfg.models_dir / cfg.load_model_name
-    load_model: lgb.LGBMRegressor | None = None
+    # Quantiles to train
+    quantiles = {"p10": 0.1, "p50": 0.5, "p90": 0.9}
 
+    # --- Train Load Models ---
+    load_df = observations[observations["load_kwh"] > 0.001].copy()
     if not load_df.empty:
         X_load = load_df[feature_cols]
         y_load = load_df["load_kwh"].astype(float)
-        print(f"Training load model on {len(X_load)} samples...")
-        load_model = _train_regressor(X_load, y_load, cfg.min_samples)
-        if load_model is not None:
-            _save_model(load_model, load_model_path)
+        print(f"Training load models on {len(X_load)} samples...")
+        
+        for q_name, alpha in quantiles.items():
+            print(f"  > Training Load {q_name} (alpha={alpha})...")
+            model = _train_regressor(X_load, y_load, cfg.min_samples, alpha=alpha)
+            if model is not None:
+                # Save as load_model_p50.lgb, load_model_p10.lgb, etc.
+                # For backward compatibility, p50 is also saved as load_model.lgb? 
+                # No, let's switch to explicit names, but maybe keep p50 as default for now?
+                # The plan implies we load all 6. Let's save them with suffixes.
+                # But wait, existing forward.py expects "load_model.lgb".
+                # We should probably keep "load_model.lgb" as p50 for safety, or update forward.py to look for p50.
+                # I will save p50 as BOTH "load_model.lgb" AND "load_model_p50.lgb" to be safe during transition.
+                
+                suffix = f"_{q_name}"
+                filename = cfg.load_model_name.replace(".lgb", f"{suffix}.lgb")
+                _save_model(model, cfg.models_dir / filename)
+                
+                if q_name == "p50":
+                    _save_model(model, cfg.models_dir / cfg.load_model_name)
     else:
-        print("Warning: No valid load_kwh samples found; skipping load model.")
+        print("Warning: No valid load_kwh samples found; skipping load models.")
 
-    # Train PV model
-    # For PV, we keep 0s because 0 PV is valid (clouds/night), but only if we trust the row.
-    # Since we filtered the SQL by load > 0.001, these rows are likely valid observations.
+    # --- Train PV Models ---
     pv_df = observations.dropna(subset=["pv_kwh"])
-    pv_model_path = cfg.models_dir / cfg.pv_model_name
-    pv_model: lgb.LGBMRegressor | None = None
-
     if not pv_df.empty:
         X_pv = pv_df[feature_cols]
         y_pv = pv_df["pv_kwh"].astype(float)
-        print(f"Training PV model on {len(X_pv)} samples...")
-        pv_model = _train_regressor(X_pv, y_pv, cfg.min_samples)
-        if pv_model is not None:
-            _save_model(pv_model, pv_model_path)
+        print(f"Training PV models on {len(X_pv)} samples...")
+        
+        for q_name, alpha in quantiles.items():
+            print(f"  > Training PV {q_name} (alpha={alpha})...")
+            model = _train_regressor(X_pv, y_pv, cfg.min_samples, alpha=alpha)
+            if model is not None:
+                suffix = f"_{q_name}"
+                filename = cfg.pv_model_name.replace(".lgb", f"{suffix}.lgb")
+                _save_model(model, cfg.models_dir / filename)
+                
+                if q_name == "p50":
+                    _save_model(model, cfg.models_dir / cfg.pv_model_name)
     else:
-        print("Warning: No non-null pv_kwh samples found; skipping PV model.")
+        print("Warning: No non-null pv_kwh samples found; skipping PV models.")
 
-    if load_model is None and pv_model is None:
-        print("No models were trained; check data volume (need >100 valid rows).")
-    else:
-        print("--- AURORA Training finished ---")
+    print("--- AURORA Training finished ---")
 
 
 if __name__ == "__main__":

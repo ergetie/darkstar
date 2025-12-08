@@ -26,6 +26,7 @@ export type AuroraGraduation = {
 export type AuroraRiskProfile = {
   persona: string;
   base_factor: number;
+  current_factor?: number | null;
   mode?: string;
   max_factor?: number | null;
   static_factor?: number | null;
@@ -43,6 +44,12 @@ export type AuroraHorizonSlot = {
   base: { pv_kwh: number; load_kwh: number };
   correction: { pv_kwh: number; load_kwh: number };
   final: { pv_kwh: number; load_kwh: number };
+  probabilistic?: {
+    pv_p10: number | null;
+    pv_p90: number | null;
+    load_p10: number | null;
+    load_p90: number | null;
+  };
 };
 
 export type AuroraHorizon = {

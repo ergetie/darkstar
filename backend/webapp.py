@@ -335,7 +335,8 @@ def forecast_day():
 
         f_rows = cursor.execute(
             """
-            SELECT slot_start, pv_forecast_kwh, load_forecast_kwh, forecast_version
+            SELECT slot_start, pv_forecast_kwh, load_forecast_kwh, forecast_version,
+                   pv_p10, pv_p90, load_p10, load_p90
             FROM slot_forecasts
             WHERE slot_start >= ? AND slot_start < ?
               AND forecast_version IN ('baseline_7_day_avg', 'aurora')
@@ -346,7 +347,7 @@ def forecast_day():
     df_obs = pd.DataFrame(obs_rows, columns=["slot_start", "pv_kwh", "load_kwh"])
     df_f = pd.DataFrame(
         f_rows,
-        columns=["slot_start", "pv_forecast_kwh", "load_forecast_kwh", "forecast_version"],
+        columns=["slot_start", "pv_forecast_kwh", "load_forecast_kwh", "forecast_version", "pv_p10", "pv_p90", "load_p10", "load_p90"],
     )
     if df_obs.empty:
         return jsonify({"date": target_date.isoformat(), "slots": []})
@@ -370,7 +371,7 @@ def forecast_day():
         )
     if not aurora.empty:
         merged = merged.merge(
-            aurora[["slot_start", "pv_forecast_kwh", "load_forecast_kwh"]],
+            aurora[["slot_start", "pv_forecast_kwh", "load_forecast_kwh", "pv_p10", "pv_p90", "load_p10", "load_p90"]],
             on="slot_start",
             how="left",
             suffixes=("", "_aurora"),
@@ -402,6 +403,26 @@ def forecast_day():
                     None
                     if pd.isna(row.get("load_forecast_kwh_aurora"))
                     else float(row["load_forecast_kwh_aurora"])
+                ),
+                "aurora_pv_p10": (
+                    None
+                    if pd.isna(row.get("pv_p10_aurora"))
+                    else float(row["pv_p10_aurora"])
+                ),
+                "aurora_pv_p90": (
+                    None
+                    if pd.isna(row.get("pv_p90_aurora"))
+                    else float(row["pv_p90_aurora"])
+                ),
+                "aurora_load_p10": (
+                    None
+                    if pd.isna(row.get("load_p10_aurora"))
+                    else float(row["load_p10_aurora"])
+                ),
+                "aurora_load_p90": (
+                    None
+                    if pd.isna(row.get("load_p90_aurora"))
+                    else float(row["load_p90_aurora"])
                 ),
             }
         )

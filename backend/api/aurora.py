@@ -111,9 +111,25 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
     else:
         persona = "Balanced"
 
+    # Try to load current effective factor from schedule.json
+    current_factor = None
+    try:
+        if os.path.exists("schedule.json"):
+            with open("schedule.json", "r") as f:
+                schedule = json.load(f)
+                meta = schedule.get("meta", {})
+                s_index_meta = meta.get("s_index", {})
+                # Try effective_load_margin first, fallback to base_factor or calculated factor
+                current_factor = s_index_meta.get("effective_load_margin")
+                if current_factor is None:
+                    current_factor = s_index_meta.get("factor")
+    except Exception as exc:
+        logger.warning("Failed to load current s-index factor from schedule.json: %s", exc)
+
     return {
         "persona": persona,
         "base_factor": base_factor,
+        "current_factor": float(current_factor) if current_factor is not None else None,
         "mode": s_cfg.get("mode", "static"),
         "max_factor": s_cfg.get("max_factor"),
         "static_factor": s_cfg.get("static_factor"),
@@ -186,7 +202,14 @@ def _fetch_horizon_series(
         load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
 
         final_pv = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
+        final_pv = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
         final_load = float(rec.get("load_forecast_kwh", 0.0) or 0.0)
+
+        # Probabilistic bands (if available)
+        pv_p10 = rec.get("pv_p10")
+        pv_p90 = rec.get("pv_p90")
+        load_p10 = rec.get("load_p10")
+        load_p90 = rec.get("load_p90")
 
         base_pv = final_pv - pv_corr
         base_load = final_load - load_corr
@@ -197,6 +220,12 @@ def _fetch_horizon_series(
                 "base": {"pv_kwh": base_pv, "load_kwh": base_load},
                 "correction": {"pv_kwh": pv_corr, "load_kwh": load_corr},
                 "final": {"pv_kwh": final_pv, "load_kwh": final_load},
+                "probabilistic": {
+                    "pv_p10": float(pv_p10) if pv_p10 is not None else None,
+                    "pv_p90": float(pv_p90) if pv_p90 is not None else None,
+                    "load_p10": float(load_p10) if load_p10 is not None else None,
+                    "load_p90": float(load_p90) if load_p90 is not None else None,
+                },
             }
         )
 

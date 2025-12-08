@@ -262,6 +262,10 @@ async def get_forecast_data(price_slots, config):
                         "start_time": slot["start_time"],
                         "pv_forecast_kwh": float(db_slot.get("pv_forecast_kwh", 0.0)),
                         "load_forecast_kwh": float(db_slot.get("load_forecast_kwh", 0.0)),
+                        "pv_p10": db_slot.get("pv_p10"),
+                        "pv_p90": db_slot.get("pv_p90"),
+                        "load_p10": db_slot.get("load_p10"),
+                        "load_p90": db_slot.get("load_p90"),
                     }
                 )
         else:
@@ -600,6 +604,10 @@ def build_db_forecast_for_slots(
         if rec is None:
             pv = 0.0
             load = 0.0
+            pv_p10 = None
+            pv_p90 = None
+            load_p10 = None
+            load_p90 = None
         else:
             base_pv = float(rec.get("pv_forecast_kwh") or 0.0)
             base_load = float(rec.get("load_forecast_kwh") or 0.0)
@@ -607,7 +615,19 @@ def build_db_forecast_for_slots(
             load_corr = float(rec.get("load_correction_kwh") or 0.0)
             pv = base_pv + pv_corr
             load = base_load + load_corr
-        result.append({"pv_forecast_kwh": pv, "load_forecast_kwh": load})
+            pv_p10 = rec.get("pv_p10")
+            pv_p90 = rec.get("pv_p90")
+            load_p10 = rec.get("load_p10")
+            load_p90 = rec.get("load_p90")
+            
+        result.append({
+            "pv_forecast_kwh": pv, 
+            "load_forecast_kwh": load,
+            "pv_p10": pv_p10,
+            "pv_p90": pv_p90,
+            "load_p10": load_p10,
+            "load_p90": load_p90
+        })
 
     return result
 

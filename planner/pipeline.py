@@ -20,6 +20,7 @@ from planner.inputs.learning import load_learning_overlays
 from planner.inputs.weather import fetch_temperature_forecast
 from planner.strategy.s_index import (
     calculate_dynamic_s_index, 
+    calculate_probabilistic_s_index,
     calculate_future_risk_factor, 
     calculate_dynamic_target_soc
 )
@@ -145,8 +146,40 @@ class PlannerPipeline:
             # Apply learned base factor
             if "s_index_base_factor" in learning_overlays:
                 base_factor = float(learning_overlays["s_index_base_factor"])
+                # Update cfg copy so functions see the learned value
+                s_index_cfg = s_index_cfg.copy()
+                s_index_cfg["base_factor"] = base_factor
                 
-            effective_load_margin = base_factor
+            # Mode Check: Probabilistic vs Dynamic
+            if s_index_cfg.get("mode") == "probabilistic":
+                factor, s_debug = calculate_probabilistic_s_index(
+                    df, 
+                    s_index_cfg, 
+                    float(s_index_cfg.get("max_factor", 1.5)), 
+                    timezone_name
+                )
+                if factor is not None:
+                    effective_load_margin = factor
+                else:
+                    logger.warning("Probabilistic S-Index failed (using base_factor): %s", s_debug)
+                    effective_load_margin = base_factor
+                    
+                s_index_debug.update(s_debug or {})
+            else:
+                # Legacy Dynamic Calculation
+                factor, s_debug, _ = calculate_dynamic_s_index(
+                    df,
+                    s_index_cfg,
+                    float(s_index_cfg.get("max_factor", 1.5)),
+                    timezone_name,
+                    fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(days, t, active_config)
+                )
+                if factor is not None:
+                    effective_load_margin = factor
+                else:
+                    effective_load_margin = base_factor
+                
+                s_index_debug.update(s_debug or {})
             
             # Calculate Future Risk (D2) for Target SoC
             risk_factor, risk_debug = calculate_future_risk_factor(

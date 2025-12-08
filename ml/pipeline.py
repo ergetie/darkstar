@@ -6,7 +6,7 @@ from typing import Any, Dict, List
 import pandas as pd
 import pytz
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.corrector import predict_corrections
 from ml.forward import generate_forward_slots
 

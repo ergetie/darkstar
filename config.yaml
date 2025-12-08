@@ -113,7 +113,7 @@ pricing:
 s_index:
   base_factor: 1.1
   max_factor: 1.5
-  mode: dynamic
+  mode: probabilistic
   pv_deficit_weight: 0.2
   s_index_horizon_days: 4
   soc_scaling_factor: 50.0

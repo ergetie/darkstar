@@ -149,6 +149,113 @@ def calculate_dynamic_s_index(
     return factor, debug_data, temps_map
 
 
+def calculate_probabilistic_s_index(
+    df: pd.DataFrame,
+    s_index_cfg: Dict[str, Any],
+    max_factor: float,
+    timezone_name: str,
+) -> Tuple[Optional[float], Dict[str, Any]]:
+    """
+    Compute S-index factor using Probabilistic Forecasts (p10/p90).
+    
+    Logic:
+        Risk = (Load_p90 - Load_p50) + (PV_p50 - PV_p10)
+        Factor = 1.0 + (Risk / Load_p50)
+        
+    This ensures the safety margin covers the aggregate uncertainty of both
+    Load (unexpected demand) and PV (unexpected cloud cover).
+    """
+    base_factor = float(s_index_cfg.get("base_factor", 1.0))
+    # Still respect max_factor from config
+    
+    # Determine days to check
+    horizon_days = s_index_cfg.get("s_index_horizon_days")
+    if horizon_days is not None:
+        try:
+            day_offsets = list(range(1, int(horizon_days) + 1))
+        except (ValueError, TypeError):
+            day_offsets = [1, 2, 3, 4]
+    else:
+        day_offsets = s_index_cfg.get("days_ahead_for_sindex", [1, 2, 3, 4])
+        if not isinstance(day_offsets, (list, tuple)):
+            day_offsets = [1, 2, 3, 4]
+
+    normalized_days: List[int] = sorted(set(int(d) for d in day_offsets if int(d) > 0))
+    if not normalized_days:
+        return None, {"mode": "probabilistic", "reason": "no_valid_days"}
+
+    tz = pytz.timezone(timezone_name)  
+    today = datetime.now(tz).date()
+    
+    # Ensure dataframe has datetime index with correct timezone
+    try:
+        local_index = df.index.tz_convert(tz)
+    except TypeError:
+        local_index = df.index.tz_localize(tz)
+    local_dates = pd.Series(local_index.date, index=df.index)
+
+    # Check for probabilistic columns
+    has_probs = all(col in df.columns for col in ["load_p90", "load_p10", "pv_p90", "pv_p10"])
+    if not has_probs:
+        return None, {"mode": "probabilistic", "reason": "missing_probabilistic_columns"}
+
+    total_risk_kwh = 0.0
+    total_load_p50 = 0.0
+    considered_days = []
+
+    for offset in normalized_days:
+        target_date = today + timedelta(days=offset)
+        mask = local_dates == target_date
+        
+        if not mask.any():
+            continue
+            
+        considered_days.append(offset)
+        
+        # Calculate daily sums
+        l_p50 = df.loc[mask, "load_forecast_kwh"].sum()
+        l_p90 = df.loc[mask, "load_p90"].sum()
+        p_p50 = df.loc[mask, "pv_forecast_kwh"].sum()
+        p_p10 = df.loc[mask, "pv_p10"].sum()
+        
+        # Risk components (ensure non-negative)
+        load_risk = max(0.0, l_p90 - l_p50)
+        pv_risk = max(0.0, p_p50 - p_p10)
+        
+        total_risk_kwh += (load_risk + pv_risk)
+        total_load_p50 += l_p50
+
+    if not considered_days or total_load_p50 <= 0:
+        return None, {
+            "mode": "probabilistic",
+            "reason": "insufficient_data_or_zero_load", 
+            "considered_days": considered_days
+        }
+
+    # Calculate derived factor
+    risk_ratio = total_risk_kwh / total_load_p50
+    raw_factor = 1.0 + risk_ratio
+    
+    # Apply base_factor as a multiplier if desired, or just add it if it represents a manual buffer?
+    # Usually base_factor in legacy was 1.05. Here clean math suggests 1.0 base.
+    # Let's trust the calculated risk, but allow base_factor to be a minimum floor if > 1.0
+    raw_factor = max(raw_factor, base_factor)
+    
+    factor = min(max_factor, max(1.0, raw_factor))
+
+    debug_data = {
+        "mode": "probabilistic",
+        "considered_days": considered_days,
+        "total_load_p50": round(total_load_p50, 2),
+        "total_risk_kwh": round(total_risk_kwh, 2),
+        "risk_ratio": round(risk_ratio, 4),
+        "raw_factor": round(raw_factor, 4),
+        "columns_found": True,
+    }
+    
+    return factor, debug_data
+
+
 def calculate_future_risk_factor(
     df: pd.DataFrame,
     s_index_cfg: Dict[str, Any],

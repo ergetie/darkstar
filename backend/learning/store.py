@@ -52,6 +52,10 @@ class LearningStore:
                     slot_start TEXT NOT NULL,
                     pv_forecast_kwh REAL DEFAULT 0.0,
                     load_forecast_kwh REAL DEFAULT 0.0,
+                    pv_p10 REAL,
+                    pv_p90 REAL,
+                    load_p10 REAL,
+                    load_p90 REAL,
                     temp_c REAL,
                     forecast_version TEXT NOT NULL,
                     pv_correction_kwh REAL DEFAULT 0.0,
@@ -95,6 +99,10 @@ class LearningStore:
                     "correction_source",
                     "ALTER TABLE slot_forecasts ADD COLUMN correction_source TEXT DEFAULT 'none'",
                 ),
+                ("pv_p10", "ALTER TABLE slot_forecasts ADD COLUMN pv_p10 REAL"),
+                ("pv_p90", "ALTER TABLE slot_forecasts ADD COLUMN pv_p90 REAL"),
+                ("load_p10", "ALTER TABLE slot_forecasts ADD COLUMN load_p10 REAL"),
+                ("load_p90", "ALTER TABLE slot_forecasts ADD COLUMN load_p90 REAL"),
             ):
                 try:
                     cursor.execute(ddl)
@@ -487,6 +495,11 @@ class LearningStore:
                 pv_forecast = forecast.get("pv_forecast_kwh", 0.0)
                 load_forecast = forecast.get("load_forecast_kwh", 0.0)
                 temp_c = forecast.get("temp_c")
+                
+                pv_p10 = forecast.get("pv_p10")
+                pv_p90 = forecast.get("pv_p90")
+                load_p10 = forecast.get("load_p10")
+                load_p90 = forecast.get("load_p90")
 
                 cursor.execute(
                     """
@@ -494,13 +507,17 @@ class LearningStore:
                         slot_start,
                         pv_forecast_kwh,
                         load_forecast_kwh,
+                        pv_p10,
+                        pv_p90,
+                        load_p10,
+                        load_p90,
                         temp_c,
                         forecast_version,
                         pv_correction_kwh,
                         load_correction_kwh,
                         correction_source
                     )
-                    VALUES (?, ?, ?, ?, ?, COALESCE(
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
                                 (SELECT pv_correction_kwh FROM slot_forecasts
                                  WHERE slot_start = ? AND forecast_version = ?),
                                 0.0
@@ -521,6 +538,10 @@ class LearningStore:
                         slot_start,
                         float(pv_forecast or 0.0),
                         float(load_forecast or 0.0),
+                        None if pv_p10 is None else float(pv_p10),
+                        None if pv_p90 is None else float(pv_p90),
+                        None if load_p10 is None else float(load_p10),
+                        None if load_p90 is None else float(load_p90),
                         None if temp_c is None else float(temp_c),
                         forecast_version,
                         slot_start,

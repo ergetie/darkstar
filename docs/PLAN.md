@@ -463,8 +463,6 @@ This allows comparing Aurora's contribution without involving Legacy MPC.
 *   **Planner Integration:**
     *   Update S-Index logic to use `p90_load` and `p10_pv` for "Conservative" risk calculations instead of arbitrary multipliers.
 
-**Status:** In Progress (Planning Complete)
-
 **Detailed Plan:**
 1.  **ML Foundation:**
     *   Update `ml/train.py` to train Quantile Regression models (p10/p50/p90).
@@ -478,6 +476,16 @@ This allows comparing Aurora's contribution without involving Legacy MPC.
     *   Visualize confidence bands in Forecasting tab.
 5.  **Validation:**
     *   A/B test logging (Heuristic vs Probabilistic).
+
+- **Changes**:
+  - Implemented Quantile Regression (p10/p50/p90) in LightGBM (`ml/train.py`, `ml/forward.py`).
+  - Updated DB schema to store probabilistic bands (`backend/learning/store.py`).
+  - Implemented `probabilistic` S-Index mode (`planner/strategy/s_index.py`).
+  - Updated UI to visualize confidence intervals (`Forecasting.tsx`).
+  - Enabled by default in `config.yaml`.
+  - Enabled by default in `config.yaml`.
+
+**Status:** Completed.
 
 ---
 

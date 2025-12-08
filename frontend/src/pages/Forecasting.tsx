@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import Kpi from '../components/Kpi'
+import ProbabilisticChart, { SlotData } from '../components/ProbabilisticChart'
 import { Api } from '../lib/api'
 
 type ForecastEvalVersion = {
@@ -24,6 +25,10 @@ type ForecastSlot = {
   baseline_load: number | null
   aurora_pv: number | null
   aurora_load: number | null
+  aurora_pv_p10?: number | null
+  aurora_pv_p90?: number | null
+  aurora_load_p10?: number | null
+  aurora_load_p90?: number | null
 }
 
 type ForecastDayResponse = {
@@ -31,7 +36,7 @@ type ForecastDayResponse = {
   slots: ForecastSlot[]
 }
 
-export default function Forecasting(){
+export default function Forecasting() {
   const [evalData, setEvalData] = useState<ForecastEvalResponse | null>(null)
   const [dayData, setDayData] = useState<ForecastDayResponse | null>(null)
   const [activeVersion, setActiveVersion] = useState<'baseline' | 'aurora'>('baseline')
@@ -208,18 +213,16 @@ export default function Forecasting(){
             <span className="text-muted">Highlight</span>
             <button
               type="button"
-              className={`px-2 py-0.5 rounded-full ${
-                activeVersion === 'baseline' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-              }`}
+              className={`px-2 py-0.5 rounded-full ${activeVersion === 'baseline' ? 'bg-accent text-[#0F1216]' : 'text-muted'
+                }`}
               onClick={() => setActiveVersion('baseline')}
             >
               Baseline
             </button>
             <button
               type="button"
-              className={`px-2 py-0.5 rounded-full ${
-                activeVersion === 'aurora' ? 'bg-accent text-[#0F1216]' : 'text-muted'
-              }`}
+              className={`px-2 py-0.5 rounded-full ${activeVersion === 'aurora' ? 'bg-accent text-[#0F1216]' : 'text-muted'
+                }`}
               onClick={() => setActiveVersion('aurora')}
             >
               AURORA
@@ -304,6 +307,38 @@ export default function Forecasting(){
       )}
 
       <ChartCard day="today" range="48h" showDayToggle={false} />
+
+      {/* Probabilistic Forecast Charts */}
+      {slots.some(s => s.aurora_pv_p10 != null || s.aurora_load_p10 != null) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="p-4">
+            <ProbabilisticChart
+              title="PV Forecast (kWh) with Confidence Bands"
+              color="#22c55e"
+              slots={slots.map(s => ({
+                time: s.slot_start,
+                p10: s.aurora_pv_p10 ?? null,
+                p50: s.aurora_pv ?? null,
+                p90: s.aurora_pv_p90 ?? null,
+                actual: s.pv_kwh,
+              }))}
+            />
+          </Card>
+          <Card className="p-4">
+            <ProbabilisticChart
+              title="Load Forecast (kWh) with Confidence Bands"
+              color="#f97316"
+              slots={slots.map(s => ({
+                time: s.slot_start,
+                p10: s.aurora_load_p10 ?? null,
+                p50: s.aurora_load ?? null,
+                p90: s.aurora_load_p90 ?? null,
+                actual: s.load_kwh,
+              }))}
+            />
+          </Card>
+        </div>
+      )}
 
       <Card>
         <div className="text-[11px] text-muted mb-2">Today&apos;s slots</div>

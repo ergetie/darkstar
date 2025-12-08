@@ -5,6 +5,7 @@ import DecompositionChart from '../components/DecompositionChart'
 import ContextRadar from '../components/ContextRadar'
 import ActivityLog from '../components/ActivityLog'
 import KPIStrip from '../components/KPIStrip'
+import ProbabilisticChart from '../components/ProbabilisticChart'
 import { Line, Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
 import type { AuroraDashboardResponse } from '../lib/api'
@@ -45,12 +46,15 @@ export default function Aurora() {
   const [riskBaseFactor, setRiskBaseFactor] = useState<number | null>(null)
   const [savingRisk, setSavingRisk] = useState(false)
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
+  const [viewMode, setViewMode] = useState<'forecast' | 'soc'>('forecast')
   const [riskStatus, setRiskStatus] = useState<string>('')
   const riskStatusTimeoutRef = useRef<number | null>(null)
   const [autoTuneEnabled, setAutoTuneEnabled] = useState<boolean>(false)
   const [togglingAutoTune, setTogglingAutoTune] = useState(false)
   const [reflexEnabled, setReflexEnabled] = useState<boolean>(false)
   const [togglingReflex, setTogglingReflex] = useState(false)
+  const [probabilisticMode, setProbabilisticMode] = useState<boolean>(false)
+  const [togglingProbabilistic, setTogglingProbabilistic] = useState(false)
 
   // Performance Data State
   const [perfData, setPerfData] = useState<any>(null)
@@ -69,6 +73,7 @@ export default function Aurora() {
         setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
         // @ts-ignore
         setReflexEnabled(!!res.state?.reflex_enabled)
+        setProbabilisticMode(res.state?.risk_profile?.mode === 'probabilistic')
       } catch (err) {
         console.error('Failed to load Aurora dashboard:', err)
       } finally {
@@ -158,6 +163,20 @@ export default function Aurora() {
     }
   }
 
+  const handleProbabilisticToggle = async () => {
+    const newValue = !probabilisticMode
+    setProbabilisticMode(newValue)
+    setTogglingProbabilistic(true)
+    try {
+      await Api.configSave({ s_index: { mode: newValue ? 'probabilistic' : 'dynamic' } })
+    } catch (err) {
+      console.error('Failed to toggle probabilistic mode:', err)
+      setProbabilisticMode(!newValue)
+    } finally {
+      setTogglingProbabilistic(false)
+    }
+  }
+
   const riskLabel = useMemo(() => {
     const persona = dashboard?.state?.risk_profile?.persona
     if (!persona) return 'Unknown'
@@ -181,6 +200,7 @@ export default function Aurora() {
         : 'from-amber-900/60 via-surface to-surface'
 
   const horizonSlots = dashboard?.horizon?.slots ?? []
+  const originalHorizonEnd = dashboard?.horizon?.end ?? new Date().toISOString()
 
   // Extract Strategy History
   const strategyEvents = dashboard?.history?.strategy_events ?? []
@@ -308,7 +328,11 @@ export default function Aurora() {
               <Shield className="h-4 w-4 text-accent" />
               <span className="text-xs font-medium text-text">Risk Appetite</span>
             </div>
-            <span className="text-[10px] font-mono text-muted">S-Index: {riskBaseFactor?.toFixed(2)}</span>
+            <span className="text-[10px] font-mono text-muted">
+              {probabilisticMode
+                ? ((riskBaseFactor ?? 1.1) < 1.0 ? "Target: P50" : (riskBaseFactor ?? 1.1) > 1.2 ? "Target: P95" : "Target: P90")
+                : `S-Index: ${riskBaseFactor?.toFixed(2)}`}
+            </span>
           </div>
 
           <div className="relative px-2 py-2">
@@ -339,7 +363,19 @@ export default function Aurora() {
             </div>
           </div>
           <div className="mt-auto pt-2 text-center text-[10px] text-muted">
-            {riskStatus || (riskBaseFactor === 1.5 ? "Prioritizing safety over profit." : "Prioritizing profit over safety.")}
+            {riskStatus || (probabilisticMode
+              ? (
+                <div className="flex flex-col gap-1">
+                  <span>{(riskBaseFactor ?? 1.1) < 1.0 ? "Risk Tolerant (P50)" : (riskBaseFactor ?? 1.1) > 1.2 ? "Conservative (P95+)" : "Balanced (P90)"}</span>
+                  {dashboard?.state?.risk_profile?.current_factor && (
+                    <span className="text-[9px] text-muted/70">
+                      Effective Factor: {dashboard.state.risk_profile.current_factor.toFixed(3)}
+                    </span>
+                  )}
+                </div>
+              )
+              : (riskBaseFactor === 1.5 ? "Prioritizing safety over profit." : "Prioritizing profit over safety.")
+            )}
           </div>
         </Card>
 
@@ -381,6 +417,24 @@ export default function Aurora() {
             >
               <span
                 className={`${reflexEnabled ? 'translate-x-5' : 'translate-x-1'
+                  } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50 mt-2">
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-text">Probabilistic</span>
+              <span className="text-[9px] text-muted">Use p10/p90 confidence bands</span>
+            </div>
+            <button
+              onClick={handleProbabilisticToggle}
+              disabled={togglingProbabilistic}
+              className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${probabilisticMode ? 'bg-accent' : 'bg-surface2'
+                }`}
+            >
+              <span
+                className={`${probabilisticMode ? 'translate-x-5' : 'translate-x-1'
                   } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
               />
             </button>
@@ -437,47 +491,15 @@ export default function Aurora() {
           </div>
         </Card>
 
-        {/* Forecast Decomposition (Existing) */}
-        <Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden">
-          <div className="flex items-center justify-between mb-3 shrink-0">
-            <div>
-              <div className="text-xs font-medium text-text">Forecast View</div>
-            </div>
-            <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px]">
-              <button
-                type="button"
-                className={`px-2 py-0.5 rounded-full ${chartMode === 'load' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
-                onClick={() => setChartMode('load')}
-              >
-                <Zap className="h-3 w-3" />
-              </button>
-              <button
-                type="button"
-                className={`px-2 py-0.5 rounded-full ${chartMode === 'pv' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
-                onClick={() => setChartMode('pv')}
-              >
-                <SunMedium className="h-3 w-3" />
-              </button>
-            </div>
+        {/* SoC Tunnel (Moved from bottom) */}
+        {/* This card is being removed and its logic merged into Forecast View */}
+        {/*
+        <Card className="lg:col-span-4 p-4 md:p-5 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="mb-4 shrink-0">
+            <div className="text-xs font-medium text-text">SoC Tunnel</div>
+            <div className="text-[11px] text-muted">Plan vs Reality</div>
           </div>
           <div className="flex-1 min-h-0">
-            {loading ? (
-              <div className="text-[11px] text-muted">Loading...</div>
-            ) : (
-              <DecompositionChart slots={horizonSlots} mode={chartMode} />
-            )}
-          </div>
-        </Card>
-      </div>
-
-      {/* 3. THE MIRROR (Bottom Section - Merged Performance) */}
-      <div className="grid gap-4 lg:grid-cols-12">
-        <Card className="lg:col-span-8 p-4 md:p-5">
-          <div className="mb-4">
-            <div className="text-xs font-medium text-text">SoC Tunnel (Plan vs Reality)</div>
-            <div className="text-[11px] text-muted">Did we stick to the plan?</div>
-          </div>
-          <div className="h-64 w-full">
             {socChartData && (
               <Line
                 data={socChartData}
@@ -489,28 +511,30 @@ export default function Aurora() {
                     x: {
                       type: 'time',
                       time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
-                      grid: { color: '#334155' },
-                      ticks: { color: '#94a3b8' }
+                      grid: { color: '#334155', display: false },
+                      ticks: { color: '#94a3b8', maxTicksLimit: 6 }
                     },
                     y: {
                       min: 0, max: 100,
                       grid: { color: '#334155' },
-                      ticks: { color: '#94a3b8' }
+                      ticks: { color: '#94a3b8', display: false }
                     }
                   },
-                  plugins: { legend: { labels: { color: '#e2e8f0', font: { size: 10 } } } }
+                  plugins: { legend: { display: false } }
                 }}
               />
             )}
           </div>
         </Card>
+        */}
 
-        <Card className="lg:col-span-4 p-4 md:p-5">
-          <div className="mb-4">
+        {/* Cost Reality (Moved here) */}
+        <Card className="lg:col-span-4 p-4 md:p-5 flex flex-col h-full min-h-0 overflow-hidden">
+          <div className="mb-4 shrink-0">
             <div className="text-xs font-medium text-text">Cost Reality</div>
             <div className="text-[11px] text-muted">Daily financial outcome</div>
           </div>
-          <div className="h-64 w-full">
+          <div className="flex-1 min-h-0">
             {costChartData && (
               <Bar
                 data={costChartData}
@@ -528,6 +552,130 @@ export default function Aurora() {
           </div>
         </Card>
       </div>
-    </div>
+
+      {/* 3. THE MIRROR (Bottom Section) */}
+      <div className="grid gap-4 lg:grid-cols-12">
+        {/* Forecast View / SoC Tunnel (Merged with toggle) */}
+        <Card className="lg:col-span-12 p-4 flex flex-col h-[350px] overflow-hidden">
+          <div className="flex items-center justify-between mb-3 shrink-0">
+            <div>
+              <div className="text-xs font-medium text-text">
+                {viewMode === 'forecast' ? 'Forecast Horizon (48h)' : 'SoC Tunnel'}
+              </div>
+              <div className="text-[11px] text-muted">
+                {viewMode === 'forecast'
+                  ? (probabilisticMode ? `Probabilistic View (${chartMode.toUpperCase()})` : `Decomposition View (${chartMode.toUpperCase()})`)
+                  : 'Plan vs Reality'}
+                {viewMode === 'forecast' && <>
+                  {' • '}{new Date().toISOString().slice(0, 10)} - {new Date(originalHorizonEnd).toISOString().slice(0, 10)}
+                </>}
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* View Toggle */}
+              <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px] mr-2">
+                <button
+                  className={`px-3 py-0.5 rounded-full ${viewMode === 'forecast' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
+                  onClick={() => setViewMode('forecast')}
+                >
+                  Forecast
+                </button>
+                <button
+                  className={`px-3 py-0.5 rounded-full ${viewMode === 'soc' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
+                  onClick={() => setViewMode('soc')}
+                >
+                  SoC
+                </button>
+              </div>
+
+              {/* Forecast Mode Toggles (Only visible in forecast view) */}
+              {viewMode === 'forecast' && (
+                <div className="inline-flex items-center gap-1 rounded-full border border-line/70 bg-surface2 px-1 py-0.5 text-[11px]">
+                  <button
+                    type="button"
+                    className={`px-2 py-0.5 rounded-full ${chartMode === 'load' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
+                    onClick={() => setChartMode('load')}
+                  >
+                    <Zap className="h-3 w-3" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`px-2 py-0.5 rounded-full ${chartMode === 'pv' ? 'bg-accent text-[#0F1216]' : 'text-muted'}`}
+                    onClick={() => setChartMode('pv')}
+                  >
+                    <SunMedium className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0">
+            {loading ? (
+              <div className="text-[11px] text-muted">Loading...</div>
+            ) : viewMode === 'soc' ? (
+              // SoC Chart
+              <div className="h-full w-full">
+                {socChartData && (
+                  <Line
+                    data={socChartData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      interaction: { mode: 'index', intersect: false },
+                      scales: {
+                        x: {
+                          type: 'time',
+                          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+                          grid: { color: '#334155', display: false },
+                          ticks: { color: '#94a3b8', maxTicksLimit: 6 }
+                        },
+                        y: {
+                          min: 0, max: 100,
+                          grid: { color: '#334155' },
+                          ticks: { color: '#94a3b8', display: false }
+                        }
+                      },
+                      plugins: { legend: { display: false } }
+                    }}
+                  />
+                )}
+              </div>
+            ) : probabilisticMode ? (
+              // Probabilistic Forecast Chart
+              <div className="h-full w-full">
+                <ProbabilisticChart
+                  title=""
+                  color={chartMode === 'load' ? '#f97316' : '#22c55e'}
+                  slots={horizonSlots.map(s => {
+                    if (chartMode === 'load') {
+                      return {
+                        time: s.slot_start,
+                        p10: s.probabilistic?.load_p10 ?? null,
+                        p50: s.final.load_kwh,
+                        p90: s.probabilistic?.load_p90 ?? null,
+                        actual: null
+                      }
+                    } else {
+                      return {
+                        time: s.slot_start,
+                        p10: s.probabilistic?.pv_p10 ?? null,
+                        p50: s.final.pv_kwh,
+                        p90: s.probabilistic?.pv_p90 ?? null,
+                        actual: null
+                      }
+                    }
+                  })}
+                />
+              </div>
+            ) : (
+              // Decomposition Chart
+              <DecompositionChart slots={horizonSlots} mode={chartMode} />
+            )}
+          </div>
+        </Card>
+      </div>
+    </div >
   )
 }

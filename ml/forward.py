@@ -14,28 +14,52 @@ from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
 def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
-    """Load trained LightGBM models for AURORA forward inference."""
-    load_path = f"{models_dir}/load_model.lgb"
-    pv_path = f"{models_dir}/pv_model.lgb"
+    """Load trained LightGBM models for AURORA forward inference (Probabilistic)."""
     models: Dict[str, lgb.Booster] = {}
-    try:
-        models["load"] = lgb.Booster(model_file=load_path)
-    except Exception as exc:
-        print(f"Info: Could not load load_model.lgb ({exc})")
-    try:
-        models["pv"] = lgb.Booster(model_file=pv_path)
-    except Exception as exc:
-        print(f"Info: Could not load pv_model.lgb ({exc})")
+    
+    # Quantiles to load
+    quantiles = ["p10", "p50", "p90"]
+    
+    # Load Load Models
+    for q in quantiles:
+        # Try specific quantile file first
+        path = f"{models_dir}/load_model_{q}.lgb"
+        try:
+            models[f"load_{q}"] = lgb.Booster(model_file=path)
+        except Exception:
+            # Fallback for p50: try legacy name
+            if q == "p50":
+                try:
+                    models[f"load_{q}"] = lgb.Booster(model_file=f"{models_dir}/load_model.lgb")
+                except Exception as exc:
+                    print(f"Info: Could not load load_model ({q}): {exc}")
+            else:
+                print(f"Info: Could not load load_model_{q}.lgb")
+
+    # Load PV Models
+    for q in quantiles:
+        path = f"{models_dir}/pv_model_{q}.lgb"
+        try:
+            models[f"pv_{q}"] = lgb.Booster(model_file=path)
+        except Exception:
+            if q == "p50":
+                try:
+                    models[f"pv_{q}"] = lgb.Booster(model_file=f"{models_dir}/pv_model.lgb")
+                except Exception as exc:
+                    print(f"Info: Could not load pv_model ({q}): {exc}")
+            else:
+                print(f"Info: Could not load pv_model_{q}.lgb")
+                
     return models
 
 
 def generate_forward_slots(
-    horizon_hours: int = 168,  # Changed from 48 to 168 (7 days) for S-index support
+    horizon_hours: int = 168,
     forecast_version: str = "aurora",
 ) -> None:
     """
     Generate forward AURORA forecasts for the next horizon_hours.
-    Includes strict guardrails and smoothing for PV.
+    Includes probabilistic bands (p10, p50, p90).
     """
     engine = get_learning_engine()
     assert isinstance(engine, LearningEngine)
@@ -119,69 +143,90 @@ def generate_forward_slots(
         if feat in df.columns:
             feature_cols.append(feat)
 
-    print("   Running LightGBM inference...")
+    print("   Running LightGBM inference (Probabilistic)...")
     X = df[feature_cols]
     models = _load_models()
 
-    load_pred = models["load"].predict(X) if "load" in models else None
-    pv_pred = models["pv"].predict(X) if "pv" in models else None
+    quantiles = ["p10", "p50", "p90"]
+    predictions = {}
 
-    # Create temporary Series for smoothing
-    pv_series = pd.Series(0.0, index=df.index)
-    load_series = pd.Series(0.0, index=df.index)
+    # Initialize prediction series map
+    for q in quantiles:
+        predictions[f"load_{q}"] = pd.Series(0.0, index=df.index)
+        predictions[f"pv_{q}"] = pd.Series(0.0, index=df.index)
 
-    for idx, row in df.iterrows():
-        slot_start_ts = row["slot_start"]
+    # --- LOAD INFERENCE ---
+    for q in quantiles:
+        model_key = f"load_{q}"
+        if model_key in models:
+            raw_pred = models[model_key].predict(X)
+            # Apply guardrails (same for all bands)
+            # Floor at 0.01, Ceiling at 16kW
+            cleaned = [max(0.01, min(float(x), 16.0)) for x in raw_pred]
+            predictions[model_key] = pd.Series(cleaned, index=df.index)
 
-        if load_pred is not None:
-            raw_val = float(load_pred[idx])
-            # Guardrail: Floor at 0.01, Ceiling at 4.0 (16kW)
-            load_series[idx] = max(0.01, min(raw_val, 4.0))
+    # --- PV INFERENCE ---
+    # Setup Astro Clamping
+    sun_calc = None
+    try:
+        from backend.astro import SunCalculator
+        lat = engine.config.get("system", {}).get("location", {}).get("latitude", 59.3293)
+        lon = engine.config.get("system", {}).get("location", {}).get("longitude", 18.0686)
+        sun_calc = SunCalculator(latitude=lat, longitude=lon, timezone=str(tz))
+    except Exception as e:
+        print(f"⚠️ Astro init failed: {e}")
 
-        if pv_pred is not None:
-            pv_val = float(max(pv_pred[idx], 0.0))
+    for q in quantiles:
+        model_key = f"pv_{q}"
+        if model_key in models:
+            raw_pred = models[model_key].predict(X)
+            
+            series = pd.Series(0.0, index=df.index)
+            for idx, row in df.iterrows():
+                val = float(max(raw_pred[idx], 0.0))
+                slot_ts = row["slot_start"]
 
-            # Guardrail: Astro-Aware PV Clamp
-            # Use SunCalculator to check if sun is up (with 30min buffer)
-            # This handles seasonal variations (winter darkness vs summer light)
-            try:
-                from backend.astro import SunCalculator
+                # 1. Astro Clamp
+                is_sun_up = False
+                if sun_calc:
+                    is_sun_up = sun_calc.is_sun_up(slot_ts, buffer_minutes=30)
+                else:
+                    # Fallback
+                    h = slot_ts.hour
+                    is_sun_up = 5 <= h < 22
                 
-                # Get location from config or defaults
-                lat = engine.config.get("system", {}).get("location", {}).get("latitude", 59.3293)
-                lon = engine.config.get("system", {}).get("location", {}).get("longitude", 18.0686)
+                if not is_sun_up:
+                    val = 0.0
+
+                # 2. Radiation Clamp
+                rad = row.get("shortwave_radiation_w_m2")
+                if rad is not None and rad < 1.0:
+                    val = 0.0
                 
-                sun_calc = SunCalculator(latitude=lat, longitude=lon, timezone=str(tz))
-                
-                if not sun_calc.is_sun_up(slot_start_ts, buffer_minutes=30):
-                    pv_val = 0.0
-            except Exception as e:
-                print(f"⚠️ Astro calculation failed: {e}. Fallback to hour check.")
-                # Fallback to simple hour check if astral fails
-                hour = slot_start_ts.hour
-                if hour < 5 or hour >= 22: # Generous fallback
-                    pv_val = 0.0
+                series[idx] = val
+            
+            # 3. Smoothing (Rolling Average)
+            # Apply to all bands to prevent sawtooth
+            predictions[model_key] = series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
 
-            # Guardrail: Radiation check
-            rad = row.get("shortwave_radiation_w_m2")
-            if rad is not None and rad < 1.0:
-                pv_val = 0.0
-
-            pv_series[idx] = pv_val
-
-    # SMOOTHING: Apply a rolling average to PV to fix "Sawtooth"
-    pv_series = pv_series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
-
+    # --- STORE RESULTS ---
     forecasts: List[Dict[str, Any]] = []
     for idx, row in df.iterrows():
-        forecasts.append(
-            {
-                "slot_start": row["slot_start"].isoformat(),
-                "pv_forecast_kwh": float(pv_series[idx]),
-                "load_forecast_kwh": float(load_series[idx]),
-                "temp_c": row.get("temp_c"),
-            }
-        )
+        item = {
+            "slot_start": row["slot_start"].isoformat(),
+            "temp_c": row.get("temp_c"),
+            
+            # Primary (Legacy/p50)
+            "pv_forecast_kwh": float(predictions["pv_p50"][idx]),
+            "load_forecast_kwh": float(predictions["load_p50"][idx]),
+            
+            # Probabilistic Bands
+            "pv_p10": float(predictions["pv_p10"][idx]),
+            "pv_p90": float(predictions["pv_p90"][idx]),
+            "load_p10": float(predictions["load_p10"][idx]),
+            "load_p90": float(predictions["load_p90"][idx]),
+        }
+        forecasts.append(item)
 
     if forecasts:
         engine.store_forecasts(forecasts, forecast_version=forecast_version)

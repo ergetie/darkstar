@@ -10,7 +10,7 @@ import pandas as pd
 import pytz
 import sqlite3
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series
 from ml.train import _build_time_features
