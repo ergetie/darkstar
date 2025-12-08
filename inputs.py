@@ -90,7 +90,10 @@ def get_home_assistant_bool(entity_id: str, *, timeout: int = 10) -> bool:
     raw = str(state.get("state", "")).lower()
     # Common 'on' states in Home Assistant
     true_states = {"on", "true", "yes", "1", "armed_away", "armed_home", "armed_night"}
-    return raw in true_states
+    is_true = raw in true_states
+    if is_true and "vacation" in entity_id:
+        print(f"DEBUG: Vacation mode detected TRUE. Raw state: '{raw}' from entity '{entity_id}'")
+    return is_true
 
 
 def get_nordpool_data(config_path="config.yaml"):

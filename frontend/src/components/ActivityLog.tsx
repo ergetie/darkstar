@@ -35,7 +35,7 @@ export default function ActivityLog({ events }: ActivityLogProps) {
     }
 
     const formatTime = (iso: string) => {
-        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
     }
 
     if (events.length === 0) {
