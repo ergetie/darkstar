@@ -431,6 +431,40 @@ This allows comparing Aurora's contribution without involving Legacy MPC.
 
 **Status:** Completed.
 
+### Rev K14 — Astro-Aware PV (Forecasting)
+
+**Goal:** Replace hardcoded PV clamps (17:00-07:00) with dynamic sunrise/sunset calculations to improve forecast accuracy across seasons.
+
+**Scope:**
+*   **Dependency:** Add `astral` or `ephem` to `requirements.txt`.
+*   **Input:** Use latitude/longitude from `config.yaml` (or default to Stockholm).
+*   **Logic:**
+    *   Calculate sunrise/sunset for the specific date.
+    *   Clamp PV forecast to 0.0 when sun is below horizon (with small buffer).
+    *   Remove hardcoded hour checks in `ml/forward.py`.
+*   **Benefit:** Captures early morning/late evening sun in summer, and correctly zeroes out dark winter afternoons.
+
+**Status:** Completed.
+
+### Rev K15 — Probabilistic Forecasting (Risk Awareness)
+
+**Goal:** Upgrade Aurora Vision from point forecasts to probabilistic forecasts (p10/p50/p90) to enable risk-aware planning.
+
+**Scope:**
+*   **Model Training:**
+    *   Update `ml/train.py` to train Quantile Regression models (LGBM `objective='quantile'`).
+    *   Train separate models for `alpha=0.1` (p10), `alpha=0.5` (p50), `alpha=0.9` (p90).
+*   **Inference:**
+    *   Update `ml/forward.py` to generate and store all three bands.
+*   **Storage:**
+    *   Update `planner_learning.db` schema table `slot_forecasts` to add `pv_p10`, `pv_p90`, `load_p10`, `load_p90`.
+*   **UI:**
+    *   Visualize confidence bands in the Aurora Forecast chart.
+*   **Planner Integration:**
+    *   Update S-Index logic to use `p90_load` and `p10_pv` for "Conservative" risk calculations instead of arbitrary multipliers.
+
+**Status:** Not Started.
+
 ---
 
 ## Backlog

@@ -7,7 +7,7 @@ import lightgbm as lgb
 import pandas as pd
 import pytz
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.train import _build_time_features
 from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
@@ -141,11 +141,26 @@ def generate_forward_slots(
         if pv_pred is not None:
             pv_val = float(max(pv_pred[idx], 0.0))
 
-            # Guardrail: STRICT Winter Night Clamp (17:00 - 07:00)
-            # Sweden winter: dark essentially from 15:30 to 08:00, but let's be safe
-            hour = slot_start_ts.hour
-            if hour < 7 or hour >= 17:
-                pv_val = 0.0
+            # Guardrail: Astro-Aware PV Clamp
+            # Use SunCalculator to check if sun is up (with 30min buffer)
+            # This handles seasonal variations (winter darkness vs summer light)
+            try:
+                from backend.astro import SunCalculator
+                
+                # Get location from config or defaults
+                lat = engine.config.get("system", {}).get("location", {}).get("latitude", 59.3293)
+                lon = engine.config.get("system", {}).get("location", {}).get("longitude", 18.0686)
+                
+                sun_calc = SunCalculator(latitude=lat, longitude=lon, timezone=str(tz))
+                
+                if not sun_calc.is_sun_up(slot_start_ts, buffer_minutes=30):
+                    pv_val = 0.0
+            except Exception as e:
+                print(f"⚠️ Astro calculation failed: {e}. Fallback to hour check.")
+                # Fallback to simple hour check if astral fails
+                hour = slot_start_ts.hour
+                if hour < 5 or hour >= 22: # Generous fallback
+                    pv_val = 0.0
 
             # Guardrail: Radiation check
             rad = row.get("shortwave_radiation_w_m2")

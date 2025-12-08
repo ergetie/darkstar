@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytz
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.weather import get_weather_series
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 
