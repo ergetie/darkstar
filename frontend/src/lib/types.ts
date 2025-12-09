@@ -27,6 +27,7 @@ export type AuroraRiskProfile = {
   persona: string;
   base_factor: number;
   current_factor?: number | null;
+  raw_factor?: number | null;
   mode?: string;
   max_factor?: number | null;
   static_factor?: number | null;

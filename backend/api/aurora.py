@@ -113,6 +113,7 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
 
     # Try to load current effective factor from schedule.json
     current_factor = None
+    raw_factor = None
     try:
         if os.path.exists("schedule.json"):
             with open("schedule.json", "r") as f:
@@ -123,6 +124,8 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
                 current_factor = s_index_meta.get("effective_load_margin")
                 if current_factor is None:
                     current_factor = s_index_meta.get("factor")
+                
+                raw_factor = s_index_meta.get("raw_factor")
     except Exception as exc:
         logger.warning("Failed to load current s-index factor from schedule.json: %s", exc)
 
@@ -130,6 +133,7 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
         "persona": persona,
         "base_factor": base_factor,
         "current_factor": float(current_factor) if current_factor is not None else None,
+        "raw_factor": float(raw_factor) if raw_factor is not None else None,
         "mode": s_cfg.get("mode", "static"),
         "max_factor": s_cfg.get("max_factor"),
         "static_factor": s_cfg.get("static_factor"),

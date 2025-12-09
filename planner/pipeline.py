@@ -196,10 +196,14 @@ class PlannerPipeline:
                 s_index_cfg
             )
             
+            # Extract raw factor from s_debug (handle both naming conventions)
+            raw_factor = s_debug.get("raw_factor", s_debug.get("factor_unclamped"))
+            
             s_index_debug = {
                 "mode": "decoupled",
                 "base_factor": base_factor,
                 "effective_load_margin": effective_load_margin,
+                "raw_factor": raw_factor,
                 "future_risk": risk_debug,
                 "target_soc": soc_debug
             }

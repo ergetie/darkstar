@@ -254,7 +254,15 @@ export default function Aurora() {
     }
   }, [perfData])
 
-  const sliderSteps = [0.9, 1.1, 1.5]
+  const sliderSteps = [0.9, 1.0, 1.1, 1.2, 1.5]
+  const riskLabels = ['Aggressive', 'Balanced', 'Cautious', 'Conservative', 'Fortified']
+  const riskDescriptions = [
+    'Minimal safety margin',
+    'Standard planning',
+    '+10% load buffer',
+    '+20% load buffer',
+    'Maximum safety, prioritize uptime'
+  ]
 
   return (
     <div className="px-4 pt-16 pb-10 lg:px-8 lg:pt-10 space-y-6">
@@ -329,25 +337,26 @@ export default function Aurora() {
               <span className="text-xs font-medium text-text">Risk Appetite</span>
             </div>
             <span className="text-[10px] font-mono text-muted">
-              {probabilisticMode
-                ? ((riskBaseFactor ?? 1.1) < 1.0 ? "Target: P50" : (riskBaseFactor ?? 1.1) > 1.2 ? "Target: P95" : "Target: P90")
-                : `S-Index: ${riskBaseFactor?.toFixed(2)}`}
+              Safety Floor: {(riskBaseFactor ?? 1.1).toFixed(1)}x
             </span>
           </div>
 
-          <div className="relative px-2 py-2">
+          <div className="relative px-2 py-4">
             <div className="absolute inset-x-2 top-1/2 h-1 -translate-y-1/2 rounded-full bg-surface2" />
-            <div className="absolute inset-x-2 top-1/2 h-1 -translate-y-1/2 flex opacity-50">
-              <div className="flex-1 bg-emerald-500/50 rounded-l-full" />
-              <div className="flex-1 bg-sky-500/50" />
-              <div className="flex-1 bg-amber-500/50 rounded-r-full" />
+
+            {/* Tick marks */}
+            <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 flex justify-between px-1 pointer-events-none">
+              {sliderSteps.map((_, idx) => (
+                <div key={idx} className="h-2 w-0.5 bg-line/50 rounded-full" />
+              ))}
             </div>
+
             <input
               type="range"
               min={0}
-              max={2}
+              max={4}
               step={1}
-              value={riskBaseFactor === 0.9 ? 0 : riskBaseFactor === 1.5 ? 2 : 1}
+              value={sliderSteps.indexOf(riskBaseFactor ?? 1.1) === -1 ? 2 : sliderSteps.indexOf(riskBaseFactor ?? 1.1)}
               onChange={(e) => {
                 const idx = parseInt(e.target.value, 10)
                 const val = sliderSteps[idx] ?? 1.1
@@ -356,26 +365,28 @@ export default function Aurora() {
               }}
               className="relative w-full bg-transparent accent-accent cursor-pointer z-10"
             />
-            <div className="flex justify-between mt-2 text-[10px] text-muted font-medium">
-              <span>Frugal</span>
-              <span>Balanced</span>
-              <span>Fortified</span>
-            </div>
           </div>
+
           <div className="mt-auto pt-2 text-center text-[10px] text-muted">
-            {riskStatus || (probabilisticMode
-              ? (
-                <div className="flex flex-col gap-1">
-                  <span>{(riskBaseFactor ?? 1.1) < 1.0 ? "Risk Tolerant (P50)" : (riskBaseFactor ?? 1.1) > 1.2 ? "Conservative (P95+)" : "Balanced (P90)"}</span>
-                  {dashboard?.state?.risk_profile?.current_factor && (
-                    <span className="text-[9px] text-muted/70">
-                      Effective Factor: {dashboard.state.risk_profile.current_factor.toFixed(3)}
-                    </span>
+            <div className="flex flex-col gap-1">
+              <span className="text-accent font-medium">
+                {riskLabels[sliderSteps.indexOf(riskBaseFactor ?? 1.1)] ?? 'Custom'}
+              </span>
+              <span className="text-[9px] text-muted/70">
+                {riskDescriptions[sliderSteps.indexOf(riskBaseFactor ?? 1.1)] ?? 'Custom risk setting'}
+              </span>
+
+              <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-line/30">
+                {/* Raw vs Applied (Projected) */}
+                {dashboard?.state?.risk_profile?.raw_factor != null &&
+                  Math.abs((dashboard.state.risk_profile.raw_factor ?? 0) - Math.min(1.5, Math.max(riskBaseFactor ?? 1.1, dashboard.state.risk_profile.raw_factor ?? 0))) > 0.001 && (
+                    <span title="Calculated based on risk">Calc: {(dashboard.state.risk_profile.raw_factor ?? 0).toFixed(2)}</span>
                   )}
-                </div>
-              )
-              : (riskBaseFactor === 1.5 ? "Prioritizing safety over profit." : "Prioritizing profit over safety.")
-            )}
+                <span title="Projected factor for next run">Applied: {
+                  Math.min(1.5, Math.max(riskBaseFactor ?? 1.1, dashboard?.state?.risk_profile?.raw_factor ?? 0)).toFixed(2)
+                }</span>
+              </div>
+            </div>
           </div>
         </Card>
 
