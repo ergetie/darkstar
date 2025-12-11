@@ -25,6 +25,12 @@ arbitrage:
   protective_soc_strategy: gap_based
 automation:
   enable_scheduler: true
+  ml_training:
+    enabled: true
+    run_days:
+    - 1
+    - 4
+    run_time: 03:00
   schedule:
     every_minutes: 60
     jitter_minutes: 0

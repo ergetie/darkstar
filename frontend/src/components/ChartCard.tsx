@@ -39,17 +39,17 @@ const chartOptions: ChartConfiguration['options'] = {
             caretPadding: 8,
             yAlign: 'bottom',
             callbacks: {
-                title: function(context) {
+                title: function (context) {
                     return context[0].label
                 },
-                label: function(context) {
+                label: function (context) {
                     const datasetLabel = context.dataset.label || ''
                     const value = context.parsed.y
                     if (value === null || value === undefined) return null
-                    
+
                     let formattedValue = value.toFixed(2)
                     let unit = ''
-                    
+
                     if (datasetLabel.includes('SEK/kWh')) {
                         formattedValue = value.toFixed(2)
                         unit = ' SEK/kWh'
@@ -63,11 +63,11 @@ const chartOptions: ChartConfiguration['options'] = {
                         formattedValue = value.toFixed(1)
                         unit = '%'
                     }
-                    
+
                     return `${datasetLabel}: ${formattedValue}${unit}`
-            }
+                }
+            },
         },
-    },
     },
     scales: {
         x: {
@@ -180,117 +180,117 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     }
 
     const baseData = {
-    labels: values.labels,
-    datasets: [
-        {
-            type: 'line',
-            label: 'Import Price (SEK/kWh)',
-            data: values.price,
-            borderColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
-            backgroundColor: themeColors['palette = 4'] ? `${getColor(4, '#2196F3')}20` : 'rgba(33,150,243,0.1)',
-            yAxisID: 'y',
-            tension: 0,
-            stepped: 'after',
-            pointRadius: 0,
-        },
-        {
-            type: 'line',
-            label: 'PV Forecast (kW)',
-            data: values.pv,
-            borderColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
-            backgroundColor: themeColors['palette = 2'] ? `${getColor(2, '#4CAF50')}30` : 'rgba(76,175,80,0.15)',
-            fill: true,
-            yAxisID: 'y4',
-            tension: .35,
-            pointRadius: 0,
-        },
-        {
-            type: 'bar',
-            label: 'Load (kW)',
-            data: values.load,
-            backgroundColor: `${getColor(3, '#FF9800')}80`, // more transparent
-            borderRadius: 0,
-            yAxisID: 'y1',
-            barPercentage: 1,
-            categoryPercentage: 1,
-            grouped: false,
-        },
-        {
-            type: 'bar',
-            label: 'Charge (kW)',
-            data: values.charge ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(4, '#2196F3')}80`, // more transparent
-            hidden: true,
-            yAxisID: 'y1',
-            barPercentage: 1,
-            categoryPercentage: 1,
-            grouped: false,
-        },
-        {
-            type: 'bar',
-            label: 'Discharge (kW)',
-            data: values.discharge ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(1, '#F44336')}80`, // more transparent
-            hidden: true,
-            yAxisID: 'y1',
-            barPercentage: 1,
-            categoryPercentage: 1,
-            grouped: false,
-        },
-        {
-            type: 'bar',
-            label: 'Export (kWh)',
-            data: values.export ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(2, '#4CAF50')}80`, // more transparent
-            hidden: true,
-            yAxisID: 'y2', // Use kWh axis
-            barPercentage: 1,
-            categoryPercentage: 1,
-            grouped: false,
-        },
-        {
-            type: 'bar',
-            label: 'Water Heating (kW)',
-            data: values.water ?? values.labels.map(() => null),
-            backgroundColor: `${getColor(5, '#FF5722')}80`, // more transparent
-            hidden: true,
-            yAxisID: 'y1',
-            barPercentage: 1,
-            categoryPercentage: 1,
-            grouped: false,
-        },
-        {
-            type: 'line',
-            label: 'SoC Target (%)',
-            data: values.socTarget ?? values.labels.map(() => null),
-            borderColor: getColor(13, '#9C27B0'), // palette 13 (pink) or Material Purple
-            yAxisID: 'y3', // Use percentage axis
-            pointRadius: 0,
-            tension: 0,
-            stepped: 'after',
-            hidden: true,
-        },
-        {
-            type: 'line',
-            label: 'SoC Projected (%)',
-            data: values.socProjected ?? values.labels.map(() => null),
-            borderColor: getColor(14, '#FFEB3B'), // palette 14 or fallback yellow
-            yAxisID: 'y3', // Use percentage axis
-            pointRadius: 0,
-            hidden: true,
-        },
-        {
-            type: 'line',
-            label: 'SoC Actual (%)',
-            data: values.socActual ?? values.labels.map(() => null),
-            borderColor: getColor(15, '#80CBC4'), // palette 15 or fallback teal
-            yAxisID: 'y3',
-            pointRadius: 0,
-            hidden: true,
-        },
-    ],
-}    
-    
+        labels: values.labels,
+        datasets: [
+            {
+                type: 'line',
+                label: 'Import Price (SEK/kWh)',
+                data: values.price,
+                borderColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
+                backgroundColor: themeColors['palette = 4'] ? `${getColor(4, '#2196F3')}20` : 'rgba(33,150,243,0.1)',
+                yAxisID: 'y',
+                tension: 0,
+                stepped: 'after',
+                pointRadius: 0,
+            },
+            {
+                type: 'line',
+                label: 'PV Forecast (kW)',
+                data: values.pv,
+                borderColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
+                backgroundColor: themeColors['palette = 2'] ? `${getColor(2, '#4CAF50')}30` : 'rgba(76,175,80,0.15)',
+                fill: true,
+                yAxisID: 'y4',
+                tension: .35,
+                pointRadius: 0,
+            },
+            {
+                type: 'bar',
+                label: 'Load (kW)',
+                data: values.load,
+                backgroundColor: `${getColor(3, '#FF9800')}80`, // more transparent
+                borderRadius: 0,
+                yAxisID: 'y1',
+                barPercentage: 1,
+                categoryPercentage: 1,
+                grouped: false,
+            },
+            {
+                type: 'bar',
+                label: 'Charge (kW)',
+                data: values.charge ?? values.labels.map(() => null),
+                backgroundColor: `${getColor(4, '#2196F3')}80`, // more transparent
+                hidden: true,
+                yAxisID: 'y1',
+                barPercentage: 1,
+                categoryPercentage: 1,
+                grouped: false,
+            },
+            {
+                type: 'bar',
+                label: 'Discharge (kW)',
+                data: values.discharge ?? values.labels.map(() => null),
+                backgroundColor: `${getColor(1, '#F44336')}80`, // more transparent
+                hidden: true,
+                yAxisID: 'y1',
+                barPercentage: 1,
+                categoryPercentage: 1,
+                grouped: false,
+            },
+            {
+                type: 'bar',
+                label: 'Export (kWh)',
+                data: values.export ?? values.labels.map(() => null),
+                backgroundColor: `${getColor(2, '#4CAF50')}80`, // more transparent
+                hidden: true,
+                yAxisID: 'y2', // Use kWh axis
+                barPercentage: 1,
+                categoryPercentage: 1,
+                grouped: false,
+            },
+            {
+                type: 'bar',
+                label: 'Water Heating (kW)',
+                data: values.water ?? values.labels.map(() => null),
+                backgroundColor: `${getColor(5, '#FF5722')}80`, // more transparent
+                hidden: true,
+                yAxisID: 'y1',
+                barPercentage: 1,
+                categoryPercentage: 1,
+                grouped: false,
+            },
+            {
+                type: 'line',
+                label: 'SoC Target (%)',
+                data: values.socTarget ?? values.labels.map(() => null),
+                borderColor: getColor(13, '#9C27B0'), // palette 13 (pink) or Material Purple
+                yAxisID: 'y3', // Use percentage axis
+                pointRadius: 0,
+                tension: 0,
+                stepped: 'after',
+                hidden: true,
+            },
+            {
+                type: 'line',
+                label: 'SoC Projected (%)',
+                data: values.socProjected ?? values.labels.map(() => null),
+                borderColor: getColor(14, '#FFEB3B'), // palette 14 or fallback yellow
+                yAxisID: 'y3', // Use percentage axis
+                pointRadius: 0,
+                hidden: true,
+            },
+            {
+                type: 'line',
+                label: 'SoC Actual (%)',
+                data: values.socActual ?? values.labels.map(() => null),
+                borderColor: getColor(15, '#80CBC4'), // palette 15 or fallback teal
+                yAxisID: 'y3',
+                pointRadius: 0,
+                hidden: true,
+            },
+        ],
+    }
+
     // Add no-data message if needed
     if (values.hasNoData) {
         baseData.plugins = {
@@ -300,14 +300,14 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
                 external: true,
                 callbacks: {
                     title: () => values.day === 'tomorrow' ? 'No Price Data' : 'No Data',
-                    label: () => values.day === 'tomorrow' 
-                        ? 'Schedule data not available yet. Check back later for prices.' 
+                    label: () => values.day === 'tomorrow'
+                        ? 'Schedule data not available yet. Check back later for prices.'
                         : 'No schedule data available.'
                 }
             }
         }
     }
-    
+
     // Preserve nowIndex on the returned object so runtime
     // logic can position the "NOW" marker.
     return {
@@ -341,7 +341,7 @@ export default function ChartCard({
     showDayToggle = true,
     useHistoryForToday = false,
     slotsOverride,
-}: ChartCardProps){
+}: ChartCardProps) {
     const [currentDay, setCurrentDay] = useState<DaySel>(day)
     const [rangeState, setRangeState] = useState<ChartRange>(range)
     const ref = useRef<HTMLCanvasElement | null>(null)
@@ -450,45 +450,45 @@ export default function ChartCard({
         const chartInstance = chartRef.current
         if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
         const applyData = (slots: ScheduleSlot[]) => {
-                if (!isChartUsable(chartRef.current)) return
-                const liveData = buildLiveData(slots, currentDay, rangeState, themeColors)
-                if (!liveData) return
-                setHasNoDataMessage(liveData.hasNoData ?? false)
-                const ds = liveData.datasets
-                if (ds[0]) ds[0].hidden = !overlays.price
-                if (ds[1]) ds[1].hidden = !overlays.pv
-                if (ds[2]) ds[2].hidden = !overlays.load
-                if (ds[3]) ds[3].hidden = !overlays.charge
-                if (ds[4]) ds[4].hidden = !overlays.discharge
-                if (ds[5]) ds[5].hidden = !overlays.export
-                if (ds[6]) ds[6].hidden = !overlays.water
-                if (ds[7]) ds[7].hidden = !overlays.socTarget
-                if (ds[8]) ds[8].hidden = !overlays.socProjected
-                if (ds[9]) ds[9].hidden = !overlays.socActual
+            if (!isChartUsable(chartRef.current)) return
+            const liveData = buildLiveData(slots, currentDay, rangeState, themeColors)
+            if (!liveData) return
+            setHasNoDataMessage(liveData.hasNoData ?? false)
+            const ds = liveData.datasets
+            if (ds[0]) ds[0].hidden = !overlays.price
+            if (ds[1]) ds[1].hidden = !overlays.pv
+            if (ds[2]) ds[2].hidden = !overlays.load
+            if (ds[3]) ds[3].hidden = !overlays.charge
+            if (ds[4]) ds[4].hidden = !overlays.discharge
+            if (ds[5]) ds[5].hidden = !overlays.export
+            if (ds[6]) ds[6].hidden = !overlays.water
+            if (ds[7]) ds[7].hidden = !overlays.socTarget
+            if (ds[8]) ds[8].hidden = !overlays.socProjected
+            if (ds[9]) ds[9].hidden = !overlays.socActual
 
-                // Compute CSS overlay position for "NOW" (0–1 across labels)
-                const anyData = liveData as any
-                if (
-                    currentDay === 'today' &&
-                    typeof anyData.nowIndex === 'number' &&
-                    anyData.nowIndex >= 0 &&
-                    liveData.labels.length > 1
-                ) {
-                    const idx = anyData.nowIndex as number
-                    const denom = liveData.labels.length - 1
-                    setNowPosition(idx / denom)
-                } else {
-                    setNowPosition(null)
+            // Compute CSS overlay position for "NOW" (0–1 across labels)
+            const anyData = liveData as any
+            if (
+                currentDay === 'today' &&
+                typeof anyData.nowIndex === 'number' &&
+                anyData.nowIndex >= 0 &&
+                liveData.labels.length > 1
+            ) {
+                const idx = anyData.nowIndex as number
+                const denom = liveData.labels.length - 1
+                setNowPosition(idx / denom)
+            } else {
+                setNowPosition(null)
+            }
+            try {
+                if (!isChartUsable(chartRef.current)) return
+                if (chartRef.current) {
+                    ; (chartRef.current as any).data = liveData
+                    chartRef.current.update()
                 }
-                try {
-                    if (!isChartUsable(chartRef.current)) return
-                    if (chartRef.current) {
-                        ;(chartRef.current as any).data = liveData
-                        chartRef.current.update()
-                    }
-                } catch (err) {
-                    console.error('Chart update failed, skipping frame:', err)
-                }
+            } catch (err) {
+                console.error('Chart update failed, skipping frame:', err)
+            }
         }
 
         if (slotsOverride && slotsOverride.length) {
@@ -514,90 +514,87 @@ export default function ChartCard({
     }, [currentDay, overlays, themeColors, rangeState, refreshToken, slotsOverride, useHistoryForToday])
 
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
-    
+
     return (
         <Card className="p-4 md:p-6 h-[380px]">
-        <div className="flex items-baseline justify-between pb-2">
-        <div className="text-sm text-muted">Schedule Overview</div>
-        {showDayToggle && (
-            <div className="flex items-center gap-2">
-                <div className="flex gap-1">
-                    <button 
-                        className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                            rangeState === 'day' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                        }`}
-                        onClick={() => setRangeState('day')}
-                    >
-                        24h
-                    </button>
-                    <button 
-                        className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                            rangeState === '48h' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                        }`}
-                        onClick={() => setRangeState('48h')}
-                    >
-                        48h
-                    </button>
+            <div className="flex items-baseline justify-between pb-2">
+                <div className="text-sm text-muted">Schedule Overview</div>
+                {showDayToggle && (
+                    <div className="flex items-center gap-2">
+                        <div className="flex gap-1">
+                            <button
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                                    }`}
+                                onClick={() => setRangeState('day')}
+                            >
+                                24h
+                            </button>
+                            <button
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
+                                    }`}
+                                onClick={() => setRangeState('48h')}
+                            >
+                                48h
+                            </button>
+                        </div>
+                        <button
+                            className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
+                            onClick={() => setShowOverlayMenu(v => !v)}
+                        >
+                            Overlays
+                        </button>
+                    </div>
+                )}
+            </div>
+            {showOverlayMenu && (
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                    {([
+                        ['Price', 'price'],
+                        ['PV', 'pv'],
+                        ['Load', 'load'],
+                        ['Charge', 'charge'],
+                        ['Discharge', 'discharge'],
+                        ['Export', 'export'],
+                        ['Water', 'water'],
+                        ['SoC Target', 'socTarget'],
+                        ['SoC Projected', 'socProjected'],
+                        ['SoC Actual', 'socActual'],
+                    ] as const).map(([label, key]) => (
+                        <button
+                            key={key}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                setOverlays(o => ({ ...o, [key]: !o[key as keyof typeof o] }))
+                            }}
+                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
+                                    ? 'bg-accent text-canvas border-accent'
+                                    : 'border-line/60 text-muted hover:border-accent'
+                                }`}
+                        >
+                            {label}
+                        </button>
+                    ))}
                 </div>
-                <button
-                    className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
-                    onClick={() => setShowOverlayMenu(v => !v)}
-                >
-                    Overlays
-                </button>
+            )}
+            <div className="h-[310px] relative mt-1">
+                {hasNoDataMessage && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
+                        <div className="text-center">
+                            <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
+                            <div className="text-sm text-muted">Schedule data not available yet. Check back later for prices.</div>
+                        </div>
+                    </div>
+                )}
+                {!hasNoDataMessage && currentDay === 'today' && nowPosition !== null && (
+                    <div className="pointer-events-none absolute inset-0 z-10">
+                        <div
+                            className="absolute top-2 bottom-6 border-l-2 border-accent/80"
+                            style={{ left: `${nowPosition * 100}%` }}
+                        />
+                    </div>
+                )}
+                <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }} />
             </div>
-        )}
-        </div>
-        {showOverlayMenu && (
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                {([
-                    ['Price', 'price'],
-                    ['PV', 'pv'],
-                    ['Load', 'load'],
-                    ['Charge', 'charge'],
-                    ['Discharge', 'discharge'],
-                    ['Export', 'export'],
-                    ['Water', 'water'],
-                    ['SoC Target', 'socTarget'],
-                    ['SoC Projected', 'socProjected'],
-                    ['SoC Actual', 'socActual'],
-                ] as const).map(([label, key]) => (
-                    <button
-                        key={key}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            setOverlays(o => ({ ...o, [key]: !o[key as keyof typeof o] }))
-                        }}
-                        className={`rounded-pill px-3 py-1 border ${
-                            overlays[key as keyof typeof overlays]
-                                ? 'bg-accent text-canvas border-accent'
-                                : 'border-line/60 text-muted hover:border-accent'
-                        }`}
-                    >
-                        {label}
-                    </button>
-                ))}
-            </div>
-        )}
-        <div className="h-[310px] relative mt-1">
-        {hasNoDataMessage && (
-            <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
-                <div className="text-center">
-                    <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
-                    <div className="text-sm text-muted">Schedule data not available yet. Check back later for prices.</div>
-                </div>
-            </div>
-        )}
-        {!hasNoDataMessage && currentDay === 'today' && nowPosition !== null && (
-            <div className="pointer-events-none absolute inset-0 z-10">
-                <div
-                    className="absolute top-2 bottom-6 border-l-2 border-accent/80"
-                    style={{ left: `${nowPosition * 100}%` }}
-                />
-            </div>
-        )}
-        <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }}/>
-        </div>
         </Card>
     )
 }

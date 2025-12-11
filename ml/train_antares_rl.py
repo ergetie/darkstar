@@ -22,7 +22,7 @@ from typing import Any, Dict
 
 import numpy as np
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.rl.antares_env import AntaresRLEnv
 
 
@@ -179,7 +179,7 @@ def main() -> int:
         batch_size=cfg.batch_size,
         verbose=1,
         seed=cfg.seed,
-        device="cpu",
+        device="auto",
     )
 
     model.learn(total_timesteps=cfg.timesteps)

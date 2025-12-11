@@ -19,7 +19,7 @@ import gymnasium as gym
 import numpy as np
 import sqlite3
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.env_v2 import AntaresEnvV2
 
@@ -86,12 +86,23 @@ class AntaresRLEnvV2(gym.Env):
         self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
     ) -> Tuple[np.ndarray, Dict[str, Any]]:
         super().reset(seed=seed)
-        day = self._iterator.next_day()
-        if day is None:
-            raise RuntimeError("No candidate days available for AntaresRLEnvV2.")
-        self._current_day = day
-        state = self.env.reset(day)
-        return self._sanitize_state(state), {"day": day}
+        max_retries = len(self.days)
+        attempts = 0
+
+        while attempts < max_retries:
+            day = self._iterator.next_day()
+            if day is None:
+                raise RuntimeError("No candidate days available for AntaresRLEnvV2.")
+            
+            try:
+                self._current_day = day
+                state = self.env.reset(day)
+                return self._sanitize_state(state), {"day": day}
+            except Exception as e:
+                # Warning: Skipping day due to error (likely missing data)
+                attempts += 1
+        
+        raise RuntimeError(f"Failed to find a valid simulation day after {max_retries} attempts.")
 
     def step(
         self, action: np.ndarray

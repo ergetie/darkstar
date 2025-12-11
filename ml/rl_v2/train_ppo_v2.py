@@ -20,9 +20,10 @@ import numpy as np
 import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.callbacks import BaseCallback
-from stable_baselines3.common.vec_env import DummyVecEnv
+from stable_baselines3.common.env_util import make_vec_env
+from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.ppo_env_v2 import AntaresRLEnvV2
 
@@ -36,6 +37,9 @@ class RlV2PpoConfig:
     batch_size: int
     seed: int
     seq_len: int
+    n_envs: int
+    hidden_dim: int
+    layer_count: int
 
 
 def _get_engine() -> LearningEngine:
@@ -53,11 +57,11 @@ class CostLoggingCallback(BaseCallback):
         return True
 
 
-def _make_env(cfg: RlV2PpoConfig) -> gym.Env:
+def _make_env_factory(config_path: str, seq_len: int):
+    """Factory for picklable env creators."""
     def _init() -> gym.Env:
-        return AntaresRLEnvV2(config_path="config.yaml", seq_len=cfg.seq_len)
-
-    return DummyVecEnv([_init])
+        return AntaresRLEnvV2(config_path=config_path, seq_len=seq_len)
+    return _init
 
 
 def main() -> int:
@@ -82,6 +86,24 @@ def main() -> int:
         default=42,
         help="Random seed.",
     )
+    parser.add_argument(
+        "--n-envs",
+        type=int,
+        default=1,
+        help="Number of parallel environments (default: 1). Increase for higher GPU usage.",
+    )
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=64,
+        help="Width of hidden layers (default: 64). Increase to 256/512 for GPU benchmarking.",
+    )
+    parser.add_argument(
+        "--layer-count",
+        type=int,
+        default=2,
+        help="Number of hidden layers (default: 2).",
+    )
     args = parser.parse_args()
 
     cfg = RlV2PpoConfig(
@@ -92,13 +114,37 @@ def main() -> int:
         batch_size=64,
         seed=int(args.seed),
         seq_len=int(args.seq_len),
+        n_envs=int(args.n_envs),
+        hidden_dim=int(args.hidden_dim),
+        layer_count=int(args.layer_count),
     )
 
     np.random.seed(cfg.seed)
     torch.manual_seed(cfg.seed)
 
+    # Note: Engine is initialized in main process for schema checks,
+    # but workers will create their own instances.
     engine = _get_engine()
-    env = _make_env(cfg)
+    
+    # Vectorized Environment Setup
+    # SubprocVecEnv is used for n_envs > 1 to bypass GIL and utilize multi-core CPUs
+    vec_env_cls = SubprocVecEnv if cfg.n_envs > 1 else DummyVecEnv
+    
+    env = make_vec_env(
+        _make_env_factory("config.yaml", cfg.seq_len),
+        n_envs=cfg.n_envs,
+        seed=cfg.seed,
+        vec_env_cls=vec_env_cls
+    )
+
+    # Custom Network Architecture
+    # Larger networks allow the GPU to do more work per batch, reducing overhead ratio.
+    net_arch = dict(pi=[cfg.hidden_dim] * cfg.layer_count, vf=[cfg.hidden_dim] * cfg.layer_count)
+
+    print(f"[rl-v2-ppo] Starting training with:")
+    print(f"  Environments: {cfg.n_envs} ({'Parallel' if cfg.n_envs > 1 else 'Sequential'})")
+    print(f"  Network:      {cfg.layer_count}x{cfg.hidden_dim} (MlpPolicy)")
+    print(f"  Device:       Auto (Will use GPU if available)")
 
     model = PPO(
         "MlpPolicy",
@@ -109,7 +155,8 @@ def main() -> int:
         batch_size=cfg.batch_size,
         verbose=1,
         seed=cfg.seed,
-        device="cpu",
+        device="auto",
+        policy_kwargs={"net_arch": net_arch}
     )
 
     callback = CostLoggingCallback()

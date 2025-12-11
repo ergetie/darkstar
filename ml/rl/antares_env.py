@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import sqlite3
 
-from learning import LearningEngine, get_learning_engine
+from backend.learning import LearningEngine, get_learning_engine
 from ml.simulation.env import AntaresMPCEnv
 
 
@@ -82,46 +82,59 @@ class AntaresRLEnv:
 
     def reset(self) -> np.ndarray:
         """Reset to the next day and return initial state."""
-        day = self._iterator.next_day()
-        if day is None:
-            raise RuntimeError("No candidate days available for AntaresRLEnv.")
-        self._current_day = day
-        state = self.env.reset(day)
-        # Compute simple per-day price thresholds for reward shaping:
-        # - low threshold: 80% of median non-zero import price
-        # - high threshold: 120% of median (rough proxy for "expensive")
-        schedule = getattr(self.env, "_schedule", None)
-        threshold: Optional[float] = None
-        high_threshold: Optional[float] = None
-        if schedule is not None:
-            df = schedule.copy()
-            if df.index.name in {"start_time", "slot_start"} and "start_time" not in df.columns:
-                df = df.reset_index()
-            prices = (
-                pd.to_numeric(df.get("import_price_sek_kwh"), errors="coerce")
-                .dropna()
-                .astype(float)
-            )
-            prices = prices[prices > 0.0]
-            if not prices.empty:
-                median_price = float(prices.median())
-                threshold = 0.8 * median_price
-                high_threshold = 1.2 * median_price
-        self._low_price_threshold = threshold
-        self._high_price_threshold = high_threshold
+        max_retries = len(self.days)
+        attempts = 0
 
-        # Cache initial SoC percent for terminal shaping.
-        try:
-            capacity_kwh = float(getattr(self.env, "_capacity_kwh", 0.0) or 0.0)
-            soc_kwh = float(getattr(self.env, "_soc_kwh", 0.0) or 0.0)
-            if capacity_kwh > 0.0:
-                self._initial_soc_percent = 100.0 * soc_kwh / capacity_kwh
-            else:
-                self._initial_soc_percent = None
-        except Exception:
-            self._initial_soc_percent = None
+        while attempts < max_retries:
+            day = self._iterator.next_day()
+            if day is None:
+                raise RuntimeError("No candidate days available for AntaresRLEnv.")
+            
+            try:
+                self._current_day = day
+                state = self.env.reset(day)
+                # Compute simple per-day price thresholds for reward shaping:
+                # - low threshold: 80% of median non-zero import price
+                # - high threshold: 120% of median (rough proxy for "expensive")
+                schedule = getattr(self.env, "_schedule", None)
+                threshold: Optional[float] = None
+                high_threshold: Optional[float] = None
+                if schedule is not None:
+                    df = schedule.copy()
+                    if df.index.name in {"start_time", "slot_start"} and "start_time" not in df.columns:
+                        df = df.reset_index()
+                    prices = (
+                        pd.to_numeric(df.get("import_price_sek_kwh"), errors="coerce")
+                        .dropna()
+                        .astype(float)
+                    )
+                    prices = prices[prices > 0.0]
+                    if not prices.empty:
+                        median_price = float(prices.median())
+                        threshold = 0.8 * median_price
+                        high_threshold = 1.2 * median_price
+                self._low_price_threshold = threshold
+                self._high_price_threshold = high_threshold
 
-        return self._sanitize_state(state)
+                # Cache initial SoC percent for terminal shaping.
+                try:
+                    capacity_kwh = float(getattr(self.env, "_capacity_kwh", 0.0) or 0.0)
+                    soc_kwh = float(getattr(self.env, "_soc_kwh", 0.0) or 0.0)
+                    if capacity_kwh > 0.0:
+                        self._initial_soc_percent = 100.0 * soc_kwh / capacity_kwh
+                    else:
+                        self._initial_soc_percent = None
+                except Exception:
+                    self._initial_soc_percent = None
+
+                return self._sanitize_state(state)
+            
+            except Exception as e:
+                # If reset failed (e.g. empty data), just try the next day
+                # print(f"Warning: Skipping day {day} due to error: {e}")
+                attempts += 1
+        
+        raise RuntimeError(f"Failed to find a valid simulation day after {max_retries} attempts.")
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
         """

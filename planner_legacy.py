@@ -750,7 +750,7 @@ class HeliosPlanner:
         except Exception as e:
             print(f"Error running Kepler shadow mode: {e}")
 
-    def run_kepler_primary(self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    def run_kepler_primary(self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None, now_override: Optional[datetime] = None) -> pd.DataFrame:
         """
         Run Kepler as the primary planner.
         """
@@ -770,6 +770,9 @@ class HeliosPlanner:
             # We need a base DataFrame for the adapter (timestamps, forecasts)
             # We can reuse _prepare_data_frame but skip the passes
             df = self._prepare_data_frame(input_data)
+
+            if df.empty:
+                raise ValueError("Planner input dataframe is empty. No price/forecast data found for this window.")
             
             # Populate metadata attributes required by _save_schedule_to_json
             self.daily_pv_forecast = input_data.get("daily_pv_forecast", {})
@@ -780,10 +783,26 @@ class HeliosPlanner:
             
             # Compute 'now' rounded up to next 15-minute slot in configured timezone
             timezone_name = self.timezone or "Europe/Stockholm"
-            try:
-                self.now_slot = pd.Timestamp.now(tz=timezone_name).floor("15min")
-            except Exception:
-                self.now_slot = pd.Timestamp.now(tz="Europe/Stockholm").floor("15min")
+            if now_override:
+                # Use the provided override for 'now_slot'
+                # Ensure it's localized if necessary and floored
+                # The _normalize_timestamp function (from planner.inputs.data_prep) is already
+                # doing this localization and flooring, so we can reuse that.
+                override_ts = _normalize_timestamp(now_override, timezone_name)
+                if override_ts is not pd.NaT:
+                    self.now_slot = override_ts.floor("15min")
+                else:
+                    # Fallback if _normalize_timestamp fails (shouldn't happen with datetime input)
+                    try:
+                        self.now_slot = pd.Timestamp.now(tz=timezone_name).floor("15min")
+                    except Exception:
+                        self.now_slot = pd.Timestamp.now(tz="Europe/Stockholm").floor("15min")
+            else:
+                # Fallback to current time if no override
+                try:
+                    self.now_slot = pd.Timestamp.now(tz=timezone_name).floor("15min")
+                except Exception:
+                    self.now_slot = pd.Timestamp.now(tz="Europe/Stockholm").floor("15min")
             
             # Apply safety margins (Pass 0) - essential for robust planning
             df = self._pass_0_apply_safety_margins(df)
@@ -922,7 +941,7 @@ class HeliosPlanner:
 
         # Check for Kepler Primary Mode
         if self.config.get("kepler", {}).get("primary_planner", False):
-            df = self.run_kepler_primary(input_data, overrides=overrides)
+            df = self.run_kepler_primary(input_data, overrides=overrides, now_override=now_override)
             if save_to_file:
                 self._save_schedule_to_json(df)
             return df

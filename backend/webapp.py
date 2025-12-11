@@ -11,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import pytz
 import yaml
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_from_directory
 import pymysql
 import subprocess
 
@@ -38,6 +38,27 @@ app = Flask(__name__)
 app.register_blueprint(aurora_bp)
 
 THEME_DIR = os.path.join(os.path.dirname(__file__), "themes")
+
+
+# --- Static Asset Handling ---
+@app.route("/assets/<path:path>")
+def send_assets(path):
+    # Serve assets from the 'static/assets' folder
+    directory = os.path.join(os.path.dirname(__file__), "static", "assets")
+    return send_from_directory(directory, path)
+
+@app.route("/favicon.svg")
+def send_favicon():
+    return send_from_directory("static", "favicon.svg")
+
+# --- SPA Catch-All ---
+@app.route("/", defaults={"path": ""})
+@app.route("/<path:path>")
+def index(path):
+    # Let Flask handle static/api routes, others fall through to React
+    if path.startswith("api/") or path.startswith("static/") or path.startswith("assets/"):
+        return "Not Found", 404
+    return render_template("index.html")
 
 
 class RingBufferHandler(logging.Handler):
@@ -222,9 +243,7 @@ def get_current_theme_name() -> str:
     return next(iter(AVAILABLE_THEMES.keys()), None)
 
 
-@app.route("/")
-def index():
-    return render_template("index.html")
+
 
 
 @app.route("/api/themes", methods=["GET"])

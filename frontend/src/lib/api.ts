@@ -162,6 +162,7 @@ export type SchedulerStatusResponse = {
   next_run_at?: string
   last_run_status?: string
   last_error?: string
+  ml_training_last_run_at?: string
   [key: string]: any
 }
 

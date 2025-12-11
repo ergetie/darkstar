@@ -146,9 +146,8 @@ def _save_model(model: lgb.LGBMRegressor, path: Path) -> None:
     print(f"Saved model to {path}")
 
 
-def main() -> None:
-    args = _parse_args()
-    cfg = TrainingConfig(days_back=args.days_back, min_samples=args.min_samples)
+def train_models(days_back: int = 90, min_samples: int = 100) -> None:
+    cfg = TrainingConfig(days_back=days_back, min_samples=min_samples)
 
     print("--- Starting AURORA Training (Rev K15: Probabilistic) ---")
 
@@ -300,4 +299,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    args = _parse_args()
+    train_models(days_back=args.days_back, min_samples=args.min_samples)

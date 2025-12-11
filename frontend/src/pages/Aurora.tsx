@@ -8,7 +8,7 @@ import KPIStrip from '../components/KPIStrip'
 import ProbabilisticChart from '../components/ProbabilisticChart'
 import { Line, Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
-import type { AuroraDashboardResponse } from '../lib/api'
+import type { AuroraDashboardResponse, SchedulerStatusResponse } from '../lib/api'
 
 // Import ChartJS components for the inline charts
 import {
@@ -39,6 +39,7 @@ ChartJS.register(
 
 export default function Aurora() {
   const [dashboard, setDashboard] = useState<AuroraDashboardResponse | null>(null)
+  const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatusResponse | null>(null)
   const [briefing, setBriefing] = useState<string>('')
   const [briefingUpdatedAt, setBriefingUpdatedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -81,6 +82,16 @@ export default function Aurora() {
       }
     }
     fetchDashboard()
+
+    const fetchSchedulerStatus = async () => {
+      try {
+        const res = await Api.schedulerStatus()
+        setSchedulerStatus(res)
+      } catch (err) {
+        console.error('Failed to load scheduler status:', err)
+      }
+    }
+    fetchSchedulerStatus()
   }, [])
 
   useEffect(() => {
@@ -495,7 +506,16 @@ export default function Aurora() {
               <Brain className="h-4 w-4 text-accent" />
               <span className="text-xs font-medium text-text">Activity Log</span>
             </div>
-            <span className="text-[10px] text-muted">{strategyEvents.length} events</span>
+            <div className="flex flex-col items-end">
+              <span className="text-[10px] text-muted">{strategyEvents.length} events</span>
+              {schedulerStatus?.ml_training_last_run_at && (
+                <span className="text-[9px] text-muted/70" title="Last ML Training Run">
+                  ML Train: {new Date(schedulerStatus.ml_training_last_run_at).toLocaleString(undefined, {
+                    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                  })}
+                </span>
+              )}
+            </div>
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto pr-2 custom-scrollbar">
             <ActivityLog events={strategyEvents} />

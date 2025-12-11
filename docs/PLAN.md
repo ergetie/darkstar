@@ -500,9 +500,14 @@ This allows comparing Aurora's contribution without involving Legacy MPC.
 
 ### 🧠 Strategy & Aurora (AI)
 *   **[Rev A25] Manual Plan Simulate Regression**: Verify if manual block additions in the Planning Tab still work correctly with the new `simulate` signature (Strategy engine injection).
-*   **[Rev A27] Scheduled Retraining**: Automate `ml/train.py` execution (e.g., weekly) to keep Aurora models fresh without manual intervention. Similar to Rev 57!
-*   **[Rev A28] The Analyst (Expansion)**: Add "Grid Peak Shaving" capability—detect monthly peaks and force-discharge battery to cap grid import fees.
-*   **[Rev A29] Smart EV Integration**: Prioritize home battery vs. EV charging based on "Departure Time" (requires new inputs).
+### Rev A27 — ML Training Scheduler (Catch-Up Logic)
+
+**Goal:** Implement a robust "Catch-Up" scheduler for ML model retraining.
+*   **Catch-Up Logic:** Instead of exact time matching, check if the last successful run is older than the most recent scheduled slot.
+*   **Config:** Flexible `run_days` and `run_time` in `config.yaml`.
+*   **Status:** In Progress.
+
+### [Rev A29] Smart EV Integration**: Prioritize home battery vs. EV charging based on "Departure Time" (requires new inputs).
 
 ### 🖥️ UI & Dashboard
 *   **[UI] Reset Learning**: Add "Reset Learning for Today" button to Settings/Debug to clear cached S-index/metrics without using CLI.
