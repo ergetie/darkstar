@@ -98,18 +98,25 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
     """
     s_cfg = config.get("s_index") or {}
     base_factor_raw = s_cfg.get("base_factor", 1.0)
+    risk_appetite = int(s_cfg.get("risk_appetite", 3))
 
     try:
         base_factor = float(base_factor_raw)
     except (TypeError, ValueError):
         base_factor = 1.0
 
-    if base_factor < 1.0:
-        persona = "Gambler"
-    elif base_factor > 1.2:
-        persona = "Paranoid"
-    else:
+    # Rev A28: Persona based on Risk Appetite (1-5)
+    # 1=Safety (Paranoid), 3=Neutral (Balanced), 5=Gambler
+    if risk_appetite <= 1:
+        persona = "Safety First"
+    elif risk_appetite == 2:
+        persona = "Conservative"
+    elif risk_appetite == 3:
         persona = "Balanced"
+    elif risk_appetite == 4:
+        persona = "Aggressive"
+    else:
+        persona = "Gambler"
 
     # Try to load current effective factor from schedule.json
     current_factor = None
@@ -126,12 +133,17 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
                     current_factor = s_index_meta.get("factor")
                 
                 raw_factor = s_index_meta.get("raw_factor")
+                # Also try unclamped factor if raw_factor missing
+                if raw_factor is None:
+                    raw_factor = s_index_meta.get("factor_unclamped")
+                    
     except Exception as exc:
         logger.warning("Failed to load current s-index factor from schedule.json: %s", exc)
 
     return {
         "persona": persona,
-        "base_factor": base_factor,
+        "risk_appetite": risk_appetite,
+        "base_factor": base_factor, # Kept for legacy compatibility
         "current_factor": float(current_factor) if current_factor is not None else None,
         "raw_factor": float(raw_factor) if raw_factor is not None else None,
         "mode": s_cfg.get("mode", "static"),

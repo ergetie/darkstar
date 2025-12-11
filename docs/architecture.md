@@ -26,22 +26,25 @@ Minimize: Sum(Import_Cost - Export_Revenue + Wear_Cost) - (End_SoC * Terminal_Va
 
 ---
 
-## 3. Strategic S-Index (Decoupled)
-To manage risk without "Double Buffering", we decoupled the strategy:
+## 3.  **Strategic S-Index (Decoupled)**:
+    To manage risk without "Double Buffering", we decoupled the strategy:
 
-1.  **Load Inflation (Intra-day Safety)**:
-    *   **Goal**: Buffer against *today's* forecast errors.
-    *   **Mechanism**: Static Multiplier (e.g., `1.1x`).
-    *   **Effect**: Planner assumes load is 10% higher than forecast.
+    1.  **Risk Appetite (Sigma Scaling)**:
+        *   **Goal**: Buffer against *today's* forecast errors (Uncertainty).
+        *   **Mechanism**: User-tunable Sigma Scaling (1-5 Scale).
+        *   **Formula**: `Safety Margin = Uncertainty * Sigma(RiskAppetite)`.
+        *   **Effect**:
+            *   Safety (1): Covers p90 (Worst Case).
+            *   Neutral (3): Covers p50 (Mean).
+            *   Gambler (5): Covers p25 (Under-provisioning).
 
-2.  **Dynamic Target SoC (Inter-day Strategy)**:
-    *   **Goal**: Prepare for *tomorrow's* risk (Cold/Cloudy D2).
-    *   **Mechanism**: Hard Constraint on End-of-Day SoC.
-    *   **Formula**: `Target % = Min % + (Risk_Factor - 1.0) * Scaling`.
-    *   **Effect**: If D2 is risky, we hold a larger buffer (e.g., 30%). If D2 is safe, we hold `Min %`.
+    2.  **Dynamic Target SoC (Inter-day Strategy)**:
+        *   **Goal**: Prepare for *tomorrow's* risk (Cold/Cloudy D2).
+        *   **Mechanism**: Hard Constraint on End-of-Day SoC.
+        *   **Formula**: `Target % = Min % + (Risk_Factor - 1.0) * Scaling`.
+        *   **Effect**: If D2 is risky, we hold a larger buffer (e.g., 30%). If D2 is safe, we hold `Min %`.
 
-This ensures we don't inflate today's load just because tomorrow is cold (which caused excessive battery usage in the plan).
-
+    This ensures we don't inflate today's load just because tomorrow is cold (which caused excessive battery usage in the plan).
 ---
 
 ## 4. Aurora Intelligence Suite

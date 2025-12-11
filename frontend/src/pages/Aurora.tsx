@@ -44,7 +44,7 @@ export default function Aurora() {
   const [briefingUpdatedAt, setBriefingUpdatedAt] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [briefingLoading, setBriefingLoading] = useState(false)
-  const [riskBaseFactor, setRiskBaseFactor] = useState<number | null>(null)
+  const [riskAppetite, setRiskAppetite] = useState<number>(3)
   const [savingRisk, setSavingRisk] = useState(false)
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
   const [viewMode, setViewMode] = useState<'forecast' | 'soc'>('forecast')
@@ -67,9 +67,10 @@ export default function Aurora() {
       try {
         const res = await Api.aurora.dashboard()
         setDashboard(res)
-        const bf = res.state?.risk_profile?.base_factor
-        if (typeof bf === 'number') {
-          setRiskBaseFactor(bf)
+        // @ts-ignore - risk_appetite added in Rev A28
+        const ra = res.state?.risk_profile?.risk_appetite
+        if (typeof ra === 'number') {
+          setRiskAppetite(ra)
         }
         setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
         // @ts-ignore
@@ -125,11 +126,10 @@ export default function Aurora() {
   }
 
   const handleRiskChange = async (value: number) => {
-    if (value == null) return
-    setRiskBaseFactor(value)
+    setRiskAppetite(value)
     setSavingRisk(true)
     try {
-      await Api.configSave({ s_index: { base_factor: value } })
+      await Api.configSave({ s_index: { risk_appetite: value } })
       if (riskStatusTimeoutRef.current !== null) {
         window.clearTimeout(riskStatusTimeoutRef.current)
       }
@@ -139,7 +139,7 @@ export default function Aurora() {
         riskStatusTimeoutRef.current = null
       }, 2000)
     } catch (err) {
-      console.error('Failed to save risk level (s_index.base_factor):', err)
+      console.error('Failed to save risk level (risk_appetite):', err)
       setRiskStatus('Failed to save.')
     } finally {
       setSavingRisk(false)
@@ -342,36 +342,33 @@ export default function Aurora() {
 
         {/* Risk Dial (Control) */}
         <Card className="lg:col-span-3 p-4 md:p-5 flex flex-col justify-center">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <Shield className="h-4 w-4 text-accent" />
-              <span className="text-xs font-medium text-text">Risk Appetite</span>
-            </div>
+          <div className="flex justify-between items-center mb-4">
+            <span className="text-[10px] uppercase font-bold text-muted tracking-wider">
+              Risk Appetite
+            </span>
             <span className="text-[10px] font-mono text-muted">
-              Safety Floor: {(riskBaseFactor ?? 1.1).toFixed(1)}x
+              Step {riskAppetite}/5
             </span>
           </div>
 
           <div className="relative px-2 py-4">
             <div className="absolute inset-x-2 top-1/2 h-1 -translate-y-1/2 rounded-full bg-surface2" />
 
-            {/* Tick marks */}
+            {/* Tick marks for 1-5 scale */}
             <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 flex justify-between px-1 pointer-events-none">
-              {sliderSteps.map((_, idx) => (
-                <div key={idx} className="h-2 w-0.5 bg-line/50 rounded-full" />
+              {[1, 2, 3, 4, 5].map((step) => (
+                <div key={step} className="h-2 w-0.5 bg-line/50 rounded-full" />
               ))}
             </div>
 
             <input
               type="range"
-              min={0}
-              max={4}
+              min={1}
+              max={5}
               step={1}
-              value={sliderSteps.indexOf(riskBaseFactor ?? 1.1) === -1 ? 2 : sliderSteps.indexOf(riskBaseFactor ?? 1.1)}
+              value={riskAppetite}
               onChange={(e) => {
-                const idx = parseInt(e.target.value, 10)
-                const val = sliderSteps[idx] ?? 1.1
-                setRiskBaseFactor(val)
+                const val = parseInt(e.target.value, 10)
                 handleRiskChange(val)
               }}
               className="relative w-full bg-transparent accent-accent cursor-pointer z-10"
@@ -381,20 +378,32 @@ export default function Aurora() {
           <div className="mt-auto pt-2 text-center text-[10px] text-muted">
             <div className="flex flex-col gap-1">
               <span className="text-accent font-medium">
-                {riskLabels[sliderSteps.indexOf(riskBaseFactor ?? 1.1)] ?? 'Custom'}
+                {{
+                  1: 'Safety First',
+                  2: 'Conservative',
+                  3: 'Neutral (Balanced)',
+                  4: 'Aggressive',
+                  5: 'Gambler'
+                }[riskAppetite] || 'Custom'}
               </span>
               <span className="text-[9px] text-muted/70">
-                {riskDescriptions[sliderSteps.indexOf(riskBaseFactor ?? 1.1)] ?? 'Custom risk setting'}
+                {{
+                  1: 'Covers Worst Case (p90)',
+                  2: 'Covers High Load (p75)',
+                  3: 'Trusts the Mean (p50)',
+                  4: 'Expects Lower Load',
+                  5: 'Bets on Sun/Empty'
+                }[riskAppetite] || 'Custom setting'}
               </span>
 
               <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-line/30">
                 {/* Raw vs Applied (Projected) */}
                 {dashboard?.state?.risk_profile?.raw_factor != null &&
-                  Math.abs((dashboard.state.risk_profile.raw_factor ?? 0) - Math.min(1.5, Math.max(riskBaseFactor ?? 1.1, dashboard.state.risk_profile.raw_factor ?? 0))) > 0.001 && (
+                  (dashboard.state.risk_profile.raw_factor ?? 0) > 0 && (
                     <span title="Calculated based on risk">Calc: {(dashboard.state.risk_profile.raw_factor ?? 0).toFixed(2)}</span>
                   )}
                 <span title="Projected factor for next run">Applied: {
-                  Math.min(1.5, Math.max(riskBaseFactor ?? 1.1, dashboard?.state?.risk_profile?.raw_factor ?? 0)).toFixed(2)
+                  (dashboard?.state?.risk_profile?.current_factor ?? 1.0).toFixed(2)
                 }</span>
               </div>
             </div>
@@ -489,7 +498,7 @@ export default function Aurora() {
                 temp: volatility?.temp_volatility ?? 0,
                 overall: overallVol
               }}
-              riskFactor={riskBaseFactor ?? 1.1}
+              riskFactor={riskAppetite ?? 3}
               forecastAccuracy={dashboard?.metrics?.mae_pv_aurora != null
                 ? Math.max(0, 100 - dashboard.metrics.mae_pv_aurora * 20)
                 : 85}
@@ -510,8 +519,8 @@ export default function Aurora() {
               <span className="text-[10px] text-muted">{strategyEvents.length} events</span>
               {schedulerStatus?.ml_training_last_run_at && (
                 <span className="text-[9px] text-muted/70" title="Last ML Training Run">
-                  ML Train: {new Date(schedulerStatus.ml_training_last_run_at).toLocaleString(undefined, {
-                    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                  ML Train: {new Date(schedulerStatus.ml_training_last_run_at).toLocaleString('sv-SE', {
+                    month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
                   })}
                 </span>
               )}

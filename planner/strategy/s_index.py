@@ -156,18 +156,34 @@ def calculate_probabilistic_s_index(
     timezone_name: str,
 ) -> Tuple[Optional[float], Dict[str, Any]]:
     """
-    Compute S-index factor using Probabilistic Forecasts (p10/p90).
+    Compute S-index factor using Sigma Scaling (Rev A28).
     
     Logic:
-        Risk = (Load_p90 - Load_p50) + (PV_p50 - PV_p10)
-        Factor = 1.0 + (Risk / Load_p50)
-        
-    This ensures the safety margin covers the aggregate uncertainty of both
-    Load (unexpected demand) and PV (unexpected cloud cover).
+        1. Calculate Uncertainty (Sigma Proxy): (Load_p90 - Load_p50) + (PV_p50 - PV_p10)
+        2. Map User 'risk_appetite' (1-5) to Target Sigma.
+        3. Safety Margin = Uncertainty * Target Sigma
+        4. Target Load = Load_p50 + Safety Margin
+        5. Factor = Target Load / Load_p50
     """
-    base_factor = float(s_index_cfg.get("base_factor", 1.0))
-    # Still respect max_factor from config
+    # 1. Configuration with Defaults
+    # Support legacy base_factor if risk_appetite is missing, but prefer appetite.
+    risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
     
+    # Sigma Mapping (1=Safety to 5=Gambler)
+    # 1: p90 (+1.28 sigma)
+    # 2: p75 (+0.67 sigma)
+    # 3: p50 (0.00 sigma) - Neutral
+    # 4: p40 (-0.25 sigma)
+    # 5: p25 (-0.67 sigma)
+    RISK_SIGMA_MAP = {
+        1: 1.28,
+        2: 0.67,
+        3: 0.00,
+        4: -0.25,
+        5: -0.67
+    }
+    target_sigma = RISK_SIGMA_MAP.get(risk_appetite, 0.0)
+
     # Determine days to check
     horizon_days = s_index_cfg.get("s_index_horizon_days")
     if horizon_days is not None:
@@ -199,7 +215,7 @@ def calculate_probabilistic_s_index(
     if not has_probs:
         return None, {"mode": "probabilistic", "reason": "missing_probabilistic_columns"}
 
-    total_risk_kwh = 0.0
+    total_uncertainty_kwh = 0.0
     total_load_p50 = 0.0
     considered_days = []
 
@@ -218,11 +234,12 @@ def calculate_probabilistic_s_index(
         p_p50 = df.loc[mask, "pv_forecast_kwh"].sum()
         p_p10 = df.loc[mask, "pv_p10"].sum()
         
-        # Risk components (ensure non-negative)
-        load_risk = max(0.0, l_p90 - l_p50)
-        pv_risk = max(0.0, p_p50 - p_p10)
+        # Uncertainty components (Standard Deviation Proxy)
+        # We define Uncertainty = (Load_Upside_Risk) + (PV_Downside_Risk)
+        load_sigma = max(0.0, l_p90 - l_p50)
+        pv_sigma = max(0.0, p_p50 - p_p10)
         
-        total_risk_kwh += (load_risk + pv_risk)
+        total_uncertainty_kwh += (load_sigma + pv_sigma)
         total_load_p50 += l_p50
 
     if not considered_days or total_load_p50 <= 0:
@@ -232,25 +249,33 @@ def calculate_probabilistic_s_index(
             "considered_days": considered_days
         }
 
-    # Calculate derived factor
-    risk_ratio = total_risk_kwh / total_load_p50
-    raw_factor = 1.0 + risk_ratio
+    # Sigma Scaling Calculation
+    safety_margin_kwh = total_uncertainty_kwh * target_sigma
+    target_load_kwh = total_load_p50 + safety_margin_kwh
     
-    # Apply base_factor as a multiplier if desired, or just add it if it represents a manual buffer?
-    # Usually base_factor in legacy was 1.05. Here clean math suggests 1.0 base.
-    # Let's trust the calculated risk, but allow base_factor to be a minimum floor if > 1.0
-    raw_factor = max(raw_factor, base_factor)
+    # Calculate derived factor (Plan / Baseline)
+    # Clamp to reasonable physics (e.g., 0.5x minimum to avoid divide-by-zero or zeroing out usage)
+    target_load_kwh = max(total_load_p50 * 0.5, target_load_kwh)
     
-    factor = min(max_factor, max(1.0, raw_factor))
+    raw_factor = target_load_kwh / total_load_p50
+    
+    # Apply Configured Max Cap (Safety Guardrail)
+    factor = min(max_factor, raw_factor)
+    
+    # Note: We explicitly DO NOT floor at 1.0 anymore (User request).
+    # But we ensure it's non-negative above.
 
     debug_data = {
-        "mode": "probabilistic",
+        "mode": "probabilistic_sigma_scaling",
+        "risk_appetite": risk_appetite,
+        "target_sigma": target_sigma,
         "considered_days": considered_days,
         "total_load_p50": round(total_load_p50, 2),
-        "total_risk_kwh": round(total_risk_kwh, 2),
-        "risk_ratio": round(risk_ratio, 4),
+        "total_uncertainty_kwh": round(total_uncertainty_kwh, 2),
+        "safety_margin_kwh": round(safety_margin_kwh, 2),
+        "target_load_kwh": round(target_load_kwh, 2),
         "raw_factor": round(raw_factor, 4),
-        "columns_found": True,
+        "clamped_factor": round(factor, 4),
     }
     
     return factor, debug_data

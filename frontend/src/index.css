@@ -108,3 +108,28 @@ body::before {
 .ds-timeline-hold {
     background-color: #FFD966 !important;
 }
+
+/* Custom integrated scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: #242b34; /* theme('colors.line') */
+    border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: #323b46; /* slightly lighter than line */
+}
+
+/* Firefox support */
+.custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #242b34 transparent;
+}
