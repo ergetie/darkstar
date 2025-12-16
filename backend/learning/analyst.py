@@ -211,8 +211,7 @@ class Analyst:
         return round(new_factor, 4)
 
     def _fetch_observations(self, start: datetime, end: datetime) -> pd.DataFrame:
-        # Fetch all observations (or filter by date string if optimization needed later)
-        # We filter strictly in Python to avoid SQLite timestamp string comparison issues.
+        """Fetch observations within date range."""
         query = "SELECT slot_start, load_kwh, pv_kwh FROM slot_observations"
         
         try:
@@ -220,28 +219,31 @@ class Analyst:
                 df = pd.read_sql_query(query, conn)
                 
                 if not df.empty:
-                    df["slot_start"] = pd.to_datetime(df["slot_start"])
-                    if df["slot_start"].dt.tz is None:
-                         df["slot_start"] = df["slot_start"].dt.tz_localize("UTC")
+                    df["slot_start"] = pd.to_datetime(df["slot_start"], utc=True)
+                    # Convert start/end to UTC for comparison
+                    start_utc = start.astimezone(timezone.utc) if start.tzinfo else start.replace(tzinfo=timezone.utc)
+                    end_utc = end.astimezone(timezone.utc) if end.tzinfo else end.replace(tzinfo=timezone.utc)
                     
-                    # Filter strictly in Pandas
-                    df = df[(df["slot_start"] >= start) & (df["slot_start"] <= end)]
+                    df = df[(df["slot_start"] >= start_utc) & (df["slot_start"] <= end_utc)]
                 return df
-        except Exception:
+        except Exception as e:
+            print(f"Analyst: _fetch_observations error: {e}")
             return pd.DataFrame()
 
     def _fetch_plans(self, start: datetime, end: datetime) -> pd.DataFrame:
-        query = "SELECT slot_start, load_forecast_kwh, pv_forecast_kwh FROM slot_plans"
+        """Fetch forecasts within date range."""
+        query = "SELECT slot_start, load_forecast_kwh, pv_forecast_kwh FROM slot_forecasts"
         try:
             with sqlite3.connect(self.store.db_path) as conn:
                 df = pd.read_sql_query(query, conn)
                 if not df.empty:
-                    df["slot_start"] = pd.to_datetime(df["slot_start"])
-                    if df["slot_start"].dt.tz is None:
-                         df["slot_start"] = df["slot_start"].dt.tz_localize("UTC")
+                    df["slot_start"] = pd.to_datetime(df["slot_start"], utc=True)
+                    # Convert start/end to UTC for comparison
+                    start_utc = start.astimezone(timezone.utc) if start.tzinfo else start.replace(tzinfo=timezone.utc)
+                    end_utc = end.astimezone(timezone.utc) if end.tzinfo else end.replace(tzinfo=timezone.utc)
                     
-                    # Filter strictly in Pandas
-                    df = df[(df["slot_start"] >= start) & (df["slot_start"] <= end)]
+                    df = df[(df["slot_start"] >= start_utc) & (df["slot_start"] <= end_utc)]
                 return df
-        except Exception:
+        except Exception as e:
+            print(f"Analyst: _fetch_plans error: {e}")
             return pd.DataFrame()

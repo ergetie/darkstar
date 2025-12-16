@@ -403,20 +403,41 @@ def calculate_target_soc_risk_factor(
     
     raw_factor = base_factor + pv_contribution + temp_contribution
     
-    # Apply risk_appetite via sigma scaling
-    # The "uncertainty" for target SOC is how much the raw_factor deviates from 1.0
-    # Gambler mode (negative sigma) can push below base_factor
-    # Safety mode (positive sigma) adds extra buffer
+    # Apply risk_appetite via direct scaling of the buffer above 1.0
+    # 
+    # The "buffer" is how much above 1.0 the raw_factor is.
+    # risk_appetite controls what percentage of this buffer to use:
+    # 
+    # - Safety (1): Use 150% of buffer (sigma=+1.28 → 1.0 + buffer * 1.5)
+    # - Neutral (3): Use 100% of buffer (sigma=0 → raw_factor unchanged)
+    # - Gambler (5): Use 50% of buffer (sigma=-0.67 → 1.0 + buffer * 0.5)
+    #
+    # This gives much more dynamic range than the previous formula.
     
-    # Calculate uncertainty as the magnitude of adjustments
-    # This represents "how risky" the current conditions are
-    uncertainty = abs(pv_contribution) + abs(temp_contribution)
-    if uncertainty < 0.05:
-        uncertainty = 0.05  # Minimum uncertainty to allow some sigma effect
+    buffer_above_one = raw_factor - 1.0
     
-    # Apply sigma: positive sigma → increase factor, negative sigma → decrease
-    sigma_adjustment = target_sigma * uncertainty
-    adjusted_factor = raw_factor + sigma_adjustment
+    # Map sigma to a buffer multiplier:
+    # sigma=+1.28 → multiplier=1.5 (150% buffer, more conservative)
+    # sigma=0.00  → multiplier=1.0 (100% buffer, neutral)
+    # sigma=-0.67 → multiplier=0.5 (50% buffer, more aggressive)
+    #
+    # Linear mapping: multiplier = 1.0 - (sigma * 0.4)
+    # This gives: sigma=1.28 → 0.49, sigma=0 → 1.0, sigma=-0.67 → 1.27
+    # Wait, that's backwards. Let me fix:
+    # 
+    # For positive sigma (conservative): want higher factor → higher multiplier
+    # For negative sigma (gambler): want lower factor → lower multiplier
+    #
+    # multiplier = 1.0 + (sigma * 0.4)
+    # sigma=+1.28 → 1.51 (use 151% of buffer)
+    # sigma=0.00  → 1.00 (use 100% of buffer)
+    # sigma=-0.67 → 0.73 (use 73% of buffer)
+    
+    buffer_multiplier = 1.0 + (target_sigma * 0.4)
+    buffer_multiplier = max(0.3, min(1.8, buffer_multiplier))  # Clamp to reasonable range
+    
+    adjusted_buffer = buffer_above_one * buffer_multiplier
+    adjusted_factor = 1.0 + adjusted_buffer
     
     # Apply bounds
     # Gambler mode (risk_appetite=5) can go as low as min_factor
@@ -442,8 +463,9 @@ def calculate_target_soc_risk_factor(
         "temp_adjustment": round(temp_adjustment, 4),
         "temp_contribution": round(temp_contribution, 4),
         "raw_factor": round(raw_factor, 4),
-        "uncertainty": round(uncertainty, 4),
-        "sigma_adjustment": round(sigma_adjustment, 4),
+        "buffer_above_one": round(buffer_above_one, 4),
+        "buffer_multiplier": round(buffer_multiplier, 4),
+        "adjusted_buffer": round(adjusted_buffer, 4),
         "adjusted_factor": round(adjusted_factor, 4),
         "risk_factor": round(risk_factor, 4),
     }

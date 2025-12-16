@@ -121,7 +121,7 @@ s_index:
   max_factor: 1.5
   mode: probabilistic
   pv_deficit_weight: 0.2
-  risk_appetite: 4
+  risk_appetite: 5
   s_index_horizon_days: 4
   soc_scaling_factor: 50.0
   temp_baseline_c: 15.0
