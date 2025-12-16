@@ -1299,20 +1299,29 @@ def save_config():
     if "s_index" in new_config or "battery" in new_config:
         regenerate_schedule = True
     
+    regen_result = None
     if regenerate_schedule:
         try:
             from inputs import get_all_input_data
             from planner.pipeline import PlannerPipeline
             
             logger.info("Config changed - regenerating schedule...")
+            
+            # CRITICAL: Reload the fresh config from disk to ensure all values are correct
+            # The merged_config from the request may be incomplete or have stale values
+            with open("config.yaml", "r") as f:
+                fresh_config = yaml.safe_load(f) or {}
+            
             input_data = get_all_input_data("config.yaml")
-            pipeline = PlannerPipeline(merged_config)
+            pipeline = PlannerPipeline(fresh_config)
             pipeline.generate_schedule(input_data, mode="full", save_to_file=True)
             logger.info("Schedule regenerated successfully")
+            regen_result = "success"
         except Exception as exc:
             logger.warning("Failed to regenerate schedule after config change: %s", exc)
+            regen_result = f"error: {exc}"
     
-    return jsonify({"status": "success", "regenerated": regenerate_schedule})
+    return jsonify({"status": "success", "regenerated": regenerate_schedule, "regen_result": regen_result})
 
 
 @app.route("/api/config/reset", methods=["POST"])
