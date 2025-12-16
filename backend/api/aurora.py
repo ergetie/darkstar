@@ -4,8 +4,9 @@ import json
 import logging
 import os
 import sqlite3
+import pandas as pd
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Dict, Any, List, Optional
 
 import pytz
 import requests
@@ -383,6 +384,38 @@ def aurora_dashboard():
 
     weather_volatility = _fetch_weather_volatility(slot_start, horizon_end, config)
     horizon = _fetch_horizon_series(engine, config)
+    
+    # Rev A29: Add Forecast History (Actuals)
+    try:
+        if engine is not None and hasattr(engine, 'store'):
+            # Fetch last 24h of actuals
+            # We use get_forecast_vs_actual(days_back=2) to cover enough history
+            df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv")
+            df_load = engine.store.get_forecast_vs_actual(days_back=2, target="load")
+            
+            # Filter for last 24h relative to slot_start
+            history_start_iso = (slot_start - timedelta(hours=24)).isoformat()
+            
+            def process_history(df):
+                if df.empty: return []
+                # Filter rows where slot_start >= history_start_iso
+                filtered = df[df["slot_start"] >= history_start_iso].copy()
+                
+                # Robust NaN handling: convert to object and replace nan with None
+                for col in ["p10", "p90", "forecast", "actual"]:
+                    if col in filtered.columns:
+                        filtered[col] = filtered[col].astype(object).where(pd.notnull(filtered[col]), None)
+                
+                return filtered[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict("records")
+
+            horizon["history_series"] = {
+                "pv": process_history(df_pv),
+                "load": process_history(df_load)
+            }
+    except Exception as exc:
+        logger.warning("Failed to fetch history series: %s", exc)
+        horizon["history_series"] = {"pv": [], "load": []}
+
     history = _fetch_correction_history(engine, config)
     metrics = _compute_metrics(engine)
     strategy_history = get_strategy_history(limit=50)

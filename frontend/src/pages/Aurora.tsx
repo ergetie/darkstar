@@ -61,27 +61,28 @@ export default function Aurora() {
   const [perfData, setPerfData] = useState<any>(null)
   const [perfLoading, setPerfLoading] = useState(true)
 
-  useEffect(() => {
-    const fetchDashboard = async () => {
-      setLoading(true)
-      try {
-        const res = await Api.aurora.dashboard()
-        setDashboard(res)
-        // @ts-ignore - risk_appetite added in Rev A28
-        const ra = res.state?.risk_profile?.risk_appetite
-        if (typeof ra === 'number') {
-          setRiskAppetite(ra)
-        }
-        setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
-        // @ts-ignore
-        setReflexEnabled(!!res.state?.reflex_enabled)
-        setProbabilisticMode(res.state?.risk_profile?.mode === 'probabilistic')
-      } catch (err) {
-        console.error('Failed to load Aurora dashboard:', err)
-      } finally {
-        setLoading(false)
+  const fetchDashboard = async () => {
+    setLoading(true)
+    try {
+      const res = await Api.aurora.dashboard()
+      setDashboard(res)
+      // @ts-ignore - risk_appetite added in Rev A28
+      const ra = res.state?.risk_profile?.risk_appetite
+      if (typeof ra === 'number') {
+        setRiskAppetite(ra)
       }
+      setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
+      // @ts-ignore
+      setReflexEnabled(!!res.state?.reflex_enabled)
+      setProbabilisticMode(res.state?.risk_profile?.mode === 'probabilistic')
+    } catch (err) {
+      console.error('Failed to load Aurora dashboard:', err)
+    } finally {
+      setLoading(false)
     }
+  }
+
+  useEffect(() => {
     fetchDashboard()
 
     const fetchSchedulerStatus = async () => {
@@ -346,45 +347,65 @@ export default function Aurora() {
             <span className="text-[10px] uppercase font-bold text-muted tracking-wider">
               Risk Appetite
             </span>
-            <span className="text-[10px] font-mono text-muted">
-              Step {riskAppetite}/5
-            </span>
+            <div className="flex items-center gap-2">
+              {/* Calc/Applied Indicators */}
+              {dashboard?.state?.risk_profile?.raw_factor != null && (dashboard.state.risk_profile.raw_factor ?? 0) > 0 && (
+                <span className="text-[9px] text-muted/60" title="Calculated based on risk">
+                  Calc: {(dashboard.state.risk_profile.raw_factor ?? 0).toFixed(2)}
+                </span>
+              )}
+              <span className="text-[9px] text-muted" title="Proected factor for next run">
+                Applied: {(dashboard?.state?.risk_profile?.current_factor ?? 1.0).toFixed(2)}
+              </span>
+            </div>
           </div>
 
-          <div className="relative px-2 py-4">
-            <div className="absolute inset-x-2 top-1/2 h-1 -translate-y-1/2 rounded-full bg-surface2" />
+          <div className="flex flex-col gap-3">
+            {/* 5-Step Segmented Control */}
+            <div className="grid grid-cols-5 gap-1 p-1 bg-surface2/50 rounded-lg border border-line/30">
+              {[1, 2, 3, 4, 5].map((step) => {
+                const isActive = riskAppetite === step;
+                // Determine color based on risk level
+                let activeClass = 'bg-surface border-line text-text shadow-sm';
+                if (isActive) {
+                  if (step === 1) activeClass = 'bg-emerald-500/20 border-emerald-500/50 text-emerald-100 shadow-[0_0_10px_rgba(16,185,129,0.2)]';
+                  else if (step === 2) activeClass = 'bg-teal-500/20 border-teal-500/50 text-teal-100';
+                  else if (step === 3) activeClass = 'bg-blue-500/20 border-blue-500/50 text-blue-100';
+                  else if (step === 4) activeClass = 'bg-amber-500/20 border-amber-500/50 text-amber-100';
+                  else if (step === 5) activeClass = 'bg-red-500/20 border-red-500/50 text-red-100 shadow-[0_0_10px_rgba(239,68,68,0.2)]';
+                }
 
-            {/* Tick marks for 1-5 scale */}
-            <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 flex justify-between px-1 pointer-events-none">
-              {[1, 2, 3, 4, 5].map((step) => (
-                <div key={step} className="h-2 w-0.5 bg-line/50 rounded-full" />
-              ))}
+                return (
+                  <button
+                    key={step}
+                    onClick={() => handleRiskChange(step)}
+                    className={`
+                       relative flex items-center justify-center h-9 rounded-md text-[10px] font-medium transition-all duration-200
+                       border border-transparent
+                       ${isActive ? activeClass : 'text-muted hover:bg-surface/50 hover:text-text'}
+                     `}
+                  >
+                    {step}
+                  </button>
+                )
+              })}
             </div>
 
-            <input
-              type="range"
-              min={1}
-              max={5}
-              step={1}
-              value={riskAppetite}
-              onChange={(e) => {
-                const val = parseInt(e.target.value, 10)
-                handleRiskChange(val)
-              }}
-              className="relative w-full bg-transparent accent-accent cursor-pointer z-10"
-            />
-          </div>
-
-          <div className="mt-auto pt-2 text-center text-[10px] text-muted">
-            <div className="flex flex-col gap-1">
-              <span className="text-accent font-medium">
+            {/* Descriptions */}
+            <div className="text-center h-8 flex flex-col justify-center">
+              <span className={`text-[11px] font-medium transition-colors duration-300 ${riskAppetite === 1 ? 'text-emerald-400' :
+                riskAppetite === 2 ? 'text-teal-400' :
+                  riskAppetite === 3 ? 'text-blue-400' :
+                    riskAppetite === 4 ? 'text-amber-400' :
+                      'text-red-400'
+                }`}>
                 {{
                   1: 'Safety First',
                   2: 'Conservative',
                   3: 'Neutral (Balanced)',
                   4: 'Aggressive',
                   5: 'Gambler'
-                }[riskAppetite] || 'Custom'}
+                }[riskAppetite]}
               </span>
               <span className="text-[9px] text-muted/70">
                 {{
@@ -393,20 +414,28 @@ export default function Aurora() {
                   3: 'Trusts the Mean (p50)',
                   4: 'Expects Lower Load',
                   5: 'Bets on Sun/Empty'
-                }[riskAppetite] || 'Custom setting'}
+                }[riskAppetite]}
               </span>
-
-              <div className="flex justify-center gap-3 mt-3 pt-2 border-t border-line/30">
-                {/* Raw vs Applied (Projected) */}
-                {dashboard?.state?.risk_profile?.raw_factor != null &&
-                  (dashboard.state.risk_profile.raw_factor ?? 0) > 0 && (
-                    <span title="Calculated based on risk">Calc: {(dashboard.state.risk_profile.raw_factor ?? 0).toFixed(2)}</span>
-                  )}
-                <span title="Projected factor for next run">Applied: {
-                  (dashboard?.state?.risk_profile?.current_factor ?? 1.0).toFixed(2)
-                }</span>
-              </div>
             </div>
+          </div>
+
+          {/* Re-Plan Trigger */}
+          <div className="mt-4 pt-3 border-t border-line/30 flex justify-center">
+            <button
+              onClick={async () => {
+                // Save first (already done by setRisk logic, but ensuring)
+                await handleRiskChange(riskAppetite);
+                // Trigger Planner
+                await Api.runPlanner();
+                // Refresh Dashboard
+                await fetchDashboard();
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface hover:bg-surface2 border border-line/50 text-[10px] text-muted hover:text-text transition-colors"
+              title="Run Strategy Engine to update forecast based on new risk"
+            >
+              <Zap className="h-3 w-3 text-accent" />
+              <span>Apply & Re-Plan</span>
+            </button>
           </div>
         </Card>
 
@@ -474,17 +503,17 @@ export default function Aurora() {
           <div className="mt-auto pt-2 text-center text-[10px] text-muted">
             More controls coming soon.
           </div>
-        </Card>
-      </div>
+        </Card >
+      </div >
 
       {/* 1.5 KPI STRIP */}
-      <KPIStrip metrics={dashboard?.metrics} perfData={perfData} />
+      < KPIStrip metrics={dashboard?.metrics} perfData={perfData} />
 
       {/* 2. THE DASHBOARD (Middle Section) */}
-      <div className="grid gap-4 lg:grid-cols-12 lg:h-[450px]">
+      < div className="grid gap-4 lg:grid-cols-12 lg:h-[450px]" >
 
         {/* Context Radar */}
-        <Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden">
+        < Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden" >
           <div className="mb-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Activity className="h-4 w-4 text-accent" />
@@ -506,10 +535,10 @@ export default function Aurora() {
               forecastBias={dashboard?.metrics?.forecast_bias}
             />
           </div>
-        </Card>
+        </Card >
 
         {/* Activity Log */}
-        <Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden">
+        < Card className="lg:col-span-4 p-4 flex flex-col h-full min-h-0 overflow-hidden" >
           <div className="mb-4 flex items-center justify-between shrink-0">
             <div className="flex items-center gap-2">
               <Brain className="h-4 w-4 text-accent" />
@@ -529,7 +558,7 @@ export default function Aurora() {
           <div className="flex-1 min-h-0 overflow-y-auto pr-2 custom-scrollbar">
             <ActivityLog events={strategyEvents} />
           </div>
-        </Card>
+        </Card >
 
         {/* SoC Tunnel (Moved from bottom) */}
         {/* This card is being removed and its logic merged into Forecast View */}
@@ -591,12 +620,12 @@ export default function Aurora() {
             )}
           </div>
         </Card>
-      </div>
+      </div >
 
       {/* 3. THE MIRROR (Bottom Section) */}
-      <div className="grid gap-4 lg:grid-cols-12">
+      < div className="grid gap-4 lg:grid-cols-12" >
         {/* Forecast View / SoC Tunnel (Merged with toggle) */}
-        <Card className="lg:col-span-12 p-4 flex flex-col h-[350px] overflow-hidden">
+        < Card className="lg:col-span-12 p-4 flex flex-col h-[350px] overflow-hidden" >
           <div className="flex items-center justify-between mb-3 shrink-0">
             <div>
               <div className="text-xs font-medium text-text">
@@ -688,25 +717,64 @@ export default function Aurora() {
                 <ProbabilisticChart
                   title=""
                   color={chartMode === 'load' ? '#f97316' : '#22c55e'}
-                  slots={horizonSlots.map(s => {
-                    if (chartMode === 'load') {
-                      return {
-                        time: s.slot_start,
-                        p10: s.probabilistic?.load_p10 ?? null,
-                        p50: s.final.load_kwh,
-                        p90: s.probabilistic?.load_p90 ?? null,
-                        actual: null
+                  slots={(() => {
+                    const histData = (dashboard?.horizon?.history_series?.[chartMode === 'load' ? 'load' : 'pv'] || []);
+                    const futureData = horizonSlots.map(s => {
+                      if (chartMode === 'load') {
+                        return {
+                          time: s.slot_start,
+                          p10: s.probabilistic?.load_p10 ?? null,
+                          p50: s.final.load_kwh,
+                          p90: s.probabilistic?.load_p90 ?? null,
+                          actual: null as number | null
+                        };
+                      } else {
+                        return {
+                          time: s.slot_start,
+                          p10: s.probabilistic?.pv_p10 ?? null,
+                          p50: s.final.pv_kwh,
+                          p90: s.probabilistic?.pv_p90 ?? null,
+                          actual: null as number | null
+                        };
                       }
-                    } else {
-                      return {
-                        time: s.slot_start,
-                        p10: s.probabilistic?.pv_p10 ?? null,
-                        p50: s.final.pv_kwh,
-                        p90: s.probabilistic?.pv_p90 ?? null,
-                        actual: null
+                    });
+
+                    // 1. Create a map by timestamp to merge overlaps
+                    const merged = new Map<string, any>();
+
+                    // 2. Add History (Actuals + Forecasts)
+                    histData.forEach(h => {
+                      merged.set(h.slot_start, {
+                        time: h.slot_start,
+                        p10: h.p10 ?? null,
+                        p50: h.forecast ?? null,
+                        p90: h.p90 ?? null,
+                        actual: h.actual
+                      });
+                    });
+
+                    // 3. Add/Merge Future (Forecast)
+                    futureData.forEach(f => {
+                      const existing = merged.get(f.time);
+                      if (existing) {
+                        // Merge: Keep actual, add forecast
+                        merged.set(f.time, { ...existing, p10: f.p10, p50: f.p50, p90: f.p90 });
+                      } else {
+                        merged.set(f.time, f);
                       }
-                    }
-                  })}
+                    });
+
+                    // 4. Sort and Slice (-24h to +24h)
+                    const now = new Date().getTime();
+                    const H24 = 24 * 60 * 60 * 1000;
+
+                    return Array.from(merged.values())
+                      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime())
+                      .filter(s => {
+                        const t = new Date(s.time).getTime();
+                        return t >= now - H24 && t <= now + H24;
+                      });
+                  })()}
                 />
               </div>
             ) : (
@@ -714,8 +782,8 @@ export default function Aurora() {
               <DecompositionChart slots={horizonSlots} mode={chartMode} />
             )}
           </div>
-        </Card>
-      </div>
+        </Card >
+      </div >
     </div >
   )
 }

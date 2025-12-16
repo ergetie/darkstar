@@ -88,6 +88,11 @@ class Analyst:
         """
         Calculate new adjustment factors and write to learning_daily_metrics.
         Only runs if auto_tune_enabled is True.
+        
+        Updates:
+        - pv_adjustment_by_hour_kwh: Hourly PV bias corrections
+        - load_adjustment_by_hour_kwh: Hourly load bias corrections
+        - s_index_base_factor: Base safety factor (increases if consistently under-forecasting)
         """
         if not self.learning_config.get("auto_tune_enabled", False):
             print("Analyst: Auto-tune disabled. Skipping update.")
@@ -101,6 +106,7 @@ class Analyst:
             return
 
         hourly_bias = analysis.get("hourly_bias", {})
+        global_bias = analysis.get("global_bias", {})
         
         # Construct Adjustment Arrays (24 hours)
         # We apply the bias directly as the adjustment.
@@ -117,24 +123,16 @@ class Analyst:
                 load_adj[hour] = max(-2.0, min(2.0, stats.get("load_bias", 0.0)))
                 pv_adj[hour] = max(-2.0, min(2.0, stats.get("pv_bias", 0.0)))
 
-        # Write to DB
-        # We write this for "today" so it's picked up immediately.
+        # Calculate new s_index_base_factor based on forecast accuracy
+        # If load was consistently under-forecasted (positive bias), increase base_factor
+        # If load was over-forecasted (negative bias), decrease base_factor
+        s_index_base_factor = self._calculate_new_s_index_base_factor(global_bias)
+
+        # Write to DB for "today" so it's picked up immediately
         today_str = datetime.now().date().isoformat()
-        
-        # We also need s_index_base_factor. For now, keep it static or read existing?
-        # Let's read the *last* one or default to 1.05.
-        # For K9, we only tune Load/PV bias.
         
         try:
             with sqlite3.connect(self.store.db_path) as conn:
-                # Check existing to preserve s_index
-                cursor = conn.execute(
-                    "SELECT s_index_base_factor FROM learning_daily_metrics WHERE date = ?", 
-                    (today_str,)
-                )
-                row = cursor.fetchone()
-                s_index = row[0] if row else 1.05
-                
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO learning_daily_metrics 
@@ -145,15 +143,72 @@ class Analyst:
                         today_str,
                         json.dumps(pv_adj),
                         json.dumps(load_adj),
-                        s_index,
+                        s_index_base_factor,
                         datetime.now(timezone.utc).isoformat()
                     )
                 )
                 conn.commit()
-            print(f"Analyst: Updated learning overlays for {today_str}.")
+            print(f"Analyst: Updated learning overlays for {today_str} (s_index_base_factor={s_index_base_factor:.4f}).")
             
         except Exception as e:
             print(f"Analyst: Failed to write overlays: {e}")
+
+    def _calculate_new_s_index_base_factor(self, global_bias: Dict[str, float]) -> float:
+        """
+        Calculate updated s_index_base_factor based on forecast bias.
+        
+        Logic:
+        - Start from config base_factor (or last learned value)
+        - If load was under-forecasted (positive bias), increase factor
+        - If load was over-forecasted (negative bias), decrease factor
+        - Apply max daily change limit from config
+        - Clamp to [min_factor, max_factor] range
+        """
+        s_index_cfg = self.config.get("s_index", {})
+        config_base = float(s_index_cfg.get("base_factor", 1.05))
+        max_factor = float(s_index_cfg.get("max_factor", 1.5))
+        min_factor = float(s_index_cfg.get("min_factor", 0.8))
+        
+        # Get the max daily change allowed
+        max_change = float(
+            self.learning_config.get("max_daily_param_change", {}).get("s_index_base_factor", 0.05)
+        )
+        
+        # Get last learned value (or use config default)
+        try:
+            with sqlite3.connect(self.store.db_path) as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT s_index_base_factor FROM learning_daily_metrics 
+                    WHERE s_index_base_factor IS NOT NULL 
+                    ORDER BY date DESC LIMIT 1
+                    """
+                )
+                row = cursor.fetchone()
+                current_base = row[0] if row and row[0] is not None else config_base
+        except Exception:
+            current_base = config_base
+        
+        # Calculate adjustment based on load bias
+        # Positive bias = actual > forecast = under-forecasted = need more buffer
+        load_bias_kwh = global_bias.get("load_kwh", 0.0)
+        
+        # Scale: +1 kWh bias per slot on average → +0.02 to base factor
+        # This is fairly conservative; adjust as needed
+        bias_adjustment = load_bias_kwh * 0.02
+        
+        # Clamp to max daily change
+        bias_adjustment = max(-max_change, min(max_change, bias_adjustment))
+        
+        # Calculate new factor
+        new_factor = current_base + bias_adjustment
+        
+        # Clamp to valid range
+        new_factor = max(min_factor, min(max_factor, new_factor))
+        
+        print(f"Analyst: s_index_base_factor: {current_base:.4f} -> {new_factor:.4f} (bias_adj={bias_adjustment:.4f})")
+        
+        return round(new_factor, 4)
 
     def _fetch_observations(self, start: datetime, end: datetime) -> pd.DataFrame:
         # Fetch all observations (or filter by date string if optimization needed later)

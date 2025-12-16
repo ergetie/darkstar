@@ -281,6 +281,176 @@ def calculate_probabilistic_s_index(
     return factor, debug_data
 
 
+def calculate_target_soc_risk_factor(
+    df: pd.DataFrame,
+    s_index_cfg: Dict[str, Any],
+    timezone_name: str,
+    fetch_temperature_fn: Optional[Callable[[List[int], Any], Dict[int, float]]] = None,
+) -> Tuple[float, Dict[str, Any]]:
+    """
+    Calculate risk factor for end-of-day target SOC.
+    
+    This function determines how much energy buffer to hold at end-of-day
+    based on tomorrow's forecasted conditions and user's risk tolerance.
+    
+    Incorporates:
+    - base_factor: Learned or configured baseline buffer
+    - risk_appetite (1-5): Controls how aggressively to buffer
+    - PV vs Load deficit: If tomorrow has low PV vs load, increase buffer
+    - Temperature: Cold days may need more buffer (existing logic)
+    
+    Logic:
+        1. Calculate PV deficit ratio for D1+D2: (load - pv) / load
+           - Positive = deficit (need more buffer)
+           - Negative = surplus (can reduce buffer if gambler mode)
+        
+        2. Apply risk_appetite via sigma scaling:
+           - Safety (1): +1.28σ → higher buffer
+           - Neutral (3): 0σ → baseline
+           - Gambler (5): -0.67σ → lower buffer (can go below baseline)
+        
+        3. Combine: raw_factor = base + pv_deficit_contribution + temp_contribution
+           - Apply sigma scaling to allow gambler mode to reduce below base
+    
+    Returns:
+        Tuple of (risk_factor, debug_data)
+    """
+    # Configuration
+    base_factor = float(s_index_cfg.get("base_factor", 1.05))
+    max_factor = float(s_index_cfg.get("max_factor", 1.50))
+    min_factor = float(s_index_cfg.get("min_factor", 0.8))  # Floor for gambler mode
+    pv_deficit_weight = float(s_index_cfg.get("pv_deficit_weight", 0.2))
+    temp_weight = float(s_index_cfg.get("temp_weight", 0.0))
+    temp_baseline = float(s_index_cfg.get("temp_baseline_c", 20.0))
+    temp_cold = float(s_index_cfg.get("temp_cold_c", -15.0))
+    risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
+    
+    # Sigma mapping (same as probabilistic s-index for consistency)
+    RISK_SIGMA_MAP = {
+        1: 1.28,   # Safety: +1.28σ
+        2: 0.67,   # Conservative: +0.67σ  
+        3: 0.00,   # Neutral: 0σ
+        4: -0.25,  # Aggressive: -0.25σ
+        5: -0.67   # Gambler: -0.67σ
+    }
+    target_sigma = RISK_SIGMA_MAP.get(risk_appetite, 0.0)
+    
+    tz = pytz.timezone(timezone_name)
+    today = datetime.now(tz).date()
+    
+    # Ensure dataframe has timezone-aware index
+    try:
+        local_index = df.index.tz_convert(tz)
+    except TypeError:
+        local_index = df.index.tz_localize(tz)
+    local_dates = pd.Series(local_index.date, index=df.index)
+    
+    # Calculate PV deficit for D1 and D2 (weighted: D1 more important)
+    d1_date = today + timedelta(days=1)
+    d2_date = today + timedelta(days=2)
+    
+    pv_deficit_ratio = 0.0
+    d1_deficit = None
+    d2_deficit = None
+    total_load = 0.0
+    total_pv = 0.0
+    
+    for offset, target_date, weight in [(1, d1_date, 0.7), (2, d2_date, 0.3)]:
+        mask = local_dates == target_date
+        if mask.any():
+            load_sum = float(df.loc[mask, "load_forecast_kwh"].sum())
+            pv_sum = float(df.loc[mask, "pv_forecast_kwh"].sum())
+            total_load += load_sum
+            total_pv += pv_sum
+            
+            if load_sum > 0:
+                # Deficit ratio: positive = need more energy than PV provides
+                # Negative = PV surplus
+                deficit = (load_sum - pv_sum) / load_sum
+                deficit = max(-1.0, min(1.0, deficit))  # Clamp to [-1, 1]
+                
+                if offset == 1:
+                    d1_deficit = deficit
+                else:
+                    d2_deficit = deficit
+                    
+                pv_deficit_ratio += weight * deficit
+    
+    # Temperature adjustment (same as before, but only additive)
+    temps_map: Dict[int, float] = {}
+    if fetch_temperature_fn is not None:
+        temps_map = fetch_temperature_fn([1, 2], tz)
+    
+    d1_temp = temps_map.get(1)
+    d2_temp = temps_map.get(2)
+    mean_temp = None
+    temp_adjustment = 0.0
+    
+    if temp_weight > 0:
+        temp_values = [t for t in [d1_temp, d2_temp] if t is not None]
+        if temp_values:
+            mean_temp = sum(temp_values) / len(temp_values)
+            span = temp_baseline - temp_cold
+            if span <= 0:
+                span = 1.0
+            # Cold → higher adjustment (add buffer), warm → 0
+            temp_adjustment = max(0.0, min(1.0, (temp_baseline - mean_temp) / span))
+    
+    # Calculate raw factor before risk_appetite adjustment
+    # PV deficit contribution: positive deficit → add buffer, surplus → reduce
+    pv_contribution = pv_deficit_weight * pv_deficit_ratio
+    temp_contribution = temp_weight * temp_adjustment
+    
+    raw_factor = base_factor + pv_contribution + temp_contribution
+    
+    # Apply risk_appetite via sigma scaling
+    # The "uncertainty" for target SOC is how much the raw_factor deviates from 1.0
+    # Gambler mode (negative sigma) can push below base_factor
+    # Safety mode (positive sigma) adds extra buffer
+    
+    # Calculate uncertainty as the magnitude of adjustments
+    # This represents "how risky" the current conditions are
+    uncertainty = abs(pv_contribution) + abs(temp_contribution)
+    if uncertainty < 0.05:
+        uncertainty = 0.05  # Minimum uncertainty to allow some sigma effect
+    
+    # Apply sigma: positive sigma → increase factor, negative sigma → decrease
+    sigma_adjustment = target_sigma * uncertainty
+    adjusted_factor = raw_factor + sigma_adjustment
+    
+    # Apply bounds
+    # Gambler mode (risk_appetite=5) can go as low as min_factor
+    # Safety mode is capped at max_factor
+    risk_factor = min(max_factor, max(min_factor, adjusted_factor))
+    
+    debug = {
+        "mode": "target_soc_risk",
+        "base_factor": round(base_factor, 4),
+        "risk_appetite": risk_appetite,
+        "target_sigma": target_sigma,
+        "d1_date": d1_date.isoformat(),
+        "d2_date": d2_date.isoformat(),
+        "d1_deficit_ratio": round(d1_deficit, 4) if d1_deficit is not None else None,
+        "d2_deficit_ratio": round(d2_deficit, 4) if d2_deficit is not None else None,
+        "pv_deficit_ratio_weighted": round(pv_deficit_ratio, 4),
+        "pv_contribution": round(pv_contribution, 4),
+        "total_load_kwh": round(total_load, 2),
+        "total_pv_kwh": round(total_pv, 2),
+        "d1_temp_c": d1_temp,
+        "d2_temp_c": d2_temp,
+        "mean_temp_c": round(mean_temp, 1) if mean_temp is not None else None,
+        "temp_adjustment": round(temp_adjustment, 4),
+        "temp_contribution": round(temp_contribution, 4),
+        "raw_factor": round(raw_factor, 4),
+        "uncertainty": round(uncertainty, 4),
+        "sigma_adjustment": round(sigma_adjustment, 4),
+        "adjusted_factor": round(adjusted_factor, 4),
+        "risk_factor": round(risk_factor, 4),
+    }
+    return risk_factor, debug
+
+
+# Keep old function as alias for backwards compatibility
 def calculate_future_risk_factor(
     df: pd.DataFrame,
     s_index_cfg: Dict[str, Any],
@@ -288,52 +458,12 @@ def calculate_future_risk_factor(
     fetch_temperature_fn: Optional[Callable[[List[int], Any], Dict[int, float]]] = None,
 ) -> Tuple[float, Dict[str, Any]]:
     """
-    Calculate S-Index for the Future (D2) to determine Terminal Value.
-    Uses D2 Temperature and PV forecasts.
+    DEPRECATED: Use calculate_target_soc_risk_factor instead.
     
-    Args:
-        df: DataFrame (used for fallback, not primary calculation)
-        s_index_cfg: S-index configuration
-        timezone_name: Timezone name
-        fetch_temperature_fn: Optional callback to fetch temperature
-        
-    Returns:
-        Tuple of (risk_factor, debug_data)
+    This function is kept for backwards compatibility but now delegates
+    to the new function that properly incorporates risk_appetite and PV deficit.
     """
-    base_factor = float(s_index_cfg.get("base_factor", 1.05))
-    max_factor = float(s_index_cfg.get("max_factor", 1.50))
-    temp_weight = float(s_index_cfg.get("temp_weight", 0.0))
-    temp_baseline = float(s_index_cfg.get("temp_baseline_c", 20.0))
-    temp_cold = float(s_index_cfg.get("temp_cold_c", -15.0))
-    
-    tz = pytz.timezone(timezone_name)
-    today = datetime.now(tz).date()
-    d2_date = today + timedelta(days=2)
-    
-    # Fetch D2 Temperature
-    temps_map: Dict[int, float] = {}
-    if fetch_temperature_fn is not None:
-        temps_map = fetch_temperature_fn([2], tz)
-    d2_temp = temps_map.get(2)
-    
-    temp_adjustment = 0.0
-    if d2_temp is not None and temp_weight > 0:
-        span = temp_baseline - temp_cold
-        if span <= 0:
-            span = 1.0
-        temp_adjustment = max(0.0, min(1.0, (temp_baseline - d2_temp) / span))
-        
-    raw_factor = base_factor + (temp_weight * temp_adjustment)
-    risk_factor = min(max_factor, max(0.0, raw_factor))
-    
-
-    debug = {
-        "d2_date": d2_date.isoformat(),
-        "d2_temp_c": d2_temp,
-        "temp_adjustment": round(temp_adjustment, 4),
-        "risk_factor": round(risk_factor, 4)
-    }
-    return risk_factor, debug
+    return calculate_target_soc_risk_factor(df, s_index_cfg, timezone_name, fetch_temperature_fn)
 
 
 def calculate_dynamic_target_soc(

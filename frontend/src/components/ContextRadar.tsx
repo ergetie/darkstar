@@ -42,7 +42,9 @@ export default function ContextRadar({
     const tempScore = Math.min(100, weatherVolatility.temp * 100)
 
     // Risk: 1.0 is baseline (50), 1.5 is high (100), 0.9 is low (0)
-    const riskScore = Math.max(0, Math.min(100, ((riskFactor - 0.9) / 0.6) * 100))
+    // Risk: 1-5 scale (1=0, 3=50, 5=100)
+    // Formula: (Value - 1) * 25
+    const riskScore = Math.max(0, Math.min(100, (riskFactor - 1) * 25))
 
     // Forecast Confidence: Inverse of error? Or just passed in accuracy.
     const confidenceScore = forecastAccuracy

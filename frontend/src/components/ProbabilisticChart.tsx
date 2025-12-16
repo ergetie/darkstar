@@ -51,8 +51,10 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
                 borderColor: '#94a3b8', // Slate-400
                 backgroundColor: '#94a3b8',
                 borderWidth: 2,
-                pointRadius: 2,
-                tension: 0.2,
+                pointRadius: 0,
+                pointHitRadius: 10, // Keep hover target large
+                tension: 0.4,       // Smooth curve
+                spanGaps: true,     // Bridge small gaps
                 fill: false,
             },
             {
@@ -62,7 +64,9 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
                 borderWidth: 1,
                 backgroundColor: `${color}33`, // 20% opacity fill
                 pointRadius: 0,
-                tension: 0.2,
+                pointHitRadius: 10,
+                tension: 0.4,       // Smooth curve
+                spanGaps: true,
                 fill: '+1', // Fill to next dataset (p10)
             },
             {
@@ -73,7 +77,9 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
                 borderDash: [4, 4], // Dashed line
                 backgroundColor: 'transparent',
                 pointRadius: 0,
-                tension: 0.2,
+                pointHitRadius: 10,
+                tension: 0.4,       // Smooth curve
+                spanGaps: true,
                 fill: false,
             },
             {
@@ -83,7 +89,9 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
                 backgroundColor: color,
                 borderWidth: 2,
                 pointRadius: 0,
-                tension: 0.2,
+                pointHitRadius: 10,
+                tension: 0.4,       // Smooth curve
+                spanGaps: true,
                 fill: false,
             },
         ],

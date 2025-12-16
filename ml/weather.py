@@ -151,7 +151,7 @@ def get_weather_volatility(
     cloud_std = float(df["cloud_cover_pct"].std()) if "cloud_cover_pct" in df.columns else 0.0
     temp_std = float(df["temp_c"].std()) if "temp_c" in df.columns else 0.0
 
-    cloud_norm = 40.0
+    cloud_norm = 20.0
     temp_norm = 5.0
 
     cloud_volatility = 0.0

@@ -58,6 +58,10 @@ export type AuroraHorizon = {
   end: string;
   forecast_version?: string;
   slots: AuroraHorizonSlot[];
+  history_series?: {
+    pv: { slot_start: string; actual: number | null; p10?: number | null; p90?: number | null; forecast?: number | null }[];
+    load: { slot_start: string; actual: number | null; p10?: number | null; p90?: number | null; forecast?: number | null }[];
+  };
 };
 
 export type AuroraHistoryDay = {

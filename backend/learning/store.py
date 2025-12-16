@@ -772,16 +772,22 @@ class LearningStore:
             if target == "pv":
                 forecast_col = "f.pv_forecast_kwh"
                 actual_col = "o.pv_kwh"
+                p10_col = "f.pv_p10"
+                p90_col = "f.pv_p90"
             else:
                 forecast_col = "f.load_forecast_kwh"
                 actual_col = "o.load_kwh"
+                p10_col = "f.load_p10"
+                p90_col = "f.load_p90"
             
             query = f"""
                 SELECT 
                     o.slot_start,
                     {forecast_col} as forecast,
                     {actual_col} as actual,
-                    ({forecast_col} - {actual_col}) as error
+                    ({forecast_col} - {actual_col}) as error,
+                    {p10_col} as p10,
+                    {p90_col} as p90
                 FROM slot_observations o
                 JOIN slot_forecasts f ON o.slot_start = f.slot_start
                 WHERE DATE(o.slot_start) >= ?
