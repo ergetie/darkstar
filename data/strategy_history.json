@@ -1,5 +1,93 @@
 [
   {
+    "timestamp": "2025-12-16T23:27:51.545946",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:27:05.145527",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:26:48.969126",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:26:38.795452",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:26:26.248522",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:26:10.534989",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:26:00.334035",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:25:48.274011",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415,
+      "pv_weight_adj": 0.48,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
     "timestamp": "2025-12-16T23:15:36.633277",
     "type": "WEATHER_ADJUSTMENT",
     "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
@@ -1008,94 +1096,6 @@
       "cloud_vol": 0.018564388619685138,
       "temp_vol": 0.18815971411060445,
       "pv_weight_adj": 0.21,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:41:30.380897",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:41:14.211583",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:07:16.102666",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:06:59.332792",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:06:29.808491",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:05:56.944012",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T16:05:31.820315",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.21). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21159601210898454,
-      "pv_weight_adj": 0.2,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-11T15:20:58.463208",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.00, Temp: 0.22). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.003608439182435161,
-      "temp_vol": 0.21525796827946095,
-      "pv_weight_adj": 0.2,
       "temp_weight_adj": 0.34
     }
   }

@@ -4,8 +4,10 @@ from backend.strategy.history import append_strategy_event
 
 logger = logging.getLogger("darkstar.strategy")
 
-MAX_PV_DEFICIT_WEIGHT_BUMP = 0.4
-MAX_TEMP_WEIGHT_BUMP = 0.2
+# Weather volatility bumps - kept small to avoid overriding user's risk_appetite
+# These add marginal safety buffer during uncertain weather, not dominate the target SOC
+MAX_PV_DEFICIT_WEIGHT_BUMP = 0.1  # Was 0.4 - too aggressive, caused 37% target always
+MAX_TEMP_WEIGHT_BUMP = 0.05       # Was 0.2 - keep small to respect risk_appetite
 
 
 class StrategyEngine:
