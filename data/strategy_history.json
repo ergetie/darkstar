@@ -1,5 +1,104 @@
 [
   {
+    "timestamp": "2025-12-16T20:57:09.941142",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:57:02.434573",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:56:46.639750",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:56:21.907651",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:55:56.077626",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:54:47.705384",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:54:42.415657",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:54:28.956376",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:54:23.913757",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
     "timestamp": "2025-12-16T20:49:31.095096",
     "type": "WEATHER_ADJUSTMENT",
     "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
@@ -977,87 +1076,6 @@
     "details": {
       "spread": 0.30000000000000004,
       "mode": "conservative"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T01:11:57.112997",
-    "type": "PRICE_VOLATILITY",
-    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
-    "details": {
-      "spread": 1.9,
-      "mode": "aggressive"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T01:03:18.462862",
-    "type": "PRICE_VOLATILITY",
-    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
-    "details": {
-      "spread": 0.30000000000000004,
-      "mode": "conservative"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T01:03:18.462200",
-    "type": "PRICE_VOLATILITY",
-    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
-    "details": {
-      "spread": 1.9,
-      "mode": "aggressive"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:59:38.775762",
-    "type": "PRICE_VOLATILITY",
-    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
-    "details": {
-      "spread": 0.30000000000000004,
-      "mode": "conservative"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:59:38.775221",
-    "type": "PRICE_VOLATILITY",
-    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
-    "details": {
-      "spread": 1.9,
-      "mode": "aggressive"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:55:36.724758",
-    "type": "PRICE_VOLATILITY",
-    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
-    "details": {
-      "spread": 0.30000000000000004,
-      "mode": "conservative"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:55:36.724143",
-    "type": "PRICE_VOLATILITY",
-    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
-    "details": {
-      "spread": 1.9,
-      "mode": "aggressive"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:51:33.057054",
-    "type": "PRICE_VOLATILITY",
-    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
-    "details": {
-      "spread": 0.30000000000000004,
-      "mode": "conservative"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:51:33.056480",
-    "type": "PRICE_VOLATILITY",
-    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
-    "details": {
-      "spread": 1.9,
-      "mode": "aggressive"
     }
   }
 ]
