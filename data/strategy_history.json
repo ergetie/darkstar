@@ -1,5 +1,49 @@
 [
   {
+    "timestamp": "2025-12-16T20:49:31.095096",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.17). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16735266622799,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:21:03.294862",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16441978362784376,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:20:55.905753",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16441978362784376,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
+    "timestamp": "2025-12-16T20:20:38.496479",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "High volatility (Cloud: 1.00, Temp: 0.16). Raised S-Index weights.",
+    "details": {
+      "cloud_vol": 1.0,
+      "temp_vol": 0.16441978362784376,
+      "pv_weight_adj": 0.6,
+      "temp_weight_adj": 0.33
+    }
+  },
+  {
     "timestamp": "2025-12-16T16:47:42.456701",
     "type": "WEATHER_ADJUSTMENT",
     "message": "High volatility (Cloud: 1.00, Temp: 0.23). Raised S-Index weights.",
@@ -1014,63 +1058,6 @@
     "details": {
       "spread": 1.9,
       "mode": "aggressive"
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:15:57.516711",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.04, Temp: 0.12). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.03759960176905454,
-      "temp_vol": 0.1171166600306617,
-      "pv_weight_adj": 0.22,
-      "temp_weight_adj": 0.32
-    }
-  },
-  {
-    "timestamp": "2025-12-05T00:15:43.636663",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.04, Temp: 0.12). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.03759960176905454,
-      "temp_vol": 0.1171166600306617,
-      "pv_weight_adj": 0.22,
-      "temp_weight_adj": 0.32
-    }
-  },
-  {
-    "timestamp": "2025-12-04T23:02:02.391780",
-    "type": "REFLEX_PROPOSAL",
-    "message": "Aurora Reflex proposes 2 change(s)",
-    "details": {
-      "changes": [
-        {
-          "param": "s_index.base_factor",
-          "old": 1.1,
-          "new": 1.09
-        },
-        {
-          "param": "battery_economics.battery_cycle_cost_kwh",
-          "old": 0.2,
-          "new": 0.15
-        }
-      ],
-      "dry_run": true
-    }
-  },
-  {
-    "timestamp": "2025-12-04T22:58:31.210061",
-    "type": "REFLEX_PROPOSAL",
-    "message": "Aurora Reflex proposes 1 change(s)",
-    "details": {
-      "changes": [
-        {
-          "param": "s_index.base_factor",
-          "old": 1.1,
-          "new": 1.09
-        }
-      ],
-      "dry_run": true
     }
   }
 ]

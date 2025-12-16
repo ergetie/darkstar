@@ -408,33 +408,26 @@ def calculate_target_soc_risk_factor(
     # The "buffer" is how much above 1.0 the raw_factor is.
     # risk_appetite controls what percentage of this buffer to use:
     # 
-    # - Safety (1): Use 150% of buffer (sigma=+1.28 → 1.0 + buffer * 1.5)
-    # - Neutral (3): Use 100% of buffer (sigma=0 → raw_factor unchanged)
-    # - Gambler (5): Use 50% of buffer (sigma=-0.67 → 1.0 + buffer * 0.5)
+    # - Safety (1): Use 150% of buffer → Higher target SOC
+    # - Neutral (3): Use 100% of buffer → raw_factor unchanged
+    # - Aggressive (4): Use 50% of buffer → Lower target SOC
+    # - Gambler (5): Use ~0% of buffer → Target near min_soc (bet on cheap overnight!)
     #
-    # This gives much more dynamic range than the previous formula.
+    # The key insight: risk_factor = 1.0 means target SOC = min_soc_percent
+    # So for Level 5, we want adjusted_factor → 1.0
     
     buffer_above_one = raw_factor - 1.0
     
-    # Map sigma to a buffer multiplier:
-    # sigma=+1.28 → multiplier=1.5 (150% buffer, more conservative)
-    # sigma=0.00  → multiplier=1.0 (100% buffer, neutral)
-    # sigma=-0.67 → multiplier=0.5 (50% buffer, more aggressive)
-    #
-    # Linear mapping: multiplier = 1.0 - (sigma * 0.4)
-    # This gives: sigma=1.28 → 0.49, sigma=0 → 1.0, sigma=-0.67 → 1.27
-    # Wait, that's backwards. Let me fix:
-    # 
-    # For positive sigma (conservative): want higher factor → higher multiplier
-    # For negative sigma (gambler): want lower factor → lower multiplier
-    #
-    # multiplier = 1.0 + (sigma * 0.4)
-    # sigma=+1.28 → 1.51 (use 151% of buffer)
-    # sigma=0.00  → 1.00 (use 100% of buffer)
-    # sigma=-0.67 → 0.73 (use 73% of buffer)
-    
-    buffer_multiplier = 1.0 + (target_sigma * 0.4)
-    buffer_multiplier = max(0.3, min(1.8, buffer_multiplier))  # Clamp to reasonable range
+    # Direct mapping of risk_appetite to buffer multiplier
+    # This is more intuitive than sigma-based math
+    BUFFER_MULTIPLIER_MAP = {
+        1: 1.5,   # Safety: 150% buffer (higher than neutral)
+        2: 1.2,   # Conservative: 120% buffer
+        3: 1.0,   # Neutral: 100% buffer (raw_factor)
+        4: 0.5,   # Aggressive: 50% buffer
+        5: 0.1,   # Gambler: 10% buffer (nearly min_soc, betting on cheap night charge)
+    }
+    buffer_multiplier = BUFFER_MULTIPLIER_MAP.get(risk_appetite, 1.0)
     
     adjusted_buffer = buffer_above_one * buffer_multiplier
     adjusted_factor = 1.0 + adjusted_buffer
