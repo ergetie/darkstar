@@ -403,6 +403,25 @@ def calculate_target_soc_risk_factor(
     
     raw_factor = base_factor + pv_contribution + temp_contribution
     
+    # OPTION B: Apply weather volatility to the buffer BEFORE risk_appetite
+    # This increases the base buffer during uncertain weather, but risk_appetite
+    # buffer_multiplier still applies on top, so both factors work together.
+    #
+    # e.g. with cloud_vol=0.5: buffer increases by 20% (1 + 0.5 * 0.4)
+    # Then risk_appetite=5 (Gambler) can STILL reduce it to near 0
+    weather_vol = s_index_cfg.get("weather_volatility", {})
+    cloud_vol = float(weather_vol.get("cloud", 0.0) or 0.0)
+    temp_vol_adj = float(weather_vol.get("temp", 0.0) or 0.0)
+    
+    # Weather volatility amplifies the buffer above 1.0
+    # MAX_WEATHER_BUFFER_AMPLIFICATION = 0.4 means at max volatility, buffer is 1.4x
+    MAX_WEATHER_BUFFER_AMPLIFICATION = 0.4
+    weather_amplification = 1.0 + max(cloud_vol, temp_vol_adj) * MAX_WEATHER_BUFFER_AMPLIFICATION
+    
+    buffer_before_weather = raw_factor - 1.0
+    buffer_after_weather = buffer_before_weather * weather_amplification
+    raw_factor_with_weather = 1.0 + buffer_after_weather
+    
     # Apply risk_appetite via direct scaling of the buffer above 1.0
     # 
     # The "buffer" is how much above 1.0 the raw_factor is.
@@ -411,12 +430,12 @@ def calculate_target_soc_risk_factor(
     # - Safety (1): Use 150% of buffer → Higher target SOC
     # - Neutral (3): Use 100% of buffer → raw_factor unchanged
     # - Aggressive (4): Use 50% of buffer → Lower target SOC
-    # - Gambler (5): Use ~0% of buffer → Target near min_soc (bet on cheap overnight!)
+    # - Gambler (5): Use ~10% of buffer → Target near min_soc (bet on cheap overnight!)
     #
     # The key insight: risk_factor = 1.0 means target SOC = min_soc_percent
     # So for Level 5, we want adjusted_factor → 1.0
     
-    buffer_above_one = raw_factor - 1.0
+    buffer_above_one = raw_factor_with_weather - 1.0
     
     # Direct mapping of risk_appetite to buffer multiplier
     # This is more intuitive than sigma-based math
@@ -456,6 +475,12 @@ def calculate_target_soc_risk_factor(
         "temp_adjustment": round(temp_adjustment, 4),
         "temp_contribution": round(temp_contribution, 4),
         "raw_factor": round(raw_factor, 4),
+        "weather_volatility": {
+            "cloud": round(cloud_vol, 2),
+            "temp": round(temp_vol_adj, 2),
+            "amplification": round(weather_amplification, 4),
+        },
+        "raw_factor_with_weather": round(raw_factor_with_weather, 4),
         "buffer_above_one": round(buffer_above_one, 4),
         "buffer_multiplier": round(buffer_multiplier, 4),
         "adjusted_buffer": round(adjusted_buffer, 4),

@@ -521,13 +521,13 @@ export default function Settings() {
         if (!field && key !== 'dashboard.overlay_defaults') return
         setUIForm((prev) => ({ ...prev, [key]: value }))
         setUIStatusMessage(null)
-        
+
         // Handle overlay defaults separately
         if (key === 'dashboard.overlay_defaults') {
             // No validation needed for overlay defaults
             return
         }
-        
+
         if (field.type === 'boolean') {
             const trimmed = value.trim()
             setUIFieldErrors((prev) => {
@@ -798,7 +798,7 @@ export default function Settings() {
                                             <AzimuthDial
                                                 value={
                                                     typeof numericValue === 'number' &&
-                                                    !Number.isNaN(numericValue)
+                                                        !Number.isNaN(numericValue)
                                                         ? numericValue
                                                         : null
                                                 }
@@ -839,7 +839,7 @@ export default function Settings() {
                                             <TiltDial
                                                 value={
                                                     typeof numericValue === 'number' &&
-                                                    !Number.isNaN(numericValue)
+                                                        !Number.isNaN(numericValue)
                                                         ? numericValue
                                                         : null
                                                 }
@@ -905,11 +905,10 @@ export default function Settings() {
                         {systemSaving ? 'Saving…' : 'Save System Settings'}
                     </button>
                     {systemStatusMessage && (
-                        <div className={`rounded-lg p-3 text-sm ${
-                            systemStatusMessage.startsWith('Failed') 
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                        <div className={`rounded-lg p-3 text-sm ${systemStatusMessage.startsWith('Failed')
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
                                 : 'bg-green-500/10 border border-green-500/30 text-green-400'
-                        }`}>
+                            }`}>
                             {systemStatusMessage}
                         </div>
                     )}
@@ -1002,14 +1001,18 @@ export default function Settings() {
                         onClick={handleSaveParameters}
                         className={cls.accentBtn}
                     >
-                        {parameterSaving ? 'Saving…' : 'Save Parameters'}
+                        {parameterSaving ? 'Saving & Re-planning…' : 'Save & Re-plan'}
                     </button>
+                    {parameterSaving && (
+                        <div className="text-xs text-muted animate-pulse">
+                            Regenerating schedule with new settings...
+                        </div>
+                    )}
                     {parameterStatusMessage && (
-                        <div className={`rounded-lg p-3 text-sm ${
-                            parameterStatusMessage.startsWith('Failed') 
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                        <div className={`rounded-lg p-3 text-sm ${parameterStatusMessage.startsWith('Failed')
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
                                 : 'bg-green-500/10 border border-green-500/30 text-green-400'
-                        }`}>
+                            }`}>
                             {parameterStatusMessage}
                         </div>
                     )}
@@ -1058,9 +1061,8 @@ export default function Settings() {
                                         key={theme.name}
                                         type="button"
                                         onClick={() => setSelectedTheme(theme.name)}
-                                        className={`group flex flex-col gap-2 rounded-xl border p-3 text-left transition ${
-                                            active ? 'border-accent shadow-sm' : 'border-line/50 hover:border-white/40'
-                                        }`}
+                                        className={`group flex flex-col gap-2 rounded-xl border p-3 text-left transition ${active ? 'border-accent shadow-sm' : 'border-line/50 hover:border-white/40'
+                                            }`}
                                     >
                                         <div className="text-sm font-semibold">{theme.name}</div>
                                         <div className="flex h-6 overflow-hidden rounded-sm border border-line/40">
@@ -1145,11 +1147,10 @@ export default function Settings() {
                                                         <button
                                                             type="button"
                                                             onClick={() => toggleToken('load_off', !loadIsActive)}
-                                                            className={`rounded-pill px-3 py-1 border text-[11px] transition ${
-                                                                loadIsActive
+                                                            className={`rounded-pill px-3 py-1 border text-[11px] transition ${loadIsActive
                                                                     ? 'bg-accent text-canvas border-accent'
                                                                     : 'border-line/60 text-muted hover:border-accent'
-                                                            }`}
+                                                                }`}
                                                         >
                                                             Load
                                                         </button>
@@ -1176,11 +1177,10 @@ export default function Settings() {
                                                                         }
                                                                         handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
                                                                     }}
-                                                                    className={`rounded-pill px-3 py-1 border text-[11px] transition ${
-                                                                        isActive 
-                                                                            ? 'bg-accent text-canvas border-accent' 
+                                                                    className={`rounded-pill px-3 py-1 border text-[11px] transition ${isActive
+                                                                            ? 'bg-accent text-canvas border-accent'
                                                                             : 'border-line/60 text-muted hover:border-accent'
-                                                                    }`}
+                                                                        }`}
                                                                 >
                                                                     {label}
                                                                 </button>
@@ -1193,7 +1193,7 @@ export default function Settings() {
                                     </div>
                                 </div>
                             )}
-                            
+
                             {/* Regular Fields */}
                             <div className="grid gap-4 sm:grid-cols-2">
                                 {section.fields.map((field) => (
@@ -1258,11 +1258,10 @@ export default function Settings() {
                         {uiSaving ? 'Saving…' : 'Save UI Preferences'}
                     </button>
                     {uiStatusMessage && (
-                        <div className={`rounded-lg p-3 text-sm ${
-                            uiStatusMessage.startsWith('Failed') 
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                        <div className={`rounded-lg p-3 text-sm ${uiStatusMessage.startsWith('Failed')
+                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
                                 : 'bg-green-500/10 border border-green-500/30 text-green-400'
-                        }`}>
+                            }`}>
                             {uiStatusMessage}
                         </div>
                     )}
@@ -1294,9 +1293,8 @@ export default function Settings() {
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
-                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                                active ? 'bg-accent text-[#0F1216] shadow-sm' : 'bg-surface border border-line/50 text-muted'
-                            }`}
+                            className={`rounded-full px-4 py-2 text-sm font-semibold transition ${active ? 'bg-accent text-[#0F1216] shadow-sm' : 'bg-surface border border-line/50 text-muted'
+                                }`}
                         >
                             {tab.label}
                         </button>
@@ -1305,11 +1303,10 @@ export default function Settings() {
             </div>
 
             {resetStatusMessage && (
-                <div className={`rounded-lg p-3 text-sm ${
-                    resetStatusMessage.startsWith('Reset failed') 
-                        ? 'bg-red-500/10 border border-red-500/30 text-red-400' 
+                <div className={`rounded-lg p-3 text-sm ${resetStatusMessage.startsWith('Reset failed')
+                        ? 'bg-red-500/10 border border-red-500/30 text-red-400'
                         : 'bg-green-500/10 border border-green-500/30 text-green-400'
-                }`}>
+                    }`}>
                     {resetStatusMessage}
                 </div>
             )}

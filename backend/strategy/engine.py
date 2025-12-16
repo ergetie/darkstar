@@ -57,47 +57,25 @@ class StrategyEngine:
         cloud_vol = max(0.0, min(1.0, cloud_vol))
         temp_vol = max(0.0, min(1.0, temp_vol))
 
+        # OPTION B: Pass weather volatility through to s_index config
+        # The actual adjustments are applied in calculate_target_soc_risk_factor
+        # BEFORE the risk_appetite buffer_multiplier, so both factors work together
         if cloud_vol > 0.0 or temp_vol > 0.0:
-            s_index_cfg = self.config.get("s_index", {}) or {}
-            base_pv_weight = float(s_index_cfg.get("pv_deficit_weight", 0.0) or 0.0)
-            base_temp_weight = float(s_index_cfg.get("temp_weight", 0.0) or 0.0)
-
-            pv_weight_adj = base_pv_weight
-            temp_weight_adj = base_temp_weight
-
-            if cloud_vol > 0.0 and MAX_PV_DEFICIT_WEIGHT_BUMP > 0.0:
-                pv_weight_adj = base_pv_weight + cloud_vol * MAX_PV_DEFICIT_WEIGHT_BUMP
-
-            if temp_vol > 0.0 and MAX_TEMP_WEIGHT_BUMP > 0.0:
-                temp_weight_adj = base_temp_weight + temp_vol * MAX_TEMP_WEIGHT_BUMP
-
-            pv_weight_adj = max(base_pv_weight, round(pv_weight_adj, 2))
-            temp_weight_adj = max(base_temp_weight, round(temp_weight_adj, 2))
-
             overrides.setdefault("s_index", {})
-            overrides["s_index"]["pv_deficit_weight"] = pv_weight_adj
-            overrides["s_index"]["temp_weight"] = temp_weight_adj
-
+            overrides["s_index"]["weather_volatility"] = {
+                "cloud": cloud_vol,
+                "temp": temp_vol,
+            }
+            
             logger.info(
-                "Strategy: Weather volatility cloud=%.2f temp=%.2f. "
-                "Adjusting s_index.pv_deficit_weight from %.2f to %.2f, "
-                "temp_weight from %.2f to %.2f.",
+                "Strategy: Weather volatility cloud=%.2f temp=%.2f passed to s_index.",
                 cloud_vol,
                 temp_vol,
-                base_pv_weight,
-                pv_weight_adj,
-                base_temp_weight,
-                temp_weight_adj,
             )
             append_strategy_event(
                 "WEATHER_ADJUSTMENT",
-                f"High volatility (Cloud: {cloud_vol:.2f}, Temp: {temp_vol:.2f}). Raised S-Index weights.",
-                {
-                    "cloud_vol": cloud_vol,
-                    "temp_vol": temp_vol,
-                    "pv_weight_adj": pv_weight_adj,
-                    "temp_weight_adj": temp_weight_adj
-                }
+                f"Weather volatility (Cloud: {cloud_vol:.2f}, Temp: {temp_vol:.2f}) passed to planner.",
+                {"cloud_vol": cloud_vol, "temp_vol": temp_vol}
             )
 
         # --- Rule: Price Volatility (Kepler Tuning) ---
