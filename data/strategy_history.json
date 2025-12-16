@@ -1,5 +1,32 @@
 [
   {
+    "timestamp": "2025-12-16T23:43:19.852802",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:43:11.219974",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415
+    }
+  },
+  {
+    "timestamp": "2025-12-16T23:42:47.714005",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
+    "details": {
+      "cloud_vol": 0.6977642868476431,
+      "temp_vol": 0.1593515227458415
+    }
+  },
+  {
     "timestamp": "2025-12-16T23:38:01.748105",
     "type": "WEATHER_ADJUSTMENT",
     "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
@@ -1064,39 +1091,6 @@
       "temp_vol": 0.15060163034917579,
       "pv_weight_adj": 0.21,
       "temp_weight_adj": 0.33
-    }
-  },
-  {
-    "timestamp": "2025-12-12T16:30:08.825213",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.01, Temp: 0.15). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.013965509693273204,
-      "temp_vol": 0.15060163034917579,
-      "pv_weight_adj": 0.21,
-      "temp_weight_adj": 0.33
-    }
-  },
-  {
-    "timestamp": "2025-12-12T01:03:09.340091",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.02, Temp: 0.18). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.018764769596618668,
-      "temp_vol": 0.18185607277645077,
-      "pv_weight_adj": 0.21,
-      "temp_weight_adj": 0.34
-    }
-  },
-  {
-    "timestamp": "2025-12-12T01:02:52.156008",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.02, Temp: 0.18). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.018764769596618668,
-      "temp_vol": 0.18185607277645077,
-      "pv_weight_adj": 0.21,
-      "temp_weight_adj": 0.34
     }
   }
 ]

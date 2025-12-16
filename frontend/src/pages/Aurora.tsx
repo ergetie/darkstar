@@ -46,6 +46,7 @@ export default function Aurora() {
   const [briefingLoading, setBriefingLoading] = useState(false)
   const [riskAppetite, setRiskAppetite] = useState<number>(3)
   const [savingRisk, setSavingRisk] = useState(false)
+  const [replanning, setReplanning] = useState(false)
   const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
   const [viewMode, setViewMode] = useState<'forecast' | 'soc'>('forecast')
   const [riskStatus, setRiskStatus] = useState<string>('')
@@ -420,22 +421,41 @@ export default function Aurora() {
           </div>
 
           {/* Re-Plan Trigger */}
-          <div className="mt-4 pt-3 border-t border-line/30 flex justify-center">
+          <div className="mt-4 pt-3 border-t border-line/30 flex flex-col items-center gap-2">
             <button
               onClick={async () => {
-                // Save first (already done by setRisk logic, but ensuring)
-                await handleRiskChange(riskAppetite);
-                // Trigger Planner
-                await Api.runPlanner();
-                // Refresh Dashboard
-                await fetchDashboard();
+                setReplanning(true);
+                try {
+                  // Save first (already done by setRisk logic, but ensuring)
+                  await handleRiskChange(riskAppetite);
+                  // Trigger Planner
+                  await Api.runPlanner();
+                  // Refresh Dashboard
+                  await fetchDashboard();
+                } finally {
+                  setReplanning(false);
+                }
               }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface hover:bg-surface2 border border-line/50 text-[10px] text-muted hover:text-text transition-colors"
+              disabled={replanning}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-surface hover:bg-surface2 border border-line/50 text-[10px] transition-colors ${replanning ? 'opacity-70 cursor-not-allowed text-muted' : 'text-muted hover:text-text'
+                }`}
               title="Run Strategy Engine to update forecast based on new risk"
             >
-              <Zap className="h-3 w-3 text-accent" />
-              <span>Apply & Re-Plan</span>
+              {replanning ? (
+                <>
+                  <div className="h-3 w-3 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                  <span>Re-planning...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="h-3 w-3 text-accent" />
+                  <span>Apply & Re-Plan</span>
+                </>
+              )}
             </button>
+            {replanning && (
+              <span className="text-[9px] text-muted/70 animate-pulse">Regenerating schedule with new risk level...</span>
+            )}
           </div>
         </Card>
 
