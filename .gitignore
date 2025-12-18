@@ -29,3 +29,4 @@ data/planner_learning.db
 schedule.json
 data/*.backup*
 *.backup*.db
+temp_secrets.txt

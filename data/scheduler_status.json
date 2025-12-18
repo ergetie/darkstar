@@ -2,8 +2,8 @@
   "enabled": true,
   "every_minutes": 60,
   "jitter_minutes": 0,
-  "last_run_at": "2025-12-16T21:48:01.247007+00:00",
-  "next_run_at": "2025-12-16T22:48:01.247007+00:00",
+  "last_run_at": "2025-12-18T10:04:22.422352+00:00",
+  "next_run_at": "2025-12-18T11:04:22.422352+00:00",
   "last_run_status": "success",
   "last_error": null,
   "ml_training_last_run_at": "2025-12-16T10:04:17.533683+00:00"
