@@ -156,7 +156,8 @@ class PlannerPipeline:
                     df, 
                     s_index_cfg, 
                     float(s_index_cfg.get("max_factor", 1.5)), 
-                    timezone_name
+                    timezone_name,
+                    daily_probabilistic=input_data.get("daily_probabilistic"),
                 )
                 if factor is not None:
                     effective_load_margin = factor

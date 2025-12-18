@@ -154,6 +154,7 @@ def calculate_probabilistic_s_index(
     s_index_cfg: Dict[str, Any],
     max_factor: float,
     timezone_name: str,
+    daily_probabilistic: Optional[Dict[str, Dict[str, float]]] = None,
 ) -> Tuple[Optional[float], Dict[str, Any]]:
     """
     Compute S-index factor using Sigma Scaling (Rev A28).
@@ -164,6 +165,16 @@ def calculate_probabilistic_s_index(
         3. Safety Margin = Uncertainty * Target Sigma
         4. Target Load = Load_p50 + Safety Margin
         5. Factor = Target Load / Load_p50
+        
+    Args:
+        df: DataFrame with slot forecasts (may only cover price horizon)
+        s_index_cfg: S-Index configuration dict
+        max_factor: Maximum allowed factor
+        timezone_name: Timezone for date calculations
+        daily_probabilistic: Optional extended daily probabilistic aggregates for days 
+                             beyond price horizon. Structure:
+                             {"pv_p10": {"2024-01-01": 1.5, ...}, "pv_p90": {...}, 
+                              "load_p10": {...}, "load_p90": {...}}
     """
     # 1. Configuration with Defaults
     # Support legacy base_factor if risk_appetite is missing, but prefer appetite.
@@ -203,6 +214,16 @@ def calculate_probabilistic_s_index(
     tz = pytz.timezone(timezone_name)  
     today = datetime.now(tz).date()
     
+    # Check for probabilistic columns in df (for price horizon slots)
+    has_probs_in_df = all(col in df.columns for col in ["load_p90", "load_p10", "pv_p90", "pv_p10"])
+    
+    # Also check extended data availability
+    daily_probs = daily_probabilistic or {}
+    has_extended = all(k in daily_probs for k in ["load_p10", "load_p90", "pv_p10", "pv_p90"])
+    
+    if not has_probs_in_df and not has_extended:
+        return None, {"mode": "probabilistic", "reason": "missing_probabilistic_columns"}
+
     # Ensure dataframe has datetime index with correct timezone
     try:
         local_index = df.index.tz_convert(tz)
@@ -210,29 +231,37 @@ def calculate_probabilistic_s_index(
         local_index = df.index.tz_localize(tz)
     local_dates = pd.Series(local_index.date, index=df.index)
 
-    # Check for probabilistic columns
-    has_probs = all(col in df.columns for col in ["load_p90", "load_p10", "pv_p90", "pv_p10"])
-    if not has_probs:
-        return None, {"mode": "probabilistic", "reason": "missing_probabilistic_columns"}
-
     total_uncertainty_kwh = 0.0
     total_load_p50 = 0.0
     considered_days = []
+    data_source = []  # Track where data came from
 
     for offset in normalized_days:
         target_date = today + timedelta(days=offset)
+        date_key = target_date.isoformat()
         mask = local_dates == target_date
         
-        if not mask.any():
+        # Try to get data from df first (price horizon slots)
+        if mask.any() and has_probs_in_df:
+            # Calculate daily sums from slot-level data
+            l_p50 = df.loc[mask, "load_forecast_kwh"].sum()
+            l_p90 = df.loc[mask, "load_p90"].sum()
+            p_p50 = df.loc[mask, "pv_forecast_kwh"].sum()
+            p_p10 = df.loc[mask, "pv_p10"].sum()
+            source = "slots"
+        elif has_extended and date_key in daily_probs.get("load_p90", {}):
+            # Fall back to extended daily aggregates (p50 values are available)
+            l_p50 = daily_probs.get("load_p50", {}).get(date_key, 0.0)
+            l_p90 = daily_probs.get("load_p90", {}).get(date_key, 0.0)
+            p_p50 = daily_probs.get("pv_p50", {}).get(date_key, 0.0)
+            p_p10 = daily_probs.get("pv_p10", {}).get(date_key, 0.0)
+            source = "extended"
+        else:
+            # No data for this day
             continue
             
         considered_days.append(offset)
-        
-        # Calculate daily sums
-        l_p50 = df.loc[mask, "load_forecast_kwh"].sum()
-        l_p90 = df.loc[mask, "load_p90"].sum()
-        p_p50 = df.loc[mask, "pv_forecast_kwh"].sum()
-        p_p10 = df.loc[mask, "pv_p10"].sum()
+        data_source.append(source)
         
         # Uncertainty components (Standard Deviation Proxy)
         # We define Uncertainty = (Load_Upside_Risk) + (PV_Downside_Risk)
@@ -270,6 +299,7 @@ def calculate_probabilistic_s_index(
         "risk_appetite": risk_appetite,
         "target_sigma": target_sigma,
         "considered_days": considered_days,
+        "data_sources": data_source,
         "total_load_p50": round(total_load_p50, 2),
         "total_uncertainty_kwh": round(total_uncertainty_kwh, 2),
         "safety_margin_kwh": round(safety_margin_kwh, 2),
@@ -279,6 +309,7 @@ def calculate_probabilistic_s_index(
     }
     
     return factor, debug_data
+
 
 
 def calculate_target_soc_risk_factor(

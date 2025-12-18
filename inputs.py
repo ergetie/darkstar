@@ -272,8 +272,13 @@ async def get_forecast_data(price_slots, config):
             print("Warning: AURORA slots missing for price horizon. Returning empty slots.")
 
         # 2. Build DAILY totals for the extended horizon required by S-index
+        # Includes p50 (base forecasts) and probabilistic bands (p10/p90)
         daily_pv_forecast: dict[str, float] = {}
         daily_load_forecast: dict[str, float] = {}
+        daily_pv_p10: dict[str, float] = {}
+        daily_pv_p90: dict[str, float] = {}
+        daily_load_p10: dict[str, float] = {}
+        daily_load_p90: dict[str, float] = {}
 
         if price_slots:
             start_dt = price_slots[0]["start_time"].astimezone(local_tz)
@@ -323,10 +328,28 @@ async def get_forecast_data(price_slots, config):
                 daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
                 daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val
 
+                # Aggregate probabilistic bands (apply same correction to p10/p90)
+                if rec.get("pv_p10") is not None:
+                    daily_pv_p10[date_key] = daily_pv_p10.get(date_key, 0.0) + float(rec["pv_p10"]) + pv_corr
+                if rec.get("pv_p90") is not None:
+                    daily_pv_p90[date_key] = daily_pv_p90.get(date_key, 0.0) + float(rec["pv_p90"]) + pv_corr
+                if rec.get("load_p10") is not None:
+                    daily_load_p10[date_key] = daily_load_p10.get(date_key, 0.0) + float(rec["load_p10"]) + load_corr
+                if rec.get("load_p90") is not None:
+                    daily_load_p90[date_key] = daily_load_p90.get(date_key, 0.0) + float(rec["load_p90"]) + load_corr
+
         return {
             "slots": forecast_data,
             "daily_pv_forecast": daily_pv_forecast,
             "daily_load_forecast": daily_load_forecast,
+            "daily_probabilistic": {
+                "pv_p10": daily_pv_p10,
+                "pv_p50": daily_pv_forecast,  # p50 is the base forecast
+                "pv_p90": daily_pv_p90,
+                "load_p10": daily_load_p10,
+                "load_p50": daily_load_forecast,  # p50 is the base forecast
+                "load_p90": daily_load_p90,
+            },
         }
 
     # --- FALLBACK: Open-Meteo (Live API) ---
@@ -540,6 +563,7 @@ def get_all_input_data(config_path="config.yaml"):
         "initial_state": initial_state,
         "daily_pv_forecast": forecast_result.get("daily_pv_forecast", {}),
         "daily_load_forecast": forecast_result.get("daily_load_forecast", {}),
+        "daily_probabilistic": forecast_result.get("daily_probabilistic", {}),
         "context": context,
     }
 
