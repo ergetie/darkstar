@@ -141,7 +141,7 @@ def test_calculate_dynamic_s_index(monkeypatch):
             "temp_weight": 0.20,
             "temp_baseline_c": 20.0,
             "temp_cold_c": -15.0,
-            "days_ahead_for_sindex": [2, 3, 4],
+            "s_index_horizon_days": 4,
         }
     }
     planner_instance.timezone = "Europe/Stockholm"

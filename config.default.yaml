@@ -68,7 +68,7 @@ water_heating:
 
 # S-Index Configuration
 s_index:
-  mode: "static"                    # Options: static | dynamic
+  mode: "probabilistic"              # Options: probabilistic | dynamic
   static_factor: 1.05               # Used when mode=static
   base_factor: 1.05                 # Starting point for dynamic calculations
   max_factor: 1.50                  # Upper bound clamp for dynamic mode
@@ -76,7 +76,8 @@ s_index:
   temp_weight: 0.20                 # Weight for temperature adjustment
   temp_baseline_c: 20               # Baseline temperature (no adjustment)
   temp_cold_c: -15                  # Temperature where adjustment reaches 100%
-  days_ahead_for_sindex: [2, 3, 4]  # Day offsets (relative to today) to evaluate
+  s_index_horizon_days: 4           # Number of days ahead to evaluate (integer)
+  risk_appetite: 3                  # 1-5 scale (1=safe, 3=neutral, 5=gambler)
 
 # Smoothing / Hysteresis Controls
 smoothing:

@@ -64,7 +64,7 @@ from inputs import get_all_input_data
 - `charging_strategy.block_consolidation_tolerance_sek` allows merging adjacent charge slots when price spread is within tolerance (fallback to smoothing when unset)
 - `charging_strategy.consolidation_max_gap_slots` caps how many zero-capacity slots can exist inside a consolidated block
 - `learning.sqlite_path` stores planner telemetry (ensure parent directory exists before running)
-- `s_index` supports `mode` (`static` or `dynamic`), `base_factor`, `max_factor`, `pv_deficit_weight`, `temp_weight`, `temp_baseline_c`, `temp_cold_c`, and `days_ahead_for_sindex`
+- `s_index` supports `mode` (`probabilistic` or `dynamic`), `base_factor`, `max_factor`, `pv_deficit_weight`, `temp_weight`, `temp_baseline_c`, `temp_cold_c`, `s_index_horizon_days` (integer, default 4), and `risk_appetite` (1-5)
 - `secrets.yaml` must include Home Assistant sensor IDs: `battery_soc_entity_id` and `water_heater_daily_entity_id`
 - `arbitrage` adds peak export controls: `export_percentile_threshold`, `enable_peak_only_export`, `export_future_price_guard`, `future_price_guard_buffer_sek`
 
@@ -110,8 +110,15 @@ from inputs import get_all_input_data
   - Run `flake8 .` to catch style and lint issues before committing.
 
 ### Development Protocol
+- **Production-Grade Only**: Always implement production-grade solutions. Never take shortcuts or use quick-fix approaches. Prefer clean, maintainable, and robust implementations.
+- **Investigate First**: Before fixing any issue (except small bug fixes with no architectural impact):
+  1. Investigate the problem thoroughly.
+  2. Report findings to the user.
+  3. Present options if multiple approaches exist.
+  4. Wait for user approval before implementing.
+- **One Problem at a Time**: When the user mentions multiple issues, handle them sequentially. Store all items in a task list and work through them one by one.
 - **Regular Commits**: Commit changes after completing a defined task or revision.
-- **Documentation**: Update `architecture.md`, `GEMINI.md`, and other relevant docs when making significant changes.
+- **Documentation Always Updated**: When making any code changes, update relevant documentation (`architecture.md`, `README.md`, etc.). Documentation must always reflect the current implementation.
 - **User Consultation**: Consult the user before:
   - Making major architectural changes.
   - Archiving revisions.

@@ -44,17 +44,12 @@ def calculate_dynamic_s_index(
     temp_baseline = float(s_index_cfg.get("temp_baseline_c", 20.0))
     temp_cold = float(s_index_cfg.get("temp_cold_c", -15.0))
 
-    # Determine days to check
-    horizon_days = s_index_cfg.get("s_index_horizon_days")
-    if horizon_days is not None:
-        try:
-            day_offsets = list(range(1, int(horizon_days) + 1))
-        except (ValueError, TypeError):
-            day_offsets = [1, 2, 3, 4]
-    else:
-        day_offsets = s_index_cfg.get("days_ahead_for_sindex", [1, 2, 3, 4])
-        if not isinstance(day_offsets, (list, tuple)):
-            day_offsets = [1, 2, 3, 4]
+    # Determine days to check (s_index_horizon_days is the single source of truth)
+    horizon_days = s_index_cfg.get("s_index_horizon_days", 4)
+    try:
+        day_offsets = list(range(1, int(horizon_days) + 1))
+    except (ValueError, TypeError):
+        day_offsets = [1, 2, 3, 4]
 
     normalized_days: List[int] = []
     for offset in day_offsets:
@@ -195,17 +190,12 @@ def calculate_probabilistic_s_index(
     }
     target_sigma = RISK_SIGMA_MAP.get(risk_appetite, 0.0)
 
-    # Determine days to check
-    horizon_days = s_index_cfg.get("s_index_horizon_days")
-    if horizon_days is not None:
-        try:
-            day_offsets = list(range(1, int(horizon_days) + 1))
-        except (ValueError, TypeError):
-            day_offsets = [1, 2, 3, 4]
-    else:
-        day_offsets = s_index_cfg.get("days_ahead_for_sindex", [1, 2, 3, 4])
-        if not isinstance(day_offsets, (list, tuple)):
-            day_offsets = [1, 2, 3, 4]
+    # Determine days to check (s_index_horizon_days is the single source of truth)
+    horizon_days = s_index_cfg.get("s_index_horizon_days", 4)
+    try:
+        day_offsets = list(range(1, int(horizon_days) + 1))
+    except (ValueError, TypeError):
+        day_offsets = [1, 2, 3, 4]
 
     normalized_days: List[int] = sorted(set(int(d) for d in day_offsets if int(d) > 0))
     if not normalized_days:

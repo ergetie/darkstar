@@ -118,7 +118,6 @@ pricing:
   vat_percent: 25.0
 s_index:
   base_factor: 1.1
-  days_ahead_for_sindex: []
   max_factor: 1.5
   mode: probabilistic
   pv_deficit_weight: 0.2
