@@ -99,10 +99,20 @@ class Controller:
         # unless specifically requested
         charge_current = 0.0
         discharge_current = 0.0
+        write_charge = False
+        write_discharge = False
 
-        if grid_charging and actions.get("emergency_charge"):
-            # Emergency charge - use moderate current
-            charge_current = self.config.min_charge_a * 2
+        # Handle quick action charging
+        if grid_charging and override.override_type.value in ("force_charge", "emergency_charge"):
+            # Force charge - use max charging current
+            charge_current = self.config.max_charge_a
+            write_charge = True
+
+        # Handle quick action exporting
+        if override.override_type.value == "force_export":
+            # Force export - allow max discharge
+            discharge_current = self.config.max_charge_a  # Use max
+            write_discharge = True
 
         return ControllerDecision(
             work_mode=work_mode,
@@ -111,8 +121,8 @@ class Controller:
             discharge_current_a=discharge_current,
             soc_target=soc_target,
             water_temp=water_temp,
-            write_charge_current=False,
-            write_discharge_current=False,
+            write_charge_current=write_charge,
+            write_discharge_current=write_discharge,
             source="override",
             reason=override.reason,
         )
