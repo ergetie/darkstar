@@ -39,11 +39,16 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - Next slot preview as dashed entry in history
 - Manual "Run Now" button
 
-#### 🔲 Phase 5: UI Entity Configuration & Quick Actions
+#### ✅ Phase 5: UI Entity Configuration & Quick Actions (Completed)
 - **Entity Config Modal**: Edit all executor entity IDs in UI (inverter, water heater, SoC target)
-- **PUT /api/executor/config** endpoint to save entity config
-- **Quick Action Buttons**: One-tap manual overrides (Force Charge, Force Export, Stop All)
-- **Live Actions Panel**: Real-time action stream with icons for current execution
+- **PUT /api/executor/config** endpoint to save entity config (preserves YAML comments)
+- **Quick Action Buttons**: One-tap manual overrides with duration selection (15/30/60 min)
+  - Force Charge: Grid charging ON, Zero Export mode, SoC target 100%
+  - Force Export: Export First mode, max discharge current
+  - Force Heat: Water heater boost temperature
+  - Stop All: Disable all charging/exporting/heating
+- **Expandable History Rows**: Click to see planned vs commanded values + Idle badge
+- **Deadlock fix**: Resolved threading issue in executor status API
 
 #### 🔲 Phase 6: Testing & Validation
 - Unit tests for executor modules
@@ -54,7 +59,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - Dockerfile for standalone deployment
 - Home Assistant Add-on (hassio/ directory)
 
-**Status:** In Progress (Phases 1-4 complete).
+**Status:** In Progress (Phases 1-5 complete, Phase 6 next).
 
 ---
 
