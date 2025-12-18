@@ -138,6 +138,24 @@ class ExecutorEngine:
 
     def get_status(self) -> Dict[str, Any]:
         """Get current executor status as a dictionary."""
+        # Get current slot plan for display
+        current_slot_plan = None
+        try:
+            tz = pytz.timezone(self.config.timezone)
+            now = datetime.now(tz)
+            slot, slot_start = self._load_current_slot(now)
+            if slot:
+                current_slot_plan = {
+                    "slot_start": slot_start,
+                    "charge_kw": slot.charge_kw,
+                    "export_kw": slot.export_kw,
+                    "water_kw": slot.water_kw,
+                    "soc_target": slot.soc_target,
+                    "soc_projected": slot.soc_projected,
+                }
+        except Exception as e:
+            logger.debug("Could not load current slot plan: %s", e)
+        
         with self._lock:
             return {
                 "enabled": self.status.enabled,
@@ -147,6 +165,7 @@ class ExecutorEngine:
                 "last_error": self.status.last_error,
                 "next_run_at": self.status.next_run_at,
                 "current_slot": self.status.current_slot,
+                "current_slot_plan": current_slot_plan,
                 "last_action": self.status.last_action,
                 "override_active": self.status.override_active,
                 "override_type": self.status.override_type,

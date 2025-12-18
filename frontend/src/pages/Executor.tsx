@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload } from 'lucide-react'
+import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets } from 'lucide-react'
 import Card from '../components/Card'
 
 // Types for notifications
@@ -25,6 +25,14 @@ type ExecutorStatus = {
     last_error?: string
     next_run_at?: string
     current_slot?: string
+    current_slot_plan?: {
+        slot_start: string
+        charge_kw: number
+        export_kw: number
+        water_kw: number
+        soc_target: number
+        soc_projected: number
+    }
     last_action?: string
     override_active: boolean
     override_type?: string
@@ -654,9 +662,34 @@ export default function Executor() {
                                         Scheduled
                                     </span>
                                 </div>
-                                {status.current_slot && (
-                                    <div className="mt-2 text-[10px] text-muted/80">
-                                        Slot: {status.current_slot}
+                                {status.current_slot_plan && (
+                                    <div className="mt-2 grid grid-cols-4 gap-2 text-[10px]">
+                                        {status.current_slot_plan.charge_kw > 0 && (
+                                            <div className="flex items-center gap-1 text-emerald-400">
+                                                <BatteryCharging className="h-3 w-3" />
+                                                <span>{status.current_slot_plan.charge_kw.toFixed(1)}kW</span>
+                                            </div>
+                                        )}
+                                        {status.current_slot_plan.export_kw > 0 && (
+                                            <div className="flex items-center gap-1 text-amber-400">
+                                                <Upload className="h-3 w-3" />
+                                                <span>{status.current_slot_plan.export_kw.toFixed(1)}kW</span>
+                                            </div>
+                                        )}
+                                        {status.current_slot_plan.water_kw > 0 && (
+                                            <div className="flex items-center gap-1 text-sky-400">
+                                                <Droplets className="h-3 w-3" />
+                                                <span>{status.current_slot_plan.water_kw.toFixed(1)}kW</span>
+                                            </div>
+                                        )}
+                                        {status.current_slot_plan.soc_target > 0 && (
+                                            <div className="flex items-center gap-1 text-muted">
+                                                <span>SoC→{status.current_slot_plan.soc_target}%</span>
+                                            </div>
+                                        )}
+                                        {!status.current_slot_plan.charge_kw && !status.current_slot_plan.export_kw && !status.current_slot_plan.water_kw && (
+                                            <div className="text-muted/60 col-span-4">Idle / Self-consumption</div>
+                                        )}
                                     </div>
                                 )}
                             </div>
