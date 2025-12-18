@@ -992,6 +992,75 @@ def executor_config_get():
     })
 
 
+@app.route("/api/executor/config", methods=["PUT"])
+def executor_config_put():
+    """Update executor entity configuration."""
+    from ruamel.yaml import YAML
+    
+    payload = request.get_json(silent=True) or {}
+    
+    try:
+        yaml_handler = YAML()
+        yaml_handler.preserve_quotes = True
+        
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            config = yaml_handler.load(f)
+        
+        if "executor" not in config:
+            config["executor"] = {}
+        
+        executor_cfg = config["executor"]
+        
+        # Update soc_target_entity
+        if "soc_target_entity" in payload:
+            executor_cfg["soc_target_entity"] = payload["soc_target_entity"]
+        
+        # Update inverter entities
+        if "inverter" in payload:
+            if "inverter" not in executor_cfg:
+                executor_cfg["inverter"] = {}
+            inv = executor_cfg["inverter"]
+            inv_payload = payload["inverter"]
+            if "work_mode_entity" in inv_payload:
+                inv["work_mode_entity"] = inv_payload["work_mode_entity"]
+            if "grid_charging_entity" in inv_payload:
+                inv["grid_charging_entity"] = inv_payload["grid_charging_entity"]
+            if "max_charging_current_entity" in inv_payload:
+                inv["max_charging_current_entity"] = inv_payload["max_charging_current_entity"]
+            if "max_discharging_current_entity" in inv_payload:
+                inv["max_discharging_current_entity"] = inv_payload["max_discharging_current_entity"]
+        
+        # Update water heater entities
+        if "water_heater" in payload:
+            if "water_heater" not in executor_cfg:
+                executor_cfg["water_heater"] = {}
+            wh = executor_cfg["water_heater"]
+            wh_payload = payload["water_heater"]
+            if "target_entity" in wh_payload:
+                wh["target_entity"] = wh_payload["target_entity"]
+            if "temp_normal" in wh_payload:
+                wh["temp_normal"] = wh_payload["temp_normal"]
+            if "temp_off" in wh_payload:
+                wh["temp_off"] = wh_payload["temp_off"]
+            if "temp_boost" in wh_payload:
+                wh["temp_boost"] = wh_payload["temp_boost"]
+            if "temp_max" in wh_payload:
+                wh["temp_max"] = wh_payload["temp_max"]
+        
+        with open("config.yaml", "w", encoding="utf-8") as f:
+            yaml_handler.dump(config, f)
+        
+        # Reload executor config
+        executor = _get_executor()
+        if executor:
+            executor.reload_config()
+        
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.exception("Failed to update executor config: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/executor/notifications", methods=["GET", "POST"])
 def executor_notifications():
     """Get or update executor notification settings."""

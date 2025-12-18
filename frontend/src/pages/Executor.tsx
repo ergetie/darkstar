@@ -141,6 +141,40 @@ const executorApi = {
             if (!r.ok) throw new Error(data.error || `Test failed: ${r.status}`)
             return data
         }
+    },
+    config: {
+        get: async (): Promise<EntityConfig> => {
+            const r = await fetch('/api/executor/config')
+            if (!r.ok) throw new Error(`Config get failed: ${r.status}`)
+            return r.json()
+        },
+        update: async (config: Partial<EntityConfig>) => {
+            const r = await fetch('/api/executor/config', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(config)
+            })
+            if (!r.ok) throw new Error(`Config update failed: ${r.status}`)
+            return r.json()
+        }
+    }
+}
+
+// Entity config type
+type EntityConfig = {
+    soc_target_entity: string
+    inverter: {
+        work_mode_entity: string
+        grid_charging_entity: string
+        max_charging_current_entity: string
+        max_discharging_current_entity: string
+    }
+    water_heater: {
+        target_entity: string
+        temp_normal: number
+        temp_off: number
+        temp_boost: number
+        temp_max: number
     }
 }
 
@@ -193,6 +227,9 @@ export default function Executor() {
     const [testingNotification, setTestingNotification] = useState(false)
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
     const [expandedRecordId, setExpandedRecordId] = useState<number | null>(null)
+    const [showEntityConfig, setShowEntityConfig] = useState(false)
+    const [entityConfig, setEntityConfig] = useState<EntityConfig | null>(null)
+    const [savingEntityConfig, setSavingEntityConfig] = useState(false)
 
     const fetchAll = useCallback(async () => {
         try {
@@ -498,6 +535,25 @@ export default function Executor() {
                                 <span className="relative h-2.5 w-2.5 rounded-full bg-accent block ring-2 ring-accent/30" />
                             </div>
                         )}
+                    </button>
+
+                    {/* Entity Config Button */}
+                    <button
+                        onClick={async () => {
+                            try {
+                                const cfg = await executorApi.config.get()
+                                setEntityConfig(cfg)
+                                setShowEntityConfig(true)
+                            } catch (e: any) {
+                                alert('Failed to load config: ' + e.message)
+                            }
+                        }}
+                        className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50 mt-2 hover:bg-surface2 transition-colors w-full"
+                    >
+                        <div className="flex items-center gap-2">
+                            <Settings className="h-4 w-4 text-muted" />
+                            <span className="text-[11px] font-medium text-text">Entity Config</span>
+                        </div>
                     </button>
 
                     {/* Run Now Button */}
@@ -953,6 +1009,201 @@ export default function Executor() {
                                 Changes are saved automatically
                             </div>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Entity Config Modal */}
+            {showEntityConfig && entityConfig && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowEntityConfig(false)}>
+                    <div
+                        className="bg-surface border border-line rounded-2xl p-5 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
+                        onClick={e => e.stopPropagation()}
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <div className="flex items-center gap-2">
+                                <Settings className="h-5 w-5 text-accent" />
+                                <span className="text-sm font-medium text-text">Entity Configuration</span>
+                            </div>
+                            <button
+                                onClick={() => setShowEntityConfig(false)}
+                                className="p-1.5 rounded-lg hover:bg-surface2/80 text-muted hover:text-text transition-colors"
+                            >
+                                <X className="h-4 w-4" />
+                            </button>
+                        </div>
+
+                        {/* Inverter Section */}
+                        <div className="mb-4">
+                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Inverter Entities</div>
+                            <div className="space-y-2">
+                                <div>
+                                    <label className="text-[10px] text-muted/80 block mb-1">Work Mode (select)</label>
+                                    <input
+                                        type="text"
+                                        value={entityConfig.inverter.work_mode_entity}
+                                        onChange={(e) => setEntityConfig({
+                                            ...entityConfig,
+                                            inverter: { ...entityConfig.inverter, work_mode_entity: e.target.value }
+                                        })}
+                                        className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted/80 block mb-1">Grid Charging (switch)</label>
+                                    <input
+                                        type="text"
+                                        value={entityConfig.inverter.grid_charging_entity}
+                                        onChange={(e) => setEntityConfig({
+                                            ...entityConfig,
+                                            inverter: { ...entityConfig.inverter, grid_charging_entity: e.target.value }
+                                        })}
+                                        className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                        <label className="text-[10px] text-muted/80 block mb-1">Max Charge Current</label>
+                                        <input
+                                            type="text"
+                                            value={entityConfig.inverter.max_charging_current_entity}
+                                            onChange={(e) => setEntityConfig({
+                                                ...entityConfig,
+                                                inverter: { ...entityConfig.inverter, max_charging_current_entity: e.target.value }
+                                            })}
+                                            className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-muted/80 block mb-1">Max Discharge Current</label>
+                                        <input
+                                            type="text"
+                                            value={entityConfig.inverter.max_discharging_current_entity}
+                                            onChange={(e) => setEntityConfig({
+                                                ...entityConfig,
+                                                inverter: { ...entityConfig.inverter, max_discharging_current_entity: e.target.value }
+                                            })}
+                                            className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* SoC Target */}
+                        <div className="mb-4">
+                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Battery</div>
+                            <div>
+                                <label className="text-[10px] text-muted/80 block mb-1">SoC Target (input_number)</label>
+                                <input
+                                    type="text"
+                                    value={entityConfig.soc_target_entity}
+                                    onChange={(e) => setEntityConfig({ ...entityConfig, soc_target_entity: e.target.value })}
+                                    className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Water Heater */}
+                        <div className="mb-4">
+                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Water Heater</div>
+                            <div className="space-y-2">
+                                <div>
+                                    <label className="text-[10px] text-muted/80 block mb-1">Target Entity (input_number)</label>
+                                    <input
+                                        type="text"
+                                        value={entityConfig.water_heater.target_entity}
+                                        onChange={(e) => setEntityConfig({
+                                            ...entityConfig,
+                                            water_heater: { ...entityConfig.water_heater, target_entity: e.target.value }
+                                        })}
+                                        className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-4 gap-2">
+                                    <div>
+                                        <label className="text-[10px] text-muted/80 block mb-1">Off °C</label>
+                                        <input
+                                            type="number"
+                                            value={entityConfig.water_heater.temp_off}
+                                            onChange={(e) => setEntityConfig({
+                                                ...entityConfig,
+                                                water_heater: { ...entityConfig.water_heater, temp_off: parseInt(e.target.value) || 0 }
+                                            })}
+                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-muted/80 block mb-1">Normal °C</label>
+                                        <input
+                                            type="number"
+                                            value={entityConfig.water_heater.temp_normal}
+                                            onChange={(e) => setEntityConfig({
+                                                ...entityConfig,
+                                                water_heater: { ...entityConfig.water_heater, temp_normal: parseInt(e.target.value) || 0 }
+                                            })}
+                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-muted/80 block mb-1">Boost °C</label>
+                                        <input
+                                            type="number"
+                                            value={entityConfig.water_heater.temp_boost}
+                                            onChange={(e) => setEntityConfig({
+                                                ...entityConfig,
+                                                water_heater: { ...entityConfig.water_heater, temp_boost: parseInt(e.target.value) || 0 }
+                                            })}
+                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] text-muted/80 block mb-1">Max °C</label>
+                                        <input
+                                            type="number"
+                                            value={entityConfig.water_heater.temp_max}
+                                            onChange={(e) => setEntityConfig({
+                                                ...entityConfig,
+                                                water_heater: { ...entityConfig.water_heater, temp_max: parseInt(e.target.value) || 0 }
+                                            })}
+                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Save Button */}
+                        <button
+                            onClick={async () => {
+                                setSavingEntityConfig(true)
+                                try {
+                                    await executorApi.config.update(entityConfig)
+                                    setShowEntityConfig(false)
+                                } catch (e: any) {
+                                    alert('Failed to save: ' + e.message)
+                                } finally {
+                                    setSavingEntityConfig(false)
+                                }
+                            }}
+                            disabled={savingEntityConfig}
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${savingEntityConfig
+                                ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
+                                : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
+                                }`}
+                        >
+                            {savingEntityConfig ? (
+                                <>
+                                    <div className="h-3 w-3 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                                    Saving...
+                                </>
+                            ) : (
+                                <>
+                                    <CheckCircle className="h-3.5 w-3.5" />
+                                    Save Configuration
+                                </>
+                            )}
+                        </button>
                     </div>
                 </div>
             )}
