@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets } from 'lucide-react'
+import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets, ChevronDown } from 'lucide-react'
 import Card from '../components/Card'
 
 // Types for notifications
@@ -58,15 +58,27 @@ type ExecutionRecord = {
     override_active: number
     override_type?: string
     override_reason?: string
+    // Planned values from schedule
+    planned_charge_kw?: number
+    planned_discharge_kw?: number
+    planned_export_kw?: number
+    planned_water_kw?: number
+    planned_soc_target?: number
+    planned_soc_projected?: number
+    // Commanded values (what we actually set)
     commanded_work_mode?: string
     commanded_grid_charging?: number
     commanded_charge_current_a?: number
     commanded_discharge_current_a?: number
     commanded_soc_target?: number
     commanded_water_temp?: number
+    // State before execution
     before_soc_percent?: number
+    before_work_mode?: string
+    before_water_temp?: number
     before_pv_kw?: number
     before_load_kw?: number
+    // Result
     duration_ms?: number
     error_message?: string
     source?: string
@@ -180,6 +192,7 @@ export default function Executor() {
     const [savingNotification, setSavingNotification] = useState(false)
     const [testingNotification, setTestingNotification] = useState(false)
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+    const [expandedRecordId, setExpandedRecordId] = useState<number | null>(null)
 
     const fetchAll = useCallback(async () => {
         try {
@@ -695,92 +708,158 @@ export default function Executor() {
                             </div>
                         )}
 
-                        {history.map((record) => (
-                            <div
-                                key={record.id}
-                                className={`p-3 rounded-xl border transition-colors ${record.success
-                                    ? 'bg-surface2/30 border-line/40 hover:border-line/60'
-                                    : 'bg-red-500/10 border-red-500/30 hover:border-red-500/50'
-                                    }`}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        {record.success ? (
-                                            <CheckCircle className="h-4 w-4 text-emerald-400" />
-                                        ) : (
-                                            <AlertTriangle className="h-4 w-4 text-red-400" />
-                                        )}
-                                        <span className="text-[11px] text-text font-mono">
-                                            {formatDateTime(record.executed_at)}
-                                        </span>
-                                    </div>
-                                    <div className="flex items-center gap-2">
-                                        {record.override_active ? (
-                                            <span className="text-[9px] text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
-                                                {record.override_type}
+                        {history.map((record) => {
+                            const isExpanded = expandedRecordId === record.id
+                            return (
+                                <div
+                                    key={record.id}
+                                    className={`rounded-xl border transition-all ${record.success
+                                        ? 'bg-surface2/30 border-line/40 hover:border-line/60'
+                                        : 'bg-red-500/10 border-red-500/30 hover:border-red-500/50'
+                                        }`}
+                                >
+                                    {/* Header Row - Always visible, clickable */}
+                                    <div
+                                        className="p-3 cursor-pointer flex items-center justify-between"
+                                        onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <ChevronDown className={`h-3 w-3 text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                            {record.success ? (
+                                                <CheckCircle className="h-4 w-4 text-emerald-400" />
+                                            ) : (
+                                                <AlertTriangle className="h-4 w-4 text-red-400" />
+                                            )}
+                                            <span className="text-[11px] text-text font-mono">
+                                                {formatDateTime(record.executed_at)}
                                             </span>
-                                        ) : null}
-                                        {record.duration_ms && (
-                                            <span className="text-[9px] text-muted font-mono">{record.duration_ms}ms</span>
-                                        )}
+                                            {/* Quick summary badges */}
+                                            {record.commanded_charge_current_a && record.commanded_charge_current_a > 0 && (
+                                                <span className="text-[9px] text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">⚡ Charge</span>
+                                            )}
+                                            {record.commanded_work_mode === 'Export First' && (
+                                                <span className="text-[9px] text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">↗ Export</span>
+                                            )}
+                                            {record.commanded_water_temp && record.commanded_water_temp > 50 && (
+                                                <span className="text-[9px] text-orange-400 bg-orange-500/20 px-1.5 py-0.5 rounded">🔥 Heat</span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            {record.override_active ? (
+                                                <span className="text-[9px] text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
+                                                    {record.override_type}
+                                                </span>
+                                            ) : null}
+                                            {record.duration_ms && (
+                                                <span className="text-[9px] text-muted font-mono">{record.duration_ms}ms</span>
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
 
-                                {/* Execution Details */}
-                                <div className="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
-                                    {record.commanded_work_mode && (
-                                        <div className="flex flex-col">
-                                            <span className="text-muted/70">Work Mode</span>
-                                            <span className="text-text font-medium">{record.commanded_work_mode}</span>
-                                        </div>
-                                    )}
-                                    {record.commanded_soc_target != null && (
-                                        <div className="flex flex-col">
-                                            <span className="text-muted/70">SoC Target</span>
-                                            <span className="text-text font-medium">{record.commanded_soc_target}%</span>
-                                        </div>
-                                    )}
-                                    {record.commanded_charge_current_a != null && record.commanded_charge_current_a > 0 && (
-                                        <div className="flex flex-col">
-                                            <span className="text-muted/70">Charge Current</span>
-                                            <span className="text-emerald-400 font-medium">{record.commanded_charge_current_a}A</span>
-                                        </div>
-                                    )}
-                                    {record.commanded_discharge_current_a != null && record.commanded_discharge_current_a > 0 && (
-                                        <div className="flex flex-col">
-                                            <span className="text-muted/70">Discharge Current</span>
-                                            <span className="text-amber-400 font-medium">{record.commanded_discharge_current_a}A</span>
-                                        </div>
-                                    )}
-                                    {record.commanded_water_temp != null && record.commanded_water_temp > 40 && (
-                                        <div className="flex flex-col">
-                                            <span className="text-muted/70">Water Temp</span>
-                                            <span className="text-orange-400 font-medium flex items-center gap-1">
-                                                <Flame className="h-3 w-3" />
-                                                {record.commanded_water_temp}°C
-                                            </span>
-                                        </div>
-                                    )}
-                                    {record.before_soc_percent != null && (
-                                        <div className="flex flex-col">
-                                            <span className="text-muted/70">SoC Before</span>
-                                            <span className="text-text font-medium">{record.before_soc_percent?.toFixed(0)}%</span>
+                                    {/* Expanded Details */}
+                                    {isExpanded && (
+                                        <div className="px-3 pb-3 border-t border-line/20">
+                                            {/* Planned Actions */}
+                                            <div className="mt-3">
+                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">Planned (from Schedule)</div>
+                                                <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-[10px]">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Charge</span>
+                                                        <span className={record.planned_charge_kw ? 'text-emerald-400' : 'text-muted/40'}>{record.planned_charge_kw?.toFixed(1) ?? '—'} kW</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Export</span>
+                                                        <span className={record.planned_export_kw ? 'text-amber-400' : 'text-muted/40'}>{record.planned_export_kw?.toFixed(1) ?? '—'} kW</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Water</span>
+                                                        <span className={record.planned_water_kw ? 'text-orange-400' : 'text-muted/40'}>{record.planned_water_kw?.toFixed(1) ?? '—'} kW</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">SoC Target</span>
+                                                        <span className="text-text">{record.planned_soc_target ?? '—'}%</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">SoC Projected</span>
+                                                        <span className="text-text">{record.planned_soc_projected ?? '—'}%</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Commanded Values (What we actually set) */}
+                                            <div className="mt-3">
+                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">Commanded (What We Set)</div>
+                                                <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-[10px]">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Work Mode</span>
+                                                        <span className="text-text font-medium">{record.commanded_work_mode ?? '—'}</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Grid Charging</span>
+                                                        <span className={record.commanded_grid_charging ? 'text-emerald-400' : 'text-muted/40'}>{record.commanded_grid_charging ? 'ON' : 'OFF'}</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Charge I</span>
+                                                        <span className={record.commanded_charge_current_a ? 'text-emerald-400' : 'text-muted/40'}>{record.commanded_charge_current_a ?? '—'} A</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Discharge I</span>
+                                                        <span className={record.commanded_discharge_current_a ? 'text-amber-400' : 'text-muted/40'}>{record.commanded_discharge_current_a ?? '—'} A</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">SoC Target</span>
+                                                        <span className="text-text">{record.commanded_soc_target ?? '—'}%</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Water Temp</span>
+                                                        <span className={record.commanded_water_temp && record.commanded_water_temp > 50 ? 'text-orange-400' : 'text-muted/40'}>{record.commanded_water_temp ?? '—'}°C</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Before State */}
+                                            <div className="mt-3">
+                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">State Before Execution</div>
+                                                <div className="grid grid-cols-3 md:grid-cols-5 gap-2 text-[10px]">
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">SoC</span>
+                                                        <span className="text-text">{record.before_soc_percent?.toFixed(0) ?? '—'}%</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Work Mode</span>
+                                                        <span className="text-text">{record.before_work_mode ?? '—'}</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">PV Power</span>
+                                                        <span className="text-yellow-400">{record.before_pv_kw?.toFixed(1) ?? '—'} kW</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Load</span>
+                                                        <span className="text-sky-400">{record.before_load_kw?.toFixed(1) ?? '—'} kW</span>
+                                                    </div>
+                                                    <div className="flex flex-col">
+                                                        <span className="text-muted/60">Water Temp</span>
+                                                        <span className="text-text">{record.before_water_temp ?? '—'}°C</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Error / Override Messages */}
+                                            {record.error_message && (
+                                                <div className="mt-2 text-[10px] text-red-400 bg-red-500/10 rounded-lg p-2">
+                                                    {record.error_message}
+                                                </div>
+                                            )}
+                                            {record.override_reason && (
+                                                <div className="mt-2 text-[10px] text-amber-300/80 bg-amber-500/10 rounded-lg p-2">
+                                                    Override: {record.override_reason}
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>
-
-                                {record.error_message && (
-                                    <div className="mt-2 text-[10px] text-red-400 bg-red-500/10 rounded-lg p-2">
-                                        {record.error_message}
-                                    </div>
-                                )}
-                                {record.override_reason && (
-                                    <div className="mt-2 text-[10px] text-amber-300/80 bg-amber-500/10 rounded-lg p-2">
-                                        {record.override_reason}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                            )
+                        })}
                     </div>
                 )}
             </Card>
