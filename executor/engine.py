@@ -97,6 +97,9 @@ class ExecutorEngine:
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
 
+        # Quick action storage (user-initiated time-limited overrides)
+        self._quick_action: Optional[Dict[str, Any]] = None  # {type, expires_at, reason}
+
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
         # Use the same database as the learning engine
@@ -169,8 +172,87 @@ class ExecutorEngine:
                 "last_action": self.status.last_action,
                 "override_active": self.status.override_active,
                 "override_type": self.status.override_type,
+                "quick_action": self._get_quick_action_status(),
                 "version": EXECUTOR_VERSION,
             }
+
+    def _get_quick_action_status(self) -> Optional[Dict[str, Any]]:
+        """Get current quick action status with remaining time."""
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+        
+        with self._lock:
+            if not self._quick_action:
+                return None
+            
+            expires_at = datetime.fromisoformat(self._quick_action["expires_at"])
+            if now >= expires_at:
+                # Expired
+                self._quick_action = None
+                return None
+            
+            remaining = (expires_at - now).total_seconds() / 60
+            return {
+                "type": self._quick_action["type"],
+                "expires_at": self._quick_action["expires_at"],
+                "remaining_minutes": round(remaining, 1),
+                "reason": self._quick_action.get("reason", ""),
+            }
+
+    def set_quick_action(self, action_type: str, duration_minutes: int) -> Dict[str, Any]:
+        """
+        Set a time-limited quick action override.
+        
+        Args:
+            action_type: One of 'force_charge', 'force_export', 'force_stop'
+            duration_minutes: How long the override should last (15, 30, 60)
+            
+        Returns:
+            Status dict with expires_at
+        """
+        valid_types = ["force_charge", "force_export", "force_stop"]
+        if action_type not in valid_types:
+            raise ValueError(f"Invalid action type: {action_type}. Must be one of {valid_types}")
+        
+        if duration_minutes not in [15, 30, 60]:
+            raise ValueError(f"Invalid duration: {duration_minutes}. Must be 15, 30, or 60 minutes")
+        
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+        expires_at = now + timedelta(minutes=duration_minutes)
+        
+        with self._lock:
+            self._quick_action = {
+                "type": action_type,
+                "expires_at": expires_at.isoformat(),
+                "reason": f"User activated {action_type} for {duration_minutes} minutes",
+                "created_at": now.isoformat(),
+            }
+        
+        logger.info("Quick action set: %s for %d minutes (expires %s)", 
+                    action_type, duration_minutes, expires_at.isoformat())
+        
+        return {
+            "success": True,
+            "type": action_type,
+            "duration_minutes": duration_minutes,
+            "expires_at": expires_at.isoformat(),
+        }
+
+    def clear_quick_action(self) -> Dict[str, Any]:
+        """Clear any active quick action."""
+        with self._lock:
+            was_active = self._quick_action is not None
+            self._quick_action = None
+        
+        if was_active:
+            logger.info("Quick action cleared by user")
+        
+        return {"success": True, "was_active": was_active}
+
+    def get_active_quick_action(self) -> Optional[Dict[str, Any]]:
+        """Get the currently active quick action, if any and not expired."""
+        return self._get_quick_action_status()
 
     def start(self) -> None:
         """Start the executor loop in a background thread."""

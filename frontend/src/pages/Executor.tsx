@@ -36,6 +36,12 @@ type ExecutorStatus = {
     last_action?: string
     override_active: boolean
     override_type?: string
+    quick_action?: {
+        type: string
+        expires_at: string
+        remaining_minutes: number
+        reason: string
+    }
     version?: string
 }
 
@@ -157,7 +163,36 @@ const executorApi = {
             if (!r.ok) throw new Error(`Config update failed: ${r.status}`)
             return r.json()
         }
+    },
+    quickAction: {
+        get: async (): Promise<{ quick_action: QuickAction | null }> => {
+            const r = await fetch('/api/executor/quick-action')
+            if (!r.ok) throw new Error(`Quick action get failed: ${r.status}`)
+            return r.json()
+        },
+        set: async (type: string, duration_minutes: number) => {
+            const r = await fetch('/api/executor/quick-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, duration_minutes })
+            })
+            if (!r.ok) throw new Error(`Quick action set failed: ${r.status}`)
+            return r.json()
+        },
+        clear: async () => {
+            const r = await fetch('/api/executor/quick-action', { method: 'DELETE' })
+            if (!r.ok) throw new Error(`Quick action clear failed: ${r.status}`)
+            return r.json()
+        }
     }
+}
+
+// Quick action type
+type QuickAction = {
+    type: string
+    expires_at: string
+    remaining_minutes: number
+    reason: string
 }
 
 // Entity config type
@@ -606,6 +641,85 @@ export default function Executor() {
                             </div>
                         </div>
                     )}
+                </Card>
+
+                {/* Quick Actions Card */}
+                <Card className="lg:col-span-3 p-4 md:p-5 flex flex-col">
+                    <div className="flex items-center gap-2 mb-4">
+                        <Zap className="h-4 w-4 text-accent" />
+                        <span className="text-xs font-medium text-text">Quick Actions</span>
+                    </div>
+
+                    {/* Active Quick Action Display */}
+                    {status?.quick_action && (
+                        <div className="mb-3 p-3 rounded-lg bg-accent/10 border border-accent/30">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <div className="text-[11px] font-medium text-accent capitalize">
+                                        {status.quick_action.type.replace('_', ' ')} Active
+                                    </div>
+                                    <div className="text-[10px] text-muted">
+                                        {status.quick_action.remaining_minutes.toFixed(0)} min remaining
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={async () => {
+                                        try {
+                                            await executorApi.quickAction.clear()
+                                            fetchAll()
+                                        } catch (e) {
+                                            console.error(e)
+                                        }
+                                    }}
+                                    className="text-[10px] px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Action Buttons */}
+                    <div className="space-y-2 flex-1">
+                        {[
+                            { type: 'force_charge', label: 'Force Charge', icon: BatteryCharging, color: 'emerald' },
+                            { type: 'force_export', label: 'Force Export', icon: Upload, color: 'amber' },
+                            { type: 'force_stop', label: 'Stop All', icon: Power, color: 'red' },
+                        ].map(action => (
+                            <div key={action.type} className="flex items-center gap-2">
+                                <span className={`text-[11px] text-${action.color}-400 w-20 font-medium flex items-center gap-1`}>
+                                    <action.icon className="h-3 w-3" />
+                                    {action.label}
+                                </span>
+                                <div className="flex gap-1 flex-1">
+                                    {[15, 30, 60].map(mins => (
+                                        <button
+                                            key={mins}
+                                            onClick={async () => {
+                                                try {
+                                                    await executorApi.quickAction.set(action.type, mins)
+                                                    fetchAll()
+                                                } catch (e: any) {
+                                                    alert('Failed: ' + e.message)
+                                                }
+                                            }}
+                                            disabled={status?.quick_action?.type === action.type}
+                                            className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${status?.quick_action?.type === action.type
+                                                ? 'bg-accent/20 border-accent/40 text-accent'
+                                                : `bg-${action.color}-500/10 border-${action.color}-500/20 text-${action.color}-400 hover:bg-${action.color}-500/20`
+                                                }`}
+                                        >
+                                            {mins}m
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="mt-3 text-[9px] text-muted/60 text-center">
+                        Overrides schedule for selected duration
+                    </div>
                 </Card>
             </div>
 

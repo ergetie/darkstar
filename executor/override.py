@@ -27,6 +27,10 @@ class OverrideType(Enum):
     MANUAL_OVERRIDE = "manual_override"
     EMERGENCY_CHARGE = "emergency_charge"
     GRID_OUTAGE = "grid_outage"
+    # User-initiated quick actions
+    FORCE_CHARGE = "force_charge"
+    FORCE_EXPORT = "force_export"
+    FORCE_STOP = "force_stop"
 
 
 @dataclass

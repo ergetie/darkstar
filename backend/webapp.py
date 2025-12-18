@@ -911,6 +911,42 @@ def executor_run():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@app.route("/api/executor/quick-action", methods=["GET", "POST", "DELETE"])
+def executor_quick_action():
+    """Manage quick action overrides (Force Charge/Export/Stop)."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    if request.method == "GET":
+        # Return current quick action status
+        action = executor.get_active_quick_action()
+        return jsonify({"quick_action": action})
+
+    elif request.method == "POST":
+        # Set a new quick action
+        payload = request.get_json(silent=True) or {}
+        action_type = payload.get("type")
+        duration = payload.get("duration_minutes", 30)
+
+        if not action_type:
+            return jsonify({"error": "Missing 'type' parameter"}), 400
+
+        try:
+            result = executor.set_quick_action(action_type, duration)
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Failed to set quick action: %s", e)
+            return jsonify({"error": str(e)}), 500
+
+    elif request.method == "DELETE":
+        # Clear quick action
+        result = executor.clear_quick_action()
+        return jsonify(result)
+
+
 @app.route("/api/executor/history", methods=["GET"])
 def executor_history():
     """Return execution history with optional filters."""
