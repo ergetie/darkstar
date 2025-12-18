@@ -112,7 +112,7 @@ System parameters are defined in `config.yaml`. Credentials live in `secrets.yam
 *   **Advanced Parameters**:
     *   **Charging Strategy**: `price_smoothing_sek_kwh` (hysteresis), `block_consolidation_tolerance` (merging adjacent slots), `gap_allowance`.
     *   **Export Controls**: `export_percentile_threshold` (peak-only export), `export_profit_margin_sek`, `export_future_price_guard`, `future_price_guard_buffer_sek`, and `protective_soc_strategy` (`gap_based` vs `fixed_protective_soc_percent`).
-    *   **S-Index**: `base_factor`, `pv_deficit_weight`, `temp_weight`. Weather volatility can dynamically scale these weights during chaotic cloud/temperature conditions.
+    *   **S-Index**: `mode` (`probabilistic` or `dynamic`), `s_index_horizon_days` (1-7 days), `risk_appetite` (1-5 scale), `base_factor`, `max_factor`. Uses extended Aurora probabilistic forecasts (p10/p50/p90) for D+1 to D+4, even when Nordpool prices only cover today/tomorrow.
 
 ### `secrets.yaml` (Credentials)
 *   **Home Assistant**: `url` and `token`.

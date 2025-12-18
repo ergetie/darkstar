@@ -52,8 +52,10 @@ Darkstar's intelligence is powered by the **Aurora Suite**, which consists of th
 
 ### 4.1 Aurora Vision (The Eyes)
 *   **Role**: Forecasting.
-*   **Mechanism**: LightGBM models predict Load and PV generation.
-*   **Uncertainty**: Provides p10/p50/p90 confidence intervals.
+*   **Mechanism**: LightGBM models predict Load and PV generation with 11 features (time, weather, context).
+*   **Uncertainty**: Provides p10/p50/p90 confidence intervals for probabilistic S-Index.
+*   **Extended Horizon**: Aurora forecasts 168 hours (7 days), enabling S-Index to use probabilistic bands for D+1 to D+4 even when price data only covers 48 hours.
+*   **Config**: `s_index.s_index_horizon_days` (integer, default 4) controls how many future days are considered.
 
 ### 4.2 Aurora Strategy (The Brain)
 *   **Role**: Decision Making.
