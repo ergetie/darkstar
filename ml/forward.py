@@ -95,13 +95,12 @@ def generate_forward_slots(
     weather_df = get_weather_series(slot_start, horizon_end, config=engine.config)
     if not weather_df.empty:
         df = df.merge(weather_df, left_on="slot_start", right_index=True, how="left")
-    else:
-        df["temp_c"] = None
-
-    # Ensure numeric dtypes
+    
+    # Ensure ALL weather columns exist (even if empty) to match trained model feature count
     for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
-        if col in df.columns:
-            df[col] = df[col].astype("float64")
+        if col not in df.columns:
+            df[col] = float("nan")
+        df[col] = df[col].astype("float64")
 
     # Context flags
     vac_series = get_vacation_mode_series(
@@ -132,16 +131,12 @@ def generate_forward_slots(
 
     df = _build_time_features(df)
 
-    feature_cols = ["hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos"]
-    for feat in [
-        "temp_c",
-        "cloud_cover_pct",
-        "shortwave_radiation_w_m2",
-        "vacation_mode_flag",
-        "alarm_armed_flag",
-    ]:
-        if feat in df.columns:
-            feature_cols.append(feat)
+    # All 11 features required by trained models - we ensure all columns exist above
+    feature_cols = [
+        "hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos",
+        "temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2",
+        "vacation_mode_flag", "alarm_armed_flag",
+    ]
 
     print("   Running LightGBM inference (Probabilistic)...")
     X = df[feature_cols]
