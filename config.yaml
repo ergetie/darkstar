@@ -54,12 +54,54 @@ dashboard:
   auto_refresh_enabled: true
   overlay_defaults: charge, soctarget, socprojected, water, export, load_off
 debug:
-  enable_planner_debug: true
+  enable_planner_debug: false
   sample_size: 30
 decision_thresholds:
   battery_use_margin_sek: 0.1
   battery_water_margin_sek: 0.2
   export_profit_margin_sek: 0.05
+executor:
+  automation_toggle_entity: input_boolean.darkstar_enable
+  controller:
+    battery_capacity_kwh: 27.0
+    charge_efficiency: 0.92
+    inverter_ac_limit_kw: 8.8
+    max_charge_a: 190.0
+    min_charge_a: 10.0
+    round_step_a: 5.0
+    system_voltage_v: 48.0
+    worst_case_voltage_v: 46.0
+    write_threshold_a: 5.0
+  enabled: true
+  history_retention_days: 30
+  interval_seconds: 300
+  inverter:
+    grid_charging_entity: switch.inverter_battery_grid_charging
+    max_charging_current_entity: number.inverter_battery_max_charging_current
+    max_discharging_current_entity: number.inverter_battery_max_discharging_current
+    work_mode_entity: select.inverter_work_mode
+    work_mode_export: Export First
+    work_mode_zero_export: Zero Export To CT
+  manual_override_entity: input_boolean.darkstar_manual_override
+  notifications:
+    on_charge_start: true
+    on_charge_stop: false
+    on_error: true
+    on_export_start: true
+    on_export_stop: true
+    on_override_activated: true
+    on_soc_target_change: false
+    on_water_heat_start: true
+    on_water_heat_stop: false
+    service: notify.mobile_app_sebastians_iphone
+  shadow_mode: true
+  soc_target_entity: input_number.master_soc_target
+  water_heater:
+    target_entity: input_number.vvbtemp
+    temp_boost: 70
+    temp_max: 85
+    temp_normal: 60
+    temp_off: 40
 forecasting:
   active_forecast_version: aurora
   load_safety_margin_percent: 117.0
@@ -121,9 +163,8 @@ s_index:
   max_factor: 1.5
   mode: probabilistic
   pv_deficit_weight: 0.2
-  risk_appetite: 3
+  risk_appetite: 5
   s_index_horizon_days: 4
-  soc_scaling_factor: 50.0
   static_factor: null
   temp_baseline_c: 15.0
   temp_cold_c: -10.0

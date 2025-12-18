@@ -134,3 +134,66 @@ schedule_df = pipeline.generate_schedule(input_data, mode="full")
 ```
 
 **Legacy Reference**: The original 3,600-line heuristic planner is archived at `archive/legacy_mpc.py` with documentation in `docs/LEGACY_MPC.md`.
+
+---
+
+## 6. Native Executor
+
+The Executor is a native Python replacement for the n8n "Helios Executor" workflow, enabling 100% MariaDB-free operation.
+
+### Package Structure
+
+```
+executor/
+├── __init__.py           # Package exports
+├── engine.py             # Main ExecutorEngine with 5-min tick loop
+├── controller.py         # Action determination from slot plans
+├── override.py           # Real-time override logic
+├── actions.py            # HA service call dispatcher
+├── history.py            # Execution history manager
+└── config.py             # Configuration dataclasses
+```
+
+### Data Flow
+
+```mermaid
+flowchart LR
+    subgraph Planner
+        PL[Kepler MILP] --> SJ[schedule.json]
+    end
+    subgraph SQLite["planner_learning.db"]
+        SP[slot_plans]
+        EL[execution_log]
+    end
+    subgraph Executor
+        LOOP[5-min Timer] --> READ[Read Current Slot]
+        READ --> OVERRIDE[Override Logic]
+        OVERRIDE --> CTRL[Controller]
+        CTRL --> HA[Home Assistant API]
+        CTRL --> LOG[Log Execution]
+    end
+    
+    SJ --> SP
+    SP --> READ
+    LOG --> EL
+```
+
+### Key Actions
+
+1. **Inverter Work Mode** - `select.inverter_work_mode`
+2. **Grid Charging** - `switch.inverter_battery_grid_charging`
+3. **Charge/Discharge Currents** - Battery power limits
+4. **SoC Target** - `input_number.master_soc_target`
+5. **Water Heater Target** - `input_number.vvbtemp`
+6. **Notifications** - Configurable per action type
+
+### Override Logic
+
+The executor includes real-time override logic for edge cases:
+- **Low SoC Protection**: Prevents export when SoC is critically low
+- **Excess PV Utilization**: Boosts water heating when excess PV available
+- **Slot Failure Fallback**: Safe defaults if slot plan unavailable
+
+### Configuration
+
+See `config.yaml` under `executor:` section for all configurable entities and parameters.

@@ -9,6 +9,7 @@ import Settings from './pages/Settings'
 import Forecasting from './pages/Forecasting'
 import Lab from './pages/Lab'
 import Aurora from './pages/Aurora'
+import Executor from './pages/Executor'
 import { Api } from './lib/api'
 
 export default function App() {
@@ -55,6 +56,7 @@ export default function App() {
                     <Route path="/" element={<Dashboard />} />
                     <Route path="/planning" element={<Planning />} />
                     <Route path="/forecasting" element={<Forecasting />} />
+                    <Route path="/executor" element={<Executor />} />
                     <Route path="/aurora" element={<Aurora />} />
                     <Route path="/learning" element={<Learning />} />
                     <Route path="/debug" element={<Debug />} />

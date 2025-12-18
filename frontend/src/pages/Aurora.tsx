@@ -304,8 +304,8 @@ export default function Aurora() {
             <div className="flex items-center gap-4">
               <div className="relative flex items-center justify-center">
                 <div className={`absolute h-16 w-16 rounded-full ${waveColor} opacity-30 animate-pulse`} />
-                <div className="relative flex items-center justify-center w-14 h-14 rounded-3xl bg-surface/90 border border-line/80 shadow-float">
-                  <Bot className="h-9 w-9 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
+                <div className="relative flex items-center justify-center w-14 h-14 rounded-full bg-surface/90 border border-line/80 shadow-float ring-2 ring-accent/20">
+                  <Bot className="h-8 w-8 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
                 </div>
               </div>
               <div>

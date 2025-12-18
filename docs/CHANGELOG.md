@@ -4,6 +4,81 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ---
 
+## Phase 7: Kepler Era (MILP Planner Maturation)
+
+This phase promoted Kepler from shadow mode to primary planner, implemented strategic S-Index, and built out the learning/reflex systems.
+
+### Rev K15 — Probabilistic Forecasting (Risk Awareness)
+- Upgraded Aurora Vision from point forecasts to probabilistic forecasts (p10/p50/p90).
+- Trained Quantile Regression models in LightGBM.
+- Updated DB schema for probabilistic bands.
+- Enabled `probabilistic` S-Index mode using p90 load and p10 PV.
+- **Status:** ✅ Completed
+
+### Rev K14 — Astro-Aware PV (Forecasting)
+- Replaced hardcoded PV clamps (17:00-07:00) with dynamic sunrise/sunset calculations using `astral`.
+- **Status:** ✅ Completed
+
+### Rev K13 — Planner Modularization (Production Architecture)
+- Refactored monolithic `planner.py` (3,637 lines) into modular `planner/` package.
+- Clear separation: inputs → strategy → scheduling → solver → output.
+- **Status:** ✅ Completed
+
+### Rev K12 — Aurora Reflex Completion (The Analyzers)
+- Completed Safety, Confidence, ROI, and Capacity analyzers in `reflex.py`.
+- Added query methods to LearningStore for historical analysis.
+- **Status:** ✅ Completed
+
+### Rev K11 — Aurora Reflex (Long-Term Tuning)
+- Implemented "Inner Ear" for auto-tuning parameters based on long-term drift.
+- Safe config updates with `ruamel.yaml`.
+- **Status:** ✅ Completed
+
+### Rev K10 — Aurora UI Makeover
+- Revamped Aurora tab as central AI command center.
+- Cockpit layout with Strategy Log, Context Radar, Performance Mirror.
+- **Status:** ✅ Completed
+
+### Rev K9 — The Learning Loop (Feedback)
+- Analyst component to calculate bias (Forecast vs Actual).
+- Auto-tune adjustments written to `learning_daily_metrics`.
+- **Status:** ✅ Completed
+
+### Rev K8 — The Analyst (Grid Peak Shaving)
+- Added `grid.import_limit_kw` to cap grid import peaks.
+- Hard constraint in Kepler solver.
+- **Status:** ✅ Completed
+
+### Rev K7 — The Mirror (Backfill & Visualization)
+- Auto-backfill from HA on startup.
+- Performance tab with SoC Tunnel and Cost Reality charts.
+- **Status:** ✅ Completed
+
+### Rev K6 — The Learning Engine (Metrics & Feedback)
+- Tracking `forecast_error`, `cost_deviation`, `battery_efficiency_realized`.
+- Persistence in `planner_learning.db`.
+- **Status:** ✅ Completed
+
+### Rev K5 — Strategy Engine Expansion (The Tuner)
+- Dynamic tuning of `wear_cost`, `ramping_cost`, `export_threshold` based on context.
+- **Status:** ✅ Completed
+
+### Rev K4 — Kepler Vision & Benchmarking
+- Benchmarked MCP vs Kepler plans.
+- S-Index parameter tuning.
+- **Status:** ✅ Completed
+
+### Rev K3 — Strategic S-Index (Decoupled Strategy)
+- Decoupled Load Inflation (intra-day) from Dynamic Target SoC (inter-day).
+- UI display of S-Index and Target SoC.
+- **Status:** ✅ Completed
+
+### Rev K2 — Kepler Promotion (Primary Planner)
+- Promoted Kepler to primary planner via `config.kepler.primary_planner`.
+- **Status:** ✅ Completed
+
+---
+
 ## Phase 6: Kepler (MILP Planner)
 
 ### Rev K1 — Kepler Foundation (MILP Solver)

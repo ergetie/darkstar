@@ -823,6 +823,364 @@ def scheduler_status():
     return jsonify(data)
 
 
+# --- Executor API Endpoints ---
+# Global executor instance (lazy-initialized)
+_executor_engine = None
+_executor_lock = threading.Lock()
+
+
+def _get_executor():
+    """Get or create the global executor engine instance."""
+    global _executor_engine
+    if _executor_engine is None:
+        with _executor_lock:
+            if _executor_engine is None:
+                try:
+                    from executor import ExecutorEngine
+                    _executor_engine = ExecutorEngine()
+                except ImportError as e:
+                    logger.error("Failed to import executor: %s", e)
+                    return None
+    return _executor_engine
+
+
+@app.route("/api/executor/status", methods=["GET"])
+def executor_status():
+    """Return current executor status."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+    return jsonify(executor.get_status())
+
+
+@app.route("/api/executor/toggle", methods=["POST"])
+def executor_toggle():
+    """Enable or disable the executor."""
+    payload = request.get_json(silent=True) or {}
+    enabled = payload.get("enabled")
+    shadow_mode = payload.get("shadow_mode")
+
+    if enabled is None and shadow_mode is None:
+        return jsonify({"error": "Must specify 'enabled' or 'shadow_mode'"}), 400
+
+    # Update config.yaml
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        config = {}
+
+    executor_cfg = config.setdefault("executor", {})
+
+    if enabled is not None:
+        executor_cfg["enabled"] = bool(enabled)
+    if shadow_mode is not None:
+        executor_cfg["shadow_mode"] = bool(shadow_mode)
+
+    with open("config.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False)
+
+    # Reload executor config
+    executor = _get_executor()
+    if executor:
+        executor.reload_config()
+        if enabled and executor.config.enabled:
+            executor.start()
+        elif enabled is False:
+            executor.stop()
+
+    return jsonify({
+        "success": True,
+        "enabled": executor_cfg.get("enabled", False),
+        "shadow_mode": executor_cfg.get("shadow_mode", False),
+    })
+
+
+@app.route("/api/executor/run", methods=["POST"])
+def executor_run():
+    """Trigger a single manual execution tick."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    try:
+        result = executor.run_once()
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Manual executor run failed: %s", e)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/executor/history", methods=["GET"])
+def executor_history():
+    """Return execution history with optional filters."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    limit = request.args.get("limit", 100, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    slot_start = request.args.get("slot_start")
+    success_only = request.args.get("success_only")
+
+    if success_only is not None:
+        success_only = success_only.lower() in ("true", "1", "yes")
+
+    records = executor.history.get_history(
+        limit=limit,
+        offset=offset,
+        slot_start=slot_start,
+        success_only=success_only,
+    )
+    return jsonify({"records": records, "count": len(records)})
+
+
+@app.route("/api/executor/stats", methods=["GET"])
+def executor_stats():
+    """Return execution statistics."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    days = request.args.get("days", 7, type=int)
+    stats = executor.history.get_stats(days=days)
+    return jsonify(stats)
+
+
+@app.route("/api/executor/config", methods=["GET"])
+def executor_config_get():
+    """Return current executor configuration."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    cfg = executor.config
+    return jsonify({
+        "enabled": cfg.enabled,
+        "shadow_mode": cfg.shadow_mode,
+        "interval_seconds": cfg.interval_seconds,
+        "automation_toggle_entity": cfg.automation_toggle_entity,
+        "manual_override_entity": cfg.manual_override_entity,
+        "soc_target_entity": cfg.soc_target_entity,
+        "inverter": {
+            "work_mode_entity": cfg.inverter.work_mode_entity,
+            "work_mode_export": cfg.inverter.work_mode_export,
+            "work_mode_zero_export": cfg.inverter.work_mode_zero_export,
+            "grid_charging_entity": cfg.inverter.grid_charging_entity,
+            "max_charging_current_entity": cfg.inverter.max_charging_current_entity,
+            "max_discharging_current_entity": cfg.inverter.max_discharging_current_entity,
+        },
+        "water_heater": {
+            "target_entity": cfg.water_heater.target_entity,
+            "temp_normal": cfg.water_heater.temp_normal,
+            "temp_off": cfg.water_heater.temp_off,
+            "temp_boost": cfg.water_heater.temp_boost,
+            "temp_max": cfg.water_heater.temp_max,
+        },
+        "notifications": {
+            "service": cfg.notifications.service,
+            "on_charge_start": cfg.notifications.on_charge_start,
+            "on_charge_stop": cfg.notifications.on_charge_stop,
+            "on_export_start": cfg.notifications.on_export_start,
+            "on_export_stop": cfg.notifications.on_export_stop,
+            "on_water_heat_start": cfg.notifications.on_water_heat_start,
+            "on_water_heat_stop": cfg.notifications.on_water_heat_stop,
+            "on_soc_target_change": cfg.notifications.on_soc_target_change,
+            "on_override_activated": cfg.notifications.on_override_activated,
+            "on_error": cfg.notifications.on_error,
+        },
+    })
+
+
+@app.route("/api/executor/notifications", methods=["GET", "POST"])
+def executor_notifications():
+    """Get or update executor notification settings."""
+    if request.method == "GET":
+        # Return current notification settings
+        executor = _get_executor()
+        if executor is None:
+            return jsonify({"error": "Executor not available"}), 500
+        
+        cfg = executor.config.notifications
+        return jsonify({
+            "service": cfg.service,
+            "on_charge_start": cfg.on_charge_start,
+            "on_charge_stop": cfg.on_charge_stop,
+            "on_export_start": cfg.on_export_start,
+            "on_export_stop": cfg.on_export_stop,
+            "on_water_heat_start": cfg.on_water_heat_start,
+            "on_water_heat_stop": cfg.on_water_heat_stop,
+            "on_soc_target_change": cfg.on_soc_target_change,
+            "on_override_activated": cfg.on_override_activated,
+            "on_error": cfg.on_error,
+        })
+    
+    # POST - Update notification settings
+    payload = request.get_json(silent=True) or {}
+    
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        config = {}
+    
+    notifications = config.setdefault("executor", {}).setdefault("notifications", {})
+    
+    # Update only provided fields
+    valid_keys = [
+        "service", "on_charge_start", "on_charge_stop", "on_export_start",
+        "on_export_stop", "on_water_heat_start", "on_water_heat_stop",
+        "on_soc_target_change", "on_override_activated", "on_error"
+    ]
+    
+    for key in valid_keys:
+        if key in payload:
+            notifications[key] = payload[key]
+    
+    with open("config.yaml", "w", encoding="utf-8") as f:
+        yaml.safe_dump(config, f, default_flow_style=False)
+    
+    # Reload executor config
+    executor = _get_executor()
+    if executor:
+        executor.reload_config()
+    
+    return jsonify({"success": True, "notifications": notifications})
+
+
+@app.route("/api/executor/notifications/test", methods=["POST"])
+def executor_notifications_test():
+    """Send a test notification via Home Assistant."""
+    print("[BACKEND] Test notification endpoint called")
+    
+    try:
+        print("[BACKEND] Step 1: Importing modules")
+        from inputs import load_home_assistant_config, _make_ha_headers
+        import requests as req
+        
+        print("[BACKEND] Step 2: Loading HA config")
+        ha_config = load_home_assistant_config()
+        if not ha_config:
+            print("[BACKEND] ERROR: HA not configured")
+            return jsonify({"error": "HA not configured"}), 500
+        
+        base_url = ha_config.get("url", "").rstrip("/")
+        token = ha_config.get("token", "")
+        print(f"[BACKEND] Step 3: base_url={base_url}, token={'*'*10 if token else 'MISSING'}")
+        
+        if not base_url or not token:
+            return jsonify({"error": "Missing HA URL or token"}), 500
+        
+        headers = _make_ha_headers(token)
+        print(f"[BACKEND] Step 4: Headers created")
+        
+        # Get notification service from config
+        print("[BACKEND] Step 5: Loading config.yaml")
+        config = _load_yaml("config.yaml")
+        service = config.get("executor", {}).get("notifications", {}).get("service", "")
+        print(f"[BACKEND] Step 6: Service from config = '{service}'")
+        
+        if not service:
+            return jsonify({"error": "No notification service configured"}), 400
+        
+        # n8n uses domain "notify" and service "mobile_app_X"
+        # Config has "notify.mobile_app_phone" - need to split
+        if "." in service:
+            service_domain, service_name = service.split(".", 1)
+        else:
+            service_domain = "notify"
+            service_name = service
+        
+        print(f"[BACKEND] Step 7: domain={service_domain}, service={service_name}")
+        
+        # n8n format: just "message" attribute, no "title"
+        payload = {
+            "message": "⚡ Darkstar test notification! Executor is working correctly."
+        }
+        
+        url = f"{base_url}/api/services/{service_domain}/{service_name}"
+        print(f"[BACKEND] Step 8: Calling {url}")
+        print(f"[BACKEND] Step 9: Payload = {payload}")
+        
+        response = req.post(url, headers=headers, json=payload, timeout=10)
+        
+        print(f"[BACKEND] Step 10: Response status={response.status_code}")
+        print(f"[BACKEND] Step 11: Response body={response.text[:500] if response.text else 'empty'}")
+        
+        if response.ok:
+            return jsonify({"success": True, "message": f"Test notification sent via {service}"})
+        else:
+            return jsonify({"error": f"HA error ({response.status_code}): {response.text}"}), 500
+            
+    except Exception as e:
+        import traceback
+        print(f"[BACKEND] EXCEPTION: {e}")
+        print(f"[BACKEND] TRACEBACK:\n{traceback.format_exc()}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/executor/live", methods=["GET"])
+def executor_live():
+    """Return current live values from Home Assistant for the executor dashboard."""
+    try:
+        from inputs import load_home_assistant_config, _make_ha_headers
+        import requests as req
+        
+        ha_config = load_home_assistant_config()
+        if not ha_config:
+            return jsonify({"error": "HA not configured"}), 500
+        
+        base_url = ha_config.get("url", "").rstrip("/")
+        token = ha_config.get("token", "")
+        
+        if not base_url or not token:
+            return jsonify({"error": "Missing HA URL or token"}), 500
+        
+        headers = _make_ha_headers(token)
+        
+        # Load config to get entity IDs
+        config = _load_yaml("config.yaml")
+        input_sensors = config.get("input_sensors", {})
+        executor_cfg = config.get("executor", {})
+        inverter_cfg = executor_cfg.get("inverter", {})
+        
+        entities = {
+            "soc": input_sensors.get("battery_soc", "sensor.inverter_battery"),
+            "pv_power": input_sensors.get("pv_power", "sensor.inverter_pv_power"),
+            "load_power": input_sensors.get("load_power", "sensor.inverter_load_power"),
+            "grid_import": input_sensors.get("grid_import_power", "sensor.inverter_grid_import_power"),
+            "grid_export": input_sensors.get("grid_export_power", "sensor.inverter_grid_export_power"),
+            "work_mode": inverter_cfg.get("work_mode_entity", "select.inverter_work_mode"),
+            "grid_charging": inverter_cfg.get("grid_charging_entity", "switch.inverter_battery_grid_charging"),
+        }
+        
+        result = {}
+        for key, entity_id in entities.items():
+            try:
+                r = req.get(f"{base_url}/api/states/{entity_id}", headers=headers, timeout=5)
+                if r.ok:
+                    data = r.json()
+                    state = data.get("state")
+                    if state not in ("unknown", "unavailable"):
+                        result[key] = {
+                            "value": state,
+                            "unit": data.get("attributes", {}).get("unit_of_measurement", ""),
+                            "friendly_name": data.get("attributes", {}).get("friendly_name", entity_id),
+                        }
+                        # Try to convert to float for numeric values
+                        try:
+                            result[key]["numeric"] = float(state)
+                        except (ValueError, TypeError):
+                            pass
+            except Exception as e:
+                print(f"[BACKEND] Failed to get {entity_id}: {e}")
+        
+        return jsonify(result)
+    except Exception as e:
+        print(f"[BACKEND] Executor live error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/db/current_schedule", methods=["GET"])
 def db_current_schedule():
     """Return the current_schedule from MariaDB in the same shape used by the UI."""
@@ -2326,3 +2684,19 @@ def debug_log():
 
 # Start automatic recording when webapp starts
 setup_auto_observation_recording()
+
+# Auto-start executor background loop if enabled in config
+def _autostart_executor():
+    """Start the executor background loop if enabled in config."""
+    try:
+        config = _load_yaml("config.yaml")
+        executor_cfg = config.get("executor", {})
+        if executor_cfg.get("enabled", False):
+            executor = _get_executor()
+            if executor:
+                logger.info("Auto-starting executor background loop (enabled in config)")
+                executor.start()
+    except Exception as e:
+        logger.warning("Failed to auto-start executor: %s", e)
+
+_autostart_executor()

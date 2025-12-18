@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Gauge, CalendarRange, BookOpenCheck, Bug, Settings, Bolt, Menu, X, Activity, FlaskConical, Bot } from 'lucide-react'
+import { Gauge, CalendarRange, BookOpenCheck, Bug, Settings, Bolt, Menu, X, Activity, FlaskConical, Bot, Cpu } from 'lucide-react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 
 const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; label: string; onClick?: () => void }) => {
@@ -44,6 +44,7 @@ export default function Sidebar() {
                     {/* Navigation Items */}
                     <Item to="/" icon={Gauge} label="Dash" />
                     <Item to="/planning" icon={CalendarRange} label="Plan" />
+                    <Item to="/executor" icon={Cpu} label="Executor" />
                     <Item to="/aurora" icon={Bot} label="Aurora" />
                     <Item to="/lab" icon={FlaskConical} label="Lab" />
                     <Item to="/debug" icon={Bug} label="Debug" />
@@ -114,6 +115,18 @@ export default function Sidebar() {
                             <span className="flex items-center gap-2">
                                 <CalendarRange className="h-4 w-4" />
                                 <NavLink to="/planning">Planning</NavLink>
+                            </span>
+                        </button>
+
+                        <button
+                            type="button"
+                            className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left ${pathname === '/executor' ? 'bg-accent text-[#0F1216]' : 'bg-surface border border-line/60 text-muted'
+                                }`}
+                            onClick={closeMobile}
+                        >
+                            <span className="flex items-center gap-2">
+                                <Cpu className="h-4 w-4" />
+                                <NavLink to="/executor">Executor</NavLink>
                             </span>
                         </button>
 

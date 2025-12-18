@@ -140,15 +140,23 @@ Darkstar is a monorepo containing the Python backend, React frontend, and ML pip
 │   ├── strategy/       # Context rules & Analyst logic
 │   ├── scheduler.py    # Internal automation runner
 │   └── webapp.py       # Main API entrypoint
+├── executor/           # Native Executor (replaces n8n workflow)
+│   ├── engine.py       # 5-minute tick loop
+│   ├── controller.py   # Action determination
+│   ├── override.py     # Real-time override logic
+│   └── actions.py      # HA service dispatcher
 ├── frontend/           # React + Vite Application
-│   ├── src/pages/      # Dashboard, Planning, Lab, Forecasting, Settings
+│   ├── src/pages/      # Dashboard, Planning, Lab, Forecasting, Executor, Settings
 │   └── ...
 ├── ml/                 # AURORA Machine Learning Pipeline
 │   ├── models/         # Trained LightGBM models
 │   ├── train.py        # Offline training script
 │   └── forward.py      # Inference engine
+├── planner/            # Modular Planner Package
+│   ├── pipeline.py     # Main orchestrator
+│   ├── solver/         # Kepler MILP solver
+│   └── strategy/       # S-Index, Target SoC
 ├── inputs.py           # Data ingestion (HA, Nordpool, Aurora)
-├── planner.py          # Core MPC Algorithm
 └── config.yaml         # User configuration
 ```
 
