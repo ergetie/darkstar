@@ -12,10 +12,12 @@ from backend.learning.mariadb_sync import MariaDBSync
 # Configure logging
 logger = logging.getLogger(__name__)
 
+
 class BackfillEngine:
     """
     Handles backfilling of missing observations from Home Assistant history and MariaDB.
     """
+
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
         self.config = self._load_config(config_path)
@@ -23,7 +25,7 @@ class BackfillEngine:
         self.store = self.engine.store
         self.ha_config = self._load_ha_config()
         self.timezone = pytz.timezone(self.config.get("timezone", "Europe/Stockholm"))
-        
+
         # Load secrets for MariaDB
         self.secrets = self._load_secrets()
         self.mariadb = MariaDBSync(self.store, self.secrets) if self.secrets else None
@@ -56,7 +58,9 @@ class BackfillEngine:
             "Content-Type": "application/json",
         }
 
-    def _fetch_history(self, entity_id: str, start_time: datetime, end_time: datetime) -> List[Tuple[datetime, float]]:
+    def _fetch_history(
+        self, entity_id: str, start_time: datetime, end_time: datetime
+    ) -> List[Tuple[datetime, float]]:
         """Fetch history for a single entity from HA."""
         url = self.ha_config.get("url")
         if not url or not entity_id:
@@ -69,15 +73,17 @@ class BackfillEngine:
             "significant_changes_only": False,
             "minimal_response": False,
         }
-        
+
         try:
-            response = requests.get(api_url, headers=self._make_ha_headers(), params=params, timeout=60)
+            response = requests.get(
+                api_url, headers=self._make_ha_headers(), params=params, timeout=60
+            )
             response.raise_for_status()
             data = response.json()
-            
+
             if not data or not data[0]:
                 return []
-                
+
             history = []
             for state in data[0]:
                 try:
@@ -87,7 +93,7 @@ class BackfillEngine:
                 except (ValueError, TypeError, KeyError):
                     continue
             return history
-            
+
         except Exception as e:
             logger.error(f"Failed to fetch history for {entity_id}: {e}")
             return []
@@ -95,7 +101,7 @@ class BackfillEngine:
     def run(self) -> None:
         """Run the backfill process."""
         logger.info("Starting backfill process...")
-        
+
         # 1. Sync from MariaDB (Primary Source)
         if self.mariadb:
             days_back = 30
@@ -109,7 +115,7 @@ class BackfillEngine:
             # Check last observation time
             last_obs = self.store.get_last_observation_time()
             now = datetime.now(self.timezone)
-            
+
             # Default lookback if empty DB (e.g., 7 days)
             if not last_obs:
                 logger.info("No existing observations. Backfilling last 7 days.")
@@ -120,7 +126,7 @@ class BackfillEngine:
                 if gap < timedelta(minutes=15):
                     logger.info("Data is up to date.")
                     return
-                
+
                 logger.info(f"Found data gap of {gap}. Starting backfill from {last_obs}.")
                 start_time = last_obs
 
@@ -132,7 +138,7 @@ class BackfillEngine:
             # 2. Identify sensors to fetch
             raw_map = self.engine.learning_config.get("sensor_map", {})
             cumulative_data: Dict[str, List[Tuple[datetime, float]]] = {}
-            
+
             count = 0
             for entity_id, canonical in raw_map.items():
                 logger.info(f"Backfilling {canonical} ({entity_id})...")
@@ -140,25 +146,25 @@ class BackfillEngine:
                 if history:
                     cumulative_data[str(entity_id)] = history
                     count += len(history)
-            
+
             if not cumulative_data:
                 logger.warning("No history data found for any sensors.")
                 return
 
             logger.info(f"Fetched {count} data points. Processing into slots...")
-            
+
             # 3. ETL to slots
             df = self.engine.etl_cumulative_to_slots(cumulative_data)
-            
+
             if df.empty:
                 logger.warning("ETL produced empty DataFrame.")
                 return
-                
+
             logger.info(f"Generated {len(df)} slots. Storing to DB...")
-            
+
             # 4. Store
             self.engine.store_slot_observations(df)
             logger.info("Backfill complete.")
-            
+
         except Exception as e:
             logger.error(f"Backfill failed during ETL/Storage: {e}")

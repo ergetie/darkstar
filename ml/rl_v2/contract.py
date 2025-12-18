@@ -46,4 +46,3 @@ class RlV2ActionSpec:
     def bounds(self) -> Tuple[float, float]:
         # Symmetric generic bounds; concrete env should clamp to config.
         return 0.0, 10.0
-

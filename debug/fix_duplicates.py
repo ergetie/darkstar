@@ -13,20 +13,21 @@ logger = logging.getLogger(__name__)
 from backend.learning import get_learning_engine
 from backend.learning.backfill import BackfillEngine
 
+
 def main():
     print("🧹 Cleaning up duplicates and re-syncing...")
-    
+
     try:
         engine = get_learning_engine("config.yaml")
-        
+
         # 1. Wipe Tables
         with sqlite3.connect(engine.db_path) as conn:
             print("   Deleting from slot_observations...")
             conn.execute("DELETE FROM slot_observations")
-            
+
             print("   Deleting from slot_plans...")
             conn.execute("DELETE FROM slot_plans")
-            
+
             conn.commit()
             print("   ✅ Tables wiped.")
 
@@ -39,7 +40,9 @@ def main():
     except Exception as e:
         print(f"❌ Fix failed: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

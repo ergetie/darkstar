@@ -2,12 +2,12 @@
 """Debug why pv_contribution is 3x expected."""
 import json
 
-with open('schedule.json') as f:
+with open("schedule.json") as f:
     d = json.load(f)
 
-fr = d.get('debug',{}).get('s_index',{}).get('future_risk',{})
-pv_c = fr.get('pv_contribution')
-pv_r = fr.get('pv_deficit_ratio_weighted')
+fr = d.get("debug", {}).get("s_index", {}).get("future_risk", {})
+pv_c = fr.get("pv_contribution")
+pv_r = fr.get("pv_deficit_ratio_weighted")
 
 print(f"pv_contribution: {pv_c}")
 print(f"pv_deficit_ratio_weighted: {pv_r}")

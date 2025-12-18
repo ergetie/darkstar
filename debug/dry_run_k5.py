@@ -9,7 +9,7 @@ from archive.legacy_mpc import HeliosPlanner
 from backend.strategy.engine import StrategyEngine
 
 # Mock Config
-config_path = "config.yaml" # Assume exists
+config_path = "config.yaml"  # Assume exists
 if not os.path.exists(config_path):
     # Fallback to default
     config_path = "config.default.yaml"
@@ -25,23 +25,26 @@ planner.config["kepler"] = {"primary_planner": True}
 # High Volatility: 0.1 to 2.0 SEK
 prices = []
 import datetime
+
 now = datetime.datetime.now(datetime.timezone.utc)
-for i in range(48): # 12 hours
-    t = now + datetime.timedelta(minutes=15*i)
+for i in range(48):  # 12 hours
+    t = now + datetime.timedelta(minutes=15 * i)
     # Alternating high/low to force volatility spread
     price = 0.1 if i % 2 == 0 else 2.0
-    prices.append({
-        "start_time": t.isoformat(),
-        "end_time": (t + datetime.timedelta(minutes=15)).isoformat(),
-        "import_price_sek_kwh": price,
-        "export_price_sek_kwh": price
-    })
+    prices.append(
+        {
+            "start_time": t.isoformat(),
+            "end_time": (t + datetime.timedelta(minutes=15)).isoformat(),
+            "import_price_sek_kwh": price,
+            "export_price_sek_kwh": price,
+        }
+    )
 
 input_data = {
     "price_data": prices,
-    "forecast_data": [], # Empty forecast
+    "forecast_data": [],  # Empty forecast
     "initial_state": {"battery_kwh": 5.0},
-    "context": {"weather_volatility": {"cloud": 0.0}}
+    "context": {"weather_volatility": {"cloud": 0.0}},
 }
 
 # Run Strategy Engine manually to get overrides

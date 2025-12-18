@@ -9,12 +9,15 @@ import pytz
 # Constants
 VATTENFALL_API = "https://www.vattenfall.se/api/price/spot/pricearea/{start}/{end}/{area}"
 
+
 def load_config():
     with open("config.yaml", "r") as f:
         return yaml.safe_load(f)
 
+
 def get_db_path(config):
     return config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+
 
 def calculate_final_prices(spot_ore, config):
     """
@@ -34,6 +37,7 @@ def calculate_final_prices(spot_ore, config):
     export_price = spot_sek
 
     return round(import_price, 4), round(export_price, 4)
+
 
 def backfill_vattenfall(start_date_str, end_date_str, area="SN4"):
     config = load_config()
@@ -62,9 +66,7 @@ def backfill_vattenfall(start_date_str, end_date_str, area="SN4"):
             print(f"Fetching {s_str} to {e_str}...", end="", flush=True)
 
             try:
-                headers = {
-                    "User-Agent": "DarkstarEnergyManager/1.0"
-                }
+                headers = {"User-Agent": "DarkstarEnergyManager/1.0"}
                 resp = requests.get(url, headers=headers, timeout=20)
                 resp.raise_for_status()
                 data = resp.json()
@@ -89,22 +91,22 @@ def backfill_vattenfall(start_date_str, end_date_str, area="SN4"):
                         # Calculate prices
                         imp, exp = calculate_final_prices(float(val_ore), config)
 
-                        rows_to_insert.append((
-                            dt_local.isoformat(),
-                            dt_end_local.isoformat(),
-                            imp,
-                            exp
-                        ))
+                        rows_to_insert.append(
+                            (dt_local.isoformat(), dt_end_local.isoformat(), imp, exp)
+                        )
 
                 if rows_to_insert:
-                    conn.executemany("""
+                    conn.executemany(
+                        """
                         INSERT INTO slot_observations
                         (slot_start, slot_end, import_price_sek_kwh, export_price_sek_kwh)
                         VALUES (?, ?, ?, ?)
                         ON CONFLICT(slot_start) DO UPDATE SET
                         import_price_sek_kwh=excluded.import_price_sek_kwh,
                         export_price_sek_kwh=excluded.export_price_sek_kwh
-                    """, rows_to_insert)
+                    """,
+                        rows_to_insert,
+                    )
                     conn.commit()
                     count = len(rows_to_insert)
                     total_slots += count
@@ -119,6 +121,7 @@ def backfill_vattenfall(start_date_str, end_date_str, area="SN4"):
             current_start = current_end + timedelta(days=1)
 
     print(f"Done. Backfilled {total_slots} price slots.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:

@@ -21,7 +21,9 @@ def _parse_date(value: str) -> datetime:
     try:
         return datetime.fromisoformat(value)
     except ValueError:
-        raise argparse.ArgumentTypeError("Dates must be ISO formatted (YYYY-MM-DD or YYYY-MM-DDTHH:MM).")
+        raise argparse.ArgumentTypeError(
+            "Dates must be ISO formatted (YYYY-MM-DD or YYYY-MM-DDTHH:MM)."
+        )
 
 
 def _build_sim_config(base_config: dict) -> dict:
@@ -50,7 +52,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run historical planner simulations.")
     parser.add_argument("--start-date", required=True, type=_parse_date)
     parser.add_argument("--end-date", required=True, type=_parse_date)
-    parser.add_argument("--step-minutes", type=int, default=15, help="Simulation increment in minutes.")
+    parser.add_argument(
+        "--step-minutes", type=int, default=15, help="Simulation increment in minutes."
+    )
     return parser
 
 
@@ -90,12 +94,8 @@ def main() -> int:
         try:
             with sqlite3.connect(loader.db_path, timeout=30.0) as conn:
                 cur = conn.cursor()
-                cur.execute(
-                    "SELECT date, status FROM data_quality_daily"
-                )
-                quality_by_date = {
-                    row[0]: row[1] for row in cur.fetchall() if row and row[0]
-                }
+                cur.execute("SELECT date, status FROM data_quality_daily")
+                quality_by_date = {row[0]: row[1] for row in cur.fetchall() if row and row[0]}
         except sqlite3.Error:
             quality_by_date = {}
 
@@ -154,9 +154,7 @@ def main() -> int:
                 {
                     "episode_start_local": current.isoformat(),
                     "episode_date": current_day,
-                    "system_id": sim_config.get("system", {}).get(
-                        "system_id", "simulation"
-                    ),
+                    "system_id": sim_config.get("system", {}).get("system_id", "simulation"),
                     "data_quality_status": quality_status,
                 }
             )
@@ -192,24 +190,18 @@ def main() -> int:
                 projected_cost = step_row["projected_battery_cost"]
 
                 if projected_soc is None or projected_kwh is None:
-                    print(
-                        f"[simulation] Invalid SOC data at {current.isoformat()}, stopping."
-                    )
+                    print(f"[simulation] Invalid SOC data at {current.isoformat()}, stopping.")
                     break
 
                 try:
                     soc_float = float(projected_soc)
                     kwh_float = float(projected_kwh)
                 except (TypeError, ValueError):
-                    print(
-                        f"[simulation] Cannot parse SOC at {current.isoformat()}, stopping."
-                    )
+                    print(f"[simulation] Cannot parse SOC at {current.isoformat()}, stopping.")
                     break
 
                 if math.isnan(soc_float) or math.isnan(kwh_float):
-                    print(
-                        f"[simulation] SOC contains NaN at {current.isoformat()}, stopping."
-                    )
+                    print(f"[simulation] SOC contains NaN at {current.isoformat()}, stopping.")
                     break
 
                 if projected_cost is None or (

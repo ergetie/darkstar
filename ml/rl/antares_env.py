@@ -89,7 +89,7 @@ class AntaresRLEnv:
             day = self._iterator.next_day()
             if day is None:
                 raise RuntimeError("No candidate days available for AntaresRLEnv.")
-            
+
             try:
                 self._current_day = day
                 state = self.env.reset(day)
@@ -101,7 +101,10 @@ class AntaresRLEnv:
                 high_threshold: Optional[float] = None
                 if schedule is not None:
                     df = schedule.copy()
-                    if df.index.name in {"start_time", "slot_start"} and "start_time" not in df.columns:
+                    if (
+                        df.index.name in {"start_time", "slot_start"}
+                        and "start_time" not in df.columns
+                    ):
                         df = df.reset_index()
                     prices = (
                         pd.to_numeric(df.get("import_price_sek_kwh"), errors="coerce")
@@ -128,12 +131,12 @@ class AntaresRLEnv:
                     self._initial_soc_percent = None
 
                 return self._sanitize_state(state)
-            
+
             except Exception as e:
                 # If reset failed (e.g. empty data), just try the next day
                 # print(f"Warning: Skipping day {day} due to error: {e}")
                 attempts += 1
-        
+
         raise RuntimeError(f"Failed to find a valid simulation day after {max_retries} attempts.")
 
     def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
@@ -162,7 +165,9 @@ class AntaresRLEnv:
         reward = float(result.reward)
         # Reward shaping around cheap/expensive prices. This does not change
         # the cost metric used for evaluation, only the learning signal.
-        if (self._low_price_threshold is not None or self._high_price_threshold is not None) and action is not None:
+        if (
+            self._low_price_threshold is not None or self._high_price_threshold is not None
+        ) and action is not None:
             try:
                 # result.info["index"] holds the slot index in the schedule.
                 idx = int(result.info.get("index", -1))

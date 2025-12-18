@@ -20,13 +20,15 @@ else:
 print("\n--- 2. CHECKING RAW DB FORMAT ---")
 # We need to see exactly how the timestamp is stored (string literal)
 with sqlite3.connect(engine.db_path) as conn:
-    rows = conn.execute("""
+    rows = conn.execute(
+        """
         SELECT slot_start, correction_source
         FROM slot_forecasts
         WHERE forecast_version='aurora'
         AND slot_start > datetime('now')
         ORDER BY slot_start ASC LIMIT 3
-    """).fetchall()
+    """
+    ).fetchall()
 
 if not rows:
     print("❌ No future forecasts found.")
@@ -37,6 +39,7 @@ else:
 print("\n--- 3. PIPELINE SIMULATION ---")
 # Let's see what the corrector *wants* to do vs what is saved
 from ml.corrector import predict_corrections
+
 try:
     corrections, source = predict_corrections(horizon_hours=2)
     if not corrections:
@@ -48,7 +51,11 @@ try:
 
         # Check for mismatch
         db_time_str = rows[0][0] if rows else "N/A"
-        py_time_iso = first['slot_start'].isoformat() if hasattr(first['slot_start'], 'isoformat') else str(first['slot_start'])
+        py_time_iso = (
+            first["slot_start"].isoformat()
+            if hasattr(first["slot_start"], "isoformat")
+            else str(first["slot_start"])
+        )
 
         if rows and db_time_str != py_time_iso:
             print(f"\n❌ MISMATCH DETECTED!")

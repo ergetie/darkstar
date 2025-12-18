@@ -102,11 +102,7 @@ def _collect_state_action_pairs(days: List[str]) -> pd.DataFrame:
             state_vec = env._build_state_vector(row)  # type: ignore[attr-defined]
 
             actions: Dict[str, float] = {}
-            charge_kw = float(
-                row.get("battery_charge_kw")
-                or row.get("charge_kw")
-                or 0.0
-            )
+            charge_kw = float(row.get("battery_charge_kw") or row.get("charge_kw") or 0.0)
             discharge_kw = float(row.get("battery_discharge_kw") or 0.0)
             export_kw = float(row.get("export_kw") or 0.0)
 
@@ -294,4 +290,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

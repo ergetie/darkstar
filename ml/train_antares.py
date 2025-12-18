@@ -372,14 +372,12 @@ def main() -> int:
         if {"import_kwh", "export_kwh", "import_price_sek_kwh", "export_price_sek_kwh"}.issubset(
             val_df.columns
         ):
-            import_cost = (
-                val_df["import_kwh"].astype(float)
-                * val_df["import_price_sek_kwh"].astype(float)
-            )
-            export_revenue = (
-                val_df["export_kwh"].astype(float)
-                * val_df["export_price_sek_kwh"].astype(float)
-            )
+            import_cost = val_df["import_kwh"].astype(float) * val_df[
+                "import_price_sek_kwh"
+            ].astype(float)
+            export_revenue = val_df["export_kwh"].astype(float) * val_df[
+                "export_price_sek_kwh"
+            ].astype(float)
             slot_cost = import_cost - export_revenue
             baseline_cost_stats = {
                 "baseline_mean_cost_per_slot": float(slot_cost.mean()),

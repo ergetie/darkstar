@@ -108,26 +108,20 @@ def _build_day_pairs_v2(
 
     df["load_kwh"] = pd.to_numeric(df["load_kwh"], errors="coerce").fillna(0.0)
     df["pv_kwh"] = pd.to_numeric(df["pv_kwh"], errors="coerce").fillna(0.0)
-    df["import_price_sek_kwh"] = pd.to_numeric(
-        df["import_price_sek_kwh"], errors="coerce"
-    ).fillna(0.0)
+    df["import_price_sek_kwh"] = pd.to_numeric(df["import_price_sek_kwh"], errors="coerce").fillna(
+        0.0
+    )
 
     df["slot_hours"] = pd.to_numeric(df["slot_hours"], errors="coerce").fillna(0.25)
     df["slot_hours"] = df["slot_hours"].clip(lower=0.01)
 
-    df["hour_of_day"] = (
-        df["slot_start"].dt.hour + df["slot_start"].dt.minute / 60.0
-    )
+    df["hour_of_day"] = df["slot_start"].dt.hour + df["slot_start"].dt.minute / 60.0
 
-    df["oracle_soc_percent"] = pd.to_numeric(
-        df["oracle_soc_percent"], errors="coerce"
-    ).fillna(0.0)
-    df["oracle_charge_kwh"] = pd.to_numeric(
-        df["oracle_charge_kwh"], errors="coerce"
-    ).fillna(0.0)
-    df["oracle_discharge_kwh"] = pd.to_numeric(
-        df["oracle_discharge_kwh"], errors="coerce"
-    ).fillna(0.0)
+    df["oracle_soc_percent"] = pd.to_numeric(df["oracle_soc_percent"], errors="coerce").fillna(0.0)
+    df["oracle_charge_kwh"] = pd.to_numeric(df["oracle_charge_kwh"], errors="coerce").fillna(0.0)
+    df["oracle_discharge_kwh"] = pd.to_numeric(df["oracle_discharge_kwh"], errors="coerce").fillna(
+        0.0
+    )
     df["oracle_grid_export_kwh"] = pd.to_numeric(
         df["oracle_grid_export_kwh"], errors="coerce"
     ).fillna(0.0)
@@ -276,35 +270,24 @@ def main() -> int:
     Y = np.concatenate([Y_act, soc_all], axis=1)
 
     mask_finite = (
-        np.isfinite(X).all(axis=1)
-        & np.isfinite(Y).all(axis=1)
-        & np.isfinite(W).reshape(-1)
+        np.isfinite(X).all(axis=1) & np.isfinite(Y).all(axis=1) & np.isfinite(W).reshape(-1)
     )
     if not mask_finite.any():
-        raise SystemExit(
-            "[oracle-bc-v2] All samples contain NaN/inf; nothing to train on."
-        )
+        raise SystemExit("[oracle-bc-v2] All samples contain NaN/inf; nothing to train on.")
     if not mask_finite.all():
         before = len(mask_finite)
         after = int(mask_finite.sum())
-        print(
-            f"[oracle-bc-v2] Dropping {before - after} non-finite samples "
-            f"(keeping {after})."
-        )
+        print(f"[oracle-bc-v2] Dropping {before - after} non-finite samples " f"(keeping {after}).")
     X = X[mask_finite]
     Y = Y[mask_finite]
     W = W[mask_finite]
 
     print(f"[oracle-bc-v2] Total samples (finite): {len(X)}")
 
-    dataset = TensorDataset(
-        torch.from_numpy(X), torch.from_numpy(Y), torch.from_numpy(W)
-    )
+    dataset = TensorDataset(torch.from_numpy(X), torch.from_numpy(Y), torch.from_numpy(W))
     loader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=True)
 
-    model = OracleBcV2Net(
-        in_dim=X.shape[1], hidden_dim=cfg.hidden_dim, out_dim=Y.shape[1]
-    )
+    model = OracleBcV2Net(in_dim=X.shape[1], hidden_dim=cfg.hidden_dim, out_dim=Y.shape[1])
     optimizer = optim.Adam(model.parameters(), lr=cfg.learning_rate)
     loss_fn = nn.MSELoss()
 
@@ -339,10 +322,7 @@ def main() -> int:
             epoch_loss += float(loss.item()) * batch_x.size(0)
             weight_sum += float(w_clamped.mean().item()) * batch_x.size(0)
         epoch_loss /= max(len(dataset), 1)
-        print(
-            f"[oracle-bc-v2] Epoch {epoch+1}/{cfg.epochs} "
-            f"- weighted loss: {epoch_loss:.4f}"
-        )
+        print(f"[oracle-bc-v2] Epoch {epoch+1}/{cfg.epochs} " f"- weighted loss: {epoch_loss:.4f}")
 
     run_id = str(uuid.uuid4())
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")

@@ -1,5 +1,6 @@
 import sys
 import os
+
 sys.path.append(os.getcwd())
 from inputs import get_initial_state
 

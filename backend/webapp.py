@@ -47,9 +47,11 @@ def send_assets(path):
     directory = os.path.join(os.path.dirname(__file__), "static", "assets")
     return send_from_directory(directory, path)
 
+
 @app.route("/favicon.svg")
 def send_favicon():
     return send_from_directory("static", "favicon.svg")
+
 
 # --- SPA Catch-All ---
 @app.route("/", defaults={"path": ""})
@@ -243,9 +245,6 @@ def get_current_theme_name() -> str:
     return next(iter(AVAILABLE_THEMES.keys()), None)
 
 
-
-
-
 @app.route("/api/themes", methods=["GET"])
 def list_themes():
     """Return all available themes and the currently selected theme."""
@@ -366,7 +365,16 @@ def forecast_day():
     df_obs = pd.DataFrame(obs_rows, columns=["slot_start", "pv_kwh", "load_kwh"])
     df_f = pd.DataFrame(
         f_rows,
-        columns=["slot_start", "pv_forecast_kwh", "load_forecast_kwh", "forecast_version", "pv_p10", "pv_p90", "load_p10", "load_p90"],
+        columns=[
+            "slot_start",
+            "pv_forecast_kwh",
+            "load_forecast_kwh",
+            "forecast_version",
+            "pv_p10",
+            "pv_p90",
+            "load_p10",
+            "load_p90",
+        ],
     )
     if df_obs.empty:
         return jsonify({"date": target_date.isoformat(), "slots": []})
@@ -390,7 +398,17 @@ def forecast_day():
         )
     if not aurora.empty:
         merged = merged.merge(
-            aurora[["slot_start", "pv_forecast_kwh", "load_forecast_kwh", "pv_p10", "pv_p90", "load_p10", "load_p90"]],
+            aurora[
+                [
+                    "slot_start",
+                    "pv_forecast_kwh",
+                    "load_forecast_kwh",
+                    "pv_p10",
+                    "pv_p90",
+                    "load_p10",
+                    "load_p90",
+                ]
+            ],
             on="slot_start",
             how="left",
             suffixes=("", "_aurora"),
@@ -424,24 +442,16 @@ def forecast_day():
                     else float(row["load_forecast_kwh_aurora"])
                 ),
                 "aurora_pv_p10": (
-                    None
-                    if pd.isna(row.get("pv_p10_aurora"))
-                    else float(row["pv_p10_aurora"])
+                    None if pd.isna(row.get("pv_p10_aurora")) else float(row["pv_p10_aurora"])
                 ),
                 "aurora_pv_p90": (
-                    None
-                    if pd.isna(row.get("pv_p90_aurora"))
-                    else float(row["pv_p90_aurora"])
+                    None if pd.isna(row.get("pv_p90_aurora")) else float(row["pv_p90_aurora"])
                 ),
                 "aurora_load_p10": (
-                    None
-                    if pd.isna(row.get("load_p10_aurora"))
-                    else float(row["load_p10_aurora"])
+                    None if pd.isna(row.get("load_p10_aurora")) else float(row["load_p10_aurora"])
                 ),
                 "aurora_load_p90": (
-                    None
-                    if pd.isna(row.get("load_p90_aurora"))
-                    else float(row["load_p90_aurora"])
+                    None if pd.isna(row.get("load_p90_aurora")) else float(row["load_p90_aurora"])
                 ),
             }
         )
@@ -1292,26 +1302,26 @@ def save_config():
 
     with open("config.yaml", "w") as f:
         yaml.dump(merged_config, f, default_flow_style=False)
-    
+
     # Regenerate schedule if s_index or battery settings changed
     # This ensures risk_appetite changes are immediately reflected
     regenerate_schedule = False
     if "s_index" in new_config or "battery" in new_config:
         regenerate_schedule = True
-    
+
     regen_result = None
     if regenerate_schedule:
         try:
             from inputs import get_all_input_data
             from planner.pipeline import PlannerPipeline
-            
+
             logger.info("Config changed - regenerating schedule...")
-            
+
             # CRITICAL: Reload the fresh config from disk to ensure all values are correct
             # The merged_config from the request may be incomplete or have stale values
             with open("config.yaml", "r") as f:
                 fresh_config = yaml.safe_load(f) or {}
-            
+
             input_data = get_all_input_data("config.yaml")
             pipeline = PlannerPipeline(fresh_config)
             pipeline.generate_schedule(input_data, mode="full", save_to_file=True)
@@ -1320,8 +1330,10 @@ def save_config():
         except Exception as exc:
             logger.warning("Failed to regenerate schedule after config change: %s", exc)
             regen_result = f"error: {exc}"
-    
-    return jsonify({"status": "success", "regenerated": regenerate_schedule, "regen_result": regen_result})
+
+    return jsonify(
+        {"status": "success", "regenerated": regenerate_schedule, "regen_result": regen_result}
+    )
 
 
 @app.route("/api/config/reset", methods=["POST"])
@@ -1499,8 +1511,11 @@ def ha_water_today():
         ha_config = load_home_assistant_config()
         # Read entity ID from config.yaml
         input_sensors = config.get("input_sensors", {})
-        entity_id = input_sensors.get("water_heater_consumption", ha_config.get("water_heater_daily_entity_id", "sensor.vvb_energy_daily"))
-        
+        entity_id = input_sensors.get(
+            "water_heater_consumption",
+            ha_config.get("water_heater_daily_entity_id", "sensor.vvb_energy_daily"),
+        )
+
         ha_value = get_home_assistant_sensor_float(entity_id) if entity_id else None
 
         if ha_value is not None:
@@ -2055,6 +2070,7 @@ def performance_page():
     """Render the performance dashboard."""
     return render_template("performance.html")
 
+
 @app.route("/api/performance/metrics")
 def get_performance_metrics():
     """Get performance metrics for charts."""
@@ -2065,6 +2081,7 @@ def get_performance_metrics():
         return jsonify(data)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
 
 def record_observation_from_current_state():
     """Record current system state as observation for learning engine."""
@@ -2096,7 +2113,7 @@ def record_observation_from_current_state():
                 price_data = get_nordpool_data()
                 current_import_price = 0.0
                 current_export_price = 0.0
-                
+
                 # Find price for current slot
                 # We use current_slot_start which is timezone-aware (from now)
                 # price_data slots are also timezone-aware

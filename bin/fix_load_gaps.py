@@ -1,6 +1,7 @@
 import sqlite3
 import yaml
 
+
 def fix_load_gaps():
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
@@ -12,11 +13,13 @@ def fix_load_gaps():
         cursor = conn.cursor()
 
         # Get all rows
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT slot_start, load_kwh, pv_kwh
             FROM slot_observations
             ORDER BY slot_start ASC
-        """)
+        """
+        )
         rows = cursor.fetchall()
 
         updates = []
@@ -26,7 +29,7 @@ def fix_load_gaps():
 
         # Pass 1: Identify hourly masters and distribute
         for slot_start, load, pv in rows:
-            hour_str = slot_start[:13] # '2025-11-10T05'
+            hour_str = slot_start[:13]  # '2025-11-10T05'
 
             # Heuristic: If we see a big number (>0) followed by zeros, it's an hourly sum
             # Note: HA returns "change" for the hour.
@@ -55,15 +58,19 @@ def fix_load_gaps():
 
         if updates:
             print(f"Applying {len(updates)} fix updates...")
-            cursor.executemany("""
+            cursor.executemany(
+                """
                 UPDATE slot_observations
                 SET load_kwh = ?, pv_kwh = ?
                 WHERE slot_start = ?
-            """, updates)
+            """,
+                updates,
+            )
             conn.commit()
             print("Done.")
         else:
             print("No updates needed.")
+
 
 if __name__ == "__main__":
     fix_load_gaps()

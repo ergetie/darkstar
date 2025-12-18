@@ -102,26 +102,36 @@ def generate_debug_payload(
         "cheap_slot_count": planner_state.get("cheap_slot_count", 0),
         "non_cheap_slot_count": planner_state.get("non_cheap_slot_count", 0),
     }
-    
+
     # Calculate totals safely
-    total_water = schedule_df["water_heating_kw"].sum() * 0.25 if "water_heating_kw" in schedule_df else 0.0
+    total_water = (
+        schedule_df["water_heating_kw"].sum() * 0.25 if "water_heating_kw" in schedule_df else 0.0
+    )
     water_pv = schedule_df["water_from_pv_kwh"].sum() if "water_from_pv_kwh" in schedule_df else 0.0
-    water_batt = schedule_df["water_from_battery_kwh"].sum() if "water_from_battery_kwh" in schedule_df else 0.0
-    water_grid = schedule_df["water_from_grid_kwh"].sum() if "water_from_grid_kwh" in schedule_df else 0.0
-    
-    charge_kw = schedule_df.get("charge_kw", schedule_df.get("battery_charge_kw", pd.Series([0] * len(schedule_df))))
+    water_batt = (
+        schedule_df["water_from_battery_kwh"].sum()
+        if "water_from_battery_kwh" in schedule_df
+        else 0.0
+    )
+    water_grid = (
+        schedule_df["water_from_grid_kwh"].sum() if "water_from_grid_kwh" in schedule_df else 0.0
+    )
+
+    charge_kw = schedule_df.get(
+        "charge_kw", schedule_df.get("battery_charge_kw", pd.Series([0] * len(schedule_df)))
+    )
     total_charge = charge_kw.sum() * 0.25
-    
+
     export_kwh = schedule_df["export_kwh"].sum() if "export_kwh" in schedule_df else 0.0
     export_rev = schedule_df["export_revenue"].sum() if "export_revenue" in schedule_df else 0.0
-    
+
     pv_gen = schedule_df["adjusted_pv_kwh"].sum() if "adjusted_pv_kwh" in schedule_df else 0.0
     load_kwh = schedule_df["adjusted_load_kwh"].sum() if "adjusted_load_kwh" in schedule_df else 0.0
-    
+
     final_soc = 0.0
     if not schedule_df.empty and "projected_soc_percent" in schedule_df:
         final_soc = schedule_df["projected_soc_percent"].iloc[-1]
-        
+
     avg_batt_cost = 0.0
     if not schedule_df.empty and "projected_battery_cost" in schedule_df:
         avg_batt_cost = schedule_df["projected_battery_cost"].mean()

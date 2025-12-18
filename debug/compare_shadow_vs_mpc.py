@@ -102,7 +102,9 @@ def _scan_shadow_days(start: date, end: date) -> List[str]:
                 for r in rows:
                     d = r.get("plan_date")
                     if isinstance(d, (date, datetime)):
-                        days.append(d.date().isoformat() if isinstance(d, datetime) else d.isoformat())
+                        days.append(
+                            d.date().isoformat() if isinstance(d, datetime) else d.isoformat()
+                        )
     except Exception:
         return []
 
@@ -137,7 +139,9 @@ def main() -> int:
     if shadow_days:
         print(f"[shadow-compare] Shadow plans present in MariaDB for: {sorted(shadow_days)}")
     else:
-        print("[shadow-compare] No shadow plans found in MariaDB for this window (or DB unreachable).")
+        print(
+            "[shadow-compare] No shadow plans found in MariaDB for this window (or DB unreachable)."
+        )
 
     # Evaluate MPC vs policy costs over the window using the existing env-based cost model.
     days: List[str] = []
@@ -190,4 +194,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -29,9 +29,7 @@ class AntaresPolicyV1:
         export_path = base / "policy_export_kw.lgb"
 
         charge = lgb.Booster(model_file=str(charge_path)) if charge_path.exists() else None
-        discharge = (
-            lgb.Booster(model_file=str(discharge_path)) if discharge_path.exists() else None
-        )
+        discharge = lgb.Booster(model_file=str(discharge_path)) if discharge_path.exists() else None
         export = lgb.Booster(model_file=str(export_path)) if export_path.exists() else None
 
         return cls(
@@ -67,4 +65,3 @@ class AntaresPolicyV1:
             result["export_kw"] = 0.0
 
         return result
-

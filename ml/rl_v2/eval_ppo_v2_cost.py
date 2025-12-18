@@ -74,7 +74,7 @@ def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
             ).fetchall()
     except sqlite3.Error:
         rows = []
-    for d, in rows:
+    for (d,) in rows:
         days.append(d)
     return list(reversed(days))
 
@@ -93,9 +93,7 @@ def _run_mpc_cost(day: str) -> tuple[float, float, float]:
             df = df.reset_index()
         if "projected_soc_percent" in df.columns and not df.empty:
             soc_vals = (
-                pd.to_numeric(df["projected_soc_percent"], errors="coerce")
-                .dropna()
-                .astype(float)
+                pd.to_numeric(df["projected_soc_percent"], errors="coerce").dropna().astype(float)
             )
             if not soc_vals.empty:
                 soc_start = float(soc_vals.iloc[0])

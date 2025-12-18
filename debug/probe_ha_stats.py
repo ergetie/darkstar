@@ -22,10 +22,10 @@ sensors = config.get("input_sensors", {})
 # Note: LTS usually requires the cumulative entity (kWh), not power (W)
 # We will try the load entity defined in config
 entity_id = sensors.get("total_load_consumption")
-#entity_id = sensors.get("total_grid_import")
-#entity_id = sensors.get("total_grid_export")
-#entity_id = sensors.get("total_battery_charge")
-#entity_id = sensors.get("total_battery_discharge")
+# entity_id = sensors.get("total_grid_import")
+# entity_id = sensors.get("total_grid_export")
+# entity_id = sensors.get("total_battery_charge")
+# entity_id = sensors.get("total_battery_discharge")
 
 
 print(f"--- Probing HA Statistics for {entity_id} ---")
@@ -41,12 +41,7 @@ end = "2025-08-02T00:00:00Z"
 
 # LTS Endpoint (period=hour is standard for long term)
 api_url = f"{url}/api/history/statistics_during_period"
-params = {
-    "start_time": start,
-    "end_time": end,
-    "statistic_ids": [entity_id],
-    "period": "hour"
-}
+params = {"start_time": start, "end_time": end, "statistic_ids": [entity_id], "period": "hour"}
 
 try:
     res = requests.get(api_url, headers=headers, params=params, timeout=10)

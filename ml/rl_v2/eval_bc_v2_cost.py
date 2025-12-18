@@ -101,7 +101,7 @@ def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
             ).fetchall()
     except sqlite3.Error:
         rows = []
-    for d, in rows:
+    for (d,) in rows:
         days.append(d)
     return list(reversed(days))
 
@@ -213,9 +213,7 @@ def main() -> int:
         delta = bc - mpc
         oracle = row.get("oracle_cost")
         oracle_s = f"{oracle:8.2f}" if oracle is not None else "   n/a  "
-        print(
-            f"  {day}: MPC={mpc:8.2f}  BCv2={bc:8.2f}  ΔBCv2-M={delta:7.2f}  Oracle={oracle_s}"
-        )
+        print(f"  {day}: MPC={mpc:8.2f}  BCv2={bc:8.2f}  ΔBCv2-M={delta:7.2f}  Oracle={oracle_s}")
 
     mpc_total = float(df["mpc_cost"].sum())
     bc_total = float(df["bc_cost"].sum())

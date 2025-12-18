@@ -53,9 +53,7 @@ class AntaresMPCEnv:
         self._min_soc_percent: float = float(battery_cfg.get("min_soc_percent", 10.0))
         self._max_soc_percent: float = float(battery_cfg.get("max_soc_percent", 100.0))
         self._max_charge_power_kw: float = float(battery_cfg.get("max_charge_power_kw", 3.0))
-        self._max_discharge_power_kw: float = float(
-            battery_cfg.get("max_discharge_power_kw", 3.0)
-        )
+        self._max_discharge_power_kw: float = float(battery_cfg.get("max_discharge_power_kw", 3.0))
 
         inverter_limit = float(inverter_cfg.get("max_power_kw", 10.0))
         grid_limit = float(grid_cfg.get("max_power_kw", inverter_limit))
@@ -129,8 +127,8 @@ class AntaresMPCEnv:
         export_price = float(row.get("export_price_sek_kwh", import_price))
 
         # Battery wear cost: for now use a simple fixed cycle cost from config.
-        battery_cycle_cost = (
-            self.loader.config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.20)
+        battery_cycle_cost = self.loader.config.get("battery_economics", {}).get(
+            "battery_cycle_cost_kwh", 0.20
         )
         wear_cost = (charge_kwh + discharge_kwh) * battery_cycle_cost
 
@@ -165,7 +163,10 @@ class AntaresMPCEnv:
             raise RuntimeError(f"No schedule generated for day {target_day}")
 
         # Ensure we have explicit start/end time columns for reward computation.
-        if schedule.index.name in {"start_time", "slot_start"} and "start_time" not in schedule.columns:
+        if (
+            schedule.index.name in {"start_time", "slot_start"}
+            and "start_time" not in schedule.columns
+        ):
             schedule = schedule.reset_index()
         if "end_time" not in schedule.columns and "end_time" in schedule.index.names:
             schedule = schedule.reset_index()
@@ -181,19 +182,19 @@ class AntaresMPCEnv:
         # Day-end reference for horizon features.
         day_start = start_dt
         day_end = day_start + timedelta(days=1)
-        schedule["hours_until_end"] = (
-            (day_end - start_col).dt.total_seconds() / 3600.0
-        ).astype(float)
+        schedule["hours_until_end"] = ((day_end - start_col).dt.total_seconds() / 3600.0).astype(
+            float
+        )
 
         # Precompute rolling max import price over the next ~12 hours (48 slots).
-        prices_series = pd.to_numeric(
-            schedule.get("import_price_sek_kwh"), errors="coerce"
-        ).astype(float)
+        prices_series = pd.to_numeric(schedule.get("import_price_sek_kwh"), errors="coerce").astype(
+            float
+        )
         prices_series = prices_series.fillna(0.0)
         window_slots = 48
-        max_next = prices_series.iloc[::-1].rolling(
-            window=window_slots, min_periods=1
-        ).max().iloc[::-1]
+        max_next = (
+            prices_series.iloc[::-1].rolling(window=window_slots, min_periods=1).max().iloc[::-1]
+        )
         schedule["max_import_price_next_12h"] = max_next
 
         # Precompute simple per-day price quantiles for RL gating.
@@ -273,9 +274,7 @@ class AntaresMPCEnv:
 
             # Requested actions
             req_charge_kw = float(action.get("battery_charge_kw", base_charge_kw) or 0.0)
-            req_discharge_kw = float(
-                action.get("battery_discharge_kw", base_discharge_kw) or 0.0
-            )
+            req_discharge_kw = float(action.get("battery_discharge_kw", base_discharge_kw) or 0.0)
 
             # Clamp to non-negative and power limits
             req_charge_kw = max(0.0, min(req_charge_kw, self._max_charge_power_kw))

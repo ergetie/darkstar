@@ -13,6 +13,7 @@ from typing import List, Optional
 @dataclass
 class KeplerConfig:
     """Configuration for the Kepler MILP solver."""
+
     capacity_kwh: float
     min_soc_percent: float
     max_soc_percent: float
@@ -34,6 +35,7 @@ class KeplerConfig:
 @dataclass
 class KeplerInputSlot:
     """Input data for a single time slot."""
+
     start_time: datetime
     end_time: datetime
     load_kwh: float
@@ -45,6 +47,7 @@ class KeplerInputSlot:
 @dataclass
 class KeplerInput:
     """Complete input for a solver run."""
+
     slots: List[KeplerInputSlot]
     initial_soc_kwh: float
 
@@ -52,6 +55,7 @@ class KeplerInput:
 @dataclass
 class KeplerResultSlot:
     """Solver output for a single time slot."""
+
     start_time: datetime
     end_time: datetime
     charge_kwh: float
@@ -68,6 +72,7 @@ class KeplerResultSlot:
 @dataclass
 class KeplerResult:
     """Complete solver output."""
+
     slots: List[KeplerResultSlot]
     total_cost_sek: float
     is_optimal: bool

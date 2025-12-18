@@ -41,8 +41,7 @@ def _load_latest_rl_run(engine: LearningEngine) -> Dict[str, str]:
         ).fetchone()
     if row is None:
         raise SystemExit(
-            "[plot-day] No PPO RL runs found in antares_rl_runs; "
-            "train RL v1/v1.1 first."
+            "[plot-day] No PPO RL runs found in antares_rl_runs; " "train RL v1/v1.1 first."
         )
     return {"run_id": row[0], "artifact_dir": row[1]}
 
@@ -275,7 +274,9 @@ def main() -> int:
     ax1 = ax
     ax2 = ax1.twinx()
     ax1.axhline(0.0, color="black", linewidth=0.8, linestyle="--", alpha=0.5)
-    ax1.plot(rl_df["start_time"], rl_df["rl_net_battery_kw"], label="Net Batt kW", color="tab:green")
+    ax1.plot(
+        rl_df["start_time"], rl_df["rl_net_battery_kw"], label="Net Batt kW", color="tab:green"
+    )
     ax1.plot(rl_df["start_time"], rl_df["export_kw"], label="Export kW", color="tab:red")
     ax2.plot(rl_df["start_time"], rl_df["rl_soc_percent"], label="SoC %", color="tab:orange")
     ax1.set_ylabel("kW")

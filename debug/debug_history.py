@@ -14,15 +14,16 @@ from backend.api.aurora import _get_engine_and_config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def debug_history():
     try:
         engine, config = _get_engine_and_config()
-        if not hasattr(engine, 'store'):
+        if not hasattr(engine, "store"):
             print("Engine has no store!")
             return
 
         print(f"Store DB: {engine.store.db_path}")
-        
+
         # Test PV fetch
         print("\n--- Fetching PV History (target='pv') ---")
         df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv")
@@ -47,7 +48,9 @@ def debug_history():
     except Exception as e:
         print(f"Error: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     debug_history()

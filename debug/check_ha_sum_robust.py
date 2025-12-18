@@ -11,6 +11,7 @@ except ImportError:
     print("Please run: pip install websockets")
     exit(1)
 
+
 async def check_sum_robust():
     with open("secrets.yaml", "r") as f:
         secrets = yaml.safe_load(f)
@@ -57,7 +58,7 @@ async def check_sum_robust():
             "start_time": start_fetch,
             "end_time": end_fetch,
             "statistic_ids": [entity_id],
-            "period": "hour"
+            "period": "hour",
         }
         await ws.send(json.dumps(msg))
         resp = json.loads(await ws.recv())
@@ -73,17 +74,17 @@ async def check_sum_robust():
         print("-" * 45)
 
         for p in result:
-            ts = p['start'] / 1000
+            ts = p["start"] / 1000
             dt_utc = datetime.fromtimestamp(ts, pytz.UTC)
             dt_local = dt_utc.astimezone(tz)
 
-            cumulative = p.get('sum')
+            cumulative = p.get("sum")
 
             # Print entries around midnight
             if dt_local.date() == target_day or dt_local.date() == target_day + timedelta(days=1):
-                 # Show hours 23, 00, 01 to spot the transition
-                 if dt_local.hour in [0, 1, 23]:
-                     print(f"{str(dt_local):<25} | {cumulative:<15}")
+                # Show hours 23, 00, 01 to spot the transition
+                if dt_local.hour in [0, 1, 23]:
+                    print(f"{str(dt_local):<25} | {cumulative:<15}")
 
             # Capture Midnight Start
             if dt_local.date() == target_day and dt_local.hour == 0:
@@ -102,6 +103,7 @@ async def check_sum_robust():
             print(f"EXPECTED (User):   ~34.700 kWh")
         else:
             print("Could not find exact midnight alignment.")
+
 
 if __name__ == "__main__":
     asyncio.run(check_sum_robust())

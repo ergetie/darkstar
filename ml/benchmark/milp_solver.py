@@ -148,9 +148,7 @@ def solve_optimal_schedule(
     slots = _load_day_slots(loader, target_day)
 
     # Initial SoC from historical data
-    start_dt = loader.timezone.localize(
-        datetime.combine(target_day, datetime.min.time())
-    )
+    start_dt = loader.timezone.localize(datetime.combine(target_day, datetime.min.time()))
     initial_state = loader.get_initial_state_from_history(start_dt)
     soc0_kwh = float(initial_state.get("battery_kwh", 0.0))
 
@@ -185,17 +183,11 @@ def solve_optimal_schedule(
         pv_t = float(slots.at[t, "pv_kwh"] or 0.0)
 
         # Energy balance: load + charge + export = pv + discharge + import
-        prob += (
-            load_t + charge[t] + grid_export[t]
-            == pv_t + discharge[t] + grid_import[t]
-        )
+        prob += load_t + charge[t] + grid_export[t] == pv_t + discharge[t] + grid_import[t]
 
         # Battery dynamics (simple, symmetric efficiency for now)
         slot_h = float(slot_hours.iloc[t] or 0.25)
-        prob += (
-            soc[t + 1]
-            == soc[t] + charge[t] - discharge[t]
-        )
+        prob += soc[t + 1] == soc[t] + charge[t] - discharge[t]
 
         # Power limits
         prob += charge[t] <= oracle_cfg.max_charge_power_kw * slot_h
@@ -209,15 +201,11 @@ def solve_optimal_schedule(
     for t in range(T):
         imp_price = float(slots.at[t, "import_price_sek_kwh"] or 0.0)
         exp_price = float(
-            slots.at[t, "export_price_sek_kwh"]
-            or slots.at[t, "import_price_sek_kwh"]
-            or 0.0
+            slots.at[t, "export_price_sek_kwh"] or slots.at[t, "import_price_sek_kwh"] or 0.0
         )
         total_cost.append(grid_import[t] * imp_price)
         total_cost.append(-grid_export[t] * exp_price)
-        total_cost.append(
-            (charge[t] + discharge[t]) * oracle_cfg.wear_cost_sek_per_kwh
-        )
+        total_cost.append((charge[t] + discharge[t]) * oracle_cfg.wear_cost_sek_per_kwh)
 
     prob += pulp.lpSum(total_cost)
 
@@ -225,7 +213,9 @@ def solve_optimal_schedule(
     prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
     if pulp.LpStatus[prob.status] != "Optimal":
-        raise RuntimeError(f"Oracle MILP did not find an optimal solution: {pulp.LpStatus[prob.status]}")
+        raise RuntimeError(
+            f"Oracle MILP did not find an optimal solution: {pulp.LpStatus[prob.status]}"
+        )
 
     # Build result DataFrame
     records: List[Dict[str, Any]] = []
@@ -240,11 +230,7 @@ def solve_optimal_schedule(
         soc_kwh = float(soc[t].value() or 0.0)
 
         imp_price = float(slot["import_price_sek_kwh"] or 0.0)
-        exp_price = float(
-            slot["export_price_sek_kwh"]
-            or slot["import_price_sek_kwh"]
-            or 0.0
-        )
+        exp_price = float(slot["export_price_sek_kwh"] or slot["import_price_sek_kwh"] or 0.0)
         wear = (chg + dis) * oracle_cfg.wear_cost_sek_per_kwh
         slot_cost = imp * imp_price - exp * exp_price + wear
         cumulative_cost += slot_cost
@@ -262,9 +248,7 @@ def solve_optimal_schedule(
                 "oracle_charge_kwh": chg,
                 "oracle_discharge_kwh": dis,
                 "oracle_soc_kwh": soc_kwh,
-                "oracle_soc_percent": (soc_kwh / capacity * 100.0)
-                if capacity > 0
-                else 0.0,
+                "oracle_soc_percent": (soc_kwh / capacity * 100.0) if capacity > 0 else 0.0,
                 "oracle_slot_cost_sek": slot_cost,
                 "oracle_cumulative_cost_sek": cumulative_cost,
                 "slot_hours": slot_h,
@@ -272,4 +256,3 @@ def solve_optimal_schedule(
         )
 
     return pd.DataFrame(records)
-

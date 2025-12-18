@@ -37,8 +37,7 @@ def get_git_version() -> str:
     try:
         version = (
             subprocess.check_output(
-                ["git", "describe", "--tags", "--always", "--dirty"], 
-                stderr=subprocess.DEVNULL
+                ["git", "describe", "--tags", "--always", "--dirty"], stderr=subprocess.DEVNULL
             )
             .decode()
             .strip()
@@ -56,7 +55,7 @@ def save_schedule_to_json(
     s_index_debug: Optional[Dict[str, Any]],
     window_responsibilities: List[Dict[str, Any]],
     planner_state: Dict[str, Any],
-    output_path: str = "schedule.json"
+    output_path: str = "schedule.json",
 ) -> None:
     """
     Save the final schedule to schedule.json in the required format.
@@ -93,21 +92,18 @@ def save_schedule_to_json(
         tz_name = config.get("timezone", "Europe/Stockholm")
         tz = pytz.timezone(tz_name)
         now = datetime.now(tz)
-        
+
         # Use now_slot as the cutoff for preservation if available
         # This ensures we don't preserve the current slot if we just re-planned it
         preservation_cutoff = now
         if now_slot is not None:
             # Convert pandas Timestamp to python datetime
             preservation_cutoff = now_slot.to_pydatetime()
-        
+
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
         existing_past_slots = get_preserved_slots(
-            today_start, 
-            preservation_cutoff, 
-            secrets, 
-            tz_name=tz_name
+            today_start, preservation_cutoff, secrets, tz_name=tz_name
         )
 
     except Exception as e:
@@ -124,7 +120,7 @@ def save_schedule_to_json(
 
     # Merge: preserved past + new future pulls, ensuring no duplicates
     merged_schedule = existing_past_slots + new_future_records
-    
+
     # Update forecast meta with provided data
     final_forecast_meta = forecast_meta.copy()
 
@@ -144,14 +140,10 @@ def save_schedule_to_json(
     debug_config = config.get("debug", {})
     if debug_config.get("enable_planner_debug", False):
         debug_payload = generate_debug_payload(
-            schedule_df,
-            window_responsibilities,
-            debug_config,
-            planner_state,
-            s_index_debug
+            schedule_df, window_responsibilities, debug_config, planner_state, s_index_debug
         )
         output["debug"] = debug_payload
-        
+
         learning_config = config.get("learning", {})
         record_debug_payload(debug_payload, learning_config)
 

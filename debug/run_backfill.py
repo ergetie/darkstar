@@ -10,6 +10,7 @@ logging.basicConfig(level=logging.INFO)
 
 from backend.learning.backfill import BackfillEngine
 
+
 def main():
     print("🚀 Starting Manual Backfill...")
     try:
@@ -19,7 +20,9 @@ def main():
     except Exception as e:
         print(f"❌ Backfill failed: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

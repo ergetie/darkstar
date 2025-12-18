@@ -39,11 +39,7 @@ def _apply_corrections_to_db(
             if hasattr(slot_start, "astimezone"):
                 ts_str = slot_start.astimezone(engine.timezone).isoformat()
             else:
-                ts_str = (
-                    pd.to_datetime(slot_start)
-                    .astimezone(engine.timezone)
-                    .isoformat()
-                )
+                ts_str = pd.to_datetime(slot_start).astimezone(engine.timezone).isoformat()
 
             pv_corr = float(row.get("pv_correction_kwh") or 0.0)
             load_corr = float(row.get("load_correction_kwh") or 0.0)

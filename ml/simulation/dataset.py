@@ -148,9 +148,7 @@ def _expand_episode_schedule(
                     "slot_start": slot_start,
                     "import_price_sek_kwh": float(slot.get("import_price_sek_kwh") or 0.0),
                     "export_price_sek_kwh": float(
-                        slot.get("export_price_sek_kwh")
-                        or slot.get("import_price_sek_kwh")
-                        or 0.0
+                        slot.get("export_price_sek_kwh") or slot.get("import_price_sek_kwh") or 0.0
                     ),
                 }
             )
@@ -203,9 +201,7 @@ def build_antares_training_dataset(
             allowed_status = {"clean"}
             if include_mask_battery:
                 allowed_status.add("mask_battery")
-            episodes_df = episodes_df[
-                episodes_df["data_quality_status"].isin(allowed_status)
-            ]
+            episodes_df = episodes_df[episodes_df["data_quality_status"].isin(allowed_status)]
         if episodes_df.empty:
             return []
 
@@ -256,18 +252,16 @@ def build_antares_training_dataset(
             pv_kwh=float(row.get("pv_kwh") or 0.0),
             import_kwh=float(row.get("import_kwh") or 0.0),
             export_kwh=float(row.get("export_kwh") or 0.0),
-            batt_charge_kwh=None
-            if batt_charge is None
-            else float(batt_charge),
-            batt_discharge_kwh=None
-            if batt_discharge is None
-            else float(batt_discharge),
-            soc_start_percent=None
-            if row.get("soc_start_percent") is None
-            else float(row.get("soc_start_percent")),
-            soc_end_percent=None
-            if row.get("soc_end_percent") is None
-            else float(row.get("soc_end_percent")),
+            batt_charge_kwh=None if batt_charge is None else float(batt_charge),
+            batt_discharge_kwh=None if batt_discharge is None else float(batt_discharge),
+            soc_start_percent=(
+                None
+                if row.get("soc_start_percent") is None
+                else float(row.get("soc_start_percent"))
+            ),
+            soc_end_percent=(
+                None if row.get("soc_end_percent") is None else float(row.get("soc_end_percent"))
+            ),
             battery_masked=battery_masked,
         )
         records.append(record)

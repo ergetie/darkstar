@@ -8,12 +8,13 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from backend.learning import get_learning_engine
 
+
 def main():
     print("🔍 Inspecting Prices & Energy (Last 7 Days)...")
-    
+
     try:
         engine = get_learning_engine("config.yaml")
-        
+
         with sqlite3.connect(engine.db_path) as conn:
             query = """
                 SELECT 
@@ -33,10 +34,10 @@ def main():
                 ORDER BY day ASC
             """
             df = pd.read_sql(query, conn)
-            
+
             print("\n📊 Daily Breakdown:")
             print(df.round(2))
-            
+
             print("\n📈 Totals (7 Days):")
             print(f"   Total Import: {df['total_import'].sum():.2f} kWh")
             print(f"   Total Load:   {df['total_load'].sum():.2f} kWh")
@@ -44,15 +45,18 @@ def main():
             print(f"   Total Cost:   {df['net_cost'].sum():.2f} SEK")
             print(f"   Avg Price:    {df['avg_price'].mean():.2f} SEK/kWh")
             print(f"   Avg Daily:    {df['net_cost'].mean():.2f} SEK/day")
-            
+
             # Check for high price outliers
             print("\n⚠️  Price Outliers (> 5.0 SEK):")
-            outliers = pd.read_sql("""
+            outliers = pd.read_sql(
+                """
                 SELECT slot_start, import_price_sek_kwh 
                 FROM slot_observations 
                 WHERE import_price_sek_kwh > 5.0 
                   AND DATE(slot_start) >= DATE('now', '-7 days')
-            """, conn)
+            """,
+                conn,
+            )
             if not outliers.empty:
                 print(outliers)
             else:
@@ -60,6 +64,7 @@ def main():
 
     except Exception as e:
         print(f"❌ Inspection failed: {e}")
+
 
 if __name__ == "__main__":
     main()

@@ -16,10 +16,10 @@ def load_learning_overlays(learning_config: Dict[str, Any]) -> Dict[str, Any]:
     Data is read from learning_daily_metrics, which stores one row per date
     with 24h adjustment arrays and scalars. This method is intentionally
     tolerant: if anything fails or no data exists, it returns an empty dict.
-    
+
     Args:
         learning_config: Learning configuration dictionary
-        
+
     Returns:
         Dictionary with overlays (pv_adjustment_by_hour_kwh, load_adjustment_by_hour_kwh, s_index_base_factor)
     """

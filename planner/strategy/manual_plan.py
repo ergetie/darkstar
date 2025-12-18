@@ -20,12 +20,12 @@ def apply_manual_plan(
 ) -> pd.DataFrame:
     """
     Apply user-created manual actions to the plan and annotate manual_action flags.
-    
+
     Args:
         df: Schedule DataFrame
         manual_plan: Manual plan data (dict or list of entries)
         config: Configuration dictionary
-        
+
     Returns:
         DataFrame with manual actions applied
     """

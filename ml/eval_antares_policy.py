@@ -74,7 +74,7 @@ def _load_eval_days(engine: LearningEngine, max_days: int = 20) -> List[str]:
             ).fetchall()
     except sqlite3.Error:
         rows = []
-    for d, in rows:
+    for (d,) in rows:
         days.append(d)
     return list(reversed(days))
 
@@ -104,18 +104,12 @@ def evaluate_policy(policy: AntaresPolicyV1, days: List[str]) -> Dict[str, Dict[
             state_vec = env._build_state_vector(row)  # type: ignore[attr-defined]
             preds = policy.predict(state_vec)
 
-            true_charge = float(
-                row.get("battery_charge_kw")
-                or row.get("charge_kw")
-                or 0.0
-            )
+            true_charge = float(row.get("battery_charge_kw") or row.get("charge_kw") or 0.0)
             true_discharge = float(row.get("battery_discharge_kw") or 0.0)
             true_export = float(row.get("export_kw") or 0.0)
 
             errors["battery_charge_kw"].append(preds["battery_charge_kw"] - true_charge)
-            errors["battery_discharge_kw"].append(
-                preds["battery_discharge_kw"] - true_discharge
-            )
+            errors["battery_discharge_kw"].append(preds["battery_discharge_kw"] - true_discharge)
             errors["export_kw"].append(preds["export_kw"] - true_export)
 
             scales["battery_charge_kw"].append(true_charge)
@@ -174,13 +168,10 @@ def main() -> int:
             print(f"  {name:20s} (no samples)")
             continue
         bar = _ascii_bar(min(1.0, rel))
-        print(
-            f"  {name:20s} MAE={mae:0.4f}  mean={mean_true:0.4f}  rel={rel:0.2f}  {bar}"
-        )
+        print(f"  {name:20s} MAE={mae:0.4f}  mean={mean_true:0.4f}  rel={rel:0.2f}  {bar}")
 
     return 0
 
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

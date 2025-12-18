@@ -2,6 +2,7 @@ from backend.learning.engine import LearningEngine
 
 _engine_instance = None
 
+
 def get_learning_engine(config_path: str = "config.yaml") -> LearningEngine:
     """Singleton accessor for LearningEngine"""
     global _engine_instance

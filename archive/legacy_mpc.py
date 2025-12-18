@@ -590,7 +590,9 @@ class HeliosPlanner:
 
         return factor, debug_data
 
-    def _calculate_future_risk_factor(self, df: pd.DataFrame, s_index_cfg: dict) -> tuple[float, dict]:
+    def _calculate_future_risk_factor(
+        self, df: pd.DataFrame, s_index_cfg: dict
+    ) -> tuple[float, dict]:
         """
         Calculate S-Index for the Future (D2) to determine Terminal Value.
         Uses D2 Temperature and PV forecasts.
@@ -601,34 +603,35 @@ class HeliosPlanner:
         temp_weight = float(s_index_cfg.get("temp_weight", 0.0))
         temp_baseline = float(s_index_cfg.get("temp_baseline_c", 20.0))
         temp_cold = float(s_index_cfg.get("temp_cold_c", -15.0))
-        
+
         # Determine D2 horizon (approx 24-48h ahead)
         tz = pytz.timezone(self.timezone)
         today = datetime.now(tz).date()
-        d2_date = today + timedelta(days=2) # Day after tomorrow
-        
+        d2_date = today + timedelta(days=2)  # Day after tomorrow
+
         # Fetch D2 Temperature
         temps_map = self._fetch_temperature_forecast([2], tz)
         d2_temp = temps_map.get(2)
-        
+
         temp_adjustment = 0.0
         if d2_temp is not None and temp_weight > 0:
             span = temp_baseline - temp_cold
-            if span <= 0: span = 1.0
+            if span <= 0:
+                span = 1.0
             # Cold temp -> High adjustment (risk)
             temp_adjustment = max(0.0, min(1.0, (temp_baseline - d2_temp) / span))
-            
+
         # Calculate Risk Factor
-        # Note: We don't have D2 PV deficit easily accessible without full forecast, 
+        # Note: We don't have D2 PV deficit easily accessible without full forecast,
         # so we rely primarily on Temperature for D2 risk.
         raw_factor = base_factor + (temp_weight * temp_adjustment)
         risk_factor = min(max_factor, max(0.0, raw_factor))
-        
+
         debug = {
             "d2_date": d2_date.isoformat(),
             "d2_temp_c": d2_temp,
             "temp_adjustment": round(temp_adjustment, 4),
-            "risk_factor": round(risk_factor, 4)
+            "risk_factor": round(risk_factor, 4),
         }
         return risk_factor, debug
 
@@ -641,16 +644,16 @@ class HeliosPlanner:
         # Ideally we want D1 average, but full horizon average is a good proxy.
         if df.empty:
             return 0.0, {}
-            
+
         avg_price = df["import_price_sek_kwh"].mean()
-        
+
         # Terminal Value
         terminal_value = avg_price * risk_factor
-        
+
         debug = {
             "avg_price_sek_kwh": round(avg_price, 4),
             "risk_factor_d2": round(risk_factor, 4),
-            "terminal_value_sek_kwh": round(terminal_value, 4)
+            "terminal_value_sek_kwh": round(terminal_value, 4),
         }
         return terminal_value, debug
 
@@ -721,9 +724,9 @@ class HeliosPlanner:
         try:
             from planner.solver.kepler import KeplerSolver
             from planner.solver.adapter import (
-                planner_to_kepler_input, 
-                config_to_kepler_config, 
-                kepler_result_to_dataframe
+                planner_to_kepler_input,
+                config_to_kepler_config,
+                kepler_result_to_dataframe,
             )
         except ImportError as e:
             print(f"Warning: Kepler dependencies missing, skipping shadow run: {e}")
@@ -733,24 +736,28 @@ class HeliosPlanner:
             # Prepare inputs
             # Use the initial state from input_data for SoC
             initial_soc_kwh = float(input_data.get("initial_state", {}).get("battery_kwh", 0.0))
-            
+
             k_input = planner_to_kepler_input(df, initial_soc_kwh)
             k_config = config_to_kepler_config(self.config)
-            
+
             # Solve
             solver = KeplerSolver()
             result = solver.solve(k_input, k_config)
-            
+
             # Log result
             if result.is_optimal:
-                print(f"🔭 Kepler Shadow: Optimal schedule found. Cost: {result.total_cost_sek:.2f} SEK")
+                print(
+                    f"🔭 Kepler Shadow: Optimal schedule found. Cost: {result.total_cost_sek:.2f} SEK"
+                )
                 # TODO: Persist to DB if needed, for now just print
             else:
                 print(f"🔭 Kepler Shadow: Solver failed: {result.status_msg}")
         except Exception as e:
             print(f"Error running Kepler shadow mode: {e}")
 
-    def run_kepler_primary(self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None) -> pd.DataFrame:
+    def run_kepler_primary(
+        self, input_data: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+    ) -> pd.DataFrame:
         """
         Run Kepler as the primary planner.
         """
@@ -758,9 +765,9 @@ class HeliosPlanner:
             try:
                 from planner.solver.kepler import KeplerSolver
                 from planner.solver.adapter import (
-                    planner_to_kepler_input, 
-                    config_to_kepler_config, 
-                    kepler_result_to_dataframe
+                    planner_to_kepler_input,
+                    config_to_kepler_config,
+                    kepler_result_to_dataframe,
                 )
             except ImportError as e:
                 print(f"Critical: Kepler dependencies missing: {e}")
@@ -770,118 +777,136 @@ class HeliosPlanner:
             # We need a base DataFrame for the adapter (timestamps, forecasts)
             # We can reuse _prepare_data_frame but skip the passes
             df = self._prepare_data_frame(input_data)
-            
+
             # Populate metadata attributes required by _save_schedule_to_json
             self.daily_pv_forecast = input_data.get("daily_pv_forecast", {})
             self.daily_load_forecast = input_data.get("daily_load_forecast", {})
             # Mock s_index_debug and _last_temperature_forecast to prevent API errors
             self.s_index_debug = {"s_index": 0, "s_prime": 0, "components": {}}
             self._last_temperature_forecast = input_data.get("weather_forecast", [])
-            
+
             # Compute 'now' rounded up to next 15-minute slot in configured timezone
             timezone_name = self.timezone or "Europe/Stockholm"
             try:
                 self.now_slot = pd.Timestamp.now(tz=timezone_name).floor("15min")
             except Exception:
                 self.now_slot = pd.Timestamp.now(tz="Europe/Stockholm").floor("15min")
-            
+
             # Apply safety margins (Pass 0) - essential for robust planning
             df = self._pass_0_apply_safety_margins(df)
-            
+
             self.state = input_data.get("initial_state", {})
-            
+
             # Identify windows (Pass 1) - needed for water heating logic
             df = self._pass_1_identify_windows(df)
-            
+
             # Schedule Water Heating (Pass 2) - Heuristic pass
             # This populates 'water_heating_kw' which Kepler will treat as committed load
             df = self._pass_2_schedule_water_heating(df)
-            
+
             initial_soc_kwh = float(input_data.get("initial_state", {}).get("battery_kwh", 0.0))
-            
+
             # SLICE: Only plan for the future (from now_slot onwards)
             # This prevents "time travel" where we apply current SoC to midnight
             future_mask = df.index >= self.now_slot
             future_df = df.loc[future_mask].copy()
-            
+
             if future_df.empty:
                 print("Warning: No future slots to plan. Returning original dataframe.")
                 return df
 
             k_input = planner_to_kepler_input(future_df, initial_soc_kwh)
             k_config = config_to_kepler_config(self.config, overrides=overrides)
-            
+
             # Inject Dynamic Target SoC (Strategic Buffer)
             # This was calculated in _pass_0 based on S-Index D2
             k_config.target_soc_kwh = getattr(self, "target_soc_kwh", None)
             k_config.terminal_value_sek_kwh = getattr(self, "terminal_value_sek_kwh", 0.0)
-            
+
             print(f"🔭 Kepler Primary: Solving for {len(future_df)} slots from {self.now_slot}...")
-            print(f"   Target SoC: {k_config.target_soc_kwh:.2f} kWh (Terminal Value: {k_config.terminal_value_sek_kwh:.4f})")
+            print(
+                f"   Target SoC: {k_config.target_soc_kwh:.2f} kWh (Terminal Value: {k_config.terminal_value_sek_kwh:.4f})"
+            )
             solver = KeplerSolver()
             result = solver.solve(k_input, k_config)
-            
+
             if not result.is_optimal:
                 print(f"🔭 Kepler Primary: Solver failed with status {result.status_msg}")
             else:
                 print(f"🔭 Kepler Primary: Optimal. Cost: {result.total_cost_sek:.2f} SEK")
 
             # Convert back to DataFrame (only covers future slots)
-            kepler_df = kepler_result_to_dataframe(result, capacity_kwh=k_config.capacity_kwh, initial_soc_kwh=initial_soc_kwh)
-            
+            kepler_df = kepler_result_to_dataframe(
+                result, capacity_kwh=k_config.capacity_kwh, initial_soc_kwh=initial_soc_kwh
+            )
+
             # Merge back into the main DataFrame
             # We update the future rows in 'df' with values from 'kepler_df'
             # We must ensure columns exist in 'df' before updating
-            
+
             # Columns that Kepler calculates and we want to update
             kepler_cols = [
-                "battery_charge_kw", "battery_discharge_kw", 
-                "grid_import_kw", "grid_export_kw",
-                "import_kwh", "export_kwh",
-                "projected_soc_kwh", "projected_soc_percent",
-                "_entry_soc_percent", "action",
-                "kepler_charge_kwh", "kepler_discharge_kwh",
-                "kepler_import_kwh", "kepler_export_kwh",
-                "kepler_soc_kwh", "kepler_cost_sek",
-                # "water_from_pv_kwh", "water_from_battery_kwh", 
+                "battery_charge_kw",
+                "battery_discharge_kw",
+                "grid_import_kw",
+                "grid_export_kw",
+                "import_kwh",
+                "export_kwh",
+                "projected_soc_kwh",
+                "projected_soc_percent",
+                "_entry_soc_percent",
+                "action",
+                "kepler_charge_kwh",
+                "kepler_discharge_kwh",
+                "kepler_import_kwh",
+                "kepler_export_kwh",
+                "kepler_soc_kwh",
+                "kepler_cost_sek",
+                # "water_from_pv_kwh", "water_from_battery_kwh",
                 # "water_from_grid_kwh", "projected_battery_cost"
-                "projected_battery_cost"
+                "projected_battery_cost",
             ]
-            
+
             # Remove water heating columns from kepler_df if present to prevent overwriting
             # the schedule generated by _pass_2_schedule_water_heating
-            cols_to_drop = ["water_heating_kw", "water_from_grid_kwh", "water_from_pv_kwh", "water_from_battery_kwh"]
+            cols_to_drop = [
+                "water_heating_kw",
+                "water_from_grid_kwh",
+                "water_from_pv_kwh",
+                "water_from_battery_kwh",
+            ]
             kepler_df = kepler_df.drop(columns=[c for c in cols_to_drop if c in kepler_df.columns])
-            
+
             # Initialize columns in main df if missing (with 0 or appropriate default)
             for col in kepler_cols:
                 if col not in df.columns:
                     df[col] = 0.0 if "action" not in col else "Hold"
-            
+
             # Explicitly initialize water breakdown columns (removed from kepler_cols)
             # to ensure debug payload generation works
             for col in ["water_from_grid_kwh", "water_from_pv_kwh", "water_from_battery_kwh"]:
                 if col not in df.columns:
                     df[col] = 0.0
-                    
+
             # Update future rows
             df.update(kepler_df)
-            
+
             # For the return value, we want the full dataframe (history + future)
             final_df = df
-            
+
             # Calculate revenue/cost columns required by UI (for the whole day)
             # Note: History rows might have 0s if not populated by actuals, but that's expected for now.
             final_df["export_revenue"] = final_df["export_kwh"] * final_df["export_price_sek_kwh"]
             final_df["import_cost"] = final_df["import_kwh"] * final_df["import_price_sek_kwh"]
-            
+
             # Apply SoC Target Logic (Inverter Control Signal)
             final_df = self._apply_soc_target_percent(final_df)
-            
+
             return final_df
 
         except Exception as e:
             import traceback
+
             error_msg = f"CRITICAL PLANNER ERROR: {str(e)}\n{traceback.format_exc()}"
             print(error_msg)
             try:
@@ -890,8 +915,6 @@ class HeliosPlanner:
             except:
                 pass
             raise
-
-
 
     def generate_schedule(
         self,
@@ -1045,13 +1068,13 @@ class HeliosPlanner:
         # We use static base_factor (e.g. 1.1) to buffer against today's uncertainties.
         # We do NOT use dynamic D2/D3 risk here to avoid "Double Buffering".
         s_index_factor = base_factor
-        
+
         s_index_debug = {
             "mode": "decoupled",
             "base_factor": base_factor,
             "static_factor": static_factor,
             "max_factor": s_index_max,
-            "note": "Load Inflation is static (D1 Safety). Target SoC is dynamic (D2 Strategy)."
+            "note": "Load Inflation is static (D1 Safety). Target SoC is dynamic (D2 Strategy).",
         }
 
         # _calculate_dynamic_s_index is no longer used for Load Inflation.
@@ -1061,7 +1084,7 @@ class HeliosPlanner:
         effective_load_margin = s_index_factor
         s_index_debug["effective_load_margin"] = effective_load_margin
         s_index_debug["source"] = "base_factor"
-        
+
         # --- Strategic S-Index Logic (Dynamic Target SoC) ---
         # 1. Calculate Risk Factor (D2/D3 lookahead)
         risk_factor, future_risk = self._calculate_future_risk_factor(df, s_index_cfg)
@@ -1070,24 +1093,24 @@ class HeliosPlanner:
         # Target % = Min % + (Risk - 1.0) * Scaling
         min_soc_pct = float(self.battery_config.get("min_soc_percent", 10.0))
         soc_scaling = float(s_index_cfg.get("soc_scaling_factor", 50.0))
-        
+
         target_soc_pct = min_soc_pct + max(0.0, (risk_factor - 1.0) * soc_scaling)
         target_soc_pct = min(100.0, target_soc_pct)
-        
+
         capacity_kwh = float(self.battery_config.get("capacity_kwh", 0.0))
         target_soc_kwh = (target_soc_pct / 100.0) * capacity_kwh if capacity_kwh > 0 else 0.0
-        
+
         self.target_soc_kwh = target_soc_kwh
-        self.terminal_value_sek_kwh = 0.0 # Disabled in favor of Target SoC
-        
+        self.terminal_value_sek_kwh = 0.0  # Disabled in favor of Target SoC
+
         s_index_debug["future_risk"] = future_risk
         s_index_debug["target_soc"] = {
             "risk_factor": risk_factor,
             "scaling_factor": soc_scaling,
             "target_percent": round(target_soc_pct, 2),
-            "target_kwh": round(target_soc_kwh, 2)
+            "target_kwh": round(target_soc_kwh, 2),
         }
-        
+
         # Store for Kepler
         self.s_index_debug = s_index_debug
 
@@ -2915,7 +2938,7 @@ class HeliosPlanner:
             else:
                 current_block = [charge_indices[0]]
                 for idx in charge_indices[1:]:
-                    if idx <= current_block[-1] + 2: # Allow 1 slot gap
+                    if idx <= current_block[-1] + 2:  # Allow 1 slot gap
                         # Fill the gap indices as well if we want to bridge them
                         # But we only want to set targets for the Charge slots (and maybe the gap?)
                         # User wants "All of the ones close to each other should have the same soc_target"
@@ -2936,21 +2959,21 @@ class HeliosPlanner:
                     continue
                 start = block[0]
                 end = block[-1]
-                
+
                 # Determine target from the END of the consolidated block
                 block_target = projected[end]
                 if block_target is None:
                     block_target = projected[start]
                 if block_target is None and entry_list[start] is not None:
                     block_target = entry_list[start]
-                
+
                 block_value = float(block_target) if block_target is not None else targets[start]
                 block_value = max(min_soc_percent, min(max_soc_percent, block_value))
-                
+
                 # Check for manual constraints in the block
                 manual_block = any(manual_actions[k] == "charge" for k in block)
                 if manual_block:
-                     block_value = min(block_value, manual_charge_target_percent)
+                    block_value = min(block_value, manual_charge_target_percent)
 
                 # Apply to all slots in the range [start, end], including gaps
                 for j in range(start, end + 1):
@@ -2975,7 +2998,7 @@ class HeliosPlanner:
                     if manual_actions[i] == "export":
                         manual_block = True
                 end = i
-                
+
                 # FIX: Use the projected SoC at END of export block as target floor
                 # This ensures the inverter maintains the planned reserve during export.
                 # If we're exporting from 80% to 30%, target should be 30% (not min_soc).
@@ -2989,7 +3012,7 @@ class HeliosPlanner:
                         block_value = max(guard_floor_percent, float(end_projected))
                     else:
                         block_value = guard_floor_percent
-                
+
                 for j in range(start, end + 1):
                     targets[j] = block_value
                 i += 1
@@ -3070,20 +3093,22 @@ class HeliosPlanner:
             tz = pytz.timezone(tz_name)
             tz = pytz.timezone(tz_name)
             now = datetime.now(tz)
-            
+
             # Use self.now_slot as the cutoff for preservation if available
             # This ensures we don't preserve the current slot if we just re-planned it
             preservation_cutoff = now
             if hasattr(self, "now_slot") and self.now_slot is not None:
                 # Convert pandas Timestamp to python datetime
                 preservation_cutoff = self.now_slot.to_pydatetime()
-            
+
             today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
             # Use shared preservation logic (tries DB first, falls back to local)
             from db_writer import get_preserved_slots
 
-            existing_past_slots = get_preserved_slots(today_start, preservation_cutoff, secrets, tz_name=tz_name)
+            existing_past_slots = get_preserved_slots(
+                today_start, preservation_cutoff, secrets, tz_name=tz_name
+            )
 
         except Exception as e:
             print(f"[planner] Warning: Could not preserve past slots: {e}")
@@ -3125,11 +3150,11 @@ class HeliosPlanner:
         output = {
             "schedule": merged_schedule,
             "meta": {
-            "planned_at": datetime.now().isoformat(),
-            "planner_version": version,
-            "forecast": forecast_meta,
-            "s_index": getattr(self, "s_index_debug", {}),
-        },
+                "planned_at": datetime.now().isoformat(),
+                "planner_version": version,
+                "forecast": forecast_meta,
+                "s_index": getattr(self, "s_index_debug", {}),
+            },
         }
 
         # Add debug payload if enabled
@@ -3345,7 +3370,10 @@ def dataframe_to_json_response(df, now_override: Optional[datetime] = None):
             priority = "high"
         elif charge_kw > 0:
             # Robustness: Check if we are importing from grid, even if charge_kw (legacy) is 0
-            is_importing = grid_charge_kw > 0 or float(record.get("import_kwh") or record.get("grid_import_kw") or 0.0) > 0
+            is_importing = (
+                grid_charge_kw > 0
+                or float(record.get("import_kwh") or record.get("grid_import_kw") or 0.0) > 0
+            )
             if is_importing:
                 reason = "cheap_grid_power"
             else:

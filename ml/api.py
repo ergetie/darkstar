@@ -80,10 +80,18 @@ def get_forecast_slots(
                 "slot_start": row["slot_start"],
                 "pv_forecast_kwh": float(row.get("pv_forecast_kwh") or 0.0),
                 "load_forecast_kwh": float(row.get("load_forecast_kwh") or 0.0),
-                "pv_p10": float(row.get("pv_p10") or 0.0) if row.get("pv_p10") is not None else None,
-                "pv_p90": float(row.get("pv_p90") or 0.0) if row.get("pv_p90") is not None else None,
-                "load_p10": float(row.get("load_p10") or 0.0) if row.get("load_p10") is not None else None,
-                "load_p90": float(row.get("load_p90") or 0.0) if row.get("load_p90") is not None else None,
+                "pv_p10": (
+                    float(row.get("pv_p10") or 0.0) if row.get("pv_p10") is not None else None
+                ),
+                "pv_p90": (
+                    float(row.get("pv_p90") or 0.0) if row.get("pv_p90") is not None else None
+                ),
+                "load_p10": (
+                    float(row.get("load_p10") or 0.0) if row.get("load_p10") is not None else None
+                ),
+                "load_p90": (
+                    float(row.get("load_p90") or 0.0) if row.get("load_p90") is not None else None
+                ),
                 "temp_c": row.get("temp_c"),
                 "forecast_version": row.get("forecast_version"),
                 "pv_correction_kwh": float(row.get("pv_correction_kwh") or 0.0),

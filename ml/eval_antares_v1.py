@@ -153,13 +153,11 @@ def evaluate_run(run: RunInfo) -> Tuple[Dict[str, Dict[str, float]], Dict[str, f
     if {"import_kwh", "export_kwh", "import_price_sek_kwh", "export_price_sek_kwh"}.issubset(
         val_df.columns
     ):
-        import_cost = (
-            val_df["import_kwh"].astype(float)
-            * val_df["import_price_sek_kwh"].astype(float)
+        import_cost = val_df["import_kwh"].astype(float) * val_df["import_price_sek_kwh"].astype(
+            float
         )
-        export_rev = (
-            val_df["export_kwh"].astype(float)
-            * val_df["export_price_sek_kwh"].astype(float)
+        export_rev = val_df["export_kwh"].astype(float) * val_df["export_price_sek_kwh"].astype(
+            float
         )
         slot_cost = import_cost - export_rev
         cost_stats = {
@@ -195,15 +193,11 @@ def main() -> int:
         mean_true = abs(m["mean_true"]) or 1e-9
         rel = min(1.0, mae / mean_true) if mean_true > 0 else 0.0
         bar = _ascii_bar(rel)
-        print(
-            f"  {target:17s} MAE={mae:0.4f}  mean={mean_true:0.4f}  rel={rel:0.2f}  {bar}"
-        )
+        print(f"  {target:17s} MAE={mae:0.4f}  mean={mean_true:0.4f}  rel={rel:0.2f}  {bar}")
 
     if cost_stats:
         print("\n[antares-eval] Validation baseline cost (MPC actions):")
-        print(
-            f"  mean cost/slot: {cost_stats['baseline_mean_cost_per_slot']:0.4f} SEK"
-        )
+        print(f"  mean cost/slot: {cost_stats['baseline_mean_cost_per_slot']:0.4f} SEK")
         print(f"  total cost:     {cost_stats['baseline_total_cost']:0.2f} SEK")
 
     return 0
@@ -211,4 +205,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

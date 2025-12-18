@@ -54,31 +54,27 @@ def main():
     # Persist inputs to Learning DB (Prices & Forecasts)
     try:
         from backend.learning import LearningEngine
+
         engine = LearningEngine("config.yaml")
-        
+
         if "price_data" in input_data:
             engine.store_slot_prices(input_data["price_data"])
             print(f"[planner] Stored {len(input_data['price_data'])} price slots to DB")
-            
+
         if "forecast_data" in input_data:
             # Forecasts need a version, default to 'aurora' or 'baseline'
             # We can get it from config or default
             f_ver = config.get("forecasting", {}).get("active_forecast_version", "aurora")
             engine.store_forecasts(input_data["forecast_data"], forecast_version=f_ver)
             print(f"[planner] Stored {len(input_data['forecast_data'])} forecast slots to DB")
-            
+
     except Exception as e:
         print(f"[planner] Warning: Failed to persist inputs to DB: {e}")
 
     # Run Planner Pipeline
     # This will generate and save schedule.json
-    df = generate_schedule(
-        input_data, 
-        config=config, 
-        mode="full", 
-        save_to_file=True
-    )
-    
+    df = generate_schedule(input_data, config=config, mode="full", save_to_file=True)
+
     schedule_path = "schedule.json"
     print(f"[planner] Wrote schedule to {schedule_path}")
 

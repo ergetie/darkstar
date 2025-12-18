@@ -15,7 +15,7 @@ def ensure_learning_schema(db_path: str) -> None:
     """Create sqlite tables when learning is enabled."""
     # Ensure directory exists
     os.makedirs(os.path.dirname(db_path), exist_ok=True)
-    
+
     with sqlite3.connect(db_path) as conn:
         conn.execute(
             """
@@ -32,7 +32,7 @@ def ensure_learning_schema(db_path: str) -> None:
 def record_debug_payload(payload: Dict[str, Any], learning_config: Dict[str, Any]) -> None:
     """
     Persist planner debug payloads for observability.
-    
+
     Args:
         payload: The debug payload dictionary
         learning_config: Learning configuration dictionary
@@ -41,12 +41,12 @@ def record_debug_payload(payload: Dict[str, Any], learning_config: Dict[str, Any
         return
 
     db_path = learning_config.get("sqlite_path", "data/learning.db")
-    
+
     # Ensure schema exists
     ensure_learning_schema(db_path)
-    
+
     timestamp = datetime.now(timezone.utc).isoformat()
-    
+
     try:
         with sqlite3.connect(db_path) as conn:
             conn.execute(

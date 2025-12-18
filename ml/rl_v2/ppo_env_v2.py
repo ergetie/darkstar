@@ -93,7 +93,7 @@ class AntaresRLEnvV2(gym.Env):
             day = self._iterator.next_day()
             if day is None:
                 raise RuntimeError("No candidate days available for AntaresRLEnvV2.")
-            
+
             try:
                 self._current_day = day
                 state = self.env.reset(day)
@@ -101,12 +101,10 @@ class AntaresRLEnvV2(gym.Env):
             except Exception as e:
                 # Warning: Skipping day due to error (likely missing data)
                 attempts += 1
-        
+
         raise RuntimeError(f"Failed to find a valid simulation day after {max_retries} attempts.")
 
-    def step(
-        self, action: np.ndarray
-    ) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
         action = np.asarray(action, dtype=float).flatten()
         if action.shape[0] < 3:
             raise ValueError("AntaresRLEnvV2 action must have at least 3 elements.")
@@ -126,4 +124,3 @@ class AntaresRLEnvV2(gym.Env):
         terminated = bool(result.done)
         truncated = False
         return next_state, reward, terminated, truncated, info
-

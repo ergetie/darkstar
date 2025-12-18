@@ -13,13 +13,16 @@ except ImportError:
     print("Please run: pip install websockets")
     exit(1)
 
+
 def load_config():
     with open("config.yaml", "r") as f:
         return yaml.safe_load(f)
 
+
 def load_secrets():
     with open("secrets.yaml", "r") as f:
         return yaml.safe_load(f)
+
 
 async def fetch_and_backfill(start_str, end_str):
     config = load_config()
@@ -89,7 +92,7 @@ async def fetch_and_backfill(start_str, end_str):
                 "start_time": fetch_current.isoformat() + "Z",
                 "end_time": chunk_end.isoformat() + "Z",
                 "statistic_ids": statistic_ids,
-                "period": "hour"
+                "period": "hour",
             }
             await ws.send(json.dumps(msg))
             resp = json.loads(await ws.recv())
@@ -115,8 +118,8 @@ async def fetch_and_backfill(start_str, end_str):
                     continue
                 points = result.get(entity, [])
                 for p in points:
-                    ts_ms = p['start']
-                    change = p.get('change') or 0.0
+                    ts_ms = p["start"]
+                    change = p.get("change") or 0.0
 
                     # Correct Timezone Handling
                     dt_utc = datetime.fromtimestamp(ts_ms / 1000, pytz.UTC)
@@ -154,7 +157,8 @@ async def fetch_and_backfill(start_str, end_str):
 
             if db_rows:
                 with sqlite3.connect(db_path) as conn:
-                    conn.executemany("""
+                    conn.executemany(
+                        """
                         UPDATE slot_observations
                         SET
                             load_kwh = ?,
@@ -164,13 +168,16 @@ async def fetch_and_backfill(start_str, end_str):
                             batt_charge_kwh = ?,
                             batt_discharge_kwh = ?
                         WHERE slot_start = ?
-                    """, db_rows)
+                    """,
+                        db_rows,
+                    )
                     conn.commit()
                 total_slots += len(db_rows)
 
             fetch_current += timedelta(days=1)
 
     print(f"Done. Correctly backfilled {total_slots} slots.")
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 3:

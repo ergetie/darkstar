@@ -8,31 +8,29 @@ import math
 import pandas as pd
 from typing import Any, Dict, Tuple
 
+
 def identify_windows(
-    df: pd.DataFrame,
-    config: Dict[str, Any],
-    initial_state: Dict[str, Any],
-    now_slot: Any
+    df: pd.DataFrame, config: Dict[str, Any], initial_state: Dict[str, Any], now_slot: Any
 ) -> Tuple[pd.DataFrame, Dict[str, Any]]:
     """
     Identify cheap windows with Dynamic Expansion (Smart Thresholds).
-    
+
     Args:
         df: DataFrame with import_price_sek_kwh
         config: Full configuration dictionary
         initial_state: Initial battery state
         now_slot: Current time slot
-        
+
     Returns:
         Tuple of (df with is_cheap column, debug_data)
     """
     df = df.copy()
-    
+
     charging_strategy = config.get("charging_strategy", {})
     battery_config = config.get("battery", {})
     strategic_charging = config.get("strategic_charging", {})
     manual_planning = config.get("manual_planning", {}) or {}
-    
+
     # 1. Basic Config
     charge_threshold_percentile = float(charging_strategy.get("charge_threshold_percentile", 15))
     cheap_price_tolerance_sek = float(charging_strategy.get("cheap_price_tolerance_sek", 0.10))
@@ -42,7 +40,7 @@ def identify_windows(
     if "import_price_sek_kwh" not in df.columns:
         df["is_cheap"] = False
         return df, {}
-        
+
     quantile_value = df["import_price_sek_kwh"].quantile(charge_threshold_percentile / 100.0)
     if pd.isna(quantile_value):
         quantile_value = df["import_price_sek_kwh"].dropna().median() or 0.0
@@ -53,9 +51,7 @@ def identify_windows(
     # Refine threshold based on tolerance
     cheap_subset = df.loc[initial_cheap, "import_price_sek_kwh"]
     max_price_in_initial = cheap_subset.max() if not cheap_subset.empty else quantile_value
-    baseline_threshold = (
-        max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
-    )
+    baseline_threshold = max_price_in_initial + cheap_price_tolerance_sek + price_smoothing_sek_kwh
 
     # -------------------------------------------------------
     # DYNAMIC WINDOW EXPANSION (Smart Thresholds)
@@ -74,7 +70,7 @@ def identify_windows(
     current_kwh = float(initial_state.get("battery_kwh", 0.0))
     if "battery_soc_percent" in initial_state and "battery_kwh" not in initial_state:
         current_kwh = (float(initial_state["battery_soc_percent"]) / 100.0) * capacity_kwh
-        
+
     target_kwh = (target_percent / 100.0) * capacity_kwh
 
     # Deficit we need to cover
@@ -118,7 +114,7 @@ def identify_windows(
         "deficit_kwh": deficit_kwh,
         "baseline_capacity_kwh": baseline_capacity_kwh,
         "cheap_slot_count": int(df["is_cheap"].sum()),
-        "non_cheap_slot_count": len(df) - int(df["is_cheap"].sum())
+        "non_cheap_slot_count": len(df) - int(df["is_cheap"].sum()),
     }
-    
+
     return df, debug_data

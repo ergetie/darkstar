@@ -17,11 +17,11 @@ from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 def normalize_timestamp(value: Any, tz_name: str) -> pd.Timestamp:
     """
     Return a timezone-aware timestamp normalized to the requested timezone.
-    
+
     Args:
         value: Any datetime-like value (string, datetime, Timestamp)
         tz_name: Target timezone name (e.g., "Europe/Stockholm")
-        
+
     Returns:
         Timezone-aware pd.Timestamp, or pd.NaT if value is None
     """
@@ -42,11 +42,11 @@ def normalize_timestamp(value: Any, tz_name: str) -> pd.Timestamp:
 def build_price_dataframe(price_data: list, tz_name: str) -> pd.DataFrame:
     """
     Build the price DataFrame indexed by the localized start_time.
-    
+
     Args:
         price_data: List of price slot dictionaries with start_time, import/export prices
         tz_name: Timezone name for normalization
-        
+
     Returns:
         DataFrame indexed by start_time with end_time, import_price_sek_kwh, export_price_sek_kwh
     """
@@ -89,11 +89,11 @@ def build_price_dataframe(price_data: list, tz_name: str) -> pd.DataFrame:
 def build_forecast_dataframe(forecast_data: list, tz_name: str) -> pd.DataFrame:
     """
     Build forecast DataFrame indexed by localized start_time with PV/load columns.
-    
+
     Args:
         forecast_data: List of forecast slot dictionaries with pv_forecast_kwh, load_forecast_kwh
         tz_name: Timezone name for normalization
-        
+
     Returns:
         DataFrame indexed by start_time with pv_forecast_kwh, load_forecast_kwh
     """
@@ -114,16 +114,31 @@ def build_forecast_dataframe(forecast_data: list, tz_name: str) -> pd.DataFrame:
                 "start_time": start,
                 "pv_forecast_kwh": float(slot.get("pv_forecast_kwh") or 0.0),
                 "load_forecast_kwh": float(slot.get("load_forecast_kwh") or 0.0),
-                "pv_p10": float(slot.get("pv_p10") or 0.0) if slot.get("pv_p10") is not None else None,
-                "pv_p90": float(slot.get("pv_p90") or 0.0) if slot.get("pv_p90") is not None else None,
-                "load_p10": float(slot.get("load_p10") or 0.0) if slot.get("load_p10") is not None else None,
-                "load_p90": float(slot.get("load_p90") or 0.0) if slot.get("load_p90") is not None else None,
+                "pv_p10": (
+                    float(slot.get("pv_p10") or 0.0) if slot.get("pv_p10") is not None else None
+                ),
+                "pv_p90": (
+                    float(slot.get("pv_p90") or 0.0) if slot.get("pv_p90") is not None else None
+                ),
+                "load_p10": (
+                    float(slot.get("load_p10") or 0.0) if slot.get("load_p10") is not None else None
+                ),
+                "load_p90": (
+                    float(slot.get("load_p90") or 0.0) if slot.get("load_p90") is not None else None
+                ),
             }
         )
 
     if not records:
         return pd.DataFrame(
-            columns=["pv_forecast_kwh", "load_forecast_kwh", "pv_p10", "pv_p90", "load_p10", "load_p90"],
+            columns=[
+                "pv_forecast_kwh",
+                "load_forecast_kwh",
+                "pv_p10",
+                "pv_p90",
+                "load_p10",
+                "load_p90",
+            ],
             index=empty_idx,
         )
 
@@ -162,7 +177,6 @@ def prepare_df(input_data: Dict[str, Any], tz_name: Optional[str] = None) -> pd.
     return df.sort_index()
 
 
-
 def apply_safety_margins(
     df: pd.DataFrame,
     config: Dict[str, Any],
@@ -171,13 +185,13 @@ def apply_safety_margins(
 ) -> pd.DataFrame:
     """
     Apply safety margins to PV and load forecasts.
-    
+
     Args:
         df: DataFrame with forecasts
         config: Full configuration dictionary
         overlays: Learning overlays dictionary
         effective_load_margin: Calculated load inflation factor (S-Index)
-        
+
     Returns:
         DataFrame with adjusted forecasts (adjusted_pv_kwh, adjusted_load_kwh)
     """
@@ -190,7 +204,7 @@ def apply_safety_margins(
     # Apply per-hour learning adjustments if available
     pv_adj = overlays.get("pv_adjustment_by_hour_kwh")
     load_adj = overlays.get("load_adjustment_by_hour_kwh")
-    
+
     if pv_adj or load_adj:
         try:
             timezone_name = config.get("timezone", "Europe/Stockholm")
@@ -224,4 +238,3 @@ def apply_safety_margins(
 _normalize_timestamp = normalize_timestamp
 _build_price_dataframe = build_price_dataframe
 _build_forecast_dataframe = build_forecast_dataframe
-

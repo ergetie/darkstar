@@ -6,10 +6,12 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 import pandas as pd
 import pytz
 
+
 class LearningStore:
     """
     Handles all database interactions for the Learning Engine.
     """
+
     def __init__(self, db_path: str, timezone: pytz.timezone):
         self.db_path = db_path
         self.timezone = timezone
@@ -235,7 +237,7 @@ class LearningStore:
                 )
                 """
             )
-            
+
             # Legacy tables from planner.py (moved here for consolidation)
             cursor.execute(
                 """
@@ -495,7 +497,7 @@ class LearningStore:
                 pv_forecast = forecast.get("pv_forecast_kwh", 0.0)
                 load_forecast = forecast.get("load_forecast_kwh", 0.0)
                 temp_c = forecast.get("temp_c")
-                
+
                 pv_p10 = forecast.get("pv_p10")
                 pv_p90 = forecast.get("pv_p90")
                 load_p10 = forecast.get("load_p10")
@@ -564,25 +566,25 @@ class LearningStore:
 
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            
+
             # We expect the DF to have columns like:
-            # slot_start, kepler_charge_kwh, kepler_discharge_kwh, kepler_soc_percent, 
+            # slot_start, kepler_charge_kwh, kepler_discharge_kwh, kepler_soc_percent,
             # kepler_import_kwh, kepler_export_kwh, kepler_cost_sek
-            
+
             # Map DF columns to DB columns
             # Note: We use 'kepler_' prefix from the planner output
-            
+
             records = plan_df.to_dict("records")
             for row in records:
                 slot_start = row.get("start_time") or row.get("slot_start")
                 if not slot_start:
                     continue
-                    
+
                 if isinstance(slot_start, datetime):
                     slot_start = slot_start.astimezone(self.timezone).isoformat()
                 else:
                     slot_start = pd.to_datetime(slot_start).astimezone(self.timezone).isoformat()
-                
+
                 cursor.execute(
                     """
                     INSERT INTO slot_plans (
@@ -612,11 +614,18 @@ class LearningStore:
                         float(row.get("kepler_import_kwh", 0.0) or 0.0),
                         float(row.get("kepler_export_kwh", 0.0) or 0.0),
                         float(row.get("kepler_cost_sek", 0.0) or 0.0),
-                    )
+                    ),
                 )
             conn.commit()
 
-    def store_training_episode(self, episode_id: str, inputs_json: str, schedule_json: str, context_json: str = None, config_overrides_json: str = None) -> None:
+    def store_training_episode(
+        self,
+        episode_id: str,
+        inputs_json: str,
+        schedule_json: str,
+        context_json: str = None,
+        config_overrides_json: str = None,
+    ) -> None:
         """Store a training episode for RL."""
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
@@ -665,22 +674,22 @@ class LearningStore:
     ) -> List[Dict[str, Any]]:
         """
         Query slot_observations for low-SoC events during peak hours.
-        
+
         Args:
             days_back: How many days to look back
             threshold_percent: SoC below this is considered critical
             peak_hours: Tuple of (start_hour, end_hour) for peak demand window
-        
+
         Returns:
             List of {date, slot_start, soc_end_percent} for each critical event.
         """
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (
-                datetime.now(self.timezone) - timedelta(days=days_back)
-            ).date().isoformat()
-            
+                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+            )
+
             start_hour, end_hour = peak_hours
-            
+
             query = """
                 SELECT 
                     DATE(slot_start) as date,
@@ -694,30 +703,30 @@ class LearningStore:
                   AND CAST(strftime('%H', slot_start) AS INTEGER) < ?
                 ORDER BY slot_start DESC
             """
-            cursor = conn.execute(
-                query, (cutoff_date, threshold_percent, start_hour, end_hour)
-            )
-            
+            cursor = conn.execute(query, (cutoff_date, threshold_percent, start_hour, end_hour))
+
             events = []
             for row in cursor:
-                events.append({
-                    "date": row[0],
-                    "slot_start": row[1],
-                    "soc_end_percent": row[2],
-                })
+                events.append(
+                    {
+                        "date": row[0],
+                        "slot_start": row[1],
+                        "soc_end_percent": row[2],
+                    }
+                )
             return events
 
     def get_reflex_state(self, param_path: str) -> Optional[Dict[str, Any]]:
         """
         Get the last update state for a parameter.
-        
+
         Returns:
             Dict with {last_value, last_updated, change_count} or None if never updated.
         """
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.execute(
                 "SELECT last_value, last_updated, change_count FROM reflex_state WHERE param_path = ?",
-                (param_path,)
+                (param_path,),
             )
             row = cursor.fetchone()
             if row:
@@ -728,9 +737,7 @@ class LearningStore:
                 }
             return None
 
-    def update_reflex_state(
-        self, param_path: str, new_value: float
-    ) -> None:
+    def update_reflex_state(self, param_path: str, new_value: float) -> None:
         """
         Update the reflex state for a parameter after a change.
         """
@@ -745,7 +752,7 @@ class LearningStore:
                     last_updated = excluded.last_updated,
                     change_count = change_count + 1
                 """,
-                (param_path, new_value, now)
+                (param_path, new_value, now),
             )
             conn.commit()
 
@@ -756,19 +763,19 @@ class LearningStore:
     ) -> pd.DataFrame:
         """
         Compare forecast vs actual values for PV or load.
-        
+
         Args:
             days_back: How many days to look back
             target: 'pv' or 'load'
-        
+
         Returns:
             DataFrame with columns: slot_start, forecast, actual, error (forecast - actual)
         """
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (
-                datetime.now(self.timezone) - timedelta(days=days_back)
-            ).date().isoformat()
-            
+                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+            )
+
             if target == "pv":
                 forecast_col = "f.pv_forecast_kwh"
                 actual_col = "o.pv_kwh"
@@ -779,7 +786,7 @@ class LearningStore:
                 actual_col = "o.load_kwh"
                 p10_col = "f.load_p10"
                 p90_col = "f.load_p90"
-            
+
             query = f"""
                 SELECT 
                     o.slot_start,
@@ -795,17 +802,17 @@ class LearningStore:
                   AND {forecast_col} IS NOT NULL
                 ORDER BY o.slot_start ASC
             """
-            
+
             df = pd.read_sql_query(query, conn, params=(cutoff_date,))
             return df
 
     def get_arbitrage_stats(self, days_back: int = 30) -> Dict[str, Any]:
         """
         Calculate arbitrage statistics for ROI analysis.
-        
+
         Args:
             days_back: How many days to look back
-        
+
         Returns:
             Dict with:
                 - total_export_revenue: SEK earned from exports
@@ -817,9 +824,9 @@ class LearningStore:
         """
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (
-                datetime.now(self.timezone) - timedelta(days=days_back)
-            ).date().isoformat()
-            
+                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+            )
+
             query = """
                 SELECT 
                     SUM(export_kwh * export_price_sek_kwh) as export_revenue,
@@ -831,14 +838,14 @@ class LearningStore:
                   AND export_price_sek_kwh IS NOT NULL
                   AND import_price_sek_kwh IS NOT NULL
             """
-            
+
             row = conn.execute(query, (cutoff_date,)).fetchone()
-            
+
             export_revenue = row[0] or 0.0
             import_cost = row[1] or 0.0
             total_charge = row[2] or 0.0
             total_discharge = row[3] or 0.0
-            
+
             return {
                 "total_export_revenue": round(export_revenue, 2),
                 "total_import_cost": round(import_cost, 2),
@@ -850,21 +857,21 @@ class LearningStore:
     def get_capacity_estimate(self, days_back: int = 30) -> Optional[float]:
         """
         Estimate effective battery capacity from discharge observations.
-        
+
         Looks for large discharge events (SoC drop > 30%) and calculates
         the ratio of energy discharged to SoC percentage dropped.
-        
+
         Args:
             days_back: How many days to look back
-        
+
         Returns:
             Estimated capacity in kWh, or None if insufficient data.
         """
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (
-                datetime.now(self.timezone) - timedelta(days=days_back)
-            ).date().isoformat()
-            
+                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+            )
+
             # Look for slots with significant discharge
             query = """
                 SELECT 
@@ -879,12 +886,12 @@ class LearningStore:
                   AND batt_discharge_kwh > 0.1
                   AND soc_start_percent > soc_end_percent
             """
-            
+
             rows = conn.execute(query, (cutoff_date,)).fetchall()
-            
+
             if len(rows) < 10:
                 return None
-            
+
             # Calculate effective capacity from each observation
             estimates = []
             for soc_start, soc_end, discharge_kwh in rows:
@@ -894,10 +901,10 @@ class LearningStore:
                     estimated_cap = discharge_kwh / (soc_drop / 100.0)
                     if 10 < estimated_cap < 100:  # Sanity check
                         estimates.append(estimated_cap)
-            
+
             if len(estimates) < 5:
                 return None
-            
+
             # Use median to be robust to outliers
             estimates.sort()
             median_idx = len(estimates) // 2

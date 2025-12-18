@@ -20,10 +20,10 @@ def _run_analyst() -> None:
     """Run the Learning Analyst to update s_index_base_factor and bias adjustments."""
     try:
         from backend.learning.analyst import Analyst
-        
+
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
-            
+
         print("[recorder] Running Analyst (Learning Loop)...")
         analyst = Analyst(config)
         analyst.update_learning_overlays()
@@ -39,8 +39,9 @@ def main() -> int:
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f)
     tz_name = config.get("timezone", "Europe/Stockholm")
-    
+
     import pytz
+
     tz = pytz.timezone(tz_name)
 
     # Run backfill on startup
@@ -53,7 +54,7 @@ def main() -> int:
 
     # Run Analyst on startup
     _run_analyst()
-    
+
     # Track last analyst run date to run once daily at ~6 AM local
     last_analyst_date = datetime.now(tz).date()
 
@@ -75,5 +76,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

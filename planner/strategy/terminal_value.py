@@ -19,24 +19,24 @@ def calculate_terminal_value(
     """
     Calculate the value of energy remaining in the battery at the end of the horizon.
     Terminal Value = Average Price (D1) * Risk Factor (D2).
-    
+
     Args:
         df: DataFrame with import_price_sek_kwh column
         risk_factor: Risk factor from future risk calculation
-        
+
     Returns:
         Tuple of (terminal_value, debug_data)
     """
     if df.empty:
         return 0.0, {}
-        
+
     avg_price = df["import_price_sek_kwh"].mean()
     terminal_value = avg_price * risk_factor
-    
+
     debug = {
         "avg_price_sek_kwh": round(avg_price, 4),
         "risk_factor_d2": round(risk_factor, 4),
-        "terminal_value_sek_kwh": round(terminal_value, 4)
+        "terminal_value_sek_kwh": round(terminal_value, 4),
     }
     return terminal_value, debug
 
@@ -49,23 +49,23 @@ def calculate_dynamic_target_soc(
 ) -> Tuple[float, float, Dict[str, Any]]:
     """
     Calculate dynamic target SoC based on risk factor.
-    
+
     Target % = Min % + (Risk - 1.0) * Scaling
-    
+
     Args:
         risk_factor: Future risk factor (1.0 = baseline)
         min_soc_percent: Minimum SoC percent
         capacity_kwh: Total battery capacity
         soc_scaling_factor: How much to scale risk into SoC target
-        
+
     Returns:
         Tuple of (target_soc_percent, target_soc_kwh, debug_data)
     """
     target_soc_pct = min_soc_percent + max(0.0, (risk_factor - 1.0) * soc_scaling_factor)
     target_soc_pct = min(100.0, target_soc_pct)
-    
+
     target_soc_kwh = (target_soc_pct / 100.0) * capacity_kwh if capacity_kwh > 0 else 0.0
-    
+
     debug = {
         "risk_factor": round(risk_factor, 4),
         "scaling_factor": soc_scaling_factor,

@@ -69,7 +69,7 @@ def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
             ).fetchall()
     except sqlite3.Error:
         rows = []
-    for d, in rows:
+    for (d,) in rows:
         days.append(d)
     return list(reversed(days))
 
@@ -161,9 +161,7 @@ def main() -> int:
         delta = bc - mpc
         oracle = row.get("oracle_cost")
         oracle_s = f"{oracle:8.2f}" if oracle is not None else "   n/a  "
-        print(
-            f"  {day}: MPC={mpc:8.2f}  BC={bc:8.2f}  ΔBC-M={delta:7.2f}  Oracle={oracle_s}"
-        )
+        print(f"  {day}: MPC={mpc:8.2f}  BC={bc:8.2f}  ΔBC-M={delta:7.2f}  Oracle={oracle_s}")
 
     mpc_total = float(df["mpc_cost"].sum())
     bc_total = float(df["bc_cost"].sum())
@@ -172,7 +170,9 @@ def main() -> int:
     print("\n[oracle-bc-cost] Aggregate stats:")
     print(f"  MPC total:     {mpc_total:8.2f} SEK")
     print(f"  BC total:      {bc_total:8.2f} SEK")
-    print(f"  ΔBC-MPC:       {delta_total:8.2f} SEK ({delta_total / mpc_total * 100:4.1f} % of MPC)")
+    print(
+        f"  ΔBC-MPC:       {delta_total:8.2f} SEK ({delta_total / mpc_total * 100:4.1f} % of MPC)"
+    )
     if not oracle_sub.empty:
         oracle_total = float(oracle_sub.sum())
         print(f"  Oracle total (subset): {oracle_total:8.2f} SEK")
@@ -184,4 +184,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -78,7 +78,7 @@ def calculate_block_cost(
     """Calculate the total cost of a block of water heating slots."""
     if not block:
         return 0.0
-    
+
     total_cost = 0.0
     for slot_time in block:
         if slot_time in cheap_slots_sorted.index:
@@ -103,9 +103,9 @@ def find_best_merge(
         block2 = blocks[i + 1]
 
         # Calculate cost of current arrangement
-        current_cost = calculate_block_cost(
-            block1, cheap_slots_sorted
-        ) + calculate_block_cost(block2, cheap_slots_sorted)
+        current_cost = calculate_block_cost(block1, cheap_slots_sorted) + calculate_block_cost(
+            block2, cheap_slots_sorted
+        )
 
         # Calculate cost if merged (need to fill gap)
         gap_start = block1[-1] + slot_duration
@@ -138,7 +138,7 @@ def merge_blocks(
         return blocks
 
     merged_block = blocks[merge_idx] + blocks[merge_idx + 1]
-    return blocks[:merge_idx] + [merged_block] + blocks[merge_idx + 2:]
+    return blocks[:merge_idx] + [merged_block] + blocks[merge_idx + 2 :]
 
 
 def should_merge_water_blocks(
@@ -232,9 +232,7 @@ def select_slots_from_segments(
 ) -> List[pd.Timestamp]:
     """Create slot candidates by combining contiguous segments before falling back."""
     cheap_slots_by_time = cheap_slots_sorted.sort_index()
-    segments = build_water_segments(
-        cheap_slots_by_time, slot_duration, max_gap_slots, tolerance
-    )
+    segments = build_water_segments(cheap_slots_by_time, slot_duration, max_gap_slots, tolerance)
     if not segments:
         return []
 
@@ -349,12 +347,12 @@ def select_optimal_water_slots(
     limited_slots = ordered_slots[:slots_needed]
 
     return consolidate_to_blocks(
-        limited_slots, 
-        max_blocks_per_day, 
-        slot_duration, 
+        limited_slots,
+        max_blocks_per_day,
+        slot_duration,
         cheap_slots_sorted,
         water_heating_config,
-        charging_strategy
+        charging_strategy,
     )
 
 
@@ -376,7 +374,7 @@ def get_daily_water_usage_kwh(
 
     db_path = learning_config.get("sqlite_path", "data/learning.db")
     date_key = target_date.isoformat()
-    
+
     try:
         with sqlite3.connect(db_path) as conn:
             cur = conn.execute("SELECT used_kwh FROM daily_water WHERE date = ?", (date_key,))
@@ -407,13 +405,13 @@ def schedule_water_heating(
 ) -> pd.DataFrame:
     """
     Schedule water heating in contiguous blocks per day.
-    
+
     Args:
         df: Prepared DataFrame
         config: Full configuration
         now_slot: Current planning slot
         ha_water_today: Water usage today from Home Assistant
-        
+
     Returns:
         Updated DataFrame with water_heating_kw column
     """
@@ -421,15 +419,15 @@ def schedule_water_heating(
     water_heating_config = config.get("water_heating", {})
     charging_strategy = config.get("charging_strategy", {})
     learning_config = config.get("learning", {})
-    
+
     timezone_name = config.get("timezone", "Europe/Stockholm")
     tz = pytz.timezone(timezone_name)
 
     power_kw = float(water_heating_config.get("power_kw", 3.0))
     min_hours_per_day = float(water_heating_config.get("min_hours_per_day", 2.0))
-    min_kwh_per_day = float(water_heating_config.get(
-        "min_kwh_per_day", power_kw * min_hours_per_day
-    ))
+    min_kwh_per_day = float(
+        water_heating_config.get("min_kwh_per_day", power_kw * min_hours_per_day)
+    )
     max_blocks_per_day = int(water_heating_config.get("max_blocks_per_day", 2))
     schedule_future_only = True
     defer_up_to_hours = float(water_heating_config.get("defer_up_to_hours", 0))
@@ -439,11 +437,9 @@ def schedule_water_heating(
     slot_minutes = int(config.get("nordpool", {}).get("resolution_minutes", 15) or 15)
     slot_duration = pd.Timedelta(minutes=slot_minutes)
     slot_energy_kwh = power_kw * (slot_duration.total_seconds() / 3600.0)
-    
+
     slots_for_min_hours = (
-        max(1, math.ceil(min_hours_per_day * 60.0 / slot_minutes))
-        if min_hours_per_day > 0
-        else 0
+        max(1, math.ceil(min_hours_per_day * 60.0 / slot_minutes)) if min_hours_per_day > 0 else 0
     )
 
     # Build local datetime mapping
@@ -451,22 +447,19 @@ def schedule_water_heating(
         local_datetimes = df.index.tz_convert(tz)
     except TypeError:
         local_datetimes = df.index.tz_localize(tz)
-    
+
     df["water_heating_kw"] = 0.0
-    
+
     try:
         now_local = now_slot.tz_convert(tz)
     except TypeError:
         now_local = now_slot.tz_localize(tz)
-        
+
     today_local = now_local.normalize()
     global_limit_local = today_local + pd.Timedelta(hours=48)
 
     daily_water_kwh_today = get_daily_water_usage_kwh(
-        today_local.date(), 
-        learning_config, 
-        ha_water_today, 
-        today_local.date()
+        today_local.date(), learning_config, ha_water_today, today_local.date()
     )
 
     def _has_full_price_day(start_local: pd.Timestamp) -> bool:
@@ -502,10 +495,7 @@ def schedule_water_heating(
             day_consumed = daily_water_kwh_today
         else:
             day_consumed = get_daily_water_usage_kwh(
-                day_start_local.date(), 
-                learning_config, 
-                None, 
-                today_local.date()
+                day_start_local.date(), learning_config, None, today_local.date()
             )
 
         remaining_energy = max(0.0, min_kwh_per_day - day_consumed)
@@ -513,9 +503,7 @@ def schedule_water_heating(
         if remaining_energy <= 0:
             continue
 
-        energy_slots = (
-            math.ceil(remaining_energy / slot_energy_kwh) if slot_energy_kwh > 0 else 0
-        )
+        energy_slots = math.ceil(remaining_energy / slot_energy_kwh) if slot_energy_kwh > 0 else 0
         required_slots = max(slots_for_min_hours, energy_slots, 1)
 
         cheap_slots = day_slots[day_slots["is_cheap"]].copy()

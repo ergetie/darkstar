@@ -132,19 +132,19 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
                 current_factor = s_index_meta.get("effective_load_margin")
                 if current_factor is None:
                     current_factor = s_index_meta.get("factor")
-                
+
                 raw_factor = s_index_meta.get("raw_factor")
                 # Also try unclamped factor if raw_factor missing
                 if raw_factor is None:
                     raw_factor = s_index_meta.get("factor_unclamped")
-                    
+
     except Exception as exc:
         logger.warning("Failed to load current s-index factor from schedule.json: %s", exc)
 
     return {
         "persona": persona,
         "risk_appetite": risk_appetite,
-        "base_factor": base_factor, # Kept for legacy compatibility
+        "base_factor": base_factor,  # Kept for legacy compatibility
         "current_factor": float(current_factor) if current_factor is not None else None,
         "raw_factor": float(raw_factor) if raw_factor is not None else None,
         "mode": s_cfg.get("mode", "static"),
@@ -179,9 +179,7 @@ def _fetch_weather_volatility(
     }
 
 
-def _fetch_horizon_series(
-    engine: Any, config: Dict[str, Any]
-) -> Dict[str, Any]:
+def _fetch_horizon_series(engine: Any, config: Dict[str, Any]) -> Dict[str, Any]:
     """
     Fetch aligned 48h horizon series of base, correction, and final forecasts.
     """
@@ -384,33 +382,38 @@ def aurora_dashboard():
 
     weather_volatility = _fetch_weather_volatility(slot_start, horizon_end, config)
     horizon = _fetch_horizon_series(engine, config)
-    
+
     # Rev A29: Add Forecast History (Actuals)
     try:
-        if engine is not None and hasattr(engine, 'store'):
+        if engine is not None and hasattr(engine, "store"):
             # Fetch last 24h of actuals
             # We use get_forecast_vs_actual(days_back=2) to cover enough history
             df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv")
             df_load = engine.store.get_forecast_vs_actual(days_back=2, target="load")
-            
+
             # Filter for last 24h relative to slot_start
             history_start_iso = (slot_start - timedelta(hours=24)).isoformat()
-            
+
             def process_history(df):
-                if df.empty: return []
+                if df.empty:
+                    return []
                 # Filter rows where slot_start >= history_start_iso
                 filtered = df[df["slot_start"] >= history_start_iso].copy()
-                
+
                 # Robust NaN handling: convert to object and replace nan with None
                 for col in ["p10", "p90", "forecast", "actual"]:
                     if col in filtered.columns:
-                        filtered[col] = filtered[col].astype(object).where(pd.notnull(filtered[col]), None)
-                
-                return filtered[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict("records")
+                        filtered[col] = (
+                            filtered[col].astype(object).where(pd.notnull(filtered[col]), None)
+                        )
+
+                return filtered[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict(
+                    "records"
+                )
 
             horizon["history_series"] = {
                 "pv": process_history(df_pv),
-                "load": process_history(df_load)
+                "load": process_history(df_load),
             }
     except Exception as exc:
         logger.warning("Failed to fetch history series: %s", exc)
@@ -424,14 +427,16 @@ def aurora_dashboard():
     max_spread = None
     try:
         from inputs import get_nordpool_data
+
         prices = get_nordpool_data()
-        
+
         # Filter for today and tomorrow
         relevant_prices = [
-            p for p in prices 
+            p
+            for p in prices
             if p["start_time"] >= now.replace(hour=0, minute=0, second=0, microsecond=0)
         ]
-        
+
         if relevant_prices:
             min_import = min(p["import_price_sek_kwh"] for p in relevant_prices)
             max_export = max(p["export_price_sek_kwh"] for p in relevant_prices)
@@ -444,13 +449,13 @@ def aurora_dashboard():
     # Calculate Forecast Bias (mean error, positive = over-predicting)
     forecast_bias = None
     try:
-        if engine is not None and hasattr(engine, 'store'):
+        if engine is not None and hasattr(engine, "store"):
             df = engine.store.get_forecast_vs_actual(days_back=14, target="pv")
             if len(df) >= 50:
                 forecast_bias = round(df["error"].mean(), 3)
     except Exception as exc:
         logger.warning("Failed to calculate forecast bias: %s", exc)
-    
+
     metrics["forecast_bias"] = forecast_bias
 
     payload = {
@@ -570,21 +575,22 @@ def toggle_reflex():
 
     try:
         from ruamel.yaml import YAML
+
         yaml = YAML()
         yaml.preserve_quotes = True
-        
+
         config_path = "config.yaml"
         with open(config_path, "r", encoding="utf-8") as f:
             data = yaml.load(f)
-            
+
         learning = data.setdefault("learning", {})
         learning["reflex_enabled"] = enabled
-        
+
         with open(config_path, "w", encoding="utf-8") as f:
             yaml.dump(data, f)
-            
+
         return jsonify({"status": "success", "enabled": enabled})
-        
+
     except Exception as exc:
         logger.error("Failed to toggle Aurora Reflex: %s", exc)
         return jsonify({"error": str(exc)}), 500

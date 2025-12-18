@@ -10,18 +10,16 @@ from typing import Any, Dict, List, Optional
 
 
 def fetch_temperature_forecast(
-    days_ahead: List[int], 
-    tz: Any, 
-    config: Dict[str, Any]
+    days_ahead: List[int], tz: Any, config: Dict[str, Any]
 ) -> Dict[int, float]:
     """
     Fetch mean daily temperatures for the requested day offsets.
-    
+
     Args:
         days_ahead: List of day offsets to fetch (e.g. [1, 2])
         tz: Timezone object
         config: Full configuration dictionary
-        
+
     Returns:
         Dictionary mapping day offset to mean temperature
     """
@@ -41,7 +39,7 @@ def fetch_temperature_forecast(
 
     max_offset = max(days_ahead)
     timezone_name = config.get("timezone", "Europe/Stockholm")
-    
+
     params = {
         "latitude": latitude,
         "longitude": longitude,

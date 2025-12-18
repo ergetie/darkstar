@@ -15,7 +15,7 @@ import pytz
 
 
 def dataframe_to_json_response(
-    df: pd.DataFrame, 
+    df: pd.DataFrame,
     now_override: Optional[datetime] = None,
     timezone_name: str = "Europe/Stockholm",
 ) -> List[Dict[str, Any]]:
@@ -27,7 +27,7 @@ def dataframe_to_json_response(
         df: The schedule DataFrame
         now_override: Optional timestamp to use as "now" for filtering
         timezone_name: Timezone for timestamp handling
-        
+
     Returns:
         List of dictionaries ready for JSON response
     """
@@ -45,7 +45,7 @@ def dataframe_to_json_response(
     else:
         start_series = start_series.dt.tz_convert(tz)
     df_copy["start_time"] = start_series
-    
+
     end_series = pd.to_datetime(df_copy["end_time"], errors="coerce")
     if not end_series.dt.tz:
         end_series = end_series.dt.tz_localize(tz)
@@ -95,9 +95,10 @@ def dataframe_to_json_response(
             reason = "expensive_grid_power"
             priority = "high"
         elif charge_kw > 0:
-            is_importing = grid_charge_kw > 0 or float(
-                record.get("import_kwh") or record.get("grid_import_kw") or 0.0
-            ) > 0
+            is_importing = (
+                grid_charge_kw > 0
+                or float(record.get("import_kwh") or record.get("grid_import_kw") or 0.0) > 0
+            )
             if is_importing:
                 reason = "cheap_grid_power"
             else:

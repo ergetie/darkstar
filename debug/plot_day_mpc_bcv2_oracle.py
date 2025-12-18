@@ -88,12 +88,8 @@ def _build_mpc_schedule(day: str) -> pd.DataFrame:
     schedule["battery_charge_kw"] = schedule.get(
         "battery_charge_kw", schedule.get("charge_kw", 0.0)
     ).astype(float)
-    schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0).astype(
-        float
-    )
-    schedule["net_battery_kw"] = (
-        schedule["battery_charge_kw"] - schedule["battery_discharge_kw"]
-    )
+    schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0).astype(float)
+    schedule["net_battery_kw"] = schedule["battery_charge_kw"] - schedule["battery_discharge_kw"]
     schedule["soc_percent"] = schedule.get("projected_soc_percent", 0.0).astype(float)
 
     if "adjusted_load_kwh" in schedule.columns:
@@ -226,10 +222,7 @@ def main() -> int:
 
     print(f"[plot-bcv2-day] Building MPC schedule for {day}...")
     mpc_df = _build_mpc_schedule(day)
-    print(
-        f"[plot-bcv2-day] Building BC v2 schedule for {day} "
-        f"(run {bc_run['run_id'][:8]})..."
-    )
+    print(f"[plot-bcv2-day] Building BC v2 schedule for {day} " f"(run {bc_run['run_id'][:8]})...")
     bcv2_df = _build_bcv2_schedule(day, model, spec)
     print(f"[plot-bcv2-day] Solving Oracle schedule for {day}...")
     oracle_df = _build_oracle_schedule(day)

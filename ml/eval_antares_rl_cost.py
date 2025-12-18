@@ -68,7 +68,7 @@ def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
             ).fetchall()
     except sqlite3.Error:
         rows = []
-    for d, in rows:
+    for (d,) in rows:
         days.append(d)
     return list(reversed(days))
 
@@ -202,4 +202,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

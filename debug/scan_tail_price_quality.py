@@ -43,8 +43,10 @@ def scan_tail(start_date: str, end_date: Optional[str] = None) -> None:
         ORDER BY d;
     """
 
-    print(f"[rev74] Tail price scan {start_date}"
-          f"{' → ' + end_date if end_date else ''} in {db_path}")
+    print(
+        f"[rev74] Tail price scan {start_date}"
+        f"{' → ' + end_date if end_date else ''} in {db_path}"
+    )
 
     cur.execute(query, params)
     rows = cur.fetchall()
@@ -55,18 +57,12 @@ def scan_tail(start_date: str, end_date: Optional[str] = None) -> None:
         # Production rule: if almost all slots are zero / null, mark as bad.
         if num_slots >= 90 and num_zero >= 80:
             flag = "PRICE_BAD"
-        print(
-            f"{d}: slots={num_slots}, zero_or_null={num_zero}, "
-            f"min={pmin}, max={pmax} {flag}"
-        )
+        print(f"{d}: slots={num_slots}, zero_or_null={num_zero}, " f"min={pmin}, max={pmax} {flag}")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description=(
-            "Scan tail window for days with broken import prices in "
-            "slot_observations."
-        )
+        description=("Scan tail window for days with broken import prices in " "slot_observations.")
     )
     parser.add_argument(
         "--start-date",
@@ -86,4 +82,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

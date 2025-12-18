@@ -52,9 +52,7 @@ def parse_date(value: str) -> date:
     try:
         return datetime.fromisoformat(value).date()
     except ValueError as exc:
-        raise argparse.ArgumentTypeError(
-            "Dates must be ISO formatted (YYYY-MM-DD)"
-        ) from exc
+        raise argparse.ArgumentTypeError("Dates must be ISO formatted (YYYY-MM-DD)") from exc
 
 
 def build_channel_set(raw: Optional[str]) -> Set[str]:
@@ -260,11 +258,7 @@ def aggregate_sqlite_hourly(
             if abs(soc_end_f - soc_start_f) > 40.0:
                 soc_issues += 1
 
-        if (
-            previous_soc_end is not None
-            and soc_start_f is not None
-            and previous_time is not None
-        ):
+        if previous_soc_end is not None and soc_start_f is not None and previous_time is not None:
             delta_minutes = (dt - previous_time).total_seconds() / 60.0
             if delta_minutes <= 30.0 and abs(soc_start_f - previous_soc_end) > 40.0:
                 soc_issues += 1
@@ -342,9 +336,7 @@ async def fetch_ha_statistics_window(
         entity_to_channel = {v: k for k, v in channel_entities.items() if v}
 
         while current <= end_day:
-            start_local = datetime.combine(current, datetime.min.time()).replace(
-                tzinfo=tz
-            )
+            start_local = datetime.combine(current, datetime.min.time()).replace(tzinfo=tz)
             end_local = start_local + timedelta(days=1)
             start_utc = start_local.astimezone(pytz.UTC)
             end_utc = end_local.astimezone(pytz.UTC)
@@ -432,9 +424,7 @@ def classify_day(
             if diff > tolerance_kwh:
                 bad_hours[channel] += 1
                 key = f"{channel}_hours"
-                flagged_hours_detail.setdefault(key, []).append(
-                    (hour, sqlite_val, ha_val, diff)
-                )
+                flagged_hours_detail.setdefault(key, []).append((hour, sqlite_val, ha_val, diff))
 
     # Battery channels are advisory and only affect mask_battery
     batt_channels = {"batt_charge", "batt_discharge"} & active_channels
@@ -450,16 +440,9 @@ def classify_day(
             if diff > tolerance_kwh:
                 bad_hours["batt"] += 1
                 key = "batt_hours"
-                flagged_hours_detail.setdefault(key, []).append(
-                    (hour, sqlite_val, ha_val, diff)
-                )
+                flagged_hours_detail.setdefault(key, []).append((hour, sqlite_val, ha_val, diff))
 
-    core_bad_total = (
-        bad_hours["load"]
-        + bad_hours["pv"]
-        + bad_hours["import"]
-        + bad_hours["export"]
-    )
+    core_bad_total = bad_hours["load"] + bad_hours["pv"] + bad_hours["import"] + bad_hours["export"]
 
     # Classification rules:
     # - Exclude if slots are missing, SoC is broken, or many core hours are off.
@@ -543,8 +526,10 @@ async def main_async(args: argparse.Namespace) -> int:
         )
     except Exception as exc:
         print(f"[validation] Error fetching HA statistics: {exc}")
-        print("[validation] Aborting without writing data_quality_daily; "
-              "please ensure Home Assistant is reachable and retry.")
+        print(
+            "[validation] Aborting without writing data_quality_daily; "
+            "please ensure Home Assistant is reachable and retry."
+        )
         return 1
 
     total_days = (end_day - start_day).days + 1
@@ -563,18 +548,14 @@ async def main_async(args: argparse.Namespace) -> int:
                     date=day.isoformat(),
                     status="exclude",
                     missing_slots=96,
-                    metadata_json=json.dumps(
-                        {"reason": "no_slots_for_day"}, ensure_ascii=False
-                    ),
+                    metadata_json=json.dumps({"reason": "no_slots_for_day"}, ensure_ascii=False),
                 )
                 persist_day_summary(conn, summary)
                 excluded_days += 1
                 print(f"{day}: exclude (no slots)")
                 continue
 
-            sqlite_hourly, missing_slots, soc_issues = aggregate_sqlite_hourly(
-                slots, tz
-            )
+            sqlite_hourly, missing_slots, soc_issues = aggregate_sqlite_hourly(slots, tz)
 
             summary = classify_day(
                 day=day,

@@ -71,12 +71,8 @@ def _build_mpc_schedule(day: str) -> pd.DataFrame:
     schedule["battery_charge_kw"] = schedule.get(
         "battery_charge_kw", schedule.get("charge_kw", 0.0)
     ).astype(float)
-    schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0).astype(
-        float
-    )
-    schedule["net_battery_kw"] = (
-        schedule["battery_charge_kw"] - schedule["battery_discharge_kw"]
-    )
+    schedule["battery_discharge_kw"] = schedule.get("battery_discharge_kw", 0.0).astype(float)
+    schedule["net_battery_kw"] = schedule["battery_charge_kw"] - schedule["battery_discharge_kw"]
     schedule["soc_percent"] = schedule.get("projected_soc_percent", 0.0).astype(float)
 
     if "adjusted_load_kwh" in schedule.columns:
@@ -128,9 +124,7 @@ def _build_ppov2_schedule(day: str, model: PPO, spec: RlV2StateSpec) -> pd.DataF
                 "grid_export_kwh": float(info.get("grid_export_kwh", 0.0)),
                 "ppo_charge_kw": float(info.get("battery_charge_kw", 0.0)),
                 "ppo_discharge_kw": float(info.get("battery_discharge_kw", 0.0)),
-                "ppo_net_battery_kw": float(
-                    info.get("battery_charge_kw", 0.0)
-                )
+                "ppo_net_battery_kw": float(info.get("battery_charge_kw", 0.0))
                 - float(info.get("battery_discharge_kw", 0.0)),
                 "ppo_soc_percent": float(info.get("soc_percent", 0.0)),
             }
@@ -191,8 +185,7 @@ def main() -> int:
     print(f"[plot-ppov2-day] Building MPC schedule for {day}...")
     mpc_df = _build_mpc_schedule(day)
     print(
-        f"[plot-ppov2-day] Building PPO v2 schedule for {day} "
-        f"(run {ppo_run['run_id'][:8]})..."
+        f"[plot-ppov2-day] Building PPO v2 schedule for {day} " f"(run {ppo_run['run_id'][:8]})..."
     )
     ppo_df = _build_ppov2_schedule(day, model, spec)
     print(f"[plot-ppov2-day] Solving Oracle schedule for {day}...")
@@ -207,9 +200,7 @@ def main() -> int:
     day_end = day_start + pd.Timedelta(days=1)
 
     mpc_df = mpc_df[(mpc_df["start_time"] >= day_start) & (mpc_df["start_time"] < day_end)].copy()
-    ppo_df = ppo_df[
-        (ppo_df["start_time"] >= day_start) & (ppo_df["start_time"] < day_end)
-    ].copy()
+    ppo_df = ppo_df[(ppo_df["start_time"] >= day_start) & (ppo_df["start_time"] < day_end)].copy()
     oracle_df = oracle_df[
         (oracle_df["start_time"] >= day_start) & (oracle_df["start_time"] < day_end)
     ].copy()
@@ -344,4 +335,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

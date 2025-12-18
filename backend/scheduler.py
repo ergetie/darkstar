@@ -14,7 +14,6 @@ import pytz
 from ml.train import train_models
 
 
-
 @dataclass
 class SchedulerConfig:
     enabled: bool
@@ -24,7 +23,6 @@ class SchedulerConfig:
     ml_training_days: Tuple[int, ...] = ()
     ml_training_time: str = "03:00"
     timezone: str = "UTC"
-
 
 
 @dataclass
@@ -37,7 +35,6 @@ class SchedulerStatus:
     last_run_status: Optional[str] = None
     last_error: Optional[str] = None
     ml_training_last_run_at: Optional[str] = None
-
 
 
 STATUS_PATH = Path("data") / "scheduler_status.json"
@@ -89,7 +86,6 @@ def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
     )
 
 
-
 def load_status() -> SchedulerStatus:
     _ensure_data_dir()
     if not STATUS_PATH.exists():
@@ -123,7 +119,6 @@ def load_status() -> SchedulerStatus:
         last_error=data.get("last_error"),
         ml_training_last_run_at=data.get("ml_training_last_run_at"),
     )
-
 
 
 def save_status(status: SchedulerStatus) -> None:
@@ -174,6 +169,7 @@ def run_planner_once() -> Tuple[bool, Optional[str]]:
 
 from backend.learning.reflex import AuroraReflex
 
+
 def run_reflex_once() -> Tuple[bool, Optional[str]]:
     try:
         reflex = AuroraReflex()
@@ -182,6 +178,7 @@ def run_reflex_once() -> Tuple[bool, Optional[str]]:
         return True, None
     except Exception as exc:
         return False, str(exc)
+
 
 def get_last_scheduled_time(
     run_days: Tuple[int, ...], run_time_str: str, timezone_str: str
@@ -198,9 +195,9 @@ def get_last_scheduled_time(
     try:
         tz = pytz.timezone(timezone_str)
         now = datetime.now(tz)
-        
+
         target_hour, target_minute = map(int, run_time_str.split(":"))
-        
+
         # Check the last 14 days (covering 2 weeks) to find the most recent slot
         candidates = []
         for days_back in range(15):
@@ -212,10 +209,10 @@ def get_last_scheduled_time(
                 )
                 if candidate <= now:
                     candidates.append(candidate)
-        
+
         if not candidates:
             return None
-            
+
         return max(candidates)
 
     except Exception:
@@ -260,8 +257,6 @@ def main() -> int:
         status.every_minutes = cfg.every_minutes
         status.jitter_minutes = cfg.jitter_minutes
 
-
-
         # --- Aurora Reflex Daily Job (04:00 AM) ---
         now = datetime.now(timezone.utc)
         # Convert to local time for 4 AM check (assuming Europe/Stockholm from config, but simple check here)
@@ -285,10 +280,10 @@ def main() -> int:
 
             if last_scheduled_slot:
                 should_run = False
-                
+
                 # Check if we ever ran it
                 if not status.ml_training_last_run_at:
-                     should_run = True
+                    should_run = True
                 else:
                     try:
                         last_run_ts = datetime.fromisoformat(status.ml_training_last_run_at)
@@ -296,7 +291,7 @@ def main() -> int:
                         if last_run_ts.tzinfo is None:
                             # Assume UTC if stored without TZ, but that shouldn't happen with isoformat
                             last_run_ts = pytz.utc.localize(last_run_ts)
-                        
+
                         # Compare
                         if last_run_ts < last_scheduled_slot:
                             should_run = True
@@ -309,7 +304,7 @@ def main() -> int:
                         f"Last slot: {last_scheduled_slot}, Last run: {status.ml_training_last_run_at}"
                     )
                     ml_ok, ml_err = run_ml_training_task()
-                    
+
                     # Update status
                     if ml_ok:
                         now_utc = datetime.now(timezone.utc)

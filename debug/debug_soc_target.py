@@ -34,7 +34,7 @@ def main():
     timezone_name = config.get("timezone", "Europe/Stockholm")
     tz = pytz.timezone(timezone_name)
     now = datetime.now(tz)
-    
+
     print(f"\n📅 Current Time: {now.isoformat()}")
     print(f"   Timezone: {timezone_name}")
 
@@ -42,10 +42,10 @@ def main():
     print("\n" + "=" * 70)
     print("📋 CONFIGURATION VALUES")
     print("=" * 70)
-    
+
     s_index_cfg = config.get("s_index", {})
     battery_cfg = config.get("battery", {})
-    
+
     print(f"\n[s_index]")
     print(f"   mode: {s_index_cfg.get('mode')}")
     print(f"   risk_appetite: {s_index_cfg.get('risk_appetite')}")
@@ -56,7 +56,7 @@ def main():
     print(f"   temp_baseline_c: {s_index_cfg.get('temp_baseline_c')}")
     print(f"   temp_cold_c: {s_index_cfg.get('temp_cold_c')}")
     print(f"   pv_deficit_weight: {s_index_cfg.get('pv_deficit_weight')}")
-    
+
     print(f"\n[battery]")
     print(f"   capacity_kwh: {battery_cfg.get('capacity_kwh')}")
     print(f"   min_soc_percent: {battery_cfg.get('min_soc_percent')}")
@@ -65,7 +65,7 @@ def main():
     print("\n" + "=" * 70)
     print("📡 FETCHING LIVE DATA")
     print("=" * 70)
-    
+
     try:
         input_data = get_all_input_data("config.yaml")
         df = prepare_df(input_data, timezone_name)
@@ -74,12 +74,12 @@ def main():
     except Exception as e:
         print(f"   ❌ Failed to fetch data: {e}")
         return
-    
+
     # === TEMPERATURE FORECAST ===
     print("\n" + "=" * 70)
     print("🌡️  TEMPERATURE FORECAST (D1, D2)")
     print("=" * 70)
-    
+
     try:
         temps = fetch_temperature_forecast([1, 2], tz, config)
         print(f"   D1 (Tomorrow): {temps.get(1)}°C")
@@ -92,10 +92,10 @@ def main():
     print("\n" + "=" * 70)
     print("📊 S-INDEX CALCULATION")
     print("=" * 70)
-    
+
     mode = s_index_cfg.get("mode", "dynamic")
     max_factor = float(s_index_cfg.get("max_factor", 1.5))
-    
+
     if mode == "probabilistic":
         print(f"\n   Mode: PROBABILISTIC (Sigma Scaling)")
         factor, s_debug = calculate_probabilistic_s_index(
@@ -107,8 +107,11 @@ def main():
     else:
         print(f"\n   Mode: DYNAMIC (Legacy)")
         factor, s_debug, temps_map = calculate_dynamic_s_index(
-            df, s_index_cfg, max_factor, timezone_name,
-            fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(days, t, config)
+            df,
+            s_index_cfg,
+            max_factor,
+            timezone_name,
+            fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(days, t, config),
         )
         print(f"   Result Factor: {factor}")
         print(f"\n   Debug:")
@@ -118,10 +121,12 @@ def main():
     print("\n" + "=" * 70)
     print("⚠️  TARGET SOC RISK FACTOR (NEW) - Incorporates risk_appetite + PV")
     print("=" * 70)
-    
+
     risk_factor, risk_debug = calculate_target_soc_risk_factor(
-        df, s_index_cfg, timezone_name,
-        fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(days, t, config)
+        df,
+        s_index_cfg,
+        timezone_name,
+        fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(days, t, config),
     )
     print(f"\n   Risk Factor: {risk_factor}")
     print(f"\n   Debug:")
@@ -131,7 +136,7 @@ def main():
     print("\n" + "=" * 70)
     print("🎯 DYNAMIC TARGET SOC (End-of-Day)")
     print("=" * 70)
-    
+
     target_soc_pct, target_soc_kwh, soc_debug = calculate_dynamic_target_soc(
         risk_factor, battery_cfg, s_index_cfg
     )
@@ -144,10 +149,10 @@ def main():
     print("\n" + "=" * 70)
     print("📐 FORMULA BREAKDOWN")
     print("=" * 70)
-    
+
     min_soc = float(battery_cfg.get("min_soc_percent", 12))
     soc_scaling = float(s_index_cfg.get("soc_scaling_factor", 50))
-    
+
     print(f"\n   Target % = min_soc + max(0, (risk_factor - 1.0) * soc_scaling)")
     print(f"   Target % = {min_soc} + max(0, ({risk_factor:.4f} - 1.0) * {soc_scaling})")
     print(f"   Target % = {min_soc} + max(0, {risk_factor - 1.0:.4f} * {soc_scaling})")
@@ -158,8 +163,9 @@ def main():
     print("\n" + "=" * 70)
     print("❓ ISSUE ANALYSIS: What affects calculate_future_risk_factor?")
     print("=" * 70)
-    
-    print("""
+
+    print(
+        """
     Looking at s_index.py `calculate_future_risk_factor()`:
     
     - It uses: base_factor, max_factor, temp_weight, temp_baseline_c, temp_cold_c
@@ -177,7 +183,8 @@ def main():
        3. D2 temperature forecast
        4. s_index.soc_scaling_factor
        5. battery.min_soc_percent
-    """)
+    """
+    )
 
     print("\n" + "=" * 70)
     print("✅ INVESTIGATION COMPLETE")

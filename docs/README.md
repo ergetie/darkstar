@@ -37,8 +37,8 @@ For complete requirements, see `requirements.txt`.
     pip install -r requirements.txt
 
     # Frontend
-    npm install
-    npm install --prefix frontend
+    pnpm install
+    pnpm install --prefix frontend
     ```
 
 3.  **Configuration:**
@@ -49,7 +49,7 @@ For complete requirements, see `requirements.txt`.
 4.  **Run Development Environment:**
     Starts the Flask backend (port 5000) and React frontend (port 5173).
     ```bash
-    npm run dev
+    pnpm run dev
     ```
     Access the UI at **http://localhost:5173**.
 
@@ -168,7 +168,7 @@ Darkstar v2 includes an internal scheduler and a dedicated recorder.
     ```
 *   The scheduler runs the planner periodically: `python -m backend.scheduler`.
 *   The recorder logs live energy observations every 15 minutes: `python -m backend.recorder`.
-*   In development, `npm run dev` starts:
+*   In development, `pnpm run dev` starts:
     *   Frontend dev server
     *   Flask backend
     *   `backend.scheduler` (planner loop)
@@ -199,7 +199,7 @@ To auto-start Darkstar on boot via systemd:
     [Service]
     Type=simple
     WorkingDirectory=/opt/darkstar
-    ExecStart=/usr/bin/npm run dev
+    ExecStart=/usr/bin/pnpm run dev
     Restart=on-failure
     Environment=NODE_ENV=production
 
@@ -220,7 +220,7 @@ Keep the backend and scheduler/recorder running in the background:
 tmux new -s darkstar
 # inside tmux
 cd /opt/darkstar && source venv/bin/activate
-npm run dev  # OR run backend/scheduler separately
+pnpm run dev  # OR run backend/scheduler separately
 # detach: Ctrl-b then d
 # reattach later: tmux attach -t darkstar
 ```

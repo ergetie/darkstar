@@ -10,7 +10,7 @@ Public API:
 Sub-packages:
 - inputs: Data preparation and input types
 - strategy: S-Index calculation and strategy functions
-- scheduling: Water heating and scheduling logic  
+- scheduling: Water heating and scheduling logic
 - solver: Kepler MILP solver
 - output: Schedule formatting and JSON output
 - observability: Logging and debugging utilities
@@ -72,7 +72,7 @@ from planner.pipeline import PlannerPipeline, generate_schedule
 __all__ = [
     # Types
     "SlotData",
-    "PlannerInput", 
+    "PlannerInput",
     "StrategyContext",
     "BatteryConfig",
     "KeplerConfig",

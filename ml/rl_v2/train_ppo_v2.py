@@ -59,8 +59,10 @@ class CostLoggingCallback(BaseCallback):
 
 def _make_env_factory(config_path: str, seq_len: int):
     """Factory for picklable env creators."""
+
     def _init() -> gym.Env:
         return AntaresRLEnvV2(config_path=config_path, seq_len=seq_len)
+
     return _init
 
 
@@ -125,16 +127,16 @@ def main() -> int:
     # Note: Engine is initialized in main process for schema checks,
     # but workers will create their own instances.
     engine = _get_engine()
-    
+
     # Vectorized Environment Setup
     # SubprocVecEnv is used for n_envs > 1 to bypass GIL and utilize multi-core CPUs
     vec_env_cls = SubprocVecEnv if cfg.n_envs > 1 else DummyVecEnv
-    
+
     env = make_vec_env(
         _make_env_factory("config.yaml", cfg.seq_len),
         n_envs=cfg.n_envs,
         seed=cfg.seed,
-        vec_env_cls=vec_env_cls
+        vec_env_cls=vec_env_cls,
     )
 
     # Custom Network Architecture
@@ -156,7 +158,7 @@ def main() -> int:
         verbose=1,
         seed=cfg.seed,
         device="auto",
-        policy_kwargs={"net_arch": net_arch}
+        policy_kwargs={"net_arch": net_arch},
     )
 
     callback = CostLoggingCallback()

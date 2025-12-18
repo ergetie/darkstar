@@ -61,12 +61,8 @@ class AntaresEnvV2:
         )
         self._min_soc_percent: float = float(battery_cfg.get("min_soc_percent", 10.0))
         self._max_soc_percent: float = float(battery_cfg.get("max_soc_percent", 100.0))
-        self._max_charge_power_kw: float = float(
-            battery_cfg.get("max_charge_power_kw", 3.0)
-        )
-        self._max_discharge_power_kw: float = float(
-            battery_cfg.get("max_discharge_power_kw", 3.0)
-        )
+        self._max_charge_power_kw: float = float(battery_cfg.get("max_charge_power_kw", 3.0))
+        self._max_discharge_power_kw: float = float(battery_cfg.get("max_discharge_power_kw", 3.0))
         self._wear_cost_sek_per_kwh: float = float(
             learning_cfg.get(
                 "default_battery_cost_sek_per_kwh",
@@ -139,21 +135,13 @@ class AntaresEnvV2:
         df["import_price_sek_kwh"] = pd.to_numeric(
             df["import_price_sek_kwh"], errors="coerce"
         ).fillna(0.0)
-        df["export_price_sek_kwh"] = pd.to_numeric(
-            df["export_price_sek_kwh"], errors="coerce"
-        )
-        df["export_price_sek_kwh"] = df["export_price_sek_kwh"].fillna(
-            df["import_price_sek_kwh"]
-        )
+        df["export_price_sek_kwh"] = pd.to_numeric(df["export_price_sek_kwh"], errors="coerce")
+        df["export_price_sek_kwh"] = df["export_price_sek_kwh"].fillna(df["import_price_sek_kwh"])
 
-        slot_hours = (
-            df["slot_end"] - df["slot_start"]
-        ).dt.total_seconds() / 3600.0
+        slot_hours = (df["slot_end"] - df["slot_start"]).dt.total_seconds() / 3600.0
         df["slot_hours"] = slot_hours.fillna(0.25).clip(lower=0.01)
 
-        df["hour_of_day"] = (
-            df["slot_start"].dt.hour + df["slot_start"].dt.minute / 60.0
-        )
+        df["hour_of_day"] = df["slot_start"].dt.hour + df["slot_start"].dt.minute / 60.0
 
         return df.reset_index(drop=True)
 
@@ -164,9 +152,7 @@ class AntaresEnvV2:
         self._df = self._load_day_frame(target_day)
         self._current_idx = 0
 
-        start_dt = self.timezone.localize(
-            datetime.combine(target_day, datetime.min.time())
-        )
+        start_dt = self.timezone.localize(datetime.combine(target_day, datetime.min.time()))
         initial = self.loader.get_initial_state_from_history(start_dt)
         self._soc_kwh = float(initial.get("battery_kwh", 0.0) or 0.0)
         self._min_soc_kwh = self._capacity_kwh * self._min_soc_percent / 100.0
@@ -241,9 +227,7 @@ class AntaresEnvV2:
             action = {}
 
         charge_kw = max(0.0, float(action.get("battery_charge_kw", 0.0) or 0.0))
-        discharge_kw = max(
-            0.0, float(action.get("battery_discharge_kw", 0.0) or 0.0)
-        )
+        discharge_kw = max(0.0, float(action.get("battery_discharge_kw", 0.0) or 0.0))
 
         charge_kw = min(charge_kw, self._max_charge_power_kw)
         discharge_kw = min(discharge_kw, self._max_discharge_power_kw)

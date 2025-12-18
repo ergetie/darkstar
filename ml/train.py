@@ -253,23 +253,23 @@ def train_models(days_back: int = 90, min_samples: int = 100) -> None:
         X_load = load_df[feature_cols]
         y_load = load_df["load_kwh"].astype(float)
         print(f"Training load models on {len(X_load)} samples...")
-        
+
         for q_name, alpha in quantiles.items():
             print(f"  > Training Load {q_name} (alpha={alpha})...")
             model = _train_regressor(X_load, y_load, cfg.min_samples, alpha=alpha)
             if model is not None:
                 # Save as load_model_p50.lgb, load_model_p10.lgb, etc.
-                # For backward compatibility, p50 is also saved as load_model.lgb? 
+                # For backward compatibility, p50 is also saved as load_model.lgb?
                 # No, let's switch to explicit names, but maybe keep p50 as default for now?
                 # The plan implies we load all 6. Let's save them with suffixes.
                 # But wait, existing forward.py expects "load_model.lgb".
                 # We should probably keep "load_model.lgb" as p50 for safety, or update forward.py to look for p50.
                 # I will save p50 as BOTH "load_model.lgb" AND "load_model_p50.lgb" to be safe during transition.
-                
+
                 suffix = f"_{q_name}"
                 filename = cfg.load_model_name.replace(".lgb", f"{suffix}.lgb")
                 _save_model(model, cfg.models_dir / filename)
-                
+
                 if q_name == "p50":
                     _save_model(model, cfg.models_dir / cfg.load_model_name)
     else:
@@ -281,7 +281,7 @@ def train_models(days_back: int = 90, min_samples: int = 100) -> None:
         X_pv = pv_df[feature_cols]
         y_pv = pv_df["pv_kwh"].astype(float)
         print(f"Training PV models on {len(X_pv)} samples...")
-        
+
         for q_name, alpha in quantiles.items():
             print(f"  > Training PV {q_name} (alpha={alpha})...")
             model = _train_regressor(X_pv, y_pv, cfg.min_samples, alpha=alpha)
@@ -289,7 +289,7 @@ def train_models(days_back: int = 90, min_samples: int = 100) -> None:
                 suffix = f"_{q_name}"
                 filename = cfg.pv_model_name.replace(".lgb", f"{suffix}.lgb")
                 _save_model(model, cfg.models_dir / filename)
-                
+
                 if q_name == "p50":
                     _save_model(model, cfg.models_dir / cfg.pv_model_name)
     else:

@@ -135,7 +135,9 @@ class HomeAssistantHistoryClient:
                         continue
                     result = message.get("result", {})
                     entity_data = result.get(entity_id, [])
-                    self._write_cache(cache_path, entity_id, start_iso, end_iso, period, entity_data)
+                    self._write_cache(
+                        cache_path, entity_id, start_iso, end_iso, period, entity_data
+                    )
                     return entity_data
         except Exception:
             return []

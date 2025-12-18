@@ -11,6 +11,7 @@ from pathlib import Path
 
 from backend.learning.store import LearningStore
 
+
 class LearningEngine:
     """Learning engine for auto-tuning and forecast calibration"""
 
@@ -19,13 +20,13 @@ class LearningEngine:
         self.learning_config = self.config.get("learning", {})
         self.db_path = self.learning_config.get("sqlite_path", "data/planner_learning.db")
         self.timezone = pytz.timezone(self.config.get("timezone", "Europe/Stockholm"))
-        
+
         # Ensure data directory exists
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize Store
         self.store = LearningStore(self.db_path, self.timezone)
-        
+
         raw_map = self.learning_config.get("sensor_map", {}) or {}
         self.sensor_map = {str(v).lower(): str(k).lower() for k, v in raw_map.items()}
 
@@ -48,28 +49,30 @@ class LearningEngine:
 
     def store_forecasts(self, forecasts: List[Dict], forecast_version: str) -> None:
         self.store.store_forecasts(forecasts, forecast_version)
-        
-    def log_training_episode(self, input_data: Dict, schedule_df: pd.DataFrame, config_overrides: Optional[Dict] = None) -> None:
+
+    def log_training_episode(
+        self, input_data: Dict, schedule_df: pd.DataFrame, config_overrides: Optional[Dict] = None
+    ) -> None:
         """
         Log a training episode (inputs + outputs) for RL.
         Also logs the planned schedule to slot_plans for metric tracking.
         """
         # 1. Log to training_episodes
         episode_id = str(uuid.uuid4())
-        
+
         inputs_json = json.dumps(input_data, default=str)
         schedule_json = schedule_df.to_json(orient="records", date_format="iso")
-        context_json = None # TODO: Capture context if available
+        context_json = None  # TODO: Capture context if available
         config_overrides_json = json.dumps(config_overrides) if config_overrides else None
-        
+
         self.store.store_training_episode(
             episode_id=episode_id,
             inputs_json=inputs_json,
             schedule_json=schedule_json,
             context_json=context_json,
-            config_overrides_json=config_overrides_json
+            config_overrides_json=config_overrides_json,
         )
-        
+
         # 2. Log to slot_plans
         self.store.store_plan(schedule_df)
 
@@ -155,7 +158,7 @@ class LearningEngine:
         )
 
         slot_df = pd.DataFrame({"slot_start": slots[:-1], "slot_end": slots[1:]})
-        quality_flags: List[Dict] = [{} for _ in range(len(slot_df))] # Simplified type hint
+        quality_flags: List[Dict] = [{} for _ in range(len(slot_df))]  # Simplified type hint
 
         for sensor_name, df in slot_records.items():
             canonical = self._canonical_sensor_name(sensor_name)
@@ -249,17 +252,17 @@ class LearningEngine:
     def get_status(self) -> Dict[str, Any]:
         """Get current status of the learning engine."""
         last_obs = self.store.get_last_observation_time()
-        
+
         # Count training episodes
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             episodes = conn.execute("SELECT COUNT(*) FROM training_episodes").fetchone()[0]
-            
+
         return {
             "status": "active",
             "last_observation": last_obs.isoformat() if last_obs else None,
             "training_episodes": episodes,
             "db_path": self.db_path,
-            "timezone": str(self.timezone)
+            "timezone": str(self.timezone),
         }
 
     def get_performance_series(self, days_back: int = 7) -> Dict[str, List[Dict]]:
@@ -273,7 +276,7 @@ class LearningEngine:
         """
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
-            
+
             # 1. SoC Series (15-min resolution)
             soc_query = """
                 SELECT 
@@ -288,12 +291,8 @@ class LearningEngine:
             cursor = conn.execute(soc_query, (cutoff_date.isoformat(),))
             soc_series = []
             for row in cursor:
-                soc_series.append({
-                    "time": row[0],
-                    "planned": row[1],
-                    "actual": row[2]
-                })
-                
+                soc_series.append({"time": row[0], "planned": row[1], "actual": row[2]})
+
             # 2. Cost Series (Daily resolution)
             cost_query = """
                 SELECT 
@@ -310,13 +309,12 @@ class LearningEngine:
             cursor = conn.execute(cost_query, (cutoff_date.isoformat(),))
             cost_series = []
             for row in cursor:
-                cost_series.append({
-                    "date": row[0],
-                    "planned": row[1] if row[1] is not None else 0.0,
-                    "realized": row[2] if row[2] is not None else 0.0
-                })
-                
-            return {
-                "soc_series": soc_series,
-                "cost_series": cost_series
-            }
+                cost_series.append(
+                    {
+                        "date": row[0],
+                        "planned": row[1] if row[1] is not None else 0.0,
+                        "realized": row[2] if row[2] is not None else 0.0,
+                    }
+                )
+
+            return {"soc_series": soc_series, "cost_series": cost_series}

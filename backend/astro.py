@@ -5,6 +5,7 @@ from astral import LocationInfo
 from astral.sun import sun
 from astral.location import Location
 
+
 class SunCalculator:
     def __init__(self, latitude: float, longitude: float, timezone: str = "Europe/Stockholm"):
         self.latitude = latitude
@@ -15,7 +16,7 @@ class SunCalculator:
             region="Region",
             timezone=timezone,
             latitude=latitude,
-            longitude=longitude
+            longitude=longitude,
         )
 
     def get_sun_times(self, date: datetime) -> Optional[Tuple[datetime, datetime]]:
@@ -35,7 +36,7 @@ class SunCalculator:
     def is_sun_up(self, dt: datetime, buffer_minutes: int = 30) -> bool:
         """
         Check if sun is up at a specific datetime.
-        
+
         Args:
             dt: The datetime to check (should be timezone aware or assume self.timezone)
             buffer_minutes: Minutes to extend the day (positive) or shrink it (negative).
@@ -44,20 +45,20 @@ class SunCalculator:
         """
         if dt.tzinfo is None:
             dt = pytz.timezone(self.timezone).localize(dt)
-        
+
         times = self.get_sun_times(dt)
         if not times:
-            # Fallback or polar handling. 
+            # Fallback or polar handling.
             # For now, assume if we can't calc sun, it's probably dark or something extreme.
             # But actually astral returns valid dict even for polar, just might be weird.
             # Let's assume false if failure to be safe for PV.
             return False
-            
+
         sunrise, sunset = times
-        
+
         # Apply buffer
         # "Sun is up" if current time is between (sunrise - buffer) and (sunset + buffer)
         effective_sunrise = sunrise - timedelta(minutes=buffer_minutes)
         effective_sunset = sunset + timedelta(minutes=buffer_minutes)
-        
+
         return effective_sunrise <= dt <= effective_sunset

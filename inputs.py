@@ -317,13 +317,21 @@ async def get_forecast_data(price_slots, config):
 
                 # Aggregate probabilistic bands (apply same correction to p10/p90)
                 if rec.get("pv_p10") is not None:
-                    daily_pv_p10[date_key] = daily_pv_p10.get(date_key, 0.0) + float(rec["pv_p10"]) + pv_corr
+                    daily_pv_p10[date_key] = (
+                        daily_pv_p10.get(date_key, 0.0) + float(rec["pv_p10"]) + pv_corr
+                    )
                 if rec.get("pv_p90") is not None:
-                    daily_pv_p90[date_key] = daily_pv_p90.get(date_key, 0.0) + float(rec["pv_p90"]) + pv_corr
+                    daily_pv_p90[date_key] = (
+                        daily_pv_p90.get(date_key, 0.0) + float(rec["pv_p90"]) + pv_corr
+                    )
                 if rec.get("load_p10") is not None:
-                    daily_load_p10[date_key] = daily_load_p10.get(date_key, 0.0) + float(rec["load_p10"]) + load_corr
+                    daily_load_p10[date_key] = (
+                        daily_load_p10.get(date_key, 0.0) + float(rec["load_p10"]) + load_corr
+                    )
                 if rec.get("load_p90") is not None:
-                    daily_load_p90[date_key] = daily_load_p90.get(date_key, 0.0) + float(rec["load_p90"]) + load_corr
+                    daily_load_p90[date_key] = (
+                        daily_load_p90.get(date_key, 0.0) + float(rec["load_p90"]) + load_corr
+                    )
 
         return {
             "slots": forecast_data,
@@ -478,7 +486,7 @@ def get_initial_state(config_path="config.yaml"):
     # Read entity ID from config.yaml (input_sensors)
     input_sensors = config.get("input_sensors", {})
     soc_entity_id = input_sensors.get("battery_soc", "sensor.inverter_battery")
-    
+
     ha_soc = get_home_assistant_sensor_float(soc_entity_id) if soc_entity_id else None
 
     if ha_soc is not None:
@@ -630,15 +638,17 @@ def build_db_forecast_for_slots(
             pv_p90 = rec.get("pv_p90")
             load_p10 = rec.get("load_p10")
             load_p90 = rec.get("load_p90")
-            
-        result.append({
-            "pv_forecast_kwh": pv, 
-            "load_forecast_kwh": load,
-            "pv_p10": pv_p10,
-            "pv_p90": pv_p90,
-            "load_p10": load_p10,
-            "load_p90": load_p90
-        })
+
+        result.append(
+            {
+                "pv_forecast_kwh": pv,
+                "load_forecast_kwh": load,
+                "pv_p10": pv_p10,
+                "pv_p90": pv_p90,
+                "load_p10": load_p10,
+                "load_p90": load_p90,
+            }
+        )
 
     return result
 
@@ -657,7 +667,7 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
     token = ha_config.get("token")
-    
+
     # Read entity ID from config.yaml
     input_sensors = config.get("input_sensors", {})
     entity_id = input_sensors.get("total_load_consumption", ha_config.get("consumption_entity_id"))

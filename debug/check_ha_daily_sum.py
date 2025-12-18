@@ -3,11 +3,13 @@ import yaml
 import json
 import ssl
 from datetime import datetime
+
 try:
     import websockets
 except ImportError:
     print("Please run: pip install websockets")
     exit(1)
+
 
 async def check_sum():
     with open("secrets.yaml", "r") as f:
@@ -50,7 +52,7 @@ async def check_sum():
             "start_time": "2025-11-08T00:00:00Z",
             "end_time": "2025-11-09T00:00:00Z",
             "statistic_ids": [entity_id],
-            "period": "hour"
+            "period": "hour",
         }
         await ws.send(json.dumps(msg))
         resp = json.loads(await ws.recv())
@@ -62,16 +64,18 @@ async def check_sum():
         print("-" * 55)
 
         for p in result:
-            ts = p['start'] / 1000
+            ts = p["start"] / 1000
             dt = datetime.fromtimestamp(ts)
-            change = p.get('change')
-            if change is None: change = 0.0
+            change = p.get("change")
+            if change is None:
+                change = 0.0
             total_change += change
             print(f"{dt} | {change:<10.3f} | {p.get('sum', 0):<15.1f}")
 
         print("-" * 55)
         print(f"TOTAL DAILY LOAD (Calculated): {total_change:.3f} kWh")
         print(f"EXPECTED (User):              ~23.600 kWh")
+
 
 if __name__ == "__main__":
     asyncio.run(check_sum())

@@ -52,7 +52,9 @@ class SimulationDataLoader:
 
     DEFAULT_HORIZON_HOURS = 48
 
-    def __init__(self, config_path: str = "config.yaml", horizon_hours: int = DEFAULT_HORIZON_HOURS):
+    def __init__(
+        self, config_path: str = "config.yaml", horizon_hours: int = DEFAULT_HORIZON_HOURS
+    ):
         config = self._load_yaml(config_path)
         learning_cfg = config.get("learning", {}) or {}
         battery_cfg = config.get("system", {}).get("battery") or config.get("battery", {})
@@ -63,9 +65,7 @@ class SimulationDataLoader:
         self.timezone = pytz.timezone(self.timezone_name)
         self.horizon_hours = horizon_hours
         self.battery_capacity_kwh = battery_cfg.get("capacity_kwh", 10.0)
-        self.battery_cost = (
-            learning_cfg.get("default_battery_cost_sek_per_kwh", 0.2)
-        )
+        self.battery_cost = learning_cfg.get("default_battery_cost_sek_per_kwh", 0.2)
         self.sensor_entities = {
             "load": config.get("input_sensors", {}).get("total_load_consumption"),
             "pv": config.get("input_sensors", {}).get("total_pv_production"),
@@ -177,11 +177,7 @@ class SimulationDataLoader:
         return sorted(records, key=lambda item: item["start_time"])
 
     def _load_forecast_slots(self, start: datetime, end: datetime) -> List[Dict[str, Any]]:
-        version = (
-            self.config.get("forecasting", {})
-            .get("active_forecast_version")
-            or "aurora"
-        )
+        version = self.config.get("forecasting", {}).get("active_forecast_version") or "aurora"
         try:
             slots = get_forecast_slots(start, end, version)
         except Exception:
@@ -208,17 +204,13 @@ class SimulationDataLoader:
             )
         return sorted(result, key=lambda item: item["start_time"])
 
-    def _build_naive_forecasts(
-        self, start: datetime, end: datetime
-    ) -> List[Dict[str, Any]]:
+    def _build_naive_forecasts(self, start: datetime, end: datetime) -> List[Dict[str, Any]]:
         observations = self._build_forecasts_from_observations(start, end)
         if observations:
             return observations
 
         sensor_points = self._collect_sensor_points(start, end)
-        load_slots = self._convert_sensor_points(
-            sensor_points.get("load", []), "load_kwh"
-        )
+        load_slots = self._convert_sensor_points(sensor_points.get("load", []), "load_kwh")
         pv_slots = self._convert_sensor_points(sensor_points.get("pv", []), "pv_kwh")
         if not load_slots and not pv_slots:
             return []
@@ -265,9 +257,7 @@ class SimulationDataLoader:
             start = self._localize_datetime(start)
             end = self._localize_datetime(end)
             base = {value_key: _safe_float(point.get("change"))}
-            records.extend(
-                self._split_slot(start, end, base, (value_key,))
-            )
+            records.extend(self._split_slot(start, end, base, (value_key,)))
         return records
 
     def _merge_sensor_slots(
@@ -279,15 +269,11 @@ class SimulationDataLoader:
         for slot in load_slots:
             start_time = slot["start_time"]
             entry = timeline.setdefault(start_time, {})
-            entry["load_kwh"] = entry.get("load_kwh", 0.0) + _safe_float(
-                slot.get("load_kwh")
-            )
+            entry["load_kwh"] = entry.get("load_kwh", 0.0) + _safe_float(slot.get("load_kwh"))
         for slot in pv_slots:
             start_time = slot["start_time"]
             entry = timeline.setdefault(start_time, {})
-            entry["pv_kwh"] = entry.get("pv_kwh", 0.0) + _safe_float(
-                slot.get("pv_kwh")
-            )
+            entry["pv_kwh"] = entry.get("pv_kwh", 0.0) + _safe_float(slot.get("pv_kwh"))
         result: List[Dict[str, Any]] = []
         for start_time in sorted(timeline):
             values = timeline[start_time]

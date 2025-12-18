@@ -2,6 +2,7 @@ import sqlite3
 import yaml
 import os
 
+
 def fix_price_gaps():
     # Load config to find DB
     with open("config.yaml", "r") as f:
@@ -14,11 +15,13 @@ def fix_price_gaps():
         cursor = conn.cursor()
 
         # 1. Get all rows sorted by time
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT slot_start, import_price_sek_kwh, export_price_sek_kwh
             FROM slot_observations
             ORDER BY slot_start ASC
-        """)
+        """
+        )
         rows = cursor.fetchall()
 
         updates = []
@@ -46,15 +49,19 @@ def fix_price_gaps():
         if updates:
             print(f"Found {len(updates)} gaps to fill.")
             print("Applying updates...")
-            cursor.executemany("""
+            cursor.executemany(
+                """
                 UPDATE slot_observations
                 SET import_price_sek_kwh = ?, export_price_sek_kwh = ?
                 WHERE slot_start = ?
-            """, updates)
+            """,
+                updates,
+            )
             conn.commit()
             print("Success.")
         else:
             print("No gaps found (or no master records to fill from).")
+
 
 if __name__ == "__main__":
     fix_price_gaps()

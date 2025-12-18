@@ -2,6 +2,7 @@ import asyncio
 import yaml
 import json
 import ssl
+
 try:
     import websockets
 except ImportError:
@@ -29,6 +30,7 @@ else:
     use_ssl = False
 
 print(f"Connecting to {ws_url}...")
+
 
 async def fetch_stats():
     # Only create SSL context if needed
@@ -61,7 +63,7 @@ async def fetch_stats():
             "start_time": "2025-08-01T00:00:00Z",
             "end_time": "2025-08-02T00:00:00Z",
             "statistic_ids": [entity_id],
-            "period": "hour"
+            "period": "hour",
         }
         await websocket.send(json.dumps(msg))
 
@@ -80,6 +82,7 @@ async def fetch_stats():
                 else:
                     print("No data found. Check if this sensor has 'state_class' defined in HA.")
                 break
+
 
 if __name__ == "__main__":
     asyncio.run(fetch_stats())

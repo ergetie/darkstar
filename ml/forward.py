@@ -16,10 +16,10 @@ from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
     """Load trained LightGBM models for AURORA forward inference (Probabilistic)."""
     models: Dict[str, lgb.Booster] = {}
-    
+
     # Quantiles to load
     quantiles = ["p10", "p50", "p90"]
-    
+
     # Load Load Models
     for q in quantiles:
         # Try specific quantile file first
@@ -49,7 +49,7 @@ def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
                     print(f"Info: Could not load pv_model ({q}): {exc}")
             else:
                 print(f"Info: Could not load pv_model_{q}.lgb")
-                
+
     return models
 
 
@@ -95,7 +95,7 @@ def generate_forward_slots(
     weather_df = get_weather_series(slot_start, horizon_end, config=engine.config)
     if not weather_df.empty:
         df = df.merge(weather_df, left_on="slot_start", right_index=True, how="left")
-    
+
     # Ensure ALL weather columns exist (even if empty) to match trained model feature count
     for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
         if col not in df.columns:
@@ -133,9 +133,17 @@ def generate_forward_slots(
 
     # All 11 features required by trained models - we ensure all columns exist above
     feature_cols = [
-        "hour", "day_of_week", "month", "is_weekend", "hour_sin", "hour_cos",
-        "temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2",
-        "vacation_mode_flag", "alarm_armed_flag",
+        "hour",
+        "day_of_week",
+        "month",
+        "is_weekend",
+        "hour_sin",
+        "hour_cos",
+        "temp_c",
+        "cloud_cover_pct",
+        "shortwave_radiation_w_m2",
+        "vacation_mode_flag",
+        "alarm_armed_flag",
     ]
 
     print("   Running LightGBM inference (Probabilistic)...")
@@ -165,6 +173,7 @@ def generate_forward_slots(
     sun_calc = None
     try:
         from backend.astro import SunCalculator
+
         lat = engine.config.get("system", {}).get("location", {}).get("latitude", 59.3293)
         lon = engine.config.get("system", {}).get("location", {}).get("longitude", 18.0686)
         sun_calc = SunCalculator(latitude=lat, longitude=lon, timezone=str(tz))
@@ -175,7 +184,7 @@ def generate_forward_slots(
         model_key = f"pv_{q}"
         if model_key in models:
             raw_pred = models[model_key].predict(X)
-            
+
             series = pd.Series(0.0, index=df.index)
             for idx, row in df.iterrows():
                 val = float(max(raw_pred[idx], 0.0))
@@ -189,7 +198,7 @@ def generate_forward_slots(
                     # Fallback
                     h = slot_ts.hour
                     is_sun_up = 5 <= h < 22
-                
+
                 if not is_sun_up:
                     val = 0.0
 
@@ -197,12 +206,14 @@ def generate_forward_slots(
                 rad = row.get("shortwave_radiation_w_m2")
                 if rad is not None and rad < 1.0:
                     val = 0.0
-                
+
                 series[idx] = val
-            
+
             # 3. Smoothing (Rolling Average)
             # Apply to all bands to prevent sawtooth
-            predictions[model_key] = series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
+            predictions[model_key] = (
+                series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
+            )
 
     # --- STORE RESULTS ---
     forecasts: List[Dict[str, Any]] = []
@@ -210,11 +221,9 @@ def generate_forward_slots(
         item = {
             "slot_start": row["slot_start"].isoformat(),
             "temp_c": row.get("temp_c"),
-            
             # Primary (Legacy/p50)
             "pv_forecast_kwh": float(predictions["pv_p50"][idx]),
             "load_forecast_kwh": float(predictions["load_p50"][idx]),
-            
             # Probabilistic Bands
             "pv_p10": float(predictions["pv_p10"][idx]),
             "pv_p90": float(predictions["pv_p90"][idx]),
