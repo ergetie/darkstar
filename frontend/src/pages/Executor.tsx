@@ -799,6 +799,12 @@ export default function Executor() {
                                             {record.commanded_water_temp && record.commanded_water_temp > 50 && (
                                                 <span className="text-[9px] text-orange-400 bg-orange-500/20 px-1.5 py-0.5 rounded">🔥 Heat</span>
                                             )}
+                                            {/* Idle badge if no active actions */}
+                                            {(!record.commanded_charge_current_a || record.commanded_charge_current_a === 0) &&
+                                                record.commanded_work_mode !== 'Export First' &&
+                                                (!record.commanded_water_temp || record.commanded_water_temp <= 50) && (
+                                                    <span className="text-[9px] text-muted/60 bg-surface2/50 px-1.5 py-0.5 rounded">— Idle</span>
+                                                )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                             {record.override_active ? (
