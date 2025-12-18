@@ -159,6 +159,9 @@ class ExecutorEngine:
         except Exception as e:
             logger.debug("Could not load current slot plan: %s", e)
         
+        # Get quick action status BEFORE acquiring lock (it has its own lock)
+        quick_action_status = self._get_quick_action_status()
+        
         with self._lock:
             return {
                 "enabled": self.status.enabled,
@@ -172,7 +175,7 @@ class ExecutorEngine:
                 "last_action": self.status.last_action,
                 "override_active": self.status.override_active,
                 "override_type": self.status.override_type,
-                "quick_action": self._get_quick_action_status(),
+                "quick_action": quick_action_status,
                 "version": EXECUTOR_VERSION,
             }
 
