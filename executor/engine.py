@@ -210,7 +210,7 @@ class ExecutorEngine:
         Returns:
             Status dict with expires_at
         """
-        valid_types = ["force_charge", "force_export", "force_stop"]
+        valid_types = ["force_charge", "force_export", "force_stop", "force_heat"]
         if action_type not in valid_types:
             raise ValueError(f"Invalid action type: {action_type}. Must be one of {valid_types}")
         
@@ -414,18 +414,58 @@ class ExecutorEngine:
             state.slot_exists = slot is not None
             state.slot_valid = slot is not None
 
-            # 4. Evaluate overrides
-            override = evaluate_overrides(
-                state,
-                slot,
-                config={
-                    "min_soc_floor": 10.0,
-                    "low_soc_threshold": 20.0,
-                    "excess_pv_threshold_kw": 2.0,
-                    "water_temp_boost": self.config.water_heater.temp_boost,
-                    "water_temp_off": self.config.water_heater.temp_off,
-                },
-            )
+            # 4. Check for active quick action first (user-initiated override)
+            quick_action = self._get_quick_action_status()
+            if quick_action:
+                # Quick action takes priority
+                from .override import OverrideResult, OverrideType
+                
+                action_type = quick_action["type"]
+                actions = {}
+                
+                if action_type == "force_charge":
+                    actions = {
+                        "work_mode": self.config.inverter.work_mode_zero_export,
+                        "grid_charging": True,
+                        "soc_target": 100,  # Charge to max
+                    }
+                elif action_type == "force_export":
+                    actions = {
+                        "work_mode": self.config.inverter.work_mode_export,
+                        "grid_charging": False,
+                    }
+                elif action_type == "force_stop":
+                    actions = {
+                        "work_mode": self.config.inverter.work_mode_zero_export,
+                        "grid_charging": False,
+                        "soc_target": 10,  # Minimal activity
+                        "water_temp": self.config.water_heater.temp_off,
+                    }
+                elif action_type == "force_heat":
+                    actions = {
+                        "water_temp": self.config.water_heater.temp_boost,
+                    }
+                
+                override = OverrideResult(
+                    override_needed=True,
+                    override_type=OverrideType(action_type),
+                    priority=9.5,  # High priority, just below emergency
+                    reason=quick_action.get("reason", f"User quick action: {action_type}"),
+                    actions=actions,
+                )
+            else:
+                # Normal override evaluation
+                override = evaluate_overrides(
+                    state,
+                    slot,
+                    config={
+                        "min_soc_floor": 10.0,
+                        "low_soc_threshold": 20.0,
+                        "excess_pv_threshold_kw": 2.0,
+                        "water_temp_boost": self.config.water_heater.temp_boost,
+                        "water_temp_off": self.config.water_heater.temp_off,
+                    },
+                )
 
             self.status.override_active = override.override_needed
             self.status.override_type = override.override_type.value if override.override_needed else None

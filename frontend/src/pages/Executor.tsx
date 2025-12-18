@@ -684,6 +684,7 @@ export default function Executor() {
                         {[
                             { type: 'force_charge', label: 'Force Charge', icon: BatteryCharging, color: 'emerald' },
                             { type: 'force_export', label: 'Force Export', icon: Upload, color: 'amber' },
+                            { type: 'force_heat', label: 'Force Heat', icon: Flame, color: 'orange' },
                             { type: 'force_stop', label: 'Stop All', icon: Power, color: 'red' },
                         ].map(action => (
                             <div key={action.type} className="flex items-center gap-2">
