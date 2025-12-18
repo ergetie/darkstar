@@ -682,13 +682,13 @@ export default function Executor() {
                     {/* Action Buttons */}
                     <div className="space-y-2 flex-1">
                         {[
-                            { type: 'force_charge', label: 'Force Charge', icon: BatteryCharging, color: 'emerald' },
-                            { type: 'force_export', label: 'Force Export', icon: Upload, color: 'amber' },
-                            { type: 'force_heat', label: 'Force Heat', icon: Flame, color: 'orange' },
-                            { type: 'force_stop', label: 'Stop All', icon: Power, color: 'red' },
+                            { type: 'force_charge', label: 'Force Charge', icon: BatteryCharging, labelClass: 'text-emerald-400', btnClass: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' },
+                            { type: 'force_export', label: 'Force Export', icon: Upload, labelClass: 'text-amber-400', btnClass: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20' },
+                            { type: 'force_heat', label: 'Force Heat', icon: Flame, labelClass: 'text-orange-400', btnClass: 'bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20' },
+                            { type: 'force_stop', label: 'Stop All', icon: Power, labelClass: 'text-red-400', btnClass: 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' },
                         ].map(action => (
                             <div key={action.type} className="flex items-center gap-2">
-                                <span className={`text-[11px] text-${action.color}-400 w-20 font-medium flex items-center gap-1`}>
+                                <span className={`text-[11px] ${action.labelClass} w-20 font-medium flex items-center gap-1`}>
                                     <action.icon className="h-3 w-3" />
                                     {action.label}
                                 </span>
@@ -707,7 +707,7 @@ export default function Executor() {
                                             disabled={status?.quick_action?.type === action.type}
                                             className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${status?.quick_action?.type === action.type
                                                 ? 'bg-accent/20 border-accent/40 text-accent'
-                                                : `bg-${action.color}-500/10 border-${action.color}-500/20 text-${action.color}-400 hover:bg-${action.color}-500/20`
+                                                : action.btnClass
                                                 }`}
                                         >
                                             {mins}m
