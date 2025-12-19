@@ -51,6 +51,15 @@ Minimize: Sum(Import_Cost - Export_Revenue + Wear_Cost) - (End_SoC * Terminal_Va
         *   **Weather Adjustment**: ±8% cap based on PV deficit and temperature.
         *   **Guarantee**: Level 1 > Level 2 > Level 3 > Level 4 > Level 5 (ALWAYS).
 
+    3.  **Soft vs Hard Constraints in Kepler**:
+        *   **Min SoC (Hard)**: 1000 SEK/kWh penalty - NEVER violate battery safety floor.
+        *   **Target SoC (Soft)**: Risk-based penalty (2-20 SEK/kWh) - economics can override.
+        *   **Risk Penalty Scaling**:
+            *   Level 1: 20 SEK/kWh (hard to violate)
+            *   Level 3: 8 SEK/kWh
+            *   Level 5: 2 SEK/kWh (easy to trade off for profit)
+        *   **Effect**: "Gamblers" will miss target for smaller profit opportunities.
+
     This ensures we don't inflate today's load just because tomorrow is cold (which caused excessive battery usage in the plan).
 ---
 
