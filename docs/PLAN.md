@@ -50,6 +50,13 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - **Expandable History Rows**: Click to see planned vs commanded values + Idle badge
 - **Deadlock fix**: Resolved threading issue in executor status API
 
+#### ✅ Phase 5b: Safety & Resilience (Completed)
+- **Planner Safety Check**: Abort planning if configured SoC sensor is unreachable (no more 50% fallback)
+- **Discord Fallback Notifications**: `backend/notify.py` with HA-first → Discord webhook fallback chain
+- **Error Persistence**: Critical errors written to `schedule.json` meta (`last_error`, `last_error_at`)
+- **Dashboard Error Banner**: Red alert banner on Dashboard when `schedule.json` has `last_error`
+- **Error Auto-Clear**: `last_error` automatically cleared from `schedule.json` on successful planner run
+
 #### 🔲 Phase 6: Testing & Validation
 - Unit tests for executor modules
 - Integration tests with mock HA
@@ -59,7 +66,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - Dockerfile for standalone deployment
 - Home Assistant Add-on (hassio/ directory)
 
-**Status:** In Progress (Phases 1-5 complete, Phase 6 next).
+**Status:** In Progress (Phases 1-5b complete, Phase 6 next).
 
 ---
 
