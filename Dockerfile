@@ -51,6 +51,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY backend/ ./backend/
 COPY planner/ ./planner/
 COPY executor/ ./executor/
+COPY bin/ ./bin/
 COPY ml/*.py ./ml/
 COPY ml/models/*.lgb ./ml/models/
 COPY inputs.py db_writer.py ./
