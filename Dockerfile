@@ -62,6 +62,10 @@ COPY secrets.example.yaml ./secrets.example.yaml
 # Copy built frontend from stage 1 (Vite outputs to backend/static, Flask serves from there)
 COPY --from=frontend-builder /app/backend/static ./backend/static
 
+# Copy Vite's index.html to templates folder (it has the correct asset hashes)
+RUN mkdir -p ./backend/templates && \
+    cp ./backend/static/index.html ./backend/templates/index.html
+
 # Create directories for runtime data
 RUN mkdir -p /data
 
