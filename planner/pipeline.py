@@ -269,10 +269,21 @@ class PlannerPipeline:
 
         # Target SoC is applied via soft constraint in Kepler solver:
         # - min_soc violation: 1000 SEK/kWh (HARD - don't violate!)
-        # - target violation: 10 SEK/kWh (SOFT - can override if economics favor)
-        # This allows mid-day discharge but incentivizes ending at target.
+        # - target violation: derived from risk_appetite (SOFT - economics can override)
+        # Safety = high penalty (harder to violate), Gambler = low penalty (easier to trade off)
         if mode == "full" and target_soc_kwh > 0:
             kepler_config.target_soc_kwh = target_soc_kwh
+            
+            # Target penalty derived from risk_appetite
+            RISK_PENALTY_MAP = {
+                1: 20.0,    # Safety: Strong incentive to hit target
+                2: 14.0,    # Conservative
+                3: 8.0,     # Neutral
+                4: 5.0,     # Aggressive
+                5: 2.0,     # Gambler: Easy to trade off for profit
+            }
+            risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
+            kepler_config.target_soc_penalty_sek = RISK_PENALTY_MAP.get(risk_appetite, 8.0)
 
         solver = KeplerSolver()
         result = solver.solve(kepler_input, kepler_config)

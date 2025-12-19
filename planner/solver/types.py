@@ -26,6 +26,7 @@ class KeplerConfig:
     max_export_power_kw: Optional[float] = None
     max_import_power_kw: Optional[float] = None
     target_soc_kwh: Optional[float] = None  # Minimum SoC at end of horizon
+    target_soc_penalty_sek: float = 10.0  # Soft penalty for missing target (derived from risk_appetite)
     terminal_value_sek_kwh: float = 0.0  # Value of energy left in battery
     ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes
     export_threshold_sek_per_kwh: float = 0.0  # Min spread to export

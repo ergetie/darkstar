@@ -63,7 +63,8 @@ class KeplerSolver:
 
         # Penalty constants
         MIN_SOC_PENALTY = 1000.0      # Hard constraint - don't violate min_soc!
-        TARGET_SOC_PENALTY = 10.0     # Soft constraint - can violate if economics favor it
+        # Target penalty comes from config (derived from risk_appetite in pipeline)
+        target_soc_penalty = config.target_soc_penalty_sek
         CURTAILMENT_PENALTY = 0.1
         LOAD_SHEDDING_PENALTY = 10000.0
         IMPORT_BREACH_PENALTY = 5000.0
@@ -148,12 +149,12 @@ class KeplerSolver:
 
         # Set Objective
         # - min_soc violation: HARD penalty (1000 SEK/kWh)
-        # - target violation: SOFT penalty (10 SEK/kWh) - allows economic override
+        # - target violation: SOFT penalty (from config, derived from risk_appetite)
         prob += (
             pulp.lpSum(total_cost)
             - terminal_value
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
-            + TARGET_SOC_PENALTY * target_violation
+            + target_soc_penalty * target_violation
         )
 
         # Solve
