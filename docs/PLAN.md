@@ -57,16 +57,21 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - **Dashboard Error Banner**: Red alert banner on Dashboard when `schedule.json` has `last_error`
 - **Error Auto-Clear**: `last_error` automatically cleared from `schedule.json` on successful planner run
 
-#### 🔲 Phase 6: Testing & Validation
-- Unit tests for executor modules
+#### 🔄 Phase 6: Testing & Validation
+- Unit tests for executor modules (`override.py`, `controller.py`, `actions.py`)
 - Integration tests with mock HA
 - Shadow mode parallel testing (native vs n8n comparison)
+
+#### 🔲 Phase 6b: Legacy Code Cleanup
+- Investigate and remove unused legacy code
+- Candidates: deprecated heuristic planner logic, orphaned modules from pre-Kepler architecture
+- Clean up before Docker/HA deployment to minimize container size and complexity
 
 #### 🔲 Phase 7: Deployment (Phase 5+ in original plan)
 - Dockerfile for standalone deployment
 - Home Assistant Add-on (hassio/ directory)
 
-**Status:** In Progress (Phases 1-5b complete, Phase 6 next).
+**Status:** In Progress (Phases 1-5b complete, Phase 6 in progress).
 
 ---
 
