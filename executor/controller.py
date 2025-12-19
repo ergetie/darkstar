@@ -13,9 +13,10 @@ Determines:
 """
 
 import logging
-import math
+# import math
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Optional, Tuple
+# from typing import Any, Dict, Optional, Tuple
 
 from .config import ControllerConfig
 from .override import OverrideResult, SlotPlan, SystemState
@@ -164,9 +165,7 @@ class Controller:
             reason=reason,
         )
 
-    def _calculate_charge_current(
-        self, slot: SlotPlan, state: SystemState
-    ) -> Tuple[float, bool]:
+    def _calculate_charge_current(self, slot: SlotPlan, state: SystemState) -> Tuple[float, bool]:
         """
         Calculate the charge current to command.
 
@@ -210,16 +209,16 @@ class Controller:
         if slot.export_kw > 0:
             # kW to Amps for controlled export
             raw_current = (slot.export_kw * 1000) / self.config.worst_case_voltage_v
-            
+
             # Round to step size
             rounded = round(raw_current / self.config.round_step_a) * self.config.round_step_a
-            
+
             # Clamp to limits
             clamped = max(self.config.min_charge_a, min(self.config.max_charge_a, rounded))
-            
+
             logger.debug("Export mode: limiting discharge to %.0fA", clamped)
             return clamped, True
-        
+
         # Not exporting - set discharge to MAXIMUM so battery can supply any load
         # This is critical for handling load spikes (stoves, kettles, etc.)
         # Without max discharge, high loads will pull from grid!
@@ -235,9 +234,7 @@ class Controller:
             # No water heating
             return 40  # Legionella minimum / off
 
-    def _generate_reason(
-        self, slot: SlotPlan, work_mode: str, grid_charging: bool
-    ) -> str:
+    def _generate_reason(self, slot: SlotPlan, work_mode: str, grid_charging: bool) -> str:
         """Generate a human-readable reason for the decision."""
         parts = []
 

@@ -6,7 +6,7 @@ Loads and validates the executor configuration from config.yaml.
 
 import logging
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+# from typing import Any, Dict, Optional
 
 import yaml
 
@@ -198,9 +198,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         manual_override_entity=executor_data.get(
             "manual_override_entity", ExecutorConfig.manual_override_entity
         ),
-        soc_target_entity=executor_data.get(
-            "soc_target_entity", ExecutorConfig.soc_target_entity
-        ),
+        soc_target_entity=executor_data.get("soc_target_entity", ExecutorConfig.soc_target_entity),
         inverter=inverter,
         water_heater=water_heater,
         notifications=notifications,

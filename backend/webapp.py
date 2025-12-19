@@ -15,7 +15,7 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 import pymysql
 import subprocess
 
-from planner.pipeline import generate_schedule, PlannerPipeline
+from planner.pipeline import PlannerPipeline
 from planner.simulation import simulate_schedule
 from planner.inputs.data_prep import prepare_df
 from planner.output.formatter import dataframe_to_json_response
@@ -837,6 +837,7 @@ def _get_executor():
             if _executor_engine is None:
                 try:
                     from executor import ExecutorEngine
+
                     _executor_engine = ExecutorEngine()
                 except ImportError as e:
                     logger.error("Failed to import executor: %s", e)
@@ -889,11 +890,13 @@ def executor_toggle():
         elif enabled is False:
             executor.stop()
 
-    return jsonify({
-        "success": True,
-        "enabled": executor_cfg.get("enabled", False),
-        "shadow_mode": executor_cfg.get("shadow_mode", False),
-    })
+    return jsonify(
+        {
+            "success": True,
+            "enabled": executor_cfg.get("enabled", False),
+            "shadow_mode": executor_cfg.get("shadow_mode", False),
+        }
+    )
 
 
 @app.route("/api/executor/run", methods=["POST"])
@@ -991,66 +994,68 @@ def executor_config_get():
         return jsonify({"error": "Executor not available"}), 500
 
     cfg = executor.config
-    return jsonify({
-        "enabled": cfg.enabled,
-        "shadow_mode": cfg.shadow_mode,
-        "interval_seconds": cfg.interval_seconds,
-        "automation_toggle_entity": cfg.automation_toggle_entity,
-        "manual_override_entity": cfg.manual_override_entity,
-        "soc_target_entity": cfg.soc_target_entity,
-        "inverter": {
-            "work_mode_entity": cfg.inverter.work_mode_entity,
-            "work_mode_export": cfg.inverter.work_mode_export,
-            "work_mode_zero_export": cfg.inverter.work_mode_zero_export,
-            "grid_charging_entity": cfg.inverter.grid_charging_entity,
-            "max_charging_current_entity": cfg.inverter.max_charging_current_entity,
-            "max_discharging_current_entity": cfg.inverter.max_discharging_current_entity,
-        },
-        "water_heater": {
-            "target_entity": cfg.water_heater.target_entity,
-            "temp_normal": cfg.water_heater.temp_normal,
-            "temp_off": cfg.water_heater.temp_off,
-            "temp_boost": cfg.water_heater.temp_boost,
-            "temp_max": cfg.water_heater.temp_max,
-        },
-        "notifications": {
-            "service": cfg.notifications.service,
-            "on_charge_start": cfg.notifications.on_charge_start,
-            "on_charge_stop": cfg.notifications.on_charge_stop,
-            "on_export_start": cfg.notifications.on_export_start,
-            "on_export_stop": cfg.notifications.on_export_stop,
-            "on_water_heat_start": cfg.notifications.on_water_heat_start,
-            "on_water_heat_stop": cfg.notifications.on_water_heat_stop,
-            "on_soc_target_change": cfg.notifications.on_soc_target_change,
-            "on_override_activated": cfg.notifications.on_override_activated,
-            "on_error": cfg.notifications.on_error,
-        },
-    })
+    return jsonify(
+        {
+            "enabled": cfg.enabled,
+            "shadow_mode": cfg.shadow_mode,
+            "interval_seconds": cfg.interval_seconds,
+            "automation_toggle_entity": cfg.automation_toggle_entity,
+            "manual_override_entity": cfg.manual_override_entity,
+            "soc_target_entity": cfg.soc_target_entity,
+            "inverter": {
+                "work_mode_entity": cfg.inverter.work_mode_entity,
+                "work_mode_export": cfg.inverter.work_mode_export,
+                "work_mode_zero_export": cfg.inverter.work_mode_zero_export,
+                "grid_charging_entity": cfg.inverter.grid_charging_entity,
+                "max_charging_current_entity": cfg.inverter.max_charging_current_entity,
+                "max_discharging_current_entity": cfg.inverter.max_discharging_current_entity,
+            },
+            "water_heater": {
+                "target_entity": cfg.water_heater.target_entity,
+                "temp_normal": cfg.water_heater.temp_normal,
+                "temp_off": cfg.water_heater.temp_off,
+                "temp_boost": cfg.water_heater.temp_boost,
+                "temp_max": cfg.water_heater.temp_max,
+            },
+            "notifications": {
+                "service": cfg.notifications.service,
+                "on_charge_start": cfg.notifications.on_charge_start,
+                "on_charge_stop": cfg.notifications.on_charge_stop,
+                "on_export_start": cfg.notifications.on_export_start,
+                "on_export_stop": cfg.notifications.on_export_stop,
+                "on_water_heat_start": cfg.notifications.on_water_heat_start,
+                "on_water_heat_stop": cfg.notifications.on_water_heat_stop,
+                "on_soc_target_change": cfg.notifications.on_soc_target_change,
+                "on_override_activated": cfg.notifications.on_override_activated,
+                "on_error": cfg.notifications.on_error,
+            },
+        }
+    )
 
 
 @app.route("/api/executor/config", methods=["PUT"])
 def executor_config_put():
     """Update executor entity configuration."""
     from ruamel.yaml import YAML
-    
+
     payload = request.get_json(silent=True) or {}
-    
+
     try:
         yaml_handler = YAML()
         yaml_handler.preserve_quotes = True
-        
+
         with open("config.yaml", "r", encoding="utf-8") as f:
             config = yaml_handler.load(f)
-        
+
         if "executor" not in config:
             config["executor"] = {}
-        
+
         executor_cfg = config["executor"]
-        
+
         # Update soc_target_entity
         if "soc_target_entity" in payload:
             executor_cfg["soc_target_entity"] = payload["soc_target_entity"]
-        
+
         # Update inverter entities
         if "inverter" in payload:
             if "inverter" not in executor_cfg:
@@ -1064,8 +1069,10 @@ def executor_config_put():
             if "max_charging_current_entity" in inv_payload:
                 inv["max_charging_current_entity"] = inv_payload["max_charging_current_entity"]
             if "max_discharging_current_entity" in inv_payload:
-                inv["max_discharging_current_entity"] = inv_payload["max_discharging_current_entity"]
-        
+                inv["max_discharging_current_entity"] = inv_payload[
+                    "max_discharging_current_entity"
+                ]
+
         # Update water heater entities
         if "water_heater" in payload:
             if "water_heater" not in executor_cfg:
@@ -1082,15 +1089,15 @@ def executor_config_put():
                 wh["temp_boost"] = wh_payload["temp_boost"]
             if "temp_max" in wh_payload:
                 wh["temp_max"] = wh_payload["temp_max"]
-        
+
         with open("config.yaml", "w", encoding="utf-8") as f:
             yaml_handler.dump(config, f)
-        
+
         # Reload executor config
         executor = _get_executor()
         if executor:
             executor.reload_config()
-        
+
         return jsonify({"success": True})
     except Exception as e:
         logger.exception("Failed to update executor config: %s", e)
@@ -1105,51 +1112,60 @@ def executor_notifications():
         executor = _get_executor()
         if executor is None:
             return jsonify({"error": "Executor not available"}), 500
-        
+
         cfg = executor.config.notifications
-        return jsonify({
-            "service": cfg.service,
-            "on_charge_start": cfg.on_charge_start,
-            "on_charge_stop": cfg.on_charge_stop,
-            "on_export_start": cfg.on_export_start,
-            "on_export_stop": cfg.on_export_stop,
-            "on_water_heat_start": cfg.on_water_heat_start,
-            "on_water_heat_stop": cfg.on_water_heat_stop,
-            "on_soc_target_change": cfg.on_soc_target_change,
-            "on_override_activated": cfg.on_override_activated,
-            "on_error": cfg.on_error,
-        })
-    
+        return jsonify(
+            {
+                "service": cfg.service,
+                "on_charge_start": cfg.on_charge_start,
+                "on_charge_stop": cfg.on_charge_stop,
+                "on_export_start": cfg.on_export_start,
+                "on_export_stop": cfg.on_export_stop,
+                "on_water_heat_start": cfg.on_water_heat_start,
+                "on_water_heat_stop": cfg.on_water_heat_stop,
+                "on_soc_target_change": cfg.on_soc_target_change,
+                "on_override_activated": cfg.on_override_activated,
+                "on_error": cfg.on_error,
+            }
+        )
+
     # POST - Update notification settings
     payload = request.get_json(silent=True) or {}
-    
+
     try:
         with open("config.yaml", "r", encoding="utf-8") as f:
             config = yaml.safe_load(f) or {}
     except FileNotFoundError:
         config = {}
-    
+
     notifications = config.setdefault("executor", {}).setdefault("notifications", {})
-    
+
     # Update only provided fields
     valid_keys = [
-        "service", "on_charge_start", "on_charge_stop", "on_export_start",
-        "on_export_stop", "on_water_heat_start", "on_water_heat_stop",
-        "on_soc_target_change", "on_override_activated", "on_error"
+        "service",
+        "on_charge_start",
+        "on_charge_stop",
+        "on_export_start",
+        "on_export_stop",
+        "on_water_heat_start",
+        "on_water_heat_stop",
+        "on_soc_target_change",
+        "on_override_activated",
+        "on_error",
     ]
-    
+
     for key in valid_keys:
         if key in payload:
             notifications[key] = payload[key]
-    
+
     with open("config.yaml", "w", encoding="utf-8") as f:
         yaml.safe_dump(config, f, default_flow_style=False)
-    
+
     # Reload executor config
     executor = _get_executor()
     if executor:
         executor.reload_config()
-    
+
     return jsonify({"success": True, "notifications": notifications})
 
 
@@ -1157,37 +1173,37 @@ def executor_notifications():
 def executor_notifications_test():
     """Send a test notification via Home Assistant."""
     print("[BACKEND] Test notification endpoint called")
-    
+
     try:
         print("[BACKEND] Step 1: Importing modules")
         from inputs import load_home_assistant_config, _make_ha_headers
         import requests as req
-        
+
         print("[BACKEND] Step 2: Loading HA config")
         ha_config = load_home_assistant_config()
         if not ha_config:
             print("[BACKEND] ERROR: HA not configured")
             return jsonify({"error": "HA not configured"}), 500
-        
+
         base_url = ha_config.get("url", "").rstrip("/")
         token = ha_config.get("token", "")
         print(f"[BACKEND] Step 3: base_url={base_url}, token={'*'*10 if token else 'MISSING'}")
-        
+
         if not base_url or not token:
             return jsonify({"error": "Missing HA URL or token"}), 500
-        
+
         headers = _make_ha_headers(token)
         print(f"[BACKEND] Step 4: Headers created")
-        
+
         # Get notification service from config
         print("[BACKEND] Step 5: Loading config.yaml")
         config = _load_yaml("config.yaml")
         service = config.get("executor", {}).get("notifications", {}).get("service", "")
         print(f"[BACKEND] Step 6: Service from config = '{service}'")
-        
+
         if not service:
             return jsonify({"error": "No notification service configured"}), 400
-        
+
         # n8n uses domain "notify" and service "mobile_app_X"
         # Config has "notify.mobile_app_phone" - need to split
         if "." in service:
@@ -1195,30 +1211,31 @@ def executor_notifications_test():
         else:
             service_domain = "notify"
             service_name = service
-        
+
         print(f"[BACKEND] Step 7: domain={service_domain}, service={service_name}")
-        
+
         # n8n format: just "message" attribute, no "title"
-        payload = {
-            "message": "⚡ Darkstar test notification! Executor is working correctly."
-        }
-        
+        payload = {"message": "⚡ Darkstar test notification! Executor is working correctly."}
+
         url = f"{base_url}/api/services/{service_domain}/{service_name}"
         print(f"[BACKEND] Step 8: Calling {url}")
         print(f"[BACKEND] Step 9: Payload = {payload}")
-        
+
         response = req.post(url, headers=headers, json=payload, timeout=10)
-        
+
         print(f"[BACKEND] Step 10: Response status={response.status_code}")
-        print(f"[BACKEND] Step 11: Response body={response.text[:500] if response.text else 'empty'}")
-        
+        print(
+            f"[BACKEND] Step 11: Response body={response.text[:500] if response.text else 'empty'}"
+        )
+
         if response.ok:
             return jsonify({"success": True, "message": f"Test notification sent via {service}"})
         else:
             return jsonify({"error": f"HA error ({response.status_code}): {response.text}"}), 500
-            
+
     except Exception as e:
         import traceback
+
         print(f"[BACKEND] EXCEPTION: {e}")
         print(f"[BACKEND] TRACEBACK:\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
@@ -1230,35 +1247,41 @@ def executor_live():
     try:
         from inputs import load_home_assistant_config, _make_ha_headers
         import requests as req
-        
+
         ha_config = load_home_assistant_config()
         if not ha_config:
             return jsonify({"error": "HA not configured"}), 500
-        
+
         base_url = ha_config.get("url", "").rstrip("/")
         token = ha_config.get("token", "")
-        
+
         if not base_url or not token:
             return jsonify({"error": "Missing HA URL or token"}), 500
-        
+
         headers = _make_ha_headers(token)
-        
+
         # Load config to get entity IDs
         config = _load_yaml("config.yaml")
         input_sensors = config.get("input_sensors", {})
         executor_cfg = config.get("executor", {})
         inverter_cfg = executor_cfg.get("inverter", {})
-        
+
         entities = {
             "soc": input_sensors.get("battery_soc", "sensor.inverter_battery"),
             "pv_power": input_sensors.get("pv_power", "sensor.inverter_pv_power"),
             "load_power": input_sensors.get("load_power", "sensor.inverter_load_power"),
-            "grid_import": input_sensors.get("grid_import_power", "sensor.inverter_grid_import_power"),
-            "grid_export": input_sensors.get("grid_export_power", "sensor.inverter_grid_export_power"),
+            "grid_import": input_sensors.get(
+                "grid_import_power", "sensor.inverter_grid_import_power"
+            ),
+            "grid_export": input_sensors.get(
+                "grid_export_power", "sensor.inverter_grid_export_power"
+            ),
             "work_mode": inverter_cfg.get("work_mode_entity", "select.inverter_work_mode"),
-            "grid_charging": inverter_cfg.get("grid_charging_entity", "switch.inverter_battery_grid_charging"),
+            "grid_charging": inverter_cfg.get(
+                "grid_charging_entity", "switch.inverter_battery_grid_charging"
+            ),
         }
-        
+
         result = {}
         for key, entity_id in entities.items():
             try:
@@ -1270,7 +1293,9 @@ def executor_live():
                         result[key] = {
                             "value": state,
                             "unit": data.get("attributes", {}).get("unit_of_measurement", ""),
-                            "friendly_name": data.get("attributes", {}).get("friendly_name", entity_id),
+                            "friendly_name": data.get("attributes", {}).get(
+                                "friendly_name", entity_id
+                            ),
                         }
                         # Try to convert to float for numeric values
                         try:
@@ -1279,7 +1304,7 @@ def executor_live():
                             pass
             except Exception as e:
                 print(f"[BACKEND] Failed to get {entity_id}: {e}")
-        
+
         return jsonify(result)
     except Exception as e:
         print(f"[BACKEND] Executor live error: {e}")
@@ -2708,7 +2733,6 @@ def record_observation_from_current_state():
                 "batt_discharge_kwh": deltas["batt_discharge_kwh"],
                 "soc_start_percent": initial_state.get("battery_soc_percent", 0),
                 "soc_end_percent": initial_state.get("battery_soc_percent", 0),
-                "soc_end_percent": initial_state.get("battery_soc_percent", 0),
                 "import_price_sek_kwh": current_import_price,
                 "export_price_sek_kwh": current_export_price,
                 "quality_flags": "auto_recorded",
@@ -2790,6 +2814,7 @@ def debug_log():
 # Start automatic recording when webapp starts
 setup_auto_observation_recording()
 
+
 # Auto-start executor background loop if enabled in config
 def _autostart_executor():
     """Start the executor background loop if enabled in config."""
@@ -2803,5 +2828,6 @@ def _autostart_executor():
                 executor.start()
     except Exception as e:
         logger.warning("Failed to auto-start executor: %s", e)
+
 
 _autostart_executor()

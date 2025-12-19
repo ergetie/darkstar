@@ -9,11 +9,11 @@ notification dispatch per action type.
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
-from .config import ExecutorConfig, InverterConfig, NotificationConfig, WaterHeaterConfig
+from .config import ExecutorConfig
 from .controller import ControllerDecision
 
 logger = logging.getLogger(__name__)
@@ -400,7 +400,9 @@ class ActionDispatcher:
             )
 
         if self.shadow_mode:
-            logger.info("[SHADOW] Would set soc_target to %s%% (current: %s%%)", target, current_val)
+            logger.info(
+                "[SHADOW] Would set soc_target to %s%% (current: %s%%)", target, current_val
+            )
             return ActionResult(
                 action_type="soc_target",
                 success=True,
@@ -420,7 +422,9 @@ class ActionDispatcher:
         return ActionResult(
             action_type="soc_target",
             success=success,
-            message=f"Changed {current_val}% → {target}%" if success else "Failed to set SoC target",
+            message=(
+                f"Changed {current_val}% → {target}%" if success else "Failed to set SoC target"
+            ),
             previous_value=current_val,
             new_value=target,
             duration_ms=duration,
@@ -474,9 +478,9 @@ class ActionDispatcher:
         return ActionResult(
             action_type="water_temp",
             success=success,
-            message=f"Changed {current_val}°C → {target}°C"
-            if success
-            else "Failed to set water temp",
+            message=(
+                f"Changed {current_val}°C → {target}°C" if success else "Failed to set water temp"
+            ),
             previous_value=current_val,
             new_value=target,
             duration_ms=duration,

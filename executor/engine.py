@@ -20,17 +20,16 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pytz
-import yaml
+# import yaml
 
 # Import existing HA config loader
 from inputs import load_home_assistant_config, _load_yaml
 
 from .actions import ActionDispatcher, ActionResult, HAClient
-from .config import ExecutorConfig, load_executor_config
-from .controller import Controller, ControllerDecision, make_decision
+from .config import load_executor_config
+from .controller import ControllerDecision, make_decision
 from .history import ExecutionHistory, ExecutionRecord
 from .override import (
-    OverrideEvaluator,
     OverrideResult,
     SlotPlan,
     SystemState,
@@ -73,7 +72,7 @@ class ExecutorEngine:
         self.config_path = config_path
         self.secrets_path = secrets_path
         self.config = load_executor_config(config_path)
-        
+
         # Load main config for input_sensors section
         self._full_config = _load_yaml(config_path)
 
@@ -109,7 +108,7 @@ class ExecutorEngine:
         """Initialize the Home Assistant client."""
         # Use existing HA config loader from inputs.py
         ha_config = load_home_assistant_config()
-        
+
         if not ha_config:
             logger.error("No Home Assistant configuration found in secrets.yaml")
             return False
@@ -158,10 +157,10 @@ class ExecutorEngine:
                 }
         except Exception as e:
             logger.debug("Could not load current slot plan: %s", e)
-        
+
         # Get quick action status BEFORE acquiring lock (it has its own lock)
         quick_action_status = self._get_quick_action_status()
-        
+
         with self._lock:
             return {
                 "enabled": self.status.enabled,
@@ -183,17 +182,17 @@ class ExecutorEngine:
         """Get current quick action status with remaining time."""
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
-        
+
         with self._lock:
             if not self._quick_action:
                 return None
-            
+
             expires_at = datetime.fromisoformat(self._quick_action["expires_at"])
             if now >= expires_at:
                 # Expired
                 self._quick_action = None
                 return None
-            
+
             remaining = (expires_at - now).total_seconds() / 60
             return {
                 "type": self._quick_action["type"],
@@ -205,25 +204,25 @@ class ExecutorEngine:
     def set_quick_action(self, action_type: str, duration_minutes: int) -> Dict[str, Any]:
         """
         Set a time-limited quick action override.
-        
+
         Args:
             action_type: One of 'force_charge', 'force_export', 'force_stop'
             duration_minutes: How long the override should last (15, 30, 60)
-            
+
         Returns:
             Status dict with expires_at
         """
         valid_types = ["force_charge", "force_export", "force_stop", "force_heat"]
         if action_type not in valid_types:
             raise ValueError(f"Invalid action type: {action_type}. Must be one of {valid_types}")
-        
+
         if duration_minutes not in [15, 30, 60]:
             raise ValueError(f"Invalid duration: {duration_minutes}. Must be 15, 30, or 60 minutes")
-        
+
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
         expires_at = now + timedelta(minutes=duration_minutes)
-        
+
         with self._lock:
             self._quick_action = {
                 "type": action_type,
@@ -231,10 +230,14 @@ class ExecutorEngine:
                 "reason": f"User activated {action_type} for {duration_minutes} minutes",
                 "created_at": now.isoformat(),
             }
-        
-        logger.info("Quick action set: %s for %d minutes (expires %s)", 
-                    action_type, duration_minutes, expires_at.isoformat())
-        
+
+        logger.info(
+            "Quick action set: %s for %d minutes (expires %s)",
+            action_type,
+            duration_minutes,
+            expires_at.isoformat(),
+        )
+
         return {
             "success": True,
             "type": action_type,
@@ -247,10 +250,10 @@ class ExecutorEngine:
         with self._lock:
             was_active = self._quick_action is not None
             self._quick_action = None
-        
+
         if was_active:
             logger.info("Quick action cleared by user")
-        
+
         return {"success": True, "was_active": was_active}
 
     def get_active_quick_action(self) -> Optional[Dict[str, Any]]:
@@ -298,7 +301,7 @@ class ExecutorEngine:
         while not self._stop_event.is_set():
             # Reload config to get latest settings
             self.reload_config()
-            
+
             # Check if enabled
             if not self.config.enabled:
                 logger.debug("Executor disabled, waiting 10s...")
@@ -313,7 +316,9 @@ class ExecutorEngine:
             # Wait until next run time
             wait_seconds = (next_run - now).total_seconds()
             if wait_seconds > 1:  # Only wait if more than 1s
-                logger.debug("Waiting %.1fs until next run at %s", wait_seconds, next_run.isoformat())
+                logger.debug(
+                    "Waiting %.1fs until next run at %s", wait_seconds, next_run.isoformat()
+                )
                 if self._stop_event.wait(wait_seconds):
                     break  # Stop event was set
                 # Re-check current time after waiting
@@ -322,13 +327,17 @@ class ExecutorEngine:
             # Prevent double execution - check if we ran recently
             if self.status.last_run_at:
                 try:
-                    last_run = datetime.fromisoformat(self.status.last_run_at.replace("Z", "+00:00"))
+                    last_run = datetime.fromisoformat(
+                        self.status.last_run_at.replace("Z", "+00:00")
+                    )
                     if last_run.tzinfo is None:
                         last_run = tz.localize(last_run)
                     # Skip if we ran within the last interval minus a buffer
                     min_interval = self.config.interval_seconds - 30  # 30s buffer
                     if (now - last_run).total_seconds() < min_interval:
-                        logger.debug("Skipping - already ran %.0fs ago", (now - last_run).total_seconds())
+                        logger.debug(
+                            "Skipping - already ran %.0fs ago", (now - last_run).total_seconds()
+                        )
                         self._stop_event.wait(30)
                         continue
                 except Exception as e:
@@ -348,13 +357,15 @@ class ExecutorEngine:
 
     def _compute_next_run(self, now: datetime) -> datetime:
         """Compute the next execution time based on interval."""
-        interval = timedelta(seconds=self.config.interval_seconds)
+        # interval = timedelta(seconds=self.config.interval_seconds)
 
         # Align to interval boundaries (e.g., on the 5-minute mark)
         epoch = datetime(2000, 1, 1, tzinfo=now.tzinfo)
         elapsed = (now - epoch).total_seconds()
         intervals_passed = elapsed // self.config.interval_seconds
-        next_boundary = epoch + timedelta(seconds=(intervals_passed + 1) * self.config.interval_seconds)
+        next_boundary = epoch + timedelta(
+            seconds=(intervals_passed + 1) * self.config.interval_seconds
+        )
 
         return next_boundary
 
@@ -391,9 +402,7 @@ class ExecutorEngine:
         try:
             # 1. Check automation toggle
             if self.ha_client:
-                toggle_state = self.ha_client.get_state_value(
-                    self.config.automation_toggle_entity
-                )
+                toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
                 if toggle_state != "on":
                     logger.info("Automation toggle is off, skipping execution")
                     self.status.last_run_status = "skipped"
@@ -422,10 +431,10 @@ class ExecutorEngine:
             if quick_action:
                 # Quick action takes priority
                 from .override import OverrideResult, OverrideType
-                
+
                 action_type = quick_action["type"]
                 actions = {}
-                
+
                 if action_type == "force_charge":
                     actions = {
                         "work_mode": self.config.inverter.work_mode_zero_export,
@@ -448,7 +457,7 @@ class ExecutorEngine:
                     actions = {
                         "water_temp": self.config.water_heater.temp_boost,
                     }
-                
+
                 override = OverrideResult(
                     override_needed=True,
                     override_type=OverrideType(action_type),
@@ -471,10 +480,14 @@ class ExecutorEngine:
                 )
 
             self.status.override_active = override.override_needed
-            self.status.override_type = override.override_type.value if override.override_needed else None
+            self.status.override_type = (
+                override.override_type.value if override.override_needed else None
+            )
 
             if override.override_needed:
-                logger.info("Override active: %s - %s", override.override_type.value, override.reason)
+                logger.info(
+                    "Override active: %s - %s", override.override_type.value, override.reason
+                )
                 result["override"] = {
                     "type": override.override_type.value,
                     "reason": override.reason,
@@ -534,7 +547,9 @@ class ExecutorEngine:
                         "soc_target": decision.soc_target,
                         "water_temp": decision.water_temp,
                         "source": decision.source,
-                        "override_type": override.override_type.value if override.override_needed else None,
+                        "override_type": (
+                            override.override_type.value if override.override_needed else None
+                        ),
                     },
                 )
 
@@ -600,7 +615,9 @@ class ExecutorEngine:
                         end = end.astimezone(tz)
                     # Sanity check: if end <= start, use 15-min default
                     if end <= start:
-                        logger.warning("Invalid end_time %s <= start_time %s, using 15min slot", end, start)
+                        logger.warning(
+                            "Invalid end_time %s <= start_time %s, using 15min slot", end, start
+                        )
                         end = start + timedelta(minutes=15)
                 else:
                     # Default 15-minute slot
@@ -649,7 +666,7 @@ class ExecutorEngine:
         # Get entity IDs from config (input_sensors section)
         input_sensors = self._full_config.get("input_sensors", {})
         soc_entity = input_sensors.get("battery_soc", "sensor.inverter_battery")
-        pv_power_entity = input_sensors.get("pv_power", "sensor.inverter_pv_power") 
+        pv_power_entity = input_sensors.get("pv_power", "sensor.inverter_pv_power")
         load_power_entity = input_sensors.get("load_power", "sensor.inverter_load_power")
 
         try:

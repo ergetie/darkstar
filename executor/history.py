@@ -8,7 +8,7 @@ execution records used by learning and debugging.
 import json
 import logging
 import sqlite3
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
@@ -83,11 +83,11 @@ class ExecutionHistory:
                 """
                 CREATE TABLE IF NOT EXISTS execution_log (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    
+
                     -- Timing
                     executed_at TEXT NOT NULL,
                     slot_start TEXT NOT NULL,
-                    
+
                     -- What we planned to do (from schedule.json)
                     planned_charge_kw REAL,
                     planned_discharge_kw REAL,
@@ -95,7 +95,7 @@ class ExecutionHistory:
                     planned_water_kw REAL,
                     planned_soc_target INTEGER,
                     planned_soc_projected INTEGER,
-                    
+
                     -- What we actually commanded (after override logic)
                     commanded_work_mode TEXT,
                     commanded_grid_charging INTEGER,
@@ -103,24 +103,24 @@ class ExecutionHistory:
                     commanded_discharge_current_a REAL,
                     commanded_soc_target INTEGER,
                     commanded_water_temp INTEGER,
-                    
+
                     -- State before execution
                     before_soc_percent REAL,
                     before_work_mode TEXT,
                     before_water_temp REAL,
                     before_pv_kw REAL,
                     before_load_kw REAL,
-                    
+
                     -- Override info
                     override_active INTEGER DEFAULT 0,
                     override_type TEXT,
                     override_reason TEXT,
-                    
+
                     -- Execution result
                     success INTEGER NOT NULL,
                     error_message TEXT,
                     duration_ms INTEGER,
-                    
+
                     -- Metadata
                     source TEXT DEFAULT 'native',
                     executor_version TEXT
@@ -201,7 +201,7 @@ class ExecutionHistory:
             with sqlite3.connect(self.db_path, timeout=30.0) as conn:
                 conn.execute(
                     """
-                    UPDATE slot_observations 
+                    UPDATE slot_observations
                     SET executed_action = ?
                     WHERE slot_start = ?
                     """,
@@ -302,8 +302,8 @@ class ExecutionHistory:
             # Override types breakdown
             override_types = conn.execute(
                 """
-                SELECT override_type, COUNT(*) as count 
-                FROM execution_log 
+                SELECT override_type, COUNT(*) as count
+                FROM execution_log
                 WHERE executed_at >= ? AND override_active = 1
                 GROUP BY override_type
                 """,
