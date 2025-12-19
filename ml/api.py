@@ -1,13 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, TYPE_CHECKING
 
 import pandas as pd
 import sqlite3
 
 from backend.learning import LearningEngine, get_learning_engine
-from ml.simulation.dataset import AntaresSlotRecord, build_antares_training_dataset
+
+# Lazy import for experimental simulation module (not included in production Docker)
+if TYPE_CHECKING:
+    from ml.simulation.dataset import AntaresSlotRecord
 
 
 def _get_engine() -> LearningEngine:
@@ -109,7 +112,13 @@ def get_antares_slots(dataset_version: str = "v1") -> pd.DataFrame:
     - Currently supports dataset_version=\"v1\" only.
     - Wraps `build_antares_training_dataset` and converts records to a stable
       tabular form for downstream training/analysis.
+    
+    Note: This function requires the ml.simulation module which is not
+    included in production Docker builds.
     """
+    # Lazy import - only available in development environment
+    from ml.simulation.dataset import AntaresSlotRecord, build_antares_training_dataset
+    
     if dataset_version != "v1":
         raise ValueError(f"Unsupported dataset_version: {dataset_version}")
 
