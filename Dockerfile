@@ -54,6 +54,8 @@ COPY executor/ ./executor/
 COPY ml/*.py ./ml/
 COPY ml/models/*.lgb ./ml/models/
 COPY inputs.py db_writer.py ./
+COPY scripts/docker-entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Copy default configuration (users mount their own config.yaml)
 COPY config.default.yaml ./config.default.yaml
@@ -81,5 +83,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 5000
 
-# Start Flask
-CMD ["python", "-m", "flask", "run", "--host=0.0.0.0", "--port=5000"]
+# Start all services (scheduler, recorder, Flask)
+CMD ["/entrypoint.sh"]
