@@ -526,26 +526,53 @@ def calculate_dynamic_target_soc(
     risk_factor: float,
     battery_config: Dict[str, Any],
     s_index_cfg: Dict[str, Any],
+    raw_factor: Optional[float] = None,
 ) -> Tuple[float, float, Dict[str, Any]]:
     """
-    Calculate Dynamic Target SoC based on risk factor.
+    Calculate Dynamic Target SoC based on risk_appetite level.
+
+    NEW APPROACH (Rev K16):
+    - Each risk level has a FIXED base buffer above min_soc
+    - Weather/PV deficit adjustments are added on top (capped at ±8%)
+    - Weather adjustment is INDEPENDENT of risk level (uses raw_factor)
+    - This guarantees: Level 1 > Level 2 > Level 3 > Level 4 > Level 5 (ALWAYS)
 
     Args:
-        risk_factor: Calculated future risk factor (can be < 1.0 for Gambler mode)
+        risk_factor: Final risk factor (kept for backwards compatibility)
         battery_config: Battery configuration
         s_index_cfg: S-index configuration
+        raw_factor: Raw weather/PV factor BEFORE buffer_multiplier (used for adjustment)
 
     Returns:
         Tuple of (target_soc_pct, target_soc_kwh, debug_data)
     """
     min_soc_pct = float(battery_config.get("min_soc_percent", 10.0))
-    soc_scaling = float(s_index_cfg.get("soc_scaling_factor", 50.0))
+    risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
 
-    # Note: (risk_factor - 1.0) can be negative for Gambler mode
-    # This allows targeting BELOW min_soc (betting on MPC replan)
-    buffer_pct = (risk_factor - 1.0) * soc_scaling
-    target_soc_pct = min_soc_pct + buffer_pct
-    
+    # FIXED base buffer per risk level (percentage points above min_soc)
+    # These are the user's expected targets regardless of weather
+    # Tuned for: Level 3 → ~30% winter, ~20% summer (with min_soc=12%)
+    LEVEL_BUFFER_MAP = {
+        1: 35.0,   # Safety: +35% above min_soc
+        2: 20.0,   # Conservative: +20%
+        3: 10.0,   # Neutral: +10%
+        4: 3.0,    # Aggressive: +3%
+        5: -7.0,   # Gambler: -7% (target below min_soc, bet on MPC replan!)
+    }
+    base_buffer = LEVEL_BUFFER_MAP.get(risk_appetite, 10.0)
+
+    # Weather/PV deficit adjustment (derived from RAW factor, not modified risk_factor)
+    # This ensures weather adjustment is INDEPENDENT of risk level selection
+    # raw_factor > 1.0 = risky conditions (high load/low PV) = add buffer
+    # raw_factor < 1.0 = favorable conditions (low load/high PV) = reduce buffer
+    # Cap the adjustment to ±8% to prevent extreme swings
+    weather_base = raw_factor if raw_factor is not None else risk_factor
+    weather_adjustment = (weather_base - 1.0) * 40.0  # Scale to percentage points
+    weather_adjustment = max(-8.0, min(8.0, weather_adjustment))
+
+    # Final target = min_soc + fixed_buffer + weather_adjustment
+    target_soc_pct = min_soc_pct + base_buffer + weather_adjustment
+
     # Absolute floor at 5% to prevent dangerous states
     target_soc_pct = max(5.0, min(100.0, target_soc_pct))
 
@@ -553,11 +580,13 @@ def calculate_dynamic_target_soc(
     target_soc_kwh = (target_soc_pct / 100.0) * capacity_kwh if capacity_kwh > 0 else 0.0
 
     debug = {
-        "risk_factor": risk_factor,
-        "scaling_factor": soc_scaling,
-        "buffer_pct": round(buffer_pct, 2),
+        "risk_appetite": risk_appetite,
+        "raw_factor": round(weather_base, 4),
+        "base_buffer_pct": base_buffer,
+        "weather_adjustment_pct": round(weather_adjustment, 2),
         "target_percent": round(target_soc_pct, 2),
         "target_kwh": round(target_soc_kwh, 2),
     }
 
     return target_soc_pct, target_soc_kwh, debug
+

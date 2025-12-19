@@ -1,0 +1,210 @@
+advisor:
+  auto_fetch: false
+  enable_llm: true
+  model: gpt-5-nano
+  personality: friendly
+appliances:
+  dishwasher:
+    duration_hours: 1.0
+    label: Dishwasher
+  dryer:
+    duration_hours: 2.0
+    label: Dryer
+  washing_machine:
+    duration_hours: 2.0
+    label: Washing Machine
+arbitrage:
+  enable_export: true
+  enable_peak_only_export: true
+  export_fees_sek_per_kwh: 0.0
+  export_future_price_guard: true
+  export_percentile_threshold: 15
+  export_profit_margin_sek: 0.05
+  fixed_protective_soc_percent: 10.0
+  future_price_guard_buffer_sek: 0.0
+  protective_soc_strategy: gap_based
+automation:
+  enable_scheduler: true
+  ml_training:
+    enabled: true
+    run_days:
+    - 1
+    - 4
+    run_time: 03:00
+  schedule:
+    every_minutes: 60
+    jitter_minutes: 0
+  write_to_mariadb: false
+battery:
+  capacity_kwh: 34.2
+  max_charge_power_kw: 8
+  max_discharge_power_kw: 8
+  max_soc_percent: 100
+  min_soc_percent: 12
+  roundtrip_efficiency_percent: 95.0
+battery_economics:
+  battery_cycle_cost_kwh: 0.2
+charging_strategy:
+  block_consolidation_tolerance_sek: 0.05
+  charge_threshold_percentile: 15
+  cheap_price_tolerance_sek: 0.05
+  consolidation_max_gap_slots: 0
+  price_smoothing_sek_kwh: 0.05
+dashboard:
+  auto_refresh_enabled: true
+  overlay_defaults: charge, soctarget, socprojected, water, export, load_off
+debug:
+  enable_planner_debug: false
+  sample_size: 30
+decision_thresholds:
+  battery_use_margin_sek: 0.1
+  battery_water_margin_sek: 0.2
+  export_profit_margin_sek: 0.05
+executor:
+  automation_toggle_entity: input_boolean.darkstar_enable
+  controller:
+    battery_capacity_kwh: 27.0
+    charge_efficiency: 0.92
+    inverter_ac_limit_kw: 8.8
+    max_charge_a: 190.0
+    min_charge_a: 10.0
+    round_step_a: 5.0
+    system_voltage_v: 48.0
+    worst_case_voltage_v: 46.0
+    write_threshold_a: 5.0
+  enabled: true
+  history_retention_days: 30
+  interval_seconds: 300
+  inverter:
+    grid_charging_entity: switch.inverter_battery_grid_charging
+    max_charging_current_entity: number.inverter_battery_max_charging_current
+    max_discharging_current_entity: number.inverter_battery_max_discharging_current
+    work_mode_entity: select.inverter_work_mode
+    work_mode_export: Export First
+    work_mode_zero_export: Zero Export To CT
+  manual_override_entity: input_boolean.darkstar_manual_override
+  notifications:
+    on_charge_start: true
+    on_charge_stop: false
+    on_error: true
+    on_export_start: true
+    on_export_stop: true
+    on_override_activated: true
+    on_soc_target_change: false
+    on_water_heat_start: true
+    on_water_heat_stop: false
+    service: notify.mobile_app_sebastians_iphone
+  shadow_mode: true
+  soc_target_entity: input_number.master_soc_target
+  water_heater:
+    target_entity: input_number.vvbtemp
+    temp_boost: 70
+    temp_max: 85
+    temp_normal: 60
+    temp_off: 40
+forecasting:
+  active_forecast_version: aurora
+  load_safety_margin_percent: 117.0
+  pv_confidence_percent: 83.0
+grid:
+  import_limit_kw: 11.0
+input_sensors:
+  alarm_state: alarm_control_panel.alarmo
+  battery_soc: sensor.inverter_battery
+  total_battery_charge: sensor.inverter_total_battery_charge
+  total_battery_discharge: sensor.inverter_total_battery_discharge
+  total_grid_export: sensor.inverter_total_energy_export
+  total_grid_import: sensor.inverter_total_energy_import
+  total_load_consumption: sensor.inverter_total_load_consumption
+  total_pv_production: sensor.inverter_total_production
+  vacation_mode: input_boolean.vacation_mode
+  water_heater_consumption: sensor.vvb_energy_daily
+kepler:
+  enabled: true
+  primary_planner: true
+  shadow_mode: true
+learning:
+  auto_tune_enabled: true
+  default_battery_cost_sek_per_kwh: 0.02
+  enable: true
+  horizon_days: 7
+  max_daily_param_change:
+    battery_use_margin_sek: 0.02
+    export_profit_margin_sek: 0.02
+    future_price_guard_buffer_sek: 0.05
+    load_safety_margin_percent: 1.0
+    pv_confidence_percent: 1.0
+    s_index_base_factor: 0.05
+    s_index_pv_deficit_weight: 0.1
+    s_index_temp_weight: 0.1
+  min_improvement_threshold: 0.015
+  min_sample_threshold: 2
+  reflex_enabled: true
+  sensor_map: {}
+  sqlite_path: data/planner_learning.db
+  sync_interval_minutes: 5
+manual_planning:
+  charge_target_percent: 95
+  export_target_percent: 35
+  force_discharge_on_deficit: true
+  ignore_protective_guard: true
+  override_hold_in_cheap: true
+nordpool:
+  currency: SEK
+  price_area: SE4
+  resolution_minutes: 15
+pricing:
+  energy_tax_sek: 0.439
+  grid_transfer_fee_sek: 0.2456
+  subscription_fee_sek_per_month: 593.0
+  vat_percent: 25.0
+s_index:
+  base_factor: 1.1
+  max_factor: 1.5
+  mode: probabilistic
+  pv_deficit_weight: 0.2
+  risk_appetite: 3
+  s_index_horizon_days: 4
+  static_factor: null
+  temp_baseline_c: 15.0
+  temp_cold_c: -10.0
+  temp_weight: 0.3
+smoothing:
+  charge_power_dwell_minutes: 0
+  charge_power_step_kw: 0.5
+  min_off_slots_charge: 1
+  min_off_slots_discharge: 1
+  min_on_slots_charge: 2
+  min_on_slots_discharge: 2
+  min_on_slots_export: 2
+strategic_charging:
+  carry_forward_tolerance_ratio: 0.05
+  price_threshold_sek: 0.85
+  target_soc_percent: 80
+system:
+  grid:
+    max_power_kw: 8
+  inverter:
+    max_power_kw: 10.0
+  location:
+    latitude: 55.493221
+    longitude: 13.111221
+  solar_array:
+    azimuth: 150
+    kwp: 10
+    tilt: 45
+  system_id: dev
+timezone: Europe/Stockholm
+ui:
+  theme: Material Design Colors
+  theme_accent_index: 3
+water_heating:
+  block_consolidation_tolerance_sek: 0.05
+  consolidation_max_gap_slots: 0
+  defer_up_to_hours: 6
+  max_blocks_per_day: 2
+  min_hours_per_day: 2.0
+  min_kwh_per_day: 6.0
+  plan_days_ahead: 1
+  power_kw: 3.0
+  schedule_future_only: true

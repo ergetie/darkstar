@@ -39,10 +39,10 @@ from planner.strategy.s_index import (
     calculate_dynamic_s_index,
     calculate_future_risk_factor,
     calculate_target_soc_risk_factor,
+    calculate_dynamic_target_soc,
 )
 from planner.strategy.terminal_value import (
     calculate_terminal_value,
-    calculate_dynamic_target_soc,
 )
 from planner.strategy.manual_plan import apply_manual_plan
 

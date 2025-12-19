@@ -195,8 +195,11 @@ class PlannerPipeline:
             )
 
             # Calculate Dynamic Target SoC
+            # Pass raw_factor for weather adjustment (independent of risk level)
+            raw_factor_for_weather = risk_debug.get("raw_factor_with_weather", risk_debug.get("raw_factor", 1.0))
             target_soc_pct, target_soc_kwh, soc_debug = calculate_dynamic_target_soc(
-                risk_factor, active_config.get("battery", {}), s_index_cfg
+                risk_factor, active_config.get("battery", {}), s_index_cfg,
+                raw_factor=raw_factor_for_weather
             )
 
             # Extract raw factor from s_debug (handle both naming conventions)
