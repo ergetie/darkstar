@@ -14,7 +14,7 @@ import pytz
 import yaml
 
 from ml.simulation.data_loader import SimulationDataLoader
-from planner_legacy import HeliosPlanner
+from planner.pipeline import PlannerPipeline
 
 
 def _parse_date(value: str) -> datetime:
@@ -85,7 +85,7 @@ def main() -> int:
         sim_engine = learning.LearningEngine(temp_config_path)
         previous_engine = getattr(learning, "_learning_engine", None)
         learning._learning_engine = sim_engine
-        planner = HeliosPlanner(temp_config_path)
+        pipeline = PlannerPipeline(sim_config)
         loader = SimulationDataLoader(temp_config_path)
 
         # Load per-day data quality classifications, if available, so that
@@ -163,7 +163,7 @@ def main() -> int:
             # Only log training episodes for days that pass data-quality filters.
             record_episode = quality_status in {"clean", "mask_battery"} or not quality_by_date
 
-            schedule = planner.generate_schedule(
+            schedule = pipeline.generate_schedule(
                 input_data,
                 record_training_episode=record_episode,
                 now_override=current,

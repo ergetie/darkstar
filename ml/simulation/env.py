@@ -1,7 +1,7 @@
-"""Gym-style environment wrapper around the deterministic MPC simulator.
+"""Gym-style environment wrapper around the Kepler planner simulator.
 
-This environment is intentionally thin: it uses the existing planner and
-SimulationDataLoader to build a schedule for a given historical day, then
+This environment is intentionally thin: it uses the PlannerPipeline (Kepler)
+and SimulationDataLoader to build a schedule for a given historical day, then
 exposes a simple reset/step API for downstream RL-style agents.
 """
 
@@ -14,9 +14,10 @@ from typing import Any, Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 import pytz
+import yaml
 
 from ml.simulation.data_loader import SimulationDataLoader
-from planner_legacy import HeliosPlanner
+from planner.pipeline import PlannerPipeline
 
 
 @dataclass
@@ -28,19 +29,23 @@ class StepResult:
 
 
 class AntaresMPCEnv:
-    """Thin environment that replays MPC schedules for historical days.
+    """Thin environment that replays Kepler MILP schedules for historical days.
 
-    For Rev 68 the action space is intentionally limited: the default
-    and primary behaviour is to follow the deterministic MPC schedule
-    produced by HeliosPlanner. The environment surfaces per-slot state
-    and reward signals but does not yet implement complex control.
+    The action space is intentionally limited: the default and primary
+    behaviour is to follow the deterministic Kepler schedule produced by
+    PlannerPipeline. The environment surfaces per-slot state and reward
+    signals but does not yet implement complex control.
     """
 
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
         self.loader = SimulationDataLoader(config_path)
         self.timezone = pytz.timezone(self.loader.timezone_name)
-        self.planner = HeliosPlanner(config_path)
+
+        # Load config for PlannerPipeline
+        with open(config_path, "r") as f:
+            self._config = yaml.safe_load(f) or {}
+        self.pipeline = PlannerPipeline(self._config)
 
         battery_cfg = self.loader.config.get("battery", {}) or {}
         system_cfg = self.loader.config.get("system", {}) or {}
@@ -153,7 +158,7 @@ class AntaresMPCEnv:
         }
         inputs["now_override"] = start_dt
 
-        schedule = self.planner.generate_schedule(
+        schedule = self.pipeline.generate_schedule(
             inputs,
             record_training_episode=False,
             now_override=start_dt,
