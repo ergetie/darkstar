@@ -59,8 +59,8 @@ COPY inputs.py db_writer.py ./
 COPY config.default.yaml ./config.default.yaml
 COPY secrets.example.yaml ./secrets.example.yaml
 
-# Copy built frontend from stage 1
-COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
+# Copy built frontend from stage 1 (Vite outputs to backend/static, Flask serves from there)
+COPY --from=frontend-builder /app/backend/static ./backend/static
 
 # Create directories for runtime data
 RUN mkdir -p /data
