@@ -114,7 +114,7 @@ def config_to_kepler_config(
             planner_config.get("water_heating", {}).get("min_kwh_per_day", 0.0)
         ),
         water_heating_max_gap_hours=float(
-            planner_config.get("water_heating", {}).get("max_hours_between_heating", 0.0)
+            planner_config.get("water_heating", {}).get("max_hours_between_heating", 8.0)
         ),
     )
 

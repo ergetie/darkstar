@@ -103,7 +103,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev K17 — Water Heating as Deferrable Load
+### ✅ Rev K17 — Water Heating as Deferrable Load
 
 **Goal:** Move water heating from heuristic to Kepler MILP for optimal source selection.
 
@@ -115,20 +115,16 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 **Changes:**
 1. `types.py` — Add water heating config to `KeplerConfig`
 2. `kepler.py` — Add `water_heat` variable, constraints, energy balance
-3. `pipeline.py` — Pass water config to Kepler
-4. `adapter.py` — Wire up config adapter
-5. `water_heating.py` — Simplify to read Kepler result
-6. `config.default.yaml` — Add `max_hours_between_heating`
+3. `pipeline.py` — Skip old heuristic when Kepler water heating enabled
+4. `adapter.py` — Wire up config adapter with water heating params
+5. `config.default.yaml` — Add `max_hours_between_heating`
 
-**MILP Logic:**
-```
-water_heat[t] ∈ {0,1}  # Binary heating decision per slot
-sum(water_heat[t] * kwh_per_slot) >= min_kwh_per_day  # Daily requirement
-For every max_gap_hours window: sum(water_heat) >= 1  # Gap constraint
-water_load added to energy balance (Kepler sources from grid/battery)
-```
+**MILP Constraints:**
+- `water_heat[t] ∈ {0,1}` — Binary heating decision per slot
+- Total minimum: `sum(water_heat[t] * kwh_per_slot) >= min_kwh_per_day`
+- Max gap: Every 8h window must have at least one heating slot
 
-**Status:** In Progress.
+**Status:** Complete.
 
 ---
 

@@ -61,24 +61,51 @@ Minimize: Sum(Import_Cost - Export_Revenue + Wear_Cost) - (End_SoC * Terminal_Va
         *   **Effect**: "Gamblers" will miss target for smaller profit opportunities.
 
     This ensures we don't inflate today's load just because tomorrow is cold (which caused excessive battery usage in the plan).
+
 ---
 
-## 4. Aurora Intelligence Suite
+## 4. Water Heating as Deferrable Load (Rev K17)
+
+The water heater is integrated into Kepler as a **deferrable load**, allowing optimal source selection.
+
+### How It Works
+- `water_heat[t]` binary variable in MILP: is heating ON in slot t?
+- **Constraint**: Must schedule `min_kwh_per_day` (e.g., 6 kWh)
+- **Constraint**: Max gap `max_hours_between_heating` (e.g., 8h)
+- Water load added to energy balance → Kepler sources from grid or battery
+
+### Source Selection
+Kepler sees the full cost picture and decides:
+- **Grid**: If `import_price` is cheap
+- **Battery**: If `discharge_price + wear_cost < grid_price`
+- **PV**: If surplus available (free!)
+
+### Config
+```yaml
+water_heating:
+  power_kw: 3.0
+  min_kwh_per_day: 6.0
+  max_hours_between_heating: 8  # Ensure heating every 8h
+```
+
+---
+
+## 5. Aurora Intelligence Suite
 Darkstar's intelligence is powered by the **Aurora Suite**, which consists of three pillars:
 
-### 4.1 Aurora Vision (The Eyes)
+### 5.1 Aurora Vision (The Eyes)
 *   **Role**: Forecasting.
 *   **Mechanism**: LightGBM models predict Load and PV generation with 11 features (time, weather, context).
 *   **Uncertainty**: Provides p10/p50/p90 confidence intervals for probabilistic S-Index.
 *   **Extended Horizon**: Aurora forecasts 168 hours (7 days), enabling S-Index to use probabilistic bands for D+1 to D+4 even when price data only covers 48 hours.
 *   **Config**: `s_index.s_index_horizon_days` (integer, default 4) controls how many future days are considered.
 
-### 4.2 Aurora Strategy (The Brain)
+### 5.2 Aurora Strategy (The Brain)
 *   **Role**: Decision Making.
 *   **Mechanism**: Determines high-level policy parameters (`θ`) for Kepler based on context (Weather, Risk, Prices).
 *   **Outputs**: Target SoC, Export Thresholds, Risk Appetite.
 
-### 4.3 Aurora Reflex (The Inner Ear)
+### 5.3 Aurora Reflex (The Inner Ear)
 *   **Role**: Learning & Balance.
 *   **Mechanism**: Long-term feedback loop that auto-tunes physical constants and policy weights based on historical drift.
 *   **Analyzers**:
@@ -89,7 +116,7 @@ Darkstar's intelligence is powered by the **Aurora Suite**, which consists of th
 
 ---
 
-## 5. Modular Planner Pipeline
+## 6. Modular Planner Pipeline
 
 The planner has been refactored from a monolithic "God class" into a modular `planner/` package:
 
@@ -153,7 +180,7 @@ schedule_df = pipeline.generate_schedule(input_data, mode="full")
 
 ---
 
-## 6. Native Executor
+## 7. Native Executor
 
 The Executor is a native Python replacement for the n8n "Helios Executor" workflow, enabling 100% MariaDB-free operation.
 

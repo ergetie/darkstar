@@ -72,6 +72,7 @@ water_heating:
   plan_days_ahead: 1               # Plan at most today + 1 day (tomorrow) within 48h horizon
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
+  max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:
