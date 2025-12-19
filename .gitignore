@@ -40,3 +40,6 @@ temp_secrets.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Experimental ML models (keep production LightGBM models)
+ml/models/antares_*

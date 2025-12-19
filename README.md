@@ -8,11 +8,11 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 
 ## ✨ Features
 
-- **MILP Optimization** — Kepler solver minimizes electricity costs over a 48-hour rolling horizon
-- **ML Forecasting** — Aurora predicts your home's load and PV production patterns
-- **Real-time Execution** — Native executor with Home Assistant integration
+- **Smart Optimization** — Minimizes electricity costs over a 48-hour rolling horizon
+- **ML Forecasting** — Learns your home's load and PV production patterns
+- **Real-time Execution** — Automatic inverter control via Home Assistant
 - **Beautiful Dashboard** — React-based UI with live schedule visualization
-- **Automatic Learning** — Self-tuning parameters adapt to your home over time
+- **Self-Learning** — Parameters auto-tune to your home over time
 
 ## 🚀 Quick Start
 
@@ -20,7 +20,7 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 
 ```bash
 # Clone the repository
-git clone https://github.com/youruser/darkstar.git
+git clone https://github.com/ergetie/darkstar.git
 cd darkstar
 
 # Copy configuration templates
@@ -40,10 +40,6 @@ Access the UI at **http://localhost:5000**
 2. Install "Darkstar Energy Manager"
 3. Configure your HA token in the add-on settings
 4. Start the add-on
-
-### Option 3: Manual Installation
-
-See [Developer Guide](docs/DEVELOPER.md) for full manual installation instructions.
 
 ## ⚙️ Configuration
 
@@ -80,25 +76,15 @@ home_assistant:
   url: "http://your-homeassistant:8123"
   token: "your-long-lived-access-token"
 
+openrouter_api_key: "sk-or-v1-..."
+
 notifications:
   discord_webhook_url: ""  # Optional fallback alerts
 ```
 
-## 📊 How It Works
-
-Darkstar uses a three-layer intelligence system:
-
-1. **Aurora Vision** — ML models predict your home's energy patterns
-2. **Aurora Strategy** — Context-aware decision making (vacation mode, weather, etc.)
-3. **Kepler Solver** — MILP optimization generates optimal schedules
-
-The system runs on a 48-hour rolling horizon, re-optimizing every hour to adapt to changing conditions.
-
-For technical details, see [Architecture Documentation](docs/architecture.md).
-
 ## 🏠 Home Assistant Integration
 
-Darkstar reads sensors and controls your inverter through Home Assistant:
+Darkstar reads sensors and controls your inverter through Home Assistant.
 
 **Required Sensors:**
 - Battery SoC (%)
@@ -116,42 +102,20 @@ Darkstar reads sensors and controls your inverter through Home Assistant:
 The web UI provides:
 
 - **Live Schedule** — 48-hour visualization with charge/discharge/export slots
-- **Forecasting** — Compare ML predictions vs. actuals
+- **Forecasting** — Compare predictions vs. actuals
 - **Manual Planning** — Override or extend the automated schedule
 - **Settings** — Tune parameters without editing YAML files
-- **Executor Status** — Real-time execution monitoring
 
-## 🛠️ Development
+## 📊 How It Works
 
-```bash
-# Setup development environment
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-pnpm install --prefix frontend
+1. **Forecasting** — Aurora ML predicts your home's energy patterns
+2. **Strategy** — Context-aware adjustments (vacation mode, weather, etc.)
+3. **Optimization** — Kepler solver generates optimal battery schedules
+4. **Execution** — Native executor controls your inverter in real-time
 
-# Run development server (frontend + backend + scheduler)
-pnpm run dev
-
-# Run tests
-pytest tests/ -v
-```
-
-For full development guidelines, see [Developer Guide](docs/DEVELOPER.md).
-
-## 📚 Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Developer Guide](docs/DEVELOPER.md) | Full installation, configuration, and deployment |
-| [Architecture](docs/architecture.md) | Technical deep dive into the system |
-| [Development Plan](docs/PLAN.md) | Roadmap and revision history |
-| [Legacy MPC](docs/LEGACY_MPC.md) | Documentation for the deprecated heuristic planner |
+The system re-optimizes every hour to adapt to changing prices and conditions.
 
 ## 📄 License
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
----
-
-Made with ⚡ for the solar-powered home
