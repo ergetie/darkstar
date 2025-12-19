@@ -1877,7 +1877,57 @@ def run_planner():
 
         return jsonify({"status": "success", "message": "Planner run completed successfully."})
     except Exception as e:
-        return jsonify({"status": "error", "message": f"An error occurred: {str(e)}"}), 500
+        error_msg = str(e)
+        logger.exception("Planner run failed: %s", error_msg)
+        
+        # Persist error to schedule.json for frontend display
+        try:
+            error_time = datetime.now().isoformat()
+            schedule_path = "schedule.json"
+            
+            # Load existing schedule if it exists
+            try:
+                with open(schedule_path, "r", encoding="utf-8") as f:
+                    schedule_data = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                schedule_data = {"schedule": [], "meta": {}}
+            
+            # Update meta with error
+            if "meta" not in schedule_data:
+                schedule_data["meta"] = {}
+            schedule_data["meta"]["last_error"] = error_msg
+            schedule_data["meta"]["last_error_at"] = error_time
+            
+            with open(schedule_path, "w", encoding="utf-8") as f:
+                json.dump(schedule_data, f, indent=2, ensure_ascii=False)
+        except Exception as persist_err:
+            logger.warning("Failed to persist error to schedule.json: %s", persist_err)
+        
+        # Send notification via HA-first, Discord fallback
+        try:
+            from backend.notify import send_critical_notification
+            from inputs import load_home_assistant_config
+            
+            ha_config = load_home_assistant_config() or {}
+            
+            with open("config.yaml", "r") as f:
+                config = yaml.safe_load(f) or {}
+            
+            executor_cfg = config.get("executor", {})
+            notif_cfg = executor_cfg.get("notifications", {})
+            
+            send_critical_notification(
+                title="Darkstar Planner Failed",
+                message=error_msg,
+                ha_service=notif_cfg.get("service"),
+                ha_url=ha_config.get("url"),
+                ha_token=ha_config.get("token"),
+                discord_webhook_url=notif_cfg.get("discord_webhook_url"),
+            )
+        except Exception as notif_err:
+            logger.warning("Failed to send planner error notification: %s", notif_err)
+        
+        return jsonify({"status": "error", "message": f"An error occurred: {error_msg}"}), 500
 
 
 @app.route("/api/analyst/run", methods=["GET"])

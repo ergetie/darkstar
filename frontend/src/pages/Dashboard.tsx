@@ -54,6 +54,7 @@ export default function Dashboard() {
     const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
     const [localSchedule, setLocalSchedule] = useState<ScheduleSlot[] | null>(null)
     const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
+    const [lastError, setLastError] = useState<{ message: string; at: string } | null>(null)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -244,6 +245,16 @@ export default function Dashboard() {
                 )
                 setPvToday(pvTotal)
 
+                // Check for critical errors in meta
+                if (data.meta?.last_error) {
+                    setLastError({
+                        message: data.meta.last_error,
+                        at: data.meta.last_error_at || '',
+                    })
+                } else {
+                    setLastError(null)
+                }
+
                 // Get current slot target
                 const now = new Date()
                 const currentSlot = sched.find(slot => {
@@ -421,6 +432,37 @@ export default function Dashboard() {
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-10">
+            {/* Critical Error Banner */}
+            {lastError && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-4"
+                >
+                    <div className="flex items-start justify-between gap-4">
+                        <div>
+                            <div className="flex items-center gap-2 text-red-400 font-semibold text-sm mb-1">
+                                <span>⚠️</span>
+                                <span>Planner Error</span>
+                            </div>
+                            <div className="text-red-300 text-xs">{lastError.message}</div>
+                            {lastError.at && (
+                                <div className="text-red-400/60 text-[10px] mt-1">
+                                    {new Date(lastError.at).toLocaleString()}
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            onClick={() => setLastError(null)}
+                            className="text-red-400/60 hover:text-red-300 text-xs px-2 py-1"
+                            title="Dismiss"
+                        >
+                            ✕
+                        </button>
+                    </div>
+                </motion.div>
+            )}
+
             <div className="flex flex-col items-center mb-3">
                 <pre className="text-[10px] leading-[1.15] bg-gradient-to-b from-accent to-accent/20 bg-clip-text text-transparent font-mono text-center">
                     {DARKSTAR_ASCII.map((line) => line).join('\n')}
