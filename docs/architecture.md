@@ -29,7 +29,7 @@ Minimize: Sum(Import_Cost - Export_Revenue + Wear_Cost) - (End_SoC * Terminal_Va
 ## 3.  **Strategic S-Index (Decoupled)**:
     To manage risk without "Double Buffering", we decoupled the strategy:
 
-    1.  **Risk Appetite (Sigma Scaling)**:
+    1.  **Risk Appetite (Sigma Scaling)** — Intra-day Safety:
         *   **Goal**: Buffer against *today's* forecast errors (Uncertainty).
         *   **Mechanism**: User-tunable Sigma Scaling (1-5 Scale).
         *   **Formula**: `Safety Margin = Uncertainty * Sigma(RiskAppetite)`.
@@ -38,11 +38,18 @@ Minimize: Sum(Import_Cost - Export_Revenue + Wear_Cost) - (End_SoC * Terminal_Va
             *   Neutral (3): Covers p50 (Mean).
             *   Gambler (5): Covers p25 (Under-provisioning).
 
-    2.  **Dynamic Target SoC (Inter-day Strategy)**:
+    2.  **Dynamic Target SoC (Inter-day Strategy)** — Rev K16:
         *   **Goal**: Prepare for *tomorrow's* risk (Cold/Cloudy D2).
-        *   **Mechanism**: Hard Constraint on End-of-Day SoC.
-        *   **Formula**: `Target % = Min % + (Risk_Factor - 1.0) * Scaling`.
-        *   **Effect**: If D2 is risky, we hold a larger buffer (e.g., 30%). If D2 is safe, we hold `Min %`.
+        *   **Mechanism**: FIXED base buffers per risk level + weather adjustment.
+        *   **Formula**: `Target % = Min % + Base_Buffer(Level) + Weather_Adjustment`.
+        *   **Base Buffers**:
+            *   Level 1 (Safety): +35% above min_soc
+            *   Level 2 (Conservative): +20%
+            *   Level 3 (Neutral): +10%
+            *   Level 4 (Aggressive): +3%
+            *   Level 5 (Gambler): -7% (below min_soc)
+        *   **Weather Adjustment**: ±8% cap based on PV deficit and temperature.
+        *   **Guarantee**: Level 1 > Level 2 > Level 3 > Level 4 > Level 5 (ALWAYS).
 
     This ensures we don't inflate today's load just because tomorrow is cold (which caused excessive battery usage in the plan).
 ---

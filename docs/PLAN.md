@@ -81,8 +81,25 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - ✅ Clean `secrets.example.yaml` (no real credentials)
 - ✅ User-focused `README.md` at root, `docs/README.md` → `docs/DEVELOPER.md`
 - ✅ Verified Docker build locally
+- ✅ Multi-process entrypoint (Flask API + Scheduler + Recorder)
+- ✅ Config save preserves structure (ruamel.yaml)
 
-**Status:** Complete. Ready for production deployment.
+**Status:** Complete. Released as v2.1.0.
+
+---
+
+### ✅ Rev K16 — Target SoC Redesign (Fixed Base Buffers)
+
+**Goal:** Redesign the Target SoC calculation to use FIXED base buffers per risk level instead of scaling-based approach.
+
+**Changes:**
+- FIXED base buffers per risk level (+35%/+20%/+10%/+3%/-7%)
+- Weather/PV deficit adjustment (±8%) independent of risk level
+- Guarantees: Level 1 > Level 2 > Level 3 > Level 4 > Level 5 (ALWAYS)
+- Removed duplicate `calculate_dynamic_target_soc` function in `terminal_value.py`
+- Deprecated `soc_scaling_factor` config parameter
+
+**Status:** Complete. Included in v2.1.0.
 
 ---
 
