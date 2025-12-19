@@ -487,10 +487,17 @@ def get_initial_state(config_path="config.yaml"):
     input_sensors = config.get("input_sensors", {})
     soc_entity_id = input_sensors.get("battery_soc", "sensor.inverter_battery")
 
-    ha_soc = get_home_assistant_sensor_float(soc_entity_id) if soc_entity_id else None
-
-    if ha_soc is not None:
-        battery_soc_percent = ha_soc
+    if soc_entity_id:
+        ha_soc = get_home_assistant_sensor_float(soc_entity_id)
+        if ha_soc is not None:
+            battery_soc_percent = ha_soc
+        else:
+            # Critical safety check: Do not default to 50% if we expected a live reading.
+            # This causes "phantom charging" when HA is down.
+            raise RuntimeError(
+                f"Critical: Failed to read battery SoC from {soc_entity_id}. "
+                "Planning aborted to prevent unsafe assumptions."
+            )
 
     battery_soc_percent = max(0.0, min(100.0, battery_soc_percent))
     battery_kwh = capacity_kwh * battery_soc_percent / 100.0
