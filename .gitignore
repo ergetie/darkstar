@@ -8,6 +8,7 @@ __pycache__/
 # Secrets and user config (DO NOT COMMIT)
 secrets.yaml
 config.yaml
+!hassio/config.yaml
 
 # IDE / Editor
 .vscode/

@@ -1,0 +1,50 @@
+# Darkstar Energy Manager - Home Assistant Add-on
+# https://github.com/ergetie/darkstar
+
+name: "Darkstar Energy Manager"
+description: "AI-powered home battery optimization with MILP scheduling"
+version: "2.0.0"
+slug: "darkstar"
+url: "https://github.com/ergetie/darkstar"
+
+# Supported architectures
+arch:
+  - amd64
+  - aarch64
+  - armv7
+
+# Startup configuration
+init: false
+startup: application
+boot: auto
+
+# Web UI
+webui: http://[HOST]:[PORT:5000]
+ingress: true
+ingress_port: 5000
+ingress_stream: true
+panel_icon: "mdi:battery-charging"
+panel_title: "Darkstar"
+
+# Ports
+ports:
+  5000/tcp: 5000
+ports_description:
+  5000/tcp: "Web UI"
+
+# Configuration options
+options:
+  timezone: "Europe/Stockholm"
+  log_level: "info"
+
+schema:
+  timezone: str
+  log_level: list(debug|info|warning|error)
+
+# Data persistence
+map:
+  - config:rw
+  - share:rw
+
+# Resource limits (optional, good for RPi)
+# memory: 512m
