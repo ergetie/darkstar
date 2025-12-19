@@ -133,7 +133,7 @@ pipeline = PlannerPipeline(config)
 schedule_df = pipeline.generate_schedule(input_data, mode="full")
 ```
 
-**Legacy Reference**: The original 3,600-line heuristic planner is archived at `archive/legacy_mpc.py` with documentation in `docs/LEGACY_MPC.md`.
+**Legacy Reference**: The original 3,600-line heuristic planner is documented in `docs/LEGACY_MPC.md`.
 
 ---
 

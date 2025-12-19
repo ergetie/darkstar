@@ -1,4 +1,6 @@
-# Darkstar Energy Manager
+# Darkstar Developer Guide
+
+> **Note**: For quick start and installation, see the main [README.md](../README.md).
 
 **An Intelligent Energy Agent for Residential Systems**
 
@@ -87,9 +89,9 @@ Located in `planner.py`, the system now uses **Kepler**, a Mixed-Integer Linear 
     *   **Dynamic Target SoC**: Buffers against tomorrow's risks (e.g., low PV).
 *   **Water Heating**: Scheduled as a "committed load" before the battery optimization runs.
 
-For a deep dive into the solver logic, see [docs/architecture.md](docs/architecture.md).
+For a deep dive into the solver logic, see [architecture.md](architecture.md).
 
-> **Note:** The legacy heuristic MPC planner (7-pass logic) is preserved for reference in [docs/LEGACY_MPC.md](docs/LEGACY_MPC.md).
+> **Note:** The legacy heuristic MPC planner (7-pass logic) is preserved for reference in [LEGACY_MPC.md](LEGACY_MPC.md).
 
 ---
 
