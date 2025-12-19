@@ -1,20 +1,28 @@
+# =============================================================================
+# Darkstar Configuration
+# =============================================================================
+# This is the user's production configuration file.
+# Structure matches config.default.yaml with user-specific values.
+# =============================================================================
+
 # General System Settings
 timezone: "Europe/Stockholm"
 
 advisor:
-  enable_llm: false
+  enable_llm: true
   model: gpt-5-nano
-  personality: concise
-  auto_fetch: true
+  personality: friendly
+  auto_fetch: false
 
 # System Parameters
 system:
+  system_id: dev
   grid:
-    max_power_kw: 11
+    max_power_kw: 8
   inverter:
     max_power_kw: 10.0
   location:
-    latitude: 55.493221 
+    latitude: 55.493221
     longitude: 13.111221
   solar_array:
     azimuth: 150
@@ -23,61 +31,60 @@ system:
 
 # Battery Specifications
 battery:
-  capacity_kwh: 10.0
-  min_soc_percent: 15
-  max_soc_percent: 95            # Planner target ceiling (BMS still enforces absolute limit)
-  max_charge_power_kw: 5.0
-  max_discharge_power_kw: 5.0
-  efficiency_percent: 95.0       # Legacy field (maintained for backward compatibility)
+  capacity_kwh: 34.2
+  min_soc_percent: 12
+  max_soc_percent: 100             # Planner target ceiling (BMS still enforces absolute limit)
+  max_charge_power_kw: 8
+  max_discharge_power_kw: 8
   roundtrip_efficiency_percent: 95.0
 
 battery_economics:
-  battery_cycle_cost_kwh: 0.20      # Degradation cost applied per kWh cycled through the battery
+  battery_cycle_cost_kwh: 0.2      # Degradation cost applied per kWh cycled through the battery
 
 # Decision Making Thresholds
 decision_thresholds:
-  battery_use_margin_sek: 0.10      # Use battery if grid > battery_cost + wear + margin
-  export_profit_margin_sek: 0.05    # Additional profit required on top of battery cost + wear
-  battery_water_margin_sek: 0.20    # Margin for using battery for water heating
+  battery_use_margin_sek: 0.1      # Use battery if grid > battery_cost + wear + margin
+  export_profit_margin_sek: 0.05   # Additional profit required on top of battery cost + wear
+  battery_water_margin_sek: 0.2    # Margin for using battery for water heating
 
 # Charging Strategy
 charging_strategy:
-  charge_threshold_percentile: 15   # Bottom 15% of prices are considered 'cheap'
-  cheap_price_tolerance_sek: 0.10   # Extends 'cheap' category to prices within this tolerance
-  price_smoothing_sek_kwh: 0.05     # Allows grouping of slots slightly above cheapest price for block planning
-  block_consolidation_tolerance_sek: 0.05  # Optional extra tolerance for consolidating charge blocks
-  consolidation_max_gap_slots: 0     # Allow bridging up to N zero-capacity slots when consolidating
-
-# Strategic Charging (Floor Price)
-strategic_charging:
-  price_threshold_sek: 0.90         # Price below which strategic charging is triggered
-  target_soc_percent: 95            # Absolute SoC target for strategic charging
-  carry_forward_tolerance_ratio: 0.10  # Allow next cheap window if its price within tolerance
-
-# Water Heating
-water_heating:
-  power_kw: 3.0                     # Power consumption of the water heater
-  min_hours_per_day: 2.0            # Minimum run-time per day
-  min_kwh_per_day: 6.0              # Optional; defaults to power * hours when unset
-  max_blocks_per_day: 2             # Prefer single block, up to two if needed
-  schedule_future_only: true        # Only schedule future slots (skip current slot)
-  defer_up_to_hours: 3              # Allow deferring into early tomorrow up to N hours if cheaper
-  plan_days_ahead: 1                # Plan at most today + 1 day (tomorrow) within 48h horizon
+  charge_threshold_percentile: 15  # Bottom 15% of prices are considered 'cheap'
+  cheap_price_tolerance_sek: 0.05  # Extends 'cheap' category to prices within this tolerance
+  price_smoothing_sek_kwh: 0.05    # Allows grouping of slots slightly above cheapest price
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
 
-# S-Index Configuration
+# Strategic Charging (Floor Price)
+strategic_charging:
+  price_threshold_sek: 0.85        # Price below which strategic charging is triggered
+  target_soc_percent: 80           # Absolute SoC target for strategic charging
+  carry_forward_tolerance_ratio: 0.05
+
+# Water Heating
+water_heating:
+  power_kw: 3.0                    # Power consumption of the water heater
+  min_hours_per_day: 2.0           # Minimum run-time per day
+  min_kwh_per_day: 6.0             # Optional; defaults to power * hours when unset
+  max_blocks_per_day: 2            # Prefer single block, up to two if needed
+  schedule_future_only: true       # Only schedule future slots (skip current slot)
+  defer_up_to_hours: 6             # Allow deferring into early tomorrow up to N hours if cheaper
+  plan_days_ahead: 1               # Plan at most today + 1 day (tomorrow) within 48h horizon
+  block_consolidation_tolerance_sek: 0.05
+  consolidation_max_gap_slots: 0
+
+# S-Index Configuration (Risk & Safety Strategy)
 s_index:
-  mode: "probabilistic"              # Options: probabilistic | dynamic
-  static_factor: 1.05               # Used when mode=static
-  base_factor: 1.05                 # Starting point for dynamic calculations
-  max_factor: 1.50                  # Upper bound clamp for dynamic mode
-  pv_deficit_weight: 0.30           # Weight for PV/load deficit contribution
-  temp_weight: 0.20                 # Weight for temperature adjustment
-  temp_baseline_c: 20               # Baseline temperature (no adjustment)
-  temp_cold_c: -15                  # Temperature where adjustment reaches 100%
-  s_index_horizon_days: 4           # Number of days ahead to evaluate (integer)
-  risk_appetite: 3                  # 1-5 scale (1=safe, 3=neutral, 5=gambler)
+  mode: "probabilistic"            # Options: probabilistic | dynamic
+  static_factor:                   # Used when mode=static
+  base_factor: 1.1                 # Starting point for dynamic calculations
+  max_factor: 1.5                  # Upper bound clamp for dynamic mode
+  pv_deficit_weight: 0.2           # Weight for PV/load deficit contribution
+  temp_weight: 0.3                 # Weight for temperature adjustment
+  temp_baseline_c: 15.0            # Baseline temperature (no adjustment)
+  temp_cold_c: -10.0               # Temperature where adjustment reaches 100%
+  s_index_horizon_days: 4          # Number of days ahead to evaluate (integer)
+  risk_appetite: 3                 # 1-5 scale (1=safe, 3=neutral, 5=gambler)
 
 # Smoothing / Hysteresis Controls
 smoothing:
@@ -95,43 +102,48 @@ arbitrage:
   export_fees_sek_per_kwh: 0.0
   export_profit_margin_sek: 0.05
   protective_soc_strategy: "gap_based"
-  fixed_protective_soc_percent: 15.0
-  export_percentile_threshold: 15        # Top X% of prices eligible for export
+  fixed_protective_soc_percent: 10.0
+  export_percentile_threshold: 15  # Top X% of prices eligible for export
   enable_peak_only_export: true
   export_future_price_guard: true
-  future_price_guard_buffer_sek: 0.00
+  future_price_guard_buffer_sek: 0.0
 
 # Manual Planning Defaults
 manual_planning:
-  charge_target_percent: 95              # Cap for manual charge slots
-  export_target_percent: 35              # Floor target when manually scheduling export
-  override_hold_in_cheap: true           # Ignore cheap-window hold while simulating manual plan
-  force_discharge_on_deficit: true       # If deficit, allow discharge even if price/cheap guards would block
-  ignore_protective_guard: true          # Do not raise SoC target floor above min_soc during manual plan
+  charge_target_percent: 95        # Cap for manual charge slots
+  export_target_percent: 35        # Floor target when manually scheduling export
+  override_hold_in_cheap: true     # Ignore cheap-window hold while simulating manual plan
+  force_discharge_on_deficit: true # If deficit, allow discharge even if price/cheap guards would block
+  ignore_protective_guard: true    # Do not raise SoC target floor above min_soc during manual plan
 
 # Debug & Telemetry
 debug:
   enable_planner_debug: false
   sample_size: 30
 
-# Automation (Scheduler + DB writer)
+# Automation (Scheduler + ML Training)
 automation:
-  enable_scheduler: false
+  enable_scheduler: true
   write_to_mariadb: false
   schedule:
     every_minutes: 60
     jitter_minutes: 0
+  ml_training:
+    enabled: true
+    run_days: [1, 4]               # Monday and Thursday
+    run_time: "03:00"
 
-# Learning Engine
+# Learning Engine (Aurora Reflex)
 learning:
   enable: true
   sqlite_path: "data/planner_learning.db"
   sync_interval_minutes: 5
   horizon_days: 7
   min_improvement_threshold: 0.015
-  auto_apply: true
-  min_sample_threshold: 36
-  default_battery_cost_sek_per_kwh: 0.20
+  auto_tune_enabled: true
+  reflex_enabled: true
+  min_sample_threshold: 2
+  default_battery_cost_sek_per_kwh: 0.02
   sensor_map: {}
   max_daily_param_change:
     pv_confidence_percent: 1.0
@@ -139,8 +151,8 @@ learning:
     battery_use_margin_sek: 0.02
     export_profit_margin_sek: 0.02
     s_index_base_factor: 0.05
-    s_index_pv_deficit_weight: 0.05
-    s_index_temp_weight: 0.05
+    s_index_pv_deficit_weight: 0.1
+    s_index_temp_weight: 0.1
     future_price_guard_buffer_sek: 0.05
 
 # Nordpool API Configuration
@@ -154,8 +166,114 @@ pricing:
   vat_percent: 25.0
   grid_transfer_fee_sek: 0.2456
   energy_tax_sek: 0.439
+  subscription_fee_sek_per_month: 593.0
 
 # Forecasting Adjustments
 forecasting:
-  pv_confidence_percent: 90.0
-  load_safety_margin_percent: 110.0
+  active_forecast_version: aurora
+  pv_confidence_percent: 83.0
+  load_safety_margin_percent: 117.0
+
+# Grid Limits
+grid:
+  import_limit_kw: 11.0
+
+# Kepler Solver
+kepler:
+  enabled: true
+  primary_planner: true
+  shadow_mode: true
+
+# =============================================================================
+# Home Assistant Integration
+# =============================================================================
+
+# Input Sensors (read from HA)
+input_sensors:
+  alarm_state: alarm_control_panel.alarmo
+  battery_soc: sensor.inverter_battery
+  total_battery_charge: sensor.inverter_total_battery_charge
+  total_battery_discharge: sensor.inverter_total_battery_discharge
+  total_grid_export: sensor.inverter_total_energy_export
+  total_grid_import: sensor.inverter_total_energy_import
+  total_load_consumption: sensor.inverter_total_load_consumption
+  total_pv_production: sensor.inverter_total_production
+  vacation_mode: input_boolean.vacation_mode
+  water_heater_consumption: sensor.vvb_energy_daily
+
+# Executor (5-minute control loop)
+executor:
+  enabled: true
+  shadow_mode: true
+  interval_seconds: 300
+  history_retention_days: 30
+  automation_toggle_entity: input_boolean.darkstar_enable
+  manual_override_entity: input_boolean.darkstar_manual_override
+  soc_target_entity: input_number.master_soc_target
+
+  # Inverter Control Entities
+  inverter:
+    work_mode_entity: select.inverter_work_mode
+    work_mode_export: "Export First"
+    work_mode_zero_export: "Zero Export To CT"
+    grid_charging_entity: switch.inverter_battery_grid_charging
+    max_charging_current_entity: number.inverter_battery_max_charging_current
+    max_discharging_current_entity: 
+      number.inverter_battery_max_discharging_current
+
+  # Controller Parameters
+  controller:
+    battery_capacity_kwh: 27.0
+    system_voltage_v: 48.0
+    worst_case_voltage_v: 46.0
+    inverter_ac_limit_kw: 8.8
+    charge_efficiency: 0.92
+    max_charge_a: 190.0
+    min_charge_a: 10.0
+    round_step_a: 5.0
+    write_threshold_a: 5.0
+
+  # Water Heater Control
+  water_heater:
+    target_entity: input_number.vvbtemp
+    temp_normal: 60
+    temp_boost: 70
+    temp_max: 85
+    temp_off: 40
+
+  # Notifications
+  notifications:
+    service: notify.mobile_app_sebastians_iphone
+    on_charge_start: true
+    on_charge_stop: false
+    on_export_start: true
+    on_export_stop: true
+    on_water_heat_start: true
+    on_water_heat_stop: false
+    on_soc_target_change: false
+    on_override_activated: true
+    on_error: true
+
+# =============================================================================
+# UI Settings
+# =============================================================================
+
+dashboard:
+  auto_refresh_enabled: true
+  overlay_defaults: "charge, soctarget, socprojected, water, export, load_off"
+
+ui:
+  theme: "Material Design Colors"
+  theme_accent_index: 3
+
+# Appliances (for manual scheduling UI)
+appliances:
+  dishwasher:
+    label: Dishwasher
+    duration_hours: 1.0
+  dryer:
+    label: Dryer
+    duration_hours: 2.0
+  washing_machine:
+    label: "Washing Machine"
+    duration_hours: 2.0
