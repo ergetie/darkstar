@@ -49,6 +49,7 @@ class KeplerSolver:
 
         # Slack variables
         soc_violation = pulp.LpVariable.dicts("soc_violation_kwh", range(T + 1), lowBound=0.0)
+        target_violation = pulp.LpVariable("target_violation_kwh", lowBound=0.0)  # End-of-horizon target
         import_breach = pulp.LpVariable.dicts("import_breach_kwh", range(T), lowBound=0.0)
         ramp_up = pulp.LpVariable.dicts("ramp_up_kwh", range(T), lowBound=0.0)
         ramp_down = pulp.LpVariable.dicts("ramp_down_kwh", range(T), lowBound=0.0)
@@ -61,7 +62,8 @@ class KeplerSolver:
         total_cost = []
 
         # Penalty constants
-        PENALTY_SEK_PER_KWH = 1000.0
+        MIN_SOC_PENALTY = 1000.0      # Hard constraint - don't violate min_soc!
+        TARGET_SOC_PENALTY = 10.0     # Soft constraint - can violate if economics favor it
         CURTAILMENT_PENALTY = 0.1
         LOAD_SHEDDING_PENALTY = 10000.0
         IMPORT_BREACH_PENALTY = 5000.0
@@ -136,19 +138,22 @@ class KeplerSolver:
         prob += soc[T] >= min_soc_kwh - soc_violation[T]
         prob += soc[T] <= max_soc_kwh
 
-        # Terminal SoC Target
-        target_soc = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
+        # Terminal SoC Target (soft constraint - can violate if economics favor it)
+        target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
         if config.target_soc_kwh is not None:
-            prob += soc[T] >= target_soc
+            prob += soc[T] >= target_soc_kwh - target_violation
 
         # Terminal Value
         terminal_value = soc[T] * config.terminal_value_sek_kwh
 
         # Set Objective
+        # - min_soc violation: HARD penalty (1000 SEK/kWh)
+        # - target violation: SOFT penalty (10 SEK/kWh) - allows economic override
         prob += (
             pulp.lpSum(total_cost)
             - terminal_value
-            + PENALTY_SEK_PER_KWH * pulp.lpSum(soc_violation)
+            + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
+            + TARGET_SOC_PENALTY * target_violation
         )
 
         # Solve

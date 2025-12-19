@@ -267,13 +267,12 @@ class PlannerPipeline:
 
         logger.info("Kepler input initial_soc_kwh: %.3f", kepler_input.initial_soc_kwh)
 
-        # Target SoC is applied via soft constraint in Kepler solver
-        # (soc_violation penalty = 1000 SEK/kWh + terminal_value incentive)
-        # 
-        # IMPORTANT: We do NOT raise min_soc_percent globally because:
-        # - That would prevent mid-day discharge even when profitable
-        # - Soft target allows Kepler to optimize, just incentivizes ending high
-        # - MPC replans hourly, so end-of-horizon target naturally guides behavior
+        # Target SoC is applied via soft constraint in Kepler solver:
+        # - min_soc violation: 1000 SEK/kWh (HARD - don't violate!)
+        # - target violation: 10 SEK/kWh (SOFT - can override if economics favor)
+        # This allows mid-day discharge but incentivizes ending at target.
+        if mode == "full" and target_soc_kwh > 0:
+            kepler_config.target_soc_kwh = target_soc_kwh
 
         solver = KeplerSolver()
         result = solver.solve(kepler_input, kepler_config)
