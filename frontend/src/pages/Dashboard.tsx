@@ -428,7 +428,7 @@ export default function Dashboard() {
     const sIndexVal = plannerMeta?.sIndex?.effective_load_margin
     const targetSocVal = plannerMeta?.sIndex?.target_soc?.target_percent
     const sIndexDisplay = sIndexVal ? `x${sIndexVal.toFixed(2)}` : '—'
-    const termDisplay = targetSocVal ? `Target ${targetSocVal.toFixed(0)}%` : ''
+    const termDisplay = targetSocVal ? `EOD ${targetSocVal.toFixed(0)}%` : ''
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-10">
@@ -527,7 +527,7 @@ export default function Dashboard() {
                             <div className="text-text">Now showing: {planBadge}{planMeta}</div>
                         </div>
                         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `target ${currentSlotTarget.toFixed(0)}%` : 'target —%'} />
+                            <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `slot ${currentSlotTarget.toFixed(0)}%` : ''} />
                             <Kpi label="S-Index" value={sIndexDisplay} hint={termDisplay} />
                             <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
                             <Kpi label="Avg Load" value={avgLoad?.kw !== undefined ? `${avgLoad.kw.toFixed(1)} kW` : '— kW'} hint={avgLoad?.dailyKwh !== undefined ? `HA ${avgLoad.dailyKwh.toFixed(1)} kWh/day` : ''} />
