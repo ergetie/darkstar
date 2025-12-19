@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # ==============================================================================
 # Darkstar Energy Manager - Production Dockerfile
 # Multi-stage build for small image size (~300MB)
@@ -51,9 +52,8 @@ COPY backend/ ./backend/
 COPY planner/ ./planner/
 COPY executor/ ./executor/
 COPY ml/*.py ./ml/
-COPY ml/api.py ml/pipeline.py ml/feature_engineering.py ./ml/
-COPY ml/models/ ./ml/models/
-COPY inputs.py db_writer.py learning.py ./
+COPY ml/models/*.lgb ./ml/models/
+COPY inputs.py db_writer.py ./
 
 # Copy default configuration (users mount their own config.yaml)
 COPY config.default.yaml ./config.default.yaml
