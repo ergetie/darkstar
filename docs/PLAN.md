@@ -79,10 +79,11 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - ✅ `hassio/` Home Assistant Add-on structure
 - ✅ `.dockerignore` to exclude dev files
 - ✅ Clean `secrets.example.yaml` (no real credentials)
-- 🔲 README.md rewrite for public repo
-- 🔲 Test Docker build on RPi
+- ✅ User-focused `README.md` at root, `docs/README.md` → `docs/DEVELOPER.md`
+- 🔲 Test Docker build locally
+- 🔲 Deploy to production server
 
-**Status:** In Progress (Phase 7: Docker/HA Add-on structure complete, pending README and testing).
+**Status:** In Progress (Phase 7: Code complete, pending Docker build testing).
 
 ---
 
