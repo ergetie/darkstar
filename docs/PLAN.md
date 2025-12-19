@@ -65,16 +65,18 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - `test_executor_engine.py` (21) — engine integration with mock schedule/HA
   - `test_executor_history.py` (16) — SQLite history storage
 
-#### 🔲 Phase 6b: Legacy Code Cleanup
-- Investigate and remove unused legacy code
-- Candidates: deprecated heuristic planner logic, orphaned modules from pre-Kepler architecture
-- Clean up before Docker/HA deployment to minimize container size and complexity
+#### ✅ Phase 6b: Legacy Code Cleanup (Completed)
+- **29,865 lines deleted** across 67 files
+- Deleted: `planner_legacy.py` (150KB), `archive/`, `reference/`, `docs/old/`, `Helios Executor.json`
+- Removed 19 obsolete debug scripts and 11 legacy test files
+- Migrated `ml/simulation/env.py` and `bin/run_simulation.py` to use `PlannerPipeline`
+- All 169 remaining tests pass
 
 #### 🔲 Phase 7: Deployment (Phase 5+ in original plan)
 - Dockerfile for standalone deployment
 - Home Assistant Add-on (hassio/ directory)
 
-**Status:** In Progress (Phases 1-6 complete, Phase 6b next).
+**Status:** In Progress (Phases 1-6b complete, Phase 7 next).
 
 ---
 
