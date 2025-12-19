@@ -1755,9 +1755,14 @@ def _validate_config(cfg: dict) -> list[dict]:
 
 @app.route("/api/config/save", methods=["POST"])
 def save_config():
-    # Load current config first
-    with open("config.yaml", "r") as f:
-        current_config = yaml.safe_load(f) or {}
+    from ruamel.yaml import YAML
+    
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
+    
+    # Load current config with ruamel.yaml to preserve structure/comments
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        current_config = yaml_handler.load(f) or {}
 
     # Get the new config data from the request
     new_config = request.get_json() or {}
@@ -1783,13 +1788,14 @@ def save_config():
     if "currency" not in merged_config["nordpool"]:
         merged_config["nordpool"]["currency"] = "SEK"
 
-    # Validate merged config before writing
-    errors = _validate_config(merged_config)
+    # Validate merged config before writing (use dict for validation)
+    errors = _validate_config(dict(merged_config))
     if errors:
         return jsonify({"status": "error", "errors": errors})
 
-    with open("config.yaml", "w") as f:
-        yaml.dump(merged_config, f, default_flow_style=False)
+    # Write back with ruamel.yaml to preserve structure/comments
+    with open("config.yaml", "w", encoding="utf-8") as f:
+        yaml_handler.dump(merged_config, f)
 
     # Regenerate schedule if s_index or battery settings changed
     # This ensures risk_appetite changes are immediately reflected

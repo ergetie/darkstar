@@ -78,7 +78,7 @@ s_index:
   temp_cold_c: -15                  # Temperature where adjustment reaches 100%
   s_index_horizon_days: 4           # Number of days ahead to evaluate (integer)
   risk_appetite: 3                  # 1-5 scale (1=safe, 3=neutral, 5=gambler)
-  soc_scaling_factor: 250           # Converts risk_factor to target SoC %
+  soc_scaling_factor: 100           # Converts risk_factor to target SoC %
 
 # Smoothing / Hysteresis Controls
 smoothing:
