@@ -72,11 +72,17 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - Migrated `ml/simulation/env.py` and `bin/run_simulation.py` to use `PlannerPipeline`
 - All 169 remaining tests pass
 
-#### 🔲 Phase 7: Deployment (Phase 5+ in original plan)
-- Dockerfile for standalone deployment
-- Home Assistant Add-on (hassio/ directory)
+#### 🔄 Phase 7: Deployment (In Progress)
+- ✅ Secrets migration: Discord webhook moved to `secrets.yaml`
+- ✅ `Dockerfile` with multi-stage build (frontend + Python)
+- ✅ `docker-compose.yml` for easy local deployment
+- ✅ `hassio/` Home Assistant Add-on structure
+- ✅ `.dockerignore` to exclude dev files
+- ✅ Clean `secrets.example.yaml` (no real credentials)
+- 🔲 README.md rewrite for public repo
+- 🔲 Test Docker build on RPi
 
-**Status:** In Progress (Phases 1-6b complete, Phase 7 next).
+**Status:** In Progress (Phase 7: Docker/HA Add-on structure complete, pending README and testing).
 
 ---
 

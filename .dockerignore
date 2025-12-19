@@ -1,0 +1,41 @@
+# Git
+.git/
+.gitignore
+
+# Development
+venv/
+node_modules/
+*.pyc
+__pycache__/
+.pytest_cache/
+.vscode/
+.idea/
+*.kate-swp
+
+# Tests and Debug (not needed in production)
+tests/
+debug/
+samples/
+
+# Experimental code (not production ready)
+ml/simulation/
+bin/run_simulation.py
+
+# Documentation (keep README in Docker for reference)
+docs/
+
+# User data (mounted at runtime)
+*.db
+*.log
+config.yaml
+secrets.yaml
+schedule.json
+data/
+
+# Build artifacts
+frontend/.vite/
+frontend/node_modules/
+
+# Large files
+*.sqlite
+*.db-journal

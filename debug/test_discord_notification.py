@@ -3,42 +3,50 @@
 Debug script to test Discord notification when HA is down.
 
 This simulates what happens in run_planner error handler:
-1. Loads config.yaml (local, should work)
-2. Tries to send HA notification (should fail)
-3. Falls back to Discord (should work)
+1. Loads config.yaml for HA service
+2. Loads secrets.yaml for Discord webhook
+3. Tries to send HA notification (should fail)
+4. Falls back to Discord (should work)
 """
 import sys
 import os
 
 sys.path.insert(0, os.getcwd())
 
-# Test 1: Can we read the Discord webhook from config?
+# Test 1: Can we read the Discord webhook from secrets?
 print("=" * 50)
-print("TEST 1: Read Discord webhook from config.yaml")
+print("TEST 1: Read Discord webhook from secrets.yaml")
 print("=" * 50)
 
 import yaml
 
 try:
+    # Load config for HA service name
     with open("config.yaml", "r") as f:
         config = yaml.safe_load(f) or {}
     
     executor_cfg = config.get("executor", {})
     notif_cfg = executor_cfg.get("notifications", {})
-    discord_webhook_url = notif_cfg.get("discord_webhook_url")
     ha_service = notif_cfg.get("service")
+    
+    # Load secrets for Discord webhook
+    with open("secrets.yaml", "r") as f:
+        secrets = yaml.safe_load(f) or {}
+    
+    notif_secrets = secrets.get("notifications", {})
+    discord_webhook_url = notif_secrets.get("discord_webhook_url")
     
     print(f"✅ Config loaded successfully")
     print(f"   Discord webhook: {'SET' if discord_webhook_url else 'NOT SET'}")
     print(f"   HA service: {ha_service or 'NOT SET'}")
     
     if not discord_webhook_url:
-        print("❌ PROBLEM: Discord webhook not configured!")
-        print("   Path: executor.notifications.discord_webhook_url")
+        print("❌ PROBLEM: Discord webhook not configured in secrets.yaml!")
+        print("   Path: notifications.discord_webhook_url in secrets.yaml")
         sys.exit(1)
         
 except Exception as e:
-    print(f"❌ Failed to load config: {e}")
+    print(f"❌ Failed to load config/secrets: {e}")
     sys.exit(1)
 
 # Test 2: Try Discord notification directly

@@ -1,0 +1,33 @@
+# Darkstar Energy Manager - Docker Compose
+# Easy local deployment with volume mounts for user configuration
+
+version: "3.8"
+
+services:
+  darkstar:
+    build: .
+    container_name: darkstar
+    ports:
+      - "5000:5000"
+    volumes:
+      # User configuration (required)
+      - ./config.yaml:/app/config.yaml:ro
+      - ./secrets.yaml:/app/secrets.yaml:ro
+      # Persistent data
+      - darkstar-data:/data
+      # Optional: persist schedule and learning DB locally
+      - ./schedule.json:/app/schedule.json
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Stockholm
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  darkstar-data:
+    driver: local

@@ -29,6 +29,23 @@ def load_home_assistant_config() -> Dict[str, Any]:
     return ha_config
 
 
+def load_notification_secrets() -> Dict[str, Any]:
+    """Read notification secrets (e.g., Discord webhook) from secrets.yaml."""
+    try:
+        with open("secrets.yaml", "r") as file:
+            secrets = yaml.safe_load(file) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as exc:  # pragma: no cover - defensive logging
+        print(f"Warning: Could not load secrets.yaml: {exc}")
+        return {}
+
+    notif_secrets = secrets.get("notifications")
+    if not isinstance(notif_secrets, dict):
+        return {}
+    return notif_secrets
+
+
 def _make_ha_headers(token: str) -> Dict[str, str]:
     """Return headers for Home Assistant REST calls."""
     return {

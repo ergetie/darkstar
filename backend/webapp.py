@@ -1920,9 +1920,10 @@ def run_planner():
         # Send notification via HA-first, Discord fallback
         try:
             from backend.notify import send_critical_notification
-            from inputs import load_home_assistant_config
+            from inputs import load_home_assistant_config, load_notification_secrets
 
             ha_config = load_home_assistant_config() or {}
+            notif_secrets = load_notification_secrets() or {}
 
             with open("config.yaml", "r") as f:
                 config = yaml.safe_load(f) or {}
@@ -1936,7 +1937,7 @@ def run_planner():
                 ha_service=notif_cfg.get("service"),
                 ha_url=ha_config.get("url"),
                 ha_token=ha_config.get("token"),
-                discord_webhook_url=notif_cfg.get("discord_webhook_url"),
+                discord_webhook_url=notif_secrets.get("discord_webhook_url"),
             )
         except Exception as notif_err:
             logger.warning("Failed to send planner error notification: %s", notif_err)

@@ -1,32 +1,42 @@
-# Python virtual environment
+# Python
 venv/
-
-# Python cache
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
 
-# Secrets file
+# Secrets and user config (DO NOT COMMIT)
 secrets.yaml
+config.yaml
 
-# IDE / Editor specific files
+# IDE / Editor
 .vscode/
 .idea/
+*.kate-swp
+*.swp
 
-# Generated files (output)
+# Logs
 *.log
 webapp*.log
+
+# Node
 node_modules/
 **/node_modules/
 frontend/dist/
+frontend/.vite/
 
-# Temporary config snapshots
-temp_config_*.yaml
-
-# Database
+# Databases
+*.db
+*.db-journal
 data/planner_learning.db
 
-# Schedule
+# Generated files
 schedule.json
 data/*.backup*
 *.backup*.db
+temp_config_*.yaml
 temp_secrets.txt
+
+# OS
+.DS_Store
+Thumbs.db
