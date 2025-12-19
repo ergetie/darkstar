@@ -267,20 +267,13 @@ class PlannerPipeline:
 
         logger.info("Kepler input initial_soc_kwh: %.3f", kepler_input.initial_soc_kwh)
 
-        # Apply Target SoC constraint to Kepler Config?
-        # Kepler config has min_soc_percent. We can override it with target_soc_pct if we want hard constraint.
-        # Or we can let Kepler handle it if we pass it as a constraint.
-        # Legacy planner sets self.target_soc_kwh and uses it in _pass_6.
-        # Kepler solver supports 'target_soc_kwh' in input? No, it supports min/max soc.
-        # We can set min_soc_percent to the target for the end of the horizon? No.
-        # We can set min_soc_percent globally.
-        # If target_soc_pct > min_soc_percent, we should probably raise min_soc_percent.
-
-        if mode == "full" and target_soc_kwh > 0:
-            # Dynamic Target SoC acts as a floor
-            current_min = kepler_config.min_soc_percent
-            if target_soc_pct > current_min:
-                kepler_config.min_soc_percent = target_soc_pct
+        # Target SoC is applied via soft constraint in Kepler solver
+        # (soc_violation penalty = 1000 SEK/kWh + terminal_value incentive)
+        # 
+        # IMPORTANT: We do NOT raise min_soc_percent globally because:
+        # - That would prevent mid-day discharge even when profitable
+        # - Soft target allows Kepler to optimize, just incentivizes ending high
+        # - MPC replans hourly, so end-of-horizon target naturally guides behavior
 
         solver = KeplerSolver()
         result = solver.solve(kepler_input, kepler_config)
