@@ -23,9 +23,9 @@ def send_critical_notification(
 ) -> bool:
     """
     Send a critical notification with fallback support.
-    
+
     Tries Home Assistant first, falls back to Discord webhook.
-    
+
     Args:
         title: Notification title
         message: Notification message
@@ -33,7 +33,7 @@ def send_critical_notification(
         ha_url: Home Assistant URL
         ha_token: Home Assistant long-lived access token
         discord_webhook_url: Discord webhook URL for fallback
-        
+
     Returns:
         True if notification was sent successfully via any method
     """
@@ -43,14 +43,14 @@ def send_critical_notification(
             logger.info("Critical notification sent via Home Assistant")
             return True
         logger.warning("Home Assistant notification failed, trying fallback...")
-    
+
     # Fallback to Discord
     if discord_webhook_url:
         if _send_discord_notification(discord_webhook_url, title, message):
             logger.info("Critical notification sent via Discord webhook")
             return True
         logger.error("Discord notification also failed")
-    
+
     logger.error("All notification methods failed for: %s", title)
     return False
 
@@ -70,10 +70,10 @@ def _send_ha_notification(
         if len(parts) != 2:
             logger.error("Invalid HA notification service format: %s", service)
             return False
-        
+
         domain, svc_name = parts
         endpoint = f"{ha_url.rstrip('/')}/api/services/{domain}/{svc_name}"
-        
+
         response = requests.post(
             endpoint,
             headers={
@@ -108,7 +108,7 @@ def _send_discord_notification(
                 }
             ]
         }
-        
+
         response = requests.post(
             webhook_url,
             json=payload,
