@@ -454,13 +454,13 @@ def calculate_target_soc_risk_factor(
     buffer_above_one = raw_factor_with_weather - 1.0
 
     # Direct mapping of risk_appetite to buffer multiplier
-    # This is more intuitive than sigma-based math
+    # Negative values for Gambler mode allow targeting BELOW min_soc
     BUFFER_MULTIPLIER_MAP = {
-        1: 1.5,  # Safety: 150% buffer (higher than neutral)
-        2: 1.2,  # Conservative: 120% buffer
-        3: 1.0,  # Neutral: 100% buffer (raw_factor)
-        4: 0.5,  # Aggressive: 50% buffer
-        5: 0.1,  # Gambler: 10% buffer (nearly min_soc, betting on cheap night charge)
+        1: 1.5,   # Safety: 150% buffer (higher than neutral)
+        2: 1.2,   # Conservative: 120% buffer
+        3: 1.0,   # Neutral: 100% buffer (raw_factor)
+        4: 0.5,   # Aggressive: 50% buffer
+        5: -0.5,  # Gambler: NEGATIVE buffer (target below min_soc, bet on replan!)
     }
     buffer_multiplier = BUFFER_MULTIPLIER_MAP.get(risk_appetite, 1.0)
 
@@ -531,7 +531,7 @@ def calculate_dynamic_target_soc(
     Calculate Dynamic Target SoC based on risk factor.
 
     Args:
-        risk_factor: Calculated future risk factor
+        risk_factor: Calculated future risk factor (can be < 1.0 for Gambler mode)
         battery_config: Battery configuration
         s_index_cfg: S-index configuration
 
@@ -541,8 +541,13 @@ def calculate_dynamic_target_soc(
     min_soc_pct = float(battery_config.get("min_soc_percent", 10.0))
     soc_scaling = float(s_index_cfg.get("soc_scaling_factor", 50.0))
 
-    target_soc_pct = min_soc_pct + max(0.0, (risk_factor - 1.0) * soc_scaling)
-    target_soc_pct = min(100.0, target_soc_pct)
+    # Note: (risk_factor - 1.0) can be negative for Gambler mode
+    # This allows targeting BELOW min_soc (betting on MPC replan)
+    buffer_pct = (risk_factor - 1.0) * soc_scaling
+    target_soc_pct = min_soc_pct + buffer_pct
+    
+    # Absolute floor at 5% to prevent dangerous states
+    target_soc_pct = max(5.0, min(100.0, target_soc_pct))
 
     capacity_kwh = float(battery_config.get("capacity_kwh", 0.0))
     target_soc_kwh = (target_soc_pct / 100.0) * capacity_kwh if capacity_kwh > 0 else 0.0
@@ -550,6 +555,7 @@ def calculate_dynamic_target_soc(
     debug = {
         "risk_factor": risk_factor,
         "scaling_factor": soc_scaling,
+        "buffer_pct": round(buffer_pct, 2),
         "target_percent": round(target_soc_pct, 2),
         "target_kwh": round(target_soc_kwh, 2),
     }
