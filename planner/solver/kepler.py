@@ -39,6 +39,13 @@ class KeplerSolver:
         curtailment = pulp.LpVariable.dicts("curtailment_kwh", range(T), lowBound=0.0)
         load_shedding = pulp.LpVariable.dicts("load_shedding_kwh", range(T), lowBound=0.0)
 
+        # Water heating as deferrable load (Rev K17)
+        water_enabled = config.water_heating_power_kw > 0
+        if water_enabled:
+            water_heat = pulp.LpVariable.dicts("water_heat", range(T), cat="Binary")
+        else:
+            water_heat = {t: 0 for t in range(T)}  # Disabled
+
         # SoC state variables (T+1 states for T slots)
         min_soc_kwh = config.capacity_kwh * config.min_soc_percent / 100.0
         max_soc_kwh = config.capacity_kwh * config.max_soc_percent / 100.0
@@ -73,9 +80,12 @@ class KeplerSolver:
             s = slots[t]
             h = slot_hours[t]
 
-            # Energy Balance Constraint
+            # Water heating load for this slot (kWh)
+            water_load_kwh = water_heat[t] * config.water_heating_power_kw * h if water_enabled else 0
+
+            # Energy Balance Constraint (water load added to demand side)
             prob += (
-                s.load_kwh + charge[t] + grid_export[t] + curtailment[t]
+                s.load_kwh + water_load_kwh + charge[t] + grid_export[t] + curtailment[t]
                 == s.pv_kwh + discharge[t] + grid_import[t] + load_shedding[t]
             )
 
@@ -144,6 +154,22 @@ class KeplerSolver:
         if config.target_soc_kwh is not None:
             prob += soc[T] >= target_soc_kwh - target_violation
 
+        # Water Heating Constraints (Rev K17)
+        if water_enabled and config.water_heating_min_kwh > 0:
+            # Constraint: Must heat at least min_kwh total
+            # Calculate average slot hours (all slots should be same)
+            avg_slot_hours = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
+            water_kwh_per_slot = config.water_heating_power_kw * avg_slot_hours
+            prob += pulp.lpSum(water_heat[t] for t in range(T)) * water_kwh_per_slot >= config.water_heating_min_kwh
+
+            # Constraint: Max gap between heating sessions
+            if config.water_heating_max_gap_hours > 0:
+                gap_slots = int(config.water_heating_max_gap_hours / avg_slot_hours)
+                gap_slots = max(1, gap_slots)
+                # For every window of gap_slots, at least one heating slot must be active
+                for start in range(T - gap_slots + 1):
+                    prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots)) >= 1
+
         # Terminal Value
         terminal_value = soc[T] * config.terminal_value_sek_kwh
 
@@ -174,12 +200,20 @@ class KeplerSolver:
         if is_optimal:
             for t in range(T):
                 s = slots[t]
+                h = slot_hours[t]
 
                 c_val = pulp.value(charge[t])
                 d_val = pulp.value(discharge[t])
                 i_val = pulp.value(grid_import[t])
                 e_val = pulp.value(grid_export[t])
                 soc_val = pulp.value(soc[t + 1])
+
+                # Water heating power (kW) from binary decision
+                if water_enabled:
+                    w_val = pulp.value(water_heat[t])
+                    w_kw = config.water_heating_power_kw if w_val and w_val > 0.5 else 0.0
+                else:
+                    w_kw = 0.0
 
                 wear = (c_val + d_val) * config.wear_cost_sek_per_kwh
                 cost = (i_val * s.import_price_sek_kwh) - (e_val * s.export_price_sek_kwh) + wear
@@ -197,6 +231,7 @@ class KeplerSolver:
                         cost_sek=cost,
                         import_price_sek_kwh=s.import_price_sek_kwh,
                         export_price_sek_kwh=s.export_price_sek_kwh,
+                        water_heat_kw=w_kw,
                         is_optimal=True,
                     )
                 )

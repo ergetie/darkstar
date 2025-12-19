@@ -234,7 +234,13 @@ class PlannerPipeline:
         # For now, let's assume 0.0 if not provided, or check input_data["sensors"] if available.
         ha_water_today = 0.0  # Placeholder, needs integration with HA client if needed
 
-        df = schedule_water_heating(df, active_config, now_slot, ha_water_today)
+        # Rev K17: Skip heuristic water scheduling when Kepler handles it as deferrable load
+        water_cfg = active_config.get("water_heating", {})
+        kepler_water_enabled = float(water_cfg.get("power_kw", 0.0)) > 0
+        if not kepler_water_enabled:
+            # Fallback to old heuristic if water heating disabled in config
+            df = schedule_water_heating(df, active_config, now_slot, ha_water_today)
+        # Otherwise, Kepler will handle water_heating_kw in the MILP
 
         # 5. Run Solver (Kepler)
         # CRITICAL: Only pass FUTURE slots to Kepler, starting from NOW with CURRENT real SoC

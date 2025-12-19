@@ -106,6 +106,16 @@ def config_to_kepler_config(
             if planner_config.get("grid", {}).get("import_limit_kw")
             else None
         ),
+        # Water heating as deferrable load (Rev K17)
+        water_heating_power_kw=float(
+            planner_config.get("water_heating", {}).get("power_kw", 0.0)
+        ),
+        water_heating_min_kwh=float(
+            planner_config.get("water_heating", {}).get("min_kwh_per_day", 0.0)
+        ),
+        water_heating_max_gap_hours=float(
+            planner_config.get("water_heating", {}).get("max_hours_between_heating", 0.0)
+        ),
     )
 
 
@@ -163,7 +173,7 @@ def kepler_result_to_dataframe(
                 "grid_export_kw": s.grid_export_kwh / duration_h,
                 "import_kwh": s.grid_import_kwh,
                 "export_kwh": s.grid_export_kwh,
-                "water_heating_kw": 0.0,
+                "water_heating_kw": s.water_heat_kw,  # From Kepler MILP (Rev K17)
                 "water_from_grid_kwh": 0.0,
                 "water_from_pv_kwh": 0.0,
                 "water_from_battery_kwh": 0.0,

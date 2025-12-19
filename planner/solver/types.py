@@ -31,6 +31,10 @@ class KeplerConfig:
     ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes
     export_threshold_sek_per_kwh: float = 0.0  # Min spread to export
     grid_import_limit_kw: Optional[float] = None  # Soft constraint
+    # Water heating as deferrable load (Rev K17)
+    water_heating_power_kw: float = 0.0  # 0 = disabled
+    water_heating_min_kwh: float = 0.0  # Daily minimum
+    water_heating_max_gap_hours: float = 0.0  # Max hours between heating (0 = no constraint)
 
 
 @dataclass
@@ -67,6 +71,7 @@ class KeplerResultSlot:
     cost_sek: float
     import_price_sek_kwh: float = 0.0
     export_price_sek_kwh: float = 0.0
+    water_heat_kw: float = 0.0  # Rev K17: Water heating power in this slot
     is_optimal: bool = True
 
 
