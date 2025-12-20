@@ -215,6 +215,7 @@ executor:
   enabled: true
   shadow_mode: true
   interval_seconds: 300
+  pause_reminder_minutes: 30       # Send reminder if paused longer than this
   history_retention_days: 30
   automation_toggle_entity: input_boolean.darkstar_enable
   manual_override_entity: input_boolean.darkstar_manual_override

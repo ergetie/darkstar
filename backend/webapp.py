@@ -478,8 +478,11 @@ def select_theme():
         return jsonify({"error": "accent_index must be between 0 and 15"}), 400
 
     try:
-        with open("config.yaml", "r") as handle:
-            config = yaml.safe_load(handle) or {}
+        from ruamel.yaml import YAML
+        yaml_handler = YAML()
+        yaml_handler.preserve_quotes = True
+        with open("config.yaml", "r", encoding="utf-8") as handle:
+            config = yaml_handler.load(handle) or {}
     except FileNotFoundError:
         config = {}
 
@@ -488,8 +491,8 @@ def select_theme():
     if accent_index is not None:
         ui_section["theme_accent_index"] = accent_index
 
-    with open("config.yaml", "w") as handle:
-        yaml.safe_dump(config, handle, default_flow_style=False)
+    with open("config.yaml", "w", encoding="utf-8") as handle:
+        yaml_handler.dump(config, handle)
 
     return jsonify(
         {
@@ -865,9 +868,12 @@ def executor_toggle():
         return jsonify({"error": "Must specify 'enabled' or 'shadow_mode'"}), 400
 
     # Update config.yaml
+    from ruamel.yaml import YAML
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
     try:
         with open("config.yaml", "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
+            config = yaml_handler.load(f) or {}
     except FileNotFoundError:
         config = {}
 
@@ -879,7 +885,7 @@ def executor_toggle():
         executor_cfg["shadow_mode"] = bool(shadow_mode)
 
     with open("config.yaml", "w", encoding="utf-8") as f:
-        yaml.safe_dump(config, f, default_flow_style=False)
+        yaml_handler.dump(config, f)
 
     # Reload executor config
     executor = _get_executor()
@@ -1132,9 +1138,12 @@ def executor_notifications():
     # POST - Update notification settings
     payload = request.get_json(silent=True) or {}
 
+    from ruamel.yaml import YAML
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
     try:
         with open("config.yaml", "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
+            config = yaml_handler.load(f) or {}
     except FileNotFoundError:
         config = {}
 
@@ -1159,7 +1168,7 @@ def executor_notifications():
             notifications[key] = payload[key]
 
     with open("config.yaml", "w", encoding="utf-8") as f:
-        yaml.safe_dump(config, f, default_flow_style=False)
+        yaml_handler.dump(config, f)
 
     # Reload executor config
     executor = _get_executor()

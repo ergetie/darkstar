@@ -6,6 +6,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 """
 
 import pulp
+from collections import defaultdict
 from typing import List
 from .types import KeplerConfig, KeplerInput, KeplerResult, KeplerResultSlot
 
@@ -160,10 +161,30 @@ class KeplerSolver:
             avg_slot_hours = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
             water_kwh_per_slot = config.water_heating_power_kw * avg_slot_hours
 
-            # Constraint 1: Remaining min_kwh (reduced by what's already heated today)
-            remaining_kwh = max(0.0, config.water_heating_min_kwh - config.water_heated_today_kwh)
-            if remaining_kwh > 0:
-                prob += pulp.lpSum(water_heat[t] for t in range(T)) * water_kwh_per_slot >= remaining_kwh
+            # Constraint 1: Per-day min_kwh requirements
+            # Group slots by date to apply daily minimum constraints
+            slots_by_day = defaultdict(list)
+            for t in range(T):
+                slot_date = slots[t].start_time.date()
+                slots_by_day[slot_date].append(t)
+
+            # Sort days to identify "today" (first day in horizon)
+            sorted_days = sorted(slots_by_day.keys())
+
+            for i, day in enumerate(sorted_days):
+                day_slot_indices = slots_by_day[day]
+                if i == 0:
+                    # First day: reduce by what's already heated today
+                    day_min_kwh = max(0.0, config.water_heating_min_kwh - config.water_heated_today_kwh)
+                else:
+                    # Future days: full daily requirement
+                    day_min_kwh = config.water_heating_min_kwh
+
+                if day_min_kwh > 0:
+                    prob += (
+                        pulp.lpSum(water_heat[t] for t in day_slot_indices) * water_kwh_per_slot
+                        >= day_min_kwh
+                    )
 
             # Constraint 2: Soft gap penalty (Rev K18)
             # For each window beyond threshold without heating, apply comfort penalty
