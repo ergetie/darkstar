@@ -32,6 +32,15 @@ cp secrets.example.yaml secrets.yaml
 docker-compose up -d
 ```
 
+To update:
+```bash
+cd /opt/darkstar
+git pull origin main
+docker compose build
+docker compose down && docker compose up -d
+docker compose logs -f
+```
+
 Access the UI at **http://localhost:5000**
 
 ### Option 2: Home Assistant Add-on

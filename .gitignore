@@ -33,6 +33,8 @@ data/planner_learning.db
 
 # Generated files
 schedule.json
+data/scheduler_status.json
+data/strategy_history.json
 data/*.backup*
 *.backup*.db
 temp_config_*.yaml
