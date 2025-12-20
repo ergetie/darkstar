@@ -52,8 +52,24 @@ log "  Darkstar Energy Manager v2.0.0"
 log "=========================================="
 
 # Check for required config files
+# NOTE: Docker creates DIRECTORIES when bind mount sources don't exist!
+# If you see these errors, delete the directory and create the file.
+if [ -d "/app/config.yaml" ]; then
+    log "ERROR: /app/config.yaml is a DIRECTORY, not a file!"
+    log "This happens when Docker starts without the source file existing."
+    log "FIX: On host, run: rm -rf ./config.yaml && cp config.default.yaml config.yaml"
+    exit 1
+fi
+
 if [ ! -f "/app/config.yaml" ]; then
     log "ERROR: /app/config.yaml not found. Mount your config file."
+    log "HINT: Copy config.default.yaml to config.yaml and customize it."
+    exit 1
+fi
+
+if [ -d "/app/secrets.yaml" ]; then
+    log "ERROR: /app/secrets.yaml is a DIRECTORY, not a file!"
+    log "FIX: On host, run: rm -rf ./secrets.yaml && cp secrets.example.yaml secrets.yaml"
     exit 1
 fi
 
