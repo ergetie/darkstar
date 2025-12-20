@@ -128,6 +128,30 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
+### [IN PROGRESS] Rev K18 — Comfort Level & Soft Gap Constraint
+
+**Goal:** Fix over-heating and add comfort slider for soft gap penalty.
+
+**Problems Solved:**
+1. **Over-heating:** Kepler didn't know what was already heated today
+2. **Hard gap constraint:** Forces mid-day heating even when expensive
+
+**Approach:**
+- Pass `water_heated_today` to Kepler → reduce remaining min_kwh
+- Replace hard gap with **soft gap penalty**
+- Add `comfort_level: 1-5` slider → maps to penalty strength
+
+**Comfort Level Mapping:**
+| Level | Penalty (SEK/hour) | Behavior |
+|-------|-------------------|----------|
+| 1 | 0.05 | Economy |
+| 3 | 0.50 | Neutral |
+| 5 | 3.00 | Maximum |
+
+**Status:** In Progress.
+
+---
+
 ## Backlog
 
 ### ⏸️ On Hold

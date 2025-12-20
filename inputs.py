@@ -519,10 +519,19 @@ def get_initial_state(config_path="config.yaml"):
     battery_soc_percent = max(0.0, min(100.0, battery_soc_percent))
     battery_kwh = capacity_kwh * battery_soc_percent / 100.0
 
+    # Water heater energy today (Rev K18)
+    water_heater_entity = input_sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
+    water_heated_today_kwh = 0.0
+    if water_heater_entity:
+        ha_water = get_home_assistant_sensor_float(water_heater_entity)
+        if ha_water is not None:
+            water_heated_today_kwh = ha_water
+
     return {
         "battery_soc_percent": battery_soc_percent,
         "battery_kwh": battery_kwh,
         "battery_cost_sek_per_kwh": battery_cost_sek_per_kwh,
+        "water_heated_today_kwh": water_heated_today_kwh,
     }
 
 

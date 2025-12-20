@@ -154,21 +154,32 @@ class KeplerSolver:
         if config.target_soc_kwh is not None:
             prob += soc[T] >= target_soc_kwh - target_violation
 
-        # Water Heating Constraints (Rev K17)
-        if water_enabled and config.water_heating_min_kwh > 0:
-            # Constraint: Must heat at least min_kwh total
-            # Calculate average slot hours (all slots should be same)
+        # Water Heating Constraints (Rev K17/K18)
+        gap_violation_penalty = 0.0
+        if water_enabled:
             avg_slot_hours = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
             water_kwh_per_slot = config.water_heating_power_kw * avg_slot_hours
-            prob += pulp.lpSum(water_heat[t] for t in range(T)) * water_kwh_per_slot >= config.water_heating_min_kwh
 
-            # Constraint: Max gap between heating sessions
-            if config.water_heating_max_gap_hours > 0:
+            # Constraint 1: Remaining min_kwh (reduced by what's already heated today)
+            remaining_kwh = max(0.0, config.water_heating_min_kwh - config.water_heated_today_kwh)
+            if remaining_kwh > 0:
+                prob += pulp.lpSum(water_heat[t] for t in range(T)) * water_kwh_per_slot >= remaining_kwh
+
+            # Constraint 2: Soft gap penalty (Rev K18)
+            # For each window beyond threshold without heating, apply comfort penalty
+            if config.water_heating_max_gap_hours > 0 and config.water_comfort_penalty_sek > 0:
                 gap_slots = int(config.water_heating_max_gap_hours / avg_slot_hours)
                 gap_slots = max(1, gap_slots)
-                # For every window of gap_slots, at least one heating slot must be active
+                
+                # Slack variable for gap violations
+                gap_violation = pulp.LpVariable.dicts("gap_viol", range(T), lowBound=0.0)
+                
+                # For every window: water_heat_sum + violation >= 1
                 for start in range(T - gap_slots + 1):
-                    prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots)) >= 1
+                    prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots)) + gap_violation[start] >= 1
+                
+                # Calculate total gap penalty (violation * penalty per window)
+                gap_violation_penalty = config.water_comfort_penalty_sek * pulp.lpSum(gap_violation[t] for t in range(T - gap_slots + 1))
 
         # Terminal Value
         terminal_value = soc[T] * config.terminal_value_sek_kwh
@@ -176,11 +187,13 @@ class KeplerSolver:
         # Set Objective
         # - min_soc violation: HARD penalty (1000 SEK/kWh)
         # - target violation: SOFT penalty (from config, derived from risk_appetite)
+        # - gap violation: SOFT comfort penalty (Rev K18)
         prob += (
             pulp.lpSum(total_cost)
             - terminal_value
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
             + target_soc_penalty * target_violation
+            + gap_violation_penalty
         )
 
         # Solve

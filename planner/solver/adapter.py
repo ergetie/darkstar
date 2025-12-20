@@ -55,6 +55,22 @@ def planner_to_kepler_input(df: pd.DataFrame, initial_soc_kwh: float) -> KeplerI
     return KeplerInput(slots=slots, initial_soc_kwh=initial_soc_kwh)
 
 
+def _comfort_level_to_penalty(comfort_level: int) -> float:
+    """Map comfort level (1-5) to gap penalty (SEK/hour beyond threshold).
+    
+    Level 1: Economy - comfort is nice-to-have
+    Level 5: Maximum - almost hard constraint
+    """
+    COMFORT_PENALTY_MAP = {
+        1: 0.05,   # Economy
+        2: 0.20,   # Balanced
+        3: 0.50,   # Neutral
+        4: 1.00,   # Priority
+        5: 3.00,   # Maximum
+    }
+    return COMFORT_PENALTY_MAP.get(comfort_level, 0.50)
+
+
 def config_to_kepler_config(
     planner_config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
 ) -> KeplerConfig:
@@ -106,7 +122,7 @@ def config_to_kepler_config(
             if planner_config.get("grid", {}).get("import_limit_kw")
             else None
         ),
-        # Water heating as deferrable load (Rev K17)
+        # Water heating as deferrable load (Rev K17/K18)
         water_heating_power_kw=float(
             planner_config.get("water_heating", {}).get("power_kw", 0.0)
         ),
@@ -115,6 +131,10 @@ def config_to_kepler_config(
         ),
         water_heating_max_gap_hours=float(
             planner_config.get("water_heating", {}).get("max_hours_between_heating", 8.0)
+        ),
+        water_heated_today_kwh=0.0,  # Set in pipeline from HA sensor
+        water_comfort_penalty_sek=_comfort_level_to_penalty(
+            int(planner_config.get("water_heating", {}).get("comfort_level", 3))
         ),
     )
 

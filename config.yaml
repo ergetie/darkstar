@@ -64,7 +64,7 @@ strategic_charging:
 # Water Heating
 water_heating:
   power_kw: 3.0                    # Power consumption of the water heater
-  min_hours_per_day: 2.0           # Minimum run-time per day
+  min_hours_per_day: 2.5           # Minimum run-time per day
   min_kwh_per_day: 6.0             # Optional; defaults to power * hours when unset
   max_blocks_per_day: 2            # Prefer single block, up to two if needed
   schedule_future_only: true       # Only schedule future slots (skip current slot)
@@ -73,6 +73,7 @@ water_heating:
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
   max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
+  comfort_level: 3                   # Rev K18: 1-5 (Economy→Maximum) - controls gap penalty
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:

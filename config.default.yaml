@@ -73,12 +73,13 @@ water_heating:
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
   max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
+  comfort_level: 3                   # Rev K18: 1-5 (Economy→Maximum) - controls gap penalty
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:
   mode: "probabilistic"            # Options: probabilistic | dynamic
   static_factor:                   # Used when mode=static
-  base_factor: 1.1                 # Starting point for dynamic calculations
+  base_factor: 1.1                 # Starting point for dynamic calculationsWfz  
   max_factor: 1.5                  # Upper bound clamp for dynamic mode
   pv_deficit_weight: 0.2           # Weight for PV/load deficit contribution
   temp_weight: 0.3                 # Weight for temperature adjustment

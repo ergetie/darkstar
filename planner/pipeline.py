@@ -226,13 +226,9 @@ class PlannerPipeline:
         df, window_debug = identify_windows(df, active_config, initial_state, now_slot)
 
         # 4. Schedule Water Heating
-        # Fetch HA water usage from input_data or query DB?
-        # Legacy planner queries DB inside _get_daily_water_usage_kwh.
-        # But we need HA sensor value. input_data usually contains 'sensors' or similar?
-        # Legacy planner calls self._get_home_assistant_water_heating_today() which calls inputs.get_home_assistant_sensor_float
-        # We'll assume input_data has it or we skip it for now (or fetch it if we had the helper).
-        # For now, let's assume 0.0 if not provided, or check input_data["sensors"] if available.
-        ha_water_today = 0.0  # Placeholder, needs integration with HA client if needed
+        # Get water heater daily consumption from HA sensor (Rev K18)
+        initial_state = input_data.get("initial_state", {})
+        ha_water_today = float(initial_state.get("water_heated_today_kwh", 0.0))
 
         # Rev K17: Skip heuristic water scheduling when Kepler handles it as deferrable load
         water_cfg = active_config.get("water_heating", {})
@@ -271,7 +267,10 @@ class PlannerPipeline:
         kepler_input = planner_to_kepler_input(future_df, initial_soc_kwh)
         kepler_config = config_to_kepler_config(active_config, overrides)
 
-        logger.info("Kepler input initial_soc_kwh: %.3f", kepler_input.initial_soc_kwh)
+        # Rev K18: Pass water heated today to reduce remaining min requirement
+        kepler_config.water_heated_today_kwh = ha_water_today
+
+        logger.info("Kepler input initial_soc_kwh: %.3f, water_heated_today: %.2f kWh", kepler_input.initial_soc_kwh, ha_water_today)
 
         # Target SoC is applied via soft constraint in Kepler solver:
         # - min_soc violation: 1000 SEK/kWh (HARD - don't violate!)

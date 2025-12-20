@@ -38,6 +38,8 @@ export default function Dashboard() {
     const [avgLoad, setAvgLoad] = useState<{ kw?: number; dailyKwh?: number } | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
     const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
+    const [comfortLevel, setComfortLevel] = useState<number>(3)  // Rev K18
+    const [riskAppetite, setRiskAppetite] = useState<number>(3)  // Risk Appetite on Dashboard
     const [learningStatus, setLearningStatus] = useState<{ enabled?: boolean; status?: string; samples?: number } | null>(null)
     const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
     const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[] | null>(null)
@@ -592,18 +594,102 @@ export default function Dashboard() {
             {/* Row 3: Context Cards */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Water heater</div>
-                    <div className="flex items-center justify-between">
-                        <div className="text-2xl">Eco mode</div>
+                    <div className="flex justify-between items-center mb-3">
+                        <div className="text-sm text-muted">Water heater</div>
                         <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
                             today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
                         </div>
                     </div>
+                    <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>
+                    <div className="flex gap-1 mb-2">
+                        {[1, 2, 3, 4, 5].map((level) => {
+                            const colorMap: Record<number, string> = {
+                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50',
+                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50',
+                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50',
+                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50',
+                                5: 'bg-red-500/30 text-red-300 border-red-500/50'
+                            }
+                            return (
+                                <button
+                                    key={level}
+                                    onClick={async () => {
+                                        setComfortLevel(level)
+                                        await Api.configSave({ water_heating: { comfort_level: level } })
+                                    }}
+                                    className={`w-8 h-8 rounded text-xs font-medium transition-all border ${comfortLevel === level
+                                        ? colorMap[level]
+                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text border-transparent'
+                                        }`}
+                                >
+                                    {level}
+                                </button>
+                            )
+                        })}
+                    </div>
+                    <div className="text-sm">
+                        <span className={`font-medium ${comfortLevel === 1 ? 'text-emerald-400' :
+                            comfortLevel === 2 ? 'text-teal-400' :
+                                comfortLevel === 3 ? 'text-blue-400' :
+                                    comfortLevel === 4 ? 'text-amber-400' :
+                                        'text-red-400'
+                            }`}>
+                            {{
+                                1: 'Economy',
+                                2: 'Balanced',
+                                3: 'Neutral',
+                                4: 'Priority',
+                                5: 'Maximum'
+                            }[comfortLevel]}
+                        </span>
+                        <span className="text-muted"> mode active</span>
+                    </div>
                 </Card>
                 <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Export guard</div>
-                    <div className="text-2xl capitalize">
-                        {exportGuard?.enabled ? (exportGuard?.mode || 'passive') : 'disabled'}
+                    <div className="text-sm text-muted mb-3">Risk Strategy</div>
+                    <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Risk Appetite</div>
+                    <div className="flex gap-1 mb-2">
+                        {[1, 2, 3, 4, 5].map((level) => {
+                            const colorMap: Record<number, string> = {
+                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50',
+                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50',
+                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50',
+                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50',
+                                5: 'bg-red-500/30 text-red-300 border-red-500/50'
+                            }
+                            return (
+                                <button
+                                    key={level}
+                                    onClick={async () => {
+                                        setRiskAppetite(level)
+                                        await Api.configSave({ s_index: { risk_appetite: level } })
+                                    }}
+                                    className={`w-8 h-8 rounded text-xs font-medium transition-all border ${riskAppetite === level
+                                            ? colorMap[level]
+                                            : 'bg-surface2 text-muted hover:bg-surface hover:text-text border-transparent'
+                                        }`}
+                                >
+                                    {level}
+                                </button>
+                            )
+                        })}
+                    </div>
+                    <div className="text-sm">
+                        <span className={`font-medium ${riskAppetite === 1 ? 'text-emerald-400' :
+                                riskAppetite === 2 ? 'text-teal-400' :
+                                    riskAppetite === 3 ? 'text-blue-400' :
+                                        riskAppetite === 4 ? 'text-amber-400' :
+                                            'text-red-400'
+                            }`}>
+                            {{
+                                1: 'Safety',
+                                2: 'Conservative',
+                                3: 'Neutral',
+                                4: 'Aggressive',
+                                5: 'Gambler'
+                            }[riskAppetite]}
+                        </span>
+                        <span className="text-muted"> mode active</span>
                     </div>
                 </Card>
                 <Card className="p-5">
