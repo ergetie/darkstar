@@ -12,6 +12,12 @@
 - **Run full test suite**: `PYTHONPATH=. python -m pytest -q`
 - **Run single test**: `python -m pytest tests/test_module.py::test_function -v` (if pytest is used)
 
+### Fish Shell (Important!)
+The development environment uses **fish shell**. Special characters in commit messages cause issues:
+- **Avoid parentheses** `()` in commit messages - fish interprets them as command substitution
+- **Use simple messages**: `git commit -m "Short description without special chars"`
+- **For complex messages**: Use `git commit` without `-m` to open editor
+
 ### Key Dependencies
 - `pandas` - Data manipulation and analysis
 - `pyyaml` - YAML configuration file parsing

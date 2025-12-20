@@ -148,7 +148,164 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | 3 | 0.50 | Neutral |
 | 5 | 3.00 | Maximum |
 
-**Status:** In Progress.
+**Status:** Complete.
+
+---
+
+### [PLANNED] Rev K19 — Vacation Mode Anti-Legionella
+
+**Goal:** When vacation mode is ON, disable normal comfort-based water heating and run periodic anti-legionella cycles.
+
+**Background:**
+- Legionella bacteria grow in stagnant water between 20-45°C
+- Swedish regulation recommends heating to 65°C periodically to kill bacteria
+- During vacation, normal heating is wasteful but safety heating is required
+
+---
+
+**Behavior:**
+
+| Mode | Normal Heating | Anti-Legionella | Trigger |
+|------|---------------|-----------------|---------|
+| Vacation OFF | ✅ Comfort-based (K17/K18) | ❌ Not used | — |
+| Vacation ON | ❌ Disabled | ✅ 3h block weekly | 6+ days since last |
+
+**Anti-Legionella Cycle:**
+- Duration: 3 hours at 3kW = 9 kWh (heats tank to 65°C)
+- Frequency: Once per 7 days (check after 6 days to allow scheduling)
+- Scheduling: Uses existing `max_blocks_per_day` config (can split if needed)
+- Price optimization: Pick cheapest slots from available 36h window
+
+**Price Window Constraint:**
+- Tomorrow's prices arrive after 13:15
+- Only trigger scheduling after 14:00 to have full price data
+- Logic: `if now.hour >= 14 AND days_since_last >= 6 → schedule in next 24h`
+
+---
+
+**Config Changes:**
+
+File: `config.default.yaml`
+```yaml
+water_heating:
+  # ... existing config ...
+  vacation_mode:
+    enabled: false                    # Master switch
+    anti_legionella_temp_c: 65        # Target temperature
+    anti_legionella_interval_days: 7  # Cycle every N days
+    anti_legionella_duration_hours: 3.0  # 3h at power_kw
+```
+
+---
+
+**State Tracking (SQLite DB):**
+
+Uses existing `learning.sqlite_path` database. Create table on first use:
+
+```sql
+CREATE TABLE IF NOT EXISTS vacation_state (
+    key TEXT PRIMARY KEY,
+    value TEXT,
+    updated_at TEXT
+);
+```
+
+Store: `key='last_anti_legionella_at'`, `value='2024-12-20T04:00:00+01:00'`
+
+- Read on planner startup
+- Write after anti-legionella heating is scheduled
+- If missing, assume heating is due immediately
+
+---
+
+**Implementation Steps:**
+
+**Step 1: Config** (`config.default.yaml`)
+- Add `vacation_mode` section under `water_heating`
+- Copy to user's `config.yaml`
+
+**Step 2: DB Helper Functions** (new file `planner/vacation_state.py`)
+```python
+import sqlite3
+from datetime import datetime
+from typing import Optional
+
+def get_db_path() -> str:
+    """Get SQLite path from config"""
+    # Use learning.sqlite_path from config
+    return config.get("learning", {}).get("sqlite_path", "learning.db")
+
+def load_last_anti_legionella() -> Optional[datetime]:
+    """Load last anti-legionella timestamp from SQLite DB"""
+    conn = sqlite3.connect(get_db_path())
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vacation_state (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT
+        )
+    """)
+    cursor = conn.execute(
+        "SELECT value FROM vacation_state WHERE key = 'last_anti_legionella_at'"
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return datetime.fromisoformat(row[0]) if row else None
+
+def save_last_anti_legionella(timestamp: datetime):
+    """Save timestamp to SQLite DB"""
+    conn = sqlite3.connect(get_db_path())
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS vacation_state (
+            key TEXT PRIMARY KEY, value TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("""
+        INSERT OR REPLACE INTO vacation_state (key, value, updated_at)
+        VALUES ('last_anti_legionella_at', ?, ?)
+    """, (timestamp.isoformat(), datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+```
+
+**Step 3: Pipeline Logic** (`planner/pipeline.py`)
+```python
+from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
+
+# After loading config, before Kepler:
+vacation_cfg = water_cfg.get("vacation_mode", {})
+vacation_enabled = vacation_cfg.get("enabled", False)
+
+if vacation_enabled:
+    # Skip normal comfort heating
+    kepler_config.water_heating_min_kwh = 0.0
+    kepler_config.water_comfort_penalty_sek = 0.0
+    
+    # Check if anti-legionella is due
+    last_al = load_last_anti_legionella()
+    days_since = (now - last_al).days if last_al else 999
+    
+    if days_since >= 6 and now.hour >= 14:
+        # Schedule anti-legionella: 3h block in cheapest slots
+        al_kwh = vacation_cfg.get("anti_legionella_duration_hours", 3.0) * power_kw
+        kepler_config.water_heating_min_kwh = al_kwh
+        # After Kepler returns, save timestamp
+        save_last_anti_legionella(now)
+```
+
+**Step 4: Dashboard UI** (`frontend/src/pages/Dashboard.tsx`)
+- Add vacation mode toggle to Water Heater card
+- Shows "Vacation Mode" badge when enabled
+- API: `Api.configSave({ water_heating: { vacation_mode: { enabled: true } } })`
+
+---
+
+**Testing:**
+1. Enable vacation mode in config
+2. Manually insert old timestamp in DB: `INSERT INTO vacation_state VALUES ('last_anti_legionella_at', '2024-12-13T04:00:00', '...')`
+3. Run planner after 14:00
+4. Verify 3h water heating block scheduled in cheapest slots
+5. Verify timestamp updated in vacation_state table
+
+**Status:** Planned.
 
 ---
 
