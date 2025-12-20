@@ -84,7 +84,7 @@ notifications:
 
 ## 🏠 Home Assistant Integration
 
-Darkstar reads sensors and controls your inverter through Home Assistant.
+Darkstar reads sensors and controls your inverter through Home Assistant:
 
 **Required Sensors:**
 - Battery SoC (%)
@@ -102,7 +102,7 @@ Darkstar reads sensors and controls your inverter through Home Assistant.
 The web UI provides:
 
 - **Live Schedule** — 48-hour visualization with charge/discharge/export slots
-- **Forecasting** — Compare predictions vs. actuals
+- **Forecasting** — Compare ML predictions vs. actuals
 - **Manual Planning** — Override or extend the automated schedule
 - **Settings** — Tune parameters without editing YAML files
 

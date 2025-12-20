@@ -39,6 +39,7 @@ export default function Dashboard() {
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
     const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
     const [comfortLevel, setComfortLevel] = useState<number>(3)  // Rev K18
+    const [vacationMode, setVacationMode] = useState<boolean>(false)  // Rev K19
     const [riskAppetite, setRiskAppetite] = useState<number>(3)  // Risk Appetite on Dashboard
     const [learningStatus, setLearningStatus] = useState<{ enabled?: boolean; status?: string; samples?: number } | null>(null)
     const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
@@ -214,6 +215,16 @@ export default function Dashboard() {
                 // Initialize auto-refresh from dashboard config if present
                 if (typeof data.dashboard?.auto_refresh_enabled === 'boolean') {
                     setAutoRefresh(data.dashboard.auto_refresh_enabled)
+                }
+
+                // Load comfort level and vacation mode from water_heating config
+                if (data.water_heating) {
+                    if (typeof data.water_heating.comfort_level === 'number') {
+                        setComfortLevel(data.water_heating.comfort_level)
+                    }
+                    if (typeof data.water_heating.vacation_mode?.enabled === 'boolean') {
+                        setVacationMode(data.water_heating.vacation_mode.enabled)
+                    }
                 }
             } else {
                 hadError = true
@@ -595,9 +606,32 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 <Card className="p-5">
                     <div className="flex justify-between items-center mb-3">
-                        <div className="text-sm text-muted">Water heater</div>
-                        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
-                            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-muted">Water heater</span>
+                            {vacationMode && (
+                                <span className="rounded-pill bg-amber-500/20 border border-amber-500/50 px-2 py-0.5 text-amber-300 text-[10px] font-medium">
+                                    🌴 Vacation
+                                </span>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={async () => {
+                                    const next = !vacationMode
+                                    setVacationMode(next)
+                                    await Api.configSave({ water_heating: { vacation_mode: { enabled: next } } })
+                                }}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition border ${vacationMode
+                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                                        : 'bg-surface2 border-line/60 text-muted hover:border-amber-500/50 hover:text-amber-300'
+                                    }`}
+                                title={vacationMode ? 'Disable vacation mode' : 'Enable vacation mode (anti-legionella only)'}
+                            >
+                                🌴
+                            </button>
+                            <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
+                                today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
+                            </div>
                         </div>
                     </div>
                     <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>

@@ -4,43 +4,6 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ---
 
-## Release v2.1.0 — Production-Ready Deployment (2025-12-19)
-
-Major release with integrated Native Executor, redesigned Risk Appetite system, and production Docker deployment.
-
-### Highlights
-- **Native Executor**: 100% MariaDB-free operation with 5-minute control loop
-- **Risk Appetite Redesign (Rev K16)**: Fixed base buffers per level + weather adjustment
-- **Docker Production Fixes**: Multi-process entrypoint, static asset handling, config persistence
-
-### Rev K16 — Target SoC Redesign (Fixed Base Buffers)
-- Replaced scaling-based approach with FIXED base buffers per risk level:
-  - Level 1 (Safety): +35% above min_soc
-  - Level 2 (Conservative): +20%
-  - Level 3 (Neutral): +10%
-  - Level 4 (Aggressive): +3%
-  - Level 5 (Gambler): -7% (below min_soc)
-- Weather/PV deficit adjustment (±8%) is now INDEPENDENT of risk level
-- Guarantees: Level 1 > Level 2 > Level 3 > Level 4 > Level 5 (ALWAYS)
-- Removed deprecated `soc_scaling_factor` config parameter
-- **Status:** ✅ Completed
-
-### Native Executor
-- Replaced n8n "Helios Executor" workflow with native Python executor
-- 5-minute tick loop for inverter control
-- Shadow mode for safe testing
-- Notification integration via Home Assistant
-- **Status:** ✅ Completed
-
-### Docker Production Deployment
-- Multi-process entrypoint: Flask API + Scheduler + Recorder
-- Graceful shutdown and process monitoring
-- Static asset handling (Vite → Flask templates)
-- Config save now preserves structure (ruamel.yaml)
-- **Status:** ✅ Completed
-
----
-
 ## Phase 7: Kepler Era (MILP Planner Maturation)
 
 This phase promoted Kepler from shadow mode to primary planner, implemented strategic S-Index, and built out the learning/reflex systems.

@@ -27,6 +27,7 @@ from planner.strategy.s_index import (
 from planner.strategy.windows import identify_windows
 from planner.strategy.manual_plan import apply_manual_plan
 from planner.scheduling.water_heating import schedule_water_heating
+from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
 from planner.solver.adapter import (
     planner_to_kepler_input,
     config_to_kepler_config,
@@ -270,6 +271,46 @@ class PlannerPipeline:
         # Rev K18: Pass water heated today to reduce remaining min requirement
         kepler_config.water_heated_today_kwh = ha_water_today
 
+        # Rev K19: Vacation Mode Anti-Legionella
+        vacation_cfg = water_cfg.get("vacation_mode", {})
+        vacation_enabled = vacation_cfg.get("enabled", False)
+        schedule_anti_legionella = False
+
+        # HA entity can override config when ON
+        ha_vacation = initial_state.get("vacation_mode", False)
+        if ha_vacation:
+            vacation_enabled = True
+
+        if vacation_enabled:
+            logger.info("Vacation mode enabled - disabling comfort-based water heating")
+            # Disable normal comfort-based heating
+            kepler_config.water_heating_min_kwh = 0.0
+            kepler_config.water_comfort_penalty_sek = 0.0
+
+            # Check if anti-legionella cycle is due
+            sqlite_path = active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+            last_al = load_last_anti_legionella(sqlite_path)
+            days_since = (now_slot.to_pydatetime().replace(tzinfo=None) - last_al.replace(tzinfo=None)).days if last_al else 999
+            interval_days = int(vacation_cfg.get("anti_legionella_interval_days", 7))
+
+            # Trigger scheduling after 14:00 (when tomorrow's prices are available)
+            # and when interval - 1 days have passed (allows scheduling in next 24h)
+            if days_since >= (interval_days - 1) and now_slot.hour >= 14:
+                duration_hours = float(vacation_cfg.get("anti_legionella_duration_hours", 3.0))
+                power_kw = float(water_cfg.get("power_kw", 3.0))
+                al_kwh = duration_hours * power_kw
+                kepler_config.water_heating_min_kwh = al_kwh
+                schedule_anti_legionella = True
+                logger.info(
+                    "Anti-legionella due: %d days since last (interval=%d). Scheduling %.1f kWh.",
+                    days_since, interval_days, al_kwh
+                )
+            else:
+                logger.debug(
+                    "Anti-legionella not due: %d days since last, hour=%d",
+                    days_since, now_slot.hour
+                )
+
         logger.info("Kepler input initial_soc_kwh: %.3f, water_heated_today: %.2f kWh", kepler_input.initial_soc_kwh, ha_water_today)
 
         # Target SoC is applied via soft constraint in Kepler solver:
@@ -299,6 +340,14 @@ class PlannerPipeline:
                 len(result.slots),
                 result.slots[0].soc_kwh,
             )
+
+            # Rev K19: Save anti-legionella timestamp if scheduled
+            if schedule_anti_legionella:
+                # Check if water heating was actually planned
+                water_slots = [s for s in result.slots if s.water_heat_kw > 0]
+                if water_slots:
+                    save_last_anti_legionella(sqlite_path, now_slot.to_pydatetime())
+                    logger.info("Anti-legionella cycle scheduled, timestamp saved.")
 
         # Convert result back to DataFrame
         capacity = kepler_config.capacity_kwh

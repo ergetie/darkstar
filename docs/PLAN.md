@@ -128,7 +128,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev K18 — Comfort Level & Soft Gap Constraint
+### ✅ Rev K18 — Comfort Level & Soft Gap Constraint
 
 **Goal:** Fix over-heating and add comfort slider for soft gap penalty.
 
@@ -152,7 +152,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev K19 — Vacation Mode Anti-Legionella
+### ✅ Rev K19 — Vacation Mode Anti-Legionella
 
 **Goal:** When vacation mode is ON, disable normal comfort-based water heating and run periodic anti-legionella cycles.
 
@@ -305,7 +305,7 @@ if vacation_enabled:
 4. Verify 3h water heating block scheduled in cheapest slots
 5. Verify timestamp updated in vacation_state table
 
-**Status:** Planned.
+**Status:** Complete.
 
 ---
 
@@ -341,6 +341,7 @@ if vacation_enabled:
 ### ⚙️ Planner & Core
 *   **[Core] Dynamic Window Expansion (Smart Thresholds)**: *Note: Rev 20 in Aurora v2 Plan claimed this was done, but validating if fully merged/tested.* Logic: Allow charging in "expensive" slots if the "cheap" window is physically too short to reach Target SoC.
 *   **[Core] Sensor Unification**: Refactor `inputs.py` / `learning.py` to read *all* sensor IDs from `config.yaml` (`input_sensors`), removing the need for `secrets.yaml` to hold entity IDs.
+*   **[Core] HA Entity Config Consolidation**: Currently vacation mode, learning, and other features read HA entity state at runtime. Consider consolidating all HA-derived toggles into `config.yaml` with a single source of truth pattern (config file vs. HA entity override).
 
 ### 🛠️ Ops & Infrastructure
 *   **[Ops] Deployment**: Document/Script the transfer of `planner_learning.db` and models to production servers.

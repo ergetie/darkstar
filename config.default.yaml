@@ -75,6 +75,13 @@ water_heating:
   max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
   comfort_level: 3                   # Rev K18: 1-5 (Economy→Maximum) - controls gap penalty
 
+  # Rev K19: Vacation Mode (anti-legionella)
+  vacation_mode:
+    enabled: false                    # Master switch (HA entity can override when ON)
+    anti_legionella_temp_c: 65        # Target temperature for safety cycle
+    anti_legionella_interval_days: 7  # Run cycle every N days
+    anti_legionella_duration_hours: 3.0  # Duration at power_kw (e.g., 3h * 3kW = 9kWh)
+
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:
   mode: "probabilistic"            # Options: probabilistic | dynamic
