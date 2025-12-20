@@ -94,7 +94,7 @@ executor:
     on_water_heat_start: true
     on_water_heat_stop: false
     service: notify.mobile_app_sebastians_iphone
-  shadow_mode: false
+  shadow_mode: true
   soc_target_entity: input_number.master_soc_target
   water_heater:
     target_entity: input_number.vvbtemp
