@@ -100,6 +100,14 @@ class ExecutorEngine:
         # Quick action storage (user-initiated time-limited overrides)
         self._quick_action: Optional[Dict[str, Any]] = None  # {type, expires_at, reason}
 
+        # Pause state (idle mode with reminder)
+        self._paused_at: Optional[datetime] = None
+        self._pause_reminder_sent: bool = False
+
+        # Water boost state
+        self._water_boost_until: Optional[datetime] = None
+
+
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
         # Use the same database as the learning engine
@@ -159,8 +167,10 @@ class ExecutorEngine:
         except Exception as e:
             logger.debug("Could not load current slot plan: %s", e)
 
-        # Get quick action status BEFORE acquiring lock (it has its own lock)
+        # Get statuses BEFORE acquiring lock (they have their own locks)
         quick_action_status = self._get_quick_action_status()
+        pause_status = self.get_pause_status()
+        water_boost_status = self.get_water_boost_status()
 
         with self._lock:
             return {
@@ -176,6 +186,8 @@ class ExecutorEngine:
                 "override_active": self.status.override_active,
                 "override_type": self.status.override_type,
                 "quick_action": quick_action_status,
+                "paused": pause_status,
+                "water_boost": water_boost_status,
                 "version": EXECUTOR_VERSION,
             }
 
@@ -260,6 +272,236 @@ class ExecutorEngine:
     def get_active_quick_action(self) -> Optional[Dict[str, Any]]:
         """Get the currently active quick action, if any and not expired."""
         return self._get_quick_action_status()
+
+    # --- Pause/Resume (Idle Mode) ---
+
+    @property
+    def is_paused(self) -> bool:
+        """Check if executor is currently paused."""
+        with self._lock:
+            return self._paused_at is not None
+
+    def pause(self) -> Dict[str, Any]:
+        """
+        Pause the executor - enters idle mode.
+
+        Idle mode: zero export, min_soc target, no grid charging, no water heating.
+        A 30-minute reminder will be scheduled.
+        """
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+
+        with self._lock:
+            if self._paused_at is not None:
+                return {"success": False, "error": "Already paused", "paused_at": self._paused_at.isoformat()}
+
+            self._paused_at = now
+            self._pause_reminder_sent = False
+
+        logger.info("Executor PAUSED at %s - entering idle mode", now.isoformat())
+
+        # Immediately execute a tick to apply idle mode
+        if self.ha_client:
+            try:
+                self._apply_idle_mode()
+            except Exception as e:
+                logger.error("Failed to apply idle mode: %s", e)
+
+        return {
+            "success": True,
+            "paused_at": now.isoformat(),
+            "message": "Executor paused - idle mode active",
+        }
+
+    def resume(self, token: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Resume the executor from paused state.
+
+        Args:
+            token: Optional security token for webhook-based resume (future use)
+        """
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+
+        with self._lock:
+            if self._paused_at is None:
+                return {"success": False, "error": "Not paused"}
+
+            paused_duration = (now - self._paused_at).total_seconds() / 60
+            self._paused_at = None
+            self._pause_reminder_sent = False
+
+        logger.info("Executor RESUMED after %.1f minutes paused", paused_duration)
+
+        return {
+            "success": True,
+            "resumed_at": now.isoformat(),
+            "paused_duration_minutes": round(paused_duration, 1),
+            "message": "Executor resumed - returning to scheduled operation",
+        }
+
+    def get_pause_status(self) -> Optional[Dict[str, Any]]:
+        """Get pause status with duration if paused."""
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+
+        with self._lock:
+            if self._paused_at is None:
+                return None
+
+            duration = (now - self._paused_at).total_seconds() / 60
+            return {
+                "paused_at": self._paused_at.isoformat(),
+                "paused_minutes": round(duration, 1),
+                "reminder_sent": self._pause_reminder_sent,
+            }
+
+    def _apply_idle_mode(self) -> None:
+        """Apply idle mode settings to Home Assistant."""
+        if not self.dispatcher:
+            return
+
+        from .controller import ControllerDecision
+
+        # Idle mode: Zero export, no grid charging, min SoC target, no water heat
+        idle_decision = ControllerDecision(
+            work_mode=self.config.inverter.work_mode_zero_export,
+            grid_charging=False,
+            charge_current_a=0,
+            discharge_current_a=50,  # Allow discharge to power house
+            soc_target=10,  # Min SoC
+            water_temp=self.config.water_heater.temp_off,
+            source="pause_idle",
+            reason="Executor paused - idle mode",
+        )
+
+        self.dispatcher.execute(idle_decision)
+        logger.info("Idle mode applied: zero export, no grid charge, water off")
+
+    def _check_pause_reminder(self) -> None:
+        """Check if 30-minute pause reminder should be sent."""
+        if not self.config.pause_reminder_minutes:
+            return
+
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+
+        with self._lock:
+            if self._paused_at is None or self._pause_reminder_sent:
+                return
+
+            paused_minutes = (now - self._paused_at).total_seconds() / 60
+            if paused_minutes >= self.config.pause_reminder_minutes:
+                self._pause_reminder_sent = True
+                paused_at = self._paused_at
+
+        # Send reminder notification (outside lock)
+        if self.dispatcher:
+            self._send_pause_reminder(paused_at)
+
+    def _send_pause_reminder(self, paused_at: datetime) -> None:
+        """Send pause reminder notification with resume action."""
+        try:
+            from backend.notify import send_notification
+
+            # Generate resume webhook URL
+            # TODO: Add proper token-based security
+            resume_url = "/api/executor/resume"
+
+            message = (
+                f"⚠️ Executor has been paused for {self.config.pause_reminder_minutes} minutes. "
+                f"Paused since {paused_at.strftime('%H:%M')}."
+            )
+
+            # Send with HA actionable notification
+            send_notification(
+                message=message,
+                title="Darkstar Executor Paused",
+                notification_type="pause_reminder",
+                actions=[
+                    {"action": "RESUME_EXECUTOR", "title": "ACTIVATE"},
+                ],
+            )
+            logger.info("Pause reminder notification sent")
+        except Exception as e:
+            logger.error("Failed to send pause reminder: %s", e)
+
+    # --- Water Boost ---
+
+    def set_water_boost(self, duration_minutes: int) -> Dict[str, Any]:
+        """
+        Start water heater boost (heat to 65°C for specified duration).
+
+        Args:
+            duration_minutes: Duration in minutes (30, 60, or 120)
+
+        Returns:
+            Status dict with expires_at
+        """
+        valid_durations = [30, 60, 120]
+        if duration_minutes not in valid_durations:
+            raise ValueError(f"Invalid duration: {duration_minutes}. Must be one of {valid_durations}")
+
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+        expires_at = now + timedelta(minutes=duration_minutes)
+
+        with self._lock:
+            self._water_boost_until = expires_at
+
+        logger.info("Water boost started for %d minutes (until %s)", duration_minutes, expires_at.isoformat())
+
+        # Immediately apply the boost
+        if self.ha_client and self.dispatcher:
+            try:
+                self.dispatcher._set_water_temp(self.config.water_heater.temp_boost)
+            except Exception as e:
+                logger.error("Failed to apply water boost: %s", e)
+
+        return {
+            "success": True,
+            "expires_at": expires_at.isoformat(),
+            "duration_minutes": duration_minutes,
+            "temp_target": self.config.water_heater.temp_boost,
+        }
+
+    def clear_water_boost(self) -> Dict[str, Any]:
+        """Cancel active water boost."""
+        with self._lock:
+            was_active = self._water_boost_until is not None
+            self._water_boost_until = None
+
+        if was_active:
+            logger.info("Water boost cancelled by user")
+            # Set water temp back to normal
+            if self.dispatcher:
+                try:
+                    self.dispatcher._set_water_temp(self.config.water_heater.temp_off)
+                except Exception as e:
+                    logger.error("Failed to reset water temp: %s", e)
+
+        return {"success": True, "was_active": was_active}
+
+    def get_water_boost_status(self) -> Optional[Dict[str, Any]]:
+        """Get water boost status with remaining time."""
+        tz = pytz.timezone(self.config.timezone)
+        now = datetime.now(tz)
+
+        with self._lock:
+            if self._water_boost_until is None:
+                return None
+
+            if now >= self._water_boost_until:
+                # Expired
+                self._water_boost_until = None
+                return None
+
+            remaining = (self._water_boost_until - now).total_seconds() / 60
+            return {
+                "expires_at": self._water_boost_until.isoformat(),
+                "remaining_minutes": round(remaining, 1),
+                "temp_target": self.config.water_heater.temp_boost,
+            }
 
     def start(self) -> None:
         """Start the executor loop in a background thread."""
@@ -401,6 +643,16 @@ class ExecutorEngine:
         }
 
         try:
+            # 0. Check pause state first - if paused, apply idle mode and check reminder
+            if self.is_paused:
+                logger.info("Executor is PAUSED - applying idle mode")
+                self._check_pause_reminder()
+                self._apply_idle_mode()
+                self.status.last_run_status = "paused"
+                result["success"] = True
+                result["actions"] = [{"type": "skip", "reason": "paused_idle_mode"}]
+                return result
+
             # 1. Check automation toggle
             if self.ha_client:
                 toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)

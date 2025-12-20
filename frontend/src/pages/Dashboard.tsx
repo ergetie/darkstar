@@ -58,6 +58,7 @@ export default function Dashboard() {
     const [localSchedule, setLocalSchedule] = useState<ScheduleSlot[] | null>(null)
     const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
     const [lastError, setLastError] = useState<{ message: string; at: string } | null>(null)
+    const [executorStatus, setExecutorStatus] = useState<{ shadow_mode?: boolean; paused?: { paused_at?: string; paused_minutes?: number } | null } | null>(null)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -128,6 +129,7 @@ export default function Dashboard() {
                 learningData,
                 schedulerStatusData,
                 historyData,
+                executorStatusData,
             ] = await Promise.allSettled([
                 Api.status(),
                 Api.horizon(),
@@ -138,6 +140,7 @@ export default function Dashboard() {
                 Api.learningStatus(),
                 Api.schedulerStatus(),
                 Api.scheduleTodayWithHistory(),
+                Api.executor.status(),
             ])
 
             // Process status data
@@ -331,6 +334,17 @@ export default function Dashboard() {
                 console.error('Failed to load schedule history for Dashboard:', historyData.reason)
             }
 
+            // Process executor status
+            if (executorStatusData.status === 'fulfilled') {
+                const data = executorStatusData.value
+                setExecutorStatus({
+                    shadow_mode: data.shadow_mode ?? false,
+                    paused: data.paused ?? null,
+                })
+            } else {
+                console.error('Failed to load executor status for Dashboard:', executorStatusData.reason)
+            }
+
             setLastRefresh(new Date())
         } catch (error) {
             console.error('Error fetching dashboard data:', error)
@@ -476,6 +490,40 @@ export default function Dashboard() {
                 </motion.div>
             )}
 
+            {/* Shadow Mode Banner */}
+            {executorStatus?.shadow_mode && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-purple-500/20 border border-purple-500/50 rounded-lg px-4 py-3 mb-4"
+                >
+                    <div className="flex items-center gap-2 text-purple-300 text-sm font-medium">
+                        <span>👻</span>
+                        <span>Shadow Mode Active</span>
+                        <span className="text-purple-400/70 text-xs ml-2">— Actions logged but not executed on Home Assistant</span>
+                    </div>
+                </motion.div>
+            )}
+
+            {/* Executor Paused Banner */}
+            {executorStatus?.paused && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-orange-500/20 border border-orange-500/50 rounded-lg px-4 py-3 mb-4"
+                >
+                    <div className="flex items-center gap-2 text-orange-300 text-sm font-medium">
+                        <span>⏸️</span>
+                        <span>Executor Paused (Idle Mode)</span>
+                        {executorStatus.paused.paused_minutes !== undefined && (
+                            <span className="text-orange-400/70 text-xs ml-2">
+                                — Paused for {Math.round(executorStatus.paused.paused_minutes)} minutes
+                            </span>
+                        )}
+                    </div>
+                </motion.div>
+            )}
+
             <div className="flex flex-col items-center mb-3">
                 <pre className="text-[10px] leading-[1.15] bg-gradient-to-b from-accent to-accent/20 bg-clip-text text-transparent font-mono text-center">
                     {DARKSTAR_ASCII.map((line) => line).join('\n')}
@@ -614,24 +662,8 @@ export default function Dashboard() {
                                 </span>
                             )}
                         </div>
-                        <div className="flex items-center gap-2">
-                            <button
-                                onClick={async () => {
-                                    const next = !vacationMode
-                                    setVacationMode(next)
-                                    await Api.configSave({ water_heating: { vacation_mode: { enabled: next } } })
-                                }}
-                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition border ${vacationMode
-                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                                        : 'bg-surface2 border-line/60 text-muted hover:border-amber-500/50 hover:text-amber-300'
-                                    }`}
-                                title={vacationMode ? 'Disable vacation mode' : 'Enable vacation mode (anti-legionella only)'}
-                            >
-                                🌴
-                            </button>
-                            <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
-                                today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
-                            </div>
+                        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
+                            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
                         </div>
                     </div>
                     <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>
@@ -732,7 +764,7 @@ export default function Dashboard() {
                         {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
                     </div>
                 </Card>
-            </div>
-        </main>
+            </div >
+        </main >
     )
 }

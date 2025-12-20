@@ -212,12 +212,12 @@ export type ThemeSetResponse = {
 export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
 export type AuroraBriefingResponse = { briefing: string }
 
-async function getJSON<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: any): Promise<T> {
+async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: any): Promise<T> {
   const options: RequestInit = {
     method,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' }
   }
-  if (body && method === 'POST') {
+  if (body && (method === 'POST' || method === 'DELETE')) {
     options.body = JSON.stringify(body)
   }
   const r = await fetch(path, options)
@@ -283,6 +283,19 @@ export const Api = {
       getJSON<{ status: string; enabled: boolean }>('/api/aurora/config/toggle_reflex', 'POST', { enabled }),
   },
   performanceData: (days = 7) => getJSON<any>(`/api/performance/data?days=${days}`),
+  // Executor controls
+  executor: {
+    status: () => getJSON<any>('/api/executor/status'),
+    run: () => getJSON<any>('/api/executor/run', 'POST'),
+    pause: () => getJSON<{ success: boolean; paused_at?: string; message?: string; error?: string }>('/api/executor/pause', 'POST'),
+    resume: () => getJSON<{ success: boolean; resumed_at?: string; paused_duration_minutes?: number; message?: string; error?: string }>('/api/executor/resume', 'POST'),
+  },
+  // Water boost
+  waterBoost: {
+    status: () => getJSON<{ water_boost: { expires_at: string; remaining_minutes: number; temp_target: number } | null }>('/api/water/boost'),
+    start: (durationMinutes: number) => getJSON<{ success: boolean; expires_at?: string; duration_minutes?: number; temp_target?: number }>('/api/water/boost', 'POST', { duration_minutes: durationMinutes }),
+    cancel: () => getJSON<{ success: boolean; was_active?: boolean }>('/api/water/boost', 'DELETE'),
+  },
 }
 
 export const Sel = {

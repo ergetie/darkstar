@@ -9,6 +9,45 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 (Kepler revisions K1-K15 archived to CHANGELOG.md)
 
+### [IN PROGRESS] Rev UI1 — Dashboard Quick Actions Redesign
+
+**Goal:** Redesign the Dashboard Quick Actions for the native executor, with optional external executor fallback in Settings.
+
+**Changes:**
+
+#### Phase 1: New Quick Actions (4 Buttons)
+
+1. **Run Planner** — Runs planner + immediate slot execution
+   - 3-phase text: "Planning..." → "Executing..." → "Done ✓"
+   
+2. **Executor Toggle** (Pause/Resume)
+   - Pause: Sets idle mode (zero export, min_soc, stop heating)
+   - Visual: Red/orange pulsing glow when paused
+   - 30-min reminder notification with "ACTIVATE" webhook action
+   
+3. **Toggle Vacation** — Inline arrows for duration selection
+   - Options: 3, 7, 14, 21, 28 days
+   - Visual: Amber glow when active, shows end date
+   - Auto-disables when end date reached
+   
+4. **Boost Water** — Inline arrows for duration selection
+   - Options: 30min, 1h, 2h (heats to 65°C)
+   - Visual: Countdown timer, red glow when active
+
+#### Phase 2: Settings Integration
+
+- Add "External Executor Mode" toggle in Settings → Advanced
+- When enabled, show "DB Sync" card with Load/Push buttons
+
+#### Phase 3: Cleanup
+
+- Hide Planning tab from navigation (legacy, unused since Kepler)
+- Remove "Reset Optimal" button
+
+**Status:** Planning.
+
+---
+
 ### [IN PROGRESS] Rev E1 — Native Executor
 
 **Goal:** Replace n8n "Helios Executor" workflow with a native Python executor, enabling 100% MariaDB-free operation, full execution transparency, and end-user configurability.

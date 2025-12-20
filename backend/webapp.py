@@ -1311,6 +1311,75 @@ def executor_live():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/executor/pause", methods=["POST"])
+def executor_pause():
+    """Pause the executor - enters idle mode."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    try:
+        result = executor.pause()
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Failed to pause executor: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/executor/resume", methods=["GET", "POST"])
+def executor_resume():
+    """Resume the executor from paused state.
+    
+    GET: Used for webhook-based resume from notification action
+    POST: Used for direct resume from UI
+    """
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    # Token validation (for future security enhancement)
+    token = request.args.get("token") if request.method == "GET" else None
+
+    try:
+        result = executor.resume(token=token)
+        return jsonify(result)
+    except Exception as e:
+        logger.exception("Failed to resume executor: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/water/boost", methods=["GET", "POST", "DELETE"])
+def water_boost():
+    """Manage water heater boost (heat to 65°C for specified duration)."""
+    executor = _get_executor()
+    if executor is None:
+        return jsonify({"error": "Executor not available"}), 500
+
+    if request.method == "GET":
+        # Return current boost status
+        status = executor.get_water_boost_status()
+        return jsonify({"water_boost": status})
+
+    elif request.method == "POST":
+        # Start water boost
+        payload = request.get_json(silent=True) or {}
+        duration = payload.get("duration_minutes", 60)
+
+        try:
+            result = executor.set_water_boost(duration)
+            return jsonify(result)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("Failed to set water boost: %s", e)
+            return jsonify({"error": str(e)}), 500
+
+    elif request.method == "DELETE":
+        # Cancel water boost
+        result = executor.clear_water_boost()
+        return jsonify(result)
+
+
 @app.route("/api/db/current_schedule", methods=["GET"])
 def db_current_schedule():
     """Return the current_schedule from MariaDB in the same shape used by the UI."""
