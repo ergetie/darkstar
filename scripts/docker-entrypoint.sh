@@ -64,6 +64,13 @@ fi
 
 log "Config files found."
 
+# Initialize schedule.json if missing or corrupted (e.g., was a directory)
+if [ ! -f "/app/schedule.json" ] || [ -d "/app/schedule.json" ]; then
+    rm -rf /app/schedule.json 2>/dev/null || true
+    echo '{"schedule": [], "meta": {"initialized": true}}' > /app/schedule.json
+    log "Created empty schedule.json (planner will populate it)"
+fi
+
 # Start Scheduler (background)
 log "Starting Scheduler (hourly planner runs)..."
 python -m backend.scheduler 2>&1 | while read line; do echo "[SCHEDULER] $line"; done &
