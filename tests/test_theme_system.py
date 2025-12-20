@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 try:
-    from webapp import (
+    from backend.webapp import (
         _normalise_theme,
         _parse_legacy_theme_format,
         app,

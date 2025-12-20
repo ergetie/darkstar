@@ -3,6 +3,7 @@ import sys
 import os
 from datetime import datetime, timedelta
 import pytz
+import pytest
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -10,6 +11,7 @@ sys.path.append(os.getcwd())
 from ml.simulation.ha_client import HomeAssistantHistoryClient
 
 
+@pytest.mark.skip(reason="Manual debug script - run with 'python debug/test_ha_fetch.py' instead")
 async def test_fetch():
     print("Testing HA History Fetch...")
     client = HomeAssistantHistoryClient()

@@ -179,22 +179,39 @@ def test_target_soc_respects_max_factor():
 
 
 def test_dynamic_target_soc_uses_risk_factor():
-    """calculate_dynamic_target_soc should properly use the risk_factor."""
+    """calculate_dynamic_target_soc should properly use the fixed base buffers (K16).
+    
+    NEW K16 APPROACH:
+    - Each risk level has a FIXED base buffer above min_soc
+    - risk_factor (raw_factor) only contributes a weather adjustment (±8% max)
+    - LEVEL_BUFFER_MAP: {1: 35%, 2: 20%, 3: 10%, 4: 3%, 5: -7%}
+    """
     battery_cfg = {
         "capacity_kwh": 34.2,
         "min_soc_percent": 12.0,
     }
     s_index_cfg = {
-        "soc_scaling_factor": 50.0,
+        "risk_appetite": 3,  # Neutral: +10% buffer
     }
 
-    # Test with different risk factors
-    for risk_factor, expected_min in [(1.0, 12.0), (1.2, 22.0), (1.5, 37.0)]:
-        target_pct, target_kwh, debug = calculate_dynamic_target_soc(
-            risk_factor, battery_cfg, s_index_cfg
-        )
+    # With risk_factor=1.0 and risk_appetite=3:
+    # target = min_soc(12) + base_buffer(10) + weather_adj(0) = 22%
+    target_pct, target_kwh, debug = calculate_dynamic_target_soc(
+        risk_factor=1.0, battery_config=battery_cfg, s_index_cfg=s_index_cfg, raw_factor=1.0
+    )
+    
+    # min_soc(12%) + base_buffer(10%) + weather(0%) = 22%
+    expected_pct = 12.0 + 10.0  # = 22%
+    assert (
+        abs(target_pct - expected_pct) < 0.1
+    ), f"For risk_appetite=3, raw_factor=1.0: expected {expected_pct}%, got {target_pct}%"
 
-        expected_pct = 12.0 + max(0, (risk_factor - 1.0) * 50.0)
-        assert (
-            abs(target_pct - expected_pct) < 0.1
-        ), f"For risk_factor={risk_factor}, expected {expected_pct}%, got {target_pct}%"
+    # With raw_factor=1.2 (risky conditions): weather_adj = (1.2 - 1.0) * 40 = +8%
+    target_pct_risky, _, _ = calculate_dynamic_target_soc(
+        risk_factor=1.2, battery_config=battery_cfg, s_index_cfg=s_index_cfg, raw_factor=1.2
+    )
+    expected_risky = 12.0 + 10.0 + 8.0  # = 30%
+    assert (
+        abs(target_pct_risky - expected_risky) < 0.1
+    ), f"For raw_factor=1.2: expected {expected_risky}%, got {target_pct_risky}%"
+

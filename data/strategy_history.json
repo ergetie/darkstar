@@ -1,5 +1,86 @@
 [
   {
+    "timestamp": "2025-12-20T12:33:05.335455",
+    "type": "PRICE_VOLATILITY",
+    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
+    "details": {
+      "spread": 0.30000000000000004,
+      "mode": "conservative"
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:33:05.334322",
+    "type": "PRICE_VOLATILITY",
+    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
+    "details": {
+      "spread": 1.9,
+      "mode": "aggressive"
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:29:20.813582",
+    "type": "PRICE_VOLATILITY",
+    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
+    "details": {
+      "spread": 0.30000000000000004,
+      "mode": "conservative"
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:29:20.812425",
+    "type": "PRICE_VOLATILITY",
+    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
+    "details": {
+      "spread": 1.9,
+      "mode": "aggressive"
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:28:09.083834",
+    "type": "PRICE_VOLATILITY",
+    "message": "Low Price Spread (0.30 SEK). Conservative Mode engaged.",
+    "details": {
+      "spread": 0.30000000000000004,
+      "mode": "conservative"
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:28:09.082783",
+    "type": "PRICE_VOLATILITY",
+    "message": "High Price Spread (1.90 SEK). Aggressive Mode engaged.",
+    "details": {
+      "spread": 1.9,
+      "mode": "aggressive"
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:24:43.197971",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
+    "details": {
+      "cloud_vol": 0.17669831945802647,
+      "temp_vol": 0.2354880250226708
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:24:34.240156",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
+    "details": {
+      "cloud_vol": 0.17669831945802647,
+      "temp_vol": 0.2354880250226708
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:24:27.216890",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
+    "details": {
+      "cloud_vol": 0.17669831945802647,
+      "temp_vol": 0.2354880250226708
+    }
+  },
+  {
     "timestamp": "2025-12-20T12:02:15.200029",
     "type": "WEATHER_ADJUSTMENT",
     "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
@@ -815,87 +896,6 @@
     "details": {
       "cloud_vol": 0.4061350764888572,
       "temp_vol": 0.08429831358786999
-    }
-  },
-  {
-    "timestamp": "2025-12-17T20:42:15.766870",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.07, Temp: 0.10) passed to planner.",
-    "details": {
-      "cloud_vol": 0.0713347915274833,
-      "temp_vol": 0.09619627541779005
-    }
-  },
-  {
-    "timestamp": "2025-12-17T20:41:52.668181",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.07, Temp: 0.10) passed to planner.",
-    "details": {
-      "cloud_vol": 0.0713347915274833,
-      "temp_vol": 0.09619627541779005
-    }
-  },
-  {
-    "timestamp": "2025-12-17T13:08:29.559656",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.26, Temp: 0.15) passed to planner.",
-    "details": {
-      "cloud_vol": 0.25549805345471605,
-      "temp_vol": 0.15411150057646275
-    }
-  },
-  {
-    "timestamp": "2025-12-17T09:03:55.678899",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.27, Temp: 0.16) passed to planner.",
-    "details": {
-      "cloud_vol": 0.26610368320030064,
-      "temp_vol": 0.15620499351813308
-    }
-  },
-  {
-    "timestamp": "2025-12-17T09:02:58.852253",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.27, Temp: 0.16) passed to planner.",
-    "details": {
-      "cloud_vol": 0.26610368320030064,
-      "temp_vol": 0.15620499351813308
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:46:51.819347",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:43:19.852802",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:43:11.219974",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:42:47.714005",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "Weather volatility (Cloud: 0.70, Temp: 0.16) passed to planner.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415
     }
   }
 ]
