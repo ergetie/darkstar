@@ -90,6 +90,34 @@ water_heating:
 
 ---
 
+## 4.1 Vacation Mode (Rev K19)
+
+When vacation mode is enabled, normal comfort-based water heating is disabled and replaced with periodic **anti-legionella cycles** for safety.
+
+### Behavior
+| Mode | Normal Heating | Anti-Legionella |
+|------|----------------|-----------------|
+| Vacation OFF | ✅ Comfort-based (Kepler) | ❌ |
+| Vacation ON | ❌ Disabled | ✅ 3h block weekly |
+
+### Anti-Legionella Cycle
+- **Duration**: 3 hours at 3kW = 9 kWh (heats tank to 65°C)
+- **Frequency**: Every 7 days
+- **Scheduling**: After 14:00 (when tomorrow's prices available), picks cheapest slots
+- **Smart Detection**: If water already heated today (≥2 kWh from HA sensor), delays first cycle
+
+### Config
+```yaml
+water_heating:
+  vacation_mode:
+    enabled: false  # Toggle via Dashboard or HA entity
+    anti_legionella_interval_days: 7
+    anti_legionella_duration_hours: 3
+```
+
+### State Tracking
+Uses `vacation_state` table in `planner_learning.db` to track `last_anti_legionella_at` timestamp.
+
 ## 5. Aurora Intelligence Suite
 Darkstar's intelligence is powered by the **Aurora Suite**, which consists of three pillars:
 

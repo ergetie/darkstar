@@ -13,6 +13,7 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 - **Real-time Execution** — Automatic inverter control via Home Assistant
 - **Beautiful Dashboard** — React-based UI with live schedule visualization
 - **Self-Learning** — Parameters auto-tune to your home over time
+- **Vacation Mode** — Safe anti-legionella water heating while away
 
 ## 🚀 Quick Start
 
