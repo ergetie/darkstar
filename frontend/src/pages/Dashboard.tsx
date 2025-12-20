@@ -604,11 +604,11 @@ export default function Dashboard() {
                     <div className="flex gap-1 mb-2">
                         {[1, 2, 3, 4, 5].map((level) => {
                             const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50',
-                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50',
-                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50',
-                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50',
-                                5: 'bg-red-500/30 text-red-300 border-red-500/50'
+                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
+                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
+                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
+                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
+                                5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
                             }
                             return (
                                 <button
@@ -617,9 +617,9 @@ export default function Dashboard() {
                                         setComfortLevel(level)
                                         await Api.configSave({ water_heating: { comfort_level: level } })
                                     }}
-                                    className={`w-8 h-8 rounded text-xs font-medium transition-all border ${comfortLevel === level
-                                        ? colorMap[level]
-                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text border-transparent'
+                                    className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${comfortLevel === level
+                                        ? `${colorMap[level]} ring-2 soft-glow`
+                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
                                         }`}
                                 >
                                     {level}
@@ -651,11 +651,11 @@ export default function Dashboard() {
                     <div className="flex gap-1 mb-2">
                         {[1, 2, 3, 4, 5].map((level) => {
                             const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50',
-                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50',
-                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50',
-                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50',
-                                5: 'bg-red-500/30 text-red-300 border-red-500/50'
+                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
+                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
+                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
+                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
+                                5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
                             }
                             return (
                                 <button
@@ -664,9 +664,9 @@ export default function Dashboard() {
                                         setRiskAppetite(level)
                                         await Api.configSave({ s_index: { risk_appetite: level } })
                                     }}
-                                    className={`w-8 h-8 rounded text-xs font-medium transition-all border ${riskAppetite === level
-                                            ? colorMap[level]
-                                            : 'bg-surface2 text-muted hover:bg-surface hover:text-text border-transparent'
+                                    className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${riskAppetite === level
+                                        ? `${colorMap[level]} ring-2 soft-glow`
+                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
                                         }`}
                                 >
                                     {level}
@@ -676,10 +676,10 @@ export default function Dashboard() {
                     </div>
                     <div className="text-sm">
                         <span className={`font-medium ${riskAppetite === 1 ? 'text-emerald-400' :
-                                riskAppetite === 2 ? 'text-teal-400' :
-                                    riskAppetite === 3 ? 'text-blue-400' :
-                                        riskAppetite === 4 ? 'text-amber-400' :
-                                            'text-red-400'
+                            riskAppetite === 2 ? 'text-teal-400' :
+                                riskAppetite === 3 ? 'text-blue-400' :
+                                    riskAppetite === 4 ? 'text-amber-400' :
+                                        'text-red-400'
                             }`}>
                             {{
                                 1: 'Safety',

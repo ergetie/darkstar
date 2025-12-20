@@ -6,14 +6,31 @@
 :root {
     --ring: 0 0% 100%;
 }
+
+/* Soft ambient glow for active level buttons */
+.soft-glow {
+    position: relative;
+}
+
+.soft-glow::before {
+    content: '';
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0.15;
+    filter: blur(6px);
+    z-index: -1;
+}
+
 body::before {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
     background:
-    radial-gradient(1200px 600px at 80% -10%, rgba(255,255,255,0.05), transparent 60%),
-    radial-gradient(1200px 600px at 10% 110%, rgba(255,255,255,0.05), transparent 60%);
+        radial-gradient(1200px 600px at 80% -10%, rgba(255, 255, 255, 0.05), transparent 60%),
+        radial-gradient(1200px 600px at 10% 110%, rgba(255, 255, 255, 0.05), transparent 60%);
 }
 
 /* Planning timeline item styling */
@@ -55,7 +72,8 @@ body::before {
 }
 
 .react-calendar-timeline .rct-dateHeader-primary {
-    display: none !important; /* hide big date header row */
+    display: none !important;
+    /* hide big date header row */
 }
 
 .react-calendar-timeline .rct-dateHeader {
@@ -93,6 +111,7 @@ body::before {
     background: transparent !important;
     border-bottom-color: rgba(255, 255, 255, 0.08) !important;
 }
+
 .ds-timeline-battery {
     background-color: #AAB6C4 !important;
 }
@@ -120,12 +139,14 @@ body::before {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #242b34; /* theme('colors.line') */
+    background: #242b34;
+    /* theme('colors.line') */
     border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #323b46; /* slightly lighter than line */
+    background: #323b46;
+    /* slightly lighter than line */
 }
 
 /* Firefox support */
