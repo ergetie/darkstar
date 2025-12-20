@@ -209,6 +209,13 @@ input_sensors:
   total_pv_production: sensor.inverter_total_production
   vacation_mode: input_boolean.vacation_mode
   water_heater_consumption: sensor.vvb_energy_daily
+  # Daily sensors for Today's Stats card
+  today_grid_import: sensor.inverter_today_energy_import
+  today_grid_export: sensor.inverter_today_energy_export
+  today_battery_charge: sensor.inverter_today_battery_charge
+  today_pv_production: sensor.inverter_today_production
+  today_load_consumption: sensor.inverter_today_load_consumption
+  today_net_cost: sensor.daily_cost
 
 # Executor (5-minute control loop)
 executor:

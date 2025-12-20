@@ -59,6 +59,15 @@ export default function Dashboard() {
     const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
     const [lastError, setLastError] = useState<{ message: string; at: string } | null>(null)
     const [executorStatus, setExecutorStatus] = useState<{ shadow_mode?: boolean; paused?: { paused_at?: string; paused_minutes?: number } | null } | null>(null)
+    const [todayStats, setTodayStats] = useState<{
+        gridImport: number | null;
+        gridExport: number | null;
+        batteryCycles: number | null;
+        pvProduction: number | null;
+        pvForecast: number | null;
+        loadConsumption: number | null;
+        netCost: number | null;
+    } | null>(null)
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -130,6 +139,7 @@ export default function Dashboard() {
                 schedulerStatusData,
                 historyData,
                 executorStatusData,
+                energyTodayData,
             ] = await Promise.allSettled([
                 Api.status(),
                 Api.horizon(),
@@ -141,6 +151,7 @@ export default function Dashboard() {
                 Api.schedulerStatus(),
                 Api.scheduleTodayWithHistory(),
                 Api.executor.status(),
+                Api.energyToday(),
             ])
 
             // Process status data
@@ -330,8 +341,24 @@ export default function Dashboard() {
                 const data = historyData.value
                 const histSlots = data.slots ?? []
                 setHistorySlots(histSlots)
+
+                // No longer calculating stats here - now using Api.energyToday()
             } else {
                 console.error('Failed to load schedule history for Dashboard:', historyData.reason)
+            }
+
+            // Calculate PV Forecast for today from history slots (if available)
+            let pvForecastSum = 0
+            if (historyData.status === 'fulfilled' && historyData.value.slots) {
+                const todayStart = new Date()
+                todayStart.setHours(0, 0, 0, 0)
+                const todaySlots = historyData.value.slots.filter(s => {
+                    const slotTime = new Date(s.start_time)
+                    return slotTime >= todayStart
+                })
+                todaySlots.forEach(s => {
+                    pvForecastSum += s.pv_forecast_kwh ?? 0
+                })
             }
 
             // Process executor status
@@ -343,6 +370,22 @@ export default function Dashboard() {
                 })
             } else {
                 console.error('Failed to load executor status for Dashboard:', executorStatusData.reason)
+            }
+
+            // Process energy today from HA sensors
+            if (energyTodayData.status === 'fulfilled') {
+                const data = energyTodayData.value
+                setTodayStats({
+                    gridImport: data.grid_import_kwh,
+                    gridExport: data.grid_export_kwh,
+                    batteryCycles: data.battery_cycles,
+                    pvProduction: data.pv_production_kwh,
+                    pvForecast: Math.round(pvForecastSum * 10) / 10,
+                    loadConsumption: data.load_consumption_kwh,
+                    netCost: data.net_cost_kr,
+                })
+            } else {
+                console.error('Failed to load energy today for Dashboard:', energyTodayData.reason)
             }
 
             setLastRefresh(new Date())
@@ -759,9 +802,86 @@ export default function Dashboard() {
                     </div>
                 </Card>
                 <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Learning</div>
-                    <div className="text-2xl capitalize">
-                        {learningStatus?.enabled ? (learningStatus?.status || 'ready') : 'disabled'}
+                    <div className="text-sm text-muted mb-3">Today's Stats</div>
+                    <div className="space-y-2">
+                        {/* Net Cost - positive = cost, negative = profit */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">💰</span>
+                                <span className="text-xs text-muted">Net</span>
+                            </div>
+                            <div className="text-right">
+                                <span className={`text-sm font-semibold ${(todayStats?.netCost ?? 0) <= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                                    {todayStats?.netCost != null ? todayStats.netCost.toFixed(2) : '—'}
+                                </span>
+                                <span className="text-xs text-muted ml-1">kr</span>
+                            </div>
+                        </div>
+                        {/* Grid: Import ↓ / Export ↑ */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">🔌</span>
+                                <span className="text-xs text-muted">Grid</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-sm font-semibold text-red-300">↓{todayStats?.gridImport?.toFixed(1) ?? '—'}</span>
+                                <span className="text-muted mx-0.5">/</span>
+                                <span className="text-sm font-semibold text-emerald-300">↑{todayStats?.gridExport?.toFixed(1) ?? '—'}</span>
+                            </div>
+                        </div>
+                        {/* PV: Actual / Forecast */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">☀️</span>
+                                <span className="text-xs text-muted">PV</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-sm font-semibold text-amber-300">
+                                    {todayStats?.pvProduction?.toFixed(1) ?? '—'}
+                                </span>
+                                <span className="text-xs text-muted mx-0.5">/</span>
+                                <span className="text-xs text-muted">{todayStats?.pvForecast?.toFixed(1) ?? '—'}</span>
+                            </div>
+                        </div>
+                        {/* Load: Actual / Average */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">⚡</span>
+                                <span className="text-xs text-muted">Load</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-sm font-semibold text-purple-300">
+                                    {todayStats?.loadConsumption?.toFixed(1) ?? '—'}
+                                </span>
+                                <span className="text-xs text-muted mx-0.5">/</span>
+                                <span className="text-xs text-muted">{avgLoad?.dailyKwh?.toFixed(0) ?? '—'}</span>
+                            </div>
+                        </div>
+                        {/* Battery Cycles */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">🔋</span>
+                                <span className="text-xs text-muted">Cycles</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-sm font-semibold text-cyan-300">
+                                    {todayStats?.batteryCycles != null ? todayStats.batteryCycles.toFixed(2) : '—'}
+                                </span>
+                            </div>
+                        </div>
+                        {/* Water Heating */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <span className="text-base">🔥</span>
+                                <span className="text-xs text-muted">Water</span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-sm font-semibold text-orange-300">
+                                    {waterToday?.kwh !== undefined ? waterToday.kwh.toFixed(1) : '—'}
+                                </span>
+                                <span className="text-xs text-muted ml-1">kWh</span>
+                            </div>
+                        </div>
                     </div>
                 </Card>
             </div >

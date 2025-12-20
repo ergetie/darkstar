@@ -290,12 +290,21 @@ export const Api = {
     pause: () => getJSON<{ success: boolean; paused_at?: string; message?: string; error?: string }>('/api/executor/pause', 'POST'),
     resume: () => getJSON<{ success: boolean; resumed_at?: string; paused_duration_minutes?: number; message?: string; error?: string }>('/api/executor/resume', 'POST'),
   },
-  // Water boost
   waterBoost: {
     status: () => getJSON<{ water_boost: { expires_at: string; remaining_minutes: number; temp_target: number } | null }>('/api/water/boost'),
     start: (durationMinutes: number) => getJSON<{ success: boolean; expires_at?: string; duration_minutes?: number; temp_target?: number }>('/api/water/boost', 'POST', { duration_minutes: durationMinutes }),
     cancel: () => getJSON<{ success: boolean; was_active?: boolean }>('/api/water/boost', 'DELETE'),
   },
+  // Energy stats from HA sensors
+  energyToday: () => getJSON<{
+    grid_import_kwh: number | null;
+    grid_export_kwh: number | null;
+    battery_charge_kwh: number | null;
+    battery_cycles: number | null;
+    pv_production_kwh: number | null;
+    load_consumption_kwh: number | null;
+    net_cost_kr: number | null;
+  }>('/api/energy/today'),
 }
 
 export const Sel = {

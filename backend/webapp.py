@@ -857,6 +857,60 @@ def executor_status():
     return jsonify(executor.get_status())
 
 
+@app.route("/api/energy/today", methods=["GET"])
+def energy_today():
+    """Return today's energy stats from HA sensors."""
+    executor = _get_executor()
+    if executor is None or executor.ha_client is None:
+        return jsonify({"error": "Executor or HA client not available"}), 500
+
+    # Load config to get sensor entity IDs
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            config = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        return jsonify({"error": "config.yaml not found"}), 500
+
+    input_sensors = config.get("input_sensors", {})
+    battery_capacity = config.get("system", {}).get("battery", {}).get("capacity_kwh", 34)
+
+    def read_sensor(key: str) -> float | None:
+        entity_id = input_sensors.get(key)
+        if not entity_id:
+            return None
+        value = executor.ha_client.get_state_value(entity_id)
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+
+    grid_import = read_sensor("today_grid_import")
+    grid_export = read_sensor("today_grid_export")
+    battery_charge = read_sensor("today_battery_charge")
+    pv_production = read_sensor("today_pv_production")
+    load_consumption = read_sensor("today_load_consumption")
+
+    # Calculate battery cycles (charge / capacity)
+    battery_cycles = None
+    if battery_charge is not None and battery_capacity:
+        battery_cycles = round(battery_charge / battery_capacity, 2)
+
+    # Read net cost directly from HA sensor
+    net_cost_kr = read_sensor("today_net_cost")
+
+    return jsonify({
+        "grid_import_kwh": grid_import,
+        "grid_export_kwh": grid_export,
+        "battery_charge_kwh": battery_charge,
+        "battery_cycles": battery_cycles,
+        "pv_production_kwh": pv_production,
+        "load_consumption_kwh": load_consumption,
+        "net_cost_kr": net_cost_kr,
+    })
+
+
 @app.route("/api/executor/toggle", methods=["POST"])
 def executor_toggle():
     """Enable or disable the executor."""
