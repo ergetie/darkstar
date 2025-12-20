@@ -34,6 +34,13 @@ from backend.strategy.analyst import EnergyAnalyst
 from backend.strategy.voice import get_advice
 from backend.api.aurora import aurora_bp
 
+
+DARKSTAR_ASCII = """
+█▀▄ ▄▀█ █▀█ █▄▀ █▀ ▀█▀ ▄▀█ █▀█
+█▄▀ █▀█ █▀▄ █░█ ▄█ ░█░ █▀█ █▀▄
+"""
+print(DARKSTAR_ASCII)
+
 app = Flask(__name__)
 app.register_blueprint(aurora_bp)
 
