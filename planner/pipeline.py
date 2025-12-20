@@ -291,6 +291,18 @@ class PlannerPipeline:
             # Check if anti-legionella cycle is due
             sqlite_path = active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
             last_al = load_last_anti_legionella(sqlite_path)
+
+            # Smart detection: If water was already heated today (≥2 kWh), treat as anti-legionella done
+            # This prevents unnecessary heating when vacation mode is just enabled
+            if last_al is None and ha_water_today >= 2.0:
+                logger.info(
+                    "Vacation mode: No prior anti-legionella record, but %.1f kWh already heated today. "
+                    "Setting last_anti_legionella_at to today.",
+                    ha_water_today
+                )
+                save_last_anti_legionella(sqlite_path, now_slot.to_pydatetime())
+                last_al = now_slot.to_pydatetime()
+
             days_since = (now_slot.to_pydatetime().replace(tzinfo=None) - last_al.replace(tzinfo=None)).days if last_al else 999
             interval_days = int(vacation_cfg.get("anti_legionella_interval_days", 7))
 

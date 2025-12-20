@@ -1,5 +1,32 @@
 [
   {
+    "timestamp": "2025-12-20T12:02:15.200029",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
+    "details": {
+      "cloud_vol": 0.17669831945802647,
+      "temp_vol": 0.2354880250226708
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:02:09.885128",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
+    "details": {
+      "cloud_vol": 0.17669831945802647,
+      "temp_vol": 0.2354880250226708
+    }
+  },
+  {
+    "timestamp": "2025-12-20T12:01:22.546819",
+    "type": "WEATHER_ADJUSTMENT",
+    "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
+    "details": {
+      "cloud_vol": 0.17669831945802647,
+      "temp_vol": 0.2354880250226708
+    }
+  },
+  {
     "timestamp": "2025-12-20T12:01:10.920989",
     "type": "WEATHER_ADJUSTMENT",
     "message": "Weather volatility (Cloud: 0.18, Temp: 0.24) passed to planner.",
@@ -869,39 +896,6 @@
     "details": {
       "cloud_vol": 0.6977642868476431,
       "temp_vol": 0.1593515227458415
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:38:01.748105",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415,
-      "pv_weight_adj": 0.27,
-      "temp_weight_adj": 0.31
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:33:51.145200",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415,
-      "pv_weight_adj": 0.27,
-      "temp_weight_adj": 0.31
-    }
-  },
-  {
-    "timestamp": "2025-12-16T23:33:11.794483",
-    "type": "WEATHER_ADJUSTMENT",
-    "message": "High volatility (Cloud: 0.70, Temp: 0.16). Raised S-Index weights.",
-    "details": {
-      "cloud_vol": 0.6977642868476431,
-      "temp_vol": 0.1593515227458415,
-      "pv_weight_adj": 0.27,
-      "temp_weight_adj": 0.31
     }
   }
 ]
