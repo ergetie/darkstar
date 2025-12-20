@@ -74,6 +74,9 @@ water_heating:
   consolidation_max_gap_slots: 0
   max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
   comfort_level: 4                   # Rev K18: 1-5 (Economy→Maximum) - controls gap penalty
+  # Rev K19: Vacation Mode (anti-legionella)
+  vacation_mode:
+    enabled: true
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:

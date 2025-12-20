@@ -14,7 +14,14 @@ export type HorizonResponse = {
   s_index_considered_days?: number
 }
 
-export type ScheduleResponse = { schedule: import('./types').ScheduleSlot[] }
+export type ScheduleResponse = {
+  schedule: import('./types').ScheduleSlot[]
+  meta?: {
+    last_error?: string
+    last_error_at?: string
+    [key: string]: any
+  }
+}
 export type ScheduleTodayWithHistoryResponse = {
   slots: import('./types').ScheduleSlot[]
   timezone?: string

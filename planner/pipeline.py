@@ -283,9 +283,10 @@ class PlannerPipeline:
 
         if vacation_enabled:
             logger.info("Vacation mode enabled - disabling comfort-based water heating")
-            # Disable normal comfort-based heating
+            # Disable normal comfort-based heating AND top-ups (gap constraint)
             kepler_config.water_heating_min_kwh = 0.0
             kepler_config.water_comfort_penalty_sek = 0.0
+            kepler_config.water_heating_max_gap_hours = 0.0  # Disable top-ups
 
             # Check if anti-legionella cycle is due
             sqlite_path = active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
