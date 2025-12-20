@@ -178,6 +178,7 @@ class Controller:
         - Only write if change exceeds threshold
         """
         if slot.charge_kw <= 0:
+            logger.debug("No charge planned (charge_kw=%.2f), returning 0A", slot.charge_kw)
             return 0.0, False
 
         # kW to Amps: I = P * 1000 / V
@@ -188,6 +189,11 @@ class Controller:
 
         # Clamp to limits
         clamped = max(self.config.min_charge_a, min(self.config.max_charge_a, rounded))
+
+        logger.info(
+            "Charge current calc: %.2f kW / %.1fV = %.1f A → rounded %.1f A → clamped %.1f A",
+            slot.charge_kw, self.config.worst_case_voltage_v, raw_current, rounded, clamped
+        )
 
         # Decide if we should write (only if significant change from current)
         # For now, always write if there's a planned charge

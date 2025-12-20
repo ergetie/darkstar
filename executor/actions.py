@@ -99,6 +99,11 @@ class HAClient:
         if entity_id:
             payload["entity_id"] = entity_id
 
+        logger.debug(
+            "HA call_service: %s.%s on %s with payload: %s",
+            domain, service, entity_id, payload
+        )
+
         try:
             response = self._session.post(
                 f"{self.base_url}/api/services/{domain}/{service}",
@@ -328,6 +333,8 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.max_charging_current_entity
 
+        logger.info("Setting charge_current: %.1f A on entity: %s", amps, entity)
+
         if self.shadow_mode:
             logger.info("[SHADOW] Would set charge_current to %s A", amps)
             return ActionResult(
@@ -341,6 +348,7 @@ class ActionDispatcher:
 
         success = self.ha.set_number(entity, amps)
         duration = int((time.time() - start) * 1000)
+        logger.info("Set charge_current result: success=%s, duration=%dms", success, duration)
 
         return ActionResult(
             action_type="charge_current",
