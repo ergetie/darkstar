@@ -1,5 +1,6 @@
 # Darkstar Energy Manager - Home Assistant Add-on Dockerfile
 # Built on HA base images for proper integration
+# Build context is repo root (via build.yaml context: ..)
 
 ARG BUILD_FROM
 FROM ${BUILD_FROM}
@@ -50,8 +51,8 @@ COPY inputs.py db_writer.py ./
 COPY config.default.yaml ./
 COPY secrets.example.yaml ./
 
-# Copy entrypoint
-COPY hassio/run.sh /run.sh
+# Copy HA Add-on entrypoint (note: path from repo root context)
+COPY darkstar/run.sh /run.sh
 RUN chmod +x /run.sh
 
 # Environment
