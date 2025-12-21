@@ -7,11 +7,10 @@ version: "2.1.0"
 slug: "darkstar"
 url: "https://github.com/ergetie/darkstar"
 
-# Supported architectures
+# Supported architectures (armv7 dropped - package incompatibility)
 arch:
   - amd64
   - aarch64
-  - armv7
 
 # Pre-built Docker images (built via GitHub Actions)
 image: ghcr.io/ergetie/darkstar/darkstar-{arch}:latest

@@ -32,15 +32,14 @@ jobs:
       packages: write
 
     strategy:
+      fail-fast: false  # Continue other builds if one fails
       matrix:
-        arch: [amd64, aarch64, armv7]
+        arch: [amd64, aarch64]  # armv7 dropped - incompatible with some packages
         include:
           - arch: amd64
             base: ghcr.io/home-assistant/amd64-base:latest
           - arch: aarch64
             base: ghcr.io/home-assistant/aarch64-base:latest
-          - arch: armv7
-            base: ghcr.io/home-assistant/armv7-base:latest
 
     steps:
       - name: Checkout
