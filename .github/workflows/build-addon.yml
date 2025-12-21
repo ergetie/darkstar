@@ -37,9 +37,9 @@ jobs:
         arch: [amd64, aarch64]  # armv7 dropped - incompatible with some packages
         include:
           - arch: amd64
-            base: ghcr.io/home-assistant/amd64-base:latest
+            platform: linux/amd64
           - arch: aarch64
-            base: ghcr.io/home-assistant/aarch64-base:latest
+            platform: linux/arm64
 
     steps:
       - name: Checkout
@@ -66,10 +66,8 @@ jobs:
         with:
           context: .
           file: ./darkstar/Dockerfile
-          platforms: linux/${{ matrix.arch }}
+          platforms: ${{ matrix.platform }}
           push: true
-          build-args: |
-            BUILD_FROM=${{ matrix.base }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/darkstar-${{ matrix.arch }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/darkstar-${{ matrix.arch }}:latest

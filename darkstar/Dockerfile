@@ -1,9 +1,8 @@
 # Darkstar Energy Manager - Home Assistant Add-on Dockerfile
-# Built on HA base images for proper integration
-# Build context is repo root (via build.yaml context: ..)
+# Built for multi-arch (amd64, arm64)
+# Build context is repo root
 
-ARG BUILD_FROM
-FROM ${BUILD_FROM}
+FROM python:3.12-alpine
 
 # Install system dependencies
 RUN apk add --no-cache \
