@@ -17,5 +17,9 @@ export default defineConfig({
     build: {
         outDir: '../backend/static',
         emptyOutDir: true,
-    }
+        // Use relative paths for HA Add-on Ingress compatibility
+        assetsDir: 'assets',
+    },
+    // Relative base path for HA Ingress (serves from subpath)
+    base: './',
 })
