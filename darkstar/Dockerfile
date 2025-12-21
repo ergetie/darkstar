@@ -15,6 +15,8 @@ RUN apk add --no-cache \
     curl \
     jq \
     bash \
+    # COIN-OR CBC solver for PuLP (Kepler optimizer)
+    coin-or-cbc \
     # Build dependencies for scikit-learn, lightgbm
     gcc \
     g++ \
