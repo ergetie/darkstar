@@ -110,6 +110,17 @@ class PlannerPipeline:
         if overrides:
             active_config = self._apply_overrides(self.config, overrides)
 
+        # System Profile Toggles (Rev O1)
+        system_cfg = active_config.get("system", {})
+        has_solar = system_cfg.get("has_solar", True)
+        has_battery = system_cfg.get("has_battery", True)
+        has_water_heater = system_cfg.get("has_water_heater", True)
+
+        logger.info(
+            "System profile: solar=%s, battery=%s, water=%s",
+            has_solar, has_battery, has_water_heater
+        )
+
         # 2. Load Inputs
         # Load learning overlays (PV/Load bias, S-Index base)
         learning_overlays = {}
@@ -119,6 +130,13 @@ class PlannerPipeline:
         # Prepare DataFrame (merge prices + forecasts)
         timezone_name = active_config.get("timezone", "Europe/Stockholm")
         df = prepare_df(input_data, timezone_name)
+
+        # Rev O1: Zero out PV if no solar panels
+        if not has_solar:
+            logger.info("No solar panels - zeroing PV forecasts")
+            df["pv_forecast_kwh"] = 0.0
+            if "adjusted_pv_kwh" in df.columns:
+                df["adjusted_pv_kwh"] = 0.0
 
         # Determine 'now' slot
         tz = pytz.timezone(timezone_name)
@@ -267,6 +285,20 @@ class PlannerPipeline:
 
         kepler_input = planner_to_kepler_input(future_df, initial_soc_kwh)
         kepler_config = config_to_kepler_config(active_config, overrides)
+
+        # Rev O1: Disable water heating in Kepler if no water heater
+        if not has_water_heater:
+            logger.info("No water heater - disabling water heating optimization")
+            kepler_config.water_heating_min_kwh = 0.0
+            kepler_config.water_heating_max_kwh = 0.0
+            kepler_config.water_comfort_penalty_sek = 0.0
+            kepler_config.water_heating_max_gap_hours = 0.0
+
+        # Rev O1: Constrain battery if no battery system
+        if not has_battery:
+            logger.info("No battery - disabling battery optimization (charge/discharge disabled)")
+            kepler_config.max_charge_kw = 0.0
+            kepler_config.max_discharge_kw = 0.0
 
         # Rev K18: Pass water heated today to reduce remaining min requirement
         kepler_config.water_heated_today_kwh = ha_water_today

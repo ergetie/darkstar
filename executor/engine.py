@@ -107,6 +107,12 @@ class ExecutorEngine:
         # Water boost state
         self._water_boost_until: Optional[datetime] = None
 
+        # System profile toggles (Rev O1)
+        system_cfg = self._full_config.get("system", {})
+        self._has_solar = system_cfg.get("has_solar", True)
+        self._has_battery = system_cfg.get("has_battery", True)
+        self._has_water_heater = system_cfg.get("has_water_heater", True)
+
 
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
@@ -445,6 +451,10 @@ class ExecutorEngine:
         Returns:
             Status dict with expires_at
         """
+        # Rev O1: Skip if no water heater configured
+        if not self._has_water_heater:
+            return {"success": False, "error": "No water heater configured in system profile"}
+
         valid_durations = [30, 60, 120]
         if duration_minutes not in valid_durations:
             raise ValueError(f"Invalid duration: {duration_minutes}. Must be one of {valid_durations}")
