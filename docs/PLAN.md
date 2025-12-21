@@ -9,6 +9,21 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 (Kepler revisions K1-K15 archived to CHANGELOG.md)
 
+### [DONE] Rev H1 — Execution History Migration
+
+**Goal:** Migrate execution history from MariaDB to Internal Executor's SQLite storage for standalone operation.
+
+**Problem:** Schedule chart uses MariaDB `execution_history` table, but Internal Executor stores history in SQLite `execution_log`. Result: historical executed actions don't show up.
+
+**Solution:**
+1. Add `get_todays_slots()` method to `ExecutionHistory` class
+2. Update `/api/schedule/today_with_history` to use SQLite first
+3. Update `get_preserved_slots()` to try SQLite before MariaDB
+
+**Status:** Done.
+
+---
+
 ### [IN PROGRESS] Rev O1 — Onboarding & System Profiles
 
 **Goal:** Make Darkstar production-ready for both standalone Docker AND HA Add-on deployments with minimal user friction.

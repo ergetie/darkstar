@@ -36,7 +36,7 @@ docker-compose up -d
 To update:
 ```bash
 cd /opt/darkstar
-git pull origin main
+git pull
 docker compose build
 docker compose down && docker compose up -d
 docker compose logs -f

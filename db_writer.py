@@ -180,7 +180,7 @@ def get_preserved_slots(
 ) -> List[Dict[str, Any]]:
     """
     Get past slots from today that should be preserved.
-    Tries database first (source of truth), falls back to local schedule.json.
+    Priority: SQLite (executor) -> MariaDB -> local schedule.json.
 
     Args:
         today_start: Start of today (datetime)
@@ -191,14 +191,41 @@ def get_preserved_slots(
     Returns:
         List of preserved slot dictionaries
     """
-    # Try database first (source of truth)
+    # Try executor's SQLite history first (Internal Executor mode)
+    try:
+        from executor.history import ExecutionHistory
+        
+        # Use standard learning DB path
+        db_path = os.path.join("data", "planner_learning.db")
+        if os.path.exists(db_path):
+            tz = pytz.timezone(tz_name)
+            history = ExecutionHistory(db_path, timezone=tz_name)
+            
+            # Ensure today_start and now have timezone info
+            if today_start.tzinfo is None:
+                today_start = tz.localize(today_start)
+            if now.tzinfo is None:
+                now = tz.localize(now)
+            
+            sqlite_slots = history.get_todays_slots(today_start, now)
+            if sqlite_slots:
+                print(f"[preservation] Loaded {len(sqlite_slots)} past slots from executor SQLite")
+                return sqlite_slots
+            else:
+                print("[preservation] No past slots found in executor SQLite")
+    except ImportError:
+        print("[preservation] Executor history module not available")
+    except Exception as e:
+        print(f"[preservation] Failed to load from executor SQLite: {e}")
+
+    # Try MariaDB (legacy n8n mode)
     if secrets and secrets.get("mariadb"):
         db_slots = _get_preserved_slots_from_db(today_start, now, secrets)
         if db_slots:
-            print(f"[preservation] Loaded {len(db_slots)} past slots from database")
+            print(f"[preservation] Loaded {len(db_slots)} past slots from MariaDB")
             return db_slots
         else:
-            print("[preservation] No past slots found in database, trying local fallback")
+            print("[preservation] No past slots found in MariaDB, trying local fallback")
 
     # Fallback to local schedule.json
     local_slots = _get_preserved_slots_from_local(today_start, now, tz_name)

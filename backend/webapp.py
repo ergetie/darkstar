@@ -601,36 +601,75 @@ def schedule_today_with_history():
         key = local.replace(tzinfo=None)
         schedule_map[key] = slot
 
-    # Load execution history for today (latest executed_at per slot_start)
+    # Load execution history for today (SQLite first, MariaDB fallback)
     exec_map: dict[datetime, dict] = {}
     try:
-        secrets = _load_yaml("secrets.yaml")
-        if secrets.get("mariadb"):
-            with _db_connect_from_secrets() as conn:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT e.*
-                        FROM execution_history e
-                        JOIN (
-                            SELECT slot_start, MAX(executed_at) AS max_executed_at
-                            FROM execution_history
-                            WHERE DATE(slot_start) = %s
-                            GROUP BY slot_start
-                        ) latest
-                        ON e.slot_start = latest.slot_start AND e.executed_at = latest.max_executed_at
-                        ORDER BY e.slot_start ASC
-                        """,
-                        (today_local.isoformat(),),
-                    )
-                    rows = cur.fetchall() or []
-            for row in rows:
-                # slot_start is stored as naive local DATETIME
-                slot_start = row.get("slot_start")
-                if isinstance(slot_start, datetime):
-                    exec_map[slot_start] = row
+        # First try executor's SQLite history (Internal Executor mode)
+        executor = _get_executor()
+        if executor and executor.history:
+            today_start = tz.localize(
+                datetime.combine(today_local, datetime.min.time())
+            )
+            now = datetime.now(tz)
+            sqlite_slots = executor.history.get_todays_slots(today_start, now)
+            
+            for slot in sqlite_slots:
+                start_str = slot.get("start_time")
+                if not start_str:
+                    continue
+                try:
+                    start = datetime.fromisoformat(start_str)
+                    if start.tzinfo is None:
+                        local_start = tz.localize(start)
+                    else:
+                        local_start = start.astimezone(tz)
+                    key = local_start.replace(tzinfo=None)
+                    # Convert to exec_map format for compatibility
+                    exec_map[key] = {
+                        "actual_charge_kw": slot.get("battery_charge_kw", 0),
+                        "actual_export_kw": slot.get("battery_discharge_kw", 0),
+                        "actual_soc": slot.get("soc_target_percent"),
+                        "water_heating_kw": slot.get("water_heating_kw", 0),
+                    }
+                except Exception:
+                    continue
+            
+            if sqlite_slots:
+                logger.info("Loaded %d execution slots from SQLite", len(sqlite_slots))
     except Exception as exc:
-        logger.warning("Failed to read execution_history: %s", exc)
+        logger.warning("Failed to load executor SQLite history: %s", exc)
+
+    # Fallback to MariaDB if SQLite returned nothing
+    if not exec_map:
+        try:
+            secrets = _load_yaml("secrets.yaml")
+            if secrets.get("mariadb"):
+                with _db_connect_from_secrets() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT e.*
+                            FROM execution_history e
+                            JOIN (
+                                SELECT slot_start, MAX(executed_at) AS max_executed_at
+                                FROM execution_history
+                                WHERE DATE(slot_start) = %s
+                                GROUP BY slot_start
+                            ) latest
+                            ON e.slot_start = latest.slot_start AND e.executed_at = latest.max_executed_at
+                            ORDER BY e.slot_start ASC
+                            """,
+                            (today_local.isoformat(),),
+                        )
+                        rows = cur.fetchall() or []
+                for row in rows:
+                    slot_start = row.get("slot_start")
+                    if isinstance(slot_start, datetime):
+                        exec_map[slot_start] = row
+                if rows:
+                    logger.info("Loaded %d execution slots from MariaDB (fallback)", len(rows))
+        except Exception as exc:
+            logger.warning("Failed to read execution_history from MariaDB: %s", exc)
 
     # Build price map for today using Nordpool data (full day coverage)
     price_map: dict[datetime, float] = {}

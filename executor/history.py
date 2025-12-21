@@ -320,3 +320,91 @@ class ExecutionHistory:
             "override_rate": round(overrides / total * 100, 1) if total > 0 else 0,
             "override_types": {row[0]: row[1] for row in override_types if row[0]},
         }
+
+    def get_todays_slots(
+        self, today_start: datetime, now: datetime
+    ) -> List[Dict[str, Any]]:
+        """
+        Get today's execution records formatted for schedule merging.
+
+        Returns past slots from today (slot_start >= today_start AND < now)
+        formatted for use in schedule.json preservation and chart display.
+
+        Args:
+            today_start: Start of today (midnight, timezone-aware)
+            now: Current time (timezone-aware) - slots before this are historical
+
+        Returns:
+            List of slot dicts with schedule-compatible keys:
+            - slot_number, start_time, end_time
+            - water_heating_kw, battery_charge_kw, battery_discharge_kw
+            - soc_target_percent, projected_soc_percent
+            - is_historical: True
+        """
+        # Convert datetimes to ISO strings for SQLite comparison
+        today_start_iso = today_start.isoformat()
+        now_iso = now.isoformat()
+
+        query = """
+            SELECT 
+                slot_start,
+                planned_charge_kw,
+                planned_discharge_kw,
+                planned_water_kw,
+                planned_soc_target,
+                planned_soc_projected,
+                commanded_water_temp,
+                before_soc_percent,
+                executed_at
+            FROM execution_log
+            WHERE slot_start >= ? AND slot_start < ?
+            ORDER BY slot_start ASC
+        """
+
+        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(query, (today_start_iso, now_iso))
+            rows = cursor.fetchall()
+
+        # Group by slot_start, keeping latest execution per slot
+        slot_map: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            slot_start = row["slot_start"]
+            # If we already have this slot, only update if this execution is newer
+            if slot_start in slot_map:
+                existing_executed = slot_map[slot_start].get("_executed_at", "")
+                if row["executed_at"] <= existing_executed:
+                    continue
+
+            # Parse slot_start to get end_time (15 min later)
+            try:
+                start_dt = datetime.fromisoformat(slot_start)
+                end_dt = start_dt + timedelta(minutes=15)
+                end_time = end_dt.isoformat()
+            except Exception:
+                end_time = slot_start  # Fallback
+
+            slot_map[slot_start] = {
+                "start_time": slot_start,
+                "end_time": end_time,
+                "battery_charge_kw": round(float(row["planned_charge_kw"] or 0), 2),
+                "battery_discharge_kw": round(float(row["planned_discharge_kw"] or 0), 2),
+                "water_heating_kw": round(float(row["planned_water_kw"] or 0), 2),
+                "soc_target_percent": int(row["planned_soc_target"] or 0),
+                "projected_soc_percent": int(row["planned_soc_projected"] or 0),
+                "is_historical": True,
+                "_executed_at": row["executed_at"],  # For dedup, removed later
+            }
+
+        # Sort by start_time and assign slot numbers, remove internal fields
+        preserved = []
+        for i, slot_start in enumerate(sorted(slot_map.keys())):
+            slot = slot_map[slot_start]
+            slot["slot_number"] = i + 1
+            del slot["_executed_at"]
+            preserved.append(slot)
+
+        logger.info(
+            "[preservation] Loaded %d past slots from executor SQLite", len(preserved)
+        )
+        return preserved
