@@ -701,6 +701,47 @@ def schedule_today_with_history():
     except Exception as exc:
         logger.warning("Failed to overlay prices in /api/schedule/today_with_history: %s", exc)
 
+    # Build forecast map for today from SQLite slot_forecasts (for historical slots without forecast data)
+    forecast_map: dict[datetime, dict] = {}
+    try:
+        config = _load_yaml("config.yaml")
+        db_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+        if os.path.exists(db_path):
+            forecasting_cfg = config.get("forecasting", {}) or {}
+            active_version = forecasting_cfg.get("active_forecast_version", "aurora")
+            
+            today_start_iso = tz.localize(datetime.combine(today_local, datetime.min.time())).isoformat()
+            tomorrow_start_iso = tz.localize(datetime.combine(today_local + timedelta(days=1), datetime.min.time())).isoformat()
+            
+            with sqlite3.connect(db_path, timeout=10.0) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.execute(
+                    """
+                    SELECT slot_start, pv_forecast_kwh, load_forecast_kwh
+                    FROM slot_forecasts
+                    WHERE slot_start >= ? AND slot_start < ?
+                      AND forecast_version = ?
+                    """,
+                    (today_start_iso, tomorrow_start_iso, active_version),
+                )
+                for row in cursor:
+                    slot_start_str = row["slot_start"]
+                    try:
+                        st = datetime.fromisoformat(slot_start_str)
+                        if st.tzinfo is None:
+                            st_local = tz.localize(st)
+                        else:
+                            st_local = st.astimezone(tz)
+                        key = st_local.replace(tzinfo=None)
+                        forecast_map[key] = {
+                            "pv_forecast_kwh": float(row["pv_forecast_kwh"] or 0.0),
+                            "load_forecast_kwh": float(row["load_forecast_kwh"] or 0.0),
+                        }
+                    except Exception:
+                        continue
+    except Exception as exc:
+        logger.warning("Failed to build forecast_map in /api/schedule/today_with_history: %s", exc)
+
     # Merge keys from schedule, execution history, and price slots
     all_keys = sorted(set(schedule_map.keys()) | set(exec_map.keys()) | set(price_map.keys()))
     merged_slots: list[dict] = []
@@ -759,6 +800,22 @@ def schedule_today_with_history():
         price = price_map.get(local_start)
         if price is not None:
             slot["import_price_sek_kwh"] = round(price, 4)
+
+        # Enrich with pv/load forecasts from schedule.json if missing
+        # (historical slots from executor don't have forecast data)
+        if sched:
+            if slot.get("pv_forecast_kwh") is None and sched.get("pv_forecast_kwh") is not None:
+                slot["pv_forecast_kwh"] = sched["pv_forecast_kwh"]
+            if slot.get("load_forecast_kwh") is None and sched.get("load_forecast_kwh") is not None:
+                slot["load_forecast_kwh"] = sched["load_forecast_kwh"]
+        
+        # Fallback to forecast_map from SQLite if still missing
+        fc = forecast_map.get(local_start)
+        if fc:
+            if slot.get("pv_forecast_kwh") is None:
+                slot["pv_forecast_kwh"] = fc["pv_forecast_kwh"]
+            if slot.get("load_forecast_kwh") is None:
+                slot["load_forecast_kwh"] = fc["load_forecast_kwh"]
 
         merged_slots.append(slot)
 
