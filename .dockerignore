@@ -19,6 +19,8 @@ samples/
 
 # Experimental code (not production ready)
 ml/simulation/
+ml/*antares*
+ml/models/antares_*
 bin/run_simulation.py
 
 # Documentation (keep README in Docker for reference)
