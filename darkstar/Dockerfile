@@ -63,5 +63,6 @@ RUN chmod +x /run.sh
 ENV FLASK_APP=backend.webapp
 ENV FLASK_ENV=production
 ENV PYTHONUNBUFFERED=1
+ENV PYTHONPATH=/app
 
 CMD ["/run.sh"]

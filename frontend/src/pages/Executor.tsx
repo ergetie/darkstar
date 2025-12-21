@@ -90,15 +90,15 @@ type ExecutionRecord = {
     source?: string
 }
 
-// API helpers
+// API helpers - using relative paths for HA Ingress compatibility
 const executorApi = {
     status: async (): Promise<ExecutorStatus> => {
-        const r = await fetch('/api/executor/status')
+        const r = await fetch('api/executor/status')
         if (!r.ok) throw new Error(`Status failed: ${r.status}`)
         return r.json()
     },
     toggle: async (payload: { enabled?: boolean; shadow_mode?: boolean }) => {
-        const r = await fetch('/api/executor/toggle', {
+        const r = await fetch('api/executor/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
@@ -107,33 +107,33 @@ const executorApi = {
         return r.json()
     },
     run: async () => {
-        const r = await fetch('/api/executor/run', { method: 'POST' })
+        const r = await fetch('api/executor/run', { method: 'POST' })
         if (!r.ok) throw new Error(`Run failed: ${r.status}`)
         return r.json()
     },
     history: async (limit = 20): Promise<{ records: ExecutionRecord[]; count: number }> => {
-        const r = await fetch(`/api/executor/history?limit=${limit}`)
+        const r = await fetch(`api/executor/history?limit=${limit}`)
         if (!r.ok) throw new Error(`History failed: ${r.status}`)
         return r.json()
     },
     stats: async (days = 7): Promise<ExecutorStats> => {
-        const r = await fetch(`/api/executor/stats?days=${days}`)
+        const r = await fetch(`api/executor/stats?days=${days}`)
         if (!r.ok) throw new Error(`Stats failed: ${r.status}`)
         return r.json()
     },
     live: async (): Promise<Record<string, { value: string; numeric?: number; unit?: string }>> => {
-        const r = await fetch('/api/executor/live')
+        const r = await fetch('api/executor/live')
         if (!r.ok) throw new Error(`Live failed: ${r.status}`)
         return r.json()
     },
     notifications: {
         get: async (): Promise<NotificationSettings> => {
-            const r = await fetch('/api/executor/notifications')
+            const r = await fetch('api/executor/notifications')
             if (!r.ok) throw new Error(`Notifications failed: ${r.status}`)
             return r.json()
         },
         update: async (settings: Partial<NotificationSettings>) => {
-            const r = await fetch('/api/executor/notifications', {
+            const r = await fetch('api/executor/notifications', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
@@ -142,7 +142,7 @@ const executorApi = {
             return r.json()
         },
         test: async () => {
-            const r = await fetch('/api/executor/notifications/test', { method: 'POST' })
+            const r = await fetch('api/executor/notifications/test', { method: 'POST' })
             const data = await r.json()
             if (!r.ok) throw new Error(data.error || `Test failed: ${r.status}`)
             return data
@@ -150,12 +150,12 @@ const executorApi = {
     },
     config: {
         get: async (): Promise<EntityConfig> => {
-            const r = await fetch('/api/executor/config')
+            const r = await fetch('api/executor/config')
             if (!r.ok) throw new Error(`Config get failed: ${r.status}`)
             return r.json()
         },
         update: async (config: Partial<EntityConfig>) => {
-            const r = await fetch('/api/executor/config', {
+            const r = await fetch('api/executor/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(config)
@@ -166,12 +166,12 @@ const executorApi = {
     },
     quickAction: {
         get: async (): Promise<{ quick_action: QuickAction | null }> => {
-            const r = await fetch('/api/executor/quick-action')
+            const r = await fetch('api/executor/quick-action')
             if (!r.ok) throw new Error(`Quick action get failed: ${r.status}`)
             return r.json()
         },
         set: async (type: string, duration_minutes: number) => {
-            const r = await fetch('/api/executor/quick-action', {
+            const r = await fetch('api/executor/quick-action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type, duration_minutes })
@@ -180,7 +180,7 @@ const executorApi = {
             return r.json()
         },
         clear: async () => {
-            const r = await fetch('/api/executor/quick-action', { method: 'DELETE' })
+            const r = await fetch('api/executor/quick-action', { method: 'DELETE' })
             if (!r.ok) throw new Error(`Quick action clear failed: ${r.status}`)
             return r.json()
         }
