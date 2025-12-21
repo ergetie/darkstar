@@ -39,5 +39,5 @@ notifications:
 
 ## Support
 
-- [GitHub Issues](https://github.com/youruser/darkstar/issues)
-- [Documentation](https://github.com/youruser/darkstar#readme)
+- [GitHub Issues](https://github.com/ergetie/darkstar/issues)
+- [Documentation](https://github.com/ergetie/darkstar#readme)

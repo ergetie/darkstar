@@ -13,7 +13,16 @@ RUN apk add --no-cache \
     nodejs \
     npm \
     curl \
-    jq
+    jq \
+    bash \
+    # Build dependencies for scikit-learn, lightgbm
+    gcc \
+    g++ \
+    musl-dev \
+    python3-dev \
+    cmake \
+    make \
+    libgomp
 
 WORKDIR /app
 
@@ -32,10 +41,10 @@ RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 COPY backend/ ./backend/
 COPY planner/ ./planner/
 COPY executor/ ./executor/
+COPY bin/ ./bin/
 COPY ml/*.py ./ml/
-COPY ml/api.py ml/pipeline.py ml/feature_engineering.py ./ml/
-COPY ml/models/ ./ml/models/
-COPY inputs.py db_writer.py learning.py ./
+COPY ml/models/*.lgb ./ml/models/
+COPY inputs.py db_writer.py ./
 
 # Copy configuration templates
 COPY config.default.yaml ./

@@ -3,7 +3,7 @@ import { Gauge, BookOpenCheck, Bug, Settings, Menu, X, FlaskConical, Bot, Cpu } 
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { DarkstarLogo } from './DarkstarLogo'
 import { Api } from '../lib/api'
-import pkg from '../../../package.json'
+import pkg from '../../package.json'
 
 const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; label: string; onClick?: () => void }) => {
     const baseClass = "group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface/80 hover:bg-surface2 transition"
@@ -89,8 +89,8 @@ export default function Sidebar() {
                     {/* Version (Vertical) */}
                     <div className="py-2 flex flex-col items-center gap-2">
                         <div className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${connected === true ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
-                                connected === false ? 'bg-red-500' :
-                                    'bg-slate-700'
+                            connected === false ? 'bg-red-500' :
+                                'bg-slate-700'
                             }`} title={connected === true ? 'System Online' : connected === false ? 'System Offline' : 'Connecting...'} />
 
                         <span className="text-[10px] text-muted/30 font-mono select-none tracking-widest whitespace-nowrap opacity-50 hover:opacity-100 transition" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>

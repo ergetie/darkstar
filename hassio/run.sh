@@ -1,4 +1,4 @@
-#!/usr/bin/env bashrc
+#!/usr/bin/env bash
 # Darkstar Energy Manager - Home Assistant Add-on Entrypoint
 set -e
 
