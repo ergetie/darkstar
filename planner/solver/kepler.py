@@ -217,8 +217,13 @@ class KeplerSolver:
             + gap_violation_penalty
         )
 
-        # Solve
-        prob.solve(pulp.PULP_CBC_CMD(msg=False))
+        # Solve using GLPK (available in Alpine) or CBC as fallback
+        try:
+            # Try GLPK first (installed in Alpine Docker image)
+            prob.solve(pulp.GLPK_CMD(msg=False))
+        except Exception:
+            # Fall back to CBC if GLPK not available
+            prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
         # Extract Results
         status = pulp.LpStatus[prob.status]
