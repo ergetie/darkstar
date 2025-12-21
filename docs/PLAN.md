@@ -9,6 +9,74 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 (Kepler revisions K1-K15 archived to CHANGELOG.md)
 
+### [IN PROGRESS] Rev O1 — Onboarding & System Profiles
+
+**Goal:** Make Darkstar production-ready for both standalone Docker AND HA Add-on deployments with minimal user friction.
+
+**Design Principles:**
+1. **Settings Tab = Single Source of Truth** (works for both deployment modes)
+2. **HA Add-on = Bootstrap Helper** (auto-detects where possible, entity dropdowns for sensors)
+3. **System Profiles** via 3 toggles: Solar, Battery, Water Heater
+
+---
+
+#### Phase 1: HA Add-on Bootstrap
+
+**Auto-detection:**
+- `SUPERVISOR_TOKEN` available as env var (no user token needed!)
+- HA URL is always `http://supervisor/core`
+- Entity selectors in Add-on UI for sensor IDs (native HA dropdowns)
+
+**Changes:**
+- Update `hassio/config.yaml`: Add `homeassistant_api: true`, entity selectors for sensors
+- Update `hassio/run.sh`: Auto-generate `secrets.yaml` from SUPERVISOR_TOKEN, apply entity selections to config
+
+---
+
+#### Phase 2: Settings Tab — Setup Section
+
+**New "Home Assistant Connection" section in Settings → System:**
+- HA URL field (read-only in Add-on mode)
+- Token field (read-only in Add-on mode)
+- "Test Connection" button
+
+**New "Core Sensors" section:**
+- Battery SoC sensor
+- PV Production sensor
+- Load Consumption sensor
+
+---
+
+#### Phase 3: System Profile Toggles
+
+**Add to `config.default.yaml` → `system:`:**
+```yaml
+system:
+  has_solar: true       # Enable PV forecasting & solar-related features
+  has_battery: true     # Enable battery control & arbitrage
+  has_water_heater: true # Enable water heating optimization
+```
+
+**Add to Settings → System:**
+- 3 toggle switches with helper text
+- Toggles hide/show relevant UI sections
+- Backend skips disabled features in planner/executor
+
+---
+
+#### Phase 4: Validation
+
+| Scenario | Solar | Battery | Water | Expected |
+|----------|-------|---------|-------|----------|
+| Full system | ✓ | ✓ | ✓ | All features |
+| Battery only | ✗ | ✓ | ✗ | Grid arbitrage only |
+| Solar + Water | ✓ | ✗ | ✓ | Cheap heating, no battery |
+| Water only | ✗ | ✗ | ✓ | Cheapest price heating |
+
+**Status:** Planning.
+
+---
+
 ### [IN PROGRESS] Rev UI1 — Dashboard Quick Actions Redesign
 
 **Goal:** Redesign the Dashboard Quick Actions for the native executor, with optional external executor fallback in Settings.
@@ -43,6 +111,20 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 - Hide Planning tab from navigation (legacy, unused since Kepler)
 - Remove "Reset Optimal" button
+
+**Status:** Planning.
+
+---
+
+### [IN PROGRESS] Rev UI2 — Premium Polish
+
+**Goal:** Elevate the "Command Center" feel with live visual feedback and semantic clarity.
+
+**Changes:**
+1. **Executor Sparklines**: Live 10s-buffer charts for SoC, PV, Load.
+2. **Aurora Icons**: Semantic icons (Zap, Shield, etc.) in Activity Log.
+3. **Dashboard Visuals**: Grouping of Today's Stats into Grid vs Energy.
+4. **Sidebar Status**: Connectivity pulse dot.
 
 **Status:** Planning.
 

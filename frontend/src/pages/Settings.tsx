@@ -17,7 +17,7 @@ type SystemField = {
     label: string
     helper?: string
     path: string[]
-    type: 'number' | 'text'
+    type: 'number' | 'text' | 'boolean'
 }
 
 type ParameterField = {
@@ -30,6 +30,15 @@ type ParameterField = {
 }
 
 const systemSections = [
+    {
+        title: 'System Components',
+        description: 'Enable or disable features based on your hardware setup.',
+        fields: [
+            { key: 'system.has_solar', label: 'Solar panels installed', helper: 'Enable PV forecasting and solar optimization', path: ['system', 'has_solar'], type: 'boolean' },
+            { key: 'system.has_battery', label: 'Home battery installed', helper: 'Enable battery control and grid arbitrage', path: ['system', 'has_battery'], type: 'boolean' },
+            { key: 'system.has_water_heater', label: 'Smart water heater', helper: 'Enable water heating optimization', path: ['system', 'has_water_heater'], type: 'boolean' },
+        ],
+    },
     {
         title: 'Battery & Grid',
         description: 'Capacity, max power, and SoC limits define safe operating bands.',
@@ -232,7 +241,11 @@ function buildSystemFormState(config: Record<string, any> | null): Record<string
     const state: Record<string, string> = {}
     systemFieldList.forEach((field) => {
         const value = config ? getDeepValue(config, field.path) : undefined
-        state[field.key] = value !== undefined && value !== null ? String(value) : ''
+        if (field.type === 'boolean') {
+            state[field.key] = value === true ? 'true' : 'false'
+        } else {
+            state[field.key] = value !== undefined && value !== null ? String(value) : ''
+        }
     })
     return state
 }
@@ -252,12 +265,15 @@ function buildParameterFormState(config: Record<string, any> | null): Record<str
     return state
 }
 
-function parseFieldInput(field: SystemField, raw: string): number | string | null | undefined {
+function parseFieldInput(field: SystemField, raw: string): number | string | boolean | null | undefined {
     const trimmed = raw.trim()
     if (field.type === 'number') {
         if (trimmed === '') return null
         const parsed = Number(trimmed)
         return Number.isNaN(parsed) ? undefined : parsed
+    }
+    if (field.type === 'boolean') {
+        return trimmed === 'true'
     }
     return trimmed
 }
@@ -868,6 +884,28 @@ export default function Settings() {
                                     )
                                 }
 
+                                // Regular fields (boolean checkboxes, number/text inputs)
+                                if (field.type === 'boolean') {
+                                    return (
+                                        <div key={field.key} className="space-y-1">
+                                            <label className="flex items-center gap-2 text-sm">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={systemForm[field.key] === 'true'}
+                                                    onChange={(event) =>
+                                                        handleFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                    }
+                                                    className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                                />
+                                                <span className="font-semibold">{field.label}</span>
+                                            </label>
+                                            {field.helper && (
+                                                <p className="text-[11px] text-muted ml-6">{field.helper}</p>
+                                            )}
+                                        </div>
+                                    )
+                                }
+
                                 return (
                                     <div key={field.key} className="space-y-1">
                                         <label className="text-[10px] uppercase tracking-wide text-muted">
@@ -906,8 +944,8 @@ export default function Settings() {
                     </button>
                     {systemStatusMessage && (
                         <div className={`rounded-lg p-3 text-sm ${systemStatusMessage.startsWith('Failed')
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            : 'bg-green-500/10 border border-green-500/30 text-green-400'
                             }`}>
                             {systemStatusMessage}
                         </div>
@@ -1010,8 +1048,8 @@ export default function Settings() {
                     )}
                     {parameterStatusMessage && (
                         <div className={`rounded-lg p-3 text-sm ${parameterStatusMessage.startsWith('Failed')
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            : 'bg-green-500/10 border border-green-500/30 text-green-400'
                             }`}>
                             {parameterStatusMessage}
                         </div>
@@ -1148,8 +1186,8 @@ export default function Settings() {
                                                             type="button"
                                                             onClick={() => toggleToken('load_off', !loadIsActive)}
                                                             className={`rounded-pill px-3 py-1 border text-[11px] transition ${loadIsActive
-                                                                    ? 'bg-accent text-canvas border-accent'
-                                                                    : 'border-line/60 text-muted hover:border-accent'
+                                                                ? 'bg-accent text-canvas border-accent'
+                                                                : 'border-line/60 text-muted hover:border-accent'
                                                                 }`}
                                                         >
                                                             Load
@@ -1178,8 +1216,8 @@ export default function Settings() {
                                                                         handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
                                                                     }}
                                                                     className={`rounded-pill px-3 py-1 border text-[11px] transition ${isActive
-                                                                            ? 'bg-accent text-canvas border-accent'
-                                                                            : 'border-line/60 text-muted hover:border-accent'
+                                                                        ? 'bg-accent text-canvas border-accent'
+                                                                        : 'border-line/60 text-muted hover:border-accent'
                                                                         }`}
                                                                 >
                                                                     {label}
@@ -1259,8 +1297,8 @@ export default function Settings() {
                     </button>
                     {uiStatusMessage && (
                         <div className={`rounded-lg p-3 text-sm ${uiStatusMessage.startsWith('Failed')
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            : 'bg-green-500/10 border border-green-500/30 text-green-400'
                             }`}>
                             {uiStatusMessage}
                         </div>
@@ -1304,8 +1342,8 @@ export default function Settings() {
 
             {resetStatusMessage && (
                 <div className={`rounded-lg p-3 text-sm ${resetStatusMessage.startsWith('Reset failed')
-                        ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                        : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                    ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                    : 'bg-green-500/10 border border-green-500/30 text-green-400'
                     }`}>
                     {resetStatusMessage}
                 </div>

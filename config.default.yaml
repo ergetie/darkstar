@@ -17,6 +17,12 @@ advisor:
 # System Parameters
 system:
   system_id: dev
+  
+  # System Profile Toggles (what hardware do you have?)
+  has_solar: true         # Enable PV forecasting & solar-related features
+  has_battery: true       # Enable battery control & grid arbitrage
+  has_water_heater: true  # Enable water heating optimization
+  
   grid:
     max_power_kw: 8
   inverter:
