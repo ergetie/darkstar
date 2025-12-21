@@ -498,7 +498,9 @@ export default function Dashboard() {
     const termDisplay = targetSocVal ? `EOD ${targetSocVal.toFixed(0)}%` : ''
 
     return (
-        <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-10">
+        <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-6">
+            {/* Header Removed as per user request */}
+
             {/* Critical Error Banner */}
             {lastError && (
                 <motion.div
@@ -796,83 +798,111 @@ export default function Dashboard() {
                 </Card>
                 <Card className="p-5">
                     <div className="text-sm text-muted mb-3">Today's Stats</div>
-                    <div className="space-y-2">
-                        {/* Net Cost - positive = cost, negative = profit */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-base">💰</span>
-                                <span className="text-xs text-muted">Net</span>
+                    <div className="space-y-3">
+                        {/* Group 1: Grid & Financial */}
+                        <div className="p-2.5 rounded-lg bg-surface2/20 space-y-2 border border-line/20">
+                            {/* Net Cost */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">💰</span>
+                                    <span className="text-xs text-muted">Net</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className={`text-sm font-semibold ${(todayStats?.netCost ?? 0) <= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+                                        {todayStats?.netCost != null ? todayStats.netCost.toFixed(2) : '—'}
+                                    </span>
+                                    <span className="text-xs text-muted ml-1">kr</span>
+                                </div>
                             </div>
-                            <div className="text-right">
-                                <span className={`text-sm font-semibold ${(todayStats?.netCost ?? 0) <= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                                    {todayStats?.netCost != null ? todayStats.netCost.toFixed(2) : '—'}
-                                </span>
-                                <span className="text-xs text-muted ml-1">kr</span>
-                            </div>
-                        </div>
-                        {/* Grid: Import ↓ / Export ↑ */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-base">🔌</span>
-                                <span className="text-xs text-muted">Grid</span>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-sm font-semibold text-red-300">↓{todayStats?.gridImport?.toFixed(1) ?? '—'}</span>
-                                <span className="text-muted mx-0.5">/</span>
-                                <span className="text-sm font-semibold text-emerald-300">↑{todayStats?.gridExport?.toFixed(1) ?? '—'}</span>
-                            </div>
-                        </div>
-                        {/* PV: Actual / Forecast */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-base">☀️</span>
-                                <span className="text-xs text-muted">PV</span>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-sm font-semibold text-amber-300">
-                                    {todayStats?.pvProduction?.toFixed(1) ?? '—'}
-                                </span>
-                                <span className="text-xs text-muted mx-0.5">/</span>
-                                <span className="text-xs text-muted">{todayStats?.pvForecast?.toFixed(1) ?? '—'}</span>
+                            {/* Grid: Import ↓ / Export ↑ */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">🔌</span>
+                                    <span className="text-xs text-muted">Grid</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-sm font-semibold text-red-300">↓{todayStats?.gridImport?.toFixed(1) ?? '—'}</span>
+                                    <span className="text-muted mx-0.5">/</span>
+                                    <span className="text-sm font-semibold text-emerald-300">↑{todayStats?.gridExport?.toFixed(1) ?? '—'}</span>
+                                </div>
                             </div>
                         </div>
-                        {/* Load: Actual / Average */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-base">⚡</span>
-                                <span className="text-xs text-muted">Load</span>
+
+                        {/* Group 2: Home Energy */}
+                        <div className="p-2.5 rounded-lg bg-surface2/20 space-y-3 border border-line/20">
+                            {/* PV: Actual / Forecast */}
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base">☀️</span>
+                                        <span className="text-xs text-muted">PV</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-sm font-semibold text-amber-300">
+                                            {todayStats?.pvProduction?.toFixed(1) ?? '—'}
+                                        </span>
+                                        <span className="text-xs text-muted mx-0.5">/</span>
+                                        <span className="text-xs text-muted">{todayStats?.pvForecast?.toFixed(1) ?? '—'}</span>
+                                    </div>
+                                </div>
+                                {/* Progress Bar */}
+                                <div className="h-1 w-full bg-surface rounded-full overflow-hidden flex">
+                                    <div
+                                        className="h-full bg-amber-400 rounded-full transition-all duration-1000"
+                                        style={{ width: `${Math.min(100, ((todayStats?.pvProduction ?? 0) / (todayStats?.pvForecast || 1)) * 100)}%` }}
+                                    />
+                                </div>
                             </div>
-                            <div className="text-right">
-                                <span className="text-sm font-semibold text-purple-300">
-                                    {todayStats?.loadConsumption?.toFixed(1) ?? '—'}
-                                </span>
-                                <span className="text-xs text-muted mx-0.5">/</span>
-                                <span className="text-xs text-muted">{avgLoad?.dailyKwh?.toFixed(0) ?? '—'}</span>
+
+                            {/* Load: Actual / Average */}
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base">⚡</span>
+                                        <span className="text-xs text-muted">Load</span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-sm font-semibold text-purple-300">
+                                            {todayStats?.loadConsumption?.toFixed(1) ?? '—'}
+                                        </span>
+                                        <span className="text-xs text-muted mx-0.5">/</span>
+                                        <span className="text-xs text-muted">{avgLoad?.dailyKwh?.toFixed(0) ?? '—'}</span>
+                                    </div>
+                                </div>
+                                {/* Progress Bar */}
+                                <div className="h-1 w-full bg-surface rounded-full overflow-hidden flex">
+                                    <div
+                                        className="h-full bg-purple-400 rounded-full transition-all duration-1000"
+                                        style={{ width: `${Math.min(100, ((todayStats?.loadConsumption ?? 0) / (avgLoad?.dailyKwh || 1)) * 100)}%` }}
+                                    />
+                                </div>
                             </div>
-                        </div>
-                        {/* Battery Cycles */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-base">🔋</span>
-                                <span className="text-xs text-muted">Cycles</span>
+
+                            {/* Battery Cycles */}
+                            <div className="flex items-center justify-between pt-1">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">🔋</span>
+                                    <span className="text-xs text-muted">Cycles</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-sm font-semibold text-cyan-300">
+                                        {todayStats?.batteryCycles != null ? todayStats.batteryCycles.toFixed(2) : '—'}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="text-right">
-                                <span className="text-sm font-semibold text-cyan-300">
-                                    {todayStats?.batteryCycles != null ? todayStats.batteryCycles.toFixed(2) : '—'}
-                                </span>
-                            </div>
-                        </div>
-                        {/* Water Heating */}
-                        <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <span className="text-base">🔥</span>
-                                <span className="text-xs text-muted">Water</span>
-                            </div>
-                            <div className="text-right">
-                                <span className="text-sm font-semibold text-orange-300">
-                                    {waterToday?.kwh !== undefined ? waterToday.kwh.toFixed(1) : '—'}
-                                </span>
-                                <span className="text-xs text-muted ml-1">kWh</span>
+
+                            {/* Water Heating */}
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-base">🔥</span>
+                                    <span className="text-xs text-muted">Water</span>
+                                </div>
+                                <div className="text-right">
+                                    <span className="text-sm font-semibold text-orange-300">
+                                        {waterToday?.kwh !== undefined ? waterToday.kwh.toFixed(1) : '—'}
+                                    </span>
+                                    <span className="text-xs text-muted ml-1">kWh</span>
+                                </div>
                             </div>
                         </div>
                     </div>

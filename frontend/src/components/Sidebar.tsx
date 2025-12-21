@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Gauge, BookOpenCheck, Bug, Settings, Menu, X, FlaskConical, Bot, Cpu } from 'lucide-react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { DarkstarLogo } from './DarkstarLogo'
+import { Api } from '../lib/api'
 import pkg from '../../../package.json'
 
 const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; label: string; onClick?: () => void }) => {
@@ -43,6 +44,21 @@ const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; labe
 export default function Sidebar() {
     const { pathname } = useLocation()
     const [mobileOpen, setMobileOpen] = useState(false)
+    const [connected, setConnected] = useState<boolean | null>(null)
+
+    useEffect(() => {
+        const check = async () => {
+            try {
+                await Api.status()
+                setConnected(true)
+            } catch {
+                setConnected(false)
+            }
+        }
+        check()
+        const i = setInterval(check, 30000)
+        return () => clearInterval(i)
+    }, [])
 
     const closeMobile = () => setMobileOpen(false)
 
@@ -71,7 +87,12 @@ export default function Sidebar() {
                     <div className="mt-auto w-8 h-px bg-line/70" />
 
                     {/* Version (Vertical) */}
-                    <div className="py-2 flex flex-col items-center">
+                    <div className="py-2 flex flex-col items-center gap-2">
+                        <div className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${connected === true ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
+                                connected === false ? 'bg-red-500' :
+                                    'bg-slate-700'
+                            }`} title={connected === true ? 'System Online' : connected === false ? 'System Offline' : 'Connecting...'} />
+
                         <span className="text-[10px] text-muted/30 font-mono select-none tracking-widest whitespace-nowrap opacity-50 hover:opacity-100 transition" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
                             darkstar v{pkg.version}
                         </span>

@@ -333,11 +333,18 @@ class ExecutorEngine:
 
         logger.info("Executor RESUMED after %.1f minutes paused", paused_duration)
 
+        # Trigger immediate tick to apply scheduled action without waiting
+        try:
+            self._tick()
+            logger.info("Immediate tick executed after resume")
+        except Exception as e:
+            logger.warning("Failed to run immediate tick after resume: %s", e)
+
         return {
             "success": True,
             "resumed_at": now.isoformat(),
             "paused_duration_minutes": round(paused_duration, 1),
-            "message": "Executor resumed - returning to scheduled operation",
+            "message": "Executor resumed - action applied immediately",
         }
 
     def get_pause_status(self) -> Optional[Dict[str, Any]]:

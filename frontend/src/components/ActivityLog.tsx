@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { Brain, CloudRain, Zap, GraduationCap, Info } from 'lucide-react'
+import { Brain, CloudRain, Zap, GraduationCap, Info, Upload, Shield, Coffee, TrendingUp, Battery } from 'lucide-react'
 
 interface StrategyEvent {
     timestamp: string
@@ -19,8 +19,18 @@ export default function ActivityLog({ events }: ActivityLogProps) {
         )
     }, [events])
 
-    const getIcon = (type: string) => {
-        switch (type) {
+    const getIcon = (event: StrategyEvent) => {
+        const text = (event.type + ' ' + event.message).toLowerCase()
+
+        if (text.includes('charge') || text.includes('charging')) return <Zap className="h-4 w-4 text-amber-400" />
+        if (text.includes('export') || text.includes('discharging')) return <Upload className="h-4 w-4 text-emerald-400" />
+        if (text.includes('defensive') || text.includes('safety') || text.includes('hold')) return <Shield className="h-4 w-4 text-blue-400" />
+        if (text.includes('idle') || text.includes('wait')) return <Coffee className="h-4 w-4 text-slate-400" />
+        if (text.includes('weather')) return <CloudRain className="h-4 w-4 text-sky-400" />
+        if (text.includes('learning') || text.includes('tune')) return <GraduationCap className="h-4 w-4 text-purple-400" />
+        if (text.includes('price') || text.includes('cost')) return <TrendingUp className="h-4 w-4 text-emerald-400" />
+
+        switch (event.type) {
             case 'STRATEGY_CHANGE':
                 return <Brain className="h-4 w-4 text-purple-400" />
             case 'WEATHER_ADJUSTMENT':
@@ -56,7 +66,7 @@ export default function ActivityLog({ events }: ActivityLogProps) {
                 <div key={idx} className="relative flex gap-3 items-start group">
                     {/* Icon Bubble */}
                     <div className="relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface border border-line/60 group-hover:border-accent/50 transition-colors">
-                        {getIcon(event.type)}
+                        {getIcon(event)}
                     </div>
 
                     {/* Content */}
