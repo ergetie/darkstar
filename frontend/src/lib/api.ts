@@ -213,6 +213,9 @@ export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
 export type AuroraBriefingResponse = { briefing: string }
 
 async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: any): Promise<T> {
+  // Strip leading slash to make paths relative - works with base href for HA Ingress
+  const relativePath = path.startsWith('/') ? path.slice(1) : path
+
   const options: RequestInit = {
     method,
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' }
@@ -220,7 +223,7 @@ async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET
   if (body && (method === 'POST' || method === 'DELETE')) {
     options.body = JSON.stringify(body)
   }
-  const r = await fetch(path, options)
+  const r = await fetch(relativePath, options)
   if (!r.ok) throw new Error(`${path} -> ${r.status}`)
   return r.json() as Promise<T>
 }
@@ -249,7 +252,7 @@ export const Api = {
   pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
   resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
   simulate: async (payload: any): Promise<ScheduleResponse> => {
-    const response = await fetch('/api/simulate', {
+    const response = await fetch('api/simulate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -258,7 +261,7 @@ export const Api = {
     return response.json() as Promise<ScheduleResponse>
   },
   getAdvice: async (): Promise<AdviceResponse> => {
-    const response = await fetch('/api/analyst/advice')
+    const response = await fetch('api/analyst/advice')
     if (!response.ok) throw new Error('Failed to fetch advice')
     return response.json() as Promise<AdviceResponse>
   },
