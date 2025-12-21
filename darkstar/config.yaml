@@ -13,7 +13,7 @@ arch:
   - aarch64
 
 # Pre-built Docker images (built via GitHub Actions)
-image: ghcr.io/ergetie/darkstar/darkstar-{arch}:latest
+image: ghcr.io/ergetie/darkstar-{arch}:latest
 
 # Startup configuration
 init: false

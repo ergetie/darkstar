@@ -69,7 +69,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           push: true
           tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/darkstar-${{ matrix.arch }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/darkstar-${{ matrix.arch }}:latest
+            ${{ env.REGISTRY }}/ergetie/darkstar-${{ matrix.arch }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/ergetie/darkstar-${{ matrix.arch }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
