@@ -67,7 +67,17 @@ def index(path):
     # Let Flask handle static/api routes, others fall through to React
     if path.startswith("api/") or path.startswith("static/") or path.startswith("assets/"):
         return "Not Found", 404
-    return render_template("index.html")
+    
+    # HA Ingress support: get base path from X-Ingress-Path header
+    # This header is set by HA Supervisor when proxying through ingress
+    ingress_path = request.headers.get("X-Ingress-Path", "")
+    if ingress_path:
+        # Ensure trailing slash for proper relative path resolution
+        base_href = ingress_path.rstrip("/") + "/"
+    else:
+        base_href = "/"
+    
+    return render_template("index.html", base_href=base_href)
 
 
 class RingBufferHandler(logging.Handler):
