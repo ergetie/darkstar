@@ -4,6 +4,9 @@
 
 FROM python:3.12-alpine
 
+# Enable community repository for GLPK
+RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.21/community" >> /etc/apk/repositories
+
 # Install system dependencies
 RUN apk add --no-cache \
     python3 \
@@ -15,10 +18,9 @@ RUN apk add --no-cache \
     curl \
     jq \
     bash \
-    # GLPK solver for PuLP (Kepler optimizer) - available in Alpine
+    # GLPK solver for PuLP (Kepler optimizer) - from community repo
     glpk \
-    glpk-utils \
-    # Build dependencies for scikit-learn, lightgbm
+    # Build dependencies for lightgbm
     gcc \
     g++ \
     musl-dev \
