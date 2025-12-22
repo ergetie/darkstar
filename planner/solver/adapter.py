@@ -85,13 +85,19 @@ def config_to_kepler_config(
     if overrides and "kepler" in overrides:
         kepler_overrides = overrides["kepler"]
 
+    # Also read from config.yaml kepler section
+    kepler_config = planner_config.get("kepler", {})
+
     capacity = float(battery.get("capacity_kwh", 0.0))
     roundtrip = float(battery.get("roundtrip_efficiency_percent", 95.0))
     eff_one_way = (roundtrip / 100.0) ** 0.5
 
     def get_val(key: str, default: float) -> float:
+        # Check runtime overrides first, then config file, then default
         if key in kepler_overrides:
             return float(kepler_overrides[key])
+        if key in kepler_config:
+            return float(kepler_config[key])
         return default
 
     # Wear cost (battery degradation per cycle)

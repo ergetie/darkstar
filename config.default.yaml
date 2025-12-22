@@ -198,6 +198,7 @@ kepler:
   enabled: true
   primary_planner: true
   shadow_mode: true
+  ramping_cost_sek_per_kw: 0.05  # Penalty for power changes between slots (reduces sawtooth)
 
 # =============================================================================
 # Home Assistant Integration
