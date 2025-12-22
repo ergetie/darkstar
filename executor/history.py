@@ -392,6 +392,7 @@ class ExecutionHistory:
                 "water_heating_kw": round(float(row["planned_water_kw"] or 0), 2),
                 "soc_target_percent": int(row["planned_soc_target"] or 0),
                 "projected_soc_percent": int(row["planned_soc_projected"] or 0),
+                "before_soc_percent": float(row["before_soc_percent"]) if row["before_soc_percent"] else None,
                 "is_historical": True,
                 "_executed_at": row["executed_at"],  # For dedup, removed later
             }

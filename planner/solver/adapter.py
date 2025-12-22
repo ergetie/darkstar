@@ -94,7 +94,15 @@ def config_to_kepler_config(
             return float(kepler_overrides[key])
         return default
 
-    default_wear = float(learning.get("default_battery_cost_sek_per_kwh", 0.0))
+    # Rev F1: Try dynamic battery cost, fall back to config default
+    config_default_wear = float(learning.get("default_battery_cost_sek_per_kwh", 1.0))
+    try:
+        from backend.battery_cost import BatteryCostTracker
+        db_path = learning.get("sqlite_path", "data/planner_learning.db")
+        tracker = BatteryCostTracker(db_path, capacity)
+        default_wear = tracker.get_current_cost()
+    except Exception:
+        default_wear = config_default_wear
 
     return KeplerConfig(
         capacity_kwh=capacity,
@@ -182,6 +190,7 @@ def kepler_result_to_dataframe(
                 "kepler_cost_sek": s.cost_sek,
                 "battery_charge_kw": charge_kw,
                 "battery_discharge_kw": discharge_kw,
+                "discharge_kw": discharge_kw,  # Alias for simulation.py compatibility
                 "charge_kw": min(s.charge_kwh, s.grid_import_kwh) / duration_h,
                 "projected_soc_kwh": s.soc_kwh,
                 "projected_soc_percent": (

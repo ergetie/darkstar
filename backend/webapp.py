@@ -638,7 +638,7 @@ def schedule_today_with_history():
                     exec_map[key] = {
                         "actual_charge_kw": slot.get("battery_charge_kw", 0),
                         "actual_export_kw": slot.get("battery_discharge_kw", 0),
-                        "actual_soc": slot.get("soc_target_percent"),
+                        "actual_soc": slot.get("before_soc_percent"),
                         "water_heating_kw": slot.get("water_heating_kw", 0),
                     }
                 except Exception:
@@ -797,7 +797,12 @@ def schedule_today_with_history():
             slot["is_executed"] = False
 
         # Attach import price if available for this slot
+        # Rev F1: Try exact match first, then fallback to hourly lookup (for hourly prices covering 15-min slots)
         price = price_map.get(local_start)
+        if price is None:
+            # Fallback: try the hour boundary (Nordpool hourly prices mapped to 15-min slots)
+            hour_key = local_start.replace(minute=0, second=0, microsecond=0)
+            price = price_map.get(hour_key)
         if price is not None:
             slot["import_price_sek_kwh"] = round(price, 4)
 

@@ -5,6 +5,20 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
+## Revision Naming Conventions
+
+| Prefix | Area | Examples |
+|--------|------|----------|
+| **K** | Kepler (MILP solver) | K1-K19 |
+| **E** | Executor | E1 |
+| **A** | Aurora (ML) | A25-A29 |
+| **H** | History/DB | H1 |
+| **O** | Onboarding | O1 |
+| **UI** | User Interface | UI1, UI2 |
+| **F** | Fixes/Bugfixes | F1 |
+
+---
+
 ## Active Revisions
 
 (Kepler revisions K1-K15 archived to CHANGELOG.md)
@@ -21,6 +35,78 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 3. Update `get_preserved_slots()` to try SQLite before MariaDB
 
 **Status:** Done.
+
+---
+
+### [DONE] Rev F1 — Chart Display & Battery Cost Fixes
+
+**Goal:** Fix chart display regressions from Rev H1 and implement dynamic battery cost calculation.
+
+---
+
+#### Issue 1: SoC Actual on Future Slots (Regression from H1)
+
+**Bug:** `webapp.py:641` maps `soc_target_percent` → `actual_soc`. Also `history.py:get_todays_slots()` queries but doesn't return `before_soc_percent`.
+
+**Fix:**
+1. `history.py`: Add `before_soc_percent` to returned slot dict
+2. `webapp.py`: Change to `slot.get("before_soc_percent")`
+
+---
+
+#### Issue 2: Export Not Affecting SoC Projection (Pre-existing)
+
+**Bug:** `adapter.py` sets `battery_discharge_kw`, but `simulation.py` reads `discharge_kw`.
+
+**Fix:** Add `"discharge_kw": discharge_kw` alias in `adapter.py`
+
+---
+
+#### Issue 3: Dynamic Battery Cost Calculator
+
+**Problem:** Battery cost is static 0.02 SEK/kWh in config. No dynamic calculation exists in Darkstar — was done externally by n8n → MariaDB.
+
+**Algorithm (weighted average):**
+- Grid charge: `cost = (old_kwh * old_cost + charge_kwh * price) / new_kwh`
+- PV charge (free): `cost = (old_kwh * old_cost) / (old_kwh + pv_surplus)` (dilutes cost)
+
+**Implementation:**
+1. Create `backend/battery_cost.py` with calculation logic
+2. Store `battery_avg_cost_sek_kwh` in SQLite
+3. Executor updates cost on each slot execution
+4. Kepler reads current cost for export decisions
+5. **Default: 1.0 SEK/kWh** until sufficient data
+
+---
+
+#### Issue 4: Price Gaps in Chart (Hours 10-13)
+
+**Root Cause:** Historical slots in `schedule.json` have `import_price_sek_kwh: None` because they were preserved before prices were attached. The API price overlay (line 800) attempts to fix this from Nordpool, but fails.
+
+**Analysis:**
+- `schedule_map` key: naive datetime from ISO string `2025-12-21T10:00:00+01:00` → `datetime(2025, 12, 21, 10, 0)`
+- `price_map` key: naive datetime from Nordpool `start` field → should match
+- Issue: Either Nordpool API not returning past hours, or minute-level mismatch (schedule=15-min, Nordpool=hourly)
+
+**Production Fix:**
+
+1. **[MODIFY] `webapp.py:schedule_today_with_history()`**: Add debug logging to trace price_map vs schedule_map key matching
+
+2. **[MODIFY] `webapp.py:800-802`**: Normalize keys for lookup - round to nearest resolution boundary:
+```python
+# Before: price = price_map.get(local_start)
+# After: fuzzy match for hourly prices covering 15-min slots
+price_key = local_start.replace(minute=(local_start.minute // 15) * 15, second=0, microsecond=0)
+price = price_map.get(price_key)
+# Fallback: try exact hour for hourly prices
+if price is None:
+    hour_key = local_start.replace(minute=0, second=0, microsecond=0)
+    price = price_map.get(hour_key)
+```
+
+3. **[MODIFY] `db_writer.py:get_preserved_slots()`**: Ensure preserved slots always include prices from Nordpool at save time
+
+**Status:** Planning.
 
 ---
 

@@ -823,6 +823,9 @@ class ExecutorEngine:
                     },
                 )
 
+            # Rev F1: Update battery cost based on charging activity
+            self._update_battery_cost(state, decision, slot)
+
             self.status.last_run_status = "success"
             logger.info("Executor tick completed in %dms", duration_ms)
 
@@ -1025,3 +1028,76 @@ class ExecutorEngine:
             source="native",
             executor_version=EXECUTOR_VERSION,
         )
+
+    def _update_battery_cost(
+        self,
+        state: SystemState,
+        decision: ControllerDecision,
+        slot: Optional[SlotPlan],
+    ) -> None:
+        """
+        Update battery cost based on charging activity (Rev F1).
+
+        Uses weighted average algorithm:
+        - Grid charge: cost increases proportional to import price
+        - PV charge: cost dilutes (free energy reduces avg cost)
+        """
+        try:
+            from backend.battery_cost import BatteryCostTracker
+
+            # Get battery capacity from config
+            battery_cfg = self._full_config.get("battery", {})
+            capacity_kwh = battery_cfg.get("capacity_kwh", 27.0)
+
+            # Initialize tracker
+            db_path = self._get_db_path()
+            tracker = BatteryCostTracker(db_path, capacity_kwh)
+
+            # Estimate charging this slot (5 min @ planned power)
+            slot_duration_h = self.config.interval_seconds / 3600.0
+
+            # Grid charge: if grid charging is enabled and charge current > 0
+            grid_charge_kwh = 0.0
+            if decision.grid_charging and decision.charge_current_a > 0:
+                # Rough estimate: charge_current_a * voltage / 1000 * efficiency * duration
+                voltage_v = self.config.controller.system_voltage_v or 48.0
+                efficiency = self.config.controller.charge_efficiency or 0.92
+                charge_kw = (decision.charge_current_a * voltage_v / 1000.0) * efficiency
+                grid_charge_kwh = charge_kw * slot_duration_h
+
+            # PV charge: if PV exceeds load, surplus goes to battery
+            pv_charge_kwh = 0.0
+            if state.current_pv_kw and state.current_load_kw:
+                pv_surplus_kw = max(0.0, state.current_pv_kw - state.current_load_kw)
+                pv_charge_kwh = pv_surplus_kw * slot_duration_h * 0.95  # 95% efficiency
+
+            # Get current import price
+            import_price = 0.5  # Default fallback
+            try:
+                from inputs import get_nordpool_data
+                prices = get_nordpool_data("config.yaml")
+                if prices:
+                    # Get current slot's price
+                    import pytz
+                    tz = pytz.timezone(self.config.timezone)
+                    now = datetime.now(tz)
+                    for p in prices:
+                        st = p.get("start_time")
+                        if st and st <= now < st + timedelta(hours=1):
+                            import_price = p.get("import_price_sek_kwh", 0.5)
+                            break
+            except Exception:
+                pass
+
+            # Only update if there was charging activity
+            if grid_charge_kwh > 0.01 or pv_charge_kwh > 0.01:
+                tracker.update_cost(
+                    current_soc_percent=state.current_soc_percent or 50.0,
+                    grid_charge_kwh=grid_charge_kwh,
+                    pv_charge_kwh=pv_charge_kwh,
+                    import_price_sek=import_price,
+                )
+
+        except Exception as e:
+            logger.debug("Battery cost update skipped: %s", e)
+

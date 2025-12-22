@@ -44,5 +44,14 @@ temp_secrets.txt
 .DS_Store
 Thumbs.db
 
+# Syncthing conflict files
+*.sync-conflict-*
+
 # Experimental ML models (keep production LightGBM models)
 ml/models/antares_*
+
+# Legacy n8n workflows (not needed in Darkstar)
+pytz
+*.n8n.json
+Helios*.json
+calculate_metrics_n8n.js
