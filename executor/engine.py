@@ -1089,14 +1089,13 @@ class ExecutorEngine:
             except Exception:
                 pass
 
-            # Only update if there was charging activity
-            if grid_charge_kwh > 0.01 or pv_charge_kwh > 0.01:
-                tracker.update_cost(
-                    current_soc_percent=state.current_soc_percent or 50.0,
-                    grid_charge_kwh=grid_charge_kwh,
-                    pv_charge_kwh=pv_charge_kwh,
-                    import_price_sek=import_price,
-                )
+            # Always update to keep energy state synced (cost only changes during charge)
+            tracker.update_cost(
+                current_soc_percent=state.current_soc_percent or 50.0,
+                grid_charge_kwh=grid_charge_kwh,
+                pv_charge_kwh=pv_charge_kwh,
+                import_price_sek=import_price,
+            )
 
         except Exception as e:
             logger.debug("Battery cost update skipped: %s", e)
