@@ -131,6 +131,11 @@ class KeplerSolver:
             slot_curtailment_cost = curtailment[t] * CURTAILMENT_PENALTY
             slot_shedding_cost = load_shedding[t] * LOAD_SHEDDING_PENALTY
             slot_import_breach_cost = import_breach[t] * IMPORT_BREACH_PENALTY
+            
+            # Rev K20: Stored energy cost - makes discharge have implicit cost
+            # If battery energy cost 1.5 SEK and we discharge 1 kWh, it "costs" 1.5 SEK
+            # This prevents discharging when grid price < stored_cost + wear
+            slot_discharge_value = discharge[t] * config.stored_energy_cost_sek_per_kwh
 
             total_cost.append(
                 slot_import_cost
@@ -140,6 +145,7 @@ class KeplerSolver:
                 + slot_curtailment_cost
                 + slot_shedding_cost
                 + slot_import_breach_cost
+                + slot_discharge_value  # Rev K20
             )
 
             # Soft Min/Max SoC Constraints

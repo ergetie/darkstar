@@ -531,6 +531,67 @@ if vacation_enabled:
 
 ---
 
+### [DONE] Rev F2 — Wear Cost Config Fix (2025-12-22)
+
+**Goal:** Fix Kepler to use correct battery wear/degradation cost.
+
+**Problem:** Kepler read wear cost from wrong config key (`learning.default_battery_cost_sek_per_kwh` = 0.0) instead of `battery_economics.battery_cycle_cost_kwh` (0.2 SEK).
+
+**Solution:**
+1. Fixed `adapter.py` to read from correct config key
+2. Added `ramping_cost_sek_per_kw: 0.05` to reduce sawtooth switching
+3. Fixed adapter to read from kepler config section
+
+**Status:** Complete. Commits `4fdf594`, `864cce1`.
+
+---
+
+### [IN PROGRESS] Rev K20 — Stored Energy Cost for Discharge (2025-12-22)
+
+**Goal:** Make Kepler consider stored energy cost in discharge decisions.
+
+**Problem:** Kepler doesn't know what energy in the battery "cost" to store. May discharge at a loss.
+
+**Approach:**
+1. Add `stored_energy_cost_sek_per_kwh` to `KeplerConfig`
+2. Read from `BatteryCostTracker` in adapter
+3. Add `discharge[t] * stored_cost` to MILP objective
+
+**Status:** Planning.
+
+---
+
+### [IN PROGRESS] Rev K21 — Water Heating Slot Investigation (2025-12-22)
+
+**Goal:** Fix water heating not scheduled in cheapest slots.
+
+**Problem:** Water heating at 01:15 (1.44 SEK) instead of 04:00+ (1.36 SEK).
+
+---
+
+**Investigation Findings:**
+
+The gap constraint (`max_hours_between_heating: 8`) combined with comfort penalty (`comfort_level: 3` → 0.50 SEK/violation) is likely forcing early heating.
+
+**Math:**
+- Price difference: 1.44 - 1.36 = **0.08 SEK**
+- Comfort penalty: **0.50 SEK** per gap window violation
+
+Since 0.50 > 0.08, Kepler prefers to heat early (saving 0.50 SEK gap penalty) even though it costs 0.08 SEK more.
+
+**Possible Fixes:**
+1. **Lower comfort_level to 1** → 0.05 SEK penalty (user config change)
+2. **Increase max_hours_between_heating to 12+** (more flexibility)
+3. **Bug in gap constraint logic?** - Need to verify if constraint is too aggressive
+
+---
+
+**Decision needed:** Is this by design (comfort > price) or a bug?
+
+**Status:** Investigation complete, awaiting user decision.
+
+---
+
 ## Backlog
 
 ### ⏸️ On Hold

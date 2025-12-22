@@ -105,6 +105,20 @@ def config_to_kepler_config(
     battery_economics = planner_config.get("battery_economics", {})
     default_wear = float(battery_economics.get("battery_cycle_cost_kwh", 0.2))
 
+    # Rev K20: Stored energy cost (what energy in battery is "worth")
+    # Read from BatteryCostTracker, fallback to config default
+    stored_energy_cost = 1.0  # Conservative default
+    if kepler_config.get("use_stored_energy_cost", True):
+        try:
+            from backend.battery_cost import BatteryCostTracker
+            db_path = learning.get("sqlite_path", "data/planner_learning.db")
+            tracker = BatteryCostTracker(db_path, capacity)
+            state = tracker.get_state()
+            if state.get("updated_at") is not None:
+                stored_energy_cost = state["avg_cost_sek_per_kwh"]
+        except Exception:
+            pass  # Keep default
+
     return KeplerConfig(
         capacity_kwh=capacity,
         min_soc_percent=float(battery.get("min_soc_percent", 10.0)),
@@ -126,6 +140,7 @@ def config_to_kepler_config(
         ),
         ramping_cost_sek_per_kw=get_val("ramping_cost_sek_per_kw", 0.0),
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
+        stored_energy_cost_sek_per_kwh=stored_energy_cost,  # Rev K20
         grid_import_limit_kw=(
             float(planner_config.get("grid", {}).get("import_limit_kw"))
             if planner_config.get("grid", {}).get("import_limit_kw")
