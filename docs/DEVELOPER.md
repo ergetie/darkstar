@@ -255,11 +255,17 @@ pnpm run dev  # OR run backend/scheduler separately
 3.  **UI Themes**: Add custom JSON themes to `backend/themes/`.
 4.  **Logs**: Check the **Debug** tab in the UI for real-time logs from the Planner, Scheduler, and Strategy Engine.
 5.  **Releases**:
-    Create a tagged release and push with a single command:
-    ```bash
-    # Patch bump (default): vX.Y.(Z+1)
-    python -m bin.release -m "fix: <short message>"
-    ```
+    When releasing a new version:
+    1. **Bump version** in:
+       - `darkstar/config.yaml` (add-on manifest)
+       - `darkstar/run.sh` (startup banner)
+       - `frontend/package.json`
+    2. **Tag and push**:
+       ```bash
+       git tag vX.Y.Z
+       git push origin vX.Y.Z
+       ```
+    The sidebar fetches version from `/api/version` which uses `git describe --tags`.
 
 ## License
 

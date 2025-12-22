@@ -110,6 +110,17 @@ from inputs import get_all_input_data
   - `schedule.json`
 - When deploying to a server, prefer `git stash` / `git restore` to keep local DB and schedules, then `git checkout` the desired branch.
 
+### Releasing a New Version
+When releasing a new version:
+1. **Bump version** in all locations:
+   - `darkstar/config.yaml` (add-on manifest)
+   - `darkstar/run.sh` (startup banner)
+   - `frontend/package.json`
+2. **Create git tag**: `git tag vX.Y.Z`
+3. **Push tag**: `git push origin vX.Y.Z`
+
+The sidebar version is fetched from `/api/version` which uses `git describe --tags`. Without a proper tag, it shows `vX.Y.Z-N-ghash` format.
+
 ### Tooling
 - After major code changes or a completed revision:
   - Run `black .` (or the project’s configured formatter) to normalize formatting.

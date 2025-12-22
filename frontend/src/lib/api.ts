@@ -232,6 +232,7 @@ export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
   scheduleTodayWithHistory: () => getJSON<ScheduleTodayWithHistoryResponse>('/api/schedule/today_with_history'),
   status: () => getJSON<StatusResponse>('/api/status'),
+  version: () => getJSON<{ version: string }>('/api/version'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
   config: () => getJSON<ConfigResponse>('/api/config'),
   configSave: (payload: Record<string, any>) =>

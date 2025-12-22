@@ -118,6 +118,7 @@ _advice_cache = {"planned_at": None, "text": None}
 
 
 def _get_git_version() -> str:
+    """Get version from git tags, falling back to darkstar/config.yaml."""
     try:
         return (
             subprocess.check_output(
@@ -127,7 +128,17 @@ def _get_git_version() -> str:
             .strip()
         )
     except Exception:
-        return "dev"
+        pass
+    
+    # Fallback: read from darkstar/config.yaml (add-on version)
+    try:
+        addon_config = _load_yaml("darkstar/config.yaml")
+        if addon_config and addon_config.get("version"):
+            return addon_config["version"]
+    except Exception:
+        pass
+    
+    return "dev"
 
 
 def _parse_legacy_theme_format(text: str) -> dict:

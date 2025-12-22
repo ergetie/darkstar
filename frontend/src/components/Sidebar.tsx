@@ -3,7 +3,6 @@ import { Gauge, BookOpenCheck, Bug, Settings, Menu, X, FlaskConical, Bot, Cpu } 
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { DarkstarLogo } from './DarkstarLogo'
 import { Api } from '../lib/api'
-import pkg from '../../package.json'
 
 const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; label: string; onClick?: () => void }) => {
     const baseClass = "group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface/80 hover:bg-surface2 transition"
@@ -45,6 +44,7 @@ export default function Sidebar() {
     const { pathname } = useLocation()
     const [mobileOpen, setMobileOpen] = useState(false)
     const [connected, setConnected] = useState<boolean | null>(null)
+    const [version, setVersion] = useState<string>('...')
 
     useEffect(() => {
         const check = async () => {
@@ -60,6 +60,13 @@ export default function Sidebar() {
         return () => clearInterval(i)
     }, [])
 
+    // Fetch version from backend API (always current)
+    useEffect(() => {
+        Api.version()
+            .then(data => setVersion(data.version || 'dev'))
+            .catch(() => setVersion('dev'))
+    }, [])
+
     const closeMobile = () => setMobileOpen(false)
 
     return (
@@ -73,7 +80,7 @@ export default function Sidebar() {
                             <DarkstarLogo className="h-8 w-8 text-accent" />
                         </span>
                         <span className="absolute left-14 top-1/2 -translate-y-1/2 rounded-pill bg-surface2/90 border border-line/60 px-2 py-0.5 text-[10px] text-muted opacity-0 group-hover:opacity-100 transition whitespace-nowrap z-50 pointer-events-none">
-                            darkstar v{pkg.version}
+                            darkstar v{version}
                         </span>
                     </Link>
 
@@ -94,7 +101,7 @@ export default function Sidebar() {
                             }`} title={connected === true ? 'System Online' : connected === false ? 'System Offline' : 'Connecting...'} />
 
                         <span className="text-[10px] text-muted/30 font-mono select-none tracking-widest whitespace-nowrap opacity-50 hover:opacity-100 transition" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
-                            darkstar v{pkg.version}
+                            darkstar v{version}
                         </span>
                     </div>
 
@@ -115,7 +122,7 @@ export default function Sidebar() {
                 </button>
                 <div className="flex items-center gap-2 text-[11px] text-muted">
                     <DarkstarLogo className="h-5 w-5 text-accent" />
-                    <span className="font-mono">v{pkg.version}</span>
+                    <span className="font-mono">v{version}</span>
                 </div>
                 <div className="w-10" />
             </div>
@@ -128,7 +135,7 @@ export default function Sidebar() {
                             <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-surface2 border border-line/60">
                                 <DarkstarLogo className="h-5 w-5 text-accent" />
                             </span>
-                            <span className="text-muted font-mono">darkstar v{pkg.version}</span>
+                            <span className="text-muted font-mono">darkstar v{version}</span>
                         </div>
                         <button
                             type="button"
