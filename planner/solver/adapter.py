@@ -94,19 +94,10 @@ def config_to_kepler_config(
             return float(kepler_overrides[key])
         return default
 
-    # Rev F1: Try dynamic battery cost, fall back to config default
-    config_default_wear = float(learning.get("default_battery_cost_sek_per_kwh", 0.02))
-    default_wear = config_default_wear  # Start with config value
-    try:
-        from backend.battery_cost import BatteryCostTracker
-        db_path = learning.get("sqlite_path", "data/planner_learning.db")
-        tracker = BatteryCostTracker(db_path, capacity)
-        state = tracker.get_state()
-        # Only use DB value if we have actual recorded data (updated_at is set)
-        if state.get("updated_at") is not None:
-            default_wear = state["avg_cost_sek_per_kwh"]
-    except Exception:
-        pass  # Keep config default
+    # Wear cost (battery degradation per cycle)
+    # Read from battery_economics.battery_cycle_cost_kwh (the correct key)
+    battery_economics = planner_config.get("battery_economics", {})
+    default_wear = float(battery_economics.get("battery_cycle_cost_kwh", 0.2))
 
     return KeplerConfig(
         capacity_kwh=capacity,
