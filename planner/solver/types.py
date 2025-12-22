@@ -30,7 +30,6 @@ class KeplerConfig:
     terminal_value_sek_kwh: float = 0.0  # Value of energy left in battery
     ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes
     export_threshold_sek_per_kwh: float = 0.0  # Min spread to export
-    stored_energy_cost_sek_per_kwh: float = 0.0  # Rev K20: Cost of energy in battery (for discharge decisions)
     grid_import_limit_kw: Optional[float] = None  # Soft constraint
     # Water heating as deferrable load (Rev K17/K18)
     water_heating_power_kw: float = 0.0  # 0 = disabled

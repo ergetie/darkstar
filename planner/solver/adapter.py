@@ -107,6 +107,7 @@ def config_to_kepler_config(
 
     # Rev K20: Stored energy cost (what energy in battery is "worth")
     # Read from BatteryCostTracker, fallback to config default
+    # This value is used as terminal_value to prevent wasteful discharge
     stored_energy_cost = 1.0  # Conservative default
     if kepler_config.get("use_stored_energy_cost", True):
         try:
@@ -140,7 +141,9 @@ def config_to_kepler_config(
         ),
         ramping_cost_sek_per_kw=get_val("ramping_cost_sek_per_kw", 0.0),
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
-        stored_energy_cost_sek_per_kwh=stored_energy_cost,  # Rev K20
+        # Rev K20: terminal_value = stored_energy_cost
+        # This ensures Kepler values battery energy correctly and won't discharge at a loss
+        terminal_value_sek_kwh=stored_energy_cost,
         grid_import_limit_kw=(
             float(planner_config.get("grid", {}).get("import_limit_kw"))
             if planner_config.get("grid", {}).get("import_limit_kw")

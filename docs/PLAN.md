@@ -592,6 +592,30 @@ Since 0.50 > 0.08, Kepler prefers to heat early (saving 0.50 SEK gap penalty) ev
 
 ---
 
+### [TODO] Rev K22 — Plan Cost Not Stored (2025-12-22)
+
+**Goal:** Fix missing `planned_cost_sek` in Aurora "Cost Reality" card.
+
+**Bug:** `slot_plans.planned_cost_sek` is always 0.0 - cost never calculated/stored.
+
+**Impact:** Aurora tab shows no "Plan" cost, only "Real" cost.
+
+**Status:** Investigation pending. User reports this worked 2 days ago - likely a regression.
+
+---
+
+### [TODO] Rev K23 — SoC Target Holding Behavior (2025-12-22)
+
+**Goal:** Investigate why battery holds at soc_target instead of using battery freely.
+
+**Observation:** At 22:00, battery at 33% SoC, grid 1.82 SEK. Battery should discharge but holds because soc_target=33%.
+
+**Expected:** Battery should be used freely during day, only end at target SoC at end of horizon.
+
+**Status:** Investigation pending.
+
+---
+
 ## Backlog
 
 ### ⏸️ On Hold
