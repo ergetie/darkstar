@@ -6,7 +6,7 @@ Migrated from backend/kepler/adapter.py during Rev K13 modularization.
 """
 
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from .types import KeplerInput, KeplerInputSlot, KeplerConfig, KeplerResult
 
 
@@ -72,10 +72,17 @@ def _comfort_level_to_penalty(comfort_level: int) -> float:
 
 
 def config_to_kepler_config(
-    planner_config: Dict[str, Any], overrides: Optional[Dict[str, Any]] = None
+    planner_config: Dict[str, Any],
+    overrides: Optional[Dict[str, Any]] = None,
+    slots: Optional[List[Any]] = None,
 ) -> KeplerConfig:
     """
     Convert the main config dictionary to KeplerConfig.
+    
+    Args:
+        planner_config: Main configuration dictionary
+        overrides: Optional runtime overrides
+        slots: Optional list of KeplerInputSlot for dynamic terminal_value calculation
     """
     system = planner_config.get("system", {})
     battery = system.get("battery", planner_config.get("battery", {}))
@@ -105,20 +112,40 @@ def config_to_kepler_config(
     battery_economics = planner_config.get("battery_economics", {})
     default_wear = float(battery_economics.get("battery_cycle_cost_kwh", 0.2))
 
-    # Rev K20: Stored energy cost (what energy in battery is "worth")
-    # Read from BatteryCostTracker, fallback to config default
-    # This value is used as terminal_value to prevent wasteful discharge
-    stored_energy_cost = 1.0  # Conservative default
-    if kepler_config.get("use_stored_energy_cost", True):
+    # Rev K23: Dynamic terminal_value from price statistics
+    # Must be in sweet spot:
+    # - High enough that charging at cheap prices is profitable (terminal > charge_price)
+    # - Low enough that discharging at expensive prices is profitable (terminal + wear < discharge_price)
+    # Formula: midpoint between min price and avg price
+    terminal_value = 1.5  # Fallback default
+    stored_energy_cost = 1.0
+    
+    # First, get stored energy cost (floor for terminal_value)
+    try:
+        from backend.battery_cost import BatteryCostTracker
+        db_path = learning.get("sqlite_path", "data/planner_learning.db")
+        tracker = BatteryCostTracker(db_path, capacity)
+        state = tracker.get_state()
+        if state.get("updated_at") is not None:
+            stored_energy_cost = state["avg_cost_sek_per_kwh"]
+    except Exception:
+        pass
+    
+    # Calculate terminal_value as midpoint between min and avg price
+    if slots and len(slots) > 0:
         try:
-            from backend.battery_cost import BatteryCostTracker
-            db_path = learning.get("sqlite_path", "data/planner_learning.db")
-            tracker = BatteryCostTracker(db_path, capacity)
-            state = tracker.get_state()
-            if state.get("updated_at") is not None:
-                stored_energy_cost = state["avg_cost_sek_per_kwh"]
+            prices = [s.import_price_sek_kwh for s in slots if s.import_price_sek_kwh is not None]
+            if prices:
+                min_price = min(prices)
+                avg_price = sum(prices) / len(prices)
+                # Midpoint: balances charge profitability (needs terminal > min) 
+                # and discharge profitability (needs terminal + wear < avg)
+                terminal_value = (min_price + avg_price) / 2.0
         except Exception:
-            pass  # Keep default
+            pass
+    
+    # Ensure terminal_value >= stored_energy_cost (don't discharge at a loss)
+    terminal_value = max(terminal_value, stored_energy_cost)
 
     return KeplerConfig(
         capacity_kwh=capacity,
@@ -141,9 +168,9 @@ def config_to_kepler_config(
         ),
         ramping_cost_sek_per_kw=get_val("ramping_cost_sek_per_kw", 0.0),
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
-        # Rev K20: terminal_value = stored_energy_cost
-        # This ensures Kepler values battery energy correctly and won't discharge at a loss
-        terminal_value_sek_kwh=stored_energy_cost,
+        # Rev K23: terminal_value = max(avg_future_price, stored_energy_cost)
+        # This ensures charging is profitable and battery isn't discharged at a loss
+        terminal_value_sek_kwh=terminal_value,
         grid_import_limit_kw=(
             float(planner_config.get("grid", {}).get("import_limit_kw"))
             if planner_config.get("grid", {}).get("import_limit_kw")

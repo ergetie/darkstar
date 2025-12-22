@@ -284,7 +284,7 @@ class PlannerPipeline:
             )
 
         kepler_input = planner_to_kepler_input(future_df, initial_soc_kwh)
-        kepler_config = config_to_kepler_config(active_config, overrides)
+        kepler_config = config_to_kepler_config(active_config, overrides, kepler_input.slots)
 
         # Rev O1: Disable water heating in Kepler if no water heater
         if not has_water_heater:
