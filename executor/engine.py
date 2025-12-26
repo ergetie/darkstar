@@ -943,15 +943,17 @@ class ExecutorEngine:
         load_power_entity = input_sensors.get("load_power", "sensor.inverter_load_power")
 
         try:
-            # Get SoC
-            soc_str = self.ha_client.get_state_value(soc_entity)
-            if soc_str and soc_str not in ("unknown", "unavailable"):
-                state.current_soc_percent = float(soc_str)
+            # Get SoC (Rev O1)
+            if self.config.has_battery:
+                soc_str = self.ha_client.get_state_value(soc_entity)
+                if soc_str and soc_str not in ("unknown", "unavailable"):
+                    state.current_soc_percent = float(soc_str)
 
-            # Get PV power
-            pv_str = self.ha_client.get_state_value(pv_power_entity)
-            if pv_str and pv_str not in ("unknown", "unavailable"):
-                state.current_pv_kw = float(pv_str) / 1000  # W to kW
+            # Get PV power (Rev O1)
+            if self.config.has_solar:
+                pv_str = self.ha_client.get_state_value(pv_power_entity)
+                if pv_str and pv_str not in ("unknown", "unavailable"):
+                    state.current_pv_kw = float(pv_str) / 1000  # W to kW
 
             # Get load power
             load_str = self.ha_client.get_state_value(load_power_entity)
@@ -959,18 +961,20 @@ class ExecutorEngine:
                 state.current_load_kw = float(load_str) / 1000
 
             # Get current work mode
-            work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
-            if work_mode:
-                state.current_work_mode = work_mode
+            if self.config.has_battery:
+                work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
+                if work_mode:
+                    state.current_work_mode = work_mode
 
-            # Get grid charging state
-            grid_charge = self.ha_client.get_state_value(self.config.inverter.grid_charging_entity)
-            state.grid_charging_enabled = grid_charge == "on"
+                # Get grid charging state
+                grid_charge = self.ha_client.get_state_value(self.config.inverter.grid_charging_entity)
+                state.grid_charging_enabled = grid_charge == "on"
 
-            # Get water heater temp
-            water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
-            if water_str:
-                state.current_water_temp = float(water_str)
+            # Get water heater temp (Rev O1)
+            if self.config.has_water_heater:
+                water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
+                if water_str:
+                    state.current_water_temp = float(water_str)
 
             # Check manual override toggle (optional - don't fail if missing)
             if self.config.manual_override_entity:
@@ -1042,6 +1046,9 @@ class ExecutorEngine:
         - Grid charge: cost increases proportional to import price
         - PV charge: cost dilutes (free energy reduces avg cost)
         """
+        if not self.config.has_battery:
+            return
+
         try:
             from backend.battery_cost import BatteryCostTracker
 

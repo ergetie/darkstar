@@ -207,31 +207,35 @@ class ActionDispatcher:
         """
         results: List[ActionResult] = []
 
-        # 1. Set work mode
-        result = self._set_work_mode(decision.work_mode)
-        results.append(result)
+        # 1. Set work mode (Rev O1)
+        if self.config.has_battery:
+            result = self._set_work_mode(decision.work_mode)
+            results.append(result)
 
-        # 2. Set grid charging
-        result = self._set_grid_charging(decision.grid_charging)
-        results.append(result)
+        # 2. Set grid charging (Rev O1)
+        if self.config.has_battery:
+            result = self._set_grid_charging(decision.grid_charging)
+            results.append(result)
 
-        # 3. Set charge current (if needed)
-        if decision.write_charge_current:
+        # 3. Set charge current (Rev O1)
+        if self.config.has_battery and decision.write_charge_current:
             result = self._set_charge_current(decision.charge_current_a)
             results.append(result)
 
-        # 4. Set discharge current (if needed)
-        if decision.write_discharge_current:
+        # 4. Set discharge current (Rev O1)
+        if self.config.has_battery and decision.write_discharge_current:
             result = self._set_discharge_current(decision.discharge_current_a)
             results.append(result)
 
-        # 5. Set SoC target
-        result = self._set_soc_target(decision.soc_target)
-        results.append(result)
+        # 5. Set SoC target (Rev O1)
+        if self.config.has_battery:
+            result = self._set_soc_target(decision.soc_target)
+            results.append(result)
 
-        # 6. Set water heater target
-        result = self._set_water_temp(decision.water_temp)
-        results.append(result)
+        # 6. Set water heater target (Rev O1)
+        if self.config.has_water_heater:
+            result = self._set_water_temp(decision.water_temp)
+            results.append(result)
 
         return results
 

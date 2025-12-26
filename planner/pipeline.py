@@ -252,8 +252,8 @@ class PlannerPipeline:
         # Rev K17: Skip heuristic water scheduling when Kepler handles it as deferrable load
         water_cfg = active_config.get("water_heating", {})
         kepler_water_enabled = float(water_cfg.get("power_kw", 0.0)) > 0
-        if not kepler_water_enabled:
-            # Fallback to old heuristic if water heating disabled in config
+        if not kepler_water_enabled and has_water_heater:
+            # Fallback to old heuristic if water heating disabled in config but system has one
             df = schedule_water_heating(df, active_config, now_slot, ha_water_today)
         # Otherwise, Kepler will handle water_heating_kw in the MILP
 
@@ -290,15 +290,14 @@ class PlannerPipeline:
         if not has_water_heater:
             logger.info("No water heater - disabling water heating optimization")
             kepler_config.water_heating_min_kwh = 0.0
-            kepler_config.water_heating_max_kwh = 0.0
             kepler_config.water_comfort_penalty_sek = 0.0
             kepler_config.water_heating_max_gap_hours = 0.0
 
         # Rev O1: Constrain battery if no battery system
         if not has_battery:
             logger.info("No battery - disabling battery optimization (charge/discharge disabled)")
-            kepler_config.max_charge_kw = 0.0
-            kepler_config.max_discharge_kw = 0.0
+            kepler_config.max_charge_power_kw = 0.0
+            kepler_config.max_discharge_power_kw = 0.0
 
         # Rev K18: Pass water heated today to reduce remaining min requirement
         kepler_config.water_heated_today_kwh = ha_water_today
