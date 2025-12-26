@@ -115,6 +115,13 @@ def dataframe_to_json_response(
         record["priority"] = priority
         record["is_historical"] = record.get("is_historical", False)
 
+        # Rev K22: Calculate planned cash flow cost (Grid Bill only)
+        import_kwh = float(record.get("kepler_import_kwh") or record.get("import_kwh") or 0.0)
+        export_kwh_actual = float(record.get("kepler_export_kwh") or record.get("export_kwh") or 0.0)
+        buy_price = float(record.get("import_price_sek_kwh") or 0.0)
+        sell_price = float(record.get("export_price_sek_kwh") or 0.0)
+        record["planned_cost_sek"] = (import_kwh * buy_price) - (export_kwh_actual * sell_price)
+
         for key, value in record.items():
             if isinstance(value, float):
                 record[key] = round(value, 2)

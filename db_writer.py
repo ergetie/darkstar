@@ -253,7 +253,7 @@ def _write_merged_schedule(
         with conn.cursor() as cur:
             # Delete only FUTURE slots, preserve past
             now_naive = datetime.now(pytz.timezone(tz_name)).replace(tzinfo=None)
-            cur.execute("DELETE FROM current_schedule WHERE slot_start >= ?", (now_naive,))
+            cur.execute("DELETE FROM current_schedule WHERE slot_start >= %s", (now_naive,))
 
             # Insert merged schedule
             schedule_columns = [
@@ -266,6 +266,7 @@ def _write_merged_schedule(
                 "planned_pv_kwh",
                 "soc_target",
                 "soc_projected",
+                "planned_cost_sek",
                 "planner_version",
             ]
             columns_str = ", ".join(schedule_columns)
@@ -285,6 +286,7 @@ def _write_merged_schedule(
                 "planned_pv_kwh",
                 "soc_target",
                 "soc_projected",
+                "planned_cost_sek",
                 "planner_version",
             ]
             history_cols_str = ", ".join(history_columns)
@@ -313,6 +315,10 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
 
     soc_target = float(slot.get("soc_target_percent", slot.get("soc_target", 0.0)) or 0.0)
     soc_projected = float(slot.get("projected_soc_percent", slot.get("soc_projected", 0.0)) or 0.0)
+    
+    # Rev K22: Planned cost
+    planned_cost = float(slot.get("planned_cost_sek", 0.0) or 0.0)
+
     # DB uses SMALLINT for SoC fields; map to integer percent
     soc_target_i = int(round(soc_target))
     soc_projected_i = int(round(soc_projected))
@@ -331,6 +337,7 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
         planned_pv_kwh,
         soc_target_i,
         soc_projected_i,
+        planned_cost,
     )
 
 
@@ -397,6 +404,7 @@ def write_schedule_to_db(
         "planned_pv_kwh",
         "soc_target",
         "soc_projected",
+        "planned_cost_sek",
         "planner_version",
     ]
     values_str = ", ".join(["%s"] * len(current_columns))
@@ -414,6 +422,7 @@ def write_schedule_to_db(
         "planned_pv_kwh",
         "soc_target",
         "soc_projected",
+        "planned_cost_sek",
         "planner_version",
     ]
     history_values = ", ".join(["%s"] * (len(history_columns) - 1))

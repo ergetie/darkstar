@@ -168,27 +168,15 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 
 
 
-### [IN PROGRESS] Rev K22 — Plan Cost Not Stored
+## [DONE] Rev K22 — Plan Cost Not Stored
 
 **Goal:** Fix missing `planned_cost_sek` in Aurora "Cost Reality" card.
 
-**Bug:** `slot_plans.planned_cost_sek` is always 0.0 - cost never calculated/stored.
-
-**Impact:** Aurora tab shows no "Plan" cost, only "Real" cost.
-
-**Investigation Findings:**
-* **Root Cause:** The `SlotPlan` object (in `schedule.py`) is initialized with `planned_cost_sek=0.0`, but `formatter.py` never calculates or assigns the actual value during the conversion of solver results.
-* **Missing Logic:** The solver (Kepler) optimizes for total cost but the per-slot financial implication (Cash Flow) is not being reconstructed for the output schedule.
-
-**Proposed Fix:**
-1.  **Modify `planner/output/formatter.py`:**
-    * Inside the slot iteration loop, calculate the net cost for the slot.
-    * Formula: `(grid_import_kwh * buy_price) - (grid_export_kwh * sell_price)`.
-    * Assign to `slot.planned_cost_sek`.
-2.  **Definition:** Confirm if "Cost" implies strictly "Grid Bill" (Cash Flow) or "Economic Cost" (including battery wear).
-    * *Decision:* Match "Real" cost in Aurora, which comes from Home Assistant's "Grid Cost". Therefore, this should be **Grid Cash Flow only**.
-
-**Status:** Investigation complete, ready for implementation.
+**Implementation Status (2025-12-26):**
+-   [x] **Calculation:** Modified `planner/output/formatter.py` and `planner/solver/adapter.py` to calculate Grid Cash Flow cost per slot.
+-   [x] **Storage:** Updated `db_writer.py` to store `planned_cost_sek` in MariaDB `current_schedule` and `plan_history` tables.
+-   [x] **Sync:** Updated `backend/learning/mariadb_sync.py` to synchronize the new cost column to local SQLite.
+-   [x] **Metrics:** Verified `backend/learning/engine.py` can now aggregate planned cost correctly for the Aurora dashboard.
 
 ### [PAUSED] Rev K23 — SoC Target Holding Behavior (2025-12-22)
 

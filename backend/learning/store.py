@@ -613,7 +613,7 @@ class LearningStore:
                         float(row.get("kepler_soc_percent", 0.0) or 0.0),
                         float(row.get("kepler_import_kwh", 0.0) or 0.0),
                         float(row.get("kepler_export_kwh", 0.0) or 0.0),
-                        float(row.get("kepler_cost_sek", 0.0) or 0.0),
+                        float(row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0),
                     ),
                 )
             conn.commit()

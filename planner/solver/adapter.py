@@ -225,6 +225,7 @@ def kepler_result_to_dataframe(
                 "kepler_export_kwh": s.grid_export_kwh,
                 "kepler_soc_kwh": s.soc_kwh,
                 "kepler_cost_sek": s.cost_sek,
+                "planned_cost_sek": (s.grid_import_kwh * s.import_price_sek_kwh) - (s.grid_export_kwh * s.export_price_sek_kwh),
                 "battery_charge_kw": charge_kw,
                 "battery_discharge_kw": discharge_kw,
                 "discharge_kw": discharge_kw,  # Alias for simulation.py compatibility
