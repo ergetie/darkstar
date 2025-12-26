@@ -102,11 +102,11 @@ log "Recorder started (PID: $RECORDER_PID)"
 # Brief pause to let background services initialize
 sleep 2
 
-# Start Flask API (foreground, but backgrounded for wait)
-log "Starting Flask API on port 5000..."
-python -m flask run --host 0.0.0.0 --port 5000 &
+# Start Darkstar API with WebSockets (foreground, but backgrounded for wait)
+log "Starting Darkstar API with WebSockets on port 5000..."
+python run.py &
 FLASK_PID=$!
-log "Flask started (PID: $FLASK_PID)"
+log "Darkstar started (PID: $FLASK_PID)"
 
 log "=========================================="
 log "  All services running. Ready."

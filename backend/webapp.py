@@ -33,6 +33,7 @@ from backend.strategy.engine import StrategyEngine
 from backend.strategy.analyst import EnergyAnalyst
 from backend.strategy.voice import get_advice
 from backend.api.aurora import aurora_bp
+from backend.extensions import socketio
 
 
 DARKSTAR_ASCII = """
@@ -43,6 +44,7 @@ print(DARKSTAR_ASCII)
 
 app = Flask(__name__)
 app.register_blueprint(aurora_bp)
+socketio.init_app(app)
 
 THEME_DIR = os.path.join(os.path.dirname(__file__), "themes")
 
@@ -3232,3 +3234,33 @@ _autostart_executor()
 
 
         
+
+def setup_schedule_watcher():
+    """Watch schedule.json for changes and emit plan_updated event."""
+    def watch_loop():
+        import os
+        import time
+        from backend.events import emit_plan_updated
+        schedule_path = "schedule.json"
+        last_mtime = 0
+        if os.path.exists(schedule_path):
+            last_mtime = os.path.getmtime(schedule_path)
+            
+        while True:
+            try:
+                if os.path.exists(schedule_path):
+                    current_mtime = os.path.getmtime(schedule_path)
+                    if current_mtime > last_mtime:
+                        last_mtime = current_mtime
+                        from backend.webapp import logger
+                        logger.info("📅 schedule.json changed, emitting plan_updated")
+                        emit_plan_updated()
+            except Exception:
+                pass
+            time.sleep(5)
+
+    import threading
+    watcher_thread = threading.Thread(target=watch_loop, daemon=True)
+    watcher_thread.start()
+
+setup_schedule_watcher()

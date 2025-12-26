@@ -157,7 +157,7 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 - [x] **Cleanup:** 
     - [x] Removed redundant titles ("Quick Actions", "Control Parameters") to save space.
     - [x] Implemented **Toolbar Card** for Plan Badge (Freshness + Next Action) and Refresh controls.
-- [ ] **HA Event Stream (E1):** Implement **WebSockets** to replace all polling mechanisms. 
+- [x] **HA Event Stream (E1):** Implement **WebSockets** to replace all polling mechanisms. 
     - **Scope:** Real-time streaming for Charts, Sparklines, and Status.
     - **Cleanup:** Remove the "30s Auto-Refresh" toggle and interval logic entirely. Dashboard becomes fully push-based.
 

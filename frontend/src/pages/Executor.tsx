@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets, ChevronDown } from 'lucide-react'
 import Card from '../components/Card'
+import { useSocket } from '../lib/hooks'
 
 // Types for notifications
 type NotificationSettings = {
@@ -318,54 +319,62 @@ export default function Executor() {
         }
     }, [])
 
+    // --- WebSocket Event Handlers (Rev E1) ---
+    useSocket('live_metrics', (data) => {
+        setLive(prev => ({
+            ...prev,
+            soc: data.soc !== undefined ? { value: `${data.soc.toFixed(0)}%`, numeric: data.soc, unit: '%' } : prev?.soc,
+            pv_power: data.pv_kw !== undefined ? { value: `${data.pv_kw.toFixed(1)} kW`, numeric: data.pv_kw * 1000, unit: 'W' } : prev?.pv_power,
+            load_power: data.load_kw !== undefined ? { value: `${data.load_kw.toFixed(1)} kW`, numeric: data.load_kw * 1000, unit: 'W' } : prev?.load_power,
+            grid_import: data.grid_import_kw !== undefined ? { value: `${data.grid_import_kw.toFixed(2)} kW`, numeric: data.grid_import_kw * 1000, unit: 'W' } : prev?.grid_import,
+            grid_export: data.grid_export_kw !== undefined ? { value: `${data.grid_export_kw.toFixed(2)} kW`, numeric: data.grid_export_kw * 1000, unit: 'W' } : prev?.grid_export,
+            work_mode: data.work_mode ? { value: data.work_mode } : prev?.work_mode
+        }));
+
+        setHistoryBuffer(prev => {
+            const limit = 20
+            const newLabels = [...prev.labels, '']
+            const newSoc = [...prev.soc, data.soc ?? prev.soc[prev.soc.length-1] ?? 0]
+            const newPv = [...prev.pv, data.pv_kw ?? prev.pv[prev.pv.length-1] ?? 0]
+            const newLoad = [...prev.load, data.load_kw ?? prev.load[prev.load.length-1] ?? 0]
+            const newImport = [...prev.import, data.grid_import_kw ?? prev.import[prev.import.length-1] ?? 0]
+            const newExport = [...prev.export, data.grid_export_kw ?? prev.export[prev.export.length-1] ?? 0]
+
+            if (newLabels.length > limit) {
+                newLabels.shift(); newSoc.shift(); newPv.shift(); newLoad.shift(); newImport.shift(); newExport.shift();
+            }
+
+            return {
+                labels: newLabels,
+                soc: newSoc,
+                pv: newPv,
+                load: newLoad,
+                import: newImport,
+                export: newExport
+            }
+        })
+    });
+
+    useSocket('executor_status', (data) => {
+        setStatus(data);
+    });
+
+    // Initial data load
     useEffect(() => {
         fetchAll()
-        const interval = setInterval(fetchAll, 30000) // Refresh every 30s
+        const interval = setInterval(fetchAll, 30000) // Keep status polling as backup
         return () => clearInterval(interval)
     }, [fetchAll])
 
-    // Faster refresh for live values (every 10s)
+    // Initial fetch for live values (just once)
     useEffect(() => {
-        const fetchLive = async () => {
+        const loadInitialLive = async () => {
             try {
                 const liveRes = await executorApi.live()
                 setLive(liveRes)
-
-                // Update buffer for sparklines
-                setHistoryBuffer(prev => {
-                    const limit = 20
-                    const newLabels = [...prev.labels, '']
-                    const newSoc = [...prev.soc, liveRes.soc?.numeric || 0]
-                    const newPv = [...prev.pv, (liveRes.pv_power?.numeric || 0) / 1000] // kW
-                    const newLoad = [...prev.load, (liveRes.load_power?.numeric || 0) / 1000] // kW
-                    const newImport = [...prev.import, (liveRes.grid_import?.numeric || 0) / 1000] // kW
-                    const newExport = [...prev.export, (liveRes.grid_export?.numeric || 0) / 1000] // kW
-
-                    if (newLabels.length > limit) {
-                        newLabels.shift()
-                        newSoc.shift()
-                        newPv.shift()
-                        newLoad.shift()
-                        newImport.shift()
-                        newExport.shift()
-                    }
-
-                    return {
-                        labels: newLabels,
-                        soc: newSoc,
-                        pv: newPv,
-                        load: newLoad,
-                        import: newImport,
-                        export: newExport
-                    }
-                })
-            } catch (e) {
-                // Silently fail for live - not critical
-            }
+            } catch (e) { }
         }
-        fetchLive()
-        const liveInterval = setInterval(fetchLive, 10000)
-        return () => clearInterval(liveInterval)
+        loadInitialLive()
     }, [])
 
     // Fetch notifications on mount

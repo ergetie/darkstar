@@ -691,6 +691,22 @@ class ExecutorEngine:
 
             # 3. Gather system state
             state = self._gather_system_state()
+            
+            # Emit live metrics for UI sparklines (Rev E1)
+            try:
+                from backend.events import emit_live_metrics
+                emit_live_metrics({
+                    "soc": state.current_soc_percent,
+                    "pv_kw": state.current_pv_kw,
+                    "load_kw": state.current_load_kw,
+                    "grid_import_kw": state.current_import_kw,
+                    "grid_export_kw": state.current_export_kw,
+                    "work_mode": state.current_work_mode,
+                    "grid_charging": state.grid_charging_enabled,
+                    "timestamp": now_iso
+                })
+            except Exception as e:
+                logger.debug("Failed to emit live metrics: %s", e)
 
             # Update state with slot validity
             state.slot_exists = slot is not None
@@ -828,6 +844,13 @@ class ExecutorEngine:
 
             self.status.last_run_status = "success"
             logger.info("Executor tick completed in %dms", duration_ms)
+            
+            # Broadcast status update (Rev E1)
+            try:
+                from backend.events import emit_status_update
+                emit_status_update(self.get_status())
+            except Exception as e:
+                logger.debug("Failed to emit status update: %s", e)
 
         except Exception as e:
             logger.exception("Executor tick failed: %s", e)
@@ -959,6 +982,18 @@ class ExecutorEngine:
             load_str = self.ha_client.get_state_value(load_power_entity)
             if load_str and load_str not in ("unknown", "unavailable"):
                 state.current_load_kw = float(load_str) / 1000
+
+            # Get grid import/export (Rev E1)
+            import_entity = input_sensors.get("grid_import_power", "sensor.inverter_grid_import_power")
+            export_entity = input_sensors.get("grid_export_power", "sensor.inverter_grid_export_power")
+            
+            imp_str = self.ha_client.get_state_value(import_entity)
+            if imp_str and imp_str not in ("unknown", "unavailable"):
+                state.current_import_kw = float(imp_str) / 1000
+                
+            exp_str = self.ha_client.get_state_value(export_entity)
+            if exp_str and exp_str not in ("unknown", "unavailable"):
+                state.current_export_kw = float(exp_str) / 1000
 
             # Get current work mode
             if self.config.has_battery:

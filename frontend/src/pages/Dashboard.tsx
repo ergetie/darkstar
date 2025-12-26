@@ -9,6 +9,7 @@ import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
+import { useSocket } from '../lib/hooks'
 
 type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
 
@@ -48,8 +49,6 @@ export default function Dashboard() {
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
-    const [autoRefresh, setAutoRefresh] = useState(true)
-    const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
     const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; external_executor_mode?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
     const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
@@ -66,6 +65,24 @@ export default function Dashboard() {
         loadConsumption: number | null;
         netCost: number | null;
     } | null>(null)
+
+    // --- WebSocket Event Handlers (Rev E1) ---
+    useSocket('live_metrics', (data) => {
+        if (data.soc !== undefined) setSoc(data.soc)
+        // Note: PV/Load today stats still come from fetchAllData because they are cumulative
+    })
+
+    useSocket('plan_updated', () => {
+        console.log("📅 Plan updated! Refreshing data...")
+        fetchAllData()
+    })
+
+    useSocket('executor_status', (data) => {
+        setExecutorStatus({
+            shadow_mode: data.shadow_mode ?? false,
+            paused: data.paused ?? null,
+        })
+    })
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -417,26 +434,6 @@ export default function Dashboard() {
         fetchAllData()
     }, [fetchAllData])
 
-    // Set up polling
-    useEffect(() => {
-        if (autoRefresh) {
-            pollingIntervalRef.current = setInterval(() => {
-                fetchAllData()
-            }, 30000) // Refresh every 30 seconds
-        } else {
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current)
-                pollingIntervalRef.current = null
-            }
-        }
-
-        return () => {
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current)
-            }
-        }
-    }, [autoRefresh, fetchAllData])
-
     const toggleAutomationScheduler = async () => {
         if (automationSaving) return
         const current = automationConfig?.enable_scheduler ?? false
@@ -652,8 +649,7 @@ export default function Dashboard() {
                         <div className="text-[10px] text-muted uppercase tracking-wider font-medium">{planBadge}</div>
                         <div className="flex items-center gap-2">
                              <div className="text-[10px] text-muted">
-                                {autoRefresh ? 'auto-refresh' : 'manual'}
-                                {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
+                                {lastRefresh && `Synced ${lastRefresh.toLocaleTimeString()}`}
                             </div>
                             {statusMessage && (
                                 <div className="text-[10px] text-amber-400">
@@ -667,21 +663,11 @@ export default function Dashboard() {
                                     ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
                                     : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
                                     }`}
-                                title="Refresh data"
+                                title="Manual sync"
                             >
                                 <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
                                     {isRefreshing ? '⟳' : '↻'}
                                 </span>
-                            </button>
-                            <button
-                                onClick={() => setAutoRefresh(!autoRefresh)}
-                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${autoRefresh
-                                    ? 'bg-accent text-canvas border border-accent'
-                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                    }`}
-                                title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
-                            >
-                                ⏱
                             </button>
                         </div>
                     </Card>
