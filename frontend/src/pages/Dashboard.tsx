@@ -2,13 +2,13 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
-import Kpi from '../components/Kpi'
 import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
+import { GridDomain, ResourcesDomain, StrategyDomain } from '../components/CommandDomains'
 
 type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
 
@@ -615,61 +615,30 @@ export default function Dashboard() {
                 />
             </motion.div>
 
-            {/* Row 2: Advisor + System Status + Quick Actions / Automation */}
+            {/* Row 2: Advisor + Strategy + Quick Actions */}
             <div className="grid gap-6 lg:grid-cols-3 items-stretch">
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <SmartAdvisor />
                 </motion.div>
+                
+                {/* Middle Column: Strategy Domain (Replaces System Status) */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <Card className="h-full p-4 md:p-5">
-                        <div className="flex items-baseline justify-between mb-3">
-                            <div className="text-sm text-muted">System Status</div>
-                            <div className="flex items-center gap-2">
-                                <div className="text-[10px] text-muted">
-                                    {autoRefresh ? 'auto-refresh' : 'manual'}
-                                    {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
-                                </div>
-                                {statusMessage && (
-                                    <div className="text-[10px] text-amber-400">
-                                        {statusMessage}
-                                    </div>
-                                )}
-                                <button
-                                    onClick={() => fetchAllData()}
-                                    disabled={isRefreshing}
-                                    className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
-                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
-                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                        }`}
-                                    title="Refresh data"
-                                >
-                                    <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
-                                        {isRefreshing ? '⟳' : '↻'}
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => setAutoRefresh(!autoRefresh)}
-                                    className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${autoRefresh
-                                        ? 'bg-accent text-canvas border border-accent'
-                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                        }`}
-                                    title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
-                                >
-                                    ⏱
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
-                            <div className="text-text">Now showing: {planBadge}{planMeta}</div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `slot ${currentSlotTarget.toFixed(0)}%` : ''} />
-                            <Kpi label="S-Index" value={sIndexDisplay} hint={termDisplay} />
-                            <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
-                            <Kpi label="Avg Load" value={avgLoad?.kw !== undefined ? `${avgLoad.kw.toFixed(1)} kW` : '— kW'} hint={avgLoad?.dailyKwh !== undefined ? `HA ${avgLoad.dailyKwh.toFixed(1)} kWh/day` : ''} />
-                        </div>
-                    </Card>
+                    <StrategyDomain 
+                        soc={soc}
+                        socTarget={currentSlotTarget}
+                        sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
+                        cycles={todayStats?.batteryCycles ?? null}
+                        riskLabel={{
+                            1: 'Safety',
+                            2: 'Conservative',
+                            3: 'Neutral',
+                            4: 'Aggressive',
+                            5: 'Gambler'
+                        }[riskAppetite]}
+                    />
                 </motion.div>
+
+                {/* Right Column: Quick Actions */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="flex h-full flex-col gap-6">
                         <Card className="flex-1 p-4 md:p-5">
@@ -758,225 +727,129 @@ export default function Dashboard() {
                 </motion.div>
             </div>
 
-            {/* Row 3: Context Cards */}
+            {/* Row 3: Grid + Resources + Config Stack */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                <Card className="p-5">
-                    <div className="flex justify-between items-center mb-3">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted">Water heater</span>
-                            {vacationMode && (
-                                <span className="rounded-pill bg-amber-500/20 border border-amber-500/50 px-2 py-0.5 text-amber-300 text-[10px] font-medium">
-                                    🌴 Vacation
-                                </span>
-                            )}
-                        </div>
-                        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
-                            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
-                        </div>
-                    </div>
-                    <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>
-                    <div className="flex gap-1 mb-2">
-                        {[1, 2, 3, 4, 5].map((level) => {
-                            const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
-                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
-                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
-                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
-                                5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
-                            }
-                            return (
-                                <button
-                                    key={level}
-                                    onClick={async () => {
-                                        setComfortLevel(level)
-                                        await Api.configSave({ water_heating: { comfort_level: level } })
-                                    }}
-                                    className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${comfortLevel === level
-                                        ? `${colorMap[level]} ring-2 soft-glow`
-                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
-                                        }`}
-                                >
-                                    {level}
-                                </button>
-                            )
-                        })}
-                    </div>
-                    <div className="text-sm">
-                        <span className={`font-medium ${comfortLevel === 1 ? 'text-emerald-400' :
-                            comfortLevel === 2 ? 'text-teal-400' :
-                                comfortLevel === 3 ? 'text-blue-400' :
-                                    comfortLevel === 4 ? 'text-amber-400' :
-                                        'text-red-400'
-                            }`}>
-                            {{
-                                1: 'Economy',
-                                2: 'Balanced',
-                                3: 'Neutral',
-                                4: 'Priority',
-                                5: 'Maximum'
-                            }[comfortLevel]}
-                        </span>
-                        <span className="text-muted"> mode active</span>
-                    </div>
-                </Card>
-                <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Risk Strategy</div>
-                    <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Risk Appetite</div>
-                    <div className="flex gap-1 mb-2">
-                        {[1, 2, 3, 4, 5].map((level) => {
-                            const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
-                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
-                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
-                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
-                                5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
-                            }
-                            return (
-                                <button
-                                    key={level}
-                                    onClick={async () => {
-                                        setRiskAppetite(level)
-                                        await Api.configSave({ s_index: { risk_appetite: level } })
-                                    }}
-                                    className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${riskAppetite === level
-                                        ? `${colorMap[level]} ring-2 soft-glow`
-                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
-                                        }`}
-                                >
-                                    {level}
-                                </button>
-                            )
-                        })}
-                    </div>
-                    <div className="text-sm">
-                        <span className={`font-medium ${riskAppetite === 1 ? 'text-emerald-400' :
-                            riskAppetite === 2 ? 'text-teal-400' :
-                                riskAppetite === 3 ? 'text-blue-400' :
-                                    riskAppetite === 4 ? 'text-amber-400' :
-                                        'text-red-400'
-                            }`}>
-                            {{
-                                1: 'Safety',
-                                2: 'Conservative',
-                                3: 'Neutral',
-                                4: 'Aggressive',
-                                5: 'Gambler'
-                            }[riskAppetite]}
-                        </span>
-                        <span className="text-muted"> mode active</span>
-                    </div>
-                </Card>
-                <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Today's Stats</div>
-                    <div className="space-y-3">
-                        {/* Group 1: Grid & Financial */}
-                        <div className="p-2.5 rounded-lg bg-surface2/20 space-y-2 border border-line/20">
-                            {/* Net Cost */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">💰</span>
-                                    <span className="text-xs text-muted">Net</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className={`text-sm font-semibold ${(todayStats?.netCost ?? 0) <= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                                        {todayStats?.netCost != null ? todayStats.netCost.toFixed(2) : '—'}
+                {/* Col 1: Grid Domain */}
+                <GridDomain 
+                    netCost={todayStats?.netCost ?? null}
+                    importKwh={todayStats?.gridImport ?? null}
+                    exportKwh={todayStats?.gridExport ?? null}
+                />
+
+                {/* Col 2: Resources Domain */}
+                <ResourcesDomain 
+                    pvActual={todayStats?.pvProduction ?? null}
+                    pvForecast={todayStats?.pvForecast ?? null}
+                    loadActual={todayStats?.loadConsumption ?? null}
+                    loadAvg={avgLoad?.dailyKwh ?? null}
+                    waterKwh={waterToday?.kwh ?? null}
+                />
+
+                {/* Col 3: Config Stack (Water + Risk) */}
+                <div className="flex flex-col gap-6">
+                    <Card className="p-5 flex-1">
+                        <div className="flex justify-between items-center mb-3">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm text-muted">Water heater</span>
+                                {vacationMode && (
+                                    <span className="rounded-pill bg-amber-500/20 border border-amber-500/50 px-2 py-0.5 text-amber-300 text-[10px] font-medium">
+                                        🌴 Vacation
                                     </span>
-                                    <span className="text-xs text-muted ml-1">kr</span>
-                                </div>
-                            </div>
-                            {/* Grid: Import ↓ / Export ↑ */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🔌</span>
-                                    <span className="text-xs text-muted">Grid</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-semibold text-red-300">↓{todayStats?.gridImport?.toFixed(1) ?? '—'}</span>
-                                    <span className="text-muted mx-0.5">/</span>
-                                    <span className="text-sm font-semibold text-emerald-300">↑{todayStats?.gridExport?.toFixed(1) ?? '—'}</span>
-                                </div>
+                                )}
                             </div>
                         </div>
-
-                        {/* Group 2: Home Energy */}
-                        <div className="p-2.5 rounded-lg bg-surface2/20 space-y-3 border border-line/20">
-                            {/* PV: Actual / Forecast */}
-                            <div className="flex flex-col gap-1">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-base">☀️</span>
-                                        <span className="text-xs text-muted">PV</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-sm font-semibold text-amber-300">
-                                            {todayStats?.pvProduction?.toFixed(1) ?? '—'}
-                                        </span>
-                                        <span className="text-xs text-muted mx-0.5">/</span>
-                                        <span className="text-xs text-muted">{todayStats?.pvForecast?.toFixed(1) ?? '—'}</span>
-                                    </div>
-                                </div>
-                                {/* Progress Bar */}
-                                <div className="h-1 w-full bg-surface rounded-full overflow-hidden flex">
-                                    <div
-                                        className="h-full bg-amber-400 rounded-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(100, ((todayStats?.pvProduction ?? 0) / (todayStats?.pvForecast || 1)) * 100)}%` }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Load: Actual / Average */}
-                            <div className="flex flex-col gap-1">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-base">⚡</span>
-                                        <span className="text-xs text-muted">Load</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-sm font-semibold text-purple-300">
-                                            {todayStats?.loadConsumption?.toFixed(1) ?? '—'}
-                                        </span>
-                                        <span className="text-xs text-muted mx-0.5">/</span>
-                                        <span className="text-xs text-muted">{avgLoad?.dailyKwh?.toFixed(0) ?? '—'}</span>
-                                    </div>
-                                </div>
-                                {/* Progress Bar */}
-                                <div className="h-1 w-full bg-surface rounded-full overflow-hidden flex">
-                                    <div
-                                        className="h-full bg-purple-400 rounded-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(100, ((todayStats?.loadConsumption ?? 0) / (avgLoad?.dailyKwh || 1)) * 100)}%` }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Battery Cycles */}
-                            <div className="flex items-center justify-between pt-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🔋</span>
-                                    <span className="text-xs text-muted">Cycles</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-semibold text-cyan-300">
-                                        {todayStats?.batteryCycles != null ? todayStats.batteryCycles.toFixed(2) : '—'}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Water Heating */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🔥</span>
-                                    <span className="text-xs text-muted">Water</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-semibold text-orange-300">
-                                        {waterToday?.kwh !== undefined ? waterToday.kwh.toFixed(1) : '—'}
-                                    </span>
-                                    <span className="text-xs text-muted ml-1">kWh</span>
-                                </div>
-                            </div>
+                        <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>
+                        <div className="flex gap-1 mb-2">
+                            {[1, 2, 3, 4, 5].map((level) => {
+                                const colorMap: Record<number, string> = {
+                                    1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
+                                    2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
+                                    3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
+                                    4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
+                                    5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
+                                }
+                                return (
+                                    <button
+                                        key={level}
+                                        onClick={async () => {
+                                            setComfortLevel(level)
+                                            await Api.configSave({ water_heating: { comfort_level: level } })
+                                        }}
+                                        className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${comfortLevel === level
+                                            ? `${colorMap[level]} ring-2 soft-glow`
+                                            : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
+                                            }`}
+                                    >
+                                        {level}
+                                    </button>
+                                )
+                            })}
                         </div>
-                    </div>
-                </Card>
+                        <div className="text-sm">
+                            <span className={`font-medium ${comfortLevel === 1 ? 'text-emerald-400' :
+                                comfortLevel === 2 ? 'text-teal-400' :
+                                    comfortLevel === 3 ? 'text-blue-400' :
+                                        comfortLevel === 4 ? 'text-amber-400' :
+                                            'text-red-400'
+                                }`}>
+                                {{
+                                    1: 'Economy',
+                                    2: 'Balanced',
+                                    3: 'Neutral',
+                                    4: 'Priority',
+                                    5: 'Maximum'
+                                }[comfortLevel]}
+                            </span>
+                            <span className="text-muted"> mode active</span>
+                        </div>
+                    </Card>
+                    <Card className="p-5 flex-1">
+                        <div className="text-sm text-muted mb-3">Risk Strategy</div>
+                        <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Risk Appetite</div>
+                        <div className="flex gap-1 mb-2">
+                            {[1, 2, 3, 4, 5].map((level) => {
+                                const colorMap: Record<number, string> = {
+                                    1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
+                                    2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
+                                    3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
+                                    4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
+                                    5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
+                                }
+                                return (
+                                    <button
+                                        key={level}
+                                        onClick={async () => {
+                                            setRiskAppetite(level)
+                                        }}
+                                        className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${riskAppetite === level
+                                            ? `${colorMap[level]} ring-2 soft-glow`
+                                            : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
+                                            }`}
+                                    >
+                                        {level}
+                                    </button>
+                                )
+                            })}
+                        </div>
+                        <div className="text-sm">
+                            <span className={`font-medium ${riskAppetite === 1 ? 'text-emerald-400' :
+                                riskAppetite === 2 ? 'text-teal-400' :
+                                    riskAppetite === 3 ? 'text-blue-400' :
+                                        riskAppetite === 4 ? 'text-amber-400' :
+                                            'text-red-400'
+                                }`}>
+                                {{
+                                    1: 'Safety',
+                                    2: 'Conservative',
+                                    3: 'Neutral',
+                                    4: 'Aggressive',
+                                    5: 'Gambler'
+                                }[riskAppetite]}
+                            </span>
+                            <span className="text-muted"> mode active</span>
+                        </div>
+                    </Card>
+                </div>
             </div >
         </main >
     )
