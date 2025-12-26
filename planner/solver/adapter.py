@@ -86,7 +86,6 @@ def config_to_kepler_config(
     """
     system = planner_config.get("system", {})
     battery = system.get("battery", planner_config.get("battery", {}))
-    learning = planner_config.get("learning", {})
 
     kepler_overrides = {}
     if overrides and "kepler" in overrides:
