@@ -291,4 +291,21 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
     * If `health.missing_entities` is non-empty, show: "Critical: Entities not found [list]. Check HA connection."
 * [ ] **Graceful Degradation:** Ensure Planner/Executor skips logic dependent on missing sensors rather than crashing.
 
+### [PLANNED] Rev F5 — Fix Planner Crash on Missing 'start_time'
+
+**Goal:** Fix `KeyError: 'start_time'` crashing the planner when processing schedule dataframes.
+
+**Error Analysis:**
+* **Log:** `File "/app/planner/output/formatter.py", line 42, in dataframe_to_json_response start_series = pd.to_datetime(df_copy["start_time"], errors="coerce")` -> `KeyError: 'start_time'`
+* **Root Cause:** The `schedule_df` passed to `dataframe_to_json_response` is missing the `start_time` column. This implies `kepler.solve()` or `adapter.py` returned a DataFrame where the index (usually `start_time`) was not reset to a column, or the column was dropped/renamed.
+
+**Investigation Plan:**
+* [ ] **Trace `planner/output/schedule.py`:** Check where `schedule_df` comes from.
+* [ ] **Inspect `planner/solver/adapter.py`:** Verify the DataFrame structure returned by `solve()`. Does it have `start_time` as an index or column?
+* [ ] **Check `pipeline.py`:** See if any intermediate steps modify the DataFrame columns before saving.
+
+**Implementation Plan:**
+* [ ] **Defensive Coding:** In `formatter.py`, check if `start_time` is in `df.columns`. If not, and it's in the index, run `df.reset_index(inplace=True)`.
+* [ ] **Validation:** Add a `verify_schedule_schema(df)` step in `pipeline.py` to catch malformed DataFrames early.
+
 ### NEXT REV HERE
