@@ -206,7 +206,7 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 
 **Status:** Investigation complete, ready for implementation.
 
-### [IN PROGRESS] Rev K23 — SoC Target Holding Behavior (2025-12-22)
+### [PAUSED] Rev K23 — SoC Target Holding Behavior (2025-12-22)
 
 **Goal:** Investigate why battery holds at soc_target instead of using battery freely.
 
@@ -221,33 +221,59 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 
 **Status:** Investigation complete, ready for implementation.
 
-### [PLANNED] Rev K24 — Battery Cost Separation (Gold Standard)
+### [DONE] Rev K24 — Battery Cost Separation (Gold Standard)
+
+
 
 **Goal:** Eliminate Sunk Cost Fallacy by strictly separating Accounting (Reporting) from Trading (Optimization).
 
+
+
 **Architecture:**
 
+
+
 1.  **The Accountant (Reporting Layer):**
-    * **Component:** `backend/battery_cost.py`
-    * **Responsibility:** Track the Weighted Average Cost (WAC) of energy currently in the battery.
-    * **Usage:** Strictly for UI/Dashboard (e.g., "Current Battery Value") and historical analysis.
-    * **Logic:** `New_WAC = ((Old_kWh * Old_WAC) + (Charge_kWh * Buy_Price)) / New_Total_kWh`
+
+    *   **Component:** `backend/battery_cost.py`
+
+    *   **Responsibility:** Track the Weighted Average Cost (WAC) of energy currently in the battery.
+
+    *   **Usage:** Strictly for UI/Dashboard (e.g., "Current Battery Value") and historical analysis.
+
+    *   **Logic:** `New_WAC = ((Old_kWh * Old_WAC) + (Charge_kWh * Buy_Price)) / New_Total_kWh`
+
+
 
 2.  **The Trader (Optimization Layer):**
-    * **Component:** `planner/solver/kepler.py` & `planner/solver/adapter.py`
-    * **Responsibility:** Determine optimal charge/discharge schedule.
-    * **Constraint:** Must **IGNORE** historical WAC.
-    * **Drivers:**
-        * **Opportunity Cost:** Future Price vs. Current Price.
-        * **Wear Cost:** Fixed cost per cycle (from config) to prevent over-cycling.
-        * **Terminal Value:** Estimated future utility of energy remaining at end of horizon (based on future prices, NOT past cost).
+
+    *   **Component:** `planner/solver/kepler.py` & `planner/solver/adapter.py`
+
+    *   **Responsibility:** Determine optimal charge/discharge schedule.
+
+    *   **Constraint:** Must **IGNORE** historical WAC.
+
+    *   **Drivers:**
+
+        *   **Opportunity Cost:** Future Price vs. Current Price.
+
+        *   **Wear Cost:** Fixed cost per cycle (from config) to prevent over-cycling.
+
+        *   **Terminal Value:** Estimated future utility of energy remaining at end of horizon (based on future prices, NOT past cost).
+
+
 
 **Implementation Tasks:**
-* [ ] **Refactor `planner/solver/adapter.py`:**
-    * Remove import of `BatteryCostTracker`.
-    * Remove logic that floors `terminal_value` using `stored_energy_cost`.
-    * Ensure `terminal_value` is calculated solely based on future price statistics (min/avg of forecast prices).
-* [ ] **Verify `planner/solver/kepler.py`:** Ensure no residual references to stored cost exist.
+
+* [x] **Refactor `planner/solver/adapter.py`:**
+
+    *   Remove import of `BatteryCostTracker`.
+
+    *   Remove logic that floors `terminal_value` using `stored_energy_cost`.
+
+    *   Ensure `terminal_value` is calculated solely based on future price statistics (min/avg of forecast prices).
+
+* [x] **Verify `planner/solver/kepler.py`:** Ensure no residual references to stored cost exist.
 
 ### [PLANNED] Rev F3 — Water Heater Config & Control
 

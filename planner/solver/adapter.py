@@ -112,25 +112,14 @@ def config_to_kepler_config(
     battery_economics = planner_config.get("battery_economics", {})
     default_wear = float(battery_economics.get("battery_cycle_cost_kwh", 0.2))
 
-    # Rev K23: Dynamic terminal_value from price statistics
+    # Rev K24: Battery Cost Separation (Gold Standard)
+    # Terminal value is based purely on future price opportunity, ignoring sunk costs.
     # Must be in sweet spot:
     # - High enough that charging at cheap prices is profitable (terminal > charge_price)
     # - Low enough that discharging at expensive prices is profitable (terminal + wear < discharge_price)
-    # Formula: midpoint between min price and avg price
+    
     terminal_value = 1.5  # Fallback default
-    stored_energy_cost = 1.0
-    
-    # First, get stored energy cost (floor for terminal_value)
-    try:
-        from backend.battery_cost import BatteryCostTracker
-        db_path = learning.get("sqlite_path", "data/planner_learning.db")
-        tracker = BatteryCostTracker(db_path, capacity)
-        state = tracker.get_state()
-        if state.get("updated_at") is not None:
-            stored_energy_cost = state["avg_cost_sek_per_kwh"]
-    except Exception:
-        pass
-    
+
     # Calculate terminal_value as midpoint between min and avg price
     if slots and len(slots) > 0:
         try:
@@ -143,9 +132,6 @@ def config_to_kepler_config(
                 terminal_value = (min_price + avg_price) / 2.0
         except Exception:
             pass
-    
-    # Ensure terminal_value >= stored_energy_cost (don't discharge at a loss)
-    terminal_value = max(terminal_value, stored_energy_cost)
 
     return KeplerConfig(
         capacity_kwh=capacity,
