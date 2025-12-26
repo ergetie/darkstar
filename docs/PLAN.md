@@ -139,17 +139,20 @@ Phase 4: Validation
 
     
 
-### [PLANNED] Rev UI2 — Premium Polish
+### [IN PROGRESS] Rev UI2 — Premium Polish
 
 Goal: Elevate the "Command Center" feel with live visual feedback and semantic clarity.
 
-**Investigation Status (2025-12-25):** most features are **NOT** implemented.
-
-**Missing Features:**
-
-* [ ] **Executor Sparklines:** `Executor.tsx` uses static `Kpi` cards. Needs `recharts` or `react-sparklines` implementation.
-
-* [ ] **Aurora Icons:** `ActivityLog.tsx` has `Zap` but missing `Shield` and other semantic types.
+**Implementation Status (2025-12-26):**
+- [x] **Executor Sparklines:** Integrated `Chart.js` into `Executor.tsx` to show live trends for SoC, PV, and Load.
+- [x] **Aurora Icons:** Added semantic icons (Shield, Coffee, GraduationCap, etc.) to `ActivityLog.tsx` for better context.
+- [x] **Sidebar Status:** Implemented the connectivity "pulse" dot and vertical versioning in `Sidebar.tsx`.
+- [ ] **Dashboard Visuals (Command Cards):** Refactor the primary KPI area into semantic "Domain Cards" to improve information hierarchy.
+    - **Zero Data Loss Guarantee:** No metrics will be removed; they will be regrouped for better context.
+    - **Grid Domain:** Consolidate Net Cost, Grid Import, and Grid Export into a single high-visibility card with directional icons.
+    - **Energy Domain:** Elevate PV (Actual vs. Forecast) and Load (Actual vs. Average) from the secondary stats into a primary "Resources" card with integrated progress bars.
+    - **Strategy Domain:** Group SoC (Current vs. Target) and S-Index (Strategy factor) into a "Battery & Strategy" card to show how the agent is thinking.
+- [ ] **HA Event Stream (E1):** Switch from polling to WebSocket events for faster UI updates and reduced overhead.
 
 * [ ] **Dashboard Visuals:** `Dashboard.tsx` has a flat `KPIStrip`. Needs visual separation/grouping for "Grid" vs "Energy".
 
