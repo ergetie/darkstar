@@ -152,7 +152,9 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
     - **Grid Domain:** Consolidate Net Cost, Grid Import, and Grid Export into a single high-visibility card with directional icons.
     - **Energy Domain:** Elevate PV (Actual vs. Forecast) and Load (Actual vs. Average) from the secondary stats into a primary "Resources" card with integrated progress bars.
     - **Strategy Domain:** Group SoC (Current vs. Target) and S-Index (Strategy factor) into a "Battery & Strategy" card to show how the agent is thinking.
-- [ ] **HA Event Stream (E1):** Switch from polling to WebSocket events for faster UI updates and reduced overhead.
+- [ ] **HA Event Stream (E1):** Implement **WebSockets** to replace all polling mechanisms. 
+    - **Scope:** Real-time streaming for Charts, Sparklines, and Status.
+    - **Cleanup:** Remove the "30s Auto-Refresh" toggle and interval logic entirely. Dashboard becomes fully push-based.
 
 * [ ] **Dashboard Visuals:** `Dashboard.tsx` has a flat `KPIStrip`. Needs visual separation/grouping for "Grid" vs "Energy".
 
