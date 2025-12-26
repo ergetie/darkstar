@@ -147,20 +147,19 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 - [x] **Executor Sparklines:** Integrated `Chart.js` into `Executor.tsx` to show live trends for SoC, PV, and Load.
 - [x] **Aurora Icons:** Added semantic icons (Shield, Coffee, GraduationCap, etc.) to `ActivityLog.tsx` for better context.
 - [x] **Sidebar Status:** Implemented the connectivity "pulse" dot and vertical versioning in `Sidebar.tsx`.
-- [x] **Dashboard Visuals (Command Cards):** Refactor the primary KPI area into semantic "Domain Cards" to improve information hierarchy.
-    - **Zero Data Loss Guarantee:** No metrics will be removed; they will be regrouped for better context.
-    - **Grid Domain:** Consolidate Net Cost, Grid Import, and Grid Export into a single high-visibility card with directional icons.
-    - **Energy Domain:** Elevate PV (Actual vs. Forecast) and Load (Actual vs. Average) from the secondary stats into a primary "Resources" card with integrated progress bars.
-    - **Strategy Domain:** Group SoC (Current vs. Target) and S-Index (Strategy factor) into a "Battery & Strategy" card to show how the agent is thinking.
+- [x] **Dashboard Visuals (Command Cards):** Refactored the primary KPI area into semantic "Domain Cards" (Grid, Resources, Strategy).
+- [x] **Control Parameters Card:**
+    - [x] **Merge:** Combined "Water Comfort" and "Risk Appetite" into one card.
+    - [x] **Layout:** Selector buttons (1-5) use **full width** of the card.
+    - [x] **Positioning:** Card moved **UP** to the primary row.
+    - [x] **Overrides:** Added "Water Boost (1h)" and "Battery Top Up (50%)" manual controls.
+    - [x] **Visual Flair:** Implemented "Active Reactor" glowing states and circuit-board connective lines.
+- [x] **Cleanup:** 
+    - [x] Removed redundant titles ("Quick Actions", "Control Parameters") to save space.
+    - [x] Implemented **Toolbar Card** for Plan Badge (Freshness + Next Action) and Refresh controls.
 - [ ] **HA Event Stream (E1):** Implement **WebSockets** to replace all polling mechanisms. 
     - **Scope:** Real-time streaming for Charts, Sparklines, and Status.
     - **Cleanup:** Remove the "30s Auto-Refresh" toggle and interval logic entirely. Dashboard becomes fully push-based.
-
-* [ ] **Dashboard Visuals:** `Dashboard.tsx` has a flat `KPIStrip`. Needs visual separation/grouping for "Grid" vs "Energy".
-
-* [ ] **Sidebar Status:** `Sidebar.tsx` lacks the connectivity pulse dot.
-
-! NEEDS INVESTIGATIONS IF IMPLEMENTED !
 
 ## [DONE] Rev K21 — Water Heating Spacing & Tuning
 

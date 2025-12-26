@@ -8,7 +8,7 @@ import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
-import { GridDomain, ResourcesDomain, StrategyDomain } from '../components/CommandDomains'
+import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 
 type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
 
@@ -491,28 +491,7 @@ export default function Dashboard() {
         }
     }
 
-    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
-    const pvDays = horizon?.pvDays ?? '—'
-    const weatherDays = horizon?.weatherDays ?? '—'
-    const planBadge = `${currentPlanSource} plan`
-    const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
-
-    // Derive last/next planner runs for automation card
-    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
-    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
-    const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
-        ? automationConfig.every_minutes
-        : null
-    let nextRunDate: Date | null = null
-    if (schedulerStatus?.next_run_at) {
-        nextRunDate = new Date(schedulerStatus.next_run_at)
-    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
-        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
-    }
-    // Build slotsOverride for the chart:
-    // - Server plan: use merged serverSchedule (already contains execution history).
-    // - Local plan: mirror Planning view by merging today's history with tomorrow's schedule
-    //   so SoC Actual appears in both 24h and 48h modes.
+    // Build slotsOverride for the chart (and badge)
     let slotsOverride: ScheduleSlot[] | undefined
     if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
         slotsOverride = serverSchedule
@@ -526,6 +505,55 @@ export default function Dashboard() {
         } else {
             slotsOverride = todayAndTomorrow
         }
+    }
+
+    // Badge Logic
+    const now = new Date()
+    let freshnessText = currentPlanSource === 'server' ? 'Server Plan' : 'Local Plan'
+    if (plannerMeta?.plannedAt) {
+        const planned = new Date(plannerMeta.plannedAt)
+        const timeStr = planned.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        freshnessText = `Generated ${timeStr}`
+    }
+
+    let nextActionText = ''
+    if (slotsOverride) {
+        const currentSlot = slotsOverride.find(s => {
+            const start = new Date(s.start_time)
+            const end = new Date(start.getTime() + 30 * 60 * 1000)
+            return now >= start && now < end
+        })
+
+        if (currentSlot) {
+            const end = new Date(new Date(currentSlot.start_time).getTime() + 30 * 60 * 1000)
+            const minutesLeft = Math.max(0, Math.floor((end.getTime() - now.getTime()) / 60000))
+
+            let action = 'Idle'
+            if ((currentSlot.charge_kw || 0) > 0.1) action = `Charge ${currentSlot.charge_kw?.toFixed(1)}kW`
+            else if ((currentSlot.discharge_kw || 0) > 0.1) action = `Discharge ${currentSlot.discharge_kw?.toFixed(1)}kW`
+            else if ((currentSlot.export_kw || 0) > 0.1) action = `Export ${currentSlot.export_kw?.toFixed(1)}kW`
+            else if ((currentSlot.water_kw || 0) > 0.1) action = `Heat Water`
+
+            nextActionText = ` · Next: ${action} (${minutesLeft}m)`
+        }
+    }
+    const planBadge = `${freshnessText}${nextActionText}`
+
+    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
+    const pvDays = horizon?.pvDays ?? '—'
+    const weatherDays = horizon?.weatherDays ?? '—'
+
+    // Derive last/next planner runs for automation card
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
+    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
+    const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
+        ? automationConfig.every_minutes
+        : null
+    let nextRunDate: Date | null = null
+    if (schedulerStatus?.next_run_at) {
+        nextRunDate = new Date(schedulerStatus.next_run_at)
+    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
+        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
     }
 
     // S-Index Display Logic
@@ -615,26 +643,85 @@ export default function Dashboard() {
                 />
             </motion.div>
 
-            {/* Row 2: Advisor + Strategy + Quick Actions */}
+            {/* Row 2: Controls & Advisor & Quick Actions */}
             <div className="grid gap-6 lg:grid-cols-3 items-stretch">
-                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <SmartAdvisor />
+                {/* Col 1: Toolbar + Advisor */}
+                <motion.div className="h-full flex flex-col gap-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    {/* Toolbar Card */}
+                    <Card className="p-3 flex items-center justify-between shrink-0">
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">{planBadge}</div>
+                        <div className="flex items-center gap-2">
+                             <div className="text-[10px] text-muted">
+                                {autoRefresh ? 'auto-refresh' : 'manual'}
+                                {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
+                            </div>
+                            {statusMessage && (
+                                <div className="text-[10px] text-amber-400">
+                                    {statusMessage}
+                                </div>
+                            )}
+                            <button
+                                onClick={() => fetchAllData()}
+                                disabled={isRefreshing}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
+                                    ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
+                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                    }`}
+                                title="Refresh data"
+                            >
+                                <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
+                                    {isRefreshing ? '⟳' : '↻'}
+                                </span>
+                            </button>
+                            <button
+                                onClick={() => setAutoRefresh(!autoRefresh)}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${autoRefresh
+                                    ? 'bg-accent text-canvas border border-accent'
+                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                    }`}
+                                title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
+                            >
+                                ⏱
+                            </button>
+                        </div>
+                    </Card>
+                    
+                    {/* Advisor */}
+                    <div className="flex-1 min-h-0">
+                        <SmartAdvisor />
+                    </div>
                 </motion.div>
                 
-                {/* Middle Column: Strategy Domain (Replaces System Status) */}
+                {/* Middle Column: Control Parameters (Comfort + Risk + Overrides) */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <StrategyDomain 
-                        soc={soc}
-                        socTarget={currentSlotTarget}
-                        sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
-                        cycles={todayStats?.batteryCycles ?? null}
-                        riskLabel={{
-                            1: 'Safety',
-                            2: 'Conservative',
-                            3: 'Neutral',
-                            4: 'Aggressive',
-                            5: 'Gambler'
-                        }[riskAppetite]}
+                    <ControlParameters 
+                        comfortLevel={comfortLevel}
+                        setComfortLevel={async (l) => {
+                            setComfortLevel(l)
+                            await Api.configSave({ water_heating: { comfort_level: l } })
+                        }}
+                        riskAppetite={riskAppetite}
+                        setRiskAppetite={async (l) => {
+                            setRiskAppetite(l)
+                            await Api.configSave({ s_index: { risk_appetite: l } })
+                        }}
+                        vacationMode={vacationMode}
+                        onWaterBoost={async () => {
+                            try {
+                                await Api.waterBoost.start(60)
+                                fetchAllData()
+                            } catch (e) {
+                                console.error('Boost failed', e)
+                            }
+                        }}
+                        onBatteryTopUp={async () => {
+                            try {
+                                await Api.executor.quickAction.set('force_charge', 60)
+                                fetchAllData()
+                            } catch (e) {
+                                console.error('Top Up failed', e)
+                            }
+                        }}
                     />
                 </motion.div>
 
@@ -642,7 +729,6 @@ export default function Dashboard() {
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="flex h-full flex-col gap-6">
                         <Card className="flex-1 p-4 md:p-5">
-                            <div className="text-sm text-muted mb-3">Quick Actions</div>
                             <QuickActions
                                 onDataRefresh={fetchAllData}
                                 onPlanSourceChange={handlePlanSourceChange}
@@ -727,7 +813,7 @@ export default function Dashboard() {
                 </motion.div>
             </div>
 
-            {/* Row 3: Grid + Resources + Config Stack */}
+            {/* Row 3: Grid + Resources + Strategy */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 {/* Col 1: Grid Domain */}
                 <GridDomain 
@@ -745,111 +831,20 @@ export default function Dashboard() {
                     waterKwh={waterToday?.kwh ?? null}
                 />
 
-                {/* Col 3: Config Stack (Water + Risk) */}
-                <div className="flex flex-col gap-6">
-                    <Card className="p-5 flex-1">
-                        <div className="flex justify-between items-center mb-3">
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm text-muted">Water heater</span>
-                                {vacationMode && (
-                                    <span className="rounded-pill bg-amber-500/20 border border-amber-500/50 px-2 py-0.5 text-amber-300 text-[10px] font-medium">
-                                        🌴 Vacation
-                                    </span>
-                                )}
-                            </div>
-                        </div>
-                        <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>
-                        <div className="flex gap-1 mb-2">
-                            {[1, 2, 3, 4, 5].map((level) => {
-                                const colorMap: Record<number, string> = {
-                                    1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
-                                    2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
-                                    3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
-                                    4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
-                                    5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
-                                }
-                                return (
-                                    <button
-                                        key={level}
-                                        onClick={async () => {
-                                            setComfortLevel(level)
-                                            await Api.configSave({ water_heating: { comfort_level: level } })
-                                        }}
-                                        className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${comfortLevel === level
-                                            ? `${colorMap[level]} ring-2 soft-glow`
-                                            : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
-                                            }`}
-                                    >
-                                        {level}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                        <div className="text-sm">
-                            <span className={`font-medium ${comfortLevel === 1 ? 'text-emerald-400' :
-                                comfortLevel === 2 ? 'text-teal-400' :
-                                    comfortLevel === 3 ? 'text-blue-400' :
-                                        comfortLevel === 4 ? 'text-amber-400' :
-                                            'text-red-400'
-                                }`}>
-                                {{
-                                    1: 'Economy',
-                                    2: 'Balanced',
-                                    3: 'Neutral',
-                                    4: 'Priority',
-                                    5: 'Maximum'
-                                }[comfortLevel]}
-                            </span>
-                            <span className="text-muted"> mode active</span>
-                        </div>
-                    </Card>
-                    <Card className="p-5 flex-1">
-                        <div className="text-sm text-muted mb-3">Risk Strategy</div>
-                        <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Risk Appetite</div>
-                        <div className="flex gap-1 mb-2">
-                            {[1, 2, 3, 4, 5].map((level) => {
-                                const colorMap: Record<number, string> = {
-                                    1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
-                                    2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
-                                    3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
-                                    4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
-                                    5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
-                                }
-                                return (
-                                    <button
-                                        key={level}
-                                        onClick={async () => {
-                                            setRiskAppetite(level)
-                                        }}
-                                        className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${riskAppetite === level
-                                            ? `${colorMap[level]} ring-2 soft-glow`
-                                            : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
-                                            }`}
-                                    >
-                                        {level}
-                                    </button>
-                                )
-                            })}
-                        </div>
-                        <div className="text-sm">
-                            <span className={`font-medium ${riskAppetite === 1 ? 'text-emerald-400' :
-                                riskAppetite === 2 ? 'text-teal-400' :
-                                    riskAppetite === 3 ? 'text-blue-400' :
-                                        riskAppetite === 4 ? 'text-amber-400' :
-                                            'text-red-400'
-                                }`}>
-                                {{
-                                    1: 'Safety',
-                                    2: 'Conservative',
-                                    3: 'Neutral',
-                                    4: 'Aggressive',
-                                    5: 'Gambler'
-                                }[riskAppetite]}
-                            </span>
-                            <span className="text-muted"> mode active</span>
-                        </div>
-                    </Card>
-                </div>
+                {/* Col 3: Strategy Domain (Moved here) */}
+                <StrategyDomain 
+                    soc={soc}
+                    socTarget={currentSlotTarget}
+                    sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
+                    cycles={todayStats?.batteryCycles ?? null}
+                    riskLabel={{
+                        1: 'Safety',
+                        2: 'Conservative',
+                        3: 'Neutral',
+                        4: 'Aggressive',
+                        5: 'Gambler'
+                    }[riskAppetite]}
+                />
             </div >
         </main >
     )
