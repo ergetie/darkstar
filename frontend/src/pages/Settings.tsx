@@ -129,6 +129,8 @@ const parameterSections = [
             { key: 'water_heating.defer_up_to_hours', label: 'Max defer hours', path: ['water_heating', 'defer_up_to_hours'], type: 'number' },
             { key: 'water_heating.max_blocks_per_day', label: 'Max blocks per day', path: ['water_heating', 'max_blocks_per_day'], type: 'number' },
             { key: 'water_heating.min_kwh_per_day', label: 'Min kWh/day', path: ['water_heating', 'min_kwh_per_day'], type: 'number' },
+            { key: 'water_heating.min_spacing_hours', label: 'Min spacing (hours)', path: ['water_heating', 'min_spacing_hours'], type: 'number', helper: 'Minimum gap between heating sessions to avoid efficiency loss.' },
+            { key: 'water_heating.spacing_penalty_sek', label: 'Spacing penalty (SEK)', path: ['water_heating', 'spacing_penalty_sek'], type: 'number', helper: 'Penalty applied when heating sessions are too close.' },
             { key: 'water_heating.schedule_future_only', label: 'Schedule future only', path: ['water_heating', 'schedule_future_only'], type: 'boolean' },
         ],
     },

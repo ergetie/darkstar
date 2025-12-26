@@ -80,6 +80,8 @@ water_heating:
   consolidation_max_gap_slots: 0
   max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
   comfort_level: 3                   # Rev K18: 1-5 (Economy→Maximum) - controls gap penalty
+  min_spacing_hours: 5.0             # Rev K21: Min gap between starts to avoid efficiency loss
+  spacing_penalty_sek: 0.20          # Rev K21: Soft penalty for frequent starts
 
   # Rev K19: Vacation Mode (anti-legionella)
   vacation_mode:

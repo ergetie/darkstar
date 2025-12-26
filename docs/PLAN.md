@@ -157,27 +157,16 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 
 ! NEEDS INVESTIGATIONS IF IMPLEMENTED !
 
-### [IN PROGRESS] Rev K21 — Water Heating Spacing & Tuning
+## [DONE] Rev K21 — Water Heating Spacing & Tuning
 
 **Goal:** Fix inefficient water heating schedules (redundant heating & expensive slots).
 
-**Problem:**
-1.  **Expensive Slots:** Heating at 01:15 (1.44 SEK) vs 04:00 (1.36 SEK) due to aggressive gap constraints/comfort penalties.
-2.  **Redundant Heating:** Heating at 23:00 (Today) and 01:00 (Tomorrow) - tank is likely full, second heat is waste.
+**Implementation Status (2025-12-26):**
+-   [x] **Soft Efficiency Penalty:** Added `water_min_spacing_hours` and `water_spacing_penalty_sek` to `KeplerSolver`. 
+-   [x] **Progressive Gap Penalty:** Implemented a two-tier "Rubber Band" penalty in MILP to discourage very long gaps between heating sessions.
+-   [x] **UI Support:** Added spacing parameters to Settings → Parameters → Water Heating.
 
-**Proposed Solution:**
-1.  **Implement "Soft Efficiency Penalty" (Spacing):**
-    * Add `min_spacing_hours` (default 5h) to config.
-    * Add `spacing_penalty_sek` (default 0.20 SEK).
-    * **Logic:** `If (Time - Last_Heat) < 5h`, add 0.20 SEK to cost.
-    * **Why:** Prevents heating for small gains but allows heating for massive gains (negative prices).
-2.  **Implement "Rubber Band" Gap (Top-Up):**
-    * Replace strict cliff with **Progressive Discomfort Cost**.
-    * **Logic:** `If Gap > Target_Gap (10h): Cost += (Excess_Hours * 0.05 SEK)`.
-    * **Why:** Allows extending the gap beyond the target if significant price savings exist (e.g., waiting 2 more hours to save 0.50 SEK).
-    * **Config:** Update `config.default.yaml` with `target_gap_hours` and `discomfort_cost_per_hour` (replacing or deprecating `max_hours_between_heating` strictness).
 
-**Status:** Investigation complete, ready for implementation.
 
 ### [IN PROGRESS] Rev K22 — Plan Cost Not Stored
 
