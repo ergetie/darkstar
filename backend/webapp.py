@@ -1893,7 +1893,17 @@ def save_schedule_json():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
+
+    # Merge HA config from secrets.yaml for UI (Rev O1)
+    try:
+        from inputs import _load_yaml
+        secrets = _load_yaml("secrets.yaml") or {}
+        if "home_assistant" in secrets:
+            config["home_assistant"] = secrets["home_assistant"]
+    except Exception:
+        pass
+
     return jsonify(config)
 
 
@@ -2015,6 +2025,63 @@ def _validate_config(cfg: dict) -> list[dict]:
 
 
 @app.route("/api/config/save", methods=["POST"])
+@app.route("/api/ha/test", methods=["POST"])
+def ha_test_connection():
+    """Test connection to Home Assistant with provided credentials."""
+    import requests as req
+    payload = request.get_json(silent=True) or {}
+    url = payload.get("url", "").rstrip("/")
+    token = payload.get("token", "")
+
+    if not url or not token:
+        return jsonify({"success": False, "message": "Missing URL or Token"}), 400
+
+    try:
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        # /api/config is a fast, lightweight endpoint to test auth
+        resp = req.get(f"{url}/api/config", headers=headers, timeout=5)
+        if resp.ok:
+            return jsonify({"success": True, "message": "Connection successful"})
+        else:
+            return jsonify({"success": False, "message": f"HTTP {resp.status_code}: {resp.reason}"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/ha/entities", methods=["GET"])
+def ha_list_entities():
+    """List all entities from Home Assistant using configured credentials."""
+    import requests as req
+    # Use configured secrets
+    from inputs import load_home_assistant_config, _make_ha_headers
+    ha_config = load_home_assistant_config()
+    if not ha_config:
+        return jsonify({"error": "Home Assistant not configured"}), 400
+
+    url = ha_config.get("url", "").rstrip("/")
+    token = ha_config.get("token", "")
+
+    try:
+        headers = _make_ha_headers(token)
+        resp = req.get(f"{url}/api/states", headers=headers, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            # Return list of { entity_id, friendly_name, domain }
+            entities = []
+            for item in data:
+                eid = item.get("entity_id", "")
+                entities.append({
+                    "entity_id": eid,
+                    "friendly_name": item.get("attributes", {}).get("friendly_name", eid),
+                    "domain": eid.split(".")[0] if "." in eid else ""
+                })
+            return jsonify({"entities": entities})
+        else:
+            return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 def save_config():
     from ruamel.yaml import YAML
     
@@ -2027,6 +2094,25 @@ def save_config():
 
     # Get the new config data from the request
     new_config = request.get_json() or {}
+
+    # Intercept home_assistant config for secrets.yaml (Rev O1)
+    if "home_assistant" in new_config:
+        ha_settings = new_config.pop("home_assistant")
+        try:
+            secrets_path = "secrets.yaml"
+            if os.path.exists(secrets_path):
+                with open(secrets_path, "r", encoding="utf-8") as f:
+                    secrets = yaml_handler.load(f) or {}
+            else:
+                secrets = {}
+
+            secrets["home_assistant"] = ha_settings
+
+            with open(secrets_path, "w", encoding="utf-8") as f:
+                yaml_handler.dump(secrets, f)
+        except Exception as e:
+            logger.error("Failed to save secrets.yaml: %s", e)
+            return jsonify({"status": "error", "message": f"Failed to save secrets: {e}"})
 
     # Deep merge the new config into the current config
     def deep_merge(current, new):

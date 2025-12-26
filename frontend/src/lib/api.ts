@@ -242,6 +242,10 @@ export const Api = {
     getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
+  haTest: (payload: { url: string; token: string }) =>
+    getJSON<{ success: boolean; message: string }>('/api/ha/test', 'POST', payload),
+  haEntities: () =>
+    getJSON<{ entities: { entity_id: string; friendly_name: string; domain: string }[] }>('/api/ha/entities'),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
   learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
   learningDailyMetrics: () => getJSON<LearningDailyMetricsResponse>('/api/learning/daily_metrics'),

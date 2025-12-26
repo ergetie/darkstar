@@ -99,9 +99,9 @@ Design Principles:
 
 **Phase 2: Settings Tab — Setup Section**
 
--   [ ] **HA Connection:** Add section in Settings → System with HA URL/Token fields (read-only in Add-on mode) and "Test Connection" button.
+-   [x] **HA Connection:** Add section in Settings → System with HA URL/Token fields (read-only in Add-on mode) and "Test Connection" button.
     
--   [ ] **Core Sensors:** Add selectors for Battery SoC, PV Production, Load Consumption.
+-   [x] **Core Sensors:** Add selectors for Battery SoC, PV Production, Load Consumption.
     
 
 **Phase 3: System Profile Toggles**

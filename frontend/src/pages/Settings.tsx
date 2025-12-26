@@ -17,7 +17,7 @@ type SystemField = {
     label: string
     helper?: string
     path: string[]
-    type: 'number' | 'text' | 'boolean'
+    type: 'number' | 'text' | 'boolean' | 'entity'
 }
 
 type ParameterField = {
@@ -63,8 +63,25 @@ const systemSections = [
         ],
     },
     {
-        title: 'Home Assistant & Learning Storage',
-        description: 'Additionally track the learning database path for telemetry.',
+        title: 'Home Assistant Connection',
+        description: 'Configure connection to your Home Assistant instance.',
+        fields: [
+            { key: 'home_assistant.url', label: 'HA URL', helper: 'e.g. http://homeassistant.local:8123', path: ['home_assistant', 'url'], type: 'text' },
+            { key: 'home_assistant.token', label: 'Long-Lived Access Token', helper: 'Create this in HA Profile > Security.', path: ['home_assistant', 'token'], type: 'text' },
+        ],
+    },
+    {
+        title: 'Core Sensors',
+        description: 'Map Darkstar inputs to your Home Assistant entities.',
+        fields: [
+            { key: 'input_sensors.battery_soc', label: 'Battery SoC Entity', path: ['input_sensors', 'battery_soc'], type: 'entity' },
+            { key: 'input_sensors.pv_power', label: 'PV Power Entity', path: ['input_sensors', 'pv_power'], type: 'entity' },
+            { key: 'input_sensors.load_power', label: 'Load Power Entity', path: ['input_sensors', 'load_power'], type: 'entity' },
+        ],
+    },
+    {
+        title: 'Learning Storage',
+        description: 'Track the learning database path.',
         fields: [
             { key: 'learning.sqlite_path', label: 'Learning SQLite path', helper: 'Directory must exist and be writable.', path: ['learning', 'sqlite_path'], type: 'text' },
         ],
@@ -413,6 +430,39 @@ export default function Settings() {
     const [themeStatusMessage, setThemeStatusMessage] = useState<string | null>(null)
     const [resetting, setResetting] = useState(false)
     const [resetStatusMessage, setResetStatusMessage] = useState<string | null>(null)
+    const [haEntities, setHaEntities] = useState<{ entity_id: string; friendly_name: string; domain: string }[]>([])
+    const [haLoading, setHaLoading] = useState(false)
+    const [haTestStatus, setHaTestStatus] = useState<string | null>(null)
+
+    const reloadEntities = async () => {
+        setHaLoading(true)
+        try {
+            const data = await Api.haEntities()
+            setHaEntities(data.entities || [])
+        } catch (e) {
+            console.error('Failed to load HA entities', e)
+        } finally {
+            setHaLoading(false)
+        }
+    }
+
+    const handleTestConnection = async () => {
+        setHaTestStatus('Testing...')
+        try {
+            const url = systemForm['home_assistant.url']
+            const token = systemForm['home_assistant.token']
+            const data = await Api.haTest({ url, token })
+
+            if (data.success) {
+                setHaTestStatus('Success: Connected!')
+                reloadEntities()
+            } else {
+                setHaTestStatus(`Error: ${data.message}`)
+            }
+        } catch (e: any) {
+            setHaTestStatus(`Error: ${e.message}`)
+        }
+    }
 
     const reloadConfig = async () => {
         setLoadingConfig(true)
@@ -450,6 +500,7 @@ export default function Settings() {
     useEffect(() => {
         reloadConfig()
         reloadThemes()
+        reloadEntities()
     }, [])
 
     const handleFieldChange = (key: string, value: string) => {
@@ -884,6 +935,35 @@ export default function Settings() {
                                     )
                                 }
 
+                                if (field.type === 'entity') {
+                                    return (
+                                        <div key={field.key} className="space-y-1">
+                                            <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                {field.label}
+                                            </label>
+                                            <select
+                                                value={systemForm[field.key] ?? ''}
+                                                onChange={(event) =>
+                                                    handleFieldChange(field.key, event.target.value)
+                                                }
+                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                            >
+                                                <option value="">Select Entity</option>
+                                                {haEntities
+                                                    .sort((a, b) => a.entity_id.localeCompare(b.entity_id))
+                                                    .map((e) => (
+                                                    <option key={e.entity_id} value={e.entity_id}>
+                                                        {e.entity_id} ({e.friendly_name})
+                                                    </option>
+                                                ))}
+                                            </select>
+                                            {field.helper && (
+                                                <p className="text-[11px] text-muted">{field.helper}</p>
+                                            )}
+                                        </div>
+                                    )
+                                }
+
                                 // Regular fields (boolean checkboxes, number/text inputs)
                                 if (field.type === 'boolean') {
                                     return (
@@ -932,6 +1012,22 @@ export default function Settings() {
                                 )
                             })}
                         </div>
+                        {section.title === 'Home Assistant Connection' && (
+                            <div className="mt-4 flex items-center gap-3">
+                                <button
+                                    type="button"
+                                    onClick={handleTestConnection}
+                                    className="text-xs px-3 py-2 rounded bg-surface border border-line/50 hover:bg-surface2 transition"
+                                >
+                                    {haTestStatus && haTestStatus.startsWith('Testing') ? 'Testing...' : 'Test Connection'}
+                                </button>
+                                {haTestStatus && (
+                                    <span className={`text-xs ${haTestStatus.startsWith('Success') ? 'text-green-400' : 'text-red-400'}`}>
+                                        {haTestStatus}
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </Card>
                 ))}
                 <div className="flex flex-wrap items-center gap-3">
