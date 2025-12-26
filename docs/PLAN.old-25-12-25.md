@@ -38,14 +38,10 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ### Revision Template
 
-
 ```
-
 ### [STATUS] Rev ID — Title
-
 **Goal:** Short description of the objective.
 **Plan:**
-
 * [ ] Step 1
 * [ ] Step 2
 
@@ -60,6 +56,16 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 Goal: Make Kepler consider stored energy cost in discharge decisions.
 
 Reason: Superseded by Rev K24. We determined that using historical cost in the solver constitutes a "Sunk Cost Fallacy" and leads to suboptimal future decisions. Cost tracking will be handled for reporting only.
+
+### [DONE] Rev K21 — Water Heating Slot Investigation
+
+Goal: Fix water heating not scheduled in cheapest slots.
+
+Problem: Water heating at 01:15 (1.44 SEK) instead of 04:00+ (1.36 SEK).
+
+Investigation: The gap constraint (max_hours_between_heating: 8) combined with comfort penalty (comfort_level: 3 → 0.50 SEK/violation) was forcing early heating.
+
+Outcome: Confirmed constraint was too aggressive.
 
 ### [DONE] Rev F2 — Wear Cost Config Fix
 
@@ -106,9 +112,9 @@ Design Principles:
 
 **Phase 3: System Profile Toggles**
 
--   [x] **Config:** Add `system: { has_solar: true, has_battery: true, has_water_heater: true }` to `config.default.yaml`.
+-   [ ] **Config:** Add `system: { has_solar: true, has_battery: true, has_water_heater: true }` to `config.default.yaml`.
     
--   [x] **UI:** Add 3 toggle switches in Settings → System.
+-   [ ] **UI:** Add 3 toggle switches in Settings → System.
     
 -   [ ] **Logic:** Backend skips disabled features in planner/executor.
     
@@ -116,13 +122,18 @@ Design Principles:
 Phase 4: Validation
 
 | Scenario | Solar | Battery | Water | Expected |
+
 |---|---|---|---|---|
+
 | Full system | ✓ | ✓ | ✓ | All features |
+
 | Battery only | ✗ | ✓ | ✗ | Grid arbitrage only |
+
 | Solar + Water | ✓ | ✗ | ✓ | Cheap heating, no battery |
+
 | Water only | ✗ | ✗ | ✓ | Cheapest price heating |
 
-### [IN PROGRESS] Rev UI1 — Dashboard Quick Actions Redesign
+### [DONE] Rev UI1 — Dashboard Quick Actions Redesign
 
 **Goal:** Redesign the Dashboard Quick Actions for the native executor, with optional external executor fallback in Settings.
 
@@ -135,8 +146,8 @@ Phase 4: Validation
 
 **Phase 2: Settings Integration**
 
--   [ ] Add "External Executor Mode" toggle in Settings → Advanced.
--   [ ] When enabled, show "DB Sync" card with Load/Push buttons.
+-   [x] Add "External Executor Mode" toggle in Settings → Advanced.
+-   [x] When enabled, show "DB Sync" card with Load/Push buttons.
     
 **Phase 3: Cleanup**
 
@@ -148,65 +159,23 @@ Phase 4: Validation
 
 Goal: Elevate the "Command Center" feel with live visual feedback and semantic clarity.
 
-**Investigation Status (2025-12-25):** most features are **NOT** implemented.
+Changes:
 
-**Missing Features:**
+1.  **Executor Sparklines:** Live 10s-buffer charts for SoC, PV, Load.
+2.  **Aurora Icons:** Semantic icons (Zap, Shield, etc.) in Activity Log.
+3.  **Dashboard Visuals:** Grouping of Today's Stats into Grid vs Energy.
+4.  **Sidebar Status:** Connectivity pulse dot.
+    
 
-* [ ] **Executor Sparklines:** `Executor.tsx` uses static `Kpi` cards. Needs `recharts` or `react-sparklines` implementation.
+### [TODO] Rev K22 — Plan Cost Not Stored
 
-* [ ] **Aurora Icons:** `ActivityLog.tsx` has `Zap` but missing `Shield` and other semantic types.
+Goal: Fix missing planned_cost_sek in Aurora "Cost Reality" card.
 
-* [ ] **Dashboard Visuals:** `Dashboard.tsx` has a flat `KPIStrip`. Needs visual separation/grouping for "Grid" vs "Energy".
+Bug: slot_plans.planned_cost_sek is always 0.0 - cost never calculated/stored.
 
-* [ ] **Sidebar Status:** `Sidebar.tsx` lacks the connectivity pulse dot.
+Impact: Aurora tab shows no "Plan" cost, only "Real" cost.
 
-! NEEDS INVESTIGATIONS IF IMPLEMENTED !
-
-### [IN PROGRESS] Rev K21 — Water Heating Spacing & Tuning
-
-**Goal:** Fix inefficient water heating schedules (redundant heating & expensive slots).
-
-**Problem:**
-1.  **Expensive Slots:** Heating at 01:15 (1.44 SEK) vs 04:00 (1.36 SEK) due to aggressive gap constraints/comfort penalties.
-2.  **Redundant Heating:** Heating at 23:00 (Today) and 01:00 (Tomorrow) - tank is likely full, second heat is waste.
-
-**Proposed Solution:**
-1.  **Implement "Soft Efficiency Penalty" (Spacing):**
-    * Add `min_spacing_hours` (default 5h) to config.
-    * Add `spacing_penalty_sek` (default 0.20 SEK).
-    * **Logic:** `If (Time - Last_Heat) < 5h`, add 0.20 SEK to cost.
-    * **Why:** Prevents heating for small gains but allows heating for massive gains (negative prices).
-2.  **Implement "Rubber Band" Gap (Top-Up):**
-    * Replace strict cliff with **Progressive Discomfort Cost**.
-    * **Logic:** `If Gap > Target_Gap (10h): Cost += (Excess_Hours * 0.05 SEK)`.
-    * **Why:** Allows extending the gap beyond the target if significant price savings exist (e.g., waiting 2 more hours to save 0.50 SEK).
-    * **Config:** Update `config.default.yaml` with `target_gap_hours` and `discomfort_cost_per_hour` (replacing or deprecating `max_hours_between_heating` strictness).
-
-**Status:** Investigation complete, ready for implementation.
-
-### [IN PROGRESS] Rev K22 — Plan Cost Not Stored
-
-**Goal:** Fix missing `planned_cost_sek` in Aurora "Cost Reality" card.
-
-**Bug:** `slot_plans.planned_cost_sek` is always 0.0 - cost never calculated/stored.
-
-**Impact:** Aurora tab shows no "Plan" cost, only "Real" cost.
-
-**Investigation Findings:**
-* **Root Cause:** The `SlotPlan` object (in `schedule.py`) is initialized with `planned_cost_sek=0.0`, but `formatter.py` never calculates or assigns the actual value during the conversion of solver results.
-* **Missing Logic:** The solver (Kepler) optimizes for total cost but the per-slot financial implication (Cash Flow) is not being reconstructed for the output schedule.
-
-**Proposed Fix:**
-1.  **Modify `planner/output/formatter.py`:**
-    * Inside the slot iteration loop, calculate the net cost for the slot.
-    * Formula: `(grid_import_kwh * buy_price) - (grid_export_kwh * sell_price)`.
-    * Assign to `slot.planned_cost_sek`.
-2.  **Definition:** Confirm if "Cost" implies strictly "Grid Bill" (Cash Flow) or "Economic Cost" (including battery wear).
-    * *Decision:* Match "Real" cost in Aurora, which comes from Home Assistant's "Grid Cost". Therefore, this should be **Grid Cash Flow only**.
-
-**Status:** Investigation complete, ready for implementation.
-
-### [IN PROGRESS] Rev K23 — SoC Target Holding Behavior (2025-12-22)
+### [TODO] Rev K23 — SoC Target Holding Behavior (2025-12-22)
 
 **Goal:** Investigate why battery holds at soc_target instead of using battery freely.
 
@@ -214,12 +183,9 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 
 **Expected:** Battery should be used freely during day, only end at target SoC at end of horizon.
 
-**Investigation Findings:**
-* **Root Cause:** The MILP constraint for `soc_target` is likely being applied to **all** time steps `t >= target_time`, effectively turning the target into a "floor" for the rest of the simulation.
-* **Logic Check:** Standard MILP solvers often implement "target" as `SoC[t] >= Target for t in [TargetTime, End]`.
-* **Fix Required:** Change the constraint to be a **point-in-time** equality or inequality: `SoC[TargetTime] >= Target`. The solver should be free to discharge *below* this level in subsequent slots if profitable (unless a new target is set).
+**Status:** Investigation pending.
 
-**Status:** Investigation complete, ready for implementation.
+**User thoughts:** Could this be due to REV 20? So might be fixed in rev 24!
 
 ### [PLANNED] Rev K24 — Battery Cost Separation (Gold Standard)
 
@@ -248,24 +214,5 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
     * Remove logic that floors `terminal_value` using `stored_energy_cost`.
     * Ensure `terminal_value` is calculated solely based on future price statistics (min/avg of forecast prices).
 * [ ] **Verify `planner/solver/kepler.py`:** Ensure no residual references to stored cost exist.
-
-### [PLANNED] Rev F3 — Water Heater Config & Control
-
-**Goal:** Fix ignored temperature settings and add master control switch.
-
-**Problem:**
-* User changed `water_heater.temp_normal` from 60 to 40, but system still heated to 60.
-* No explicit "enable/disable" toggle for water heating logic in config.
-
-**Investigation Plan (Audit Script Required):**
-* [ ] **Config Check:** Verify `config.default.yaml` for `water_heater.enabled` toggle (Likely missing).
-* [ ] **Code Scan:** Check `executor/actions.py` for usage of `set_temperature`.
-    * *Expectation:* `turn_on_water_heater` calls `set_operation_mode` but **ignores** `config.water_heater.temp_normal`.
-* [ ] **Planner Check:** Verify `planner/scheduling/water_heating.py` does not hardcode assumptions about temperature.
-
-**Implementation Plan:**
-* [ ] **Config:** Add `water_heater.enabled: true` to `config.default.yaml`.
-* [ ] **Logic:** Add `if not config.water_heater.enabled: return` to `planner/pipeline.py` (or similar).
-* [ ] **Fix:** Update `executor/actions.py` to call `hass.set_temperature(entity_id, temp=config.temp_normal)` when turning on.
 
 ### NEXT REV HERE
