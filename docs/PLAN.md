@@ -268,4 +268,27 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 * [ ] **Logic:** Add `if not config.water_heater.enabled: return` to `planner/pipeline.py` (or similar).
 * [ ] **Fix:** Update `executor/actions.py` to call `hass.set_temperature(entity_id, temp=config.temp_normal)` when turning on.
 
+### [PLANNED] Rev F4 — Entity Safety & Global Error Handling
+
+**Goal:** Prevent application crashes due to missing HA entities and provide user-friendly error feedback.
+
+**Problem:**
+* Missing entities (e.g., renamed in HA) might currently cause unhandled exceptions in `recorder.py` or `ha_client.py`, potentially crashing the backend loop.
+* The UI likely fails silently or breaks layout when data is missing, instead of guiding the user.
+
+**Investigation Plan:**
+* [ ] **Crash Test:** Temporarily rename a critical entity in `config.default.yaml` to a non-existent one and observe logs/container stability.
+* [ ] **Code Audit:** Check `backend/recorder.py` and `planner/inputs/data_prep.py` for error handling around `hass.get_state()`.
+* [ ] **Frontend Audit:** Check how `Dashboard.tsx` handles `undefined` API responses.
+
+**Implementation Plan:**
+* [ ] **Backend Hardening:**
+    * Wrap HA API calls in `try/except` blocks.
+    * Implement a "Health Check" system that validates all configured entities on startup.
+    * Expose health status via API (e.g., `/api/health` or part of `/api/status`).
+* [ ] **Frontend "Red Alert":**
+    * Create a global `SystemAlert` component (Banner).
+    * If `health.missing_entities` is non-empty, show: "Critical: Entities not found [list]. Check HA connection."
+* [ ] **Graceful Degradation:** Ensure Planner/Executor skips logic dependent on missing sensors rather than crashing.
+
 ### NEXT REV HERE

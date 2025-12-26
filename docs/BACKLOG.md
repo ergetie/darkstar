@@ -6,7 +6,7 @@
 *   **Goal:** Provide a deterministic, planner-consistent way to answer “what if we export X kWh at tomorrow’s price peak?” so users can see the net SEK impact before changing arbitrage settings.
 *   **Status:** On Hold (Prototype exists but parked for Kepler pivot).
 
-## Backlog
+## 🗂️ Backlog
 
 ### 🧠 Strategy & Aurora (AI)
 *   **[Rev A25] Manual Plan Simulate Regression**: Verify if manual block additions in the Planning Tab still work correctly with the new `simulate` signature (Strategy engine injection).
@@ -17,10 +17,12 @@
 *   **Config:** Flexible `run_days` and `run_time` in `config.yaml`.
 *   **Status:** In Progress.
 
+## USER INPUT:** Might skip the "plan" tab all together!
+
 ### [Rev A29] Smart EV Integration**: Prioritize home battery vs. EV charging based on "Departure Time" (requires new inputs).
 
 ### 🖥️ UI & Dashboard
-*   **[UI] Reset Learning**: Add "Reset Learning for Today" button to Settings/Debug to clear cached S-index/metrics without using CLI.
+*   **[UI] Reset Learning**: Add "Reset Learning for Today" button to Settings/Debug to clear cached S-index/metrics without using CLI. (When is this used? Maybe scrap?)
 *   **[UI] Chart Polish**:
     *   Render `soc_target` as a step-line series.
     *   Add zoom support (wheel/controls).
@@ -32,8 +34,8 @@
 
 ### ⚙️ Planner & Core
 *   **[Core] Dynamic Window Expansion (Smart Thresholds)**: *Note: Rev 20 in Aurora v2 Plan claimed this was done, but validating if fully merged/tested.* Logic: Allow charging in "expensive" slots if the "cheap" window is physically too short to reach Target SoC.
-*   **[Core] Sensor Unification**: Refactor `inputs.py` / `learning.py` to read *all* sensor IDs from `config.yaml` (`input_sensors`), removing the need for `secrets.yaml` to hold entity IDs.
-*   **[Core] HA Entity Config Consolidation**: Currently vacation mode, learning, and other features read HA entity state at runtime. Consider consolidating all HA-derived toggles into `config.yaml` with a single source of truth pattern (config file vs. HA entity override).
+*   **[Core] Sensor Unification**: Refactor `inputs.py` / `learning.py` to read *all* sensor IDs from `config.yaml` (`input_sensors`), removing the need for `secrets.yaml` to hold entity IDs. (THIS SHOULD ALREADY BE DONE! VERIFY!)
+*   **[Core] HA Entity Config Consolidation**: Currently vacation mode, learning, and other features read HA entity state at runtime. Consider consolidating all HA-derived toggles into `config.yaml` with a single source of truth pattern (config file vs. HA entity override). (Brainstorm how to do this since toggle entities might be wanted in HA for automations etc, are toggles in both places possible?)
 
 ### 🛠️ Ops & Infrastructure
 *   **[Ops] Deployment**: Document/Script the transfer of `planner_learning.db` and models to production servers.
@@ -41,6 +43,6 @@
 
 ---
 
-## Future Ideas (Darkstar 3.x+?)
+## 🔜 Future Ideas (Darkstar 3.x+?)
 *   **Multi-Model Aurora**: Separate ML models for Season or Weekday/Weekend.
 *   **Admin Tools:** Force Retrain button, Clear Learning Cache button.
