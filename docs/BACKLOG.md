@@ -8,6 +8,10 @@
 
 ## 🗂️ Backlog
 
+## Rev XX - Complete settings inventory
+**Goal:** Investigate discrepancy between settings page and config.yam/secrets.yaml. And implement normal/advanced settings mode. Settings page should be clean and the user should not need to open the config.yaml to do ANY settings!
+
+
 ### 🧠 Strategy & Aurora (AI)
 *   **[Rev A25] Manual Plan Simulate Regression**: Verify if manual block additions in the Planning Tab still work correctly with the new `simulate` signature (Strategy engine injection).
 ### Rev A27 — ML Training Scheduler (Catch-Up Logic)
