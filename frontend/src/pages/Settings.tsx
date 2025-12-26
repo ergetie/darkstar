@@ -10,6 +10,7 @@ const tabs = [
     { id: 'system', label: 'System' },
     { id: 'parameters', label: 'Parameters' },
     { id: 'ui', label: 'UI' },
+    { id: 'advanced', label: 'Advanced' },
 ]
 
 type SystemField = {
@@ -230,11 +231,41 @@ const uiSections = [
     },
 ]
 
+type AdvancedField = {
+    key: string
+    label: string
+    helper?: string
+    path: string[]
+    type: 'boolean'
+}
+
+const advancedSections = [
+    {
+        title: 'Experimental Features',
+        description: 'Toggle advanced and experimental modes.',
+        fields: [
+            {
+                key: 'automation.external_executor_mode',
+                label: 'External Executor Mode',
+                helper: 'When enabled, Darkstar expects an external system to execute the plan. Shows DB Sync controls on the dashboard.',
+                path: ['automation', 'external_executor_mode'],
+                type: 'boolean',
+            },
+        ],
+    },
+]
+
 const uiFieldList: UIField[] = uiSections.flatMap((section) => section.fields)
 const uiFieldMap: Record<string, UIField> = uiFieldList.reduce((acc, field) => {
     acc[field.key] = field
     return acc
 }, {} as Record<string, UIField>)
+
+const advancedFieldList: AdvancedField[] = advancedSections.flatMap((section) => section.fields)
+const advancedFieldMap: Record<string, AdvancedField> = advancedFieldList.reduce((acc, field) => {
+    acc[field.key] = field
+    return acc
+}, {} as Record<string, AdvancedField>)
 
 function getDeepValue(source: any, path: string[]): any {
     return path.reduce((current, key) => (current && typeof current === 'object' ? current[key] : undefined), source)
@@ -363,14 +394,38 @@ function buildUIFormState(config: Record<string, any> | null): Record<string, st
             state[field.key] = value !== undefined && value !== null ? String(value) : ''
         }
     })
-    // Add overlay defaults separately since it's not in uiFieldList anymore
-    if (config?.dashboard?.overlay_defaults) {
+    // Manual mapping for overlay_defaults which is not in uiFieldList
+    if (config?.dashboard?.overlay_defaults !== undefined) {
         state['dashboard.overlay_defaults'] = String(config.dashboard.overlay_defaults)
     }
     return state
 }
 
+function buildAdvancedFormState(config: Record<string, any> | null): Record<string, string> {
+    const state: Record<string, string> = {}
+    advancedFieldList.forEach((field) => {
+        const value = config ? getDeepValue(config, field.path) : undefined
+        if (field.type === 'boolean') {
+            state[field.key] = value === true ? 'true' : 'false'
+        } else {
+            state[field.key] = value !== undefined && value !== null ? String(value) : ''
+        }
+    })
+    return state
+}
+
 function parseUIFieldInput(field: UIField, raw: string): string | boolean | null | undefined {
+    const trimmed = raw.trim()
+    if (field.type === 'boolean') {
+        if (trimmed === '') return null
+        if (trimmed === 'true') return true
+        if (trimmed === 'false') return false
+        return undefined
+    }
+    return trimmed
+}
+
+function parseAdvancedFieldInput(field: AdvancedField, raw: string): string | boolean | null | undefined {
     const trimmed = raw.trim()
     if (field.type === 'boolean') {
         if (trimmed === '') return null
@@ -404,23 +459,41 @@ function buildUIPatch(original: Record<string, any>, form: Record<string, string
     return patch
 }
 
+function buildAdvancedPatch(original: Record<string, any>, form: Record<string, string>): Record<string, any> {
+    const patch: Record<string, any> = {}
+    advancedFieldList.forEach((field) => {
+        const raw = form[field.key] ?? ''
+        const parsed = parseAdvancedFieldInput(field, raw)
+        if (parsed === undefined) return
+        if (field.type === 'boolean' && parsed === null) return
+        const currentValue = getDeepValue(original, field.path)
+        if (parsed === currentValue) return
+        setDeepValue(patch, field.path, parsed)
+    })
+    return patch
+}
+
 export default function Settings() {
     const [activeTab, setActiveTab] = useState('system')
     const [config, setConfig] = useState<Record<string, any> | null>(null)
     const [systemForm, setSystemForm] = useState<Record<string, string>>(() => buildSystemFormState(null))
     const [parameterForm, setParameterForm] = useState<Record<string, string>>(() => buildParameterFormState(null))
     const [uiForm, setUIForm] = useState<Record<string, string>>(() => buildUIFormState(null))
+    const [advancedForm, setAdvancedForm] = useState<Record<string, string>>(() => buildAdvancedFormState(null))
     const [systemFieldErrors, setSystemFieldErrors] = useState<Record<string, string>>({})
     const [parameterFieldErrors, setParameterFieldErrors] = useState<Record<string, string>>({})
     const [uiFieldErrors, setUIFieldErrors] = useState<Record<string, string>>({})
+    const [advancedFieldErrors, setAdvancedFieldErrors] = useState<Record<string, string>>({})
     const [loadingConfig, setLoadingConfig] = useState(true)
-    const [configError, setConfigError] = useState<string | null>(null)
+    const [loadError, setLoadError] = useState<string | null>(null)
     const [systemSaving, setSystemSaving] = useState(false)
     const [parameterSaving, setParameterSaving] = useState(false)
     const [uiSaving, setUISaving] = useState(false)
+    const [advancedSaving, setAdvancedSaving] = useState(false)
     const [systemStatusMessage, setSystemStatusMessage] = useState<string | null>(null)
     const [parameterStatusMessage, setParameterStatusMessage] = useState<string | null>(null)
     const [uiStatusMessage, setUIStatusMessage] = useState<string | null>(null)
+    const [advancedStatusMessage, setAdvancedStatusMessage] = useState<string | null>(null)
     const [themes, setThemes] = useState<ThemeInfo[]>([])
     const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
     const [themeAccentIndex, setThemeAccentIndex] = useState<number | null>(null)
@@ -466,17 +539,18 @@ export default function Settings() {
 
     const reloadConfig = async () => {
         setLoadingConfig(true)
-        setConfigError(null)
+        setLoadError(null)
         try {
             const cfg = await Api.config()
             setConfig(cfg)
             setSystemForm(buildSystemFormState(cfg))
             setParameterForm(buildParameterFormState(cfg))
             setUIForm(buildUIFormState(cfg))
+            setAdvancedForm(buildAdvancedFormState(cfg))
             const accent = cfg?.ui?.theme_accent_index
             setThemeAccentIndex(typeof accent === 'number' ? accent : null)
         } catch (err: any) {
-            setConfigError(err?.message || 'Failed to load configuration')
+            setLoadError(err?.message || 'Failed to load configuration')
         } finally {
             setLoadingConfig(false)
         }
@@ -611,6 +685,29 @@ export default function Settings() {
         }
     }
 
+    const handleAdvancedFieldChange = (key: string, value: string) => {
+        const field = advancedFieldMap[key]
+        if (!field) return
+
+        setAdvancedForm((prev) => ({ ...prev, [key]: value }))
+        setAdvancedStatusMessage(null)
+
+        if (field.type === 'boolean') {
+            const val = value.trim()
+            setAdvancedFieldErrors((prev) => {
+                const newErrors = { ...prev }
+                if (val === '') {
+                    newErrors[key] = 'Required'
+                } else if (val !== 'true' && val !== 'false') {
+                    newErrors[key] = 'Invalid value'
+                } else {
+                    delete newErrors[key]
+                }
+                return newErrors
+            })
+        }
+    }
+
     const systemErrors = Object.values(systemFieldErrors).filter(Boolean).length
     const hasSystemValidationErrors = systemErrors > 0
 
@@ -716,51 +813,97 @@ export default function Settings() {
 
     const handleSaveUI = async () => {
         if (!config) return
-        if (hasUIValidationErrors) {
+
+        const hasErrors = Object.values(uiFieldErrors).filter(Boolean).length > 0
+        if (hasErrors) {
             setUIStatusMessage('Fix validation errors before saving.')
             return
         }
+
         const patch = buildUIPatch(config, uiForm)
         if (!Object.keys(patch).length) {
             setUIStatusMessage('No changes detected.')
             return
         }
+
         setUISaving(true)
         setUIStatusMessage(null)
         try {
-            const resp = await Api.configSave(patch)
-            if (resp.status !== 'success') {
-                const fieldErrors: Record<string, string> = {}
-                resp.errors?.forEach((err) => {
+            const result = await Api.configSave(patch)
+            if (result.status !== 'success') {
+                const newErrors: Record<string, string> = {}
+                result.errors?.forEach((err) => {
                     if (err.field) {
-                        fieldErrors[err.field] = err.message || 'Invalid value'
+                        newErrors[err.field] = err.message || 'Invalid value'
                     }
                 })
-                if (Object.keys(fieldErrors).length) {
-                    setUIFieldErrors((prev) => ({ ...prev, ...fieldErrors }))
+                if (Object.keys(newErrors).length) {
+                    setUIFieldErrors((prev) => ({ ...prev, ...newErrors }))
                     setUIStatusMessage('Fix highlighted fields before saving.')
                 } else {
-                    setUIStatusMessage(
-                        resp.errors && resp.errors[0]?.message
-                            ? resp.errors[0].message
-                            : 'Save failed.',
-                    )
+                    setUIStatusMessage(result.errors && result.errors[0]?.message ? result.errors[0].message : 'Save failed.')
                 }
                 return
             }
-            const fresh = await Api.config()
-            setConfig(fresh)
-            setSystemForm(buildSystemFormState(fresh))
-            setParameterForm(buildParameterFormState(fresh))
-            setUIForm(buildUIFormState(fresh))
+            const data = await Api.config()
+            setConfig(data)
+            setUIForm(buildUIFormState(data))
             setUIFieldErrors({})
             setUIStatusMessage('UI preferences saved.')
-        } catch (err: any) {
-            setUIStatusMessage(err?.message ? `Failed to save: ${err.message}` : 'Save failed.')
+        } catch (err) {
+            setUIStatusMessage(err instanceof Error ? `Failed to save: ${err.message}` : 'Save failed.')
         } finally {
             setUISaving(false)
         }
     }
+
+    const handleSaveAdvanced = async () => {
+        if (!config) return
+
+        const hasErrors = Object.values(advancedFieldErrors).filter(Boolean).length > 0
+        if (hasErrors) {
+            setAdvancedStatusMessage('Fix validation errors before saving.')
+            return
+        }
+
+        const patch = buildAdvancedPatch(config, advancedForm)
+        if (!Object.keys(patch).length) {
+            setAdvancedStatusMessage('No changes detected.')
+            return
+        }
+
+        setAdvancedSaving(true)
+        setAdvancedStatusMessage(null)
+        try {
+            const result = await Api.configSave(patch)
+            if (result.status !== 'success') {
+                const newErrors: Record<string, string> = {}
+                result.errors?.forEach((err) => {
+                    if (err.field) {
+                        newErrors[err.field] = err.message || 'Invalid value'
+                    }
+                })
+                if (Object.keys(newErrors).length) {
+                    setAdvancedFieldErrors((prev) => ({ ...prev, ...newErrors }))
+                    setAdvancedStatusMessage('Fix highlighted fields before saving.')
+                } else {
+                    setAdvancedStatusMessage(result.errors && result.errors[0]?.message ? result.errors[0].message : 'Save failed.')
+                }
+                return
+            }
+            const data = await Api.config()
+            setConfig(data)
+            setAdvancedForm(buildAdvancedFormState(data))
+            setAdvancedFieldErrors({})
+            setAdvancedStatusMessage('Advanced settings saved.')
+        } catch (err) {
+            setAdvancedStatusMessage(err instanceof Error ? `Failed to save: ${err.message}` : 'Save failed.')
+        } finally {
+            setAdvancedSaving(false)
+        }
+    }
+
+
 
     const handleApplyTheme = async () => {
         if (!selectedTheme) {
@@ -1404,6 +1547,68 @@ export default function Settings() {
         )
     }
 
+    const renderAdvancedForm = () => {
+        if (loadingConfig) return <Card className="p-6 text-sm text-muted">Loading advanced configuration…</Card>
+        if (loadError) return <Card className="p-6 text-sm text-red-400">{loadError}</Card>
+
+        return (
+            <div className="space-y-4">
+                {advancedSections.map((section) => (
+                    <Card key={section.title} className="p-6">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <div>
+                                <div className="text-sm font-semibold">{section.title}</div>
+                                <p className="text-xs text-muted mt-1">{section.description}</p>
+                            </div>
+                            <span className="text-[10px] uppercase text-muted tracking-wide">Advanced</span>
+                        </div>
+
+                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                            {section.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                    {field.type === 'boolean' && (
+                                        <label className="flex items-center gap-2 text-sm">
+                                            <input
+                                                type="checkbox"
+                                                checked={advancedForm[field.key] === 'true'}
+                                                onChange={(event) => handleAdvancedFieldChange(field.key, event.target.checked ? 'true' : 'false')}
+                                                className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                            />
+                                            <span className="font-semibold">{field.label}</span>
+                                        </label>
+                                    )}
+                                    {field.helper && (
+                                        <p className="text-[11px] text-muted ml-6">{field.helper}</p>
+                                    )}
+                                    {advancedFieldErrors[field.key] && (
+                                        <p className="text-[11px] text-red-400 ml-6">{advancedFieldErrors[field.key]}</p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                ))}
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        disabled={advancedSaving || loadingConfig}
+                        onClick={handleSaveAdvanced}
+                        className={cls.accentBtn}
+                    >
+                        {advancedSaving ? 'Saving…' : 'Save Advanced Settings'}
+                    </button>
+                    {advancedStatusMessage && (
+                        <div className={`rounded-lg p-3 text-sm ${advancedStatusMessage.startsWith('Failed')
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                            }`}>
+                            {advancedStatusMessage}
+                        </div>
+                    )}
+                </div>
+            </div>
+        )
+    }
+
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12 space-y-6">
             <div className="flex items-center justify-between">
@@ -1449,7 +1654,9 @@ export default function Settings() {
                 ? renderSystemForm()
                 : activeTab === 'parameters'
                     ? renderParameterForm()
-                    : renderUIForm()}
+                    : activeTab === 'ui'
+                        ? renderUIForm()
+                        : renderAdvancedForm()}
         </main>
     )
 }

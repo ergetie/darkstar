@@ -122,26 +122,21 @@ Phase 4: Validation
 | Solar + Water | ✓ | ✗ | ✓ | Cheap heating, no battery |
 | Water only | ✗ | ✗ | ✓ | Cheapest price heating |
 
-### [IN PROGRESS] Rev UI1 — Dashboard Quick Actions Redesign
+## [DONE] Rev UI1 — Dashboard Quick Actions Redesign
 
 **Goal:** Redesign the Dashboard Quick Actions for the native executor, with optional external executor fallback in Settings.
 
-**Phase 1: New Quick Actions (4 Buttons)**
-
-1.  **Run Planner:** Runs planner + immediate slot execution.
-2.  **Executor Toggle:** Pause/Resume (Red/orange pulsing glow when paused).
-3.  **Toggle Vacation:** Inline arrows for duration selection (3, 7, 14, 21, 28 days).
-4.  **Boost Water:** Inline arrows for duration selection (30min, 1h, 2h).
-
-**Phase 2: Settings Integration**
-
--   [ ] Add "External Executor Mode" toggle in Settings → Advanced.
--   [ ] When enabled, show "DB Sync" card with Load/Push buttons.
+**Implementation Status (2025-12-26):**
+-   [x] Phase 1: Implement new Quick Action buttons (Run Planner, Executor Toggle, Vacation, Water Boost).
+-   [x] Phase 2: Settings Integration
+    -   [x] Add "External Executor Mode" toggle in Settings → Advanced.
+    -   [x] When enabled, show "DB Sync" card with Load/Push buttons.
     
 **Phase 3: Cleanup**
 
 -   [x] Hide Planning tab from navigation (legacy).
 -   [x] Remove "Reset Optimal" button.
+
     
 
 ### [PLANNED] Rev UI2 — Premium Polish

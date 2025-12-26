@@ -8,6 +8,7 @@ import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
+import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 
 type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
 
@@ -49,7 +50,7 @@ export default function Dashboard() {
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
     const [autoRefresh, setAutoRefresh] = useState(true)
     const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; every_minutes?: number | null } | null>(null)
+    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; external_executor_mode?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
     const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
     const [localSchedule, setLocalSchedule] = useState<ScheduleSlot[] | null>(null)
@@ -216,6 +217,7 @@ export default function Dashboard() {
                     setAutomationConfig({
                         enable_scheduler: automation.enable_scheduler,
                         write_to_mariadb: automation.write_to_mariadb,
+                        external_executor_mode: automation.external_executor_mode,
                         // Optional Rev57-style schedule block; falls back to null when absent
                         every_minutes: automation.schedule?.every_minutes ?? null,
                     })
@@ -445,12 +447,47 @@ export default function Dashboard() {
             setAutomationConfig(prev => ({
                 enable_scheduler: next,
                 write_to_mariadb: prev?.write_to_mariadb,
+                external_executor_mode: prev?.external_executor_mode,
                 every_minutes: prev?.every_minutes ?? null,
             }))
         } catch (err) {
             console.error('Failed to toggle planner automation:', err)
         } finally {
             setAutomationSaving(false)
+        }
+    }
+
+    const [dbSyncLoading, setDbSyncLoading] = useState(false)
+    const [dbSyncFeedback, setDbSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+
+    const handleLoadFromDb = async () => {
+        setDbSyncLoading(true)
+        setDbSyncFeedback(null)
+        try {
+            const schedule = await Api.loadServerPlan()
+            handleServerScheduleLoaded(schedule.schedule ?? [])
+            handlePlanSourceChange('server')
+            setDbSyncFeedback({ type: 'success', message: 'Plan loaded from DB' })
+        } catch (err) {
+            setDbSyncFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Load failed' })
+        } finally {
+            setDbSyncLoading(false)
+            setTimeout(() => setDbSyncFeedback(null), 3000)
+        }
+    }
+
+    const handlePushToDb = async () => {
+        setDbSyncLoading(true)
+        setDbSyncFeedback(null)
+        try {
+            await Api.pushToDb()
+            setDbSyncFeedback({ type: 'success', message: 'Plan pushed to DB' })
+            fetchAllData()
+        } catch (err) {
+            setDbSyncFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Push failed' })
+        } finally {
+            setDbSyncLoading(false)
+            setTimeout(() => setDbSyncFeedback(null), 3000)
         }
     }
 
@@ -684,6 +721,39 @@ export default function Dashboard() {
                                 </div>
                             </div>
                         </Card>
+
+                        {automationConfig?.external_executor_mode && (
+                            <Card className="flex-1 p-4 md:p-5 flex flex-col">
+                                <div className="flex items-baseline justify-between mb-3">
+                                    <div className="text-sm text-muted">DB Sync</div>
+                                    <div className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                                        {dbSyncFeedback?.message}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 mt-auto">
+                                    <button
+                                        type="button"
+                                        onClick={handleLoadFromDb}
+                                        disabled={dbSyncLoading}
+                                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold bg-surface2 border border-line/60 text-muted hover:border-accent hover:text-accent transition disabled:opacity-50"
+                                        title="Pull plan from MariaDB current_schedule table"
+                                    >
+                                        <ArrowDownToLine className="h-4 w-4" />
+                                        <span>Load from DB</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handlePushToDb}
+                                        disabled={dbSyncLoading}
+                                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold bg-surface2 border border-line/60 text-muted hover:border-accent hover:text-accent transition disabled:opacity-50"
+                                        title="Push local schedule.json to MariaDB"
+                                    >
+                                        <ArrowUpFromLine className="h-4 w-4" />
+                                        <span>Push to DB</span>
+                                    </button>
+                                </div>
+                            </Card>
+                        )}
                     </div>
                 </motion.div>
             </div>
