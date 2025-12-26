@@ -67,7 +67,7 @@ def index(path):
     # Let Flask handle static/api routes, others fall through to React
     if path.startswith("api/") or path.startswith("static/") or path.startswith("assets/"):
         return "Not Found", 404
-    
+
     # HA Ingress support: get base path from X-Ingress-Path header
     # This header is set by HA Supervisor when proxying through ingress
     ingress_path = request.headers.get("X-Ingress-Path", "")
@@ -76,8 +76,10 @@ def index(path):
         base_href = ingress_path.rstrip("/") + "/"
     else:
         base_href = "/"
-    
+
     return render_template("index.html", base_href=base_href)
+
+
 
 
 class RingBufferHandler(logging.Handler):
@@ -2024,7 +2026,80 @@ def _validate_config(cfg: dict) -> list[dict]:
     return errors
 
 
-@app.route("/api/config/save", methods=["POST"])
+@app.route("/api/config/save", methods=["POST"], strict_slashes=False)
+def save_config():
+    from ruamel.yaml import YAML
+
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
+
+    # Load current config
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        current_config = yaml_handler.load(f) or {}
+
+    # Get the new config data from the request
+    new_config = request.get_json() or {}
+
+    # Intercept home_assistant config for secrets.yaml (Rev O1)
+    if "home_assistant" in new_config:
+        ha_settings = new_config.pop("home_assistant")
+        try:
+            secrets_path = "secrets.yaml"
+            if os.path.exists(secrets_path):
+                with open(secrets_path, "r", encoding="utf-8") as f:
+                    secrets = yaml_handler.load(f) or {}
+            else:
+                secrets = {}
+
+            secrets["home_assistant"] = ha_settings
+
+            with open(secrets_path, "w", encoding="utf-8") as f:
+                yaml_handler.dump(secrets, f)
+        except Exception as e:
+            logger.error("Failed to save secrets.yaml: %s", e)
+            return jsonify({"status": "error", "message": f"Failed to save secrets: {e}"})
+
+    # Deep merge the new config into the current config
+    def deep_merge(current, new):
+        for key, value in new.items():
+            if key in current and isinstance(current[key], dict) and isinstance(value, dict):
+                deep_merge(current[key], value)
+            else:
+                current[key] = value
+        return current
+
+    merged_config = deep_merge(current_config, new_config)
+
+    # Validate merged config
+    errors = _validate_config(dict(merged_config))
+    if errors:
+        sys.stderr.write(f"[DEBUG] VALIDATION ERRORS: {errors}\n")
+        return jsonify({"status": "error", "errors": errors})
+
+    # Write back
+    with open("config.yaml", "w", encoding="utf-8") as f:
+        yaml_handler.dump(merged_config, f)
+    sys.stderr.write("[DEBUG] config.yaml saved\n")
+
+    # Regenerate schedule if needed
+    if "s_index" in new_config or "battery" in new_config:
+        try:
+            from inputs import get_all_input_data
+            from planner.pipeline import PlannerPipeline
+            with open("config.yaml", "r") as f:
+                fresh_config = yaml.safe_load(f) or {}
+            input_data = get_all_input_data("config.yaml")
+            pipeline = PlannerPipeline(fresh_config)
+            pipeline.generate_schedule(input_data, mode="full", save_to_file=True)
+            sys.stderr.write("[DEBUG] schedule regenerated\n")
+        except Exception as exc:
+            sys.stderr.write(f"[DEBUG] REGEN ERROR: {exc}\n")
+
+    sys.stderr.flush()
+    return jsonify({"status": "success"})
+
+
+
 @app.route("/api/ha/test", methods=["POST"])
 def ha_test_connection():
     """Test connection to Home Assistant with provided credentials."""
@@ -2080,101 +2155,6 @@ def ha_list_entities():
             return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
-
-def save_config():
-    from ruamel.yaml import YAML
-    
-    yaml_handler = YAML()
-    yaml_handler.preserve_quotes = True
-    
-    # Load current config with ruamel.yaml to preserve structure/comments
-    with open("config.yaml", "r", encoding="utf-8") as f:
-        current_config = yaml_handler.load(f) or {}
-
-    # Get the new config data from the request
-    new_config = request.get_json() or {}
-
-    # Intercept home_assistant config for secrets.yaml (Rev O1)
-    if "home_assistant" in new_config:
-        ha_settings = new_config.pop("home_assistant")
-        try:
-            secrets_path = "secrets.yaml"
-            if os.path.exists(secrets_path):
-                with open(secrets_path, "r", encoding="utf-8") as f:
-                    secrets = yaml_handler.load(f) or {}
-            else:
-                secrets = {}
-
-            secrets["home_assistant"] = ha_settings
-
-            with open(secrets_path, "w", encoding="utf-8") as f:
-                yaml_handler.dump(secrets, f)
-        except Exception as e:
-            logger.error("Failed to save secrets.yaml: %s", e)
-            return jsonify({"status": "error", "message": f"Failed to save secrets: {e}"})
-
-    # Deep merge the new config into the current config
-    def deep_merge(current, new):
-        for key, value in new.items():
-            if key in current and isinstance(current[key], dict) and isinstance(value, dict):
-                deep_merge(current[key], value)
-            else:
-                current[key] = value
-        return current
-
-    merged_config = deep_merge(current_config, new_config)
-
-    # Ensure critical defaults are preserved
-    if "nordpool" not in merged_config:
-        merged_config["nordpool"] = {}
-    if "resolution_minutes" not in merged_config["nordpool"]:
-        merged_config["nordpool"]["resolution_minutes"] = 15
-    if "price_area" not in merged_config["nordpool"]:
-        merged_config["nordpool"]["price_area"] = "SE4"
-    if "currency" not in merged_config["nordpool"]:
-        merged_config["nordpool"]["currency"] = "SEK"
-
-    # Validate merged config before writing (use dict for validation)
-    errors = _validate_config(dict(merged_config))
-    if errors:
-        return jsonify({"status": "error", "errors": errors})
-
-    # Write back with ruamel.yaml to preserve structure/comments
-    with open("config.yaml", "w", encoding="utf-8") as f:
-        yaml_handler.dump(merged_config, f)
-
-    # Regenerate schedule if s_index or battery settings changed
-    # This ensures risk_appetite changes are immediately reflected
-    regenerate_schedule = False
-    if "s_index" in new_config or "battery" in new_config:
-        regenerate_schedule = True
-
-    regen_result = None
-    if regenerate_schedule:
-        try:
-            from inputs import get_all_input_data
-            from planner.pipeline import PlannerPipeline
-
-            logger.info("Config changed - regenerating schedule...")
-
-            # CRITICAL: Reload the fresh config from disk to ensure all values are correct
-            # The merged_config from the request may be incomplete or have stale values
-            with open("config.yaml", "r") as f:
-                fresh_config = yaml.safe_load(f) or {}
-
-            input_data = get_all_input_data("config.yaml")
-            pipeline = PlannerPipeline(fresh_config)
-            pipeline.generate_schedule(input_data, mode="full", save_to_file=True)
-            logger.info("Schedule regenerated successfully")
-            regen_result = "success"
-        except Exception as exc:
-            logger.warning("Failed to regenerate schedule after config change: %s", exc)
-            regen_result = f"error: {exc}"
-
-    return jsonify(
-        {"status": "success", "regenerated": regenerate_schedule, "regen_result": regen_result}
-    )
 
 
 @app.route("/api/config/reset", methods=["POST"])
@@ -3249,3 +3229,6 @@ def _autostart_executor():
 
 
 _autostart_executor()
+
+
+        

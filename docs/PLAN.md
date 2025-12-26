@@ -75,7 +75,7 @@ Solution:
     
 3.  Fixed adapter to read from kepler config section.
 
-### [IN PROGRESS] Rev O1 — Onboarding & System Profiles
+### [DONE] Rev O1 — Onboarding & System Profiles
 
 Goal: Make Darkstar production-ready for both standalone Docker AND HA Add-on deployments with minimal user friction.
 
@@ -110,7 +110,7 @@ Design Principles:
     
 -   [x] **UI:** Add 3 toggle switches in Settings → System.
     
--   [ ] **Logic:** Backend skips disabled features in planner/executor.
+-   [x] **Logic:** Backend skips disabled features in planner/executor.
     
 
 Phase 4: Validation

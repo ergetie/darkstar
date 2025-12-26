@@ -8,9 +8,9 @@ services:
     ports:
       - "5000:5000"
     volumes:
-      # User configuration (config writable for UI settings, secrets read-only)
+      # User configuration (config writable for UI settings, secrets also writable)
       - ./config.yaml:/app/config.yaml
-      - ./secrets.yaml:/app/secrets.yaml:ro
+      - ./secrets.yaml:/app/secrets.yaml
       # Persistent data (learning DB, scheduler status, strategy history)
       - ./data:/app/data
     environment:
