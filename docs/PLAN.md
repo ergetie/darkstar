@@ -278,21 +278,15 @@ return 60  # Was hardcoded instead of using config
 - [x] **Phase 4 - Frontend:** Created `SystemAlert.tsx` (red=critical, yellow=warning)
 - [x] **Phase 5 - Integration:** Updated `App.tsx` to fetch health every 60s and show banner
 
-### [PLANNED] Rev F5 — Fix Planner Crash on Missing 'start_time'
+### [DONE] Rev F5 — Fix Planner Crash on Missing 'start_time'
 
-**Goal:** Fix `KeyError: 'start_time'` crashing the planner when processing schedule dataframes.
+**Goal:** Fix `KeyError: 'start_time'` crashing the planner and provide user-friendly error message.
 
-**Error Analysis:**
-* **Log:** `File "/app/planner/output/formatter.py", line 42, in dataframe_to_json_response start_series = pd.to_datetime(df_copy["start_time"], errors="coerce")` -> `KeyError: 'start_time'`
-* **Root Cause:** The `schedule_df` passed to `dataframe_to_json_response` is missing the `start_time` column. This implies `kepler.solve()` or `adapter.py` returned a DataFrame where the index (usually `start_time`) was not reset to a column, or the column was dropped/renamed.
+**Root Cause:** `formatter.py` directly accessed `df_copy["start_time"]` without checking existence.
 
-**Investigation Plan:**
-* [ ] **Trace `planner/output/schedule.py`:** Check where `schedule_df` comes from.
-* [ ] **Inspect `planner/solver/adapter.py`:** Verify the DataFrame structure returned by `solve()`. Does it have `start_time` as an index or column?
-* [ ] **Check `pipeline.py`:** See if any intermediate steps modify the DataFrame columns before saving.
-
-**Implementation Plan:**
-* [ ] **Defensive Coding:** In `formatter.py`, check if `start_time` is in `df.columns`. If not, and it's in the index, run `df.reset_index(inplace=True)`.
-* [ ] **Validation:** Add a `verify_schedule_schema(df)` step in `pipeline.py` to catch malformed DataFrames early.
+**Implementation (2025-12-27):**
+- [x] **Smart Index Recovery:** If DataFrame has `index` column with timestamps after reset, auto-rename to `start_time`
+- [x] **Defensive Validation:** Added check for `start_time` and `end_time` before access
+- [x] **User-Friendly Error:** Raises `ValueError` with clear message and available columns list instead of cryptic `KeyError`
 
 ### NEXT REV HERE

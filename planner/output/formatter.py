@@ -31,12 +31,34 @@ def dataframe_to_json_response(
     Returns:
         List of dictionaries ready for JSON response
     """
+    # Reset index in case start_time is stored as index
     df_copy = df.reset_index().copy()
+    
+    # Handle case where index was named 'index' after reset
+    if "index" in df_copy.columns and "start_time" not in df_copy.columns:
+        # Check if the index values look like timestamps
+        try:
+            test_val = df_copy["index"].iloc[0] if len(df_copy) > 0 else None
+            if test_val is not None and isinstance(test_val, (pd.Timestamp, datetime)):
+                df_copy = df_copy.rename(columns={"index": "start_time"})
+        except Exception:
+            pass
+    
     drop_cols = [col for col in ("action", "classification") if col in df_copy.columns]
     if drop_cols:
         df_copy = df_copy.drop(columns=drop_cols, errors="ignore")
 
     tz = pytz.timezone(timezone_name)
+
+    # Validate required column exists
+    if "start_time" not in df_copy.columns:
+        available_cols = list(df_copy.columns)
+        raise ValueError(
+            f"Schedule DataFrame is missing required 'start_time' column. "
+            f"Available columns: {available_cols}. "
+            f"This usually means the planner/solver returned malformed data. "
+            f"Check the Kepler solver output or try re-running the planner."
+        )
 
     # Normalize timestamps
     start_series = pd.to_datetime(df_copy["start_time"], errors="coerce")
@@ -45,6 +67,13 @@ def dataframe_to_json_response(
     else:
         start_series = start_series.dt.tz_convert(tz)
     df_copy["start_time"] = start_series
+
+    # Validate end_time exists
+    if "end_time" not in df_copy.columns:
+        raise ValueError(
+            f"Schedule DataFrame is missing required 'end_time' column. "
+            f"Check the Kepler solver output or try re-running the planner."
+        )
 
     end_series = pd.to_datetime(df_copy["end_time"], errors="coerce")
     if not end_series.dt.tz:
