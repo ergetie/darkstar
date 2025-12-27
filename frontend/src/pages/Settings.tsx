@@ -82,6 +82,34 @@ const systemSections = [
         ],
     },
     {
+        title: 'Inverter Control Entities',
+        description: 'Entities the executor uses to control your inverter.',
+        fields: [
+            { key: 'executor.inverter.work_mode_entity', label: 'Work Mode Entity', helper: 'select.* entity to set inverter work mode', path: ['executor', 'inverter', 'work_mode_entity'], type: 'entity' },
+            { key: 'executor.inverter.grid_charging_entity', label: 'Grid Charging Entity', helper: 'switch.* entity to enable/disable grid charging', path: ['executor', 'inverter', 'grid_charging_entity'], type: 'entity' },
+            { key: 'executor.inverter.max_charging_current_entity', label: 'Max Charge Current Entity', helper: 'number.* entity to set max charging current', path: ['executor', 'inverter', 'max_charging_current_entity'], type: 'entity' },
+            { key: 'executor.inverter.max_discharging_current_entity', label: 'Max Discharge Current Entity', helper: 'number.* entity to set max discharging current', path: ['executor', 'inverter', 'max_discharging_current_entity'], type: 'entity' },
+        ],
+    },
+    {
+        title: 'Battery Target',
+        description: 'Entity for setting battery SoC target.',
+        fields: [
+            { key: 'executor.soc_target_entity', label: 'SoC Target Entity', helper: 'input_number.* entity for setting the target SoC', path: ['executor', 'soc_target_entity'], type: 'entity' },
+        ],
+    },
+    {
+        title: 'Water Heater Control',
+        description: 'Entity and temperature settings for water heater optimization.',
+        fields: [
+            { key: 'executor.water_heater.target_entity', label: 'Target Entity', helper: 'input_number.* entity for water heater temp target', path: ['executor', 'water_heater', 'target_entity'], type: 'entity' },
+            { key: 'executor.water_heater.temp_off', label: 'Off Temperature (°C)', helper: 'Minimum temperature when conserving energy', path: ['executor', 'water_heater', 'temp_off'], type: 'number' },
+            { key: 'executor.water_heater.temp_normal', label: 'Normal Temperature (°C)', helper: 'Standard operating temperature', path: ['executor', 'water_heater', 'temp_normal'], type: 'number' },
+            { key: 'executor.water_heater.temp_boost', label: 'Boost Temperature (°C)', helper: 'Temperature during solar/cheap energy periods', path: ['executor', 'water_heater', 'temp_boost'], type: 'number' },
+            { key: 'executor.water_heater.temp_max', label: 'Max Temperature (°C)', helper: 'Maximum safe temperature limit', path: ['executor', 'water_heater', 'temp_max'], type: 'number' },
+        ],
+    },
+    {
         title: 'Learning Storage',
         description: 'Track the learning database path.',
         fields: [

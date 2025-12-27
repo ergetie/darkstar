@@ -4,21 +4,22 @@
 
 /* ============================================
    THEME SYSTEM: CSS Custom Properties
+   Using RGB format for Tailwind opacity support
    ============================================ */
 
 /* Light mode (default) */
 :root {
-    --color-canvas: #ffffff;
-    --color-surface: #f8f9fb;
-    --color-surface2: #f0f2f5;
-    --color-line: #e0e4ea;
-    --color-text: #1a1d23;
-    --color-muted: #6b7280;
-    --color-accent: #d4a017;
-    --color-accent2: #b8860b;
-    --color-good: #16a34a;
-    --color-warn: #ca8a04;
-    --color-bad: #dc2626;
+    --color-canvas: 255 255 255;
+    --color-surface: 248 249 251;
+    --color-surface2: 240 242 245;
+    --color-line: 224 228 234;
+    --color-text: 26 29 35;
+    --color-muted: 107 114 128;
+    --color-accent: 212 160 23;
+    --color-accent2: 184 134 11;
+    --color-good: 22 163 74;
+    --color-warn: 202 138 4;
+    --color-bad: 220 38 38;
     --shadow-float: 0 8px 30px rgba(0,0,0,0.12);
     --shadow-inset1: inset 0 0 0 1px rgba(0,0,0,0.04);
     --ring: 0 0% 0%;
@@ -26,17 +27,17 @@
 
 /* Dark mode */
 .dark {
-    --color-canvas: #0f1216;
-    --color-surface: #14191f;
-    --color-surface2: #181e25;
-    --color-line: #242b34;
-    --color-text: #e6e9ef;
-    --color-muted: #a6b0bf;
-    --color-accent: #F5D547;
-    --color-accent2: #ffe066;
-    --color-good: #87F0A3;
-    --color-warn: #FFD966;
-    --color-bad: #FF7A7A;
+    --color-canvas: 15 18 22;
+    --color-surface: 20 25 31;
+    --color-surface2: 24 30 37;
+    --color-line: 36 43 52;
+    --color-text: 230 233 239;
+    --color-muted: 166 176 191;
+    --color-accent: 245 213 71;
+    --color-accent2: 255 224 102;
+    --color-good: 135 240 163;
+    --color-warn: 255 217 102;
+    --color-bad: 255 122 122;
     --shadow-float: 0 8px 30px rgba(0,0,0,0.35);
     --shadow-inset1: inset 0 0 0 1px rgba(255,255,255,0.04);
     --ring: 0 0% 100%;
@@ -47,8 +48,8 @@
    ============================================ */
 
 body {
-    background-color: var(--color-canvas);
-    color: var(--color-text);
+    background-color: rgb(var(--color-canvas));
+    color: rgb(var(--color-text));
 }
 
 /* Subtle grain / vignette for premium feel - dark mode only */
@@ -63,7 +64,7 @@ body {
 }
 
 /* Light mode subtle gradient */
-body::before {
+:root body::before {
     content: '';
     position: fixed;
     inset: 0;
@@ -139,16 +140,16 @@ body::before {
 
 .react-calendar-timeline .rct-dateHeader {
     background-color: transparent !important;
-    border-bottom: 1px solid var(--color-line) !important;
-    border-left: 1px solid var(--color-line) !important;
+    border-bottom: 1px solid rgba(var(--color-line), 0.5) !important;
+    border-left: 1px solid rgba(var(--color-line), 0.5) !important;
     border-right: none !important;
     border-top: none !important;
-    color: var(--color-muted) !important;
+    color: rgb(var(--color-muted)) !important;
     font-size: 11px !important;
 }
 
 .react-calendar-timeline .rct-vertical-lines .rct-vl {
-    border-left-color: var(--color-line) !important;
+    border-left-color: rgba(var(--color-line), 0.3) !important;
     background: transparent !important;
 }
 
@@ -159,16 +160,16 @@ body::before {
 .react-calendar-timeline .rct-horizontal-lines .rct-hl-odd,
 .react-calendar-timeline .rct-horizontal-lines .rct-hl-even {
     background: transparent !important;
-    border-bottom-color: var(--color-line) !important;
+    border-bottom-color: rgba(var(--color-line), 0.3) !important;
 }
 
 .react-calendar-timeline .rct-sidebar {
-    border-right-color: var(--color-line) !important;
+    border-right-color: rgba(var(--color-line), 0.5) !important;
 }
 
 .react-calendar-timeline .rct-sidebar .rct-sidebar-row {
     background: transparent !important;
-    border-bottom-color: var(--color-line) !important;
+    border-bottom-color: rgba(var(--color-line), 0.5) !important;
 }
 
 /* ============================================
@@ -205,16 +206,16 @@ body::before {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: var(--color-line);
+    background: rgb(var(--color-line));
     border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: var(--color-muted);
+    background: rgb(var(--color-muted));
 }
 
 /* Firefox support */
 .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: var(--color-line) transparent;
+    scrollbar-color: rgb(var(--color-line)) transparent;
 }
