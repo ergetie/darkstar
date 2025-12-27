@@ -975,10 +975,10 @@ export default function Settings() {
                 </Card>
             )
         }
-        if (configError) {
+        if (loadError) {
             return (
                 <Card className="p-6 text-sm text-red-400">
-                    {configError}
+                    {loadError}
                 </Card>
             )
         }
@@ -1097,10 +1097,10 @@ export default function Settings() {
                                                 {haEntities
                                                     .sort((a, b) => a.entity_id.localeCompare(b.entity_id))
                                                     .map((e) => (
-                                                    <option key={e.entity_id} value={e.entity_id}>
-                                                        {e.entity_id} ({e.friendly_name})
-                                                    </option>
-                                                ))}
+                                                        <option key={e.entity_id} value={e.entity_id}>
+                                                            {e.entity_id} ({e.friendly_name})
+                                                        </option>
+                                                    ))}
                                             </select>
                                             {field.helper && (
                                                 <p className="text-[11px] text-muted">{field.helper}</p>
@@ -1204,10 +1204,10 @@ export default function Settings() {
                 </Card>
             )
         }
-        if (configError) {
+        if (loadError) {
             return (
                 <Card className="p-6 text-sm text-red-400">
-                    {configError}
+                    {loadError}
                 </Card>
             )
         }
@@ -1308,10 +1308,10 @@ export default function Settings() {
                 </Card>
             )
         }
-        if (configError) {
+        if (loadError) {
             return (
                 <Card className="p-6 text-sm text-red-400">
-                    {configError}
+                    {loadError}
                 </Card>
             )
         }

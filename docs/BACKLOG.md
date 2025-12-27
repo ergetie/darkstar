@@ -92,6 +92,22 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
+### [UI] React Error Boundary
+
+**Goal:** Add a React Error Boundary to gracefully handle runtime errors.
+
+**Problem:** When a component crashes (like the Settings page did), users see a blank screen with no feedback.
+
+**Tasks:**
+- Add `ErrorBoundary` component wrapping the app
+- Display friendly error message with "Reload" button
+- Log errors to console and optionally to backend
+- Show which component crashed (in debug mode)
+
+**Notes:** This is a UX safety net. Crashes happen - users should see what went wrong.
+
+---
+
 ### [UI] Chart Improvements (Polish)
 
 **Goal:** Enhance all charts with better UX and visual polish.
