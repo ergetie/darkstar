@@ -242,10 +242,7 @@ export default function Dashboard() {
                     setAutomationConfig(null)
                 }
 
-                // Initialize auto-refresh from dashboard config if present
-                if (typeof data.dashboard?.auto_refresh_enabled === 'boolean') {
-                    setAutoRefresh(data.dashboard.auto_refresh_enabled)
-                }
+                // Auto-refresh was removed in UI2 - dashboard is now WebSocket-based
 
                 // Load comfort level and vacation mode from water_heating config
                 if (data.water_heating) {
@@ -648,7 +645,7 @@ export default function Dashboard() {
                     <Card className="p-3 flex items-center justify-between shrink-0">
                         <div className="text-[10px] text-muted uppercase tracking-wider font-medium">{planBadge}</div>
                         <div className="flex items-center gap-2">
-                             <div className="text-[10px] text-muted">
+                            <div className="text-[10px] text-muted">
                                 {lastRefresh && `Synced ${lastRefresh.toLocaleTimeString()}`}
                             </div>
                             {statusMessage && (
@@ -671,16 +668,16 @@ export default function Dashboard() {
                             </button>
                         </div>
                     </Card>
-                    
+
                     {/* Advisor */}
                     <div className="flex-1 min-h-0">
                         <SmartAdvisor />
                     </div>
                 </motion.div>
-                
+
                 {/* Middle Column: Control Parameters (Comfort + Risk + Overrides) */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <ControlParameters 
+                    <ControlParameters
                         comfortLevel={comfortLevel}
                         setComfortLevel={async (l) => {
                             setComfortLevel(l)
@@ -802,14 +799,14 @@ export default function Dashboard() {
             {/* Row 3: Grid + Resources + Strategy */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
                 {/* Col 1: Grid Domain */}
-                <GridDomain 
+                <GridDomain
                     netCost={todayStats?.netCost ?? null}
                     importKwh={todayStats?.gridImport ?? null}
                     exportKwh={todayStats?.gridExport ?? null}
                 />
 
                 {/* Col 2: Resources Domain */}
-                <ResourcesDomain 
+                <ResourcesDomain
                     pvActual={todayStats?.pvProduction ?? null}
                     pvForecast={todayStats?.pvForecast ?? null}
                     loadActual={todayStats?.loadConsumption ?? null}
@@ -818,7 +815,7 @@ export default function Dashboard() {
                 />
 
                 {/* Col 3: Strategy Domain (Moved here) */}
-                <StrategyDomain 
+                <StrategyDomain
                     soc={soc}
                     socTarget={currentSlotTarget}
                     sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
