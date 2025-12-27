@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Gauge, BookOpenCheck, Bug, Settings, Menu, X, FlaskConical, Bot, Cpu } from 'lucide-react'
+import { Gauge, BookOpenCheck, Bug, Settings, Menu, X, Bot, Cpu } from 'lucide-react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { DarkstarLogo } from './DarkstarLogo'
 import { Api } from '../lib/api'
@@ -88,7 +88,7 @@ export default function Sidebar() {
                     <Item to="/" icon={Gauge} label="Dash" />
                     <Item to="/executor" icon={Cpu} label="Executor" />
                     <Item to="/aurora" icon={Bot} label="Aurora" />
-                    <Item to="/lab" icon={FlaskConical} label="Lab" />
+                    {/* Lab tab hidden - pending future redesign */}
                     <Item to="/debug" icon={Bug} label="Debug" />
 
                     <div className="mt-auto w-8 h-px bg-line/70" />
@@ -160,10 +160,7 @@ export default function Sidebar() {
                             <Bot className={`h-6 w-6 ${pathname === '/aurora' ? 'text-accent' : 'text-muted'}`} />
                             <span className="text-sm">Aurora</span>
                         </Link>
-                        <Link to="/lab" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/lab' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
-                            <FlaskConical className={`h-6 w-6 ${pathname === '/lab' ? 'text-accent' : 'text-muted'}`} />
-                            <span className="text-sm">Lab</span>
-                        </Link>
+                        {/* Lab tab hidden - pending future redesign */}
                         <Link to="/debug" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/debug' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
                             <Bug className={`h-6 w-6 ${pathname === '/debug' ? 'text-accent' : 'text-muted'}`} />
                             <span className="text-sm">Debug</span>

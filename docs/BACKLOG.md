@@ -1,58 +1,268 @@
-# Darkstar Energy Manager: Backlog & Future
+# Darkstar Energy Manager: Backlog
 
-## ⏸️ On Hold
-
-### Rev 63 — Export What-If Simulator (Lab Prototype)
-*   **Goal:** Provide a deterministic, planner-consistent way to answer “what if we export X kWh at tomorrow’s price peak?” so users can see the net SEK impact before changing arbitrage settings.
-*   **Status:** On Hold (Prototype exists but parked for Kepler pivot).
-
-## 🗂️ Backlog
-
-## Rev XX - Complete settings inventory
-**Goal:** Investigate discrepancy between settings page and config.yam/secrets.yaml. And implement normal/advanced settings mode. Settings page should be clean and the user should not need to open the config.yaml to do ANY settings! Also investigate if any config entry is not used, list and discuss what to do with it.
-
-## Rev XY - Add comments to every config option
-**Goal:** Add comments to every config option to make it easier for users to understand what each option does.
-
-## Rev XZ - Create a clear setup guide in @README.md
-**Goal:** Create a clear setup guide that explains how to set up Darkstar Energy Manager for the first time.
-
-### 🧠 Strategy & Aurora (AI)
-*   **[Rev A25] Manual Plan Simulate Regression**: Verify if manual block additions in the Planning Tab still work correctly with the new `simulate` signature (Strategy engine injection).
-## USER INPUT:** Might skip the "plan" tab all together!
-
-### Rev A27 — ML Training Scheduler (Catch-Up Logic)
-
-**Goal:** Implement a robust "Catch-Up" scheduler for ML model retraining.
-*   **Catch-Up Logic:** Instead of exact time matching, check if the last successful run is older than the most recent scheduled slot.
-*   **Config:** Flexible `run_days` and `run_time` in `config.yaml`.
-*   **Status:** In Progress.
-
-### [Rev A29] Smart EV Integration**: Prioritize home battery vs. EV charging based on "Departure Time" (requires new inputs).
-
-### 🖥️ UI & Dashboard
-*   **[UI] Reset Learning**: Add "Reset Learning for Today" button to Settings/Debug to clear cached S-index/metrics without using CLI. (When is this used? Maybe scrap?)
-*   **[UI] Chart Polish**:
-    *   Render `soc_target` as a step-line series.
-    *   Add zoom support (wheel/controls).
-    *   Offset tooltips to avoid covering data points.
-    *   Ensure price series includes full 24h history even if schedule is partial.
-*   **[UI] Mobile**: Improve mobile responsiveness for Planning Timeline and Settings.
-
-### [Rev A30(?)] Effekttariffer **: Needs brainstorming...
-
-### ⚙️ Planner & Core
-*   **[Core] Dynamic Window Expansion (Smart Thresholds)**: *Note: Rev 20 in Aurora v2 Plan claimed this was done, but validating if fully merged/tested.* Logic: Allow charging in "expensive" slots if the "cheap" window is physically too short to reach Target SoC.
-*   **[Core] Enhanced PV Dump (Water Thermal Storage)**: When battery SoC=100% AND PV surplus > threshold, proactively heat water to `temp_max` in the planner (not just override). Currently only handled reactively via excess_pv_heating override. Planner should anticipate and schedule this.
-*   **[Core] Sensor Unification**: Refactor `inputs.py` / `learning.py` to read *all* sensor IDs from `config.yaml` (`input_sensors`), removing the need for `secrets.yaml` to hold entity IDs. (THIS SHOULD ALREADY BE DONE! VERIFY!)
-*   **[Core] HA Entity Config Consolidation**: Currently vacation mode, learning, and other features read HA entity state at runtime. Consider consolidating all HA-derived toggles into `config.yaml` with a single source of truth pattern (config file vs. HA entity override). (Brainstorm how to do this since toggle entities might be wanted in HA for automations etc, are toggles in both places possible?)
-
-### 🛠️ Ops & Infrastructure
-*   **[Ops] Deployment**: Document/Script the transfer of `planner_learning.db` and models to production servers.
-*   **[Ops] Error Handling**: Audit all API calls for graceful failure states (no infinite spinners).
+This document contains ideas, improvements, and tasks that are not yet scheduled for implementation. Items here are moved to [PLAN.md](PLAN.md) when they become active priorities.
 
 ---
 
-## 🔜 Future Ideas (Darkstar 3.x+?)
-*   **Multi-Model Aurora**: Separate ML models for Season or Weekday/Weekend.
-*   **Admin Tools:** Force Retrain button, Clear Learning Cache button.
+## 🤖 AI Instructions (Read First)
+
+1.  **Structure:** This file is organized by category. Items do **not** have strict ordering.
+
+2.  **Naming:** Use generic names (e.g., `Settings Cleanup`, `Chart Improvements`) until the item is promoted.
+
+3.  **Promotion Flow:** 
+    - When starting work on a backlog item, assign it a proper **Rev ID** following the [naming conventions in PLAN.md](PLAN.md#revision-naming-conventions).
+    - Move the item to `PLAN.md` with status `[PLANNED]` or `[IN PROGRESS]`.
+    - Delete the item from this file.
+
+4.  **Categories:**
+    - **Backlog** — Concrete tasks ready for implementation
+    - **On Hold** — Paused work with existing code/design
+    - **Future Ideas** — Brainstorming, needs design before implementation
+
+5.  **Format:** Use the template below for new items.
+
+### Backlog Item Template
+
+```
+### [Category] Item Title
+
+**Goal:** What we want to achieve.
+
+**Notes:** Context, constraints, or design considerations.
+```
+
+---
+
+## 📋 Backlog
+
+### [Settings] Settings Page Audit & Cleanup
+
+**Goal:** Ensure the Settings page is the complete source of truth for all configuration.
+
+**Tasks:**
+- Audit discrepancies between Settings UI and `config.yaml`/`secrets.yaml`
+- Implement "Normal" vs "Advanced" settings mode toggle
+- Add inline help/tooltips for every setting
+- Identify and remove any unused config keys
+- Add comments to `config.default.yaml` explaining each option
+
+**Notes:** User should never need to manually edit `config.yaml` after initial setup.
+
+---
+
+### [Docs] First-Time Setup Guide
+
+**Goal:** Create a comprehensive setup guide in `README.md` for new users.
+
+**Scope:**
+- Post-installation steps (after Docker/HA Add-on is running)
+- Configure HA connection
+- Set up sensors
+- Configure battery/solar/water heater parameters
+- Verify system is working
+
+**Notes:** Should cover both standalone Docker and HA Add-on paths.
+
+---
+
+### [UI] Entity Selector Improvements
+
+**Goal:** Fix the entity selector dropdowns in Settings to be searchable and visually consistent.
+
+**Problems:**
+- Current dropdowns show full list without search (unusable with 100+ entities)
+- Visual style is "Win95" - doesn't match the modern theme
+- No filtering or fuzzy search
+
+**Solution:** Implement searchable combobox component (react-select or similar).
+
+---
+
+### [UI] Dashboard Chart History Missing
+
+**Goal:** Investigate and fix why historical data is not showing in the main Dashboard chart.
+
+**Symptoms:**
+- Chart only shows planned/future data
+- No "actual" SoC/PV/Load history displayed
+- Might be related to Executor being inactive
+
+**Notes:** Need to verify data flow from HA → SQLite → Chart.
+
+---
+
+### [UI] Chart Improvements (Polish)
+
+**Goal:** Enhance all charts with better UX and visual polish.
+
+**Tasks:**
+- Render `soc_target` as a step-line series (not smooth)
+- Add zoom support (mouse wheel + controls)
+- Offset tooltips to avoid covering data points
+- Ensure price series includes full 24h even if schedule is partial
+- Mobile responsiveness improvements
+
+**Notes:** Needs design brainstorm before implementation.
+
+---
+
+### [UI] UX/UI Review
+
+**Goal:** Comprehensive review of all tabs for usability improvements.
+
+**Scope:**
+- Review each tab for clarity and flow
+- Identify confusing UI elements
+- Add info/explanation buttons or hover tooltips where needed
+- Mobile responsiveness audit
+
+---
+
+### [Planner] Proactive PV Dump (Water Heating)
+
+**Goal:** Schedule water heating to `temp_max` proactively when PV surplus is forecasted.
+
+**Current State:** PV dump is only handled reactively via `excess_pv_heating` override in executor.
+
+**Proposed Change:** Kepler solver should anticipate forecasted PV surplus at SoC=100% and pre-schedule water heating.
+
+---
+
+### [Ops] Database Consolidation
+
+**Goal:** Merge SQLite databases from multiple environments into one unified dataset.
+
+**Context:**
+- Local dev machine has data
+- CT107 (active server) has execution history
+- CT114 (bleeding edge) has data too
+- Need one clean database with no gaps
+
+**Notes:** One-time ops task. Backup everything first!
+
+---
+
+### [Ops] MariaDB Sunset
+
+**Goal:** Remove MariaDB dependency and make SQLite the only database.
+
+**Current State:** System works with SQLite only. MariaDB is optional but adds complexity.
+
+**Tasks:**
+- Audit which features still use MariaDB
+- Migrate any required data/features to SQLite
+- Remove MariaDB connection code
+- Update documentation
+
+**Notes:** Needs investigation before implementation.
+
+---
+
+### [HA] Entity Config Consolidation
+
+**Goal:** Evaluate whether HA entity toggles (vacation mode, learning, etc.) should be in config.yaml or HA.
+
+**Current State:** Some features read HA entity state at runtime, some use config.yaml.
+
+**Questions:**
+- Should toggles live in both places?
+- Should HA override config.yaml?
+- How to keep them in sync?
+
+**Notes:** Needs design discussion. HA entities are useful for automations.
+
+---
+
+## ⏸️ On Hold
+
+### Rev 63 — Export What-If Simulator
+
+**Goal:** Deterministic way to answer "what if we export X kWh at tomorrow's price peak?" - show net SEK impact.
+
+**Status:** On Hold (prototype exists but parked for Kepler pivot).
+
+**Notes:** The current "Lab" tab was meant for this but needs complete redesign.
+
+---
+
+## 🔜 Future Ideas
+
+### [Planner] Effekttariffer (Power Tariffs)
+
+**Goal:** Support Swedish "effekttariff" (peak demand charges) in the planner.
+
+**Concept:** Penalty for high grid import during certain hours. Planner needs to know about this to optimize import timing.
+
+**Notes:** Needs design brainstorm. Would affect Kepler solver constraints.
+
+---
+
+### [Planner] Smart EV Integration
+
+**Goal:** Prioritize home battery vs EV charging based on departure time.
+
+**Inputs Needed:**
+- EV departure time (user input or calendar integration)
+- EV target SoC
+- EV charger entity
+
+**Notes:** Big feature. Requires careful UX design.
+
+---
+
+### [Lab] What-If Simulator Redesign
+
+**Goal:** Redesign the Lab tab as a proper what-if simulator.
+
+**Features:**
+- Change battery size, PV array size, etc.
+- See impact on daily/monthly costs
+- Compare current vs hypothetical systems
+
+**Notes:** Lab tab is currently hidden. Needs complete redesign before reactivation.
+
+---
+
+### [UI] Contextual Help System
+
+**Goal:** Add info buttons and hover tooltips throughout the UI.
+
+**Features:**
+- Small (i) icons next to complex settings
+- Hover for quick explanation
+- Click for detailed help modal
+
+---
+
+### [Aurora] Multi-Model Forecasting
+
+**Goal:** Separate ML models for different contexts.
+
+**Ideas:**
+- Season-specific models (summer/winter)
+- Weekday vs weekend models
+- Holiday-aware models
+
+---
+
+### [Admin] Admin Tools
+
+**Goal:** Add admin tooling for system maintenance.
+
+**Features:**
+- Force ML Retrain button
+- Clear Learning Cache button  
+- Reset Learning for Today button (Debug tool)
+
+---
+
+## ✅ Recently Completed (For Reference)
+
+*These items have been implemented and moved to CHANGELOG_PLAN.md:*
+
+- **A25 - Manual Plan Simulate** → SCRAPPED (Planning tab deprecated)
+- **A27 - ML Training Scheduler** → DONE (catch-up logic in scheduler.py)
+- **Core - Smart Thresholds** → DONE (Rev A20)
+- **Core - Sensor Unification** → DONE (all sensors in config.yaml)
+- **Ops - Error Handling audit** → DONE (Rev F4 Health Check)
