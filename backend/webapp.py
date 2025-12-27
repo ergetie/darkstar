@@ -975,6 +975,8 @@ def _get_executor():
                     from executor import ExecutorEngine
 
                     _executor_engine = ExecutorEngine()
+                    # Initialize HA client immediately so other routes can use it (Rev E1)
+                    _executor_engine._init_ha_client()
                 except ImportError as e:
                     logger.error("Failed to import executor: %s", e)
                     return None
@@ -992,6 +994,7 @@ def executor_status():
 
 @app.route("/api/energy/today", methods=["GET"])
 def energy_today():
+    print(f"[DEBUG] energy_today called. Executor: {_executor_engine}, HAClient: {_executor_engine.ha_client if _executor_engine else None}")
     """Return today's energy stats from HA sensors."""
     executor = _get_executor()
     if executor is None or executor.ha_client is None:
@@ -3264,3 +3267,13 @@ def setup_schedule_watcher():
     watcher_thread.start()
 
 setup_schedule_watcher()
+
+# Start HA WebSocket Client (Rev E1)
+try:
+    from backend.ha_socket import start_ha_socket_client
+    start_ha_socket_client()
+    from backend.webapp import logger
+    logger.info("Started HA WebSocket Client")
+except Exception as e:
+    from backend.webapp import logger
+    logger.error(f"Failed to start HA WebSocket Client: {e}")

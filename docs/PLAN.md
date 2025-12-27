@@ -160,6 +160,7 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 - [x] **HA Event Stream (E1):** Implement **WebSockets** to replace all polling mechanisms. 
     - **Scope:** Real-time streaming for Charts, Sparklines, and Status.
     - **Cleanup:** Remove the "30s Auto-Refresh" toggle and interval logic entirely. Dashboard becomes fully push-based.
+- [ ] **Data Fix (Post-E1):** Investigate why some dashboard data (Grid/Resources) is still missing after WebSocket implementation, despite HA client initialization.
 
 ## [DONE] Rev K21 — Water Heating Spacing & Tuning
 

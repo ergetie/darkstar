@@ -238,20 +238,126 @@ def _process_nordpool_data(all_entries, config, today_values=None):
     return result
 
 
-async def get_forecast_data(price_slots, config):
+def get_forecast_data(price_slots, config):
     """
     Generate PV and load forecasts based on price slots and configuration.
+    Synchronous wrapper that handles both DB-backed (Aurora) and async fallbacks.
+    """
+    forecasting_cfg = config.get("forecasting", {}) or {}
+    active_version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
 
-    Args:
-        price_slots (list): List of price slot dictionaries with start_time
-        config (dict): Configuration dictionary containing system parameters
+    if active_version == "aurora":
+        # Aurora logic is purely synchronous (DB-backed)
+        return _get_forecast_data_aurora(price_slots, config)
+    else:
+        # Fallback uses async Open-Meteo API
+        import asyncio
+        return asyncio.run(_get_forecast_data_async(price_slots, config))
 
-    Returns:
-        dict: {
-            'slots': [ { 'pv_forecast_kwh': float, 'load_forecast_kwh': float } ... ],
-            'daily_pv_forecast': { iso_date: kwh },
-            'daily_load_forecast': { iso_date: kwh }
-        }
+
+def _get_forecast_data_aurora(price_slots, config):
+    """Synchronous logic for Aurora DB-backed forecasts."""
+    timezone_name = config.get("timezone", "Europe/Stockholm")
+    local_tz = pytz.timezone(timezone_name)
+    forecasting_cfg = config.get("forecasting", {}) or {}
+    active_version = forecasting_cfg.get("active_forecast_version", "aurora")
+
+    # 1. Build slots strictly for the price horizon (0-48h)
+    db_slots = build_db_forecast_for_slots(price_slots, config)
+
+    forecast_data: list[dict] = []
+    if db_slots:
+        print("Info: Using AURORA forecasts from learning DB (aurora).")
+        for slot, db_slot in zip(price_slots, db_slots):
+            forecast_data.append(
+                {
+                    "start_time": slot["start_time"],
+                    "pv_forecast_kwh": float(db_slot.get("pv_forecast_kwh", 0.0)),
+                    "load_forecast_kwh": float(db_slot.get("load_forecast_kwh", 0.0)),
+                    "pv_p10": db_slot.get("pv_p10"),
+                    "pv_p90": db_slot.get("pv_p90"),
+                    "load_p10": db_slot.get("load_p10"),
+                    "load_p90": db_slot.get("load_p90"),
+                }
+            )
+    else:
+        print("Warning: AURORA slots missing for price horizon. Returning empty slots.")
+
+    # 2. Build DAILY totals for the extended horizon required by S-index
+    daily_pv_forecast: dict[str, float] = {}
+    daily_load_forecast: dict[str, float] = {}
+    daily_pv_p10: dict[str, float] = {}
+    daily_pv_p90: dict[str, float] = {}
+    daily_load_p10: dict[str, float] = {}
+    daily_load_p90: dict[str, float] = {}
+
+    if price_slots:
+        start_dt = price_slots[0]["start_time"].astimezone(local_tz)
+        s_index_cfg = config.get("s_index", {})
+        horizon_days_cfg = s_index_cfg.get("s_index_horizon_days", 4)
+        try:
+            max_days = int(horizon_days_cfg)
+        except (TypeError, ValueError):
+            max_days = 4
+
+        horizon_days = max(4, max_days + 1)
+        end_dt = start_dt + timedelta(days=horizon_days)
+
+        # Fetch extended records from DB (base + corrections)
+        extended_records = get_forecast_slots(start_dt, end_dt, active_version)
+
+        for rec in extended_records:
+            ts = rec["slot_start"]
+            if ts.tzinfo is None:
+                ts = pytz.UTC.localize(ts)
+            date_key = ts.astimezone(local_tz).date().isoformat()
+
+            base_pv = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
+            base_load = float(rec.get("load_forecast_kwh", 0.0) or 0.0)
+            pv_corr = float(rec.get("pv_correction_kwh", 0.0) or 0.0)
+            load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
+
+            pv_val = base_pv + pv_corr
+            load_val = base_load + load_corr
+
+            daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
+            daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val
+
+            if rec.get("pv_p10") is not None:
+                daily_pv_p10[date_key] = (
+                    daily_pv_p10.get(date_key, 0.0) + float(rec["pv_p10"]) + pv_corr
+                )
+            if rec.get("pv_p90") is not None:
+                daily_pv_p90[date_key] = (
+                    daily_pv_p90.get(date_key, 0.0) + float(rec["pv_p90"]) + pv_corr
+                )
+            if rec.get("load_p10") is not None:
+                daily_load_p10[date_key] = (
+                    daily_load_p10.get(date_key, 0.0) + float(rec["load_p10"]) + load_corr
+                )
+            if rec.get("load_p90") is not None:
+                daily_load_p90[date_key] = (
+                    daily_load_p90.get(date_key, 0.0) + float(rec["load_p90"]) + load_corr
+                )
+
+    return {
+        "slots": forecast_data,
+        "daily_pv_forecast": daily_pv_forecast,
+        "daily_load_forecast": daily_load_forecast,
+        "daily_probabilistic": {
+            "pv_p10": daily_pv_p10,
+            "pv_p50": daily_pv_forecast,
+            "pv_p90": daily_pv_p90,
+            "load_p10": daily_load_p10,
+            "load_p50": daily_load_forecast,
+            "load_p90": daily_load_p90,
+        },
+    }
+
+
+async def _get_forecast_data_async(price_slots, config):
+    """
+    Async logic for fallback Open-Meteo forecasts.
     """
     system_config = config.get("system", {})
     latitude = system_config.get("location", {}).get("latitude", 59.3)
@@ -262,109 +368,8 @@ async def get_forecast_data(price_slots, config):
     timezone = config.get("timezone", "Europe/Stockholm")
     local_tz = pytz.timezone(timezone)
 
-    forecasting_cfg = config.get("forecasting", {}) or {}
-    active_version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
-
-    # AURORA: DB-backed forecast
-    if active_version == "aurora":
-        # 1. Build slots strictly for the price horizon (0-48h)
-        db_slots = build_db_forecast_for_slots(price_slots, config)
-
-        forecast_data: list[dict] = []
-        if db_slots:
-            print("Info: Using AURORA forecasts from learning DB (aurora).")
-            for slot, db_slot in zip(price_slots, db_slots):
-                forecast_data.append(
-                    {
-                        "start_time": slot["start_time"],
-                        "pv_forecast_kwh": float(db_slot.get("pv_forecast_kwh", 0.0)),
-                        "load_forecast_kwh": float(db_slot.get("load_forecast_kwh", 0.0)),
-                        "pv_p10": db_slot.get("pv_p10"),
-                        "pv_p90": db_slot.get("pv_p90"),
-                        "load_p10": db_slot.get("load_p10"),
-                        "load_p90": db_slot.get("load_p90"),
-                    }
-                )
-        else:
-            print("Warning: AURORA slots missing for price horizon. Returning empty slots.")
-
-        # 2. Build DAILY totals for the extended horizon required by S-index
-        # Includes p50 (base forecasts) and probabilistic bands (p10/p90)
-        daily_pv_forecast: dict[str, float] = {}
-        daily_load_forecast: dict[str, float] = {}
-        daily_pv_p10: dict[str, float] = {}
-        daily_pv_p90: dict[str, float] = {}
-        daily_load_p10: dict[str, float] = {}
-        daily_load_p90: dict[str, float] = {}
-
-        if price_slots:
-            start_dt = price_slots[0]["start_time"].astimezone(local_tz)
-
-            # Calculate required horizon based on config (s_index_horizon_days is the single source of truth)
-            s_index_cfg = config.get("s_index", {})
-            horizon_days_cfg = s_index_cfg.get("s_index_horizon_days", 4)
-            try:
-                max_days = int(horizon_days_cfg)
-            except (TypeError, ValueError):
-                max_days = 4
-
-            # Ensure we fetch at least enough to cover the config
-            horizon_days = max(4, max_days + 1)
-            end_dt = start_dt + timedelta(days=horizon_days)
-
-            # Fetch extended records from DB (base + corrections)
-            extended_records = get_forecast_slots(start_dt, end_dt, active_version)
-
-            for rec in extended_records:
-                ts = rec["slot_start"]
-                if ts.tzinfo is None:
-                    ts = pytz.UTC.localize(ts)
-                date_key = ts.astimezone(local_tz).date().isoformat()
-
-                base_pv = float(rec.get("pv_forecast_kwh", 0.0) or 0.0)
-                base_load = float(rec.get("load_forecast_kwh", 0.0) or 0.0)
-                pv_corr = float(rec.get("pv_correction_kwh", 0.0) or 0.0)
-                load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
-
-                pv_val = base_pv + pv_corr
-                load_val = base_load + load_corr
-
-                daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
-                daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val
-
-                # Aggregate probabilistic bands (apply same correction to p10/p90)
-                if rec.get("pv_p10") is not None:
-                    daily_pv_p10[date_key] = (
-                        daily_pv_p10.get(date_key, 0.0) + float(rec["pv_p10"]) + pv_corr
-                    )
-                if rec.get("pv_p90") is not None:
-                    daily_pv_p90[date_key] = (
-                        daily_pv_p90.get(date_key, 0.0) + float(rec["pv_p90"]) + pv_corr
-                    )
-                if rec.get("load_p10") is not None:
-                    daily_load_p10[date_key] = (
-                        daily_load_p10.get(date_key, 0.0) + float(rec["load_p10"]) + load_corr
-                    )
-                if rec.get("load_p90") is not None:
-                    daily_load_p90[date_key] = (
-                        daily_load_p90.get(date_key, 0.0) + float(rec["load_p90"]) + load_corr
-                    )
-
-        return {
-            "slots": forecast_data,
-            "daily_pv_forecast": daily_pv_forecast,
-            "daily_load_forecast": daily_load_forecast,
-            "daily_probabilistic": {
-                "pv_p10": daily_pv_p10,
-                "pv_p50": daily_pv_forecast,  # p50 is the base forecast
-                "pv_p90": daily_pv_p90,
-                "load_p10": daily_load_p10,
-                "load_p50": daily_load_forecast,  # p50 is the base forecast
-                "load_p90": daily_load_p90,
-            },
-        }
-
     # --- FALLBACK: Open-Meteo (Live API) ---
+
     pv_kwh_forecast: list[float] = []
     daily_pv_forecast: dict[str, float] = {}
     resolution_hours = 0.25
@@ -579,9 +584,7 @@ def get_all_input_data(config_path="config.yaml"):
 
     price_data = get_nordpool_data(config_path)
 
-    import asyncio
-
-    forecast_result = asyncio.run(get_forecast_data(price_data, config))
+    forecast_result = get_forecast_data(price_data, config)
     forecast_data = forecast_result.get("slots", [])
     initial_state = get_initial_state(config_path)
 

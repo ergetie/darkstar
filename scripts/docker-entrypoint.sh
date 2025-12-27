@@ -104,7 +104,7 @@ sleep 2
 
 # Start Darkstar API with WebSockets (foreground, but backgrounded for wait)
 log "Starting Darkstar API with WebSockets on port 5000..."
-python run.py &
+python backend/run.py &
 FLASK_PID=$!
 log "Darkstar started (PID: $FLASK_PID)"
 

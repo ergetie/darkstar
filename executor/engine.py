@@ -984,16 +984,18 @@ class ExecutorEngine:
                 state.current_load_kw = float(load_str) / 1000
 
             # Get grid import/export (Rev E1)
-            import_entity = input_sensors.get("grid_import_power", "sensor.inverter_grid_import_power")
-            export_entity = input_sensors.get("grid_export_power", "sensor.inverter_grid_export_power")
+            import_entity = input_sensors.get("grid_import_power")
+            export_entity = input_sensors.get("grid_export_power")
             
-            imp_str = self.ha_client.get_state_value(import_entity)
-            if imp_str and imp_str not in ("unknown", "unavailable"):
-                state.current_import_kw = float(imp_str) / 1000
-                
-            exp_str = self.ha_client.get_state_value(export_entity)
-            if exp_str and exp_str not in ("unknown", "unavailable"):
-                state.current_export_kw = float(exp_str) / 1000
+            if import_entity:
+                imp_str = self.ha_client.get_state_value(import_entity)
+                if imp_str and imp_str not in ("unknown", "unavailable"):
+                    state.current_import_kw = float(imp_str) / 1000
+            
+            if export_entity:
+                exp_str = self.ha_client.get_state_value(export_entity)
+                if exp_str and exp_str not in ("unknown", "unavailable"):
+                    state.current_export_kw = float(exp_str) / 1000
 
             # Get current work mode
             if self.config.has_battery:

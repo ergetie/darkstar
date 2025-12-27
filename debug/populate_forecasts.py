@@ -32,9 +32,9 @@ def force_populate():
         price_slots.append({"start_time": start})
 
     # 3. Fetch Data (Async)
-    print("☁️  Fetching fresh data from Open-Meteo & Load Profile...")
-    forecast_result = asyncio.run(get_forecast_data(price_slots, config))
-    slots = forecast_result.get("slots", [])
+    # Run forecast logic
+    forecast_result = get_forecast_data(price_slots, config)
+    forecast_slots = forecast_result.get("slots", [])
 
     if not slots:
         print("❌ Failed to generate slots.")
