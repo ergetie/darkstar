@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Darkstar Color Palette - Cyberpunk × Apple/TE</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', sans-serif;
+            background: #18181b;
+            color: #fff;
+            padding: 40px;
+            line-height: 1.5;
+        }
+        
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+        
+        .subtitle {
+            color: #a1a1aa;
+            margin-bottom: 40px;
+            font-size: 14px;
+        }
+        
+        .section {
+            margin-bottom: 48px;
+        }
+        
+        .section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #71717a;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+        
+        .palette-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+        
+        .color-card {
+            width: 140px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #27272a;
+        }
+        
+        .color-swatch {
+            height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+        }
+        
+        .color-info {
+            padding: 12px;
+        }
+        
+        .color-name {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        
+        .color-value {
+            font-size: 10px;
+            color: #a1a1aa;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+        
+        /* Preview Cards */
+        .preview-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-top: 32px;
+        }
+        
+        .preview-card {
+            border-radius: 16px;
+            padding: 24px;
+            min-height: 300px;
+        }
+        
+        .preview-card h3 {
+            font-size: 14px;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+        
+        .preview-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        
+        .preview-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        
+        .sparkline {
+            width: 80px;
+            height: 24px;
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+        }
+        
+        .sparkline-bar {
+            flex: 1;
+            border-radius: 2px;
+        }
+        
+        /* Dark Mode Preview */
+        .dark-preview {
+            background: #0f1216;
+            border: 1px solid rgba(255,255,255,0.08);
+        }
+        
+        .dark-preview h3 { color: #e6e9ef; }
+        
+        .dark-preview .preview-item {
+            background: #14191f;
+            border: 1px solid rgba(255,255,255,0.06);
+            color: #e6e9ef;
+        }
+        
+        .dark-preview .muted { color: #a6b0bf; }
+        
+        /* Light Mode Preview */
+        .light-preview {
+            background: #ffffff;
+            border: 1px solid rgba(0,0,0,0.08);
+        }
+        
+        .light-preview h3 { color: #1a1d23; }
+        
+        .light-preview .preview-item {
+            background: #f8f9fb;
+            border: 1px solid rgba(0,0,0,0.06);
+            color: #1a1d23;
+        }
+        
+        .light-preview .muted { color: #6b7280; }
+        
+        /* Notes */
+        .notes {
+            background: #27272a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 32px;
+        }
+        
+        .notes h4 {
+            font-size: 13px;
+            margin-bottom: 12px;
+            color: #fbbf24;
+        }
+        
+        .notes ul {
+            font-size: 12px;
+            color: #a1a1aa;
+            padding-left: 20px;
+        }
+        
+        .notes li {
+            margin-bottom: 6px;
+        }
+        
+        .accent-text { font-weight: 600; }
+    </style>
+</head>
+<body>
+    <h1>🌟 Darkstar Color System</h1>
+    <p class="subtitle">Cyberpunk × Apple/Teenage Engineering — Clean, Minimal, with Nice Pop</p>
+    
+    <!-- ACCENT COLORS - SAME IN BOTH MODES -->
+    <div class="section">
+        <div class="section-title">⚡ Accent Colors (Same in Light & Dark)</div>
+        <div class="palette-row">
+            <div class="color-card">
+                <div class="color-swatch" style="background: #F5D547; color: #1a1d23;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Primary Accent</div>
+                    <div class="color-value">#F5D547 · Electric Gold</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #FFE066; color: #1a1d23;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Accent Hover</div>
+                    <div class="color-value">#FFE066 · Bright Gold</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #22C55E; color: #fff;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Good / Success</div>
+                    <div class="color-value">#22C55E · Cyber Green</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #F59E0B; color: #fff;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Warning</div>
+                    <div class="color-value">#F59E0B · Amber</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #EF4444; color: #fff;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Bad / Error</div>
+                    <div class="color-value">#EF4444 · Red Alert</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- DARK MODE PALETTE -->
+    <div class="section">
+        <div class="section-title">🌙 Dark Mode Palette</div>
+        <div class="palette-row">
+            <div class="color-card">
+                <div class="color-swatch" style="background: #0f1216; color: #e6e9ef;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Canvas</div>
+                    <div class="color-value">#0f1216</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #14191f; color: #e6e9ef;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Surface</div>
+                    <div class="color-value">#14191f</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #181e25; color: #e6e9ef;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Surface 2</div>
+                    <div class="color-value">#181e25</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #242b34; color: #a6b0bf;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Line/Border</div>
+                    <div class="color-value">#242b34</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #14191f; color: #e6e9ef;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Text</div>
+                    <div class="color-value">#e6e9ef</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #14191f; color: #a6b0bf;">Muted</div>
+                <div class="color-info">
+                    <div class="color-name">Muted Text</div>
+                    <div class="color-value">#a6b0bf</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- LIGHT MODE PALETTE -->
+    <div class="section">
+        <div class="section-title">☀️ Light Mode Palette</div>
+        <div class="palette-row">
+            <div class="color-card">
+                <div class="color-swatch" style="background: #ffffff; color: #1a1d23; border: 1px solid #e0e4ea;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Canvas</div>
+                    <div class="color-value">#ffffff</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #f8f9fb; color: #1a1d23;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Surface</div>
+                    <div class="color-value">#f8f9fb</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #f0f2f5; color: #1a1d23;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Surface 2</div>
+                    <div class="color-value">#f0f2f5</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #e0e4ea; color: #6b7280;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Line/Border</div>
+                    <div class="color-value">#e0e4ea</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #f8f9fb; color: #1a1d23;">Aa</div>
+                <div class="color-info">
+                    <div class="color-name">Text</div>
+                    <div class="color-value">#1a1d23</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #f8f9fb; color: #6b7280;">Muted</div>
+                <div class="color-info">
+                    <div class="color-name">Muted Text</div>
+                    <div class="color-value">#6b7280</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- LIVE PREVIEWS -->
+    <div class="section">
+        <div class="section-title">🎨 Live UI Previews</div>
+        <div class="preview-container">
+            <!-- Dark Mode Preview -->
+            <div class="preview-card dark-preview">
+                <h3>Dark Mode</h3>
+                
+                <div class="preview-item">
+                    <span>Solar Production</span>
+                    <div class="sparkline">
+                        <div class="sparkline-bar" style="height: 40%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 60%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 80%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 100%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 75%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 50%; background: #F5D547;"></div>
+                    </div>
+                </div>
+                
+                <div class="preview-item">
+                    <span>Battery Level</span>
+                    <span style="color: #22C55E; font-weight: 600;">85%</span>
+                </div>
+                
+                <div class="preview-item">
+                    <span class="muted">Quick Actions</span>
+                    <div>
+                        <button class="preview-btn" style="background: #F5D547; color: #1a1d23;">Boost</button>
+                        <button class="preview-btn" style="background: #181e25; color: #F5D547; border: 1px solid #F5D54740;">Vacation</button>
+                    </div>
+                </div>
+                
+                <div class="preview-item">
+                    <span class="muted">Settings Label</span>
+                    <span>Normal text here</span>
+                </div>
+            </div>
+            
+            <!-- Light Mode Preview -->
+            <div class="preview-card light-preview">
+                <h3>Light Mode</h3>
+                
+                <div class="preview-item">
+                    <span>Solar Production</span>
+                    <div class="sparkline">
+                        <div class="sparkline-bar" style="height: 40%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 60%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 80%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 100%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 75%; background: #F5D547;"></div>
+                        <div class="sparkline-bar" style="height: 50%; background: #F5D547;"></div>
+                    </div>
+                </div>
+                
+                <div class="preview-item">
+                    <span>Battery Level</span>
+                    <span style="color: #16A34A; font-weight: 600;">85%</span>
+                </div>
+                
+                <div class="preview-item">
+                    <span class="muted">Quick Actions</span>
+                    <div>
+                        <button class="preview-btn" style="background: #F5D547; color: #1a1d23;">Boost</button>
+                        <button class="preview-btn" style="background: #fff; color: #1a1d23; border: 1px solid #e0e4ea;">Vacation</button>
+                    </div>
+                </div>
+                
+                <div class="preview-item">
+                    <span class="muted">Settings Label</span>
+                    <span>Normal text here</span>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- NOTES -->
+    <div class="notes">
+        <h4>Key Design Principles</h4>
+        <ul>
+            <li><strong>Accent stays vibrant:</strong> The electric gold #F5D547 is the SAME in both modes — never brown or muted</li>
+            <li><strong>Text contrast:</strong> Dark text (#1a1d23) on light backgrounds, light text (#e6e9ef) on dark</li>
+            <li><strong>Muted is readable:</strong> #6b7280 (light) and #a6b0bf (dark) provide sufficient contrast</li>
+            <li><strong>Sparklines pop:</strong> Use the accent gold against both backgrounds — visible everywhere</li>
+            <li><strong>Buttons:</strong> Primary = solid gold with dark text. Secondary = ghost style with border</li>
+            <li><strong>Green tint adjusted:</strong> Slightly deeper green (#16A34A) for light mode readability</li>
+        </ul>
+    </div>
+    
+    <div class="notes" style="margin-top: 16px; background: #1a1d23; border: 1px solid #F5D54730;">
+        <h4>CSS Variables (Ready to Apply)</h4>
+        <pre style="font-size: 11px; color: #a6b0bf; overflow-x: auto; white-space: pre-wrap;">
+/* Light Mode */
+:root {
+  --color-canvas: 255 255 255;
+  --color-surface: 248 249 251;
+  --color-surface2: 240 242 245;
+  --color-line: 224 228 234;
+  --color-text: 26 29 35;
+  --color-muted: 107 114 128;
+  --color-accent: 245 213 71;      /* Electric Gold - SAME */
+  --color-accent2: 255 224 102;    /* Hover Gold - SAME */
+  --color-good: 22 163 74;         /* Deeper green for light */
+  --color-warn: 245 158 11;
+  --color-bad: 239 68 68;
+}
+
+/* Dark Mode */
+.dark {
+  --color-canvas: 15 18 22;
+  --color-surface: 20 25 31;
+  --color-surface2: 24 30 37;
+  --color-line: 36 43 52;
+  --color-text: 230 233 239;
+  --color-muted: 166 176 191;
+  --color-accent: 245 213 71;      /* Electric Gold - SAME */
+  --color-accent2: 255 224 102;    /* Hover Gold - SAME */
+  --color-good: 34 197 94;
+  --color-warn: 245 158 11;
+  --color-bad: 239 68 68;
+}
+        </pre>
+    </div>
+</body>
+</html>
