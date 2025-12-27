@@ -994,57 +994,79 @@ def executor_status():
 
 @app.route("/api/energy/today", methods=["GET"])
 def energy_today():
-    print(f"[DEBUG] energy_today called. Executor: {_executor_engine}, HAClient: {_executor_engine.ha_client if _executor_engine else None}")
-    """Return today's energy stats from HA sensors."""
-    executor = _get_executor()
-    if executor is None or executor.ha_client is None:
-        return jsonify({"error": "Executor or HA client not available"}), 500
-
-    # Load config to get sensor entity IDs
+    """Return today's energy stats from HA sensors.
+    
+    Uses direct HA requests instead of executor's HA client to avoid
+    dependency on executor initialization (fixes Dashboard data issue).
+    """
     try:
-        with open("config.yaml", "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        return jsonify({"error": "config.yaml not found"}), 500
+        from inputs import load_home_assistant_config, _make_ha_headers
+        import requests as req
 
-    input_sensors = config.get("input_sensors", {})
-    battery_capacity = config.get("system", {}).get("battery", {}).get("capacity_kwh", 34)
+        ha_config = load_home_assistant_config()
+        if not ha_config:
+            return jsonify({"error": "HA not configured"}), 500
 
-    def read_sensor(key: str) -> float | None:
-        entity_id = input_sensors.get(key)
-        if not entity_id:
-            return None
-        value = executor.ha_client.get_state_value(entity_id)
-        if value is None:
-            return None
+        base_url = ha_config.get("url", "").rstrip("/")
+        token = ha_config.get("token", "")
+
+        if not base_url or not token:
+            return jsonify({"error": "Missing HA URL or token"}), 500
+
+        headers = _make_ha_headers(token)
+
+        # Load config to get sensor entity IDs
         try:
-            return float(value)
-        except (ValueError, TypeError):
+            with open("config.yaml", "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            return jsonify({"error": "config.yaml not found"}), 500
+
+        input_sensors = config.get("input_sensors", {})
+        battery_capacity = config.get("system", {}).get("battery", {}).get("capacity_kwh", 34)
+
+        def read_sensor(key: str) -> float | None:
+            entity_id = input_sensors.get(key)
+            if not entity_id:
+                return None
+            try:
+                r = req.get(f"{base_url}/api/states/{entity_id}", headers=headers, timeout=5)
+                if r.ok:
+                    data = r.json()
+                    state = data.get("state")
+                    if state not in ("unknown", "unavailable"):
+                        return float(state)
+            except (ValueError, TypeError, Exception):
+                pass
             return None
 
-    grid_import = read_sensor("today_grid_import")
-    grid_export = read_sensor("today_grid_export")
-    battery_charge = read_sensor("today_battery_charge")
-    pv_production = read_sensor("today_pv_production")
-    load_consumption = read_sensor("today_load_consumption")
+        grid_import = read_sensor("today_grid_import")
+        grid_export = read_sensor("today_grid_export")
+        battery_charge = read_sensor("today_battery_charge")
+        pv_production = read_sensor("today_pv_production")
+        load_consumption = read_sensor("today_load_consumption")
 
-    # Calculate battery cycles (charge / capacity)
-    battery_cycles = None
-    if battery_charge is not None and battery_capacity:
-        battery_cycles = round(battery_charge / battery_capacity, 2)
+        # Calculate battery cycles (charge / capacity)
+        battery_cycles = None
+        if battery_charge is not None and battery_capacity:
+            battery_cycles = round(battery_charge / battery_capacity, 2)
 
-    # Read net cost directly from HA sensor
-    net_cost_kr = read_sensor("today_net_cost")
+        # Read net cost directly from HA sensor
+        net_cost_kr = read_sensor("today_net_cost")
 
-    return jsonify({
-        "grid_import_kwh": grid_import,
-        "grid_export_kwh": grid_export,
-        "battery_charge_kwh": battery_charge,
-        "battery_cycles": battery_cycles,
-        "pv_production_kwh": pv_production,
-        "load_consumption_kwh": load_consumption,
-        "net_cost_kr": net_cost_kr,
-    })
+        return jsonify({
+            "grid_import_kwh": grid_import,
+            "grid_export_kwh": grid_export,
+            "battery_charge_kwh": battery_charge,
+            "battery_cycles": battery_cycles,
+            "pv_production_kwh": pv_production,
+            "load_consumption_kwh": load_consumption,
+            "net_cost_kr": net_cost_kr,
+        })
+
+    except Exception as e:
+        logger.exception("energy_today failed")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/executor/toggle", methods=["POST"])
