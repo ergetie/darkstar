@@ -129,6 +129,44 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
+### [Backend] Migrate Away from Eventlet
+
+**Goal:** Replace deprecated Eventlet with a modern async solution.
+
+**Current State:**
+```
+DeprecationWarning: Eventlet is deprecated. It is currently being maintained 
+in bugfix mode, and we strongly recommend against using it for new projects.
+```
+
+**Options:**
+- Migrate to native `asyncio` + `aiohttp`
+- Use `gevent` (similar API but maintained)
+- Use Flask-SocketIO with native threading
+
+**Impact:** Affects WebSocket implementation and background threads.
+
+**Notes:** See https://eventlet.readthedocs.io/en/latest/asyncio/migration.html
+
+---
+
+### [UI] Light/Dark Theme Switcher
+
+**Goal:** Add a light/dark mode toggle to the sidebar for quick theme switching.
+
+**Current State:**
+- Theme infrastructure exists in `Settings.tsx`
+- Multiple themes available via API
+- No quick-toggle in sidebar
+
+**Tasks:**
+- Categorize existing themes as "light" or "dark"
+- Add sun/moon toggle icon to sidebar
+- Store user preference (localStorage + config)
+- Default to system preference if not set
+
+---
+
 ### [Ops] Database Consolidation
 
 **Goal:** Merge SQLite databases from multiple environments into one unified dataset.
@@ -257,12 +295,15 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-## ✅ Recently Completed (For Reference)
+## 📝 Verified as Done (Not Moved to Changelog)
 
-*These items have been implemented and moved to CHANGELOG_PLAN.md:*
+*These were backlog ideas that have been verified as already implemented. They were never formal revisions, so they don't exist in CHANGELOG_PLAN.md:*
 
-- **A25 - Manual Plan Simulate** → SCRAPPED (Planning tab deprecated)
-- **A27 - ML Training Scheduler** → DONE (catch-up logic in scheduler.py)
-- **Core - Smart Thresholds** → DONE (Rev A20)
-- **Core - Sensor Unification** → DONE (all sensors in config.yaml)
-- **Ops - Error Handling audit** → DONE (Rev F4 Health Check)
+| Item | Status | Notes |
+|------|--------|-------|
+| A25 - Manual Plan Simulate | SCRAPPED | Planning tab deprecated, no longer relevant |
+| A27 - ML Training Scheduler | ✅ DONE | Implemented in `scheduler.py` with catch-up logic |
+| Smart Thresholds | ✅ DONE | Implemented as Rev A20 (exists in changelog) |
+| Sensor Unification | ✅ DONE | All sensors now in `config.yaml`, none in `secrets.yaml` |
+| Error Handling audit | ✅ DONE | Implemented as Rev F4 Health Check |
+
