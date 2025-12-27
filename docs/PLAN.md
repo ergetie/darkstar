@@ -139,7 +139,7 @@ Phase 4: Validation
 
     
 
-### [IN PROGRESS] Rev UI2 — Premium Polish
+### [DONE] Rev UI2 — Premium Polish
 
 Goal: Elevate the "Command Center" feel with live visual feedback and semantic clarity.
 
@@ -160,7 +160,7 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 - [x] **HA Event Stream (E1):** Implement **WebSockets** to replace all polling mechanisms. 
     - **Scope:** Real-time streaming for Charts, Sparklines, and Status.
     - **Cleanup:** Remove the "30s Auto-Refresh" toggle and interval logic entirely. Dashboard becomes fully push-based.
-- [ ] **Data Fix (Post-E1):** Investigate why some dashboard data (Grid/Resources) is still missing after WebSocket implementation, despite HA client initialization.
+- [x] **Data Fix (Post-E1):** Fixed - `/api/energy/today` was coupled to executor's HA client. Refactored to use direct HA requests. Also fixed `setAutoRefresh` crash in Dashboard.tsx.
 
 ## [DONE] Rev K21 — Water Heating Spacing & Tuning
 
@@ -183,20 +183,11 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 -   [x] **Sync:** Updated `backend/learning/mariadb_sync.py` to synchronize the new cost column to local SQLite.
 -   [x] **Metrics:** Verified `backend/learning/engine.py` can now aggregate planned cost correctly for the Aurora dashboard.
 
-### [PAUSED] Rev K23 — SoC Target Holding Behavior (2025-12-22)
+### [OBSOLETE] Rev K23 — SoC Target Holding Behavior (2025-12-22)
 
 **Goal:** Investigate why battery holds at soc_target instead of using battery freely.
 
-**Observation:** At 22:00, battery at 33% SoC, grid 1.82 SEK. Battery should discharge but holds because soc_target=33%.
-
-**Expected:** Battery should be used freely during day, only end at target SoC at end of horizon.
-
-**Investigation Findings:**
-* **Root Cause:** The MILP constraint for `soc_target` is likely being applied to **all** time steps `t >= target_time`, effectively turning the target into a "floor" for the rest of the simulation.
-* **Logic Check:** Standard MILP solvers often implement "target" as `SoC[t] >= Target for t in [TargetTime, End]`.
-* **Fix Required:** Change the constraint to be a **point-in-time** equality or inequality: `SoC[TargetTime] >= Target`. The solver should be free to discharge *below* this level in subsequent slots if profitable (unless a new target is set).
-
-**Status:** Investigation complete, ready for implementation.
+**Reason:** Issue no longer reproduces after Rev K24 (Battery Cost Separation) was implemented. The decoupling of accounting from trading resolved the underlying constraint behavior.
 
 ### [DONE] Rev K24 — Battery Cost Separation (Gold Standard)
 
@@ -252,24 +243,20 @@ Goal: Elevate the "Command Center" feel with live visual feedback and semantic c
 
 * [x] **Verify `planner/solver/kepler.py`:** Ensure no residual references to stored cost exist.
 
-### [PLANNED] Rev F3 — Water Heater Config & Control
+### [DONE] Rev F3 — Water Heater Config & Control
 
-**Goal:** Fix ignored temperature settings and add master control switch.
+**Goal:** Fix ignored temperature settings.
 
-**Problem:**
-* User changed `water_heater.temp_normal` from 60 to 40, but system still heated to 60.
-* No explicit "enable/disable" toggle for water heating logic in config.
+**Problem:** User changed `water_heater.temp_normal` from 60 to 40, but system still heated to 60.
 
-**Investigation Plan (Audit Script Required):**
-* [ ] **Config Check:** Verify `config.default.yaml` for `water_heater.enabled` toggle (Likely missing).
-* [ ] **Code Scan:** Check `executor/actions.py` for usage of `set_temperature`.
-    * *Expectation:* `turn_on_water_heater` calls `set_operation_mode` but **ignores** `config.water_heater.temp_normal`.
-* [ ] **Planner Check:** Verify `planner/scheduling/water_heating.py` does not hardcode assumptions about temperature.
+**Root Cause:** Hardcoded values in `executor/controller.py`:
+```python
+return 60  # Was hardcoded instead of using config
+```
 
-**Implementation Plan:**
-* [ ] **Config:** Add `water_heater.enabled: true` to `config.default.yaml`.
-* [ ] **Logic:** Add `if not config.water_heater.enabled: return` to `planner/pipeline.py` (or similar).
-* [ ] **Fix:** Update `executor/actions.py` to call `hass.set_temperature(entity_id, temp=config.temp_normal)` when turning on.
+**Implementation (2025-12-27):**
+- [x] **Fix:** Updated `controller.py` to use `WaterHeaterConfig.temp_normal` and `temp_off`.
+- [x] **Integration:** Updated `make_decision()` and `engine.py` to pass water_heater_config.
 
 ### [PLANNED] Rev F4 — Entity Safety & Global Error Handling
 

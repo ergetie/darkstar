@@ -38,6 +38,7 @@
 
 ### ⚙️ Planner & Core
 *   **[Core] Dynamic Window Expansion (Smart Thresholds)**: *Note: Rev 20 in Aurora v2 Plan claimed this was done, but validating if fully merged/tested.* Logic: Allow charging in "expensive" slots if the "cheap" window is physically too short to reach Target SoC.
+*   **[Core] Enhanced PV Dump (Water Thermal Storage)**: When battery SoC=100% AND PV surplus > threshold, proactively heat water to `temp_max` in the planner (not just override). Currently only handled reactively via excess_pv_heating override. Planner should anticipate and schedule this.
 *   **[Core] Sensor Unification**: Refactor `inputs.py` / `learning.py` to read *all* sensor IDs from `config.yaml` (`input_sensors`), removing the need for `secrets.yaml` to hold entity IDs. (THIS SHOULD ALREADY BE DONE! VERIFY!)
 *   **[Core] HA Entity Config Consolidation**: Currently vacation mode, learning, and other features read HA entity state at runtime. Consider consolidating all HA-derived toggles into `config.yaml` with a single source of truth pattern (config file vs. HA entity override). (Brainstorm how to do this since toggle entities might be wanted in HA for automations etc, are toggles in both places possible?)
 

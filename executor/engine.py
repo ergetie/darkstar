@@ -761,6 +761,7 @@ class ExecutorEngine:
                         "low_soc_threshold": 20.0,
                         "excess_pv_threshold_kw": 2.0,
                         "water_temp_boost": self.config.water_heater.temp_boost,
+                        "water_temp_max": self.config.water_heater.temp_max,
                         "water_temp_off": self.config.water_heater.temp_off,
                     },
                 )
@@ -791,6 +792,7 @@ class ExecutorEngine:
                 state,
                 override if override.override_needed else None,
                 self.config.controller,
+                self.config.water_heater,
             )
 
             self.status.last_action = decision.reason

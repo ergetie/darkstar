@@ -447,6 +447,9 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.water_heater.target_entity
 
+        # Safety clamp: never exceed temp_max
+        target = min(target, self.config.water_heater.temp_max)
+
         current = self.ha.get_state_value(entity)
         try:
             current_val = int(float(current)) if current else None

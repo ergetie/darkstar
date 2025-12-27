@@ -20,7 +20,7 @@ from typing import Optional, Tuple
 
 # from typing import Any, Dict, Optional, Tuple
 
-from .config import ControllerConfig
+from .config import ControllerConfig, WaterHeaterConfig
 from .override import OverrideResult, SlotPlan, SystemState
 
 logger = logging.getLogger(__name__)
@@ -56,8 +56,9 @@ class Controller:
     Ported from n8n Helios Executor "Controller" JavaScript node.
     """
 
-    def __init__(self, config: ControllerConfig):
+    def __init__(self, config: ControllerConfig, water_heater_config: WaterHeaterConfig = None):
         self.config = config
+        self.water_heater_config = water_heater_config or WaterHeaterConfig()
 
     def decide(
         self,
@@ -236,11 +237,11 @@ class Controller:
     def _determine_water_temp(self, slot: SlotPlan) -> int:
         """Determine water heater target temperature from slot plan."""
         if slot.water_kw > 0:
-            # Water heating is active
-            return 60  # Normal heating temp
+            # Water heating is active - use configured normal temp
+            return self.water_heater_config.temp_normal
         else:
-            # No water heating
-            return 40  # Legionella minimum / off
+            # No water heating - use configured off temp
+            return self.water_heater_config.temp_off
 
     def _generate_reason(self, slot: SlotPlan, work_mode: str, grid_charging: bool) -> str:
         """Generate a human-readable reason for the decision."""
@@ -267,6 +268,7 @@ def make_decision(
     state: SystemState,
     override: Optional[OverrideResult] = None,
     config: Optional[ControllerConfig] = None,
+    water_heater_config: Optional[WaterHeaterConfig] = None,
 ) -> ControllerDecision:
     """
     Convenience function to make a controller decision.
@@ -276,9 +278,11 @@ def make_decision(
         state: Current system state
         override: Override result if any
         config: Controller configuration
+        water_heater_config: Water heater temperature configuration
 
     Returns:
         ControllerDecision with all action parameters
     """
-    controller = Controller(config or ControllerConfig())
+    controller = Controller(config or ControllerConfig(), water_heater_config)
     return controller.decide(slot, state, override)
+
