@@ -19,14 +19,14 @@
 
 ### 🧠 Strategy & Aurora (AI)
 *   **[Rev A25] Manual Plan Simulate Regression**: Verify if manual block additions in the Planning Tab still work correctly with the new `simulate` signature (Strategy engine injection).
+## USER INPUT:** Might skip the "plan" tab all together!
+
 ### Rev A27 — ML Training Scheduler (Catch-Up Logic)
 
 **Goal:** Implement a robust "Catch-Up" scheduler for ML model retraining.
 *   **Catch-Up Logic:** Instead of exact time matching, check if the last successful run is older than the most recent scheduled slot.
 *   **Config:** Flexible `run_days` and `run_time` in `config.yaml`.
 *   **Status:** In Progress.
-
-## USER INPUT:** Might skip the "plan" tab all together!
 
 ### [Rev A29] Smart EV Integration**: Prioritize home battery vs. EV charging based on "Departure Time" (requires new inputs).
 

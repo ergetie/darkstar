@@ -209,6 +209,22 @@ export type ThemeSetResponse = {
   theme?: ThemeInfo
 }
 
+export type HealthIssue = {
+  category: string
+  severity: 'critical' | 'warning' | 'info'
+  message: string
+  guidance: string
+  entity_id?: string | null
+}
+
+export type HealthResponse = {
+  healthy: boolean
+  issues: HealthIssue[]
+  checked_at: string
+  critical_count: number
+  warning_count: number
+}
+
 export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
 export type AuroraBriefingResponse = { briefing: string }
 
@@ -232,6 +248,7 @@ export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
   scheduleTodayWithHistory: () => getJSON<ScheduleTodayWithHistoryResponse>('/api/schedule/today_with_history'),
   status: () => getJSON<StatusResponse>('/api/status'),
+  health: () => getJSON<HealthResponse>('/api/health'),
   version: () => getJSON<{ version: string }>('/api/version'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
   config: () => getJSON<ConfigResponse>('/api/config'),

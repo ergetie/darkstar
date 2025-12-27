@@ -258,28 +258,25 @@ return 60  # Was hardcoded instead of using config
 - [x] **Fix:** Updated `controller.py` to use `WaterHeaterConfig.temp_normal` and `temp_off`.
 - [x] **Integration:** Updated `make_decision()` and `engine.py` to pass water_heater_config.
 
-### [PLANNED] Rev F4 — Entity Safety & Global Error Handling
+### [DONE] Rev F4 — Global Error Handling & Health Check System
 
-**Goal:** Prevent application crashes due to missing HA entities and provide user-friendly error feedback.
+**Goal:** Create a unified health check system that prevents crashes, validates all components, and shows user-friendly error banners.
 
-**Problem:**
-* Missing entities (e.g., renamed in HA) might currently cause unhandled exceptions in `recorder.py` or `ha_client.py`, potentially crashing the backend loop.
-* The UI likely fails silently or breaks layout when data is missing, instead of guiding the user.
+**Error Categories:**
+| Category | Examples | Severity |
+|----------|----------|----------|
+| HA Connection | HA unreachable, auth failed | CRITICAL |
+| Missing Entities | Sensors renamed/deleted | CRITICAL |
+| Config Errors | Wrong types, missing fields | CRITICAL |
+| Database | MariaDB connection failed | WARNING |
+| Planner/Executor | Generation or dispatch failed | WARNING |
 
-**Investigation Plan:**
-* [ ] **Crash Test:** Temporarily rename a critical entity in `config.default.yaml` to a non-existent one and observe logs/container stability.
-* [ ] **Code Audit:** Check `backend/recorder.py` and `planner/inputs/data_prep.py` for error handling around `hass.get_state()`.
-* [ ] **Frontend Audit:** Check how `Dashboard.tsx` handles `undefined` API responses.
-
-**Implementation Plan:**
-* [ ] **Backend Hardening:**
-    * Wrap HA API calls in `try/except` blocks.
-    * Implement a "Health Check" system that validates all configured entities on startup.
-    * Expose health status via API (e.g., `/api/health` or part of `/api/status`).
-* [ ] **Frontend "Red Alert":**
-    * Create a global `SystemAlert` component (Banner).
-    * If `health.missing_entities` is non-empty, show: "Critical: Entities not found [list]. Check HA connection."
-* [ ] **Graceful Degradation:** Ensure Planner/Executor skips logic dependent on missing sensors rather than crashing.
+**Implementation (2025-12-27):**
+- [x] **Phase 1 - Backend:** Created `backend/health.py` with `HealthChecker` class
+- [x] **Phase 2 - API:** Added `/api/health` endpoint returning issues with guidance
+- [x] **Phase 3 - Config:** Integrated config validation into HealthChecker
+- [x] **Phase 4 - Frontend:** Created `SystemAlert.tsx` (red=critical, yellow=warning)
+- [x] **Phase 5 - Integration:** Updated `App.tsx` to fetch health every 60s and show banner
 
 ### [PLANNED] Rev F5 — Fix Planner Crash on Missing 'start_time'
 

@@ -859,6 +859,44 @@ def _db_connect_from_secrets():
     )
 
 
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    """
+    Return comprehensive system health status.
+
+    Checks:
+    - Config file validity
+    - Home Assistant connection
+    - Entity availability
+    - Database connectivity
+
+    Returns JSON with:
+    - healthy (bool): True if no critical issues
+    - issues (list): List of issues with category, severity, message, guidance
+    - critical_count, warning_count: Issue counts by severity
+    """
+    try:
+        from backend.health import get_health_status
+
+        status = get_health_status()
+        return jsonify(status.to_dict())
+    except Exception as e:
+        logger.exception("Health check failed")
+        return jsonify({
+            "healthy": False,
+            "issues": [{
+                "category": "system",
+                "severity": "critical",
+                "message": f"Health check failed: {e}",
+                "guidance": "Check server logs for details.",
+                "entity_id": None,
+            }],
+            "checked_at": datetime.now().isoformat(),
+            "critical_count": 1,
+            "warning_count": 0,
+        })
+
+
 @app.route("/api/status", methods=["GET"])
 def planner_status():
     """Return last plan info from local schedule.json and MariaDB plan_history if available."""

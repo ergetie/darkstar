@@ -10,32 +10,42 @@ import Forecasting from './pages/Forecasting'
 import Lab from './pages/Lab'
 import Aurora from './pages/Aurora'
 import Executor from './pages/Executor'
-import { Api } from './lib/api'
+import { Api, HealthResponse } from './lib/api'
+import { SystemAlert } from './components/SystemAlert'
 
 export default function App() {
     const [backendOffline, setBackendOffline] = useState(false)
+    const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null)
 
     useEffect(() => {
         let cancelled = false
         let errorCount = 0
 
-        const checkBackend = async () => {
+        const checkHealth = async () => {
             try {
-                await Promise.all([Api.status(), Api.config()])
+                // Check both status and health
+                const [, health] = await Promise.all([
+                    Api.status(),
+                    Api.health()
+                ])
                 if (cancelled) return
                 errorCount = 0
                 setBackendOffline(false)
+                setHealthStatus(health)
             } catch {
                 if (cancelled) return
                 errorCount += 1
                 if (errorCount >= 3) {
                     setBackendOffline(true)
+                    // Clear health status when backend is offline
+                    setHealthStatus(null)
                 }
             }
         }
 
-        checkBackend()
-        const id = window.setInterval(checkBackend, 30000)
+        checkHealth()
+        // Check every 60 seconds
+        const id = window.setInterval(checkHealth, 60000)
 
         return () => {
             cancelled = true
@@ -47,7 +57,13 @@ export default function App() {
         <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
             <Sidebar />
             <div className="lg:pl-[96px]">
-                {backendOffline && (
+                {/* Show health alerts if not fully healthy */}
+                {healthStatus && !healthStatus.healthy && (
+                    <SystemAlert health={healthStatus} />
+                )}
+
+                {/* Show backend offline banner only if no health status available */}
+                {backendOffline && !healthStatus && (
                     <div className="bg-amber-900/80 border-b border-amber-500/60 text-amber-100 text-[11px] px-4 py-2 flex items-center justify-between">
                         <span>Backend appears offline or degraded. Some data may be stale or unavailable.</span>
                     </div>
