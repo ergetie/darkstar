@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets, ChevronDown } from 'lucide-react'
 import Card from '../components/Card'
+import MiniBarGraph from '../components/MiniBarGraph'
 import { useSocket } from '../lib/hooks'
 
 // Types for notifications
@@ -805,31 +806,17 @@ export default function Executor() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {/* SoC */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.soc,
-                                    borderColor: '#10b981',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* SoC - Battery Green */}
+                    <div className="metric-card-border metric-card-border-battery p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.soc} colorClass="bg-good" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Battery className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50 ? 'text-emerald-400' :
-                                (live?.soc?.numeric ?? 0) > 20 ? 'text-amber-400' : 'text-red-400'
+                            <Battery className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50 ? 'text-good' :
+                                (live?.soc?.numeric ?? 0) > 20 ? 'text-warn' : 'text-bad'
                                 }`} />
                             <div>
-                                <div className="text-lg font-bold text-text">
+                                <div className="text-lg font-bold text-good">
                                     {live?.soc?.numeric?.toFixed(0) ?? '—'}%
                                 </div>
                                 <div className="text-[10px] text-muted">Battery SoC</div>
@@ -837,30 +824,16 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* PV Power */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.pv,
-                                    borderColor: '#fbbf24',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(251, 191, 36, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* PV Power - Solar Gold */}
+                    <div className="metric-card-border metric-card-border-solar p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.pv} colorClass="bg-accent" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Sun className={`h-6 w-6 ${(live?.pv_power?.numeric ?? 0) > 500 ? 'text-yellow-400' : 'text-yellow-400/40'
+                            <Sun className={`h-6 w-6 ${(live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
                                 }`} />
                             <div>
-                                <div className="text-lg font-bold text-yellow-400">
+                                <div className="text-lg font-bold text-accent">
                                     {live?.pv_power?.numeric ? (live.pv_power.numeric / 1000).toFixed(1) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">PV Power</div>
@@ -868,29 +841,15 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Load */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.load,
-                                    borderColor: '#fb923c',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(251, 146, 60, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(251, 146, 60, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* Load - House Purple */}
+                    <div className="metric-card-border metric-card-border-house p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.load} colorClass="bg-house" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Plug className="h-6 w-6 text-orange-400" />
+                            <Plug className="h-6 w-6 text-house" />
                             <div>
-                                <div className="text-lg font-bold text-orange-400">
+                                <div className="text-lg font-bold text-house">
                                     {live?.load_power?.numeric ? (live.load_power.numeric / 1000).toFixed(1) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">Load</div>
@@ -898,30 +857,16 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Grid Import */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.import,
-                                    borderColor: '#f87171',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(248, 113, 113, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(248, 113, 113, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* Grid Import - Grid Slate / Bad when high */}
+                    <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.import} colorClass={(live?.grid_import?.numeric ?? 0) > 100 ? 'bg-bad' : 'bg-grid'} />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowDownToLine className={`h-6 w-6 ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-red-400' : 'text-slate-400'
+                            <ArrowDownToLine className={`h-6 w-6 ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
                                 }`} />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-red-400' : 'text-text'
+                                <div className={`text-lg font-bold ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
                                     }`}>
                                     {live?.grid_import?.numeric ? (live.grid_import.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
@@ -930,30 +875,16 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Grid Export */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.export,
-                                    borderColor: '#34d399',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(52, 211, 153, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(52, 211, 153, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* Grid Export - Good Green */}
+                    <div className="metric-card-border metric-card-border-battery p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.export} colorClass="bg-good" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowUpFromLine className={`h-6 w-6 ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-emerald-400' : 'text-slate-400'
+                            <ArrowUpFromLine className={`h-6 w-6 ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-good' : 'text-grid'
                                 }`} />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-emerald-400' : 'text-text'
+                                <div className={`text-lg font-bold ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-good' : 'text-text'
                                     }`}>
                                     {live?.grid_export?.numeric ? (live.grid_export.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
