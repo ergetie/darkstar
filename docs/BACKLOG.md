@@ -9,8 +9,13 @@
 ## 🗂️ Backlog
 
 ## Rev XX - Complete settings inventory
-**Goal:** Investigate discrepancy between settings page and config.yam/secrets.yaml. And implement normal/advanced settings mode. Settings page should be clean and the user should not need to open the config.yaml to do ANY settings!
+**Goal:** Investigate discrepancy between settings page and config.yam/secrets.yaml. And implement normal/advanced settings mode. Settings page should be clean and the user should not need to open the config.yaml to do ANY settings! Also investigate if any config entry is not used, list and discuss what to do with it.
 
+## Rev XY - Add comments to every config option
+**Goal:** Add comments to every config option to make it easier for users to understand what each option does.
+
+## Rev XZ - Create a clear setup guide in @README.md
+**Goal:** Create a clear setup guide that explains how to set up Darkstar Energy Manager for the first time.
 
 ### 🧠 Strategy & Aurora (AI)
 *   **[Rev A25] Manual Plan Simulate Regression**: Verify if manual block additions in the Planning Tab still work correctly with the new `simulate` signature (Strategy engine injection).

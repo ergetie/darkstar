@@ -261,12 +261,14 @@ executor:
     write_threshold_a: 5.0
 
   # Water Heater Control
+  # The executor controls your water heater by setting a target temperature.
+  # These temps define the operating modes:
   water_heater:
-    target_entity: input_number.vvbtemp
-    temp_normal: 60
-    temp_boost: 70
-    temp_max: 85
-    temp_off: 40
+    target_entity: input_number.vvbtemp  # HA entity to control
+    temp_off: 40       # Idle mode (legionella-safe minimum)
+    temp_normal: 60    # Scheduled heating target (used by planner)
+    temp_boost: 70     # Manual boost button (Dashboard/Executor)
+    temp_max: 85       # PV dump target + safety limit (never exceeded)
 
   # Notifications
   notifications:
