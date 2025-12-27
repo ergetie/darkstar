@@ -3,6 +3,7 @@ import { Gauge, BookOpenCheck, Bug, Settings, Menu, X, Bot, Cpu } from 'lucide-r
 import { NavLink, Link, useLocation } from 'react-router-dom'
 import { DarkstarLogo } from './DarkstarLogo'
 import { Api } from '../lib/api'
+import ThemeToggle from './ThemeToggle'
 
 const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; label: string; onClick?: () => void }) => {
     const baseClass = "group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface/80 hover:bg-surface2 transition"
@@ -104,6 +105,9 @@ export default function Sidebar() {
                             darkstar v{version}
                         </span>
                     </div>
+
+                    {/* Theme Toggle */}
+                    <ThemeToggle />
 
                     {/* Settings */}
                     <Item to="/settings" icon={Settings} label="Settings" />

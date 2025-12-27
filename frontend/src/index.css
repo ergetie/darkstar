@@ -2,9 +2,75 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Subtle grain / vignette for premium feel */
+/* ============================================
+   THEME SYSTEM: CSS Custom Properties
+   ============================================ */
+
+/* Light mode (default) */
 :root {
+    --color-canvas: #ffffff;
+    --color-surface: #f8f9fb;
+    --color-surface2: #f0f2f5;
+    --color-line: #e0e4ea;
+    --color-text: #1a1d23;
+    --color-muted: #6b7280;
+    --color-accent: #d4a017;
+    --color-accent2: #b8860b;
+    --color-good: #16a34a;
+    --color-warn: #ca8a04;
+    --color-bad: #dc2626;
+    --shadow-float: 0 8px 30px rgba(0,0,0,0.12);
+    --shadow-inset1: inset 0 0 0 1px rgba(0,0,0,0.04);
+    --ring: 0 0% 0%;
+}
+
+/* Dark mode */
+.dark {
+    --color-canvas: #0f1216;
+    --color-surface: #14191f;
+    --color-surface2: #181e25;
+    --color-line: #242b34;
+    --color-text: #e6e9ef;
+    --color-muted: #a6b0bf;
+    --color-accent: #F5D547;
+    --color-accent2: #ffe066;
+    --color-good: #87F0A3;
+    --color-warn: #FFD966;
+    --color-bad: #FF7A7A;
+    --shadow-float: 0 8px 30px rgba(0,0,0,0.35);
+    --shadow-inset1: inset 0 0 0 1px rgba(255,255,255,0.04);
     --ring: 0 0% 100%;
+}
+
+/* ============================================
+   BASE STYLES
+   ============================================ */
+
+body {
+    background-color: var(--color-canvas);
+    color: var(--color-text);
+}
+
+/* Subtle grain / vignette for premium feel - dark mode only */
+.dark body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(255, 255, 255, 0.05), transparent 60%),
+        radial-gradient(1200px 600px at 10% 110%, rgba(255, 255, 255, 0.05), transparent 60%);
+}
+
+/* Light mode subtle gradient */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(1200px 600px at 80% -10%, rgba(0, 0, 0, 0.02), transparent 60%),
+        radial-gradient(1200px 600px at 10% 110%, rgba(0, 0, 0, 0.02), transparent 60%);
 }
 
 /* Soft ambient glow for active level buttons */
@@ -23,17 +89,10 @@
     z-index: -1;
 }
 
-body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-        radial-gradient(1200px 600px at 80% -10%, rgba(255, 255, 255, 0.05), transparent 60%),
-        radial-gradient(1200px 600px at 10% 110%, rgba(255, 255, 255, 0.05), transparent 60%);
-}
+/* ============================================
+   PLANNING TIMELINE STYLES
+   ============================================ */
 
-/* Planning timeline item styling */
 .ds-timeline-item {
     border-radius: 12px !important;
     border: none !important;
@@ -60,7 +119,10 @@ body::before {
     z-index: 60;
 }
 
-/* React Calendar Timeline theming */
+/* ============================================
+   REACT CALENDAR TIMELINE THEMING
+   ============================================ */
+
 .react-calendar-timeline .rct-header-root {
     background: transparent !important;
     border-bottom: none !important;
@@ -73,26 +135,23 @@ body::before {
 
 .react-calendar-timeline .rct-dateHeader-primary {
     display: none !important;
-    /* hide big date header row */
 }
 
 .react-calendar-timeline .rct-dateHeader {
     background-color: transparent !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
-    border-left: 1px solid rgba(255, 255, 255, 0.06) !important;
+    border-bottom: 1px solid var(--color-line) !important;
+    border-left: 1px solid var(--color-line) !important;
     border-right: none !important;
     border-top: none !important;
-    color: #a6b0bf !important;
+    color: var(--color-muted) !important;
     font-size: 11px !important;
 }
 
 .react-calendar-timeline .rct-vertical-lines .rct-vl {
-    border-left-color: rgba(255, 255, 255, 0.05) !important;
+    border-left-color: var(--color-line) !important;
     background: transparent !important;
 }
 
-/* Remove special weekend/alternate-day tint so the full 48h
-   window uses a consistent dark background */
 .react-calendar-timeline .rct-vertical-lines .rct-vl.rct-vl-weekend {
     background: transparent !important;
 }
@@ -100,17 +159,21 @@ body::before {
 .react-calendar-timeline .rct-horizontal-lines .rct-hl-odd,
 .react-calendar-timeline .rct-horizontal-lines .rct-hl-even {
     background: transparent !important;
-    border-bottom-color: rgba(255, 255, 255, 0.06) !important;
+    border-bottom-color: var(--color-line) !important;
 }
 
 .react-calendar-timeline .rct-sidebar {
-    border-right-color: rgba(255, 255, 255, 0.08) !important;
+    border-right-color: var(--color-line) !important;
 }
 
 .react-calendar-timeline .rct-sidebar .rct-sidebar-row {
     background: transparent !important;
-    border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+    border-bottom-color: var(--color-line) !important;
 }
+
+/* ============================================
+   TIMELINE ITEM COLORS
+   ============================================ */
 
 .ds-timeline-battery {
     background-color: #AAB6C4 !important;
@@ -128,7 +191,10 @@ body::before {
     background-color: #FFD966 !important;
 }
 
-/* Custom integrated scrollbar */
+/* ============================================
+   CUSTOM SCROLLBAR
+   ============================================ */
+
 .custom-scrollbar::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -139,18 +205,16 @@ body::before {
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb {
-    background: #242b34;
-    /* theme('colors.line') */
+    background: var(--color-line);
     border-radius: 9999px;
 }
 
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {
-    background: #323b46;
-    /* slightly lighter than line */
+    background: var(--color-muted);
 }
 
 /* Firefox support */
 .custom-scrollbar {
     scrollbar-width: thin;
-    scrollbar-color: #242b34 transparent;
+    scrollbar-color: var(--color-line) transparent;
 }

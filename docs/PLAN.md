@@ -57,4 +57,26 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 *All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*
 
+### [DONE] Rev UI3 — UX Polish Bundle
+
+**Goal:** Improve frontend usability and safety with three key improvements.
+
+**Plan:**
+- [x] Add React ErrorBoundary to prevent black screen crashes
+- [x] Replace entity dropdowns with searchable combobox
+- [x] Add light/dark mode toggle with backend persistence
+
+**Files:**
+- `frontend/src/components/ErrorBoundary.tsx` [NEW]
+- `frontend/src/components/EntitySelect.tsx` [NEW]
+- `frontend/src/components/ThemeToggle.tsx` [NEW]
+- `frontend/src/App.tsx` [MODIFIED]
+- `frontend/src/index.css` [MODIFIED]
+- `frontend/tailwind.config.cjs` [MODIFIED]
+- `frontend/src/components/Sidebar.tsx` [MODIFIED]
+- `frontend/src/pages/Settings.tsx` [MODIFIED]
+- `frontend/index.html` [MODIFIED]
+
+---
+
 ### NEXT REV HERE

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
+import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
 import Planning from './pages/Planning'
 import Learning from './pages/Learning'
@@ -54,32 +55,34 @@ export default function App() {
     }, [])
 
     return (
-        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-            <Sidebar />
-            <div className="lg:pl-[96px]">
-                {/* Show health alerts if not fully healthy */}
-                {healthStatus && !healthStatus.healthy && (
-                    <SystemAlert health={healthStatus} />
-                )}
+        <ErrorBoundary>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <Sidebar />
+                <div className="lg:pl-[96px]">
+                    {/* Show health alerts if not fully healthy */}
+                    {healthStatus && !healthStatus.healthy && (
+                        <SystemAlert health={healthStatus} />
+                    )}
 
-                {/* Show backend offline banner only if no health status available */}
-                {backendOffline && !healthStatus && (
-                    <div className="bg-amber-900/80 border-b border-amber-500/60 text-amber-100 text-[11px] px-4 py-2 flex items-center justify-between">
-                        <span>Backend appears offline or degraded. Some data may be stale or unavailable.</span>
-                    </div>
-                )}
-                <Routes>
-                    <Route path="/" element={<Dashboard />} />
-                    <Route path="/planning" element={<Planning />} />
-                    <Route path="/forecasting" element={<Forecasting />} />
-                    <Route path="/executor" element={<Executor />} />
-                    <Route path="/aurora" element={<Aurora />} />
-                    <Route path="/learning" element={<Learning />} />
-                    <Route path="/debug" element={<Debug />} />
-                    <Route path="/lab" element={<Lab />} />
-                    <Route path="/settings" element={<Settings />} />
-                </Routes>
-            </div>
-        </BrowserRouter>
+                    {/* Show backend offline banner only if no health status available */}
+                    {backendOffline && !healthStatus && (
+                        <div className="bg-amber-900/80 border-b border-amber-500/60 text-amber-100 text-[11px] px-4 py-2 flex items-center justify-between">
+                            <span>Backend appears offline or degraded. Some data may be stale or unavailable.</span>
+                        </div>
+                    )}
+                    <Routes>
+                        <Route path="/" element={<Dashboard />} />
+                        <Route path="/planning" element={<Planning />} />
+                        <Route path="/forecasting" element={<Forecasting />} />
+                        <Route path="/executor" element={<Executor />} />
+                        <Route path="/aurora" element={<Aurora />} />
+                        <Route path="/learning" element={<Learning />} />
+                        <Route path="/debug" element={<Debug />} />
+                        <Route path="/lab" element={<Lab />} />
+                        <Route path="/settings" element={<Settings />} />
+                    </Routes>
+                </div>
+            </BrowserRouter>
+        </ErrorBoundary>
     )
 }

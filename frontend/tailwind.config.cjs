@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+    darkMode: 'class',
     content: ['./index.html', './src/**/*.{ts,tsx}'],
     theme: {
         extend: {
@@ -7,26 +8,26 @@ module.exports = {
                 mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
             },
             colors: {
-                // Teenage-engineering inspired, never full black.
-                canvas: '#0f1216',
-                surface: '#14191f',
-                surface2: '#181e25',
-                line: '#242b34',
-                text: '#e6e9ef',
-                muted: '#a6b0bf',
-                accent: '#F5D547',       // Yellow accent
-                accent2: '#ffe066',
-                good: '#87F0A3',
-                warn: '#FFD966',
-                bad: '#FF7A7A'
+                // Use CSS custom properties for theme-aware colors
+                canvas: 'var(--color-canvas)',
+                surface: 'var(--color-surface)',
+                surface2: 'var(--color-surface2)',
+                line: 'var(--color-line)',
+                text: 'var(--color-text)',
+                muted: 'var(--color-muted)',
+                accent: 'var(--color-accent)',
+                accent2: 'var(--color-accent2)',
+                good: 'var(--color-good)',
+                warn: 'var(--color-warn)',
+                bad: 'var(--color-bad)',
             },
             borderRadius: {
                 'xl2': '1.25rem',
                 'pill': '9999px'
             },
             boxShadow: {
-                float: '0 8px 30px rgba(0,0,0,0.35)',
-                inset1: 'inset 0 0 0 1px rgba(255,255,255,0.04)'
+                float: 'var(--shadow-float)',
+                inset1: 'var(--shadow-inset1)'
             }
         },
     },

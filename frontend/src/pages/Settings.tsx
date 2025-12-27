@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import AzimuthDial from '../components/AzimuthDial'
 import TiltDial from '../components/TiltDial'
+import EntitySelect from '../components/EntitySelect'
 import { Api, ThemeInfo } from '../lib/api'
 import { cls } from '../theme'
 import { Sparkles } from 'lucide-react'
@@ -1086,22 +1087,13 @@ export default function Settings() {
                                             <label className="text-[10px] uppercase tracking-wide text-muted">
                                                 {field.label}
                                             </label>
-                                            <select
+                                            <EntitySelect
+                                                entities={haEntities}
                                                 value={systemForm[field.key] ?? ''}
-                                                onChange={(event) =>
-                                                    handleFieldChange(field.key, event.target.value)
-                                                }
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            >
-                                                <option value="">Select Entity</option>
-                                                {haEntities
-                                                    .sort((a, b) => a.entity_id.localeCompare(b.entity_id))
-                                                    .map((e) => (
-                                                        <option key={e.entity_id} value={e.entity_id}>
-                                                            {e.entity_id} ({e.friendly_name})
-                                                        </option>
-                                                    ))}
-                                            </select>
+                                                onChange={(value) => handleFieldChange(field.key, value)}
+                                                loading={haLoading}
+                                                placeholder="Select entity..."
+                                            />
                                             {field.helper && (
                                                 <p className="text-[11px] text-muted">{field.helper}</p>
                                             )}
