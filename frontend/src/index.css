@@ -7,39 +7,91 @@
    Using RGB format for Tailwind opacity support
    ============================================ */
 
-/* Light mode (default) */
+/* Light mode — TE / OP-1 style */
 :root {
-    --color-canvas: 255 255 255;
-    --color-surface: 248 249 251;
-    --color-surface2: 240 242 245;
-    --color-line: 224 228 234;
-    --color-text: 26 29 35;
-    --color-muted: 107 114 128;
-    --color-accent: 212 160 23;
-    --color-accent2: 184 134 11;
-    --color-good: 22 163 74;
-    --color-warn: 202 138 4;
-    --color-bad: 220 38 38;
-    --shadow-float: 0 8px 30px rgba(0,0,0,0.12);
-    --shadow-inset1: inset 0 0 0 1px rgba(0,0,0,0.04);
+    --color-canvas: 223 223 223;
+    /* #DFDFDF */
+    --color-surface: 239 239 239;
+    /* #EFEFEF */
+    --color-surface2: 208 208 208;
+    /* #D0D0D0 */
+    --color-line: 192 192 192;
+    /* #C0C0C0 */
+    --color-text: 45 45 45;
+    /* #2D2D2D */
+    --color-muted: 107 107 107;
+    /* #6B6B6B */
+    --color-neutral: 152 159 165;
+    /* #989FA5 */
+
+    /* Flair colors — same in both modes! */
+    --color-accent: 255 206 89;
+    /* #FFCE59 Gold */
+    --color-accent2: 255 220 120;
+    /* Hover state */
+    --color-good: 31 178 86;
+    /* #1FB256 TE Green */
+    --color-house: 168 85 247;
+    /* #A855F7 Purple */
+    --color-water: 78 168 222;
+    /* #4EA8DE TE Blue */
+    --color-grid: 100 116 139;
+    /* #64748B Slate */
+    --color-warn: 245 158 11;
+    /* #F59E0B Amber */
+    --color-bad: 241 81 50;
+    /* #F15132 TE Orange */
+    --color-peak: 236 72 153;
+    /* #EC4899 Pink */
+    --color-night: 6 182 212;
+    /* #06B6D4 Cyan */
+
+    --shadow-float: 0 8px 30px rgba(0, 0, 0, 0.08);
+    --shadow-inset1: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
     --ring: 0 0% 0%;
 }
 
-/* Dark mode */
+/* Dark mode — Deep Space */
 .dark {
     --color-canvas: 15 18 22;
+    /* #0f1216 */
     --color-surface: 20 25 31;
+    /* #14191f */
     --color-surface2: 24 30 37;
+    /* #181e25 */
     --color-line: 36 43 52;
+    /* #242b34 */
     --color-text: 230 233 239;
+    /* #e6e9ef */
     --color-muted: 166 176 191;
-    --color-accent: 245 213 71;
-    --color-accent2: 255 224 102;
-    --color-good: 135 240 163;
-    --color-warn: 255 217 102;
-    --color-bad: 255 122 122;
-    --shadow-float: 0 8px 30px rgba(0,0,0,0.35);
-    --shadow-inset1: inset 0 0 0 1px rgba(255,255,255,0.04);
+    /* #a6b0bf */
+    --color-neutral: 152 159 165;
+    /* #989FA5 */
+
+    /* Flair colors — same as light mode! */
+    --color-accent: 255 206 89;
+    /* #FFCE59 Gold */
+    --color-accent2: 255 220 120;
+    /* Hover state */
+    --color-good: 31 178 86;
+    /* #1FB256 TE Green */
+    --color-house: 168 85 247;
+    /* #A855F7 Purple */
+    --color-water: 78 168 222;
+    /* #4EA8DE TE Blue */
+    --color-grid: 100 116 139;
+    /* #64748B Slate */
+    --color-warn: 245 158 11;
+    /* #F59E0B Amber */
+    --color-bad: 241 81 50;
+    /* #F15132 TE Orange */
+    --color-peak: 236 72 153;
+    /* #EC4899 Pink */
+    --color-night: 6 182 212;
+    /* #06B6D4 Cyan */
+
+    --shadow-float: 0 8px 30px rgba(0, 0, 0, 0.35);
+    --shadow-inset1: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
     --ring: 0 0% 100%;
 }
 
@@ -52,26 +104,16 @@ body {
     color: rgb(var(--color-text));
 }
 
-/* Subtle grain / vignette for premium feel - dark mode only */
-.dark body::before {
+/* Sharp grain texture overlay */
+body::after {
     content: '';
     position: fixed;
     inset: 0;
     pointer-events: none;
-    background:
-        radial-gradient(1200px 600px at 80% -10%, rgba(255, 255, 255, 0.05), transparent 60%),
-        radial-gradient(1200px 600px at 10% 110%, rgba(255, 255, 255, 0.05), transparent 60%);
-}
-
-/* Light mode subtle gradient */
-:root body::before {
-    content: '';
-    position: fixed;
-    inset: 0;
-    pointer-events: none;
-    background:
-        radial-gradient(1200px 600px at 80% -10%, rgba(0, 0, 0, 0.02), transparent 60%),
-        radial-gradient(1200px 600px at 10% 110%, rgba(0, 0, 0, 0.02), transparent 60%);
+    opacity: 0.04;
+    z-index: 9999;
+    background-image: url('/noise.png');
+    background-repeat: repeat;
 }
 
 /* Soft ambient glow for active level buttons */
@@ -88,6 +130,110 @@ body {
     opacity: 0.15;
     filter: blur(6px);
     z-index: -1;
+}
+
+/* Button glow — dark mode only */
+.dark .btn-glow-primary {
+    box-shadow: 0 0 16px rgba(255, 206, 89, 0.4), 0 0 32px rgba(255, 206, 89, 0.2);
+}
+
+.dark .btn-glow-primary:hover {
+    box-shadow: 0 0 20px rgba(255, 206, 89, 0.6), 0 0 40px rgba(255, 206, 89, 0.3);
+}
+
+.dark .btn-glow-green {
+    box-shadow: 0 0 12px rgba(31, 178, 86, 0.4);
+}
+
+/* ============================================
+   METRIC CARD STYLES
+   ============================================ */
+
+.metric-card-border {
+    border-left-width: 12px;
+    border-left-style: solid;
+    border-radius: 12px;
+}
+
+.metric-card-border-solar {
+    border-left-color: rgb(var(--color-accent));
+}
+
+.metric-card-border-battery {
+    border-left-color: rgb(var(--color-good));
+}
+
+.metric-card-border-house {
+    border-left-color: rgb(var(--color-house));
+}
+
+.metric-card-border-water {
+    border-left-color: rgb(var(--color-water));
+}
+
+.metric-card-border-grid {
+    border-left-color: rgb(var(--color-grid));
+}
+
+/* ============================================
+   MINI BAR GRAPH
+   ============================================ */
+
+.mini-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 28px;
+}
+
+.mini-bar {
+    width: 4px;
+    border-radius: 2px;
+    animation: barPulse 2s ease-in-out infinite;
+}
+
+@keyframes barPulse {
+
+    0%,
+    100% {
+        opacity: 0.7;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+.mini-bar:nth-child(1) {
+    animation-delay: 0s;
+}
+
+.mini-bar:nth-child(2) {
+    animation-delay: 0.1s;
+}
+
+.mini-bar:nth-child(3) {
+    animation-delay: 0.15s;
+}
+
+.mini-bar:nth-child(4) {
+    animation-delay: 0.2s;
+}
+
+.mini-bar:nth-child(5) {
+    animation-delay: 0.25s;
+}
+
+.mini-bar:nth-child(6) {
+    animation-delay: 0.3s;
+}
+
+.mini-bar:nth-child(7) {
+    animation-delay: 0.35s;
+}
+
+.mini-bar:nth-child(8) {
+    animation-delay: 0.4s;
 }
 
 /* ============================================

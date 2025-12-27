@@ -57,7 +57,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 *All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*
 
-### [DONE] Rev UI3 — UX Polish Bundle
+### [IN PROGRESS] Rev UI3 — UX Polish Bundle
 
 **Goal:** Improve frontend usability and safety with three key improvements.
 
@@ -65,6 +65,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] Add React ErrorBoundary to prevent black screen crashes
 - [x] Replace entity dropdowns with searchable combobox
 - [x] Add light/dark mode toggle with backend persistence
+- [x] Migrate Executor entity config to Settings tab
+- [x] Implement new TE-style color palette (see `frontend/color-palette.html`)
 
 **Files:**
 - `frontend/src/components/ErrorBoundary.tsx` [NEW]
@@ -76,6 +78,17 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - `frontend/src/components/Sidebar.tsx` [MODIFIED]
 - `frontend/src/pages/Settings.tsx` [MODIFIED]
 - `frontend/index.html` [MODIFIED]
+- `frontend/color-palette.html` [NEW] — Design reference
+- `frontend/noise.png` [NEW] — Grain texture
+
+**Color Palette Summary:**
+- Light mode: TE/OP-1 style with `#DFDFDF` base
+- Dark mode: Deep space with `#0f1216` canvas
+- Flair colors: Same bold colors in both modes (`#FFCE59` gold, `#1FB256` green, `#A855F7` purple, `#4EA8DE` blue)
+- FAT 12px left border on metric cards
+- Button glow in dark mode only
+- Sharp grain texture overlay (4% opacity)
+- Mini bar graphs instead of sparklines
 
 ---
 

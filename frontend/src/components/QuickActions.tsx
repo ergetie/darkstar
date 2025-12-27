@@ -260,10 +260,10 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
             <div className="grid grid-cols-2 gap-3">
                 {/* 1. Run Planner */}
                 <button
-                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition
+                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary
                         ${plannerPhase !== 'idle'
-                            ? 'bg-amber-500 text-black cursor-wait'
-                            : 'bg-amber-500 hover:bg-amber-400 text-black'
+                            ? 'bg-accent text-canvas cursor-wait'
+                            : 'bg-accent hover:bg-accent2 text-canvas'
                         }`}
                     onClick={handleRunPlanner}
                     disabled={plannerPhase !== 'idle'}
@@ -277,8 +277,8 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
                 <button
                     className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition
                         ${isPaused
-                            ? 'bg-red-500/80 text-white ring-2 ring-red-400 shadow-[0_0_20px_rgba(239,68,68,0.5)] animate-pulse'
-                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                            ? 'bg-bad/80 text-white ring-2 ring-bad shadow-[0_0_20px_rgba(241,81,50,0.5)] animate-pulse'
+                            : 'bg-good hover:bg-good/80 text-white btn-glow-green'
                         } ${loading === 'pause' ? 'opacity-60 cursor-wait' : ''}`}
                     onClick={handleTogglePause}
                     disabled={loading === 'pause'}
@@ -400,8 +400,8 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
             {feedback && (
                 <div
                     className={`absolute -bottom-8 left-0 right-0 text-center text-[10px] py-1 px-2 rounded-md transition-opacity animate-in fade-in slide-in-from-bottom-1 duration-300 ${feedback.type === 'success'
-                            ? 'text-green-400'
-                            : 'text-red-400'
+                        ? 'text-green-400'
+                        : 'text-red-400'
                         }`}
                 >
                     {feedback.message}

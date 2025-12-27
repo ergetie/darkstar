@@ -96,8 +96,8 @@ export default function Sidebar() {
 
                     {/* Version (Vertical) */}
                     <div className="py-2 flex flex-col items-center gap-2">
-                        <div className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${connected === true ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' :
-                            connected === false ? 'bg-red-500' :
+                        <div className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${connected === true ? 'bg-good shadow-[0_0_8px_rgba(31,178,86,0.5)]' :
+                            connected === false ? 'bg-bad' :
                                 'bg-slate-700'
                             }`} title={connected === true ? 'System Online' : connected === false ? 'System Offline' : 'Connecting...'} />
 
