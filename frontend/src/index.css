@@ -112,6 +112,7 @@ body::after {
     pointer-events: none;
     opacity: 0.04;
     z-index: 9999;
+    /* Path must match where noise.png is in public/ folder */
     background-image: url('/noise.png');
     background-repeat: repeat;
 }
@@ -182,13 +183,13 @@ body::after {
 .mini-bars {
     display: flex;
     align-items: flex-end;
-    gap: 2px;
+    gap: 1px;
     height: 28px;
 }
 
 .mini-bar {
-    width: 4px;
-    border-radius: 2px;
+    width: 3px;
+    border-radius: 1px;
     animation: barPulse 2s ease-in-out infinite;
 }
 

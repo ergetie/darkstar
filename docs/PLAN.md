@@ -55,7 +55,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## 📜 Revision Stream
 
-*All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*
+*All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*§
 
 ### [IN PROGRESS] Rev UI3 — UX Polish Bundle
 

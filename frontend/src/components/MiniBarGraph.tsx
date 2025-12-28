@@ -19,7 +19,7 @@ export default function MiniBarGraph({
     data,
     colorClass = 'bg-accent',
     height = 28,
-    bars = 8
+    bars = 16
 }: MiniBarGraphProps) {
     // Normalize and slice data to fit bars
     const normalizedData = useMemo(() => {
