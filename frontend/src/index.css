@@ -104,21 +104,7 @@ body {
     color: rgb(var(--color-text));
 }
 
-/* Sharp grain texture overlay - using html::after for better stacking */
-html::after {
-    content: '';
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    pointer-events: none;
-    opacity: 0.04;
-    z-index: 9999;
-    background-image: url('/noise.png');
-    background-repeat: repeat;
-    mix-blend-mode: overlay;
-}
+/* Grain texture: uses tailwindcss-noise plugin (noise-medium class on body) */
 
 /* Remove thin borders globally for flat TE style */
 .border-line\/50,
@@ -126,6 +112,15 @@ html::after {
 .border-line\/70,
 .border-line\/30 {
     border-color: transparent !important;
+}
+
+/* Disable opacity-30 on mini-bars - they should match flair border color */
+.mini-bars-container .opacity-30 {
+    opacity: 1 !important;
+}
+
+.mini-bars-container .group-hover\:opacity-50 {
+    opacity: 1 !important;
 }
 
 /* Soft ambient glow for active level buttons */
@@ -187,6 +182,10 @@ html::after {
     border-left-color: rgb(var(--color-grid));
 }
 
+.metric-card-border-bad {
+    border-left-color: rgb(var(--color-bad));
+}
+
 /* ============================================
    MINI BAR GRAPH
    ============================================ */
@@ -201,14 +200,14 @@ html::after {
 .mini-bar {
     width: 8px;
     border-radius: 4px;
-    opacity: 1;
+    animation: barPulse 2s ease-in-out infinite;
 }
 
 @keyframes barPulse {
 
     0%,
     100% {
-        opacity: 0.7;
+        opacity: 0.85;
     }
 
     50% {

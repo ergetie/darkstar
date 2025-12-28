@@ -808,7 +808,7 @@ export default function Executor() {
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     {/* SoC - Battery Green */}
                     <div className="metric-card-border metric-card-border-battery p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
                             <MiniBarGraph data={historyBuffer.soc} colorClass="bg-good" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
@@ -826,7 +826,7 @@ export default function Executor() {
 
                     {/* PV Power - Solar Gold */}
                     <div className="metric-card-border metric-card-border-solar p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
                             <MiniBarGraph data={historyBuffer.pv} colorClass="bg-accent" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
@@ -843,7 +843,7 @@ export default function Executor() {
 
                     {/* Load - House Purple */}
                     <div className="metric-card-border metric-card-border-house p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
                             <MiniBarGraph data={historyBuffer.load} colorClass="bg-house" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
@@ -859,7 +859,7 @@ export default function Executor() {
 
                     {/* Grid Import - Grid Slate / Bad when high */}
                     <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
                             <MiniBarGraph data={historyBuffer.import} colorClass={(live?.grid_import?.numeric ?? 0) > 100 ? 'bg-bad' : 'bg-grid'} />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
@@ -876,16 +876,14 @@ export default function Executor() {
                     </div>
 
                     {/* Grid Export - TE Orange */}
-                    <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
+                    <div className="metric-card-border metric-card-border-bad p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
                             <MiniBarGraph data={historyBuffer.export} colorClass="bg-bad" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowUpFromLine className={`h-6 w-6 ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
-                                }`} />
+                            <ArrowUpFromLine className="h-6 w-6 text-bad" />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
-                                    }`}>
+                                <div className="text-lg font-bold text-bad">
                                     {live?.grid_export?.numeric ? (live.grid_export.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">Grid Export</div>
