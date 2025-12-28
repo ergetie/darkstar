@@ -36,18 +36,44 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 📋 Backlog
 
-### [Settings] Settings Page Audit & Cleanup
+### [Planner] Investigate Unexpected Export in Schedule
 
-**Goal:** Ensure the Settings page is the complete source of truth for all configuration.
+**Goal:** Understand why the chart/schedule shows excessive grid export.
 
-**Tasks:**
-- Audit discrepancies between Settings UI and `config.yaml`/`secrets.yaml`
-- Implement "Normal" vs "Advanced" settings mode toggle
-- Add inline help/tooltips for every setting
-- Identify and remove any unused config keys
-- Add comments to `config.default.yaml` explaining each option
+**Questions:**
+- Is Kepler only planning forward from current time?
+- Are we incorrectly merging historic plan data with future schedule?
+- Is the displayed export actual history or planned future?
 
-**Notes:** User should never need to manually edit `config.yaml` after initial setup.
+**Notes:** Need to trace data flow: Kepler output → Schedule storage → Chart display.
+
+---
+
+### [Planner] Implement Strategic Charging (Floor Price)
+
+**Goal:** When electricity price drops below a threshold, charge battery opportunistically.
+
+**Current State:** `strategic_charging.price_threshold_sek` is in config but NOT used in code. Only `target_soc_percent` is used (as SoC target for cheap window expansion).
+
+**Expected Behavior:** If price < threshold, charge to target_soc_percent regardless of other logic.
+
+---
+
+### [Planner] Implement Export Toggle (enable_export)
+
+**Goal:** Allow users to disable grid export entirely via config.
+
+**Current State:** `export.enable_export` exists in config but is not read by Kepler solver.
+
+**Notes:** Kepler currently handles export via MILP constraints. Need to add constraint that sets max export = 0 when disabled.
+
+---
+
+### [UI] Fix Cost Reality Not Displaying Plan Cost
+
+**Goal:** "Cost Reality" view should show plan cost for comparison.
+
+**Reported Issue:** Plan cost is not displaying in the Cost Reality widget.
 
 ---
 
@@ -63,48 +89,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 - Verify system is working
 
 **Notes:** Should cover both standalone Docker and HA Add-on paths.
-
----
-
-### [UI] Entity Selector Improvements
-
-**Goal:** Fix the entity selector dropdowns in Settings to be searchable and visually consistent.
-
-**Problems:**
-- Current dropdowns show full list without search (unusable with 100+ entities)
-- Visual style is "Win95" - doesn't match the modern theme
-- No filtering or fuzzy search
-
-**Solution:** Implement searchable combobox component (react-select or similar).
-
----
-
-### [UI] Dashboard Chart History Missing
-
-**Goal:** Investigate and fix why historical data is not showing in the main Dashboard chart.
-
-**Symptoms:**
-- Chart only shows planned/future data
-- No "actual" SoC/PV/Load history displayed
-- Might be related to Executor being inactive
-
-**Notes:** Need to verify data flow from HA → SQLite → Chart.
-
----
-
-### [UI] React Error Boundary
-
-**Goal:** Add a React Error Boundary to gracefully handle runtime errors.
-
-**Problem:** When a component crashes (like the Settings page did), users see a blank screen with no feedback.
-
-**Tasks:**
-- Add `ErrorBoundary` component wrapping the app
-- Display friendly error message with "Reload" button
-- Log errors to console and optionally to backend
-- Show which component crashed (in debug mode)
-
-**Notes:** This is a UX safety net. Crashes happen - users should see what went wrong.
 
 ---
 
@@ -166,22 +150,7 @@ in bugfix mode, and we strongly recommend against using it for new projects.
 
 ---
 
-### [UI] Light/Dark Theme Switcher
 
-**Goal:** Add a light/dark mode toggle to the sidebar for quick theme switching.
-
-**Current State:**
-- Theme infrastructure exists in `Settings.tsx`
-- Multiple themes available via API
-- No quick-toggle in sidebar
-
-**Tasks:**
-- Categorize existing themes as "light" or "dark"
-- Add sun/moon toggle icon to sidebar
-- Store user preference (localStorage + config)
-- Default to system preference if not set
-
----
 
 ### [Ops] Database Consolidation
 
@@ -210,21 +179,6 @@ in bugfix mode, and we strongly recommend against using it for new projects.
 - Update documentation
 
 **Notes:** Needs investigation before implementation.
-
----
-
-### [HA] Entity Config Consolidation
-
-**Goal:** Evaluate whether HA entity toggles (vacation mode, learning, etc.) should be in config.yaml or HA.
-
-**Current State:** Some features read HA entity state at runtime, some use config.yaml.
-
-**Questions:**
-- Should toggles live in both places?
-- Should HA override config.yaml?
-- How to keep them in sync?
-
-**Notes:** Needs design discussion. HA entities are useful for automations.
 
 ---
 
@@ -311,15 +265,4 @@ in bugfix mode, and we strongly recommend against using it for new projects.
 
 ---
 
-## 📝 Verified as Done (Not Moved to Changelog)
-
-*These were backlog ideas that have been verified as already implemented. They were never formal revisions, so they don't exist in CHANGELOG_PLAN.md:*
-
-| Item | Status | Notes |
-|------|--------|-------|
-| A25 - Manual Plan Simulate | SCRAPPED | Planning tab deprecated, no longer relevant |
-| A27 - ML Training Scheduler | ✅ DONE | Implemented in `scheduler.py` with catch-up logic |
-| Smart Thresholds | ✅ DONE | Implemented as Rev A20 (exists in changelog) |
-| Sensor Unification | ✅ DONE | All sensors now in `config.yaml`, none in `secrets.yaml` |
-| Error Handling audit | ✅ DONE | Implemented as Rev F4 Health Check |
 

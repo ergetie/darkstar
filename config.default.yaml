@@ -6,13 +6,14 @@
 # =============================================================================
 
 # General System Settings
-timezone: "Europe/Stockholm"
+timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
+# AI Advisor (Smart Assistant on Dashboard)
 advisor:
-  enable_llm: true
-  model: gpt-5-nano
-  personality: friendly
-  auto_fetch: false
+  enable_llm: true                     # Enable LLM-powered advice on Dashboard
+  model: gpt-5-nano                    # OpenRouter model identifier (requires API key in secrets.yaml)
+  personality: friendly                # Advice style: concise | friendly | technical
+  auto_fetch: false                    # Automatically fetch advice when Dashboard loads
 
 # System Parameters
 system:
@@ -24,16 +25,16 @@ system:
   has_water_heater: true  # Enable water heating optimization
   
   grid:
-    max_power_kw: 8
+    max_power_kw: 8                    # Maximum grid connection power (affects import/export limits)
   inverter:
-    max_power_kw: 10.0
+    max_power_kw: 10.0                 # Maximum inverter AC power output
   location:
-    latitude: 55.493221
-    longitude: 13.111221
+    latitude: 55.493221                # Decimal degrees, positive north (for PV forecasting)
+    longitude: 13.111221               # Decimal degrees, positive east (for PV forecasting)
   solar_array:
-    azimuth: 150
-    kwp: 10
-    tilt: 45
+    azimuth: 150                       # Panel direction: 0°=North, 90°=East, 180°=South, 270°=West
+    kwp: 10                            # Total DC peak power of PV array in kilowatts
+    tilt: 45                           # Panel angle from horizontal: 0°=flat, 90°=vertical
 
 # Battery Specifications
 battery:
@@ -47,25 +48,20 @@ battery:
 battery_economics:
   battery_cycle_cost_kwh: 0.2      # Degradation cost applied per kWh cycled through the battery
 
-# Decision Making Thresholds
-decision_thresholds:
-  battery_use_margin_sek: 0.1      # Use battery if grid > battery_cost + wear + margin
-  export_profit_margin_sek: 0.05   # Additional profit required on top of battery cost + wear
-  battery_water_margin_sek: 0.2    # Margin for using battery for water heating
 
-# Charging Strategy
+# Charging Strategy (when to charge from grid)
 charging_strategy:
-  charge_threshold_percentile: 15  # Bottom 15% of prices are considered 'cheap'
-  cheap_price_tolerance_sek: 0.05  # Extends 'cheap' category to prices within this tolerance
-  price_smoothing_sek_kwh: 0.05    # Allows grouping of slots slightly above cheapest price
-  block_consolidation_tolerance_sek: 0.05
-  consolidation_max_gap_slots: 0
+  charge_threshold_percentile: 15      # Bottom X% of daily prices are considered 'cheap'
+  cheap_price_tolerance_sek: 0.05      # Extends 'cheap' window to prices within this tolerance
+  price_smoothing_sek_kwh: 0.05        # Groups slots slightly above cheapest into charge window
+  block_consolidation_tolerance_sek: 0.05  # Price tolerance for merging adjacent charge blocks
+  consolidation_max_gap_slots: 0       # Max gap (in 15-min slots) to bridge when consolidating
 
-# Strategic Charging (Floor Price)
+# Strategic Charging (NOT FULLY IMPLEMENTED - see backlog)
+# When prices drop below threshold, charge battery up to target regardless of other logic
 strategic_charging:
-  price_threshold_sek: 0.85        # Price below which strategic charging is triggered
-  target_soc_percent: 80           # Absolute SoC target for strategic charging
-  carry_forward_tolerance_ratio: 0.05
+  price_threshold_sek: 0.85        # [NOT IMPLEMENTED] Floor price for opportunistic charging
+  target_soc_percent: 80           # SoC target for cheap window expansion (used in windows.py)
 
 # Water Heating
 water_heating:
@@ -78,12 +74,12 @@ water_heating:
   plan_days_ahead: 1               # Plan at most today + 1 day (tomorrow) within 48h horizon
   block_consolidation_tolerance_sek: 0.05
   consolidation_max_gap_slots: 0
-  max_hours_between_heating: 8       # Rev K17: Max gap between heating sessions (0 = no constraint)
-  comfort_level: 3                   # Rev K18: 1-5 (Economy→Maximum) - controls gap penalty
-  min_spacing_hours: 5.0             # Rev K21: Min gap between starts to avoid efficiency loss
-  spacing_penalty_sek: 0.20          # Rev K21: Soft penalty for frequent starts
+  max_hours_between_heating: 8       # Max gap between heating sessions (0 = no constraint)
+  comfort_level: 3                   # 1-5 (Economy→Maximum) - controls gap penalty
+  min_spacing_hours: 5.0             # Min gap between starts to avoid efficiency loss
+  spacing_penalty_sek: 0.20          # Soft penalty for frequent starts
 
-  # Rev K19: Vacation Mode (anti-legionella)
+  # Vacation Mode (anti-legionella)
   vacation_mode:
     enabled: false                    # Master switch (HA entity can override when ON)
     anti_legionella_temp_c: 65        # Target temperature for safety cycle
@@ -103,27 +99,11 @@ s_index:
   s_index_horizon_days: 4          # Number of days ahead to evaluate (integer)
   risk_appetite: 3                 # 1-5 scale (1=safe, 3=neutral, 5=gambler)
 
-# Smoothing / Hysteresis Controls
-smoothing:
-  min_on_slots_charge: 2
-  min_off_slots_charge: 1
-  min_on_slots_discharge: 2
-  min_off_slots_discharge: 1
-  min_on_slots_export: 2
-  charge_power_step_kw: 0.5
-  charge_power_dwell_minutes: 0
 
-# Arbitrage / Export Settings
-arbitrage:
-  enable_export: true
-  export_fees_sek_per_kwh: 0.0
-  export_profit_margin_sek: 0.05
-  protective_soc_strategy: "gap_based"
-  fixed_protective_soc_percent: 10.0
-  export_percentile_threshold: 15  # Top X% of prices eligible for export
-  enable_peak_only_export: true
-  export_future_price_guard: true
-  future_price_guard_buffer_sek: 0.0
+# Export Configuration
+# [PLACEHOLDER] Most export logic not yet implemented - see backlog
+export:
+  enable_export: true              # [NOT IMPLEMENTED] Master switch for grid export
 
 # Manual Planning Defaults
 manual_planning:
@@ -133,29 +113,28 @@ manual_planning:
   force_discharge_on_deficit: true # If deficit, allow discharge even if price/cheap guards would block
   ignore_protective_guard: true    # Do not raise SoC target floor above min_soc during manual plan
 
-# Debug & Telemetry
+# Debug & Telemetry (developer settings)
 debug:
-  enable_planner_debug: false
-  sample_size: 30
+  enable_planner_debug: false          # Enable verbose planner logging
+  sample_size: 30                      # Sample size for debug output charts
 
-# Automation (Scheduler + ML Training)
+# Automation (Background Scheduler)
 automation:
-  enable_scheduler: true
-  write_to_mariadb: false
-  external_executor_mode: false
+  enable_scheduler: true               # Enable automatic schedule regeneration
+  write_to_mariadb: false              # Write telemetry to MariaDB (requires secrets.yaml)
+  external_executor_mode: false        # Use external executor instead of built-in
   schedule:
-    every_minutes: 60
-    jitter_minutes: 0
+    every_minutes: 60                  # How often to regenerate schedule
+    jitter_minutes: 0                  # Random delay to avoid thundering herd
   ml_training:
-    enabled: true
-    run_days: [1, 4]               # Monday and Thursday
-    run_time: "03:00"
+    enabled: true                      # Enable automatic ML model retraining
+    run_days: [1, 4]                   # Days of week to train (0=Mon, 6=Sun)
+    run_time: "03:00"                  # Time of day to run training (HH:MM)
 
 # Learning Engine (Aurora Reflex)
 learning:
   enable: true
   sqlite_path: "data/planner_learning.db"
-  sync_interval_minutes: 5
   horizon_days: 7
   min_improvement_threshold: 0.015
   auto_tune_enabled: true
@@ -173,92 +152,97 @@ learning:
     s_index_temp_weight: 0.1
     future_price_guard_buffer_sek: 0.05
 
-# Nordpool API Configuration
+# Nordpool API Configuration (electricity prices)
 nordpool:
-  price_area: "SE4"
-  currency: "SEK"
-  resolution_minutes: 15
+  price_area: "SE4"                    # Nordpool bidding zone (SE1-SE4, NO1-NO5, DK1-DK2, FI, etc.)
+  currency: "SEK"                      # Price currency
+  resolution_minutes: 15               # Slot resolution (15, 30, or 60)
 
-# Pricing Configuration
+# Pricing Configuration (your electricity costs)
 pricing:
-  vat_percent: 25.0
-  grid_transfer_fee_sek: 0.2456
-  energy_tax_sek: 0.439
-  subscription_fee_sek_per_month: 593.0
+  vat_percent: 25.0                    # VAT percentage on electricity
+  grid_transfer_fee_sek: 0.2456        # Grid operator transfer fee per kWh
+  energy_tax_sek: 0.439                # Energy tax per kWh
+  subscription_fee_sek_per_month: 593.0  # Fixed monthly grid subscription
 
-# Forecasting Adjustments
+# Forecasting Adjustments (Aurora ML tuning)
 forecasting:
-  active_forecast_version: aurora
-  pv_confidence_percent: 83.0
-  load_safety_margin_percent: 117.0
+  active_forecast_version: aurora      # Forecast engine: aurora (ML) | legacy
+  pv_confidence_percent: 83.0          # PV forecast scaling (100 = trust forecast fully)
+  load_safety_margin_percent: 117.0    # Load forecast scaling (>100 = expect more load)
 
 # Grid Limits
 grid:
-  import_limit_kw: 11.0
+  import_limit_kw: 11.0                # Max grid import power (for effekttariff awareness)
 
-# Kepler Solver
+# Kepler Solver (MILP optimizer settings)
 kepler:
-  enabled: true
-  primary_planner: true
-  shadow_mode: true
-  ramping_cost_sek_per_kw: 0.05  # Penalty for power changes between slots (reduces sawtooth)
+  enabled: true                        # Use Kepler MILP solver (always true for v2)
+  primary_planner: true                # Kepler is the primary planner
+  shadow_mode: true                    # Log decisions without executing (for testing)
+  ramping_cost_sek_per_kw: 0.05        # Penalty for power changes between slots (reduces sawtooth)
 
 # =============================================================================
 # Home Assistant Integration
 # =============================================================================
 
-# Input Sensors (read from HA)
+# Input Sensors (entities Darkstar READS from Home Assistant)
 input_sensors:
-  alarm_state: alarm_control_panel.alarmo
-  battery_soc: sensor.inverter_battery
-  total_battery_charge: sensor.inverter_total_battery_charge
-  total_battery_discharge: sensor.inverter_total_battery_discharge
-  total_grid_export: sensor.inverter_total_energy_export
-  total_grid_import: sensor.inverter_total_energy_import
-  total_load_consumption: sensor.inverter_total_load_consumption
-  total_pv_production: sensor.inverter_total_production
-  vacation_mode: input_boolean.vacation_mode
-  water_heater_consumption: sensor.vvb_energy_daily
-  # Daily sensors for Today's Stats card
-  today_grid_import: sensor.inverter_today_energy_import
-  today_grid_export: sensor.inverter_today_energy_export
-  today_battery_charge: sensor.inverter_today_battery_charge
-  today_pv_production: sensor.inverter_today_production
-  today_load_consumption: sensor.inverter_today_load_consumption
-  today_net_cost: sensor.daily_cost
+  # Context sensors for ML features
+  alarm_state: alarm_control_panel.alarmo        # Alarm panel for occupancy detection (ML feature)
+  vacation_mode: input_boolean.vacation_mode     # Vacation mode toggle (reduces load forecasts)
+  
+  # Core energy sensors (cumulative totals)
+  battery_soc: sensor.inverter_battery           # Current battery state of charge (%)
+  total_battery_charge: sensor.inverter_total_battery_charge      # Cumulative battery charge (kWh)
+  total_battery_discharge: sensor.inverter_total_battery_discharge # Cumulative battery discharge (kWh)
+  total_grid_export: sensor.inverter_total_energy_export          # Cumulative grid export (kWh)
+  total_grid_import: sensor.inverter_total_energy_import          # Cumulative grid import (kWh)
+  total_load_consumption: sensor.inverter_total_load_consumption  # Cumulative load (kWh)
+  total_pv_production: sensor.inverter_total_production           # Cumulative PV production (kWh)
+  water_heater_consumption: sensor.vvb_energy_daily               # Water heater daily energy (kWh)
+  
+  # Daily sensors for Dashboard "Today's Stats" card
+  today_grid_import: sensor.inverter_today_energy_import          # Today's grid import (kWh)
+  today_grid_export: sensor.inverter_today_energy_export          # Today's grid export (kWh)
+  today_battery_charge: sensor.inverter_today_battery_charge      # Today's battery charge (kWh)
+  today_pv_production: sensor.inverter_today_production           # Today's PV production (kWh)
+  today_load_consumption: sensor.inverter_today_load_consumption  # Today's load consumption (kWh)
+  today_net_cost: sensor.daily_cost                               # Today's net electricity cost
 
-# Executor (5-minute control loop)
+# Executor (control loop that WRITES to Home Assistant)
 executor:
-  enabled: true
-  shadow_mode: true
-  interval_seconds: 300
-  pause_reminder_minutes: 30       # Send reminder if paused longer than this
-  history_retention_days: 30
-  automation_toggle_entity: input_boolean.darkstar_enable
-  manual_override_entity: input_boolean.darkstar_manual_override
-  soc_target_entity: input_number.master_soc_target
+  enabled: true                                  # Enable executor control loop
+  shadow_mode: true                              # Log actions but don't execute (for testing)
+  interval_seconds: 300                          # How often to run (default: 5 minutes)
+  pause_reminder_minutes: 30                     # Notify if paused longer than this
+  history_retention_days: 30                     # Keep execution history for N days
+  
+  # Toggle entities (read by executor to check if enabled)
+  automation_toggle_entity: input_boolean.darkstar_enable           # Master enable/disable switch
+  manual_override_entity: input_boolean.darkstar_manual_override    # Manual override active flag
+  soc_target_entity: input_number.master_soc_target                 # SoC target input_number
 
-  # Inverter Control Entities
+  # Inverter Control Entities (executor WRITES to these)
   inverter:
-    work_mode_entity: select.inverter_work_mode
-    work_mode_export: "Export First"
-    work_mode_zero_export: "Zero Export To CT"
-    grid_charging_entity: switch.inverter_battery_grid_charging
-    max_charging_current_entity: number.inverter_battery_max_charging_current
-    max_discharging_current_entity: 
-      number.inverter_battery_max_discharging_current
+    work_mode_entity: select.inverter_work_mode                     # Inverter mode selector
+    work_mode_export: "Export First"                                # Value for export mode
+    work_mode_zero_export: "Zero Export To CT"                      # Value for zero-export mode
+    grid_charging_entity: switch.inverter_battery_grid_charging     # Enable/disable grid charging
+    max_charging_current_entity: number.inverter_battery_max_charging_current     # Max charge current (A)
+    max_discharging_current_entity: number.inverter_battery_max_discharging_current  # Max discharge current (A)
 
-  # Controller Parameters
+  # Controller Parameters (electrical conversion constants)
   controller:
-    battery_capacity_kwh: 27.0
-    system_voltage_v: 48.0
-    worst_case_voltage_v: 46.0
-    inverter_ac_limit_kw: 8.8
-    charge_efficiency: 0.92
-    max_charge_a: 190.0
-    min_charge_a: 10.0
-    round_step_a: 5.0
-    write_threshold_a: 5.0
+    battery_capacity_kwh: 27.0         # Battery capacity in kWh (for current calculations)
+    system_voltage_v: 48.0             # Nominal battery voltage
+    worst_case_voltage_v: 46.0         # Minimum voltage for conservative calculations
+    inverter_ac_limit_kw: 8.8          # Max AC power output of inverter
+    charge_efficiency: 0.92            # Charging efficiency (0-1)
+    max_charge_a: 190.0                # Maximum charging current (A)
+    min_charge_a: 10.0                 # Minimum meaningful charge current (A)
+    round_step_a: 5.0                  # Round current commands to nearest X amps
+    write_threshold_a: 5.0             # Only write if change exceeds X amps
 
   # Water Heater Control
   # The executor controls your water heater by setting a target temperature.
@@ -270,36 +254,39 @@ executor:
     temp_boost: 70     # Manual boost button (Dashboard/Executor)
     temp_max: 85       # PV dump target + safety limit (never exceeded)
 
-  # Notifications
+  # Notifications (via Home Assistant notify service)
   notifications:
-    service: notify.mobile_app_sebastians_iphone
-    on_charge_start: true
-    on_charge_stop: false
-    on_export_start: true
-    on_export_stop: true
-    on_water_heat_start: true
-    on_water_heat_stop: false
-    on_soc_target_change: false
-    on_override_activated: true
-    on_error: true
+    service: notify.mobile_app_sebastians_iphone  # HA notify service to use
+    on_charge_start: true              # Notify when grid charging starts
+    on_charge_stop: false              # Notify when grid charging stops
+    on_export_start: true              # Notify when export/discharge starts
+    on_export_stop: true               # Notify when export/discharge stops
+    on_water_heat_start: true          # Notify when water heating starts
+    on_water_heat_stop: false          # Notify when water heating stops
+    on_soc_target_change: false        # Notify when SoC target changes
+    on_override_activated: true        # Notify when manual override triggers
+    on_error: true                     # Notify on executor errors
 
 # =============================================================================
 # UI Settings
 # =============================================================================
 
+# Dashboard Settings
 dashboard:
-  auto_refresh_enabled: true
-  overlay_defaults: "charge, soctarget, socprojected, water, export, load_off"
+  auto_refresh_enabled: true           # Auto-refresh dashboard schedule display
+  overlay_defaults: "charge, soctarget, socprojected, water, export, load_off"  # Default chart overlays
 
+# Theme Settings
 ui:
-  theme: "Material Design Colors"
-  theme_accent_index: 3
+  theme: "Material Design Colors"      # Color theme name
+  theme_accent_index: 3                # Accent color index (0-based)
 
 # Appliances (for manual scheduling UI)
+# Define appliances that can be scheduled in the Planning tab
 appliances:
   dishwasher:
-    label: Dishwasher
-    duration_hours: 1.0
+    label: Dishwasher                  # Display name in UI
+    duration_hours: 1.0                # Typical run duration
   dryer:
     label: Dryer
     duration_hours: 2.0
