@@ -37,5 +37,5 @@ module.exports = {
             }
         },
     },
-    plugins: [require('tailwindcss-noise')],
+    plugins: [],
 }
