@@ -875,16 +875,16 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Grid Export - Good Green */}
-                    <div className="metric-card-border metric-card-border-battery p-3 bg-surface2/30 relative overflow-hidden group">
+                    {/* Grid Export - TE Orange */}
+                    <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
                         <div className="absolute right-2 bottom-2 opacity-30 group-hover:opacity-50 transition-opacity pointer-events-none">
-                            <MiniBarGraph data={historyBuffer.export} colorClass="bg-good" />
+                            <MiniBarGraph data={historyBuffer.export} colorClass="bg-bad" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowUpFromLine className={`h-6 w-6 ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-good' : 'text-grid'
+                            <ArrowUpFromLine className={`h-6 w-6 ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
                                 }`} />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-good' : 'text-text'
+                                <div className={`text-lg font-bold ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
                                     }`}>
                                     {live?.grid_export?.numeric ? (live.grid_export.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>

@@ -104,17 +104,28 @@ body {
     color: rgb(var(--color-text));
 }
 
-/* Sharp grain texture overlay */
-body::after {
+/* Sharp grain texture overlay - using html::after for better stacking */
+html::after {
     content: '';
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
     pointer-events: none;
     opacity: 0.04;
     z-index: 9999;
-    /* Path must match where noise.png is in public/ folder */
     background-image: url('/noise.png');
     background-repeat: repeat;
+    mix-blend-mode: overlay;
+}
+
+/* Remove thin borders globally for flat TE style */
+.border-line\/50,
+.border-line\/60,
+.border-line\/70,
+.border-line\/30 {
+    border-color: transparent !important;
 }
 
 /* Soft ambient glow for active level buttons */
@@ -183,14 +194,14 @@ body::after {
 .mini-bars {
     display: flex;
     align-items: flex-end;
-    gap: 1px;
-    height: 28px;
+    gap: 2px;
+    height: 32px;
 }
 
 .mini-bar {
-    width: 3px;
-    border-radius: 1px;
-    animation: barPulse 2s ease-in-out infinite;
+    width: 8px;
+    border-radius: 4px;
+    opacity: 1;
 }
 
 @keyframes barPulse {
