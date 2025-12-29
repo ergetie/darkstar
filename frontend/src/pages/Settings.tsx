@@ -4,9 +4,11 @@ import AzimuthDial from '../components/AzimuthDial'
 import TiltDial from '../components/TiltDial'
 import EntitySelect from '../components/EntitySelect'
 import ServiceSelect from '../components/ServiceSelect'
+import Tooltip from '../components/Tooltip'
 import { Api, ThemeInfo } from '../lib/api'
 import { cls } from '../theme'
 import { Sparkles } from 'lucide-react'
+import configHelp from '../config-help.json'
 
 const tabs = [
     { id: 'system', label: 'System' },
@@ -1307,8 +1309,9 @@ export default function Settings() {
                         <div className="mt-5 grid gap-4 sm:grid-cols-2">
                             {section.fields.map((field) => (
                                 <div key={field.key} className="space-y-1">
-                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                    <label className="block text-sm font-medium mb-1.5">
                                         {field.label}
+                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
                                     </label>
                                     {field.type === 'select' ? (
                                         <select
