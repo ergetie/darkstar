@@ -24,7 +24,8 @@ system:
   has_battery: true       # Enable battery control & grid arbitrage
   has_water_heater: true  # Enable water heating optimization
   
-  grid:\n    max_power_kw: 8                    # HARD limit: max grid import (cannot be exceeded)
+  grid:
+    max_power_kw: 8                    # HARD limit: max grid import (cannot be exceeded)
   inverter:
     max_power_kw: 10.0                 # Maximum inverter AC power output
   location:

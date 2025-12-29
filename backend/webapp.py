@@ -2222,6 +2222,71 @@ def ha_list_entities():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/ha/services", methods=["GET"])
+def ha_list_services():
+    """List all services from Home Assistant using configured credentials."""
+    import requests as req
+    from inputs import load_home_assistant_config, _make_ha_headers
+    ha_config = load_home_assistant_config()
+    if not ha_config:
+        return jsonify({"error": "Home Assistant not configured"}), 400
+
+    url = ha_config.get("url", "").rstrip("/")
+    token = ha_config.get("token", "")
+
+    try:
+        headers = _make_ha_headers(token)
+        resp = req.get(f"{url}/api/services", headers=headers, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            # HA returns a list of domains, each with a 'services' dict
+            # We want to flatten this into a list of "domain.service" strings
+            services = []
+            for domain_item in data:
+                domain = domain_item.get("domain", "")
+                service_dict = domain_item.get("services", {})
+                for svc_name in service_dict.keys():
+                    services.append(f"{domain}.{svc_name}")
+            return jsonify({"services": sorted(services)})
+        else:
+            return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+@app.route("/api/ha/entity/<path:entity_id>", methods=["GET"])
+def ha_get_entity_state(entity_id):
+    """Get the current state of a specific Home Assistant entity."""
+    import requests as req
+    from inputs import load_home_assistant_config, _make_ha_headers
+    ha_config = load_home_assistant_config()
+    if not ha_config:
+        return jsonify({"error": "Home Assistant not configured"}), 400
+
+    url = ha_config.get("url", "").rstrip("/")
+    token = ha_config.get("token", "")
+
+    try:
+        headers = _make_ha_headers(token)
+        resp = req.get(f"{url}/api/states/{entity_id}", headers=headers, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            return jsonify({
+                "entity_id": data.get("entity_id"),
+                "state": data.get("state"),
+                "attributes": data.get("attributes", {}),
+                "last_changed": data.get("last_changed"),
+                "last_updated": data.get("last_updated")
+            })
+        elif resp.status_code == 404:
+            return jsonify({"error": f"Entity {entity_id} not found"}), 404
+        else:
+            return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/config/reset", methods=["POST"])
 def reset_config():
     shutil.copy("config.default.yaml", "config.yaml")

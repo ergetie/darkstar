@@ -262,8 +262,8 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
                 <button
                     className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary
                         ${plannerPhase !== 'idle'
-                            ? 'bg-accent text-canvas cursor-wait'
-                            : 'bg-accent hover:bg-accent2 text-canvas'
+                            ? 'bg-accent text-[#100f0e] cursor-wait'
+                            : 'bg-accent hover:bg-accent2 text-[#100f0e]'
                         }`}
                     onClick={handleRunPlanner}
                     disabled={plannerPhase !== 'idle'}

@@ -38,7 +38,9 @@ export default function Dashboard() {
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
     const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
     const [comfortLevel, setComfortLevel] = useState<number>(3)  // Rev K18
-    const [vacationMode, setVacationMode] = useState<boolean>(false)  // Rev K19
+    const [vacationMode, setVacationMode] = useState<boolean>(false)  // Rev K19 - from config
+    const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)  // From HA entity
+    const [vacationEntityId, setVacationEntityId] = useState<string | null>(null)  // Configured HA entity
     const [riskAppetite, setRiskAppetite] = useState<number>(3)  // Risk Appetite on Dashboard
     const [learningStatus, setLearningStatus] = useState<{ enabled?: boolean; status?: string; samples?: number } | null>(null)
     const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
@@ -82,6 +84,15 @@ export default function Dashboard() {
             shadow_mode: data.shadow_mode ?? false,
             paused: data.paused ?? null,
         })
+    })
+
+    // WebSocket: HA entity state changes (instant vacation mode sync)
+    useSocket('ha_entity_change', (data) => {
+        // If this is the vacation mode entity, update state instantly
+        if (data.entity_id === vacationEntityId) {
+            const isActive = data.state === 'on'
+            setVacationModeHA(isActive)
+        }
     })
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
@@ -252,6 +263,21 @@ export default function Dashboard() {
                     if (typeof data.water_heating.vacation_mode?.enabled === 'boolean') {
                         setVacationMode(data.water_heating.vacation_mode.enabled)
                     }
+                }
+
+                // Load vacation mode HA entity ID
+                if (data.input_sensors?.vacation_mode) {
+                    setVacationEntityId(data.input_sensors.vacation_mode)
+                    // Immediately fetch the HA entity state if configured
+                    Api.haEntityState(data.input_sensors.vacation_mode)
+                        .then(entityData => {
+                            const isActive = entityData.state === 'on'
+                            setVacationModeHA(isActive)
+                        })
+                        .catch(() => {
+                            // Entity not available, gracefully ignore
+                            setVacationModeHA(false)
+                        })
                 }
             } else {
                 hadError = true
@@ -618,12 +644,28 @@ export default function Dashboard() {
                         <span>Executor Paused (Idle Mode)</span>
                         {executorStatus.paused.paused_minutes !== undefined && (
                             <span className="text-orange-400/70 text-xs ml-2">
-                                — Paused for {Math.round(executorStatus.paused.paused_minutes)} minutes
+                                — Paused for {executorStatus.paused.paused_minutes} minutes
                             </span>
                         )}
                     </div>
                 </motion.div>
             )}
+
+            {/* Vacation Mode Banner */}
+            {(vacationMode || vacationModeHA) && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-cyan-500/20 border border-cyan-500/50 rounded-lg px-4 py-3 mb-4"
+                >
+                    <div className="flex items-center gap-2 text-cyan-300 text-sm font-medium">
+                        <span>🏝️</span>
+                        <span>Vacation Mode Active</span>
+                        <span className="text-cyan-400/70 text-xs ml-2">— Water heating is disabled</span>
+                    </div>
+                </motion.div>
+            )}
+
 
 
             {/* Row 1: Schedule Overview (24h / 48h) */}

@@ -263,6 +263,10 @@ export const Api = {
     getJSON<{ success: boolean; message: string }>('/api/ha/test', 'POST', payload),
   haEntities: () =>
     getJSON<{ entities: { entity_id: string; friendly_name: string; domain: string }[] }>('/api/ha/entities'),
+  haServices: () =>
+    getJSON<{ services: string[] }>('/api/ha/services'),
+  haEntityState: (entityId: string) =>
+    getJSON<{ entity_id: string; state: string; attributes: Record<string, any> }>(`/api/ha/entity/${entityId}`),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
   learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
   learningDailyMetrics: () => getJSON<LearningDailyMetricsResponse>('/api/learning/daily_metrics'),

@@ -23,3 +23,15 @@ def emit_plan_updated():
         socketio.emit("plan_updated", {"timestamp": "now"})
     except Exception as e:
         logger.error(f"Failed to emit plan_updated: {e}")
+
+def emit_ha_entity_change(entity_id: str, state: str, attributes: dict = None):
+    """Broadcast HA entity state change to all connected clients."""
+    try:
+        payload = {
+            "entity_id": entity_id,
+            "state": state,
+            "attributes": attributes or {}
+        }
+        socketio.emit("ha_entity_change", payload)
+    except Exception as e:
+        logger.error(f"Failed to emit ha_entity_change: {e}")

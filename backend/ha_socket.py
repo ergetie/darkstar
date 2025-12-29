@@ -35,6 +35,7 @@ class HAWebSocketClient:
             if "load_power" in sensors: mapping[sensors["load_power"]] = "load_kw"
             if "grid_import_power" in sensors: mapping[sensors["grid_import_power"]] = "grid_import_kw"
             if "grid_export_power" in sensors: mapping[sensors["grid_export_power"]] = "grid_export_kw"
+            if "vacation_mode" in sensors: mapping[sensors["vacation_mode"]] = "vacation_mode"
             return mapping
         except Exception:
             return {}
@@ -86,6 +87,23 @@ class HAWebSocketClient:
     def _handle_state_change(self, entity_id, new_state):
         if not new_state: return
         key = self.monitored_entities[entity_id]
+        
+        # Handle vacation_mode (binary sensor/input_boolean)
+        if key == "vacation_mode":
+            try:
+                state_val = new_state.get("state")
+                # Emit entity change event
+                from backend.events import emit_ha_entity_change
+                emit_ha_entity_change(
+                    entity_id=entity_id,
+                    state=state_val,
+                    attributes=new_state.get("attributes", {})
+                )
+            except Exception as e:
+                logger.error(f"Failed to emit vacation_mode change: {e}")
+            return
+        
+        # Handle numeric sensors (existing logic)
         try:
             state_val = new_state.get("state")
             if state_val in ("unknown", "unavailable"):

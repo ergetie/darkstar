@@ -3,6 +3,7 @@ import Card from '../components/Card'
 import AzimuthDial from '../components/AzimuthDial'
 import TiltDial from '../components/TiltDial'
 import EntitySelect from '../components/EntitySelect'
+import ServiceSelect from '../components/ServiceSelect'
 import { Api, ThemeInfo } from '../lib/api'
 import { cls } from '../theme'
 import { Sparkles } from 'lucide-react'
@@ -19,7 +20,7 @@ type SystemField = {
     label: string
     helper?: string
     path: string[]
-    type: 'number' | 'text' | 'boolean' | 'entity'
+    type: 'number' | 'text' | 'boolean' | 'entity' | 'service'
 }
 
 type ParameterField = {
@@ -81,7 +82,7 @@ const systemSections = [
         title: 'Notifications',
         description: 'Configure automated notifications via Home Assistant.',
         fields: [
-            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'text' },
+            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'service' },
             { key: 'executor.notifications.on_charge_start', label: 'On charge start', path: ['executor', 'notifications', 'on_charge_start'], type: 'boolean' },
             { key: 'executor.notifications.on_charge_stop', label: 'On charge stop', path: ['executor', 'notifications', 'on_charge_stop'], type: 'boolean' },
             { key: 'executor.notifications.on_discharge_start', label: 'On discharge start', path: ['executor', 'notifications', 'on_discharge_start'], type: 'boolean' },
@@ -1170,6 +1171,24 @@ export default function Settings() {
                                             )
                                         }
 
+                                        if (field.type === 'service') {
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                    </label>
+                                                    <ServiceSelect
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(value) => handleFieldChange(field.key, value)}
+                                                        placeholder="Select notification service..."
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
                                         // Regular fields (boolean checkboxes, number/text inputs)
                                         if (field.type === 'boolean') {
                                             return (
@@ -1242,7 +1261,7 @@ export default function Settings() {
                     <button
                         disabled={systemSaving || loadingConfig}
                         onClick={handleSaveSystem}
-                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {systemSaving ? 'Saving…' : 'Save System Settings'}
                     </button>
@@ -1349,7 +1368,7 @@ export default function Settings() {
                     <button
                         disabled={parameterSaving || loadingConfig}
                         onClick={handleSaveParameters}
-                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {parameterSaving ? 'Saving & Re-planning…' : 'Save & Re-plan'}
                     </button>
@@ -1493,7 +1512,7 @@ export default function Settings() {
                                                             type="button"
                                                             onClick={() => toggleToken('load_off', !loadIsActive)}
                                                             className={`rounded-pill px-3 py-1 border text-[11px] transition ${loadIsActive
-                                                                ? 'bg-accent text-canvas border-accent'
+                                                                ? 'bg-accent text-[#100f0e] border-accent'
                                                                 : 'border-line/60 text-muted hover:border-accent'
                                                                 }`}
                                                         >
@@ -1523,7 +1542,7 @@ export default function Settings() {
                                                                         handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
                                                                     }}
                                                                     className={`rounded-pill px-3 py-1 border text-[11px] transition ${isActive
-                                                                        ? 'bg-accent text-canvas border-accent'
+                                                                        ? 'bg-accent text-[#100f0e] border-accent'
                                                                         : 'border-line/60 text-muted hover:border-accent'
                                                                         }`}
                                                                 >
@@ -1598,7 +1617,7 @@ export default function Settings() {
                     <button
                         disabled={uiSaving || loadingConfig}
                         onClick={handleSaveUI}
-                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {uiSaving ? 'Saving…' : 'Save UI Preferences'}
                     </button>
@@ -1668,7 +1687,7 @@ export default function Settings() {
                     <button
                         disabled={advancedSaving || loadingConfig}
                         onClick={handleSaveAdvanced}
-                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {advancedSaving ? 'Saving…' : 'Save Advanced Settings'}
                     </button>
