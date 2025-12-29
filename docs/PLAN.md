@@ -98,21 +98,27 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 1: Config Key Audit & Documentation
+#### Phase 1: Config Key Audit & Documentation ✅
 
 Map every config key to its code usage and document purpose. Identify unused keys.
 
-**Tasks:**
-- [ ] Add explanatory comments to every key in `config.default.yaml`
-- [ ] Verify each key is actually used in code (grep search)
-- [ ] Flag any unused/orphaned config keys for removal discussion
-- [ ] Document which keys are in `secrets.yaml` vs `config.yaml` (secrets = API keys/tokens only)
-- [ ] Create categorization proposal: Normal vs Advanced vs Internal
+**Completed:**
+- [x] Add explanatory comments to every key in `config.default.yaml`
+- [x] Verify each key is actually used in code (grep search)
+- [x] Remove 28 unused/orphaned config keys:
+  - `smoothing` section (8) - replaced by Kepler ramping_cost
+  - `decision_thresholds` (3) - legacy heuristics
+  - `arbitrage` section (8) - replaced by Kepler MILP
+  - `kepler.enabled/primary_planner/shadow_mode` (3) - vestigial
+  - `manual_planning` unused keys (3) - never referenced
+  - `schedule_future_only`, `sync_interval_minutes`, `carry_forward_tolerance_ratio`
+- [x] Document `secrets.yaml` vs `config.yaml` separation
+- [x] Add backlog items for unimplemented features (4 items)
 
-**Discussion Points (resolve before Phase 2):**
-- [ ] Which keys should be hidden entirely or removed from config? (e.g., `kepler.enabled` has no alternative)
-- [ ] Should `vacation_mode` be HA entity, config toggle, or both?
-- [ ] How should we categorize ~70 missing config keys?
+**Remaining:**
+- [ ] Create categorization proposal: Normal vs Advanced
+- [ ] Discuss: vacation_mode dual-source (HA entity for ML vs config for anti-legionella)
+- [ ] Discuss: grid.import_limit_kw vs system.grid.max_power_kw naming/purpose
 
 ---
 
@@ -120,19 +126,30 @@ Map every config key to its code usage and document purpose. Identify unused key
 
 Design how HA entity mappings should be organized in Settings UI.
 
+**Key Design Decision: Dual HA Entity / Config Pattern**
+
+Some settings exist in both HA (entities) and Darkstar (config). Users want:
+- Darkstar works **without** HA entities (config-only mode)
+- If HA entity exists, **bidirectional sync** with config
+- Changes in HA → update Darkstar, changes in Darkstar → update HA
+
+**Current dual-source keys identified:**
+| Key | HA Entity | Config | Current Behavior |
+|-----|-----------|--------|------------------|
+| vacation_mode | `input_sensors.vacation_mode` | `water_heating.vacation_mode.enabled` | HA read for ML, config for anti-legionella (NOT synced) |
+| soc_target | `executor.soc_target_entity` | (none) | HA only, no config fallback |
+| automation_enabled | `executor.automation_toggle_entity` | `executor.enabled` | HA for toggle, config for initial state |
+
 **Tasks:**
-- [ ] Propose new Settings tab structure (entities may need dedicated section)
+- [ ] Design bidirectional sync mechanism for dual-source keys
+- [ ] Decide which keys need HA entity vs config-only vs both
+- [ ] Propose new Settings tab structure (entities in dedicated section)
 - [ ] Design "Core Sensors" vs "Control Entities" groupings
 - [ ] Determine which entities are required vs optional
-- [ ] Decide if `input_sensors.*` and `executor.*_entity` should merge or stay separate
 - [ ] Design validation (entity exists in HA, correct domain)
 
 **Missing Entities to Add (from audit):**
-- `input_sensors.vacation_mode`
-- `input_sensors.alarm_state`
-- `input_sensors.total_*` (6 keys)
 - `input_sensors.today_*` (6 keys)
-- `executor.automation_toggle_entity`
 - `executor.manual_override_entity`
 
 ---

@@ -90,6 +90,32 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
+### [UI] Improve SmartAdvisor Appliance Recommendations
+
+**Goal:** Make the SmartAdvisor appliance scheduling feature more useful and reliable.
+
+**Current State:** Feature exists but recommendations are not consistently helpful.
+
+**Tasks:**
+- Review and improve scheduling algorithm
+- Better integration with price data and forecasts
+- Consider showing savings estimates
+
+---
+
+### [Planner] Implement Configurable Effekttariff Penalty
+
+**Goal:** Allow users to configure the peak power penalty instead of hardcoded 5000 SEK/kWh.
+
+**Current State:** `grid.import_limit_kw` is a soft constraint with fixed `IMPORT_BREACH_PENALTY = 5000` in Kepler.
+
+**Tasks:**
+- Add `grid.import_breach_penalty_sek` config key
+- Read from config in Kepler solver
+- Expose in Settings UI
+
+---
+
 ### [Docs] First-Time Setup Guide
 
 **Goal:** Create a comprehensive setup guide in `README.md` for new users.
