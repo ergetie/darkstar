@@ -18,7 +18,6 @@ def extract_config_help():
         lines = f.readlines()
     
     help_map = {}
-    current_comment = []
     current_path = []
     
     for line in lines:
@@ -26,32 +25,32 @@ def extract_config_help():
         
         # Skip empty lines and header comments
         if not stripped or stripped.startswith('# ==='):
-            current_comment = []
             continue
         
-        # Collect comment lines
-        if stripped.startswith('#'):
-            comment = stripped[1:].strip()
-            if comment:
-                current_comment.append(comment)
-            continue
-        
-        # Parse key: value lines
-        match = re.match(r'^(\s*)([a-z_]+):', line)
+        # Parse key: value lines (with optional inline comments)
+        match = re.match(r'^(\s*)([a-z_]+):\s*(.*)$', line)
         if match:
             indent = len(match.group(1))
             key = match.group(2)
+            rest = match.group(3)
             
             # Calculate nesting level
             level = indent // 2
             current_path = current_path[:level]
             current_path.append(key)
             
-            # Store help text if we have comments
-            if current_comment:
+            # Extract inline comment if present
+            comment = None
+            if '#' in rest:
+                # Split on # to get comment part
+                parts = rest.split('#', 1)
+                if len(parts) == 2:
+                    comment = parts[1].strip()
+            
+            # Store help text if we have a comment
+            if comment:
                 full_key = '.'.join(current_path)
-                help_map[full_key] = ' '.join(current_comment)
-                current_comment = []
+                help_map[full_key] = comment
     
     # Write output
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)

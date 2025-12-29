@@ -1079,6 +1079,7 @@ export default function Settings() {
                                                 <div key={field.key} className="space-y-1">
                                                     <label className="text-[10px] uppercase tracking-wide text-muted">
                                                         {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
                                                     </label>
                                                     <AzimuthDial
                                                         value={
@@ -1120,6 +1121,7 @@ export default function Settings() {
                                                 <div key={field.key} className="space-y-1">
                                                     <label className="text-[10px] uppercase tracking-wide text-muted">
                                                         {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
                                                     </label>
                                                     <TiltDial
                                                         value={
@@ -1158,6 +1160,7 @@ export default function Settings() {
                                                 <div key={field.key} className="space-y-1">
                                                     <label className="text-[10px] uppercase tracking-wide text-muted">
                                                         {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
                                                     </label>
                                                     <EntitySelect
                                                         entities={haEntities}
@@ -1178,6 +1181,7 @@ export default function Settings() {
                                                 <div key={field.key} className="space-y-1">
                                                     <label className="text-[10px] uppercase tracking-wide text-muted">
                                                         {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
                                                     </label>
                                                     <ServiceSelect
                                                         value={systemForm[field.key] ?? ''}
@@ -1217,6 +1221,7 @@ export default function Settings() {
                                             <div key={field.key} className="space-y-1">
                                                 <label className="text-[10px] uppercase tracking-wide text-muted">
                                                     {field.label}
+                                                    <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
                                                 </label>
                                                 <input
                                                     type={field.type === 'number' ? 'number' : 'text'}
@@ -1579,7 +1584,10 @@ export default function Settings() {
                                             </div>
                                         ) : field.type === 'select' ? (
                                             <>
-                                                <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                    {field.label}
+                                                    <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                </label>
                                                 <select
                                                     value={uiForm[field.key] ?? ''}
                                                     onChange={(event) => handleUIFieldChange(field.key, event.target.value)}
@@ -1595,7 +1603,10 @@ export default function Settings() {
                                             </>
                                         ) : (
                                             <>
-                                                <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                    {field.label}
+                                                    <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                </label>
                                                 <input
                                                     type="text"
                                                     value={uiForm[field.key] ?? ''}
