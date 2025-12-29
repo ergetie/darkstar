@@ -81,7 +81,7 @@ const systemSections = [
         title: 'Notifications',
         description: 'Configure automated notifications via Home Assistant.',
         fields: [
-            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'entity' },
+            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'text' },
             { key: 'executor.notifications.on_charge_start', label: 'On charge start', path: ['executor', 'notifications', 'on_charge_start'], type: 'boolean' },
             { key: 'executor.notifications.on_charge_stop', label: 'On charge stop', path: ['executor', 'notifications', 'on_charge_stop'], type: 'boolean' },
             { key: 'executor.notifications.on_discharge_start', label: 'On discharge start', path: ['executor', 'notifications', 'on_discharge_start'], type: 'boolean' },
@@ -1242,7 +1242,7 @@ export default function Settings() {
                     <button
                         disabled={systemSaving || loadingConfig}
                         onClick={handleSaveSystem}
-                        className={`${cls.accentBtn} btn-glow-primary`}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
                     >
                         {systemSaving ? 'Saving…' : 'Save System Settings'}
                     </button>
@@ -1349,7 +1349,7 @@ export default function Settings() {
                     <button
                         disabled={parameterSaving || loadingConfig}
                         onClick={handleSaveParameters}
-                        className={`${cls.accentBtn} btn-glow-primary`}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
                     >
                         {parameterSaving ? 'Saving & Re-planning…' : 'Save & Re-plan'}
                     </button>
@@ -1598,7 +1598,7 @@ export default function Settings() {
                     <button
                         disabled={uiSaving || loadingConfig}
                         onClick={handleSaveUI}
-                        className={`${cls.accentBtn} btn-glow-primary`}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
                     >
                         {uiSaving ? 'Saving…' : 'Save UI Preferences'}
                     </button>
@@ -1668,7 +1668,7 @@ export default function Settings() {
                     <button
                         disabled={advancedSaving || loadingConfig}
                         onClick={handleSaveAdvanced}
-                        className={`${cls.accentBtn} btn-glow-primary`}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-canvas disabled:opacity-50"
                     >
                         {advancedSaving ? 'Saving…' : 'Save Advanced Settings'}
                     </button>
@@ -1701,7 +1701,7 @@ export default function Settings() {
                             <button
                                 type="button"
                                 onClick={() => setResetConfirmOpen(true)}
-                                className="rounded-lg bg-red-500/20 px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-400 transition hover:bg-red-500/40"
+                                className="rounded-lg bg-[#EE3B47] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#D6323D]"
                             >
                                 Reset all settings to defaults
                             </button>
