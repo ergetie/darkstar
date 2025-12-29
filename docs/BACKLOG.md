@@ -77,6 +77,19 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
+### [Analytics] Implement Monthly Cost Analysis
+
+**Goal:** Use `pricing.subscription_fee_sek_per_month` to show total monthly costs.
+
+**Current State:** Config key exists but is not used anywhere in code.
+
+**Potential Uses:**
+- Calculate true break-even for battery/solar ROI
+- Show monthly cost projection on Dashboard
+- Include in Cost Reality comparisons
+
+---
+
 ### [Docs] First-Time Setup Guide
 
 **Goal:** Create a comprehensive setup guide in `README.md` for new users.

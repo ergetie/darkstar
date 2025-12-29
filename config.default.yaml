@@ -69,7 +69,6 @@ water_heating:
   min_hours_per_day: 2.0           # Minimum run-time per day
   min_kwh_per_day: 6.0             # Optional; defaults to power * hours when unset
   max_blocks_per_day: 2            # Prefer single block, up to two if needed
-  schedule_future_only: true       # Only schedule future slots (skip current slot)
   defer_up_to_hours: 6             # Allow deferring into early tomorrow up to N hours if cheaper
   plan_days_ahead: 1               # Plan at most today + 1 day (tomorrow) within 48h horizon
   block_consolidation_tolerance_sek: 0.05
@@ -109,9 +108,6 @@ export:
 manual_planning:
   charge_target_percent: 95        # Cap for manual charge slots
   export_target_percent: 35        # Floor target when manually scheduling export
-  override_hold_in_cheap: true     # Ignore cheap-window hold while simulating manual plan
-  force_discharge_on_deficit: true # If deficit, allow discharge even if price/cheap guards would block
-  ignore_protective_guard: true    # Do not raise SoC target floor above min_soc during manual plan
 
 # Debug & Telemetry (developer settings)
 debug:
@@ -163,7 +159,7 @@ pricing:
   vat_percent: 25.0                    # VAT percentage on electricity
   grid_transfer_fee_sek: 0.2456        # Grid operator transfer fee per kWh
   energy_tax_sek: 0.439                # Energy tax per kWh
-  subscription_fee_sek_per_month: 593.0  # Fixed monthly grid subscription
+  subscription_fee_sek_per_month: 593.0  # [FUTURE] Fixed monthly grid subscription (for cost analysis)
 
 # Forecasting Adjustments (Aurora ML tuning)
 forecasting:
@@ -177,9 +173,6 @@ grid:
 
 # Kepler Solver (MILP optimizer settings)
 kepler:
-  enabled: true                        # Use Kepler MILP solver (always true for v2)
-  primary_planner: true                # Kepler is the primary planner
-  shadow_mode: true                    # Log decisions without executing (for testing)
   ramping_cost_sek_per_kw: 0.05        # Penalty for power changes between slots (reduces sawtooth)
 
 # =============================================================================
