@@ -191,21 +191,27 @@ const parameterSections = [
             { key: 'learning.max_daily_param_change.s_index_temp_weight', label: 'S-index temp weight change', path: ['learning', 'max_daily_param_change', 's_index_temp_weight'], type: 'number' },
         ],
     },
-    { key: 's_index.temp_cold_c', label: 'Cold temp (°C)', path: ['s_index', 'temp_cold_c'], type: 'number' },
     {
-        key: 's_index.s_index_horizon_days',
-        label: 'S-Index Horizon (days)',
-        path: ['s_index', 's_index_horizon_days'],
-        type: 'select',
-        options: [
-            { label: '1 Day', value: '1' },
-            { label: '2 Days', value: '2' },
-            { label: '3 Days', value: '3' },
-            { label: '4 Days', value: '4' },
-            { label: '7 Days', value: '7' },
+        title: 'S-Index Safety',
+        description: 'Seasonal index parameters for reserve calculations.',
+        fields: [
+            { key: 's_index.temp_cold_c', label: 'Cold temp (°C)', path: ['s_index', 'temp_cold_c'], type: 'number' },
+            {
+                key: 's_index.s_index_horizon_days',
+                label: 'S-Index Horizon (days)',
+                path: ['s_index', 's_index_horizon_days'],
+                type: 'select',
+                options: [
+                    { label: '1 Day', value: '1' },
+                    { label: '2 Days', value: '2' },
+                    { label: '3 Days', value: '3' },
+                    { label: '4 Days', value: '4' },
+                    { label: '5 Days', value: '5' },
+                    { label: '6 Days', value: '6' },
+                    { label: '7 Days', value: '7' },
+                ],
+            },
         ],
-    },
-],
     },
 ]
 
@@ -1236,7 +1242,7 @@ export default function Settings() {
                     <button
                         disabled={systemSaving || loadingConfig}
                         onClick={handleSaveSystem}
-                        className={cls.accentBtn}
+                        className={`${cls.accentBtn} btn-glow-primary`}
                     >
                         {systemSaving ? 'Saving…' : 'Save System Settings'}
                     </button>
@@ -1343,7 +1349,7 @@ export default function Settings() {
                     <button
                         disabled={parameterSaving || loadingConfig}
                         onClick={handleSaveParameters}
-                        className={cls.accentBtn}
+                        className={`${cls.accentBtn} btn-glow-primary`}
                     >
                         {parameterSaving ? 'Saving & Re-planning…' : 'Save & Re-plan'}
                     </button>
@@ -1592,7 +1598,7 @@ export default function Settings() {
                     <button
                         disabled={uiSaving || loadingConfig}
                         onClick={handleSaveUI}
-                        className={cls.accentBtn}
+                        className={`${cls.accentBtn} btn-glow-primary`}
                     >
                         {uiSaving ? 'Saving…' : 'Save UI Preferences'}
                     </button>
@@ -1615,7 +1621,7 @@ export default function Settings() {
 
         return (
             <div className="space-y-4">
-                {advancedSections.map((section) => (
+                {advancedSections.filter((section) => section.title !== 'Danger Zone').map((section) => (
                     <Card key={section.title} className="p-6">
                         <div className="flex items-baseline justify-between gap-2">
                             <div>
@@ -1662,7 +1668,7 @@ export default function Settings() {
                     <button
                         disabled={advancedSaving || loadingConfig}
                         onClick={handleSaveAdvanced}
-                        className={cls.accentBtn}
+                        className={`${cls.accentBtn} btn-glow-primary`}
                     >
                         {advancedSaving ? 'Saving…' : 'Save Advanced Settings'}
                     </button>
@@ -1695,7 +1701,7 @@ export default function Settings() {
                             <button
                                 type="button"
                                 onClick={() => setResetConfirmOpen(true)}
-                                className="rounded-lg border border-red-500/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-400 transition hover:bg-red-500/10"
+                                className="rounded-lg bg-red-500/20 px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-400 transition hover:bg-red-500/40"
                             >
                                 Reset all settings to defaults
                             </button>
