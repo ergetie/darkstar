@@ -122,7 +122,7 @@ Map every config key to its code usage and document purpose. Identify unused key
 
 ---
 
-#### Phase 2: Entity Consolidation Design
+#### Phase 2: Entity Consolidation Design ✅
 
 Design how HA entity mappings should be organized in Settings UI.
 
@@ -137,38 +137,38 @@ Some settings exist in both HA (entities) and Darkstar (config). Users want:
 | Key | HA Entity | Config | Current Behavior |
 |-----|-----------|--------|------------------|
 | vacation_mode | `input_sensors.vacation_mode` | `water_heating.vacation_mode.enabled` | HA read for ML, config for anti-legionella (NOT synced) |
-| soc_target | `executor.soc_target_entity` | (none) | HA only, no config fallback |
 | automation_enabled | `executor.automation_toggle_entity` | `executor.enabled` | HA for toggle, config for initial state |
 
+**Write-only keys (Darkstar → HA, no read-back):**
+| Key | HA Entity | Purpose |
+|-----|-----------|---------|
+| soc_target | `executor.soc_target_entity` | Display/automation only, planner sets value |
+
 **Tasks:**
-- [ ] Design bidirectional sync mechanism for dual-source keys
-- [ ] Decide which keys need HA entity vs config-only vs both
-- [ ] Propose new Settings tab structure (entities in dedicated section)
-- [ ] Design "Core Sensors" vs "Control Entities" groupings
-- [ ] Determine which entities are required vs optional
-- [ ] Design validation (entity exists in HA, correct domain)
+- [x] Design bidirectional sync mechanism for dual-source keys
+- [x] Decide which keys need HA entity vs config-only vs both
+- [x] Propose new Settings tab structure (entities in dedicated section)
+- [x] Design "Core Sensors" vs "Control Entities" groupings
+- [x] Determine which entities are required vs optional
+- [x] Design validation (entity exists in HA, correct domain)
 
 **Missing Entities to Add (from audit):**
-- `input_sensors.today_*` (6 keys)
-- `executor.manual_override_entity`
+- [x] `input_sensors.today_*` (6 keys)
+- [x] `executor.manual_override_entity`
 
 ---
 
-#### Phase 3: Settings UI Implementation
+#### Phase 3: Settings UI Implementation ✅
 
 Add all missing config keys to Settings UI with proper categorization.
 
 **Tasks:**
-- [ ] Restructure Settings tabs (System, Entities, Parameters, UI, Advanced?)
-- [ ] Implement "Normal" vs "Advanced" mode toggle
-- [ ] Add missing `input_sensors.*` fields (15 keys)
-- [ ] Add missing `executor.*` fields (2 keys)
-- [ ] Add missing config sections:
-  - [ ] `pricing.*` (VAT, fees, tax)
-  - [ ] `battery_economics.*`
-  - [ ] `decision_thresholds.*`
-  - [ ] `strategic_charging.*`
-  - [ ] `smoothing.*`
+- [x] Restructure Settings tabs (System, Parameters, UI, Advanced)
+- [x] Group Home Assistant entities at bottom of System tab
+- [x] Add missing configuration fields (input_sensors, executor, notifications)
+- [x] Implement "Danger Zone" in Advanced tab with reset confirmation
+- [ ] Implement "Normal" vs "Advanced" mode toggle (Cleanup)
+- [ ] Add inline help/tooltips (Cleanup)
   - [ ] `kepler.*` (if not removed)
   - [ ] `automation.schedule.*`
   - [ ] `automation.ml_training.*`

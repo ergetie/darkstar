@@ -186,8 +186,12 @@ input_sensors:
   alarm_state: alarm_control_panel.alarmo        # Alarm panel for occupancy detection (ML feature)
   vacation_mode: input_boolean.vacation_mode     # Vacation mode toggle (reduces load forecasts)
   
-  # Core energy sensors (cumulative totals)
+  # Core energy sensors (real-time power)
   battery_soc: sensor.inverter_battery           # Current battery state of charge (%)
+  pv_power: sensor.inverter_pv_power             # Current PV production (W or kW)
+  load_power: sensor.inverter_load_power         # Current load consumption (W or kW)
+
+  # Cumulative energy sensors (totals)
   total_battery_charge: sensor.inverter_total_battery_charge      # Cumulative battery charge (kWh)
   total_battery_discharge: sensor.inverter_total_battery_discharge # Cumulative battery discharge (kWh)
   total_grid_export: sensor.inverter_total_energy_export          # Cumulative grid export (kWh)

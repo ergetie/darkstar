@@ -33,24 +33,13 @@ type ParameterField = {
 
 const systemSections = [
     {
-        title: 'System Components',
-        description: 'Enable or disable features based on your hardware setup.',
+        title: 'System Profile',
+        description: 'Core hardware toggles and high-level system preferences.',
         fields: [
             { key: 'system.has_solar', label: 'Solar panels installed', helper: 'Enable PV forecasting and solar optimization', path: ['system', 'has_solar'], type: 'boolean' },
             { key: 'system.has_battery', label: 'Home battery installed', helper: 'Enable battery control and grid arbitrage', path: ['system', 'has_battery'], type: 'boolean' },
             { key: 'system.has_water_heater', label: 'Smart water heater', helper: 'Enable water heating optimization', path: ['system', 'has_water_heater'], type: 'boolean' },
-        ],
-    },
-    {
-        title: 'Battery & Grid',
-        description: 'Capacity, max power, and SoC limits define safe operating bands.',
-        fields: [
-            { key: 'battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['battery', 'capacity_kwh'], type: 'number' },
-            { key: 'battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['battery', 'max_charge_power_kw'], type: 'number' },
-            { key: 'battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['battery', 'max_discharge_power_kw'], type: 'number' },
-            { key: 'battery.min_soc_percent', label: 'Min SoC (%)', path: ['battery', 'min_soc_percent'], type: 'number' },
-            { key: 'battery.max_soc_percent', label: 'Max SoC (%)', path: ['battery', 'max_soc_percent'], type: 'number' },
-            { key: 'system.grid.max_power_kw', label: 'Grid max power (kW)', path: ['system', 'grid', 'max_power_kw'], type: 'number' },
+            { key: 'export.enable_export', label: 'Enable grid export', helper: '[EXPERIMENTAL] Master switch for grid export', path: ['export', 'enable_export'], type: 'boolean' },
         ],
     },
     {
@@ -65,64 +54,82 @@ const systemSections = [
         ],
     },
     {
-        title: 'Home Assistant Connection',
-        description: 'Configure connection to your Home Assistant instance.',
+        title: 'Battery Specifications',
+        description: 'Capacity, max power, and SoC limits define safe operating bands.',
+        fields: [
+            { key: 'battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['battery', 'capacity_kwh'], type: 'number' },
+            { key: 'battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['battery', 'max_charge_power_kw'], type: 'number' },
+            { key: 'battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['battery', 'max_discharge_power_kw'], type: 'number' },
+            { key: 'battery.min_soc_percent', label: 'Min SoC (%)', path: ['battery', 'min_soc_percent'], type: 'number' },
+            { key: 'battery.max_soc_percent', label: 'Max SoC (%)', path: ['battery', 'max_soc_percent'], type: 'number' },
+            { key: 'system.grid.max_power_kw', label: 'HARD Grid max power (kW)', helper: 'Absolute limit from your grid fuse/connection.', path: ['system', 'grid', 'max_power_kw'], type: 'number' },
+            { key: 'grid.import_limit_kw', label: 'Soft import limit (kW)', helper: 'Threshold for peak power penalties (effekttariff).', path: ['grid', 'import_limit_kw'], type: 'number' },
+        ],
+    },
+    {
+        title: 'Pricing & Timezone',
+        description: 'Nordpool zone and local timezone for planner calculations.',
+        fields: [
+            { key: 'nordpool.price_area', label: 'Nordpool Price Area', helper: 'e.g. SE4, NO1, DK2', path: ['nordpool', 'price_area'], type: 'text' },
+            { key: 'pricing.vat_percent', label: 'VAT (%)', path: ['pricing', 'vat_percent'], type: 'number' },
+            { key: 'pricing.grid_transfer_fee_sek', label: 'Grid transfer fee (SEK/kWh)', path: ['pricing', 'grid_transfer_fee_sek'], type: 'number' },
+            { key: 'pricing.energy_tax_sek', label: 'Energy tax (SEK/kWh)', path: ['pricing', 'energy_tax_sek'], type: 'number' },
+            { key: 'timezone', label: 'Timezone', helper: 'e.g. Europe/Stockholm', path: ['timezone'], type: 'text' },
+        ],
+    },
+    {
+        title: 'Notifications',
+        description: 'Configure automated notifications via Home Assistant.',
+        fields: [
+            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'text' },
+            { key: 'executor.notifications.on_charge_start', label: 'On charge start', path: ['executor', 'notifications', 'on_charge_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_discharge_start', label: 'On discharge start', path: ['executor', 'notifications', 'on_discharge_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_soc_target_change', label: 'On SoC target change', path: ['executor', 'notifications', 'on_soc_target_change'], type: 'boolean' },
+            { key: 'executor.notifications.on_water_heating_start', label: 'On water heating start', path: ['executor', 'notifications', 'on_water_heating_start'], type: 'boolean' },
+        ],
+    },
+    {
+        title: '── Home Assistant Connection ──',
+        isHA: true,
+        description: 'Connection parameters for your Home Assistant instance.',
         fields: [
             { key: 'home_assistant.url', label: 'HA URL', helper: 'e.g. http://homeassistant.local:8123', path: ['home_assistant', 'url'], type: 'text' },
-            { key: 'home_assistant.token', label: 'Long-Lived Access Token', helper: 'Create this in HA Profile > Security.', path: ['home_assistant', 'token'], type: 'text' },
+            { key: 'home_assistant.token', label: 'Long-Lived Access Token', path: ['home_assistant', 'token'], type: 'text' },
         ],
     },
     {
-        title: 'Core Sensors',
-        description: 'Map Darkstar inputs to your Home Assistant entities.',
+        title: 'Required HA Entities',
+        isHA: true,
+        description: 'Core sensors and switches required for battery control.',
         fields: [
-            { key: 'input_sensors.battery_soc', label: 'Battery SoC Entity', path: ['input_sensors', 'battery_soc'], type: 'entity' },
-            { key: 'input_sensors.pv_power', label: 'PV Power Entity', path: ['input_sensors', 'pv_power'], type: 'entity' },
-            { key: 'input_sensors.load_power', label: 'Load Power Entity', path: ['input_sensors', 'load_power'], type: 'entity' },
+            { key: 'input_sensors.battery_soc', label: 'Battery SoC (%)', path: ['input_sensors', 'battery_soc'], type: 'entity' },
+            { key: 'input_sensors.pv_power', label: 'PV Power (W/kW)', path: ['input_sensors', 'pv_power'], type: 'entity' },
+            { key: 'input_sensors.load_power', label: 'Load Power (W/kW)', path: ['input_sensors', 'load_power'], type: 'entity' },
+            { key: 'executor.inverter.work_mode_entity', label: 'Work Mode Selector', path: ['executor', 'inverter', 'work_mode_entity'], type: 'entity' },
+            { key: 'executor.inverter.grid_charging_entity', label: 'Grid Charging Switch', path: ['executor', 'inverter', 'grid_charging_entity'], type: 'entity' },
+            { key: 'executor.inverter.max_charging_current_entity', label: 'Max Charge Current', path: ['executor', 'inverter', 'max_charging_current_entity'], type: 'entity' },
+            { key: 'executor.inverter.max_discharging_current_entity', label: 'Max Discharge Current', path: ['executor', 'inverter', 'max_discharging_current_entity'], type: 'entity' },
         ],
     },
     {
-        title: 'Inverter Control Entities',
-        description: 'Entities the executor uses to control your inverter.',
+        title: 'Optional HA Entities',
+        isHA: true,
+        description: 'Optional sensors for better forecasting and dashboard metrics.',
         fields: [
-            { key: 'executor.inverter.work_mode_entity', label: 'Work Mode Entity', helper: 'select.* entity to set inverter work mode', path: ['executor', 'inverter', 'work_mode_entity'], type: 'entity' },
-            { key: 'executor.inverter.grid_charging_entity', label: 'Grid Charging Entity', helper: 'switch.* entity to enable/disable grid charging', path: ['executor', 'inverter', 'grid_charging_entity'], type: 'entity' },
-            { key: 'executor.inverter.max_charging_current_entity', label: 'Max Charge Current Entity', helper: 'number.* entity to set max charging current', path: ['executor', 'inverter', 'max_charging_current_entity'], type: 'entity' },
-            { key: 'executor.inverter.max_discharging_current_entity', label: 'Max Discharge Current Entity', helper: 'number.* entity to set max discharging current', path: ['executor', 'inverter', 'max_discharging_current_entity'], type: 'entity' },
-        ],
-    },
-    {
-        title: 'Battery Target',
-        description: 'Entity for setting battery SoC target.',
-        fields: [
-            { key: 'executor.soc_target_entity', label: 'SoC Target Entity', helper: 'input_number.* entity for setting the target SoC', path: ['executor', 'soc_target_entity'], type: 'entity' },
-        ],
-    },
-    {
-        title: 'Water Heater Control',
-        description: 'Entity and temperature settings for water heater optimization.',
-        fields: [
-            { key: 'executor.water_heater.target_entity', label: 'Target Entity', helper: 'input_number.* entity for water heater temp target', path: ['executor', 'water_heater', 'target_entity'], type: 'entity' },
-            { key: 'executor.water_heater.temp_off', label: 'Off Temperature (°C)', helper: 'Minimum temperature when conserving energy', path: ['executor', 'water_heater', 'temp_off'], type: 'number' },
-            { key: 'executor.water_heater.temp_normal', label: 'Normal Temperature (°C)', helper: 'Standard operating temperature', path: ['executor', 'water_heater', 'temp_normal'], type: 'number' },
-            { key: 'executor.water_heater.temp_boost', label: 'Boost Temperature (°C)', helper: 'Temperature during solar/cheap energy periods', path: ['executor', 'water_heater', 'temp_boost'], type: 'number' },
-            { key: 'executor.water_heater.temp_max', label: 'Max Temperature (°C)', helper: 'Maximum safe temperature limit', path: ['executor', 'water_heater', 'temp_max'], type: 'number' },
-        ],
-    },
-    {
-        title: 'Learning Storage',
-        description: 'Track the learning database path.',
-        fields: [
-            { key: 'learning.sqlite_path', label: 'Learning SQLite path', helper: 'Directory must exist and be writable.', path: ['learning', 'sqlite_path'], type: 'text' },
-        ],
-    },
-    {
-        title: 'Pricing & Timing',
-        description: 'Nordpool zone, resolution, and timezone for planner calculations.',
-        fields: [
-            { key: 'nordpool.price_area', label: 'Price area', path: ['nordpool', 'price_area'], type: 'text' },
-            { key: 'nordpool.resolution_minutes', label: 'Price resolution (minutes)', path: ['nordpool', 'resolution_minutes'], type: 'number' },
-            { key: 'timezone', label: 'Timezone', path: ['timezone'], type: 'text' },
+            { key: 'executor.automation_toggle_entity', label: 'Automation Toggle', path: ['executor', 'automation_toggle_entity'], type: 'entity' },
+            { key: 'executor.manual_override_entity', label: 'Manual Override Toggle', path: ['executor', 'manual_override_entity'], type: 'entity' },
+            { key: 'executor.soc_target_entity', label: 'Target SoC Feedback', path: ['executor', 'soc_target_entity'], type: 'entity' },
+            { key: 'executor.water_heater.target_entity', label: 'Water Heater Setpoint', path: ['executor', 'water_heater', 'target_entity'], type: 'entity' },
+            { key: 'input_sensors.vacation_mode', label: 'Vacation Mode Toggle', path: ['input_sensors', 'vacation_mode'], type: 'entity' },
+            { key: 'input_sensors.alarm_state', label: 'Alarm Control Panel', path: ['input_sensors', 'alarm_state'], type: 'entity' },
+            { key: 'input_sensors.water_heater_consumption', label: 'Water Heater Daily Energy', path: ['input_sensors', 'water_heater_consumption'], type: 'entity' },
+            { key: 'input_sensors.today_net_cost', label: 'Today\'s Net Cost', path: ['input_sensors', 'today_net_cost'], type: 'entity' },
+            { key: 'input_sensors.total_battery_charge', label: 'Total Battery Charge (kWh)', path: ['input_sensors', 'total_battery_charge'], type: 'entity' },
+            { key: 'input_sensors.total_battery_discharge', label: 'Total Battery Discharge (kWh)', path: ['input_sensors', 'total_battery_discharge'], type: 'entity' },
+            { key: 'input_sensors.total_grid_export', label: 'Total Grid Export (kWh)', path: ['input_sensors.total_grid_export'], type: 'entity' },
+            { key: 'input_sensors.total_grid_import', label: 'Total Grid Import (kWh)', path: ['input_sensors.total_grid_import'], type: 'entity' },
+            { key: 'input_sensors.total_load_consumption', label: 'Total Load Consumption (kWh)', path: ['input_sensors.total_load_consumption'], type: 'entity' },
+            { key: 'input_sensors.total_pv_production', label: 'Total PV Production (kWh)', path: ['input_sensors.total_pv_production'], type: 'entity' },
         ],
     },
 ]
@@ -278,11 +285,23 @@ const advancedSections = [
             {
                 key: 'automation.external_executor_mode',
                 label: 'External Executor Mode',
-                helper: 'When enabled, Darkstar expects an external system to execute the plan. Shows DB Sync controls on the dashboard.',
+                helper: 'When enabled, Darkstar expects an external system to execute the plan.',
                 path: ['automation', 'external_executor_mode'],
                 type: 'boolean',
             },
+            {
+                key: 'automation.write_to_mariadb',
+                label: 'Log to MariaDB',
+                helper: 'Requires MariaDB credentials in secrets.yaml',
+                path: ['automation', 'write_to_mariadb'],
+                type: 'boolean',
+            },
         ],
+    },
+    {
+        title: 'Danger Zone',
+        description: 'Sensitive actions. Proceed with caution.',
+        fields: [], // Handled specially in render
     },
 ]
 
@@ -533,6 +552,7 @@ export default function Settings() {
     const [themeApplying, setThemeApplying] = useState(false)
     const [themeStatusMessage, setThemeStatusMessage] = useState<string | null>(null)
     const [resetting, setResetting] = useState(false)
+    const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
     const [resetStatusMessage, setResetStatusMessage] = useState<string | null>(null)
     const [haEntities, setHaEntities] = useState<{ entity_id: string; friendly_name: string; domain: string }[]>([])
     const [haLoading, setHaLoading] = useState(false)
@@ -970,25 +990,20 @@ export default function Settings() {
         }
     }
 
-    const handleResetToDefaults = async () => {
-        const confirmed = window.confirm(
-            'Are you sure you want to reset all settings to defaults? ' +
-            'This will overwrite your current configuration and cannot be undone.'
-        )
-        if (!confirmed) return
-
+    const handleResetSettings = async () => {
         setResetting(true)
         setResetStatusMessage(null)
         try {
             await Api.configReset()
-            // Clear errors first
+            // Clear errors and reload
             setSystemFieldErrors({})
             setParameterFieldErrors({})
             setUIFieldErrors({})
-            // Reload config which will rebuild all form states
+            setAdvancedFieldErrors({})
             await reloadConfig()
-            await reloadThemes()   // Reload themes in case theme was reset
-            setResetStatusMessage('All settings reset to defaults.')
+            await reloadThemes()
+            setResetStatusMessage('All settings have been reset to default values.')
+            setResetConfirmOpen(false)
         } catch (err: any) {
             setResetStatusMessage(err?.message ? `Reset failed: ${err.message}` : 'Reset failed.')
         } finally {
@@ -1013,188 +1028,204 @@ export default function Settings() {
         }
         return (
             <div className="space-y-4">
-                {systemSections.map((section) => (
-                    <Card key={section.title} className="p-6">
-                        <div className="flex items-baseline justify-between gap-2">
-                            <div>
-                                <div className="text-sm font-semibold">{section.title}</div>
-                                <p className="text-xs text-muted mt-1">{section.description}</p>
-                            </div>
-                            <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
-                        </div>
-                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                            {section.fields.map((field) => {
-                                const isAzimuth = field.key === 'system.solar_array.azimuth'
-                                const isTilt = field.key === 'system.solar_array.tilt'
+                {systemSections.map((section, idx) => {
+                    const prevSection = idx > 0 ? systemSections[idx - 1] : null
+                    const showDivider = section.isHA && prevSection && !prevSection.isHA
 
-                                if (isAzimuth) {
-                                    const rawValue = systemForm[field.key]
-                                    const numericValue =
-                                        rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">
-                                                {field.label}
-                                            </label>
-                                            <AzimuthDial
-                                                value={
-                                                    typeof numericValue === 'number' &&
-                                                        !Number.isNaN(numericValue)
-                                                        ? numericValue
-                                                        : null
-                                                }
-                                                onChange={(deg) =>
-                                                    handleFieldChange(field.key, String(Math.round(deg)))
-                                                }
-                                            />
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
-                                                value={systemForm[field.key] ?? ''}
-                                                onChange={(event) =>
-                                                    handleFieldChange(field.key, event.target.value)
-                                                }
-                                                className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted">{field.helper}</p>
-                                            )}
-                                            {systemFieldErrors[field.key] && (
-                                                <p className="text-[11px] text-red-400">
-                                                    {systemFieldErrors[field.key]}
-                                                </p>
-                                            )}
-                                        </div>
-                                    )
-                                }
+                    return (
+                        <div key={section.title}>
+                            {showDivider && (
+                                <div className="py-8 flex items-center gap-4">
+                                    <div className="h-px flex-1 bg-line/30" />
+                                    <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted whitespace-nowrap">
+                                        Home Assistant Integration
+                                    </span>
+                                    <div className="h-px flex-1 bg-line/30" />
+                                </div>
+                            )}
+                            <Card className="p-6">
+                                <div className="flex items-baseline justify-between gap-2">
+                                    <div>
+                                        <div className="text-sm font-semibold">{section.title}</div>
+                                        <p className="text-xs text-muted mt-1">{section.description}</p>
+                                    </div>
+                                    <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
+                                </div>
+                                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                                    {section.fields.map((field) => {
+                                        const isAzimuth = field.key === 'system.solar_array.azimuth'
+                                        const isTilt = field.key === 'system.solar_array.tilt'
 
-                                if (isTilt) {
-                                    const rawValue = systemForm[field.key]
-                                    const numericValue =
-                                        rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">
-                                                {field.label}
-                                            </label>
-                                            <TiltDial
-                                                value={
-                                                    typeof numericValue === 'number' &&
-                                                        !Number.isNaN(numericValue)
-                                                        ? numericValue
-                                                        : null
-                                                }
-                                                onChange={(deg) =>
-                                                    handleFieldChange(field.key, String(Math.round(deg)))
-                                                }
-                                            />
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
-                                                value={systemForm[field.key] ?? ''}
-                                                onChange={(event) =>
-                                                    handleFieldChange(field.key, event.target.value)
-                                                }
-                                                className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted">{field.helper}</p>
-                                            )}
-                                            {systemFieldErrors[field.key] && (
-                                                <p className="text-[11px] text-red-400">
-                                                    {systemFieldErrors[field.key]}
-                                                </p>
-                                            )}
-                                        </div>
-                                    )
-                                }
+                                        if (isAzimuth) {
+                                            const rawValue = systemForm[field.key]
+                                            const numericValue =
+                                                rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                    </label>
+                                                    <AzimuthDial
+                                                        value={
+                                                            typeof numericValue === 'number' &&
+                                                                !Number.isNaN(numericValue)
+                                                                ? numericValue
+                                                                : null
+                                                        }
+                                                        onChange={(deg) =>
+                                                            handleFieldChange(field.key, String(Math.round(deg)))
+                                                        }
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(event) =>
+                                                            handleFieldChange(field.key, event.target.value)
+                                                        }
+                                                        className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                    {systemFieldErrors[field.key] && (
+                                                        <p className="text-[11px] text-red-400">
+                                                            {systemFieldErrors[field.key]}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
 
-                                if (field.type === 'entity') {
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">
-                                                {field.label}
-                                            </label>
-                                            <EntitySelect
-                                                entities={haEntities}
-                                                value={systemForm[field.key] ?? ''}
-                                                onChange={(value) => handleFieldChange(field.key, value)}
-                                                loading={haLoading}
-                                                placeholder="Select entity..."
-                                            />
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted">{field.helper}</p>
-                                            )}
-                                        </div>
-                                    )
-                                }
+                                        if (isTilt) {
+                                            const rawValue = systemForm[field.key]
+                                            const numericValue =
+                                                rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                    </label>
+                                                    <TiltDial
+                                                        value={
+                                                            typeof numericValue === 'number' &&
+                                                                !Number.isNaN(numericValue)
+                                                                ? numericValue
+                                                                : null
+                                                        }
+                                                        onChange={(deg) =>
+                                                            handleFieldChange(field.key, String(Math.round(deg)))
+                                                        }
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(event) =>
+                                                            handleFieldChange(field.key, event.target.value)
+                                                        }
+                                                        className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                    {systemFieldErrors[field.key] && (
+                                                        <p className="text-[11px] text-red-400">
+                                                            {systemFieldErrors[field.key]}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
 
-                                // Regular fields (boolean checkboxes, number/text inputs)
-                                if (field.type === 'boolean') {
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="flex items-center gap-2 text-sm">
+                                        if (field.type === 'entity') {
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                    </label>
+                                                    <EntitySelect
+                                                        entities={haEntities}
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(value) => handleFieldChange(field.key, value)}
+                                                        loading={haLoading}
+                                                        placeholder="Select entity..."
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
+                                        // Regular fields (boolean checkboxes, number/text inputs)
+                                        if (field.type === 'boolean') {
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="flex items-center gap-2 text-sm">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={systemForm[field.key] === 'true'}
+                                                            onChange={(event) =>
+                                                                handleFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                            }
+                                                            className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                                        />
+                                                        <span className="font-semibold">{field.label}</span>
+                                                    </label>
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted ml-6">{field.helper}</p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
+                                        return (
+                                            <div key={field.key} className="space-y-1">
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                    {field.label}
+                                                </label>
                                                 <input
-                                                    type="checkbox"
-                                                    checked={systemForm[field.key] === 'true'}
+                                                    type={field.type === 'number' ? 'number' : 'text'}
+                                                    inputMode={field.type === 'number' ? 'decimal' : undefined}
+                                                    value={systemForm[field.key] ?? ''}
                                                     onChange={(event) =>
-                                                        handleFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                        handleFieldChange(field.key, event.target.value)
                                                     }
-                                                    className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
                                                 />
-                                                <span className="font-semibold">{field.label}</span>
-                                            </label>
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted ml-6">{field.helper}</p>
-                                            )}
-                                        </div>
-                                    )
-                                }
-
-                                return (
-                                    <div key={field.key} className="space-y-1">
-                                        <label className="text-[10px] uppercase tracking-wide text-muted">
-                                            {field.label}
-                                        </label>
-                                        <input
-                                            type={field.type === 'number' ? 'number' : 'text'}
-                                            inputMode={field.type === 'number' ? 'decimal' : undefined}
-                                            value={systemForm[field.key] ?? ''}
-                                            onChange={(event) =>
-                                                handleFieldChange(field.key, event.target.value)
-                                            }
-                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                        />
-                                        {field.helper && (
-                                            <p className="text-[11px] text-muted">{field.helper}</p>
-                                        )}
-                                        {systemFieldErrors[field.key] && (
-                                            <p className="text-[11px] text-red-400">
-                                                {systemFieldErrors[field.key]}
-                                            </p>
+                                                {field.helper && (
+                                                    <p className="text-[11px] text-muted">{field.helper}</p>
+                                                )}
+                                                {systemFieldErrors[field.key] && (
+                                                    <p className="text-[11px] text-red-400">
+                                                        {systemFieldErrors[field.key]}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                                {section.title === 'Home Assistant Connection' && (
+                                    <div className="mt-4 flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={handleTestConnection}
+                                            className="text-xs px-3 py-2 rounded bg-surface border border-line/50 hover:bg-surface2 transition"
+                                        >
+                                            {haTestStatus && haTestStatus.startsWith('Testing') ? 'Testing...' : 'Test Connection'}
+                                        </button>
+                                        {haTestStatus && (
+                                            <span className={`text-xs ${haTestStatus.startsWith('Success') ? 'text-green-400' : 'text-red-400'}`}>
+                                                {haTestStatus}
+                                            </span>
                                         )}
                                     </div>
-                                )
-                            })}
-                        </div>
-                        {section.title === 'Home Assistant Connection' && (
-                            <div className="mt-4 flex items-center gap-3">
-                                <button
-                                    type="button"
-                                    onClick={handleTestConnection}
-                                    className="text-xs px-3 py-2 rounded bg-surface border border-line/50 hover:bg-surface2 transition"
-                                >
-                                    {haTestStatus && haTestStatus.startsWith('Testing') ? 'Testing...' : 'Test Connection'}
-                                </button>
-                                {haTestStatus && (
-                                    <span className={`text-xs ${haTestStatus.startsWith('Success') ? 'text-green-400' : 'text-red-400'}`}>
-                                        {haTestStatus}
-                                    </span>
                                 )}
-                            </div>
-                        )}
-                    </Card>
-                ))}
+                            </Card>
+                        </div>
+                    )
+                })}
                 <div className="flex flex-wrap items-center gap-3">
                     <button
                         disabled={systemSaving || loadingConfig}
@@ -1245,49 +1276,57 @@ export default function Settings() {
                         <div className="mt-5 grid gap-4 sm:grid-cols-2">
                             {section.fields.map((field) => (
                                 <div key={field.key} className="space-y-1">
-                                    {field.type === 'boolean' ? (
-                                        <label className="flex items-center gap-2 text-sm">
+                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                        {field.label}
+                                    </label>
+                                    {field.type === 'select' ? (
+                                        <select
+                                            value={parameterForm[field.key] ?? ''}
+                                            onChange={(event) =>
+                                                handleParameterFieldChange(field.key, event.target.value)
+                                            }
+                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                        >
+                                            <option value="">Select</option>
+                                            {field.options?.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : field.type === 'boolean' ? (
+                                        <div className="flex items-center gap-2 pt-2">
                                             <input
                                                 type="checkbox"
                                                 checked={parameterForm[field.key] === 'true'}
-                                                onChange={(event) => handleParameterFieldChange(field.key, event.target.checked ? 'true' : 'false')}
+                                                onChange={(event) =>
+                                                    handleParameterFieldChange(
+                                                        field.key,
+                                                        event.target.checked ? 'true' : 'false'
+                                                    )
+                                                }
                                                 className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
                                             />
-                                            <span className="font-semibold">{field.label}</span>
-                                        </label>
-                                    ) : field.type === 'select' ? (
-                                        <>
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
-                                            <select
-                                                value={parameterForm[field.key] ?? ''}
-                                                onChange={(event) => handleParameterFieldChange(field.key, event.target.value)}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            >
-                                                <option value="">Select</option>
-                                                {field.options?.map((option) => (
-                                                    <option key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </>
+                                            <span className="text-sm font-semibold">Enabled</span>
+                                        </div>
                                     ) : (
-                                        <>
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
-                                            <input
-                                                type={field.type === 'number' ? 'number' : 'text'}
-                                                inputMode={field.type === 'number' ? 'decimal' : undefined}
-                                                value={parameterForm[field.key] ?? ''}
-                                                onChange={(event) => handleParameterFieldChange(field.key, event.target.value)}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                        </>
+                                        <input
+                                            type={field.type === 'number' ? 'number' : 'text'}
+                                            inputMode={field.type === 'number' ? 'decimal' : undefined}
+                                            value={parameterForm[field.key] ?? ''}
+                                            onChange={(event) =>
+                                                handleParameterFieldChange(field.key, event.target.value)
+                                            }
+                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                        />
                                     )}
                                     {field.helper && (
                                         <p className="text-[11px] text-muted">{field.helper}</p>
                                     )}
                                     {parameterFieldErrors[field.key] && (
-                                        <p className="text-[11px] text-red-400">{parameterFieldErrors[field.key]}</p>
+                                        <p className="text-[11px] text-red-400">
+                                            {parameterFieldErrors[field.key]}
+                                        </p>
                                     )}
                                 </div>
                             ))}
@@ -1302,11 +1341,6 @@ export default function Settings() {
                     >
                         {parameterSaving ? 'Saving & Re-planning…' : 'Save & Re-plan'}
                     </button>
-                    {parameterSaving && (
-                        <div className="text-xs text-muted animate-pulse">
-                            Regenerating schedule with new settings...
-                        </div>
-                    )}
                     {parameterStatusMessage && (
                         <div className={`rounded-lg p-3 text-sm ${parameterStatusMessage.startsWith('Failed')
                             ? 'bg-red-500/10 border border-red-500/30 text-red-400'
@@ -1498,7 +1532,7 @@ export default function Settings() {
                                 {section.fields.map((field) => (
                                     <div key={field.key} className="space-y-1">
                                         {field.type === 'boolean' ? (
-                                            <label className="flex items-center gap-2 text-sm">
+                                            <div className="flex items-center gap-2 pt-2">
                                                 <input
                                                     type="checkbox"
                                                     checked={uiForm[field.key] === 'true'}
@@ -1507,8 +1541,8 @@ export default function Settings() {
                                                     }
                                                     className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
                                                 />
-                                                <span className="font-semibold">{field.label}</span>
-                                            </label>
+                                                <span className="text-sm font-semibold">{field.label}</span>
+                                            </div>
                                         ) : field.type === 'select' ? (
                                             <>
                                                 <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
@@ -1589,27 +1623,35 @@ export default function Settings() {
                             {section.fields.map((field) => (
                                 <div key={field.key} className="space-y-1">
                                     {field.type === 'boolean' && (
-                                        <label className="flex items-center gap-2 text-sm">
+                                        <div className="flex items-center gap-2 pt-2">
                                             <input
                                                 type="checkbox"
                                                 checked={advancedForm[field.key] === 'true'}
-                                                onChange={(event) => handleAdvancedFieldChange(field.key, event.target.checked ? 'true' : 'false')}
+                                                onChange={(event) =>
+                                                    handleAdvancedFieldChange(
+                                                        field.key,
+                                                        event.target.checked ? 'true' : 'false'
+                                                    )
+                                                }
                                                 className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
                                             />
-                                            <span className="font-semibold">{field.label}</span>
-                                        </label>
+                                            <span className="text-sm font-semibold">{field.label}</span>
+                                        </div>
                                     )}
                                     {field.helper && (
                                         <p className="text-[11px] text-muted ml-6">{field.helper}</p>
                                     )}
                                     {advancedFieldErrors[field.key] && (
-                                        <p className="text-[11px] text-red-400 ml-6">{advancedFieldErrors[field.key]}</p>
+                                        <p className="text-[11px] text-red-400 ml-6">
+                                            {advancedFieldErrors[field.key]}
+                                        </p>
                                     )}
                                 </div>
                             ))}
                         </div>
                     </Card>
                 ))}
+
                 <div className="flex flex-wrap items-center gap-3">
                     <button
                         disabled={advancedSaving || loadingConfig}
@@ -1627,6 +1669,53 @@ export default function Settings() {
                         </div>
                     )}
                 </div>
+
+                <div className="py-8">
+                    <div className="h-px bg-line/20" />
+                </div>
+
+                <Card className="border-red-500/30 bg-red-500/5 p-6">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <div className="text-sm font-bold text-red-400">Danger Zone</div>
+                            <p className="text-xs text-red-400/70 mt-1">
+                                Irreversible actions that affect your entire system configuration.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 flex flex-wrap items-center gap-4">
+                        {!resetConfirmOpen ? (
+                            <button
+                                type="button"
+                                onClick={() => setResetConfirmOpen(true)}
+                                className="rounded-lg border border-red-500/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-red-400 transition hover:bg-red-500/10"
+                            >
+                                Reset all settings to defaults
+                            </button>
+                        ) : (
+                            <div className="flex items-center gap-3 rounded-xl bg-canvas p-4 border border-line">
+                                <span className="text-xs font-semibold text-white">Are you absolutely sure?</span>
+                                <button
+                                    type="button"
+                                    disabled={resetting}
+                                    onClick={handleResetSettings}
+                                    className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg transition hover:bg-red-600 disabled:opacity-50"
+                                >
+                                    {resetting ? 'Resetting...' : 'Yes, reset everything'}
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resetting}
+                                    onClick={() => setResetConfirmOpen(false)}
+                                    className="rounded-lg bg-surface px-3 py-1.5 text-xs font-semibold text-muted transition hover:text-white"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </Card>
             </div>
         )
     }
@@ -1638,13 +1727,6 @@ export default function Settings() {
                     <h1 className="text-3xl font-semibold">Settings</h1>
                     <p className="text-sm text-muted">System, parameters, and UI preferences collected into one modern surface.</p>
                 </div>
-                <button
-                    disabled={resetting || loadingConfig}
-                    onClick={handleResetToDefaults}
-                    className="rounded-pill bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold shadow-sm transition disabled:opacity-50"
-                >
-                    {resetting ? 'Resetting…' : 'Reset to Defaults'}
-                </button>
             </div>
 
             <div className="flex flex-wrap gap-2">
