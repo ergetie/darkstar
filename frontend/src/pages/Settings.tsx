@@ -81,11 +81,16 @@ const systemSections = [
         title: 'Notifications',
         description: 'Configure automated notifications via Home Assistant.',
         fields: [
-            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'text' },
+            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'entity' },
             { key: 'executor.notifications.on_charge_start', label: 'On charge start', path: ['executor', 'notifications', 'on_charge_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_charge_stop', label: 'On charge stop', path: ['executor', 'notifications', 'on_charge_stop'], type: 'boolean' },
             { key: 'executor.notifications.on_discharge_start', label: 'On discharge start', path: ['executor', 'notifications', 'on_discharge_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_discharge_stop', label: 'On discharge stop', path: ['executor', 'notifications', 'on_discharge_stop'], type: 'boolean' },
+            { key: 'executor.notifications.on_water_heating_start', label: 'On water heating start', path: ['executor', 'notifications', 'on_water_heat_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_water_heating_stop', label: 'On water heating stop', path: ['executor', 'notifications', 'on_water_heat_stop'], type: 'boolean' },
             { key: 'executor.notifications.on_soc_target_change', label: 'On SoC target change', path: ['executor', 'notifications', 'on_soc_target_change'], type: 'boolean' },
-            { key: 'executor.notifications.on_water_heating_start', label: 'On water heating start', path: ['executor', 'notifications', 'on_water_heating_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_override_activated', label: 'On override activated', path: ['executor', 'notifications', 'on_override_activated'], type: 'boolean' },
+            { key: 'executor.notifications.on_error', label: 'On error', path: ['executor', 'notifications', 'on_error'], type: 'boolean' },
         ],
     },
     {
@@ -186,20 +191,21 @@ const parameterSections = [
             { key: 'learning.max_daily_param_change.s_index_temp_weight', label: 'S-index temp weight change', path: ['learning', 'max_daily_param_change', 's_index_temp_weight'], type: 'number' },
         ],
     },
+    { key: 's_index.temp_cold_c', label: 'Cold temp (°C)', path: ['s_index', 'temp_cold_c'], type: 'number' },
     {
-        title: 'S-Index Safety',
-        description: 'Base/max factors, weights, and time horizon shaping the S-index guard.',
-        fields: [
-            { key: 's_index.mode', label: 'Mode', path: ['s_index', 'mode'], type: 'select', options: [{ label: 'Static', value: 'static' }, { label: 'Dynamic', value: 'dynamic' }] },
-            { key: 's_index.base_factor', label: 'Base factor', path: ['s_index', 'base_factor'], type: 'number' },
-            { key: 's_index.max_factor', label: 'Max factor', path: ['s_index', 'max_factor'], type: 'number' },
-            { key: 's_index.static_factor', label: 'Static fallback factor', path: ['s_index', 'static_factor'], type: 'number' },
-            { key: 's_index.pv_deficit_weight', label: 'PV deficit weight', path: ['s_index', 'pv_deficit_weight'], type: 'number' },
-            { key: 's_index.temp_weight', label: 'Temp weight', path: ['s_index', 'temp_weight'], type: 'number' },
-            { key: 's_index.temp_baseline_c', label: 'Temp baseline (°C)', path: ['s_index', 'temp_baseline_c'], type: 'number' },
-            { key: 's_index.temp_cold_c', label: 'Cold temp (°C)', path: ['s_index', 'temp_cold_c'], type: 'number' },
-            { key: 's_index.days_ahead_for_sindex', label: 'Days ahead (comma list)', path: ['s_index', 'days_ahead_for_sindex'], type: 'array', helper: 'Comma-separated integers (e.g. 2,3,4).', },
+        key: 's_index.s_index_horizon_days',
+        label: 'S-Index Horizon (days)',
+        path: ['s_index', 's_index_horizon_days'],
+        type: 'select',
+        options: [
+            { label: '1 Day', value: '1' },
+            { label: '2 Days', value: '2' },
+            { label: '3 Days', value: '3' },
+            { label: '4 Days', value: '4' },
+            { label: '7 Days', value: '7' },
         ],
+    },
+],
     },
 ]
 
@@ -1161,8 +1167,8 @@ export default function Settings() {
                                         // Regular fields (boolean checkboxes, number/text inputs)
                                         if (field.type === 'boolean') {
                                             return (
-                                                <div key={field.key} className="space-y-1">
-                                                    <label className="flex items-center gap-2 text-sm">
+                                                <div key={field.key} className="flex flex-col justify-center">
+                                                    <label className="flex items-center gap-2 text-sm h-full">
                                                         <input
                                                             type="checkbox"
                                                             checked={systemForm[field.key] === 'true'}
@@ -1174,7 +1180,7 @@ export default function Settings() {
                                                         <span className="font-semibold">{field.label}</span>
                                                     </label>
                                                     {field.helper && (
-                                                        <p className="text-[11px] text-muted ml-6">{field.helper}</p>
+                                                        <p className="text-[11px] text-muted ml-6 mt-1">{field.helper}</p>
                                                     )}
                                                 </div>
                                             )
@@ -1211,7 +1217,7 @@ export default function Settings() {
                                         <button
                                             type="button"
                                             onClick={handleTestConnection}
-                                            className="text-xs px-3 py-2 rounded bg-surface border border-line/50 hover:bg-surface2 transition"
+                                            className="rounded-xl px-4 py-2 text-[11px] font-semibold bg-neutral hover:bg-neutral/80 text-white transition"
                                         >
                                             {haTestStatus && haTestStatus.startsWith('Testing') ? 'Testing...' : 'Test Connection'}
                                         </button>

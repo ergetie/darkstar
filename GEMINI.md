@@ -19,5 +19,5 @@ This document serves as the entry point for AI context. **Do not duplicate infor
 > **Always check [AGENTS.md](AGENTS.md) before starting work.**
 
 1.  **User Consultation**: You MUST consult the user before updating any file in `docs/`.
-2.  **Commits**: Commit changes regularly after completing tasks.
+2.  **Commits**: Follow the commit reminder protocol in [AGENTS.md](AGENTS.md).
 3.  **Config**: `config.yaml` is the central configuration file.
