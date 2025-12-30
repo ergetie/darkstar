@@ -195,4 +195,41 @@ Add all missing config keys to Settings UI with proper categorization.
 
 ---
 
+### [PLANNED] Rev UI5 — Dashboard Polish & Financials
+
+**Goal:** Transform the Dashboard from a live monitor into a polished financial tool with real-time energy visualization.
+
+---
+
+#### Phase 1: Bug Fixes
+
+- [ ] **Fix "Now Line" Alignment:** Debug and fix the issue where the "Now line" does not align with the current time/slot (varies between 24h and 48h views).
+- [ ] **Fix "Cost Reality" Widget:** Restore "Plan Cost" series in the Cost Reality comparison widget.
+
+---
+
+#### Phase 2: Energy Flow Chart
+
+- [ ] **New Component:** Create an energy flow chart card for the Dashboard.
+- [ ] Show real-time flow between: PV → Battery → House Load → Grid (import/export).
+- [ ] Use animated arrows or Sankey-style flow indicators.
+- [ ] Follow the design system in `docs/design-system/AI_GUIDELINES.md`.
+
+---
+
+#### Phase 3: Chart Polish
+
+- [ ] Render `soc_target` as a step-line (not interpolated).
+- [ ] Implement mouse-wheel zoom for the main power chart.
+- [ ] Add tooltips for Price series explaining "VAT + Fees" breakdown.
+
+---
+
+#### Phase 4: Financial Analytics
+
+- [ ] Integrate `pricing.subscription_fee_sek_per_month` into the cost engine.
+- [ ] Calculate and display monthly ROI / Break-even metrics on Dashboard.
+
+---
+
 ### NEXT REV HERE
