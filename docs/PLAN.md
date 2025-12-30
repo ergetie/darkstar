@@ -212,7 +212,7 @@ Add all missing config keys to Settings UI with proper categorization.
 
 - [ ] **New Component:** Create an energy flow chart card for the Dashboard.
 - [ ] Show real-time flow between: PV → Battery → House Load → Grid (import/export).
-- [ ] Use animated arrows or Sankey-style flow indicators.
+- [ ] Use animated traces and "hubs" like "github.com/flixlix/power-flow-card-plus".
 - [ ] Follow the design system in `docs/design-system/AI_GUIDELINES.md`.
 
 ---
