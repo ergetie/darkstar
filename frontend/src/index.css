@@ -55,21 +55,34 @@
     --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
 
     /* ========== SPACING (4px grid) ========== */
-    --space-1: 0.25rem;   /* 4px */
-    --space-2: 0.5rem;    /* 8px */
-    --space-3: 0.75rem;   /* 12px */
-    --space-4: 1rem;      /* 16px */
-    --space-5: 1.25rem;   /* 20px */
-    --space-6: 1.5rem;    /* 24px */
-    --space-8: 2rem;      /* 32px */
-    --space-10: 2.5rem;   /* 40px */
-    --space-12: 3rem;     /* 48px */
+    --space-1: 0.25rem;
+    /* 4px */
+    --space-2: 0.5rem;
+    /* 8px */
+    --space-3: 0.75rem;
+    /* 12px */
+    --space-4: 1rem;
+    /* 16px */
+    --space-5: 1.25rem;
+    /* 20px */
+    --space-6: 1.5rem;
+    /* 24px */
+    --space-8: 2rem;
+    /* 32px */
+    --space-10: 2.5rem;
+    /* 40px */
+    --space-12: 3rem;
+    /* 48px */
 
     /* ========== BORDER RADIUS ========== */
-    --radius-sm: 0.5rem;    /* 8px */
-    --radius-md: 0.75rem;   /* 12px */
-    --radius-lg: 1rem;      /* 16px */
-    --radius-xl: 1.25rem;   /* 20px */
+    --radius-sm: 0.5rem;
+    /* 8px */
+    --radius-md: 0.75rem;
+    /* 12px */
+    --radius-lg: 1rem;
+    /* 16px */
+    --radius-xl: 1.25rem;
+    /* 20px */
     --radius-pill: 9999px;
 }
 
@@ -146,7 +159,309 @@ body::before {
     opacity: 0.03;
 }
 
-/* Remove thin borders globally for flat TE style */
+/* ============================================
+   COMPONENT CLASSES (Design System)
+   ============================================ */
+
+@layer components {
+
+    /* ========== BUTTONS ========== */
+    .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.5rem 1rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.6875rem;
+        font-weight: 600;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    /* Primary - Accent gold */
+    .btn-primary {
+        background: rgb(var(--color-accent));
+        color: #100f0e;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+        background: rgb(var(--color-accent2));
+    }
+
+    .dark .btn-primary {
+        box-shadow: 0 0 16px rgba(255, 206, 89, 0.4);
+    }
+
+    /* Secondary - Neutral gray */
+    .btn-secondary {
+        background: rgb(var(--color-neutral));
+        color: #fff;
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+        filter: brightness(1.1);
+    }
+
+    .dark .btn-secondary {
+        box-shadow: 0 0 12px rgba(152, 159, 165, 0.3);
+    }
+
+    /* Danger - Red */
+    .btn-danger {
+        background: rgb(var(--color-bad));
+        color: #fff;
+    }
+
+    .btn-danger:hover:not(:disabled) {
+        filter: brightness(1.1);
+    }
+
+    /* Ghost - Transparent with border */
+    .btn-ghost {
+        background: transparent;
+        border: 1px solid rgb(var(--color-line));
+        color: rgb(var(--color-muted));
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+        border-color: rgb(var(--color-accent));
+        color: rgb(var(--color-accent));
+    }
+
+    /* Pill variant modifier */
+    .btn-pill {
+        border-radius: var(--radius-pill);
+        padding: 0.625rem 1.25rem;
+    }
+
+    /* Dynamic color support via CSS custom property */
+    .btn-dynamic {
+        background: var(--btn-bg, rgb(var(--color-accent)));
+        color: var(--btn-text, #100f0e);
+    }
+
+    /* ========== BANNERS / ALERTS ========== */
+    .banner {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        border-radius: var(--radius-md);
+        font-size: 0.6875rem;
+        font-weight: 500;
+        margin-bottom: 1rem;
+    }
+
+    /* Info - Blue */
+    .banner-info {
+        background: rgb(78, 168, 222);
+        color: #fff;
+    }
+
+    .dark .banner-info {
+        background: rgba(78, 168, 222, 0.2);
+        border: 1px solid rgba(78, 168, 222, 0.5);
+        color: rgb(78, 168, 222);
+    }
+
+    /* Success - Green */
+    .banner-success {
+        background: rgb(31, 178, 86);
+        color: #fff;
+    }
+
+    .dark .banner-success {
+        background: rgba(31, 178, 86, 0.2);
+        border: 1px solid rgba(31, 178, 86, 0.5);
+        color: rgb(31, 178, 86);
+    }
+
+    /* Warning - Amber */
+    .banner-warning {
+        background: rgb(245, 158, 11);
+        color: #fff;
+    }
+
+    .dark .banner-warning {
+        background: rgba(245, 158, 11, 0.2);
+        border: 1px solid rgba(245, 158, 11, 0.5);
+        color: rgb(245, 158, 11);
+    }
+
+    /* Error - Red */
+    .banner-error {
+        background: rgb(241, 81, 50);
+        color: #fff;
+    }
+
+    .dark .banner-error {
+        background: rgba(241, 81, 50, 0.2);
+        border: 1px solid rgba(241, 81, 50, 0.5);
+        color: rgb(241, 81, 50);
+    }
+
+    /* Purple variant for shadow mode */
+    .banner-purple {
+        background: rgb(168, 85, 247);
+        color: #fff;
+    }
+
+    .dark .banner-purple {
+        background: rgba(168, 85, 247, 0.2);
+        border: 1px solid rgba(168, 85, 247, 0.5);
+        color: rgb(168, 85, 247);
+    }
+
+    /* ========== BADGES / CHIPS ========== */
+    .badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.125rem 0.5rem;
+        border-radius: var(--radius-pill);
+        font-size: 0.625rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .badge-accent {
+        background: rgba(255, 206, 89, 0.2);
+        color: rgb(var(--color-accent));
+        border: 1px solid rgba(255, 206, 89, 0.4);
+    }
+
+    .badge-good {
+        background: rgba(31, 178, 86, 0.2);
+        color: rgb(var(--color-good));
+        border: 1px solid rgba(31, 178, 86, 0.4);
+    }
+
+    .badge-warn {
+        background: rgba(245, 158, 11, 0.2);
+        color: rgb(var(--color-warn));
+        border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .badge-bad {
+        background: rgba(241, 81, 50, 0.2);
+        color: rgb(var(--color-bad));
+        border: 1px solid rgba(241, 81, 50, 0.4);
+    }
+
+    .badge-muted {
+        background: rgb(var(--color-surface2));
+        color: rgb(var(--color-muted));
+        border: 1px solid rgb(var(--color-line));
+    }
+
+    /* ========== FORM INPUTS ========== */
+    .input {
+        width: 100%;
+        padding: 0.625rem 0.75rem;
+        border-radius: var(--radius-sm);
+        font-size: 0.8125rem;
+        background: rgb(var(--color-surface2));
+        border: 1px solid rgb(var(--color-line));
+        color: rgb(var(--color-text));
+        transition: border-color 0.2s;
+    }
+
+    .input:focus {
+        outline: none;
+        border-color: rgb(var(--color-accent));
+        box-shadow: 0 0 0 2px rgba(255, 206, 89, 0.2);
+    }
+
+    .input::placeholder {
+        color: rgb(var(--color-muted));
+    }
+
+    /* Toggle switch */
+    .toggle {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        width: 2.25rem;
+        height: 1.25rem;
+        border-radius: var(--radius-pill);
+        background: rgb(var(--color-surface2));
+        transition: background 0.2s;
+        cursor: pointer;
+    }
+
+    .toggle.active {
+        background: rgb(var(--color-accent));
+    }
+
+    .toggle-knob {
+        position: absolute;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        background: #fff;
+        transition: transform 0.2s;
+        left: 0.125rem;
+    }
+
+    .toggle.active .toggle-knob {
+        transform: translateX(1rem);
+    }
+
+    /* ========== LOADING STATES ========== */
+    .spinner {
+        width: 1rem;
+        height: 1rem;
+        border: 2px solid rgba(255, 206, 89, 0.3);
+        border-top-color: rgb(var(--color-accent));
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .skeleton {
+        background: linear-gradient(90deg, rgb(var(--color-surface2)) 25%, rgb(var(--color-surface)) 50%, rgb(var(--color-surface2)) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-shimmer 1.5s infinite;
+        border-radius: var(--radius-sm);
+    }
+
+    @keyframes skeleton-shimmer {
+        0% {
+            background-position: 200% 0;
+        }
+
+        100% {
+            background-position: -200% 0;
+        }
+    }
+
+    .progress-bar {
+        height: 0.5rem;
+        background: rgb(var(--color-surface2));
+        border-radius: var(--radius-pill);
+        overflow: hidden;
+    }
+
+    .progress-bar-fill {
+        height: 100%;
+        background: rgb(var(--color-accent));
+        transition: width 0.3s ease;
+    }
+}
+
 .border-line\/50,
 .border-line\/60,
 .border-line\/70,
