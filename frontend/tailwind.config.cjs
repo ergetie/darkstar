@@ -5,7 +5,30 @@ module.exports = {
     theme: {
         extend: {
             fontFamily: {
-                mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+                sans: ['var(--font-sans)'],
+                mono: ['var(--font-mono)'],
+            },
+            fontSize: {
+                'xs': ['0.625rem', { lineHeight: '1' }],      // 10px
+                'sm': ['0.6875rem', { lineHeight: '1.3' }],   // 11px
+                'base': ['0.75rem', { lineHeight: '1.4' }],   // 12px
+                'md': ['0.8125rem', { lineHeight: '1.4' }],   // 13px
+                'lg': ['0.875rem', { lineHeight: '1.45' }],   // 14px
+                'xl': ['1rem', { lineHeight: '1.5' }],        // 16px
+                '2xl': ['1.125rem', { lineHeight: '1.4' }],   // 18px
+                '3xl': ['1.5rem', { lineHeight: '1.3' }],     // 24px
+                '4xl': ['1.75rem', { lineHeight: '1.2' }],    // 28px
+            },
+            spacing: {
+                'ds-1': 'var(--space-1)',
+                'ds-2': 'var(--space-2)',
+                'ds-3': 'var(--space-3)',
+                'ds-4': 'var(--space-4)',
+                'ds-5': 'var(--space-5)',
+                'ds-6': 'var(--space-6)',
+                'ds-8': 'var(--space-8)',
+                'ds-10': 'var(--space-10)',
+                'ds-12': 'var(--space-12)',
             },
             colors: {
                 // Use CSS custom properties with RGB format for opacity support
@@ -28,8 +51,12 @@ module.exports = {
                 night: 'rgb(var(--color-night) / <alpha-value>)',
             },
             borderRadius: {
+                'ds-sm': 'var(--radius-sm)',
+                'ds-md': 'var(--radius-md)',
+                'ds-lg': 'var(--radius-lg)',
+                'ds-xl': 'var(--radius-xl)',
                 'xl2': '1.25rem',
-                'pill': '9999px'
+                'pill': 'var(--radius-pill)',
             },
             boxShadow: {
                 float: 'var(--shadow-float)',

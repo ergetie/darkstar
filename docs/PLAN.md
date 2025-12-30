@@ -233,7 +233,7 @@ Add all missing config keys to Settings UI with proper categorization.
 
 ---
 
-### [PLANNED] Rev DS1 — Design System
+### [IN PROGRESS] Rev DS1 — Design System
 
 **Goal:** Create a production-grade design system with visual preview and AI guidelines to ensure consistent UI across Darkstar.
 
