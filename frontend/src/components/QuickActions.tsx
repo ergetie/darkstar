@@ -196,6 +196,10 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
                 setVacationEndDate(endDateStr)
                 setFeedback({ type: 'success', message: `Vacation mode active until ${endDateStr}` })
             }
+
+            // Notify Dashboard to update banner instantly
+            window.dispatchEvent(new Event('config-updated'))
+
             setTimeout(() => setFeedback(null), 3000)
         } catch (err) {
             setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Failed' })

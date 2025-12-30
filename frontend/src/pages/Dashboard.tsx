@@ -95,6 +95,25 @@ export default function Dashboard() {
         }
     })
 
+    // Listen for config updates from QuickActions
+    useEffect(() => {
+        const handleConfigUpdate = async () => {
+            try {
+                const response = await Api.config()
+                if (response.ok) {
+                    const data = await response.json()
+                    const vacationCfg = data.water_heating?.vacation_mode
+                    setVacationMode(vacationCfg?.enabled || false)
+                }
+            } catch (error) {
+                console.log('Failed to reload vacation mode:', error)
+            }
+        }
+
+        window.addEventListener('config-updated', handleConfigUpdate)
+        return () => window.removeEventListener('config-updated', handleConfigUpdate)
+    }, [])
+
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
     }, [])
@@ -656,12 +675,12 @@ export default function Dashboard() {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-cyan-500/20 border border-cyan-500/50 rounded-lg px-4 py-3 mb-4"
+                    className="bg-[#F59E0B]/20 border border-[#F59E0B]/50 rounded-lg px-4 py-3 mb-4"
                 >
-                    <div className="flex items-center gap-2 text-cyan-300 text-sm font-medium">
+                    <div className="flex items-center gap-2 text-[#F59E0B] text-sm font-medium">
                         <span>🏝️</span>
                         <span>Vacation Mode Active</span>
-                        <span className="text-cyan-400/70 text-xs ml-2">— Water heating is disabled</span>
+                        <span className="text-[#F59E0B]/70 text-xs ml-2">— Water heating is disabled</span>
                     </div>
                 </motion.div>
             )}
