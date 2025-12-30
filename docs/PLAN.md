@@ -239,66 +239,67 @@ Add all missing config keys to Settings UI with proper categorization.
 
 ---
 
-#### Phase 1: Foundation & Tokens
+#### Phase 1: Foundation & Tokens ✅
 
-Define all foundational design tokens in `index.css`.
-
-- [ ] Add typography scale (10px–28px)
-- [ ] Add spacing scale (4px grid)
-- [ ] Add border radius tokens (sm/md/lg/pill)
-- [ ] Update `tailwind.config.cjs` with new tokens
+- [x] Add typography scale and font families to `index.css`
+- [x] Add spacing scale (4px grid: `--space-1` to `--space-12`)
+- [x] Add border radius tokens (`--radius-sm/md/lg/pill`)
+- [x] Update `tailwind.config.cjs` with fontSize tuples, spacing, radius refs
 
 ---
 
-#### Phase 2: Component Classes
+#### Phase 2: Component Classes ✅
 
-Centralize all component styles in `index.css` instead of inline Tailwind.
-
-- [ ] Add button classes (`.btn-primary`, `.btn-secondary`, `.btn-danger`, `.btn-ghost`)
-- [ ] Add banner classes (`.banner-info`, `.banner-success`, `.banner-warning`, `.banner-error`)
-- [ ] Add form input classes (`.input`, `.toggle`, `.checkbox`)
-- [ ] Add badge classes (`.badge-accent`, `.badge-good`, `.badge-warn`, `.badge-bad`)
-- [ ] Add loading state classes (`.spinner`, `.skeleton`, `.progress-bar`)
-
----
-
-#### Phase 3: Design Preview HTML
-
-Create a single visual reference file for all components.
-
-- [ ] Create `docs/design-system/design-preview.html`
-- [ ] Add color palette section (flair + dark/light surfaces)
-- [ ] Add typography showcase
-- [ ] Add button showcase (all variants, both modes)
-- [ ] Add banner showcase (all types, both modes)
-- [ ] Add form elements showcase
-- [ ] Add metric cards showcase
-- [ ] Add data visualization (mini-bars, gauges)
-- [ ] Add misc components (badges, tooltips, modals)
-- [ ] Add theme toggle for live dark/light preview
+- [x] Button classes (`.btn`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.btn-ghost`, `.btn-pill`, `.btn-dynamic`)
+- [x] Banner classes (`.banner`, `.banner-info`, `.banner-success`, `.banner-warning`, `.banner-error`, `.banner-purple`)
+- [x] Form input classes (`.input`, `.toggle`, `.slider`)
+- [x] Badge classes (`.badge`, `.badge-accent`, `.badge-good`, `.badge-warn`, `.badge-bad`, `.badge-muted`)
+- [x] Loading state classes (`.spinner`, `.skeleton`, `.progress-bar`)
+- [x] Animation classes (`.animate-pulse`, `.animate-bounce`, `.animate-glow`, etc.)
+- [x] Modal classes (`.modal-overlay`, `.modal`)
+- [x] Tooltip, mini-bars, power flow styles
 
 ---
 
-#### Phase 4: AI Guidelines Document
+#### Phase 3: Design Preview Page ✅
 
-Create instruction document for AI when implementing features.
+Created `/design-system` React route instead of static HTML (better: hot-reload, actual components).
 
-- [ ] Create `docs/design-system/AI_GUIDELINES.md`
-- [ ] Document color usage rules
-- [ ] Document typography and spacing rules
-- [ ] Document component usage (when to use what)
-- [ ] Document dark/light mode differences
-- [ ] Add DO ✅ / DON'T ❌ patterns
-- [ ] Add ready-to-copy code examples
+- [x] Color palette with all flair colors + AI color
+- [x] Typography showcase
+- [x] Button showcase (all variants)
+- [x] Banner showcase (all types)
+- [x] Form elements (input, toggle, slider)
+- [x] Metric cards showcase
+- [x] Data visualization (mini-bars, Chart.js live example)
+- [x] Power Flow animated visualization
+- [x] Animation examples (pulse, bounce, glow, spinner, skeleton)
+- [x] Future component mockups (Modal, Accordion, Search, DatePicker, Toast, Breadcrumbs, Timeline)
+- [x] Dark/Light mode comparison section
+- [x] Theme toggle in header
 
 ---
 
-#### Phase 5: Polish & Integration
+#### Phase 4: AI Guidelines Document ✅
 
-- [ ] Test design preview in browser (both modes)
-- [ ] Verify CSS classes work with existing components
-- [ ] Update `AGENTS.md` reference (already done)
-- [ ] Remove old `frontend/color-palette.html`
+- [x] Created `docs/design-system/AI_GUIDELINES.md`
+- [x] Color usage rules with all flair colors including AI
+- [x] Typography and spacing rules
+- [x] Component usage guidance
+- [x] DO ✅ / DON'T ❌ patterns
+- [x] Code examples
+
+---
+
+#### Phase 5: Polish & Integration ✅
+
+- [x] Tested design preview in browser (both modes)
+- [x] Migrated Dashboard banners to design system classes
+- [x] Migrated SystemAlert to design system classes
+- [x] Migrated PillButton to use CSS custom properties
+- [x] Fixed grain texture (sharper, proper dark mode opacity)
+- [x] Fixed light mode visibility (spinner, badges)
+- [ ] Remove old `frontend/color-palette.html` (pending final verification)
 
 ---
 
