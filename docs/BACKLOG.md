@@ -221,6 +221,65 @@ in bugfix mode, and we strongly recommend against using it for new projects.
 
 ---
 
+### [Backend] Refactor webapp.py into Flask Blueprints
+
+**Goal:** Split the monolithic `webapp.py` (3,400+ lines, 96 functions) into modular Flask Blueprints.
+
+**Current State:** All API endpoints, themes, forecasts, health checks, executor logic, and database code are in one file, making it hard to maintain and test.
+
+**Proposed Structure:**
+```
+backend/api/
+├── __init__.py
+├── schedule.py      ← /api/schedule endpoints
+├── executor.py      ← /api/executor endpoints
+├── health.py        ← /api/health endpoint
+├── learning.py      ← /api/learning endpoints
+├── forecast.py      ← /api/forecast endpoints
+├── themes.py        ← /api/themes endpoints
+└── config.py        ← /api/config endpoints
+```
+
+**Notes:** `aurora.py` blueprint already exists as a good pattern to follow.
+
+---
+
+### [Backend] Add SQLite Connection Pooling
+
+**Goal:** Reuse database connections instead of creating new ones for each request.
+
+**Current State:** Each API request creates a new SQLite connection:
+```python
+with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
+```
+
+**Impact:** May cause contention under high concurrency.
+
+**Options:**
+- Use `threading.local()` for thread-local connections
+- Use `sqlalchemy` connection pooling (would require larger refactor)
+- Use `aiosqlite` for async SQLite (if migrating from eventlet)
+
+---
+
+### [Ops] Update Docker HEALTHCHECK Endpoint
+
+**Goal:** Use the comprehensive `/api/health` endpoint instead of `/api/status`.
+
+**Current State:** Dockerfile uses:
+```dockerfile
+HEALTHCHECK ... CMD curl -f http://localhost:5000/api/status || exit 1
+```
+
+**Improvement:** `/api/health` performs comprehensive checks (config, HA connection, entities, database) so Docker can detect more issues.
+
+**Change:**
+```dockerfile
+HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy":true' || exit 1
+```
+
+---
+
 ## ⏸️ On Hold
 
 ### Rev 63 — Export What-If Simulator
