@@ -610,24 +610,24 @@ export default function Dashboard() {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-red-500/20 border border-red-500/50 rounded-lg p-4 mb-4"
+                    className="banner banner-error p-4"
                 >
-                    <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start justify-between gap-4 w-full">
                         <div>
-                            <div className="flex items-center gap-2 text-red-400 font-semibold text-sm mb-1">
+                            <div className="flex items-center gap-2 font-semibold text-sm mb-1">
                                 <span>⚠️</span>
                                 <span>Planner Error</span>
                             </div>
-                            <div className="text-red-300 text-xs">{lastError.message}</div>
+                            <div className="opacity-80 text-xs">{lastError.message}</div>
                             {lastError.at && (
-                                <div className="text-red-400/60 text-[10px] mt-1">
+                                <div className="opacity-60 text-[10px] mt-1">
                                     {new Date(lastError.at).toLocaleString()}
                                 </div>
                             )}
                         </div>
                         <button
                             onClick={() => setLastError(null)}
-                            className="text-red-400/60 hover:text-red-300 text-xs px-2 py-1"
+                            className="opacity-60 hover:opacity-100 text-xs px-2 py-1"
                             title="Dismiss"
                         >
                             ✕
@@ -641,13 +641,11 @@ export default function Dashboard() {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-purple-500/20 border border-purple-500/50 rounded-lg px-4 py-3 mb-4"
+                    className="banner banner-purple px-4 py-3"
                 >
-                    <div className="flex items-center gap-2 text-purple-300 text-sm font-medium">
-                        <span>👻</span>
-                        <span>Shadow Mode Active</span>
-                        <span className="text-purple-400/70 text-xs ml-2">— Actions logged but not executed on Home Assistant</span>
-                    </div>
+                    <span>👻</span>
+                    <span className="font-medium">Shadow Mode Active</span>
+                    <span className="opacity-70 text-xs ml-2">— Actions logged but not executed on Home Assistant</span>
                 </motion.div>
             )}
 
@@ -656,17 +654,15 @@ export default function Dashboard() {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-orange-500/20 border border-orange-500/50 rounded-lg px-4 py-3 mb-4"
+                    className="banner banner-warning px-4 py-3"
                 >
-                    <div className="flex items-center gap-2 text-orange-300 text-sm font-medium">
-                        <span>⏸️</span>
-                        <span>Executor Paused (Idle Mode)</span>
-                        {executorStatus.paused.paused_minutes !== undefined && (
-                            <span className="text-orange-400/70 text-xs ml-2">
-                                — Paused for {executorStatus.paused.paused_minutes} minutes
-                            </span>
-                        )}
-                    </div>
+                    <span>⏸️</span>
+                    <span className="font-medium">Executor Paused (Idle Mode)</span>
+                    {executorStatus.paused.paused_minutes !== undefined && (
+                        <span className="opacity-70 text-xs ml-2">
+                            — Paused for {executorStatus.paused.paused_minutes} minutes
+                        </span>
+                    )}
                 </motion.div>
             )}
 
@@ -675,13 +671,11 @@ export default function Dashboard() {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-[#F59E0B] dark:bg-[#F59E0B]/20 border-0 dark:border dark:border-[#F59E0B]/50 rounded-lg px-4 py-3 mb-4"
+                    className="banner banner-warning px-4 py-3"
                 >
-                    <div className="flex items-center gap-2 text-white dark:text-[#F59E0B] text-sm font-medium">
-                        <span>🏝️</span>
-                        <span>Vacation Mode Active</span>
-                        <span className="text-white/80 dark:text-[#F59E0B]/70 text-xs ml-2">— Water heating is disabled</span>
-                    </div>
+                    <span>🏝️</span>
+                    <span className="font-medium">Vacation Mode Active</span>
+                    <span className="opacity-70 text-xs ml-2">— Water heating is disabled</span>
                 </motion.div>
             )}
 
