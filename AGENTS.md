@@ -135,7 +135,7 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
   4. Wait for user approval before implementing.
 - **One Problem at a Time**: When the user mentions multiple issues, handle them sequentially. Store all items in a task list and work through them one by one.
 - **Regular Commits**: Commit changes after completing a defined task or revision. The AI must remind the user when to commit and suggest a semantic message, rather than performing the commit itself. This should occur after each task or batch of tasks.
-- **UI Design Guide**: All UI changes must strictly follow the design system defined in [frontend/color-palette.html].
+- **UI Design Guide**: All UI changes must strictly follow the design system defined in [docs/design-system/AI_GUIDELINES.md].
 - **Documentation Always Updated**: When making any code changes, update relevant documentation (`architecture.md`, `README.md`, etc.). Documentation must always reflect the current implementation.
 - **User Consultation**: Consult the user before:
   - Making major architectural changes.
