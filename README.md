@@ -138,6 +138,15 @@ The web UI provides:
 - **Forecasting** — Compare ML predictions vs. actuals
 - **Manual Planning** — Override or extend the automated schedule
 - **Settings** — Tune parameters without editing YAML files
+- **Design System** — `/design-system` route shows all UI components
+
+## 🎨 Design System
+
+Darkstar includes a production-grade design system for consistent UI:
+
+- **Live Preview**: Visit `/design-system` to see all components
+- **AI Guidelines**: See `docs/design-system/AI_GUIDELINES.md` for styling rules
+- **SSOT**: All tokens defined in `frontend/src/index.css`
 
 ## 📊 How It Works
 
