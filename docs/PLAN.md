@@ -15,6 +15,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **H** | History/DB | H1 |
 | **O** | Onboarding | O1 |
 | **UI** | User Interface | UI1, UI2 |
+| **DS** | Design System | DS1 |
 | **F** | Fixes/Bugfixes | F1 |
 
 ---
@@ -229,6 +230,75 @@ Add all missing config keys to Settings UI with proper categorization.
 
 - [ ] Integrate `pricing.subscription_fee_sek_per_month` into the cost engine.
 - [ ] Calculate and display monthly ROI / Break-even metrics on Dashboard.
+
+---
+
+### [PLANNED] Rev DS1 — Design System
+
+**Goal:** Create a production-grade design system with visual preview and AI guidelines to ensure consistent UI across Darkstar.
+
+---
+
+#### Phase 1: Foundation & Tokens
+
+Define all foundational design tokens in `index.css`.
+
+- [ ] Add typography scale (10px–28px)
+- [ ] Add spacing scale (4px grid)
+- [ ] Add border radius tokens (sm/md/lg/pill)
+- [ ] Update `tailwind.config.cjs` with new tokens
+
+---
+
+#### Phase 2: Component Classes
+
+Centralize all component styles in `index.css` instead of inline Tailwind.
+
+- [ ] Add button classes (`.btn-primary`, `.btn-secondary`, `.btn-danger`, `.btn-ghost`)
+- [ ] Add banner classes (`.banner-info`, `.banner-success`, `.banner-warning`, `.banner-error`)
+- [ ] Add form input classes (`.input`, `.toggle`, `.checkbox`)
+- [ ] Add badge classes (`.badge-accent`, `.badge-good`, `.badge-warn`, `.badge-bad`)
+- [ ] Add loading state classes (`.spinner`, `.skeleton`, `.progress-bar`)
+
+---
+
+#### Phase 3: Design Preview HTML
+
+Create a single visual reference file for all components.
+
+- [ ] Create `docs/design-system/design-preview.html`
+- [ ] Add color palette section (flair + dark/light surfaces)
+- [ ] Add typography showcase
+- [ ] Add button showcase (all variants, both modes)
+- [ ] Add banner showcase (all types, both modes)
+- [ ] Add form elements showcase
+- [ ] Add metric cards showcase
+- [ ] Add data visualization (mini-bars, gauges)
+- [ ] Add misc components (badges, tooltips, modals)
+- [ ] Add theme toggle for live dark/light preview
+
+---
+
+#### Phase 4: AI Guidelines Document
+
+Create instruction document for AI when implementing features.
+
+- [ ] Create `docs/design-system/AI_GUIDELINES.md`
+- [ ] Document color usage rules
+- [ ] Document typography and spacing rules
+- [ ] Document component usage (when to use what)
+- [ ] Document dark/light mode differences
+- [ ] Add DO ✅ / DON'T ❌ patterns
+- [ ] Add ready-to-copy code examples
+
+---
+
+#### Phase 5: Polish & Integration
+
+- [ ] Test design preview in browser (both modes)
+- [ ] Verify CSS classes work with existing components
+- [ ] Update `AGENTS.md` reference (already done)
+- [ ] Remove old `frontend/color-palette.html`
 
 ---
 
