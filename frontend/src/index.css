@@ -154,8 +154,8 @@ body::before {
     pointer-events: none;
     z-index: 9999;
     opacity: 0.1;
-    /* Sharp grain: baseFrequency=1.5 for finer texture */
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    /* Sharp grain: baseFrequency=2.0 for even finer, sharper texture */
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='2.0' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }
 
 /* Reduce grain in dark mode - very subtle */
@@ -572,6 +572,120 @@ body::before {
         max-width: 28rem;
         width: 90%;
         box-shadow: var(--shadow-float);
+    }
+
+    /* ========== ANIMATIONS ========== */
+    @keyframes pulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.5;
+        }
+    }
+
+    @keyframes bounce {
+
+        0%,
+        100% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-10px);
+        }
+    }
+
+    @keyframes fade-in {
+        from {
+            opacity: 0;
+        }
+
+        to {
+            opacity: 1;
+        }
+    }
+
+    @keyframes slide-up {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes flow {
+        0% {
+            stroke-dashoffset: 20;
+        }
+
+        100% {
+            stroke-dashoffset: 0;
+        }
+    }
+
+    @keyframes glow-pulse {
+
+        0%,
+        100% {
+            box-shadow: 0 0 8px rgba(255, 206, 89, 0.4);
+        }
+
+        50% {
+            box-shadow: 0 0 20px rgba(255, 206, 89, 0.8);
+        }
+    }
+
+    .animate-pulse {
+        animation: pulse 2s ease-in-out infinite;
+    }
+
+    .animate-bounce {
+        animation: bounce 1s ease-in-out infinite;
+    }
+
+    .animate-fade-in {
+        animation: fade-in 0.3s ease-out;
+    }
+
+    .animate-slide-up {
+        animation: slide-up 0.4s ease-out;
+    }
+
+    .animate-glow {
+        animation: glow-pulse 2s ease-in-out infinite;
+    }
+
+    /* ========== POWER FLOW ========== */
+    .power-flow-node {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .power-flow-circle {
+        width: 4rem;
+        height: 4rem;
+        border-radius: 50%;
+        border: 3px solid;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgb(var(--color-surface));
+    }
+
+    .power-flow-line {
+        stroke-dasharray: 5 5;
+        animation: flow 0.5s linear infinite;
     }
 
     /* ========== SYSTEM ALERT (sticky top) ========== */
