@@ -11,6 +11,7 @@ import Forecasting from './pages/Forecasting'
 import Lab from './pages/Lab'
 import Aurora from './pages/Aurora'
 import Executor from './pages/Executor'
+import DesignSystem from './pages/DesignSystem'
 import { Api, HealthResponse } from './lib/api'
 import { SystemAlert } from './components/SystemAlert'
 
@@ -80,6 +81,7 @@ export default function App() {
                         <Route path="/debug" element={<Debug />} />
                         <Route path="/lab" element={<Lab />} />
                         <Route path="/settings" element={<Settings />} />
+                        <Route path="/design-system" element={<DesignSystem />} />
                     </Routes>
                 </div>
             </BrowserRouter>
