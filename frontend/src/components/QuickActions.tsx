@@ -7,6 +7,7 @@ interface QuickActionsProps {
     onDataRefresh?: () => void
     onPlanSourceChange?: (source: 'local' | 'server') => void
     onServerScheduleLoaded?: (schedule: ScheduleSlot[]) => void
+    onVacationModeChange?: (enabled: boolean) => void
 }
 
 type PlannerPhase = 'idle' | 'planning' | 'executing' | 'done'
@@ -14,7 +15,7 @@ type PlannerPhase = 'idle' | 'planning' | 'executing' | 'done'
 const VACATION_DAYS_OPTIONS = [3, 7, 14, 21, 28]
 const BOOST_MINUTES_OPTIONS = [30, 60, 120]
 
-export default function QuickActions({ onDataRefresh, onPlanSourceChange }: QuickActionsProps) {
+export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVacationModeChange }: QuickActionsProps) {
     // Planner state
     const [plannerPhase, setPlannerPhase] = useState<PlannerPhase>('idle')
 
@@ -199,6 +200,7 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange }: Quic
 
             // Notify Dashboard to update banner instantly
             window.dispatchEvent(new Event('config-updated'))
+            onVacationModeChange?.(!vacationActive)
 
             setTimeout(() => setFeedback(null), 3000)
         } catch (err) {

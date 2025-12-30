@@ -675,12 +675,12 @@ export default function Dashboard() {
                 <motion.div
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="bg-[#F59E0B]/20 border border-[#F59E0B]/50 rounded-lg px-4 py-3 mb-4"
+                    className="bg-[#F59E0B] dark:bg-[#F59E0B]/20 border-0 dark:border dark:border-[#F59E0B]/50 rounded-lg px-4 py-3 mb-4"
                 >
-                    <div className="flex items-center gap-2 text-[#F59E0B] text-sm font-medium">
+                    <div className="flex items-center gap-2 text-white dark:text-[#F59E0B] text-sm font-medium">
                         <span>🏝️</span>
                         <span>Vacation Mode Active</span>
-                        <span className="text-[#F59E0B]/70 text-xs ml-2">— Water heating is disabled</span>
+                        <span className="text-white/80 dark:text-[#F59E0B]/70 text-xs ml-2">— Water heating is disabled</span>
                     </div>
                 </motion.div>
             )}
@@ -777,6 +777,7 @@ export default function Dashboard() {
                                 onDataRefresh={fetchAllData}
                                 onPlanSourceChange={handlePlanSourceChange}
                                 onServerScheduleLoaded={handleServerScheduleLoaded}
+                                onVacationModeChange={(enabled) => setVacationMode(enabled)}
                             />
                         </Card>
                         <Card className="flex-1 p-4 md:p-5">
