@@ -49,6 +49,7 @@ module.exports = {
                 bad: 'rgb(var(--color-bad) / <alpha-value>)',
                 peak: 'rgb(var(--color-peak) / <alpha-value>)',
                 night: 'rgb(var(--color-night) / <alpha-value>)',
+                ai: 'rgb(var(--color-ai) / <alpha-value>)',
             },
             borderRadius: {
                 'ds-sm': 'var(--radius-sm)',

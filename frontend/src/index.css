@@ -45,6 +45,8 @@
     /* #EC4899 Pink */
     --color-night: 6 182 212;
     /* #06B6D4 Cyan */
+    --color-ai: 139 92 246;
+    /* #8B5CF6 Violet */
 
     --shadow-float: 0 8px 30px rgba(0, 0, 0, 0.08);
     --shadow-inset1: inset 0 0 0 1px rgba(0, 0, 0, 0.04);
@@ -124,6 +126,8 @@
     /* #EC4899 Pink */
     --color-night: 6 182 212;
     /* #06B6D4 Cyan */
+    --color-ai: 139 92 246;
+    /* #8B5CF6 Violet */
 
     --shadow-float: 0 8px 30px rgba(0, 0, 0, 0.35);
     --shadow-inset1: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
@@ -154,9 +158,9 @@ body::before {
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
 }
 
-/* Reduce grain in dark mode - more subtle */
+/* Reduce grain in dark mode - very subtle */
 .dark body::before {
-    opacity: 0.03;
+    opacity: 0.015;
 }
 
 /* ============================================
@@ -356,6 +360,19 @@ body::before {
         border: 1px solid rgba(241, 81, 50, 0.4);
     }
 
+    /* Accent badge light-mode fix: use darker text */
+    .badge-accent {
+        background: rgba(255, 206, 89, 0.2);
+        color: #b38b00;
+        /* Darker gold for light mode readability */
+        border: 1px solid rgba(255, 206, 89, 0.6);
+    }
+
+    .dark .badge-accent {
+        color: rgb(var(--color-accent));
+        border: 1px solid rgba(255, 206, 89, 0.4);
+    }
+
     .badge-muted {
         background: rgb(var(--color-surface2));
         color: rgb(var(--color-muted));
@@ -419,10 +436,15 @@ body::before {
     .spinner {
         width: 1rem;
         height: 1rem;
-        border: 2px solid rgba(255, 206, 89, 0.3);
+        border: 2px solid rgb(var(--color-line));
         border-top-color: rgb(var(--color-accent));
         border-radius: 50%;
         animation: spin 0.8s linear infinite;
+    }
+
+    .dark .spinner {
+        border-color: rgba(255, 206, 89, 0.3);
+        border-top-color: rgb(var(--color-accent));
     }
 
     @keyframes spin {
@@ -459,6 +481,97 @@ body::before {
         height: 100%;
         background: rgb(var(--color-accent));
         transition: width 0.3s ease;
+    }
+
+    /* ========== RANGE SLIDER ========== */
+    .slider {
+        -webkit-appearance: none;
+        width: 100%;
+        height: 0.5rem;
+        border-radius: var(--radius-pill);
+        background: rgb(var(--color-surface2));
+        outline: none;
+    }
+
+    .slider::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        background: rgb(var(--color-accent));
+        cursor: pointer;
+        border: 2px solid rgb(var(--color-surface));
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+
+    .slider::-moz-range-thumb {
+        width: 1rem;
+        height: 1rem;
+        border-radius: 50%;
+        background: rgb(var(--color-accent));
+        cursor: pointer;
+        border: 2px solid rgb(var(--color-surface));
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+    }
+
+    /* ========== MINI-BAR CHART ========== */
+    .mini-bars {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 28px;
+    }
+
+    .mini-bar {
+        width: 4px;
+        border-radius: 2px;
+        transition: height 0.3s ease;
+    }
+
+    /* ========== TOOLTIP ========== */
+    .tooltip {
+        position: relative;
+    }
+
+    .tooltip::after {
+        content: attr(data-tooltip);
+        position: absolute;
+        bottom: 100%;
+        left: 50%;
+        transform: translateX(-50%);
+        padding: 0.25rem 0.5rem;
+        background: rgb(var(--color-text));
+        color: rgb(var(--color-canvas));
+        font-size: 0.625rem;
+        border-radius: var(--radius-sm);
+        white-space: nowrap;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s;
+    }
+
+    .tooltip:hover::after {
+        opacity: 1;
+    }
+
+    /* ========== MODAL (placeholder) ========== */
+    .modal-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+    }
+
+    .modal {
+        background: rgb(var(--color-surface));
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        max-width: 28rem;
+        width: 90%;
+        box-shadow: var(--shadow-float);
     }
 
     /* ========== SYSTEM ALERT (sticky top) ========== */

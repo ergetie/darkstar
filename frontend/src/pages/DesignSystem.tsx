@@ -38,6 +38,7 @@ export default function DesignSystem() {
                         { name: 'Night', var: '--color-night', hex: '#06B6D4' },
                         { name: 'Grid', var: '--color-grid', hex: '#64748B' },
                         { name: 'Neutral', var: '--color-neutral', hex: '#989FA5' },
+                        { name: 'AI', var: '--color-ai', hex: '#8B5CF6' },
                     ].map((color) => (
                         <div key={color.name} className="rounded-ds-md overflow-hidden shadow-float bg-surface">
                             <div
@@ -203,11 +204,49 @@ export default function DesignSystem() {
                             max="100"
                             value={progressValue}
                             onChange={(e) => setProgressValue(Number(e.target.value))}
-                            className="mt-2 w-full"
+                            className="slider mt-2"
                         />
                     </div>
                 </div>
             </section>
+
+            {/* Data Visualization */}
+            <section>
+                <h2 className="text-2xl font-semibold text-text mb-4">Data Visualization</h2>
+                <div className="grid md:grid-cols-2 gap-6">
+                    <div className="bg-surface p-4 rounded-ds-lg">
+                        <div className="text-sm text-muted mb-3">Mini-Bar Chart (Solar)</div>
+                        <div className="flex items-center gap-4">
+                            <div className="mini-bars">
+                                {[40, 55, 75, 90, 100, 85, 70, 45].map((h, i) => (
+                                    <div
+                                        key={i}
+                                        className="mini-bar"
+                                        style={{ height: `${h}%`, background: 'rgb(var(--color-accent))' }}
+                                    />
+                                ))}
+                            </div>
+                            <span className="font-mono font-bold text-accent">4.2kW</span>
+                        </div>
+                    </div>
+                    <div className="bg-surface p-4 rounded-ds-lg">
+                        <div className="text-sm text-muted mb-3">Mini-Bar Chart (Battery)</div>
+                        <div className="flex items-center gap-4">
+                            <div className="mini-bars">
+                                {[60, 65, 70, 75, 80, 82, 85, 85].map((h, i) => (
+                                    <div
+                                        key={i}
+                                        className="mini-bar"
+                                        style={{ height: `${h}%`, background: 'rgb(var(--color-good))' }}
+                                    />
+                                ))}
+                            </div>
+                            <span className="font-mono font-bold text-good">85%</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
 
             {/* Metric Cards */}
             <section>
@@ -273,6 +312,102 @@ export default function DesignSystem() {
                             <div className="text-xs text-muted mt-2">ds-{n}</div>
                         </div>
                     ))}
+                </div>
+            </section>
+
+            {/* Side-by-Side Dark/Light Preview */}
+            <section>
+                <h2 className="text-2xl font-semibold text-text mb-4">Dark / Light Mode Comparison</h2>
+                <div className="grid md:grid-cols-2 gap-6">
+                    {/* Dark Mode Preview */}
+                    <div className="rounded-ds-lg overflow-hidden" style={{ background: '#0f1216' }}>
+                        <div className="px-4 py-3" style={{ background: '#14191f' }}>
+                            <span className="text-sm font-semibold" style={{ color: '#e6e9ef' }}>🌙 Dark Mode — Glow Buttons</span>
+                        </div>
+                        <div className="p-4 space-y-2" style={{ background: '#14191f' }}>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#181e25' }}>
+                                <span style={{ color: '#FFCE59' }}>☀️ Solar</span>
+                                <span className="font-mono font-bold" style={{ color: '#FFCE59' }}>4.2kW</span>
+                            </div>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#181e25' }}>
+                                <span style={{ color: '#1FB256' }}>🔋 Battery</span>
+                                <span className="font-mono font-bold" style={{ color: '#1FB256' }}>85%</span>
+                            </div>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#181e25' }}>
+                                <span style={{ color: '#A855F7' }}>🏠 House</span>
+                                <span className="font-mono font-bold" style={{ color: '#e6e9ef' }}>1.8kW</span>
+                            </div>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#181e25' }}>
+                                <span style={{ color: '#4EA8DE' }}>💧 Water</span>
+                                <span className="font-mono font-bold" style={{ color: '#e6e9ef' }}>58°C</span>
+                            </div>
+                            <div className="flex gap-2 pt-3">
+                                <button style={{
+                                    background: '#FFCE59',
+                                    color: '#1a1d23',
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    fontWeight: 600,
+                                    fontSize: '11px',
+                                    boxShadow: '0 0 16px rgba(255, 206, 89, 0.4), 0 0 32px rgba(255, 206, 89, 0.2)'
+                                }}>⚡ Boost</button>
+                                <button style={{
+                                    background: '#989FA5',
+                                    color: '#fff',
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    fontWeight: 600,
+                                    fontSize: '11px',
+                                    boxShadow: '0 0 12px rgba(152, 159, 165, 0.3)'
+                                }}>🏖️ Vacation</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Light Mode Preview */}
+                    <div className="rounded-ds-lg overflow-hidden" style={{ background: '#DFDFDF' }}>
+                        <div className="px-4 py-3" style={{ background: '#EFEFEF' }}>
+                            <span className="text-sm font-semibold" style={{ color: '#2D2D2D' }}>☀️ Light Mode — Flat Buttons (TE Style)</span>
+                        </div>
+                        <div className="p-4 space-y-2" style={{ background: '#EFEFEF' }}>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#D0D0D0' }}>
+                                <span style={{ color: '#2D2D2D' }}>☀️ <b style={{ color: '#b38b00' }}>Solar</b></span>
+                                <span className="font-mono font-bold" style={{ color: '#2D2D2D' }}>4.2kW</span>
+                            </div>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#D0D0D0' }}>
+                                <span style={{ color: '#2D2D2D' }}>🔋 <b style={{ color: '#1FB256' }}>Battery</b></span>
+                                <span className="font-mono font-bold" style={{ color: '#2D2D2D' }}>85%</span>
+                            </div>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#D0D0D0' }}>
+                                <span style={{ color: '#2D2D2D' }}>🏠 <b style={{ color: '#A855F7' }}>House</b></span>
+                                <span className="font-mono font-bold" style={{ color: '#2D2D2D' }}>1.8kW</span>
+                            </div>
+                            <div className="flex justify-between items-center p-3 rounded-lg" style={{ background: '#D0D0D0' }}>
+                                <span style={{ color: '#2D2D2D' }}>💧 <b style={{ color: '#4EA8DE' }}>Water</b></span>
+                                <span className="font-mono font-bold" style={{ color: '#2D2D2D' }}>58°C</span>
+                            </div>
+                            <div className="flex gap-2 pt-3">
+                                <button style={{
+                                    background: '#FFCE59',
+                                    color: '#2D2D2D',
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    fontWeight: 600,
+                                    fontSize: '11px',
+                                    border: 'none'
+                                }}>⚡ Boost</button>
+                                <button style={{
+                                    background: '#989FA5',
+                                    color: '#fff',
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    fontWeight: 600,
+                                    fontSize: '11px',
+                                    border: 'none'
+                                }}>🏖️ Vacation</button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
