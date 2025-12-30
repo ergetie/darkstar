@@ -86,7 +86,6 @@ def config_to_kepler_config(
     """
     system = planner_config.get("system", {})
     battery = system.get("battery", planner_config.get("battery", {}))
-    learning = planner_config.get("learning", {})
 
     kepler_overrides = {}
     if overrides and "kepler" in overrides:
@@ -112,25 +111,14 @@ def config_to_kepler_config(
     battery_economics = planner_config.get("battery_economics", {})
     default_wear = float(battery_economics.get("battery_cycle_cost_kwh", 0.2))
 
-    # Rev K23: Dynamic terminal_value from price statistics
+    # Rev K24: Battery Cost Separation (Gold Standard)
+    # Terminal value is based purely on future price opportunity, ignoring sunk costs.
     # Must be in sweet spot:
     # - High enough that charging at cheap prices is profitable (terminal > charge_price)
     # - Low enough that discharging at expensive prices is profitable (terminal + wear < discharge_price)
-    # Formula: midpoint between min price and avg price
+    
     terminal_value = 1.5  # Fallback default
-    stored_energy_cost = 1.0
-    
-    # First, get stored energy cost (floor for terminal_value)
-    try:
-        from backend.battery_cost import BatteryCostTracker
-        db_path = learning.get("sqlite_path", "data/planner_learning.db")
-        tracker = BatteryCostTracker(db_path, capacity)
-        state = tracker.get_state()
-        if state.get("updated_at") is not None:
-            stored_energy_cost = state["avg_cost_sek_per_kwh"]
-    except Exception:
-        pass
-    
+
     # Calculate terminal_value as midpoint between min and avg price
     if slots and len(slots) > 0:
         try:
@@ -143,9 +131,6 @@ def config_to_kepler_config(
                 terminal_value = (min_price + avg_price) / 2.0
         except Exception:
             pass
-    
-    # Ensure terminal_value >= stored_energy_cost (don't discharge at a loss)
-    terminal_value = max(terminal_value, stored_energy_cost)
 
     return KeplerConfig(
         capacity_kwh=capacity,
@@ -189,6 +174,12 @@ def config_to_kepler_config(
         water_heated_today_kwh=0.0,  # Set in pipeline from HA sensor
         water_comfort_penalty_sek=_comfort_level_to_penalty(
             int(planner_config.get("water_heating", {}).get("comfort_level", 3))
+        ),
+        water_min_spacing_hours=float(
+            planner_config.get("water_heating", {}).get("min_spacing_hours", 5.0)
+        ),
+        water_spacing_penalty_sek=float(
+            planner_config.get("water_heating", {}).get("spacing_penalty_sek", 0.20)
         ),
     )
 
@@ -234,6 +225,7 @@ def kepler_result_to_dataframe(
                 "kepler_export_kwh": s.grid_export_kwh,
                 "kepler_soc_kwh": s.soc_kwh,
                 "kepler_cost_sek": s.cost_sek,
+                "planned_cost_sek": (s.grid_import_kwh * s.import_price_sek_kwh) - (s.grid_export_kwh * s.export_price_sek_kwh),
                 "battery_charge_kw": charge_kw,
                 "battery_discharge_kw": discharge_kw,
                 "discharge_kw": discharge_kw,  # Alias for simulation.py compatibility

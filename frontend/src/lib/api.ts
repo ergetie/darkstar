@@ -209,6 +209,22 @@ export type ThemeSetResponse = {
   theme?: ThemeInfo
 }
 
+export type HealthIssue = {
+  category: string
+  severity: 'critical' | 'warning' | 'info'
+  message: string
+  guidance: string
+  entity_id?: string | null
+}
+
+export type HealthResponse = {
+  healthy: boolean
+  issues: HealthIssue[]
+  checked_at: string
+  critical_count: number
+  warning_count: number
+}
+
 export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
 export type AuroraBriefingResponse = { briefing: string }
 
@@ -232,6 +248,7 @@ export const Api = {
   schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
   scheduleTodayWithHistory: () => getJSON<ScheduleTodayWithHistoryResponse>('/api/schedule/today_with_history'),
   status: () => getJSON<StatusResponse>('/api/status'),
+  health: () => getJSON<HealthResponse>('/api/health'),
   version: () => getJSON<{ version: string }>('/api/version'),
   horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
   config: () => getJSON<ConfigResponse>('/api/config'),
@@ -242,6 +259,14 @@ export const Api = {
     getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
   haAverage: () => getJSON<HaAverageResponse>('/api/ha/average'),
   haWaterToday: () => getJSON<WaterTodayResponse>('/api/ha/water_today'),
+  haTest: (payload: { url: string; token: string }) =>
+    getJSON<{ success: boolean; message: string }>('/api/ha/test', 'POST', payload),
+  haEntities: () =>
+    getJSON<{ entities: { entity_id: string; friendly_name: string; domain: string }[] }>('/api/ha/entities'),
+  haServices: () =>
+    getJSON<{ services: string[] }>('/api/ha/services'),
+  haEntityState: (entityId: string) =>
+    getJSON<{ entity_id: string; state: string; attributes: Record<string, any> }>(`/api/ha/entity/${entityId}`),
   learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
   learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
   learningDailyMetrics: () => getJSON<LearningDailyMetricsResponse>('/api/learning/daily_metrics'),
@@ -293,6 +318,11 @@ export const Api = {
     run: () => getJSON<any>('/api/executor/run', 'POST'),
     pause: () => getJSON<{ success: boolean; paused_at?: string; message?: string; error?: string }>('/api/executor/pause', 'POST'),
     resume: () => getJSON<{ success: boolean; resumed_at?: string; paused_duration_minutes?: number; message?: string; error?: string }>('/api/executor/resume', 'POST'),
+    quickAction: {
+      get: () => getJSON<{ quick_action: any | null }>('/api/executor/quick-action'),
+      set: (type: string, duration_minutes: number) => getJSON<any>('/api/executor/quick-action', 'POST', { type, duration_minutes }),
+      clear: () => getJSON<any>('/api/executor/quick-action', 'DELETE')
+    }
   },
   waterBoost: {
     status: () => getJSON<{ water_boost: { expires_at: string; remaining_minutes: number; temp_target: number } | null }>('/api/water/boost'),

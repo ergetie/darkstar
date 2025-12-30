@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets, ChevronDown } from 'lucide-react'
 import Card from '../components/Card'
+import MiniBarGraph from '../components/MiniBarGraph'
+import { useSocket } from '../lib/hooks'
 
 // Types for notifications
 type NotificationSettings = {
@@ -296,9 +298,6 @@ export default function Executor() {
     const [testingNotification, setTestingNotification] = useState(false)
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
     const [expandedRecordId, setExpandedRecordId] = useState<number | null>(null)
-    const [showEntityConfig, setShowEntityConfig] = useState(false)
-    const [entityConfig, setEntityConfig] = useState<EntityConfig | null>(null)
-    const [savingEntityConfig, setSavingEntityConfig] = useState(false)
 
     const fetchAll = useCallback(async () => {
         try {
@@ -318,54 +317,62 @@ export default function Executor() {
         }
     }, [])
 
+    // --- WebSocket Event Handlers (Rev E1) ---
+    useSocket('live_metrics', (data) => {
+        setLive(prev => ({
+            ...prev,
+            soc: data.soc !== undefined ? { value: `${data.soc.toFixed(0)}%`, numeric: data.soc, unit: '%' } : prev?.soc,
+            pv_power: data.pv_kw !== undefined ? { value: `${data.pv_kw.toFixed(1)} kW`, numeric: data.pv_kw * 1000, unit: 'W' } : prev?.pv_power,
+            load_power: data.load_kw !== undefined ? { value: `${data.load_kw.toFixed(1)} kW`, numeric: data.load_kw * 1000, unit: 'W' } : prev?.load_power,
+            grid_import: data.grid_import_kw !== undefined ? { value: `${data.grid_import_kw.toFixed(2)} kW`, numeric: data.grid_import_kw * 1000, unit: 'W' } : prev?.grid_import,
+            grid_export: data.grid_export_kw !== undefined ? { value: `${data.grid_export_kw.toFixed(2)} kW`, numeric: data.grid_export_kw * 1000, unit: 'W' } : prev?.grid_export,
+            work_mode: data.work_mode ? { value: data.work_mode } : prev?.work_mode
+        }));
+
+        setHistoryBuffer(prev => {
+            const limit = 20
+            const newLabels = [...prev.labels, '']
+            const newSoc = [...prev.soc, data.soc ?? prev.soc[prev.soc.length - 1] ?? 0]
+            const newPv = [...prev.pv, data.pv_kw ?? prev.pv[prev.pv.length - 1] ?? 0]
+            const newLoad = [...prev.load, data.load_kw ?? prev.load[prev.load.length - 1] ?? 0]
+            const newImport = [...prev.import, data.grid_import_kw ?? prev.import[prev.import.length - 1] ?? 0]
+            const newExport = [...prev.export, data.grid_export_kw ?? prev.export[prev.export.length - 1] ?? 0]
+
+            if (newLabels.length > limit) {
+                newLabels.shift(); newSoc.shift(); newPv.shift(); newLoad.shift(); newImport.shift(); newExport.shift();
+            }
+
+            return {
+                labels: newLabels,
+                soc: newSoc,
+                pv: newPv,
+                load: newLoad,
+                import: newImport,
+                export: newExport
+            }
+        })
+    });
+
+    useSocket('executor_status', (data) => {
+        setStatus(data);
+    });
+
+    // Initial data load
     useEffect(() => {
         fetchAll()
-        const interval = setInterval(fetchAll, 30000) // Refresh every 30s
+        const interval = setInterval(fetchAll, 30000) // Keep status polling as backup
         return () => clearInterval(interval)
     }, [fetchAll])
 
-    // Faster refresh for live values (every 10s)
+    // Initial fetch for live values (just once)
     useEffect(() => {
-        const fetchLive = async () => {
+        const loadInitialLive = async () => {
             try {
                 const liveRes = await executorApi.live()
                 setLive(liveRes)
-
-                // Update buffer for sparklines
-                setHistoryBuffer(prev => {
-                    const limit = 20
-                    const newLabels = [...prev.labels, '']
-                    const newSoc = [...prev.soc, liveRes.soc?.numeric || 0]
-                    const newPv = [...prev.pv, (liveRes.pv_power?.numeric || 0) / 1000] // kW
-                    const newLoad = [...prev.load, (liveRes.load_power?.numeric || 0) / 1000] // kW
-                    const newImport = [...prev.import, (liveRes.grid_import?.numeric || 0) / 1000] // kW
-                    const newExport = [...prev.export, (liveRes.grid_export?.numeric || 0) / 1000] // kW
-
-                    if (newLabels.length > limit) {
-                        newLabels.shift()
-                        newSoc.shift()
-                        newPv.shift()
-                        newLoad.shift()
-                        newImport.shift()
-                        newExport.shift()
-                    }
-
-                    return {
-                        labels: newLabels,
-                        soc: newSoc,
-                        pv: newPv,
-                        load: newLoad,
-                        import: newImport,
-                        export: newExport
-                    }
-                })
-            } catch (e) {
-                // Silently fail for live - not critical
-            }
+            } catch (e) { }
         }
-        fetchLive()
-        const liveInterval = setInterval(fetchLive, 10000)
-        return () => clearInterval(liveInterval)
+        loadInitialLive()
     }, [])
 
     // Fetch notifications on mount
@@ -647,25 +654,6 @@ export default function Executor() {
                         )}
                     </button>
 
-                    {/* Entity Config Button */}
-                    <button
-                        onClick={async () => {
-                            try {
-                                const cfg = await executorApi.config.get()
-                                setEntityConfig(cfg)
-                                setShowEntityConfig(true)
-                            } catch (e: any) {
-                                alert('Failed to load config: ' + e.message)
-                            }
-                        }}
-                        className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50 mt-2 hover:bg-surface2 transition-colors w-full"
-                    >
-                        <div className="flex items-center gap-2">
-                            <Settings className="h-4 w-4 text-muted" />
-                            <span className="text-[11px] font-medium text-text">Entity Config</span>
-                        </div>
-                    </button>
-
                     {/* Run Now Button */}
                     <div className="mt-auto pt-4">
                         <button
@@ -818,31 +806,17 @@ export default function Executor() {
                 </div>
 
                 <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {/* SoC */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.soc,
-                                    borderColor: '#10b981',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(16, 185, 129, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(16, 185, 129, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* SoC - Battery Green */}
+                    <div className="metric-card-border metric-card-border-battery p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.soc} colorClass="bg-good" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Battery className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50 ? 'text-emerald-400' :
-                                (live?.soc?.numeric ?? 0) > 20 ? 'text-amber-400' : 'text-red-400'
+                            <Battery className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50 ? 'text-good' :
+                                (live?.soc?.numeric ?? 0) > 20 ? 'text-warn' : 'text-bad'
                                 }`} />
                             <div>
-                                <div className="text-lg font-bold text-text">
+                                <div className="text-lg font-bold text-good">
                                     {live?.soc?.numeric?.toFixed(0) ?? '—'}%
                                 </div>
                                 <div className="text-[10px] text-muted">Battery SoC</div>
@@ -850,30 +824,16 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* PV Power */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.pv,
-                                    borderColor: '#fbbf24',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(251, 191, 36, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(251, 191, 36, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* PV Power - Solar Gold */}
+                    <div className="metric-card-border metric-card-border-solar p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.pv} colorClass="bg-accent" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Sun className={`h-6 w-6 ${(live?.pv_power?.numeric ?? 0) > 500 ? 'text-yellow-400' : 'text-yellow-400/40'
+                            <Sun className={`h-6 w-6 ${(live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
                                 }`} />
                             <div>
-                                <div className="text-lg font-bold text-yellow-400">
+                                <div className="text-lg font-bold text-accent">
                                     {live?.pv_power?.numeric ? (live.pv_power.numeric / 1000).toFixed(1) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">PV Power</div>
@@ -881,29 +841,15 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Load */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.load,
-                                    borderColor: '#fb923c',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(251, 146, 60, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(251, 146, 60, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* Load - House Purple */}
+                    <div className="metric-card-border metric-card-border-house p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.load} colorClass="bg-house" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Plug className="h-6 w-6 text-orange-400" />
+                            <Plug className="h-6 w-6 text-house" />
                             <div>
-                                <div className="text-lg font-bold text-orange-400">
+                                <div className="text-lg font-bold text-house">
                                     {live?.load_power?.numeric ? (live.load_power.numeric / 1000).toFixed(1) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">Load</div>
@@ -911,30 +857,16 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Grid Import */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.import,
-                                    borderColor: '#f87171',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(248, 113, 113, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(248, 113, 113, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* Grid Import - Grid Slate / Bad when high */}
+                    <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.import} colorClass={(live?.grid_import?.numeric ?? 0) > 100 ? 'bg-bad' : 'bg-grid'} />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowDownToLine className={`h-6 w-6 ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-red-400' : 'text-slate-400'
+                            <ArrowDownToLine className={`h-6 w-6 ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
                                 }`} />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-red-400' : 'text-text'
+                                <div className={`text-lg font-bold ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
                                     }`}>
                                     {live?.grid_import?.numeric ? (live.grid_import.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
@@ -943,31 +875,15 @@ export default function Executor() {
                         </div>
                     </div>
 
-                    {/* Grid Export */}
-                    <div className="p-3 rounded-lg bg-surface2/30 border border-line/30 relative overflow-hidden group">
-                        <div className="absolute inset-0 opacity-10 group-hover:opacity-20 transition-opacity pointer-events-none translate-y-2">
-                            <Line data={{
-                                labels: historyBuffer.labels,
-                                datasets: [{
-                                    data: historyBuffer.export,
-                                    borderColor: '#34d399',
-                                    backgroundColor: (context: any) => {
-                                        const ctx = context.chart.ctx;
-                                        const gradient = ctx.createLinearGradient(0, 0, 0, 50);
-                                        gradient.addColorStop(0, 'rgba(52, 211, 153, 0.4)');
-                                        gradient.addColorStop(1, 'rgba(52, 211, 153, 0)');
-                                        return gradient;
-                                    },
-                                    fill: true,
-                                }]
-                            }} options={sparklineOptions} />
+                    {/* Grid Export - TE Orange */}
+                    <div className="metric-card-border metric-card-border-bad p-3 bg-surface2/30 relative overflow-hidden group">
+                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
+                            <MiniBarGraph data={historyBuffer.export} colorClass="bg-bad" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowUpFromLine className={`h-6 w-6 ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-emerald-400' : 'text-slate-400'
-                                }`} />
+                            <ArrowUpFromLine className="h-6 w-6 text-bad" />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_export?.numeric ?? 0) > 100 ? 'text-emerald-400' : 'text-text'
-                                    }`}>
+                                <div className="text-lg font-bold text-bad">
                                     {live?.grid_export?.numeric ? (live.grid_export.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">Grid Export</div>
@@ -1300,201 +1216,6 @@ export default function Executor() {
                                 Changes are saved automatically
                             </div>
                         </div>
-                    </div>
-                </div>
-            )}
-
-            {/* Entity Config Modal */}
-            {showEntityConfig && entityConfig && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowEntityConfig(false)}>
-                    <div
-                        className="bg-surface border border-line rounded-2xl p-5 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto"
-                        onClick={e => e.stopPropagation()}
-                    >
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-2">
-                                <Settings className="h-5 w-5 text-accent" />
-                                <span className="text-sm font-medium text-text">Entity Configuration</span>
-                            </div>
-                            <button
-                                onClick={() => setShowEntityConfig(false)}
-                                className="p-1.5 rounded-lg hover:bg-surface2/80 text-muted hover:text-text transition-colors"
-                            >
-                                <X className="h-4 w-4" />
-                            </button>
-                        </div>
-
-                        {/* Inverter Section */}
-                        <div className="mb-4">
-                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Inverter Entities</div>
-                            <div className="space-y-2">
-                                <div>
-                                    <label className="text-[10px] text-muted/80 block mb-1">Work Mode (select)</label>
-                                    <input
-                                        type="text"
-                                        value={entityConfig.inverter.work_mode_entity}
-                                        onChange={(e) => setEntityConfig({
-                                            ...entityConfig,
-                                            inverter: { ...entityConfig.inverter, work_mode_entity: e.target.value }
-                                        })}
-                                        className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="text-[10px] text-muted/80 block mb-1">Grid Charging (switch)</label>
-                                    <input
-                                        type="text"
-                                        value={entityConfig.inverter.grid_charging_entity}
-                                        onChange={(e) => setEntityConfig({
-                                            ...entityConfig,
-                                            inverter: { ...entityConfig.inverter, grid_charging_entity: e.target.value }
-                                        })}
-                                        className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                    <div>
-                                        <label className="text-[10px] text-muted/80 block mb-1">Max Charge Current</label>
-                                        <input
-                                            type="text"
-                                            value={entityConfig.inverter.max_charging_current_entity}
-                                            onChange={(e) => setEntityConfig({
-                                                ...entityConfig,
-                                                inverter: { ...entityConfig.inverter, max_charging_current_entity: e.target.value }
-                                            })}
-                                            className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-muted/80 block mb-1">Max Discharge Current</label>
-                                        <input
-                                            type="text"
-                                            value={entityConfig.inverter.max_discharging_current_entity}
-                                            onChange={(e) => setEntityConfig({
-                                                ...entityConfig,
-                                                inverter: { ...entityConfig.inverter, max_discharging_current_entity: e.target.value }
-                                            })}
-                                            className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* SoC Target */}
-                        <div className="mb-4">
-                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Battery</div>
-                            <div>
-                                <label className="text-[10px] text-muted/80 block mb-1">SoC Target (input_number)</label>
-                                <input
-                                    type="text"
-                                    value={entityConfig.soc_target_entity}
-                                    onChange={(e) => setEntityConfig({ ...entityConfig, soc_target_entity: e.target.value })}
-                                    className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Water Heater */}
-                        <div className="mb-4">
-                            <div className="text-[10px] text-muted uppercase tracking-wide mb-2">Water Heater</div>
-                            <div className="space-y-2">
-                                <div>
-                                    <label className="text-[10px] text-muted/80 block mb-1">Target Entity (input_number)</label>
-                                    <input
-                                        type="text"
-                                        value={entityConfig.water_heater.target_entity}
-                                        onChange={(e) => setEntityConfig({
-                                            ...entityConfig,
-                                            water_heater: { ...entityConfig.water_heater, target_entity: e.target.value }
-                                        })}
-                                        className="w-full px-3 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                    />
-                                </div>
-                                <div className="grid grid-cols-4 gap-2">
-                                    <div>
-                                        <label className="text-[10px] text-muted/80 block mb-1">Off °C</label>
-                                        <input
-                                            type="number"
-                                            value={entityConfig.water_heater.temp_off}
-                                            onChange={(e) => setEntityConfig({
-                                                ...entityConfig,
-                                                water_heater: { ...entityConfig.water_heater, temp_off: parseInt(e.target.value) || 0 }
-                                            })}
-                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-muted/80 block mb-1">Normal °C</label>
-                                        <input
-                                            type="number"
-                                            value={entityConfig.water_heater.temp_normal}
-                                            onChange={(e) => setEntityConfig({
-                                                ...entityConfig,
-                                                water_heater: { ...entityConfig.water_heater, temp_normal: parseInt(e.target.value) || 0 }
-                                            })}
-                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-muted/80 block mb-1">Boost °C</label>
-                                        <input
-                                            type="number"
-                                            value={entityConfig.water_heater.temp_boost}
-                                            onChange={(e) => setEntityConfig({
-                                                ...entityConfig,
-                                                water_heater: { ...entityConfig.water_heater, temp_boost: parseInt(e.target.value) || 0 }
-                                            })}
-                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="text-[10px] text-muted/80 block mb-1">Max °C</label>
-                                        <input
-                                            type="number"
-                                            value={entityConfig.water_heater.temp_max}
-                                            onChange={(e) => setEntityConfig({
-                                                ...entityConfig,
-                                                water_heater: { ...entityConfig.water_heater, temp_max: parseInt(e.target.value) || 0 }
-                                            })}
-                                            className="w-full px-2 py-2 text-[11px] bg-surface2/50 border border-line/50 rounded-lg text-text focus:border-accent outline-none"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Save Button */}
-                        <button
-                            onClick={async () => {
-                                setSavingEntityConfig(true)
-                                try {
-                                    await executorApi.config.update(entityConfig)
-                                    setShowEntityConfig(false)
-                                } catch (e: any) {
-                                    alert('Failed to save: ' + e.message)
-                                } finally {
-                                    setSavingEntityConfig(false)
-                                }
-                            }}
-                            disabled={savingEntityConfig}
-                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${savingEntityConfig
-                                ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
-                                : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
-                                }`}
-                        >
-                            {savingEntityConfig ? (
-                                <>
-                                    <div className="h-3 w-3 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-                                    Saving...
-                                </>
-                            ) : (
-                                <>
-                                    <CheckCircle className="h-3.5 w-3.5" />
-                                    Save Configuration
-                                </>
-                            )}
-                        </button>
                     </div>
                 </div>
             )}

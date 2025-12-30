@@ -90,6 +90,11 @@ class ExecutorConfig:
     timezone: str = "Europe/Stockholm"
     pause_reminder_minutes: int = 30  # Send notification after N minutes paused
 
+    # System profile toggles (Rev O1)
+    has_solar: bool = True
+    has_battery: bool = True
+    has_water_heater: bool = True
+
 
 def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     """
@@ -109,6 +114,12 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
 
     # Get timezone from root config
     timezone = data.get("timezone", "Europe/Stockholm")
+
+    # System toggles (Rev O1)
+    system_data = data.get("system", {})
+    has_solar = bool(system_data.get("has_solar", True))
+    has_battery = bool(system_data.get("has_battery", True))
+    has_water_heater = bool(system_data.get("has_water_heater", True))
 
     executor_data = data.get("executor", {})
     if not executor_data:
@@ -209,4 +220,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         schedule_path=executor_data.get("schedule_path", "schedule.json"),
         timezone=timezone,
         pause_reminder_minutes=int(executor_data.get("pause_reminder_minutes", 30)),
+        has_solar=has_solar,
+        has_battery=has_battery,
+        has_water_heater=has_water_heater,
     )

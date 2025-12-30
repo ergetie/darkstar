@@ -92,6 +92,29 @@ notifications:
   discord_webhook_url: ""  # Optional fallback alerts
 ```
 
+### Water Heater (Optional)
+
+If you have a smart water heater, Darkstar can optimize its heating schedule:
+
+```yaml
+# In config.yaml under executor:
+executor:
+  water_heater:
+    target_entity: input_number.your_water_heater_temp
+    temp_off: 40       # Idle (legionella-safe minimum)
+    temp_normal: 60    # Normal scheduled heating
+    temp_boost: 70     # Manual boost via Dashboard
+    temp_max: 85       # Max temp for PV surplus dumping
+```
+
+| Setting | Default | When Used |
+|---------|---------|-----------|
+| `temp_off` | 40°C | Idle mode, no active heating |
+| `temp_normal` | 60°C | Planner schedules heating |
+| `temp_boost` | 70°C | You press "Water Boost" button |
+| `temp_max` | 85°C | Excess PV with full battery |
+
+
 ## 🏠 Home Assistant Integration
 
 Darkstar reads sensors and controls your inverter through Home Assistant:

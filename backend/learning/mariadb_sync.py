@@ -53,7 +53,8 @@ class MariaDBSync:
                             export_kw,
                             soc_projected,
                             planned_load_kwh,
-                            planned_pv_kwh
+                            planned_pv_kwh,
+                            planned_cost_sek
                         FROM plan_history
                         WHERE slot_start >= DATE_SUB(NOW(), INTERVAL %s DAY)
                         ORDER BY planned_at DESC
@@ -127,7 +128,7 @@ class MariaDBSync:
                     "planned_soc_percent": float(row["soc_projected"] or 0.0),
                     "planned_import_kwh": import_kwh,
                     "planned_export_kwh": export_kwh,
-                    "planned_cost_sek": 0.0,  # We don't have cost in plan_history
+                    "planned_cost_sek": float(row.get("planned_cost_sek", 0.0) or 0.0),
                 }
 
             # Bulk Insert

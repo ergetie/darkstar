@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
+    darkMode: 'class',
     content: ['./index.html', './src/**/*.{ts,tsx}'],
     theme: {
         extend: {
@@ -7,26 +8,32 @@ module.exports = {
                 mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
             },
             colors: {
-                // Teenage-engineering inspired, never full black.
-                canvas: '#0f1216',
-                surface: '#14191f',
-                surface2: '#181e25',
-                line: '#242b34',
-                text: '#e6e9ef',
-                muted: '#a6b0bf',
-                accent: '#F5D547',       // Yellow accent
-                accent2: '#ffe066',
-                good: '#87F0A3',
-                warn: '#FFD966',
-                bad: '#FF7A7A'
+                // Use CSS custom properties with RGB format for opacity support
+                canvas: 'rgb(var(--color-canvas) / <alpha-value>)',
+                surface: 'rgb(var(--color-surface) / <alpha-value>)',
+                surface2: 'rgb(var(--color-surface2) / <alpha-value>)',
+                line: 'rgb(var(--color-line) / <alpha-value>)',
+                text: 'rgb(var(--color-text) / <alpha-value>)',
+                muted: 'rgb(var(--color-muted) / <alpha-value>)',
+                neutral: 'rgb(var(--color-neutral) / <alpha-value>)',
+                accent: 'rgb(var(--color-accent) / <alpha-value>)',
+                accent2: 'rgb(var(--color-accent2) / <alpha-value>)',
+                good: 'rgb(var(--color-good) / <alpha-value>)',
+                house: 'rgb(var(--color-house) / <alpha-value>)',
+                water: 'rgb(var(--color-water) / <alpha-value>)',
+                grid: 'rgb(var(--color-grid) / <alpha-value>)',
+                warn: 'rgb(var(--color-warn) / <alpha-value>)',
+                bad: 'rgb(var(--color-bad) / <alpha-value>)',
+                peak: 'rgb(var(--color-peak) / <alpha-value>)',
+                night: 'rgb(var(--color-night) / <alpha-value>)',
             },
             borderRadius: {
                 'xl2': '1.25rem',
                 'pill': '9999px'
             },
             boxShadow: {
-                float: '0 8px 30px rgba(0,0,0,0.35)',
-                inset1: 'inset 0 0 0 1px rgba(255,255,255,0.04)'
+                float: 'var(--shadow-float)',
+                inset1: 'var(--shadow-inset1)'
             }
         },
     },

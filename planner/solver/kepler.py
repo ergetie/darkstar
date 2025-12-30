@@ -44,8 +44,15 @@ class KeplerSolver:
         water_enabled = config.water_heating_power_kw > 0
         if water_enabled:
             water_heat = pulp.LpVariable.dicts("water_heat", range(T), cat="Binary")
+            # Rev K21: Spacing and transitions
+            water_start = pulp.LpVariable.dicts("water_start", range(T), cat="Binary")
+            water_spacing_viol = pulp.LpVariable.dicts("water_spacing_viol", range(T), cat="Binary")
         else:
-            water_heat = {t: 0 for t in range(T)}  # Disabled
+            water_heat = {t: 0 for t in range(T)}
+            water_start = {t: 0 for t in range(T)}
+            water_spacing_viol = {t: 0 for t in range(T)}
+
+        # SoC state variables (T+1 states for T slots)
 
         # SoC state variables (T+1 states for T slots)
         min_soc_kwh = config.capacity_kwh * config.min_soc_percent / 100.0
@@ -89,6 +96,13 @@ class KeplerSolver:
                 s.load_kwh + water_load_kwh + charge[t] + grid_export[t] + curtailment[t]
                 == s.pv_kwh + discharge[t] + grid_import[t] + load_shedding[t]
             )
+
+            # Rev K21: Water start detection
+            if water_enabled:
+                if t == 0:
+                    prob += water_start[t] == water_heat[t]
+                else:
+                    prob += water_start[t] >= water_heat[t] - water_heat[t-1]
 
             # Battery Dynamics Constraint
             prob += soc[t + 1] == soc[t] + charge[t] * config.charge_efficiency - discharge[t] / (
@@ -160,8 +174,9 @@ class KeplerSolver:
         if config.target_soc_kwh is not None:
             prob += soc[T] >= target_soc_kwh - target_violation
 
-        # Water Heating Constraints (Rev K17/K18)
+        # Water Heating Constraints (Rev K17/K18/K21)
         gap_violation_penalty = 0.0
+        spacing_violation_penalty = 0.0
         if water_enabled:
             avg_slot_hours = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
             water_kwh_per_slot = config.water_heating_power_kw * avg_slot_hours
@@ -191,21 +206,37 @@ class KeplerSolver:
                         >= day_min_kwh
                     )
 
-            # Constraint 2: Soft gap penalty (Rev K18)
-            # For each window beyond threshold without heating, apply comfort penalty
+            # Constraint 2: Progressive gap penalty (Rev K18/K21)
+            # Tier 1: Base comfort penalty beyond max_gap_hours
             if config.water_heating_max_gap_hours > 0 and config.water_comfort_penalty_sek > 0:
-                gap_slots = int(config.water_heating_max_gap_hours / avg_slot_hours)
-                gap_slots = max(1, gap_slots)
-                
-                # Slack variable for gap violations
+                gap_slots = max(1, int(config.water_heating_max_gap_hours / avg_slot_hours))
                 gap_violation = pulp.LpVariable.dicts("gap_viol", range(T), lowBound=0.0)
-                
-                # For every window: water_heat_sum + violation >= 1
                 for start in range(T - gap_slots + 1):
                     prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots)) + gap_violation[start] >= 1
                 
-                # Calculate total gap penalty (violation * penalty per window)
-                gap_violation_penalty = config.water_comfort_penalty_sek * pulp.lpSum(gap_violation[t] for t in range(T - gap_slots + 1))
+                # Tier 2: Double penalty for very long gaps (> 1.5x threshold)
+                gap_slots_2 = max(1, int(config.water_heating_max_gap_hours * 1.5 / avg_slot_hours))
+                gap_violation_2 = pulp.LpVariable.dicts("gap_viol_2", range(T), lowBound=0.0)
+                for start in range(T - gap_slots_2 + 1):
+                    prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots_2)) + gap_violation_2[start] >= 1
+
+                gap_violation_penalty = config.water_comfort_penalty_sek * (
+                    pulp.lpSum(gap_violation[t] for t in range(T - gap_slots + 1)) +
+                    pulp.lpSum(gap_violation_2[t] for t in range(T - gap_slots_2 + 1))
+                )
+
+            # Constraint 3: Soft Efficiency Penalty (Spacing) (Rev K21)
+            # If a new block starts, it shouldn't be too close to any previous heating
+            if config.water_min_spacing_hours > 0 and config.water_spacing_penalty_sek > 0:
+                spacing_slots = max(1, int(config.water_min_spacing_hours / avg_slot_hours))
+                for t in range(T):
+                    # Check preceding slots in spacing window
+                    for j in range(max(0, t - spacing_slots), t):
+                        # If we start at t AND were heating at j, it's a spacing violation
+                        # Linearized: viol >= start[t] + heat[j] - 1
+                        prob += water_spacing_viol[t] >= water_start[t] + water_heat[j] - 1
+                
+                spacing_violation_penalty = config.water_spacing_penalty_sek * pulp.lpSum(water_spacing_viol)
 
         # Terminal Value
         terminal_value = soc[T] * config.terminal_value_sek_kwh
@@ -220,6 +251,7 @@ class KeplerSolver:
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
             + target_soc_penalty * target_violation
             + gap_violation_penalty
+            + spacing_violation_penalty
         )
 
         # Solve using GLPK (available in Alpine) or CBC as fallback

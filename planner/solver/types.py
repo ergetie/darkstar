@@ -37,6 +37,8 @@ class KeplerConfig:
     water_heating_max_gap_hours: float = 0.0  # Threshold for gap penalty (0 = disabled)
     water_heated_today_kwh: float = 0.0  # Already heated today (reduces remaining min)
     water_comfort_penalty_sek: float = 0.50  # Penalty per hour beyond gap threshold
+    water_min_spacing_hours: float = 5.0  # Rev K21: Min gap between starts to avoid efficiency loss
+    water_spacing_penalty_sek: float = 0.20  # Rev K21: Soft penalty for frequent starts
 
 
 @dataclass

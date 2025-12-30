@@ -2,14 +2,19 @@ import { useEffect, useState } from 'react'
 import Card from '../components/Card'
 import AzimuthDial from '../components/AzimuthDial'
 import TiltDial from '../components/TiltDial'
+import EntitySelect from '../components/EntitySelect'
+import ServiceSelect from '../components/ServiceSelect'
+import Tooltip from '../components/Tooltip'
 import { Api, ThemeInfo } from '../lib/api'
 import { cls } from '../theme'
 import { Sparkles } from 'lucide-react'
+import configHelp from '../config-help.json'
 
 const tabs = [
     { id: 'system', label: 'System' },
     { id: 'parameters', label: 'Parameters' },
     { id: 'ui', label: 'UI' },
+    { id: 'advanced', label: 'Advanced' },
 ]
 
 type SystemField = {
@@ -17,7 +22,7 @@ type SystemField = {
     label: string
     helper?: string
     path: string[]
-    type: 'number' | 'text' | 'boolean'
+    type: 'number' | 'text' | 'boolean' | 'entity' | 'service'
 }
 
 type ParameterField = {
@@ -31,24 +36,13 @@ type ParameterField = {
 
 const systemSections = [
     {
-        title: 'System Components',
-        description: 'Enable or disable features based on your hardware setup.',
+        title: 'System Profile',
+        description: 'Core hardware toggles and high-level system preferences.',
         fields: [
             { key: 'system.has_solar', label: 'Solar panels installed', helper: 'Enable PV forecasting and solar optimization', path: ['system', 'has_solar'], type: 'boolean' },
             { key: 'system.has_battery', label: 'Home battery installed', helper: 'Enable battery control and grid arbitrage', path: ['system', 'has_battery'], type: 'boolean' },
             { key: 'system.has_water_heater', label: 'Smart water heater', helper: 'Enable water heating optimization', path: ['system', 'has_water_heater'], type: 'boolean' },
-        ],
-    },
-    {
-        title: 'Battery & Grid',
-        description: 'Capacity, max power, and SoC limits define safe operating bands.',
-        fields: [
-            { key: 'battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['battery', 'capacity_kwh'], type: 'number' },
-            { key: 'battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['battery', 'max_charge_power_kw'], type: 'number' },
-            { key: 'battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['battery', 'max_discharge_power_kw'], type: 'number' },
-            { key: 'battery.min_soc_percent', label: 'Min SoC (%)', path: ['battery', 'min_soc_percent'], type: 'number' },
-            { key: 'battery.max_soc_percent', label: 'Max SoC (%)', path: ['battery', 'max_soc_percent'], type: 'number' },
-            { key: 'system.grid.max_power_kw', label: 'Grid max power (kW)', path: ['system', 'grid', 'max_power_kw'], type: 'number' },
+            { key: 'export.enable_export', label: 'Enable grid export', helper: '[EXPERIMENTAL] Master switch for grid export', path: ['export', 'enable_export'], type: 'boolean' },
         ],
     },
     {
@@ -63,19 +57,87 @@ const systemSections = [
         ],
     },
     {
-        title: 'Home Assistant & Learning Storage',
-        description: 'Additionally track the learning database path for telemetry.',
+        title: 'Battery Specifications',
+        description: 'Capacity, max power, and SoC limits define safe operating bands.',
         fields: [
-            { key: 'learning.sqlite_path', label: 'Learning SQLite path', helper: 'Directory must exist and be writable.', path: ['learning', 'sqlite_path'], type: 'text' },
+            { key: 'battery.capacity_kwh', label: 'Battery capacity (kWh)', path: ['battery', 'capacity_kwh'], type: 'number' },
+            { key: 'battery.max_charge_power_kw', label: 'Max charge power (kW)', path: ['battery', 'max_charge_power_kw'], type: 'number' },
+            { key: 'battery.max_discharge_power_kw', label: 'Max discharge power (kW)', path: ['battery', 'max_discharge_power_kw'], type: 'number' },
+            { key: 'battery.min_soc_percent', label: 'Min SoC (%)', path: ['battery', 'min_soc_percent'], type: 'number' },
+            { key: 'battery.max_soc_percent', label: 'Max SoC (%)', path: ['battery', 'max_soc_percent'], type: 'number' },
+            { key: 'system.grid.max_power_kw', label: 'HARD Grid max power (kW)', helper: 'Absolute limit from your grid fuse/connection.', path: ['system', 'grid', 'max_power_kw'], type: 'number' },
+            { key: 'grid.import_limit_kw', label: 'Soft import limit (kW)', helper: 'Threshold for peak power penalties (effekttariff).', path: ['grid', 'import_limit_kw'], type: 'number' },
         ],
     },
     {
-        title: 'Pricing & Timing',
-        description: 'Nordpool zone, resolution, and timezone for planner calculations.',
+        title: 'Pricing & Timezone',
+        description: 'Nordpool zone and local timezone for planner calculations.',
         fields: [
-            { key: 'nordpool.price_area', label: 'Price area', path: ['nordpool', 'price_area'], type: 'text' },
-            { key: 'nordpool.resolution_minutes', label: 'Price resolution (minutes)', path: ['nordpool', 'resolution_minutes'], type: 'number' },
-            { key: 'timezone', label: 'Timezone', path: ['timezone'], type: 'text' },
+            { key: 'nordpool.price_area', label: 'Nordpool Price Area', helper: 'e.g. SE4, NO1, DK2', path: ['nordpool', 'price_area'], type: 'text' },
+            { key: 'pricing.vat_percent', label: 'VAT (%)', path: ['pricing', 'vat_percent'], type: 'number' },
+            { key: 'pricing.grid_transfer_fee_sek', label: 'Grid transfer fee (SEK/kWh)', path: ['pricing', 'grid_transfer_fee_sek'], type: 'number' },
+            { key: 'pricing.energy_tax_sek', label: 'Energy tax (SEK/kWh)', path: ['pricing', 'energy_tax_sek'], type: 'number' },
+            { key: 'timezone', label: 'Timezone', helper: 'e.g. Europe/Stockholm', path: ['timezone'], type: 'text' },
+        ],
+    },
+    {
+        title: 'Notifications',
+        description: 'Configure automated notifications via Home Assistant.',
+        fields: [
+            { key: 'executor.notifications.service', label: 'HA Notify Service', helper: 'e.g. notify.mobile_app_iphone', path: ['executor', 'notifications', 'service'], type: 'service' },
+            { key: 'executor.notifications.on_charge_start', label: 'On charge start', path: ['executor', 'notifications', 'on_charge_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_charge_stop', label: 'On charge stop', path: ['executor', 'notifications', 'on_charge_stop'], type: 'boolean' },
+            { key: 'executor.notifications.on_discharge_start', label: 'On discharge start', path: ['executor', 'notifications', 'on_discharge_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_discharge_stop', label: 'On discharge stop', path: ['executor', 'notifications', 'on_discharge_stop'], type: 'boolean' },
+            { key: 'executor.notifications.on_water_heating_start', label: 'On water heating start', path: ['executor', 'notifications', 'on_water_heat_start'], type: 'boolean' },
+            { key: 'executor.notifications.on_water_heating_stop', label: 'On water heating stop', path: ['executor', 'notifications', 'on_water_heat_stop'], type: 'boolean' },
+            { key: 'executor.notifications.on_soc_target_change', label: 'On SoC target change', path: ['executor', 'notifications', 'on_soc_target_change'], type: 'boolean' },
+            { key: 'executor.notifications.on_override_activated', label: 'On override activated', path: ['executor', 'notifications', 'on_override_activated'], type: 'boolean' },
+            { key: 'executor.notifications.on_error', label: 'On error', path: ['executor', 'notifications', 'on_error'], type: 'boolean' },
+        ],
+    },
+    {
+        title: '── Home Assistant Connection ──',
+        isHA: true,
+        description: 'Connection parameters for your Home Assistant instance.',
+        fields: [
+            { key: 'home_assistant.url', label: 'HA URL', helper: 'e.g. http://homeassistant.local:8123', path: ['home_assistant', 'url'], type: 'text' },
+            { key: 'home_assistant.token', label: 'Long-Lived Access Token', path: ['home_assistant', 'token'], type: 'text' },
+        ],
+    },
+    {
+        title: 'Required HA Entities',
+        isHA: true,
+        description: 'Core sensors and switches required for battery control.',
+        fields: [
+            { key: 'input_sensors.battery_soc', label: 'Battery SoC (%)', path: ['input_sensors', 'battery_soc'], type: 'entity' },
+            { key: 'input_sensors.pv_power', label: 'PV Power (W/kW)', path: ['input_sensors', 'pv_power'], type: 'entity' },
+            { key: 'input_sensors.load_power', label: 'Load Power (W/kW)', path: ['input_sensors', 'load_power'], type: 'entity' },
+            { key: 'executor.inverter.work_mode_entity', label: 'Work Mode Selector', path: ['executor', 'inverter', 'work_mode_entity'], type: 'entity' },
+            { key: 'executor.inverter.grid_charging_entity', label: 'Grid Charging Switch', path: ['executor', 'inverter', 'grid_charging_entity'], type: 'entity' },
+            { key: 'executor.inverter.max_charging_current_entity', label: 'Max Charge Current', path: ['executor', 'inverter', 'max_charging_current_entity'], type: 'entity' },
+            { key: 'executor.inverter.max_discharging_current_entity', label: 'Max Discharge Current', path: ['executor', 'inverter', 'max_discharging_current_entity'], type: 'entity' },
+        ],
+    },
+    {
+        title: 'Optional HA Entities',
+        isHA: true,
+        description: 'Optional sensors for better forecasting and dashboard metrics.',
+        fields: [
+            { key: 'executor.automation_toggle_entity', label: 'Automation Toggle', path: ['executor', 'automation_toggle_entity'], type: 'entity' },
+            { key: 'executor.manual_override_entity', label: 'Manual Override Toggle', path: ['executor', 'manual_override_entity'], type: 'entity' },
+            { key: 'executor.soc_target_entity', label: 'Target SoC Feedback', path: ['executor', 'soc_target_entity'], type: 'entity' },
+            { key: 'executor.water_heater.target_entity', label: 'Water Heater Setpoint', path: ['executor', 'water_heater', 'target_entity'], type: 'entity' },
+            { key: 'input_sensors.vacation_mode', label: 'Vacation Mode Toggle', path: ['input_sensors', 'vacation_mode'], type: 'entity' },
+            { key: 'input_sensors.alarm_state', label: 'Alarm Control Panel', path: ['input_sensors', 'alarm_state'], type: 'entity' },
+            { key: 'input_sensors.water_heater_consumption', label: 'Water Heater Daily Energy', path: ['input_sensors', 'water_heater_consumption'], type: 'entity' },
+            { key: 'input_sensors.today_net_cost', label: 'Today\'s Net Cost', path: ['input_sensors', 'today_net_cost'], type: 'entity' },
+            { key: 'input_sensors.total_battery_charge', label: 'Total Battery Charge (kWh)', path: ['input_sensors', 'total_battery_charge'], type: 'entity' },
+            { key: 'input_sensors.total_battery_discharge', label: 'Total Battery Discharge (kWh)', path: ['input_sensors', 'total_battery_discharge'], type: 'entity' },
+            { key: 'input_sensors.total_grid_export', label: 'Total Grid Export (kWh)', path: ['input_sensors.total_grid_export'], type: 'entity' },
+            { key: 'input_sensors.total_grid_import', label: 'Total Grid Import (kWh)', path: ['input_sensors.total_grid_import'], type: 'entity' },
+            { key: 'input_sensors.total_load_consumption', label: 'Total Load Consumption (kWh)', path: ['input_sensors.total_load_consumption'], type: 'entity' },
+            { key: 'input_sensors.total_pv_production', label: 'Total PV Production (kWh)', path: ['input_sensors.total_pv_production'], type: 'entity' },
         ],
     },
 ]
@@ -111,6 +173,8 @@ const parameterSections = [
             { key: 'water_heating.defer_up_to_hours', label: 'Max defer hours', path: ['water_heating', 'defer_up_to_hours'], type: 'number' },
             { key: 'water_heating.max_blocks_per_day', label: 'Max blocks per day', path: ['water_heating', 'max_blocks_per_day'], type: 'number' },
             { key: 'water_heating.min_kwh_per_day', label: 'Min kWh/day', path: ['water_heating', 'min_kwh_per_day'], type: 'number' },
+            { key: 'water_heating.min_spacing_hours', label: 'Min spacing (hours)', path: ['water_heating', 'min_spacing_hours'], type: 'number', helper: 'Minimum gap between heating sessions to avoid efficiency loss.' },
+            { key: 'water_heating.spacing_penalty_sek', label: 'Spacing penalty (SEK)', path: ['water_heating', 'spacing_penalty_sek'], type: 'number', helper: 'Penalty applied when heating sessions are too close.' },
             { key: 'water_heating.schedule_future_only', label: 'Schedule future only', path: ['water_heating', 'schedule_future_only'], type: 'boolean' },
         ],
     },
@@ -132,17 +196,24 @@ const parameterSections = [
     },
     {
         title: 'S-Index Safety',
-        description: 'Base/max factors, weights, and time horizon shaping the S-index guard.',
+        description: 'Seasonal index parameters for reserve calculations.',
         fields: [
-            { key: 's_index.mode', label: 'Mode', path: ['s_index', 'mode'], type: 'select', options: [{ label: 'Static', value: 'static' }, { label: 'Dynamic', value: 'dynamic' }] },
-            { key: 's_index.base_factor', label: 'Base factor', path: ['s_index', 'base_factor'], type: 'number' },
-            { key: 's_index.max_factor', label: 'Max factor', path: ['s_index', 'max_factor'], type: 'number' },
-            { key: 's_index.static_factor', label: 'Static fallback factor', path: ['s_index', 'static_factor'], type: 'number' },
-            { key: 's_index.pv_deficit_weight', label: 'PV deficit weight', path: ['s_index', 'pv_deficit_weight'], type: 'number' },
-            { key: 's_index.temp_weight', label: 'Temp weight', path: ['s_index', 'temp_weight'], type: 'number' },
-            { key: 's_index.temp_baseline_c', label: 'Temp baseline (°C)', path: ['s_index', 'temp_baseline_c'], type: 'number' },
             { key: 's_index.temp_cold_c', label: 'Cold temp (°C)', path: ['s_index', 'temp_cold_c'], type: 'number' },
-            { key: 's_index.days_ahead_for_sindex', label: 'Days ahead (comma list)', path: ['s_index', 'days_ahead_for_sindex'], type: 'array', helper: 'Comma-separated integers (e.g. 2,3,4).', },
+            {
+                key: 's_index.s_index_horizon_days',
+                label: 'S-Index Horizon (days)',
+                path: ['s_index', 's_index_horizon_days'],
+                type: 'select',
+                options: [
+                    { label: '1 Day', value: '1' },
+                    { label: '2 Days', value: '2' },
+                    { label: '3 Days', value: '3' },
+                    { label: '4 Days', value: '4' },
+                    { label: '5 Days', value: '5' },
+                    { label: '6 Days', value: '6' },
+                    { label: '7 Days', value: '7' },
+                ],
+            },
         ],
     },
 ]
@@ -213,11 +284,53 @@ const uiSections = [
     },
 ]
 
+type AdvancedField = {
+    key: string
+    label: string
+    helper?: string
+    path: string[]
+    type: 'boolean'
+}
+
+const advancedSections = [
+    {
+        title: 'Experimental Features',
+        description: 'Toggle advanced and experimental modes.',
+        fields: [
+            {
+                key: 'automation.external_executor_mode',
+                label: 'External Executor Mode',
+                helper: 'When enabled, Darkstar expects an external system to execute the plan.',
+                path: ['automation', 'external_executor_mode'],
+                type: 'boolean',
+            },
+            {
+                key: 'automation.write_to_mariadb',
+                label: 'Log to MariaDB',
+                helper: 'Requires MariaDB credentials in secrets.yaml',
+                path: ['automation', 'write_to_mariadb'],
+                type: 'boolean',
+            },
+        ],
+    },
+    {
+        title: 'Danger Zone',
+        description: 'Sensitive actions. Proceed with caution.',
+        fields: [], // Handled specially in render
+    },
+]
+
 const uiFieldList: UIField[] = uiSections.flatMap((section) => section.fields)
 const uiFieldMap: Record<string, UIField> = uiFieldList.reduce((acc, field) => {
     acc[field.key] = field
     return acc
 }, {} as Record<string, UIField>)
+
+const advancedFieldList: AdvancedField[] = advancedSections.flatMap((section) => section.fields)
+const advancedFieldMap: Record<string, AdvancedField> = advancedFieldList.reduce((acc, field) => {
+    acc[field.key] = field
+    return acc
+}, {} as Record<string, AdvancedField>)
 
 function getDeepValue(source: any, path: string[]): any {
     return path.reduce((current, key) => (current && typeof current === 'object' ? current[key] : undefined), source)
@@ -346,14 +459,38 @@ function buildUIFormState(config: Record<string, any> | null): Record<string, st
             state[field.key] = value !== undefined && value !== null ? String(value) : ''
         }
     })
-    // Add overlay defaults separately since it's not in uiFieldList anymore
-    if (config?.dashboard?.overlay_defaults) {
+    // Manual mapping for overlay_defaults which is not in uiFieldList
+    if (config?.dashboard?.overlay_defaults !== undefined) {
         state['dashboard.overlay_defaults'] = String(config.dashboard.overlay_defaults)
     }
     return state
 }
 
+function buildAdvancedFormState(config: Record<string, any> | null): Record<string, string> {
+    const state: Record<string, string> = {}
+    advancedFieldList.forEach((field) => {
+        const value = config ? getDeepValue(config, field.path) : undefined
+        if (field.type === 'boolean') {
+            state[field.key] = value === true ? 'true' : 'false'
+        } else {
+            state[field.key] = value !== undefined && value !== null ? String(value) : ''
+        }
+    })
+    return state
+}
+
 function parseUIFieldInput(field: UIField, raw: string): string | boolean | null | undefined {
+    const trimmed = raw.trim()
+    if (field.type === 'boolean') {
+        if (trimmed === '') return null
+        if (trimmed === 'true') return true
+        if (trimmed === 'false') return false
+        return undefined
+    }
+    return trimmed
+}
+
+function parseAdvancedFieldInput(field: AdvancedField, raw: string): string | boolean | null | undefined {
     const trimmed = raw.trim()
     if (field.type === 'boolean') {
         if (trimmed === '') return null
@@ -387,23 +524,41 @@ function buildUIPatch(original: Record<string, any>, form: Record<string, string
     return patch
 }
 
+function buildAdvancedPatch(original: Record<string, any>, form: Record<string, string>): Record<string, any> {
+    const patch: Record<string, any> = {}
+    advancedFieldList.forEach((field) => {
+        const raw = form[field.key] ?? ''
+        const parsed = parseAdvancedFieldInput(field, raw)
+        if (parsed === undefined) return
+        if (field.type === 'boolean' && parsed === null) return
+        const currentValue = getDeepValue(original, field.path)
+        if (parsed === currentValue) return
+        setDeepValue(patch, field.path, parsed)
+    })
+    return patch
+}
+
 export default function Settings() {
     const [activeTab, setActiveTab] = useState('system')
     const [config, setConfig] = useState<Record<string, any> | null>(null)
     const [systemForm, setSystemForm] = useState<Record<string, string>>(() => buildSystemFormState(null))
     const [parameterForm, setParameterForm] = useState<Record<string, string>>(() => buildParameterFormState(null))
     const [uiForm, setUIForm] = useState<Record<string, string>>(() => buildUIFormState(null))
+    const [advancedForm, setAdvancedForm] = useState<Record<string, string>>(() => buildAdvancedFormState(null))
     const [systemFieldErrors, setSystemFieldErrors] = useState<Record<string, string>>({})
     const [parameterFieldErrors, setParameterFieldErrors] = useState<Record<string, string>>({})
     const [uiFieldErrors, setUIFieldErrors] = useState<Record<string, string>>({})
+    const [advancedFieldErrors, setAdvancedFieldErrors] = useState<Record<string, string>>({})
     const [loadingConfig, setLoadingConfig] = useState(true)
-    const [configError, setConfigError] = useState<string | null>(null)
+    const [loadError, setLoadError] = useState<string | null>(null)
     const [systemSaving, setSystemSaving] = useState(false)
     const [parameterSaving, setParameterSaving] = useState(false)
     const [uiSaving, setUISaving] = useState(false)
+    const [advancedSaving, setAdvancedSaving] = useState(false)
     const [systemStatusMessage, setSystemStatusMessage] = useState<string | null>(null)
     const [parameterStatusMessage, setParameterStatusMessage] = useState<string | null>(null)
     const [uiStatusMessage, setUIStatusMessage] = useState<string | null>(null)
+    const [advancedStatusMessage, setAdvancedStatusMessage] = useState<string | null>(null)
     const [themes, setThemes] = useState<ThemeInfo[]>([])
     const [selectedTheme, setSelectedTheme] = useState<string | null>(null)
     const [themeAccentIndex, setThemeAccentIndex] = useState<number | null>(null)
@@ -412,21 +567,56 @@ export default function Settings() {
     const [themeApplying, setThemeApplying] = useState(false)
     const [themeStatusMessage, setThemeStatusMessage] = useState<string | null>(null)
     const [resetting, setResetting] = useState(false)
+    const [resetConfirmOpen, setResetConfirmOpen] = useState(false)
     const [resetStatusMessage, setResetStatusMessage] = useState<string | null>(null)
+    const [haEntities, setHaEntities] = useState<{ entity_id: string; friendly_name: string; domain: string }[]>([])
+    const [haLoading, setHaLoading] = useState(false)
+    const [haTestStatus, setHaTestStatus] = useState<string | null>(null)
+
+    const reloadEntities = async () => {
+        setHaLoading(true)
+        try {
+            const data = await Api.haEntities()
+            setHaEntities(data.entities || [])
+        } catch (e) {
+            console.error('Failed to load HA entities', e)
+        } finally {
+            setHaLoading(false)
+        }
+    }
+
+    const handleTestConnection = async () => {
+        setHaTestStatus('Testing...')
+        try {
+            const url = systemForm['home_assistant.url']
+            const token = systemForm['home_assistant.token']
+            const data = await Api.haTest({ url, token })
+
+            if (data.success) {
+                setHaTestStatus('Success: Connected!')
+                reloadEntities()
+            } else {
+                setHaTestStatus(`Error: ${data.message}`)
+            }
+        } catch (e: any) {
+            setHaTestStatus(`Error: ${e.message}`)
+        }
+    }
 
     const reloadConfig = async () => {
         setLoadingConfig(true)
-        setConfigError(null)
+        setLoadError(null)
         try {
             const cfg = await Api.config()
             setConfig(cfg)
             setSystemForm(buildSystemFormState(cfg))
             setParameterForm(buildParameterFormState(cfg))
             setUIForm(buildUIFormState(cfg))
+            setAdvancedForm(buildAdvancedFormState(cfg))
             const accent = cfg?.ui?.theme_accent_index
             setThemeAccentIndex(typeof accent === 'number' ? accent : null)
         } catch (err: any) {
-            setConfigError(err?.message || 'Failed to load configuration')
+            setLoadError(err?.message || 'Failed to load configuration')
         } finally {
             setLoadingConfig(false)
         }
@@ -450,6 +640,7 @@ export default function Settings() {
     useEffect(() => {
         reloadConfig()
         reloadThemes()
+        reloadEntities()
     }, [])
 
     const handleFieldChange = (key: string, value: string) => {
@@ -560,6 +751,29 @@ export default function Settings() {
         }
     }
 
+    const handleAdvancedFieldChange = (key: string, value: string) => {
+        const field = advancedFieldMap[key]
+        if (!field) return
+
+        setAdvancedForm((prev) => ({ ...prev, [key]: value }))
+        setAdvancedStatusMessage(null)
+
+        if (field.type === 'boolean') {
+            const val = value.trim()
+            setAdvancedFieldErrors((prev) => {
+                const newErrors = { ...prev }
+                if (val === '') {
+                    newErrors[key] = 'Required'
+                } else if (val !== 'true' && val !== 'false') {
+                    newErrors[key] = 'Invalid value'
+                } else {
+                    delete newErrors[key]
+                }
+                return newErrors
+            })
+        }
+    }
+
     const systemErrors = Object.values(systemFieldErrors).filter(Boolean).length
     const hasSystemValidationErrors = systemErrors > 0
 
@@ -665,51 +879,97 @@ export default function Settings() {
 
     const handleSaveUI = async () => {
         if (!config) return
-        if (hasUIValidationErrors) {
+
+        const hasErrors = Object.values(uiFieldErrors).filter(Boolean).length > 0
+        if (hasErrors) {
             setUIStatusMessage('Fix validation errors before saving.')
             return
         }
+
         const patch = buildUIPatch(config, uiForm)
         if (!Object.keys(patch).length) {
             setUIStatusMessage('No changes detected.')
             return
         }
+
         setUISaving(true)
         setUIStatusMessage(null)
         try {
-            const resp = await Api.configSave(patch)
-            if (resp.status !== 'success') {
-                const fieldErrors: Record<string, string> = {}
-                resp.errors?.forEach((err) => {
+            const result = await Api.configSave(patch)
+            if (result.status !== 'success') {
+                const newErrors: Record<string, string> = {}
+                result.errors?.forEach((err) => {
                     if (err.field) {
-                        fieldErrors[err.field] = err.message || 'Invalid value'
+                        newErrors[err.field] = err.message || 'Invalid value'
                     }
                 })
-                if (Object.keys(fieldErrors).length) {
-                    setUIFieldErrors((prev) => ({ ...prev, ...fieldErrors }))
+                if (Object.keys(newErrors).length) {
+                    setUIFieldErrors((prev) => ({ ...prev, ...newErrors }))
                     setUIStatusMessage('Fix highlighted fields before saving.')
                 } else {
-                    setUIStatusMessage(
-                        resp.errors && resp.errors[0]?.message
-                            ? resp.errors[0].message
-                            : 'Save failed.',
-                    )
+                    setUIStatusMessage(result.errors && result.errors[0]?.message ? result.errors[0].message : 'Save failed.')
                 }
                 return
             }
-            const fresh = await Api.config()
-            setConfig(fresh)
-            setSystemForm(buildSystemFormState(fresh))
-            setParameterForm(buildParameterFormState(fresh))
-            setUIForm(buildUIFormState(fresh))
+            const data = await Api.config()
+            setConfig(data)
+            setUIForm(buildUIFormState(data))
             setUIFieldErrors({})
             setUIStatusMessage('UI preferences saved.')
-        } catch (err: any) {
-            setUIStatusMessage(err?.message ? `Failed to save: ${err.message}` : 'Save failed.')
+        } catch (err) {
+            setUIStatusMessage(err instanceof Error ? `Failed to save: ${err.message}` : 'Save failed.')
         } finally {
             setUISaving(false)
         }
     }
+
+    const handleSaveAdvanced = async () => {
+        if (!config) return
+
+        const hasErrors = Object.values(advancedFieldErrors).filter(Boolean).length > 0
+        if (hasErrors) {
+            setAdvancedStatusMessage('Fix validation errors before saving.')
+            return
+        }
+
+        const patch = buildAdvancedPatch(config, advancedForm)
+        if (!Object.keys(patch).length) {
+            setAdvancedStatusMessage('No changes detected.')
+            return
+        }
+
+        setAdvancedSaving(true)
+        setAdvancedStatusMessage(null)
+        try {
+            const result = await Api.configSave(patch)
+            if (result.status !== 'success') {
+                const newErrors: Record<string, string> = {}
+                result.errors?.forEach((err) => {
+                    if (err.field) {
+                        newErrors[err.field] = err.message || 'Invalid value'
+                    }
+                })
+                if (Object.keys(newErrors).length) {
+                    setAdvancedFieldErrors((prev) => ({ ...prev, ...newErrors }))
+                    setAdvancedStatusMessage('Fix highlighted fields before saving.')
+                } else {
+                    setAdvancedStatusMessage(result.errors && result.errors[0]?.message ? result.errors[0].message : 'Save failed.')
+                }
+                return
+            }
+            const data = await Api.config()
+            setConfig(data)
+            setAdvancedForm(buildAdvancedFormState(data))
+            setAdvancedFieldErrors({})
+            setAdvancedStatusMessage('Advanced settings saved.')
+        } catch (err) {
+            setAdvancedStatusMessage(err instanceof Error ? `Failed to save: ${err.message}` : 'Save failed.')
+        } finally {
+            setAdvancedSaving(false)
+        }
+    }
+
+
 
     const handleApplyTheme = async () => {
         if (!selectedTheme) {
@@ -745,25 +1005,20 @@ export default function Settings() {
         }
     }
 
-    const handleResetToDefaults = async () => {
-        const confirmed = window.confirm(
-            'Are you sure you want to reset all settings to defaults? ' +
-            'This will overwrite your current configuration and cannot be undone.'
-        )
-        if (!confirmed) return
-
+    const handleResetSettings = async () => {
         setResetting(true)
         setResetStatusMessage(null)
         try {
             await Api.configReset()
-            // Clear errors first
+            // Clear errors and reload
             setSystemFieldErrors({})
             setParameterFieldErrors({})
             setUIFieldErrors({})
-            // Reload config which will rebuild all form states
+            setAdvancedFieldErrors({})
             await reloadConfig()
-            await reloadThemes()   // Reload themes in case theme was reset
-            setResetStatusMessage('All settings reset to defaults.')
+            await reloadThemes()
+            setResetStatusMessage('All settings have been reset to default values.')
+            setResetConfirmOpen(false)
         } catch (err: any) {
             setResetStatusMessage(err?.message ? `Reset failed: ${err.message}` : 'Reset failed.')
         } finally {
@@ -779,166 +1034,241 @@ export default function Settings() {
                 </Card>
             )
         }
-        if (configError) {
+        if (loadError) {
             return (
                 <Card className="p-6 text-sm text-red-400">
-                    {configError}
+                    {loadError}
                 </Card>
             )
         }
         return (
             <div className="space-y-4">
-                {systemSections.map((section) => (
-                    <Card key={section.title} className="p-6">
-                        <div className="flex items-baseline justify-between gap-2">
-                            <div>
-                                <div className="text-sm font-semibold">{section.title}</div>
-                                <p className="text-xs text-muted mt-1">{section.description}</p>
-                            </div>
-                            <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
-                        </div>
-                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                            {section.fields.map((field) => {
-                                const isAzimuth = field.key === 'system.solar_array.azimuth'
-                                const isTilt = field.key === 'system.solar_array.tilt'
+                {systemSections.map((section, idx) => {
+                    const prevSection = idx > 0 ? systemSections[idx - 1] : null
+                    const showDivider = section.isHA && prevSection && !prevSection.isHA
 
-                                if (isAzimuth) {
-                                    const rawValue = systemForm[field.key]
-                                    const numericValue =
-                                        rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">
-                                                {field.label}
-                                            </label>
-                                            <AzimuthDial
-                                                value={
-                                                    typeof numericValue === 'number' &&
-                                                        !Number.isNaN(numericValue)
-                                                        ? numericValue
-                                                        : null
-                                                }
-                                                onChange={(deg) =>
-                                                    handleFieldChange(field.key, String(Math.round(deg)))
-                                                }
-                                            />
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
-                                                value={systemForm[field.key] ?? ''}
-                                                onChange={(event) =>
-                                                    handleFieldChange(field.key, event.target.value)
-                                                }
-                                                className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted">{field.helper}</p>
-                                            )}
-                                            {systemFieldErrors[field.key] && (
-                                                <p className="text-[11px] text-red-400">
-                                                    {systemFieldErrors[field.key]}
-                                                </p>
-                                            )}
-                                        </div>
-                                    )
-                                }
+                    return (
+                        <div key={section.title}>
+                            {showDivider && (
+                                <div className="py-8 flex items-center gap-4">
+                                    <div className="h-px flex-1 bg-line/30" />
+                                    <span className="text-[11px] font-bold uppercase tracking-[0.2em] text-muted whitespace-nowrap">
+                                        Home Assistant Integration
+                                    </span>
+                                    <div className="h-px flex-1 bg-line/30" />
+                                </div>
+                            )}
+                            <Card className="p-6">
+                                <div className="flex items-baseline justify-between gap-2">
+                                    <div>
+                                        <div className="text-sm font-semibold">{section.title}</div>
+                                        <p className="text-xs text-muted mt-1">{section.description}</p>
+                                    </div>
+                                    <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
+                                </div>
+                                <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                                    {section.fields.map((field) => {
+                                        const isAzimuth = field.key === 'system.solar_array.azimuth'
+                                        const isTilt = field.key === 'system.solar_array.tilt'
 
-                                if (isTilt) {
-                                    const rawValue = systemForm[field.key]
-                                    const numericValue =
-                                        rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">
-                                                {field.label}
-                                            </label>
-                                            <TiltDial
-                                                value={
-                                                    typeof numericValue === 'number' &&
-                                                        !Number.isNaN(numericValue)
-                                                        ? numericValue
-                                                        : null
-                                                }
-                                                onChange={(deg) =>
-                                                    handleFieldChange(field.key, String(Math.round(deg)))
-                                                }
-                                            />
-                                            <input
-                                                type="number"
-                                                inputMode="decimal"
-                                                value={systemForm[field.key] ?? ''}
-                                                onChange={(event) =>
-                                                    handleFieldChange(field.key, event.target.value)
-                                                }
-                                                className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted">{field.helper}</p>
-                                            )}
-                                            {systemFieldErrors[field.key] && (
-                                                <p className="text-[11px] text-red-400">
-                                                    {systemFieldErrors[field.key]}
-                                                </p>
-                                            )}
-                                        </div>
-                                    )
-                                }
+                                        if (isAzimuth) {
+                                            const rawValue = systemForm[field.key]
+                                            const numericValue =
+                                                rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                    </label>
+                                                    <AzimuthDial
+                                                        value={
+                                                            typeof numericValue === 'number' &&
+                                                                !Number.isNaN(numericValue)
+                                                                ? numericValue
+                                                                : null
+                                                        }
+                                                        onChange={(deg) =>
+                                                            handleFieldChange(field.key, String(Math.round(deg)))
+                                                        }
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(event) =>
+                                                            handleFieldChange(field.key, event.target.value)
+                                                        }
+                                                        className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                    {systemFieldErrors[field.key] && (
+                                                        <p className="text-[11px] text-red-400">
+                                                            {systemFieldErrors[field.key]}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
 
-                                // Regular fields (boolean checkboxes, number/text inputs)
-                                if (field.type === 'boolean') {
-                                    return (
-                                        <div key={field.key} className="space-y-1">
-                                            <label className="flex items-center gap-2 text-sm">
+                                        if (isTilt) {
+                                            const rawValue = systemForm[field.key]
+                                            const numericValue =
+                                                rawValue && rawValue.trim() !== '' ? Number(rawValue) : null
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                    </label>
+                                                    <TiltDial
+                                                        value={
+                                                            typeof numericValue === 'number' &&
+                                                                !Number.isNaN(numericValue)
+                                                                ? numericValue
+                                                                : null
+                                                        }
+                                                        onChange={(deg) =>
+                                                            handleFieldChange(field.key, String(Math.round(deg)))
+                                                        }
+                                                    />
+                                                    <input
+                                                        type="number"
+                                                        inputMode="decimal"
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(event) =>
+                                                            handleFieldChange(field.key, event.target.value)
+                                                        }
+                                                        className="mt-2 w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                    {systemFieldErrors[field.key] && (
+                                                        <p className="text-[11px] text-red-400">
+                                                            {systemFieldErrors[field.key]}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
+                                        if (field.type === 'entity') {
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                    </label>
+                                                    <EntitySelect
+                                                        entities={haEntities}
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(value) => handleFieldChange(field.key, value)}
+                                                        loading={haLoading}
+                                                        placeholder="Select entity..."
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
+                                        if (field.type === 'service') {
+                                            return (
+                                                <div key={field.key} className="space-y-1">
+                                                    <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                        {field.label}
+                                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                    </label>
+                                                    <ServiceSelect
+                                                        value={systemForm[field.key] ?? ''}
+                                                        onChange={(value) => handleFieldChange(field.key, value)}
+                                                        placeholder="Select notification service..."
+                                                    />
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted">{field.helper}</p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
+                                        // Regular fields (boolean checkboxes, number/text inputs)
+                                        if (field.type === 'boolean') {
+                                            return (
+                                                <div key={field.key} className="flex flex-col justify-center">
+                                                    <label className="flex items-center gap-2 text-sm h-full">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={systemForm[field.key] === 'true'}
+                                                            onChange={(event) =>
+                                                                handleFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                            }
+                                                            className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                                        />
+                                                        <span className="font-semibold">{field.label}</span>
+                                                    </label>
+                                                    {field.helper && (
+                                                        <p className="text-[11px] text-muted ml-6 mt-1">{field.helper}</p>
+                                                    )}
+                                                </div>
+                                            )
+                                        }
+
+                                        return (
+                                            <div key={field.key} className="space-y-1">
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                    {field.label}
+                                                    <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                </label>
                                                 <input
-                                                    type="checkbox"
-                                                    checked={systemForm[field.key] === 'true'}
+                                                    type={field.type === 'number' ? 'number' : 'text'}
+                                                    inputMode={field.type === 'number' ? 'decimal' : undefined}
+                                                    value={systemForm[field.key] ?? ''}
                                                     onChange={(event) =>
-                                                        handleFieldChange(field.key, event.target.checked ? 'true' : 'false')
+                                                        handleFieldChange(field.key, event.target.value)
                                                     }
-                                                    className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
                                                 />
-                                                <span className="font-semibold">{field.label}</span>
-                                            </label>
-                                            {field.helper && (
-                                                <p className="text-[11px] text-muted ml-6">{field.helper}</p>
-                                            )}
-                                        </div>
-                                    )
-                                }
-
-                                return (
-                                    <div key={field.key} className="space-y-1">
-                                        <label className="text-[10px] uppercase tracking-wide text-muted">
-                                            {field.label}
-                                        </label>
-                                        <input
-                                            type={field.type === 'number' ? 'number' : 'text'}
-                                            inputMode={field.type === 'number' ? 'decimal' : undefined}
-                                            value={systemForm[field.key] ?? ''}
-                                            onChange={(event) =>
-                                                handleFieldChange(field.key, event.target.value)
-                                            }
-                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                        />
-                                        {field.helper && (
-                                            <p className="text-[11px] text-muted">{field.helper}</p>
-                                        )}
-                                        {systemFieldErrors[field.key] && (
-                                            <p className="text-[11px] text-red-400">
-                                                {systemFieldErrors[field.key]}
-                                            </p>
+                                                {field.helper && (
+                                                    <p className="text-[11px] text-muted">{field.helper}</p>
+                                                )}
+                                                {systemFieldErrors[field.key] && (
+                                                    <p className="text-[11px] text-red-400">
+                                                        {systemFieldErrors[field.key]}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        )
+                                    })}
+                                </div>
+                                {section.title === 'Home Assistant Connection' && (
+                                    <div className="mt-4 flex items-center gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={handleTestConnection}
+                                            className="rounded-xl px-4 py-2 text-[11px] font-semibold bg-neutral hover:bg-neutral/80 text-white transition"
+                                        >
+                                            {haTestStatus && haTestStatus.startsWith('Testing') ? 'Testing...' : 'Test Connection'}
+                                        </button>
+                                        {haTestStatus && (
+                                            <span className={`text-xs ${haTestStatus.startsWith('Success') ? 'text-green-400' : 'text-red-400'}`}>
+                                                {haTestStatus}
+                                            </span>
                                         )}
                                     </div>
-                                )
-                            })}
+                                )}
+                            </Card>
                         </div>
-                    </Card>
-                ))}
+                    )
+                })}
                 <div className="flex flex-wrap items-center gap-3">
                     <button
                         disabled={systemSaving || loadingConfig}
                         onClick={handleSaveSystem}
-                        className={cls.accentBtn}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {systemSaving ? 'Saving…' : 'Save System Settings'}
                     </button>
@@ -963,10 +1293,10 @@ export default function Settings() {
                 </Card>
             )
         }
-        if (configError) {
+        if (loadError) {
             return (
                 <Card className="p-6 text-sm text-red-400">
-                    {configError}
+                    {loadError}
                 </Card>
             )
         }
@@ -984,49 +1314,58 @@ export default function Settings() {
                         <div className="mt-5 grid gap-4 sm:grid-cols-2">
                             {section.fields.map((field) => (
                                 <div key={field.key} className="space-y-1">
-                                    {field.type === 'boolean' ? (
-                                        <label className="flex items-center gap-2 text-sm">
+                                    <label className="block text-sm font-medium mb-1.5">
+                                        {field.label}
+                                        <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                    </label>
+                                    {field.type === 'select' ? (
+                                        <select
+                                            value={parameterForm[field.key] ?? ''}
+                                            onChange={(event) =>
+                                                handleParameterFieldChange(field.key, event.target.value)
+                                            }
+                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                        >
+                                            <option value="">Select</option>
+                                            {field.options?.map((option) => (
+                                                <option key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    ) : field.type === 'boolean' ? (
+                                        <div className="flex items-center gap-2 pt-2">
                                             <input
                                                 type="checkbox"
                                                 checked={parameterForm[field.key] === 'true'}
-                                                onChange={(event) => handleParameterFieldChange(field.key, event.target.checked ? 'true' : 'false')}
+                                                onChange={(event) =>
+                                                    handleParameterFieldChange(
+                                                        field.key,
+                                                        event.target.checked ? 'true' : 'false'
+                                                    )
+                                                }
                                                 className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
                                             />
-                                            <span className="font-semibold">{field.label}</span>
-                                        </label>
-                                    ) : field.type === 'select' ? (
-                                        <>
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
-                                            <select
-                                                value={parameterForm[field.key] ?? ''}
-                                                onChange={(event) => handleParameterFieldChange(field.key, event.target.value)}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            >
-                                                <option value="">Select</option>
-                                                {field.options?.map((option) => (
-                                                    <option key={option.value} value={option.value}>
-                                                        {option.label}
-                                                    </option>
-                                                ))}
-                                            </select>
-                                        </>
+                                            <span className="text-sm font-semibold">Enabled</span>
+                                        </div>
                                     ) : (
-                                        <>
-                                            <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
-                                            <input
-                                                type={field.type === 'number' ? 'number' : 'text'}
-                                                inputMode={field.type === 'number' ? 'decimal' : undefined}
-                                                value={parameterForm[field.key] ?? ''}
-                                                onChange={(event) => handleParameterFieldChange(field.key, event.target.value)}
-                                                className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
-                                            />
-                                        </>
+                                        <input
+                                            type={field.type === 'number' ? 'number' : 'text'}
+                                            inputMode={field.type === 'number' ? 'decimal' : undefined}
+                                            value={parameterForm[field.key] ?? ''}
+                                            onChange={(event) =>
+                                                handleParameterFieldChange(field.key, event.target.value)
+                                            }
+                                            className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-white focus:border-accent focus:outline-none"
+                                        />
                                     )}
                                     {field.helper && (
                                         <p className="text-[11px] text-muted">{field.helper}</p>
                                     )}
                                     {parameterFieldErrors[field.key] && (
-                                        <p className="text-[11px] text-red-400">{parameterFieldErrors[field.key]}</p>
+                                        <p className="text-[11px] text-red-400">
+                                            {parameterFieldErrors[field.key]}
+                                        </p>
                                     )}
                                 </div>
                             ))}
@@ -1037,15 +1376,10 @@ export default function Settings() {
                     <button
                         disabled={parameterSaving || loadingConfig}
                         onClick={handleSaveParameters}
-                        className={cls.accentBtn}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {parameterSaving ? 'Saving & Re-planning…' : 'Save & Re-plan'}
                     </button>
-                    {parameterSaving && (
-                        <div className="text-xs text-muted animate-pulse">
-                            Regenerating schedule with new settings...
-                        </div>
-                    )}
                     {parameterStatusMessage && (
                         <div className={`rounded-lg p-3 text-sm ${parameterStatusMessage.startsWith('Failed')
                             ? 'bg-red-500/10 border border-red-500/30 text-red-400'
@@ -1067,10 +1401,10 @@ export default function Settings() {
                 </Card>
             )
         }
-        if (configError) {
+        if (loadError) {
             return (
                 <Card className="p-6 text-sm text-red-400">
-                    {configError}
+                    {loadError}
                 </Card>
             )
         }
@@ -1186,7 +1520,7 @@ export default function Settings() {
                                                             type="button"
                                                             onClick={() => toggleToken('load_off', !loadIsActive)}
                                                             className={`rounded-pill px-3 py-1 border text-[11px] transition ${loadIsActive
-                                                                ? 'bg-accent text-canvas border-accent'
+                                                                ? 'bg-accent text-[#100f0e] border-accent'
                                                                 : 'border-line/60 text-muted hover:border-accent'
                                                                 }`}
                                                         >
@@ -1216,7 +1550,7 @@ export default function Settings() {
                                                                         handleUIFieldChange('dashboard.overlay_defaults', updated.join(', '))
                                                                     }}
                                                                     className={`rounded-pill px-3 py-1 border text-[11px] transition ${isActive
-                                                                        ? 'bg-accent text-canvas border-accent'
+                                                                        ? 'bg-accent text-[#100f0e] border-accent'
                                                                         : 'border-line/60 text-muted hover:border-accent'
                                                                         }`}
                                                                 >
@@ -1237,7 +1571,7 @@ export default function Settings() {
                                 {section.fields.map((field) => (
                                     <div key={field.key} className="space-y-1">
                                         {field.type === 'boolean' ? (
-                                            <label className="flex items-center gap-2 text-sm">
+                                            <div className="flex items-center gap-2 pt-2">
                                                 <input
                                                     type="checkbox"
                                                     checked={uiForm[field.key] === 'true'}
@@ -1246,11 +1580,14 @@ export default function Settings() {
                                                     }
                                                     className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
                                                 />
-                                                <span className="font-semibold">{field.label}</span>
-                                            </label>
+                                                <span className="text-sm font-semibold">{field.label}</span>
+                                            </div>
                                         ) : field.type === 'select' ? (
                                             <>
-                                                <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                    {field.label}
+                                                    <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                </label>
                                                 <select
                                                     value={uiForm[field.key] ?? ''}
                                                     onChange={(event) => handleUIFieldChange(field.key, event.target.value)}
@@ -1266,7 +1603,10 @@ export default function Settings() {
                                             </>
                                         ) : (
                                             <>
-                                                <label className="text-[10px] uppercase tracking-wide text-muted">{field.label}</label>
+                                                <label className="text-[10px] uppercase tracking-wide text-muted">
+                                                    {field.label}
+                                                    <Tooltip text={configHelp[field.key as keyof typeof configHelp] || field.helper} />
+                                                </label>
                                                 <input
                                                     type="text"
                                                     value={uiForm[field.key] ?? ''}
@@ -1291,7 +1631,7 @@ export default function Settings() {
                     <button
                         disabled={uiSaving || loadingConfig}
                         onClick={handleSaveUI}
-                        className={cls.accentBtn}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                     >
                         {uiSaving ? 'Saving…' : 'Save UI Preferences'}
                     </button>
@@ -1308,6 +1648,123 @@ export default function Settings() {
         )
     }
 
+    const renderAdvancedForm = () => {
+        if (loadingConfig) return <Card className="p-6 text-sm text-muted">Loading advanced configuration…</Card>
+        if (loadError) return <Card className="p-6 text-sm text-red-400">{loadError}</Card>
+
+        return (
+            <div className="space-y-4">
+                {advancedSections.filter((section) => section.title !== 'Danger Zone').map((section) => (
+                    <Card key={section.title} className="p-6">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <div>
+                                <div className="text-sm font-semibold">{section.title}</div>
+                                <p className="text-xs text-muted mt-1">{section.description}</p>
+                            </div>
+                            <span className="text-[10px] uppercase text-muted tracking-wide">Advanced</span>
+                        </div>
+
+                        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                            {section.fields.map((field) => (
+                                <div key={field.key} className="space-y-1">
+                                    {field.type === 'boolean' && (
+                                        <div className="flex items-center gap-2 pt-2">
+                                            <input
+                                                type="checkbox"
+                                                checked={advancedForm[field.key] === 'true'}
+                                                onChange={(event) =>
+                                                    handleAdvancedFieldChange(
+                                                        field.key,
+                                                        event.target.checked ? 'true' : 'false'
+                                                    )
+                                                }
+                                                className="h-4 w-4 rounded border border-line/60 text-accent focus:ring-0"
+                                            />
+                                            <span className="text-sm font-semibold">{field.label}</span>
+                                        </div>
+                                    )}
+                                    {field.helper && (
+                                        <p className="text-[11px] text-muted ml-6">{field.helper}</p>
+                                    )}
+                                    {advancedFieldErrors[field.key] && (
+                                        <p className="text-[11px] text-red-400 ml-6">
+                                            {advancedFieldErrors[field.key]}
+                                        </p>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </Card>
+                ))}
+
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        disabled={advancedSaving || loadingConfig}
+                        onClick={handleSaveAdvanced}
+                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
+                    >
+                        {advancedSaving ? 'Saving…' : 'Save Advanced Settings'}
+                    </button>
+                    {advancedStatusMessage && (
+                        <div className={`rounded-lg p-3 text-sm ${advancedStatusMessage.startsWith('Failed')
+                            ? 'bg-red-500/10 border border-red-500/30 text-red-400'
+                            : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                            }`}>
+                            {advancedStatusMessage}
+                        </div>
+                    )}
+                </div>
+
+                <div className="py-8">
+                    <div className="h-px bg-line/20" />
+                </div>
+
+                <Card className="border-red-500/30 bg-red-500/5 p-6">
+                    <div className="flex items-center justify-between gap-4">
+                        <div>
+                            <div className="text-sm font-bold text-red-400">Danger Zone</div>
+                            <p className="text-xs text-red-400/70 mt-1">
+                                Irreversible actions that affect your entire system configuration.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 flex flex-wrap items-center gap-4">
+                        {!resetConfirmOpen ? (
+                            <button
+                                type="button"
+                                onClick={() => setResetConfirmOpen(true)}
+                                className="rounded-lg bg-[#EE3B47] px-4 py-2 text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#D6323D]"
+                            >
+                                Reset all settings to defaults
+                            </button>
+                        ) : (
+                            <div className="flex items-center gap-3 rounded-xl bg-canvas p-4 border border-line">
+                                <span className="text-xs font-semibold text-white">Are you absolutely sure?</span>
+                                <button
+                                    type="button"
+                                    disabled={resetting}
+                                    onClick={handleResetSettings}
+                                    className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-bold text-white shadow-lg transition hover:bg-red-600 disabled:opacity-50"
+                                >
+                                    {resetting ? 'Resetting...' : 'Yes, reset everything'}
+                                </button>
+                                <button
+                                    type="button"
+                                    disabled={resetting}
+                                    onClick={() => setResetConfirmOpen(false)}
+                                    className="rounded-lg bg-surface px-3 py-1.5 text-xs font-semibold text-muted transition hover:text-white"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            </div>
+        )
+    }
+
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12 space-y-6">
             <div className="flex items-center justify-between">
@@ -1315,13 +1772,6 @@ export default function Settings() {
                     <h1 className="text-3xl font-semibold">Settings</h1>
                     <p className="text-sm text-muted">System, parameters, and UI preferences collected into one modern surface.</p>
                 </div>
-                <button
-                    disabled={resetting || loadingConfig}
-                    onClick={handleResetToDefaults}
-                    className="rounded-pill bg-red-600 hover:bg-red-700 text-white px-4 py-2 text-sm font-semibold shadow-sm transition disabled:opacity-50"
-                >
-                    {resetting ? 'Resetting…' : 'Reset to Defaults'}
-                </button>
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -1353,7 +1803,9 @@ export default function Settings() {
                 ? renderSystemForm()
                 : activeTab === 'parameters'
                     ? renderParameterForm()
-                    : renderUIForm()}
+                    : activeTab === 'ui'
+                        ? renderUIForm()
+                        : renderAdvancedForm()}
         </main>
     )
 }

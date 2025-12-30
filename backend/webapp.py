@@ -33,6 +33,7 @@ from backend.strategy.engine import StrategyEngine
 from backend.strategy.analyst import EnergyAnalyst
 from backend.strategy.voice import get_advice
 from backend.api.aurora import aurora_bp
+from backend.extensions import socketio
 
 
 DARKSTAR_ASCII = """
@@ -43,6 +44,7 @@ print(DARKSTAR_ASCII)
 
 app = Flask(__name__)
 app.register_blueprint(aurora_bp)
+socketio.init_app(app)
 
 THEME_DIR = os.path.join(os.path.dirname(__file__), "themes")
 
@@ -67,7 +69,7 @@ def index(path):
     # Let Flask handle static/api routes, others fall through to React
     if path.startswith("api/") or path.startswith("static/") or path.startswith("assets/"):
         return "Not Found", 404
-    
+
     # HA Ingress support: get base path from X-Ingress-Path header
     # This header is set by HA Supervisor when proxying through ingress
     ingress_path = request.headers.get("X-Ingress-Path", "")
@@ -76,8 +78,10 @@ def index(path):
         base_href = ingress_path.rstrip("/") + "/"
     else:
         base_href = "/"
-    
+
     return render_template("index.html", base_href=base_href)
+
+
 
 
 class RingBufferHandler(logging.Handler):
@@ -855,6 +859,44 @@ def _db_connect_from_secrets():
     )
 
 
+@app.route("/api/health", methods=["GET"])
+def health_check():
+    """
+    Return comprehensive system health status.
+
+    Checks:
+    - Config file validity
+    - Home Assistant connection
+    - Entity availability
+    - Database connectivity
+
+    Returns JSON with:
+    - healthy (bool): True if no critical issues
+    - issues (list): List of issues with category, severity, message, guidance
+    - critical_count, warning_count: Issue counts by severity
+    """
+    try:
+        from backend.health import get_health_status
+
+        status = get_health_status()
+        return jsonify(status.to_dict())
+    except Exception as e:
+        logger.exception("Health check failed")
+        return jsonify({
+            "healthy": False,
+            "issues": [{
+                "category": "system",
+                "severity": "critical",
+                "message": f"Health check failed: {e}",
+                "guidance": "Check server logs for details.",
+                "entity_id": None,
+            }],
+            "checked_at": datetime.now().isoformat(),
+            "critical_count": 1,
+            "warning_count": 0,
+        })
+
+
 @app.route("/api/status", methods=["GET"])
 def planner_status():
     """Return last plan info from local schedule.json and MariaDB plan_history if available."""
@@ -971,6 +1013,8 @@ def _get_executor():
                     from executor import ExecutorEngine
 
                     _executor_engine = ExecutorEngine()
+                    # Initialize HA client immediately so other routes can use it (Rev E1)
+                    _executor_engine._init_ha_client()
                 except ImportError as e:
                     logger.error("Failed to import executor: %s", e)
                     return None
@@ -988,56 +1032,79 @@ def executor_status():
 
 @app.route("/api/energy/today", methods=["GET"])
 def energy_today():
-    """Return today's energy stats from HA sensors."""
-    executor = _get_executor()
-    if executor is None or executor.ha_client is None:
-        return jsonify({"error": "Executor or HA client not available"}), 500
-
-    # Load config to get sensor entity IDs
+    """Return today's energy stats from HA sensors.
+    
+    Uses direct HA requests instead of executor's HA client to avoid
+    dependency on executor initialization (fixes Dashboard data issue).
+    """
     try:
-        with open("config.yaml", "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f) or {}
-    except FileNotFoundError:
-        return jsonify({"error": "config.yaml not found"}), 500
+        from inputs import load_home_assistant_config, _make_ha_headers
+        import requests as req
 
-    input_sensors = config.get("input_sensors", {})
-    battery_capacity = config.get("system", {}).get("battery", {}).get("capacity_kwh", 34)
+        ha_config = load_home_assistant_config()
+        if not ha_config:
+            return jsonify({"error": "HA not configured"}), 500
 
-    def read_sensor(key: str) -> float | None:
-        entity_id = input_sensors.get(key)
-        if not entity_id:
-            return None
-        value = executor.ha_client.get_state_value(entity_id)
-        if value is None:
-            return None
+        base_url = ha_config.get("url", "").rstrip("/")
+        token = ha_config.get("token", "")
+
+        if not base_url or not token:
+            return jsonify({"error": "Missing HA URL or token"}), 500
+
+        headers = _make_ha_headers(token)
+
+        # Load config to get sensor entity IDs
         try:
-            return float(value)
-        except (ValueError, TypeError):
+            with open("config.yaml", "r", encoding="utf-8") as f:
+                config = yaml.safe_load(f) or {}
+        except FileNotFoundError:
+            return jsonify({"error": "config.yaml not found"}), 500
+
+        input_sensors = config.get("input_sensors", {})
+        battery_capacity = config.get("system", {}).get("battery", {}).get("capacity_kwh", 34)
+
+        def read_sensor(key: str) -> float | None:
+            entity_id = input_sensors.get(key)
+            if not entity_id:
+                return None
+            try:
+                r = req.get(f"{base_url}/api/states/{entity_id}", headers=headers, timeout=5)
+                if r.ok:
+                    data = r.json()
+                    state = data.get("state")
+                    if state not in ("unknown", "unavailable"):
+                        return float(state)
+            except (ValueError, TypeError, Exception):
+                pass
             return None
 
-    grid_import = read_sensor("today_grid_import")
-    grid_export = read_sensor("today_grid_export")
-    battery_charge = read_sensor("today_battery_charge")
-    pv_production = read_sensor("today_pv_production")
-    load_consumption = read_sensor("today_load_consumption")
+        grid_import = read_sensor("today_grid_import")
+        grid_export = read_sensor("today_grid_export")
+        battery_charge = read_sensor("today_battery_charge")
+        pv_production = read_sensor("today_pv_production")
+        load_consumption = read_sensor("today_load_consumption")
 
-    # Calculate battery cycles (charge / capacity)
-    battery_cycles = None
-    if battery_charge is not None and battery_capacity:
-        battery_cycles = round(battery_charge / battery_capacity, 2)
+        # Calculate battery cycles (charge / capacity)
+        battery_cycles = None
+        if battery_charge is not None and battery_capacity:
+            battery_cycles = round(battery_charge / battery_capacity, 2)
 
-    # Read net cost directly from HA sensor
-    net_cost_kr = read_sensor("today_net_cost")
+        # Read net cost directly from HA sensor
+        net_cost_kr = read_sensor("today_net_cost")
 
-    return jsonify({
-        "grid_import_kwh": grid_import,
-        "grid_export_kwh": grid_export,
-        "battery_charge_kwh": battery_charge,
-        "battery_cycles": battery_cycles,
-        "pv_production_kwh": pv_production,
-        "load_consumption_kwh": load_consumption,
-        "net_cost_kr": net_cost_kr,
-    })
+        return jsonify({
+            "grid_import_kwh": grid_import,
+            "grid_export_kwh": grid_export,
+            "battery_charge_kwh": battery_charge,
+            "battery_cycles": battery_cycles,
+            "pv_production_kwh": pv_production,
+            "load_consumption_kwh": load_consumption,
+            "net_cost_kr": net_cost_kr,
+        })
+
+    except Exception as e:
+        logger.exception("energy_today failed")
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/executor/toggle", methods=["POST"])
@@ -1893,7 +1960,17 @@ def save_schedule_json():
 @app.route("/api/config", methods=["GET"])
 def get_config():
     with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+        config = yaml.safe_load(f) or {}
+
+    # Merge HA config from secrets.yaml for UI (Rev O1)
+    try:
+        from inputs import _load_yaml
+        secrets = _load_yaml("secrets.yaml") or {}
+        if "home_assistant" in secrets:
+            config["home_assistant"] = secrets["home_assistant"]
+    except Exception:
+        pass
+
     return jsonify(config)
 
 
@@ -2014,19 +2091,38 @@ def _validate_config(cfg: dict) -> list[dict]:
     return errors
 
 
-@app.route("/api/config/save", methods=["POST"])
+@app.route("/api/config/save", methods=["POST"], strict_slashes=False)
 def save_config():
     from ruamel.yaml import YAML
-    
+
     yaml_handler = YAML()
     yaml_handler.preserve_quotes = True
-    
-    # Load current config with ruamel.yaml to preserve structure/comments
+
+    # Load current config
     with open("config.yaml", "r", encoding="utf-8") as f:
         current_config = yaml_handler.load(f) or {}
 
     # Get the new config data from the request
     new_config = request.get_json() or {}
+
+    # Intercept home_assistant config for secrets.yaml (Rev O1)
+    if "home_assistant" in new_config:
+        ha_settings = new_config.pop("home_assistant")
+        try:
+            secrets_path = "secrets.yaml"
+            if os.path.exists(secrets_path):
+                with open(secrets_path, "r", encoding="utf-8") as f:
+                    secrets = yaml_handler.load(f) or {}
+            else:
+                secrets = {}
+
+            secrets["home_assistant"] = ha_settings
+
+            with open(secrets_path, "w", encoding="utf-8") as f:
+                yaml_handler.dump(secrets, f)
+        except Exception as e:
+            logger.error("Failed to save secrets.yaml: %s", e)
+            return jsonify({"status": "error", "message": f"Failed to save secrets: {e}"})
 
     # Deep merge the new config into the current config
     def deep_merge(current, new):
@@ -2039,56 +2135,156 @@ def save_config():
 
     merged_config = deep_merge(current_config, new_config)
 
-    # Ensure critical defaults are preserved
-    if "nordpool" not in merged_config:
-        merged_config["nordpool"] = {}
-    if "resolution_minutes" not in merged_config["nordpool"]:
-        merged_config["nordpool"]["resolution_minutes"] = 15
-    if "price_area" not in merged_config["nordpool"]:
-        merged_config["nordpool"]["price_area"] = "SE4"
-    if "currency" not in merged_config["nordpool"]:
-        merged_config["nordpool"]["currency"] = "SEK"
-
-    # Validate merged config before writing (use dict for validation)
+    # Validate merged config
     errors = _validate_config(dict(merged_config))
     if errors:
+        sys.stderr.write(f"[DEBUG] VALIDATION ERRORS: {errors}\n")
         return jsonify({"status": "error", "errors": errors})
 
-    # Write back with ruamel.yaml to preserve structure/comments
+    # Write back
     with open("config.yaml", "w", encoding="utf-8") as f:
         yaml_handler.dump(merged_config, f)
+    sys.stderr.write("[DEBUG] config.yaml saved\n")
 
-    # Regenerate schedule if s_index or battery settings changed
-    # This ensures risk_appetite changes are immediately reflected
-    regenerate_schedule = False
+    # Regenerate schedule if needed
     if "s_index" in new_config or "battery" in new_config:
-        regenerate_schedule = True
-
-    regen_result = None
-    if regenerate_schedule:
         try:
             from inputs import get_all_input_data
             from planner.pipeline import PlannerPipeline
-
-            logger.info("Config changed - regenerating schedule...")
-
-            # CRITICAL: Reload the fresh config from disk to ensure all values are correct
-            # The merged_config from the request may be incomplete or have stale values
             with open("config.yaml", "r") as f:
                 fresh_config = yaml.safe_load(f) or {}
-
             input_data = get_all_input_data("config.yaml")
             pipeline = PlannerPipeline(fresh_config)
             pipeline.generate_schedule(input_data, mode="full", save_to_file=True)
-            logger.info("Schedule regenerated successfully")
-            regen_result = "success"
+            sys.stderr.write("[DEBUG] schedule regenerated\n")
         except Exception as exc:
-            logger.warning("Failed to regenerate schedule after config change: %s", exc)
-            regen_result = f"error: {exc}"
+            sys.stderr.write(f"[DEBUG] REGEN ERROR: {exc}\n")
 
-    return jsonify(
-        {"status": "success", "regenerated": regenerate_schedule, "regen_result": regen_result}
-    )
+    sys.stderr.flush()
+    return jsonify({"status": "success"})
+
+
+
+@app.route("/api/ha/test", methods=["POST"])
+def ha_test_connection():
+    """Test connection to Home Assistant with provided credentials."""
+    import requests as req
+    payload = request.get_json(silent=True) or {}
+    url = payload.get("url", "").rstrip("/")
+    token = payload.get("token", "")
+
+    if not url or not token:
+        return jsonify({"success": False, "message": "Missing URL or Token"}), 400
+
+    try:
+        headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+        # /api/config is a fast, lightweight endpoint to test auth
+        resp = req.get(f"{url}/api/config", headers=headers, timeout=5)
+        if resp.ok:
+            return jsonify({"success": True, "message": "Connection successful"})
+        else:
+            return jsonify({"success": False, "message": f"HTTP {resp.status_code}: {resp.reason}"}), 400
+    except Exception as e:
+        return jsonify({"success": False, "message": str(e)}), 500
+
+
+@app.route("/api/ha/entities", methods=["GET"])
+def ha_list_entities():
+    """List all entities from Home Assistant using configured credentials."""
+    import requests as req
+    # Use configured secrets
+    from inputs import load_home_assistant_config, _make_ha_headers
+    ha_config = load_home_assistant_config()
+    if not ha_config:
+        return jsonify({"error": "Home Assistant not configured"}), 400
+
+    url = ha_config.get("url", "").rstrip("/")
+    token = ha_config.get("token", "")
+
+    try:
+        headers = _make_ha_headers(token)
+        resp = req.get(f"{url}/api/states", headers=headers, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            # Return list of { entity_id, friendly_name, domain }
+            entities = []
+            for item in data:
+                eid = item.get("entity_id", "")
+                entities.append({
+                    "entity_id": eid,
+                    "friendly_name": item.get("attributes", {}).get("friendly_name", eid),
+                    "domain": eid.split(".")[0] if "." in eid else ""
+                })
+            return jsonify({"entities": entities})
+        else:
+            return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/ha/services", methods=["GET"])
+def ha_list_services():
+    """List all services from Home Assistant using configured credentials."""
+    import requests as req
+    from inputs import load_home_assistant_config, _make_ha_headers
+    ha_config = load_home_assistant_config()
+    if not ha_config:
+        return jsonify({"error": "Home Assistant not configured"}), 400
+
+    url = ha_config.get("url", "").rstrip("/")
+    token = ha_config.get("token", "")
+
+    try:
+        headers = _make_ha_headers(token)
+        resp = req.get(f"{url}/api/services", headers=headers, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            # HA returns a list of domains, each with a 'services' dict
+            # We want to flatten this into a list of "domain.service" strings
+            services = []
+            for domain_item in data:
+                domain = domain_item.get("domain", "")
+                service_dict = domain_item.get("services", {})
+                for svc_name in service_dict.keys():
+                    services.append(f"{domain}.{svc_name}")
+            return jsonify({"services": sorted(services)})
+        else:
+            return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+
+@app.route("/api/ha/entity/<path:entity_id>", methods=["GET"])
+def ha_get_entity_state(entity_id):
+    """Get the current state of a specific Home Assistant entity."""
+    import requests as req
+    from inputs import load_home_assistant_config, _make_ha_headers
+    ha_config = load_home_assistant_config()
+    if not ha_config:
+        return jsonify({"error": "Home Assistant not configured"}), 400
+
+    url = ha_config.get("url", "").rstrip("/")
+    token = ha_config.get("token", "")
+
+    try:
+        headers = _make_ha_headers(token)
+        resp = req.get(f"{url}/api/states/{entity_id}", headers=headers, timeout=5)
+        if resp.ok:
+            data = resp.json()
+            return jsonify({
+                "entity_id": data.get("entity_id"),
+                "state": data.get("state"),
+                "attributes": data.get("attributes", {}),
+                "last_changed": data.get("last_changed"),
+                "last_updated": data.get("last_updated")
+            })
+        elif resp.status_code == 404:
+            return jsonify({"error": f"Entity {entity_id} not found"}), 404
+        else:
+            return jsonify({"error": f"HA Error: {resp.status_code}"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/config/reset", methods=["POST"])
@@ -3163,3 +3359,46 @@ def _autostart_executor():
 
 
 _autostart_executor()
+
+
+        
+
+def setup_schedule_watcher():
+    """Watch schedule.json for changes and emit plan_updated event."""
+    def watch_loop():
+        import os
+        import time
+        from backend.events import emit_plan_updated
+        schedule_path = "schedule.json"
+        last_mtime = 0
+        if os.path.exists(schedule_path):
+            last_mtime = os.path.getmtime(schedule_path)
+            
+        while True:
+            try:
+                if os.path.exists(schedule_path):
+                    current_mtime = os.path.getmtime(schedule_path)
+                    if current_mtime > last_mtime:
+                        last_mtime = current_mtime
+                        from backend.webapp import logger
+                        logger.info("📅 schedule.json changed, emitting plan_updated")
+                        emit_plan_updated()
+            except Exception:
+                pass
+            time.sleep(5)
+
+    import threading
+    watcher_thread = threading.Thread(target=watch_loop, daemon=True)
+    watcher_thread.start()
+
+setup_schedule_watcher()
+
+# Start HA WebSocket Client (Rev E1)
+try:
+    from backend.ha_socket import start_ha_socket_client
+    start_ha_socket_client()
+    from backend.webapp import logger
+    logger.info("Started HA WebSocket Client")
+except Exception as e:
+    from backend.webapp import logger
+    logger.error(f"Failed to start HA WebSocket Client: {e}")

@@ -2,12 +2,14 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
-import Kpi from '../components/Kpi'
 import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, type DaySel } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
+import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
+import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
+import { useSocket } from '../lib/hooks'
 
 type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
 
@@ -36,7 +38,9 @@ export default function Dashboard() {
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
     const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
     const [comfortLevel, setComfortLevel] = useState<number>(3)  // Rev K18
-    const [vacationMode, setVacationMode] = useState<boolean>(false)  // Rev K19
+    const [vacationMode, setVacationMode] = useState<boolean>(false)  // Rev K19 - from config
+    const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)  // From HA entity
+    const [vacationEntityId, setVacationEntityId] = useState<string | null>(null)  // Configured HA entity
     const [riskAppetite, setRiskAppetite] = useState<number>(3)  // Risk Appetite on Dashboard
     const [learningStatus, setLearningStatus] = useState<{ enabled?: boolean; status?: string; samples?: number } | null>(null)
     const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
@@ -47,9 +51,7 @@ export default function Dashboard() {
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
-    const [autoRefresh, setAutoRefresh] = useState(true)
-    const pollingIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; every_minutes?: number | null } | null>(null)
+    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; external_executor_mode?: boolean; every_minutes?: number | null } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
     const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
     const [localSchedule, setLocalSchedule] = useState<ScheduleSlot[] | null>(null)
@@ -65,6 +67,52 @@ export default function Dashboard() {
         loadConsumption: number | null;
         netCost: number | null;
     } | null>(null)
+
+    // --- WebSocket Event Handlers (Rev E1) ---
+    useSocket('live_metrics', (data) => {
+        if (data.soc !== undefined) setSoc(data.soc)
+        // Note: PV/Load today stats still come from fetchAllData because they are cumulative
+    })
+
+    useSocket('plan_updated', () => {
+        console.log("📅 Plan updated! Refreshing data...")
+        fetchAllData()
+    })
+
+    useSocket('executor_status', (data) => {
+        setExecutorStatus({
+            shadow_mode: data.shadow_mode ?? false,
+            paused: data.paused ?? null,
+        })
+    })
+
+    // WebSocket: HA entity state changes (instant vacation mode sync)
+    useSocket('ha_entity_change', (data) => {
+        // If this is the vacation mode entity, update state instantly
+        if (data.entity_id === vacationEntityId) {
+            const isActive = data.state === 'on'
+            setVacationModeHA(isActive)
+        }
+    })
+
+    // Listen for config updates from QuickActions
+    useEffect(() => {
+        const handleConfigUpdate = async () => {
+            try {
+                const response = await Api.config()
+                if (response.ok) {
+                    const data = await response.json()
+                    const vacationCfg = data.water_heating?.vacation_mode
+                    setVacationMode(vacationCfg?.enabled || false)
+                }
+            } catch (error) {
+                console.log('Failed to reload vacation mode:', error)
+            }
+        }
+
+        window.addEventListener('config-updated', handleConfigUpdate)
+        return () => window.removeEventListener('config-updated', handleConfigUpdate)
+    }, [])
 
     const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
         setCurrentPlanSource(source)
@@ -216,6 +264,7 @@ export default function Dashboard() {
                     setAutomationConfig({
                         enable_scheduler: automation.enable_scheduler,
                         write_to_mariadb: automation.write_to_mariadb,
+                        external_executor_mode: automation.external_executor_mode,
                         // Optional Rev57-style schedule block; falls back to null when absent
                         every_minutes: automation.schedule?.every_minutes ?? null,
                     })
@@ -223,10 +272,7 @@ export default function Dashboard() {
                     setAutomationConfig(null)
                 }
 
-                // Initialize auto-refresh from dashboard config if present
-                if (typeof data.dashboard?.auto_refresh_enabled === 'boolean') {
-                    setAutoRefresh(data.dashboard.auto_refresh_enabled)
-                }
+                // Auto-refresh was removed in UI2 - dashboard is now WebSocket-based
 
                 // Load comfort level and vacation mode from water_heating config
                 if (data.water_heating) {
@@ -236,6 +282,21 @@ export default function Dashboard() {
                     if (typeof data.water_heating.vacation_mode?.enabled === 'boolean') {
                         setVacationMode(data.water_heating.vacation_mode.enabled)
                     }
+                }
+
+                // Load vacation mode HA entity ID
+                if (data.input_sensors?.vacation_mode) {
+                    setVacationEntityId(data.input_sensors.vacation_mode)
+                    // Immediately fetch the HA entity state if configured
+                    Api.haEntityState(data.input_sensors.vacation_mode)
+                        .then(entityData => {
+                            const isActive = entityData.state === 'on'
+                            setVacationModeHA(isActive)
+                        })
+                        .catch(() => {
+                            // Entity not available, gracefully ignore
+                            setVacationModeHA(false)
+                        })
                 }
             } else {
                 hadError = true
@@ -415,26 +476,6 @@ export default function Dashboard() {
         fetchAllData()
     }, [fetchAllData])
 
-    // Set up polling
-    useEffect(() => {
-        if (autoRefresh) {
-            pollingIntervalRef.current = setInterval(() => {
-                fetchAllData()
-            }, 30000) // Refresh every 30 seconds
-        } else {
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current)
-                pollingIntervalRef.current = null
-            }
-        }
-
-        return () => {
-            if (pollingIntervalRef.current) {
-                clearInterval(pollingIntervalRef.current)
-            }
-        }
-    }, [autoRefresh, fetchAllData])
-
     const toggleAutomationScheduler = async () => {
         if (automationSaving) return
         const current = automationConfig?.enable_scheduler ?? false
@@ -445,6 +486,7 @@ export default function Dashboard() {
             setAutomationConfig(prev => ({
                 enable_scheduler: next,
                 write_to_mariadb: prev?.write_to_mariadb,
+                external_executor_mode: prev?.external_executor_mode,
                 every_minutes: prev?.every_minutes ?? null,
             }))
         } catch (err) {
@@ -454,28 +496,41 @@ export default function Dashboard() {
         }
     }
 
-    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
-    const pvDays = horizon?.pvDays ?? '—'
-    const weatherDays = horizon?.weatherDays ?? '—'
-    const planBadge = `${currentPlanSource} plan`
-    const planMeta = plannerMeta?.plannedAt || plannerMeta?.version ? ` · ${plannerMeta?.plannedAt ?? ''} ${plannerMeta?.version ?? ''}`.trim() : ''
+    const [dbSyncLoading, setDbSyncLoading] = useState(false)
+    const [dbSyncFeedback, setDbSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-    // Derive last/next planner runs for automation card
-    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
-    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
-    const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
-        ? automationConfig.every_minutes
-        : null
-    let nextRunDate: Date | null = null
-    if (schedulerStatus?.next_run_at) {
-        nextRunDate = new Date(schedulerStatus.next_run_at)
-    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
-        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
+    const handleLoadFromDb = async () => {
+        setDbSyncLoading(true)
+        setDbSyncFeedback(null)
+        try {
+            const schedule = await Api.loadServerPlan()
+            handleServerScheduleLoaded(schedule.schedule ?? [])
+            handlePlanSourceChange('server')
+            setDbSyncFeedback({ type: 'success', message: 'Plan loaded from DB' })
+        } catch (err) {
+            setDbSyncFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Load failed' })
+        } finally {
+            setDbSyncLoading(false)
+            setTimeout(() => setDbSyncFeedback(null), 3000)
+        }
     }
-    // Build slotsOverride for the chart:
-    // - Server plan: use merged serverSchedule (already contains execution history).
-    // - Local plan: mirror Planning view by merging today's history with tomorrow's schedule
-    //   so SoC Actual appears in both 24h and 48h modes.
+
+    const handlePushToDb = async () => {
+        setDbSyncLoading(true)
+        setDbSyncFeedback(null)
+        try {
+            await Api.pushToDb()
+            setDbSyncFeedback({ type: 'success', message: 'Plan pushed to DB' })
+            fetchAllData()
+        } catch (err) {
+            setDbSyncFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Push failed' })
+        } finally {
+            setDbSyncLoading(false)
+            setTimeout(() => setDbSyncFeedback(null), 3000)
+        }
+    }
+
+    // Build slotsOverride for the chart (and badge)
     let slotsOverride: ScheduleSlot[] | undefined
     if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
         slotsOverride = serverSchedule
@@ -489,6 +544,55 @@ export default function Dashboard() {
         } else {
             slotsOverride = todayAndTomorrow
         }
+    }
+
+    // Badge Logic
+    const now = new Date()
+    let freshnessText = currentPlanSource === 'server' ? 'Server Plan' : 'Local Plan'
+    if (plannerMeta?.plannedAt) {
+        const planned = new Date(plannerMeta.plannedAt)
+        const timeStr = planned.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        freshnessText = `Generated ${timeStr}`
+    }
+
+    let nextActionText = ''
+    if (slotsOverride) {
+        const currentSlot = slotsOverride.find(s => {
+            const start = new Date(s.start_time)
+            const end = new Date(start.getTime() + 30 * 60 * 1000)
+            return now >= start && now < end
+        })
+
+        if (currentSlot) {
+            const end = new Date(new Date(currentSlot.start_time).getTime() + 30 * 60 * 1000)
+            const minutesLeft = Math.max(0, Math.floor((end.getTime() - now.getTime()) / 60000))
+
+            let action = 'Idle'
+            if ((currentSlot.charge_kw || 0) > 0.1) action = `Charge ${currentSlot.charge_kw?.toFixed(1)}kW`
+            else if ((currentSlot.discharge_kw || 0) > 0.1) action = `Discharge ${currentSlot.discharge_kw?.toFixed(1)}kW`
+            else if ((currentSlot.export_kw || 0) > 0.1) action = `Export ${currentSlot.export_kw?.toFixed(1)}kW`
+            else if ((currentSlot.water_kw || 0) > 0.1) action = `Heat Water`
+
+            nextActionText = ` · Next: ${action} (${minutesLeft}m)`
+        }
+    }
+    const planBadge = `${freshnessText}${nextActionText}`
+
+    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
+    const pvDays = horizon?.pvDays ?? '—'
+    const weatherDays = horizon?.weatherDays ?? '—'
+
+    // Derive last/next planner runs for automation card
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
+    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
+    const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
+        ? automationConfig.every_minutes
+        : null
+    let nextRunDate: Date | null = null
+    if (schedulerStatus?.next_run_at) {
+        nextRunDate = new Date(schedulerStatus.next_run_at)
+    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
+        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
     }
 
     // S-Index Display Logic
@@ -559,12 +663,28 @@ export default function Dashboard() {
                         <span>Executor Paused (Idle Mode)</span>
                         {executorStatus.paused.paused_minutes !== undefined && (
                             <span className="text-orange-400/70 text-xs ml-2">
-                                — Paused for {Math.round(executorStatus.paused.paused_minutes)} minutes
+                                — Paused for {executorStatus.paused.paused_minutes} minutes
                             </span>
                         )}
                     </div>
                 </motion.div>
             )}
+
+            {/* Vacation Mode Banner */}
+            {(vacationMode || vacationModeHA) && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="bg-[#F59E0B] dark:bg-[#F59E0B]/20 border-0 dark:border dark:border-[#F59E0B]/50 rounded-lg px-4 py-3 mb-4"
+                >
+                    <div className="flex items-center gap-2 text-white dark:text-[#F59E0B] text-sm font-medium">
+                        <span>🏝️</span>
+                        <span>Vacation Mode Active</span>
+                        <span className="text-white/80 dark:text-[#F59E0B]/70 text-xs ml-2">— Water heating is disabled</span>
+                    </div>
+                </motion.div>
+            )}
+
 
 
             {/* Row 1: Schedule Overview (24h / 48h) */}
@@ -578,69 +698,86 @@ export default function Dashboard() {
                 />
             </motion.div>
 
-            {/* Row 2: Advisor + System Status + Quick Actions / Automation */}
+            {/* Row 2: Controls & Advisor & Quick Actions */}
             <div className="grid gap-6 lg:grid-cols-3 items-stretch">
-                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <SmartAdvisor />
-                </motion.div>
-                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <Card className="h-full p-4 md:p-5">
-                        <div className="flex items-baseline justify-between mb-3">
-                            <div className="text-sm text-muted">System Status</div>
-                            <div className="flex items-center gap-2">
-                                <div className="text-[10px] text-muted">
-                                    {autoRefresh ? 'auto-refresh' : 'manual'}
-                                    {lastRefresh && ` · ${lastRefresh.toLocaleTimeString()}`}
-                                </div>
-                                {statusMessage && (
-                                    <div className="text-[10px] text-amber-400">
-                                        {statusMessage}
-                                    </div>
-                                )}
-                                <button
-                                    onClick={() => fetchAllData()}
-                                    disabled={isRefreshing}
-                                    className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
-                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
-                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                        }`}
-                                    title="Refresh data"
-                                >
-                                    <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
-                                        {isRefreshing ? '⟳' : '↻'}
-                                    </span>
-                                </button>
-                                <button
-                                    onClick={() => setAutoRefresh(!autoRefresh)}
-                                    className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${autoRefresh
-                                        ? 'bg-accent text-canvas border border-accent'
-                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                        }`}
-                                    title={autoRefresh ? 'Disable auto-refresh' : 'Enable auto-refresh (30s)'}
-                                >
-                                    ⏱
-                                </button>
+                {/* Col 1: Toolbar + Advisor */}
+                <motion.div className="h-full flex flex-col gap-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    {/* Toolbar Card */}
+                    <Card className="p-3 flex items-center justify-between shrink-0">
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">{planBadge}</div>
+                        <div className="flex items-center gap-2">
+                            <div className="text-[10px] text-muted">
+                                {lastRefresh && `Synced ${lastRefresh.toLocaleTimeString()}`}
                             </div>
-                        </div>
-                        <div className="flex flex-wrap gap-4 pb-4 text-[11px] uppercase tracking-wider text-muted">
-                            <div className="text-text">Now showing: {planBadge}{planMeta}</div>
-                        </div>
-                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                            <Kpi label="Current SoC" value={socDisplay} hint={currentSlotTarget !== null ? `slot ${currentSlotTarget.toFixed(0)}%` : ''} />
-                            <Kpi label="S-Index" value={sIndexDisplay} hint={termDisplay} />
-                            <Kpi label="PV Today" value={pvToday !== null ? `${pvToday.toFixed(1)} kWh` : '— kWh'} hint={`PV ${pvDays}d · Weather ${weatherDays}d`} />
-                            <Kpi label="Avg Load" value={avgLoad?.kw !== undefined ? `${avgLoad.kw.toFixed(1)} kW` : '— kW'} hint={avgLoad?.dailyKwh !== undefined ? `HA ${avgLoad.dailyKwh.toFixed(1)} kWh/day` : ''} />
+                            {statusMessage && (
+                                <div className="text-[10px] text-amber-400">
+                                    {statusMessage}
+                                </div>
+                            )}
+                            <button
+                                onClick={() => fetchAllData()}
+                                disabled={isRefreshing}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
+                                    ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
+                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                    }`}
+                                title="Manual sync"
+                            >
+                                <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
+                                    {isRefreshing ? '⟳' : '↻'}
+                                </span>
+                            </button>
                         </div>
                     </Card>
+
+                    {/* Advisor */}
+                    <div className="flex-1 min-h-0">
+                        <SmartAdvisor />
+                    </div>
                 </motion.div>
+
+                {/* Middle Column: Control Parameters (Comfort + Risk + Overrides) */}
+                <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                    <ControlParameters
+                        comfortLevel={comfortLevel}
+                        setComfortLevel={async (l) => {
+                            setComfortLevel(l)
+                            await Api.configSave({ water_heating: { comfort_level: l } })
+                        }}
+                        riskAppetite={riskAppetite}
+                        setRiskAppetite={async (l) => {
+                            setRiskAppetite(l)
+                            await Api.configSave({ s_index: { risk_appetite: l } })
+                        }}
+                        vacationMode={vacationMode}
+                        onWaterBoost={async () => {
+                            try {
+                                await Api.waterBoost.start(60)
+                                fetchAllData()
+                            } catch (e) {
+                                console.error('Boost failed', e)
+                            }
+                        }}
+                        onBatteryTopUp={async () => {
+                            try {
+                                await Api.executor.quickAction.set('force_charge', 60)
+                                fetchAllData()
+                            } catch (e) {
+                                console.error('Top Up failed', e)
+                            }
+                        }}
+                    />
+                </motion.div>
+
+                {/* Right Column: Quick Actions */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="flex h-full flex-col gap-6">
                         <Card className="flex-1 p-4 md:p-5">
-                            <div className="text-sm text-muted mb-3">Quick Actions</div>
                             <QuickActions
                                 onDataRefresh={fetchAllData}
                                 onPlanSourceChange={handlePlanSourceChange}
                                 onServerScheduleLoaded={handleServerScheduleLoaded}
+                                onVacationModeChange={(enabled) => setVacationMode(enabled)}
                             />
                         </Card>
                         <Card className="flex-1 p-4 md:p-5">
@@ -684,229 +821,75 @@ export default function Dashboard() {
                                 </div>
                             </div>
                         </Card>
+
+                        {automationConfig?.external_executor_mode && (
+                            <Card className="flex-1 p-4 md:p-5 flex flex-col">
+                                <div className="flex items-baseline justify-between mb-3">
+                                    <div className="text-sm text-muted">DB Sync</div>
+                                    <div className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                                        {dbSyncFeedback?.message}
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3 mt-auto">
+                                    <button
+                                        type="button"
+                                        onClick={handleLoadFromDb}
+                                        disabled={dbSyncLoading}
+                                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold bg-surface2 border border-line/60 text-muted hover:border-accent hover:text-accent transition disabled:opacity-50"
+                                        title="Pull plan from MariaDB current_schedule table"
+                                    >
+                                        <ArrowDownToLine className="h-4 w-4" />
+                                        <span>Load from DB</span>
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handlePushToDb}
+                                        disabled={dbSyncLoading}
+                                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold bg-surface2 border border-line/60 text-muted hover:border-accent hover:text-accent transition disabled:opacity-50"
+                                        title="Push local schedule.json to MariaDB"
+                                    >
+                                        <ArrowUpFromLine className="h-4 w-4" />
+                                        <span>Push to DB</span>
+                                    </button>
+                                </div>
+                            </Card>
+                        )}
                     </div>
                 </motion.div>
             </div>
 
-            {/* Row 3: Context Cards */}
+            {/* Row 3: Grid + Resources + Strategy */}
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-                <Card className="p-5">
-                    <div className="flex justify-between items-center mb-3">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm text-muted">Water heater</span>
-                            {vacationMode && (
-                                <span className="rounded-pill bg-amber-500/20 border border-amber-500/50 px-2 py-0.5 text-amber-300 text-[10px] font-medium">
-                                    🌴 Vacation
-                                </span>
-                            )}
-                        </div>
-                        <div className="rounded-pill bg-surface2 border border-line/60 px-3 py-1 text-muted text-xs">
-                            today {waterToday?.kwh !== undefined ? `${waterToday.kwh.toFixed(1)} kWh` : '— kWh'}
-                        </div>
-                    </div>
-                    <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Comfort Level</div>
-                    <div className="flex gap-1 mb-2">
-                        {[1, 2, 3, 4, 5].map((level) => {
-                            const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
-                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
-                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
-                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
-                                5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
-                            }
-                            return (
-                                <button
-                                    key={level}
-                                    onClick={async () => {
-                                        setComfortLevel(level)
-                                        await Api.configSave({ water_heating: { comfort_level: level } })
-                                    }}
-                                    className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${comfortLevel === level
-                                        ? `${colorMap[level]} ring-2 soft-glow`
-                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
-                                        }`}
-                                >
-                                    {level}
-                                </button>
-                            )
-                        })}
-                    </div>
-                    <div className="text-sm">
-                        <span className={`font-medium ${comfortLevel === 1 ? 'text-emerald-400' :
-                            comfortLevel === 2 ? 'text-teal-400' :
-                                comfortLevel === 3 ? 'text-blue-400' :
-                                    comfortLevel === 4 ? 'text-amber-400' :
-                                        'text-red-400'
-                            }`}>
-                            {{
-                                1: 'Economy',
-                                2: 'Balanced',
-                                3: 'Neutral',
-                                4: 'Priority',
-                                5: 'Maximum'
-                            }[comfortLevel]}
-                        </span>
-                        <span className="text-muted"> mode active</span>
-                    </div>
-                </Card>
-                <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Risk Strategy</div>
-                    <div className="text-[10px] text-muted mb-2 uppercase tracking-wide">Risk Appetite</div>
-                    <div className="flex gap-1 mb-2">
-                        {[1, 2, 3, 4, 5].map((level) => {
-                            const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/30 text-emerald-300 border-emerald-500/50 ring-emerald-500/20',
-                                2: 'bg-teal-500/30 text-teal-300 border-teal-500/50 ring-teal-500/20',
-                                3: 'bg-blue-500/30 text-blue-300 border-blue-500/50 ring-blue-500/20',
-                                4: 'bg-amber-500/30 text-amber-300 border-amber-500/50 ring-amber-500/20',
-                                5: 'bg-red-500/30 text-red-300 border-red-500/50 ring-red-500/20'
-                            }
-                            return (
-                                <button
-                                    key={level}
-                                    onClick={async () => {
-                                        setRiskAppetite(level)
-                                        await Api.configSave({ s_index: { risk_appetite: level } })
-                                    }}
-                                    className={`w-8 h-8 rounded text-xs font-medium transition-all duration-300 border active:scale-95 ${riskAppetite === level
-                                        ? `${colorMap[level]} ring-2 soft-glow`
-                                        : 'bg-surface2 text-muted hover:bg-surface hover:text-text hover:scale-105 border-transparent'
-                                        }`}
-                                >
-                                    {level}
-                                </button>
-                            )
-                        })}
-                    </div>
-                    <div className="text-sm">
-                        <span className={`font-medium ${riskAppetite === 1 ? 'text-emerald-400' :
-                            riskAppetite === 2 ? 'text-teal-400' :
-                                riskAppetite === 3 ? 'text-blue-400' :
-                                    riskAppetite === 4 ? 'text-amber-400' :
-                                        'text-red-400'
-                            }`}>
-                            {{
-                                1: 'Safety',
-                                2: 'Conservative',
-                                3: 'Neutral',
-                                4: 'Aggressive',
-                                5: 'Gambler'
-                            }[riskAppetite]}
-                        </span>
-                        <span className="text-muted"> mode active</span>
-                    </div>
-                </Card>
-                <Card className="p-5">
-                    <div className="text-sm text-muted mb-3">Today's Stats</div>
-                    <div className="space-y-3">
-                        {/* Group 1: Grid & Financial */}
-                        <div className="p-2.5 rounded-lg bg-surface2/20 space-y-2 border border-line/20">
-                            {/* Net Cost */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">💰</span>
-                                    <span className="text-xs text-muted">Net</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className={`text-sm font-semibold ${(todayStats?.netCost ?? 0) <= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-                                        {todayStats?.netCost != null ? todayStats.netCost.toFixed(2) : '—'}
-                                    </span>
-                                    <span className="text-xs text-muted ml-1">kr</span>
-                                </div>
-                            </div>
-                            {/* Grid: Import ↓ / Export ↑ */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🔌</span>
-                                    <span className="text-xs text-muted">Grid</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-semibold text-red-300">↓{todayStats?.gridImport?.toFixed(1) ?? '—'}</span>
-                                    <span className="text-muted mx-0.5">/</span>
-                                    <span className="text-sm font-semibold text-emerald-300">↑{todayStats?.gridExport?.toFixed(1) ?? '—'}</span>
-                                </div>
-                            </div>
-                        </div>
+                {/* Col 1: Grid Domain */}
+                <GridDomain
+                    netCost={todayStats?.netCost ?? null}
+                    importKwh={todayStats?.gridImport ?? null}
+                    exportKwh={todayStats?.gridExport ?? null}
+                />
 
-                        {/* Group 2: Home Energy */}
-                        <div className="p-2.5 rounded-lg bg-surface2/20 space-y-3 border border-line/20">
-                            {/* PV: Actual / Forecast */}
-                            <div className="flex flex-col gap-1">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-base">☀️</span>
-                                        <span className="text-xs text-muted">PV</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-sm font-semibold text-amber-300">
-                                            {todayStats?.pvProduction?.toFixed(1) ?? '—'}
-                                        </span>
-                                        <span className="text-xs text-muted mx-0.5">/</span>
-                                        <span className="text-xs text-muted">{todayStats?.pvForecast?.toFixed(1) ?? '—'}</span>
-                                    </div>
-                                </div>
-                                {/* Progress Bar */}
-                                <div className="h-1 w-full bg-surface rounded-full overflow-hidden flex">
-                                    <div
-                                        className="h-full bg-amber-400 rounded-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(100, ((todayStats?.pvProduction ?? 0) / (todayStats?.pvForecast || 1)) * 100)}%` }}
-                                    />
-                                </div>
-                            </div>
+                {/* Col 2: Resources Domain */}
+                <ResourcesDomain
+                    pvActual={todayStats?.pvProduction ?? null}
+                    pvForecast={todayStats?.pvForecast ?? null}
+                    loadActual={todayStats?.loadConsumption ?? null}
+                    loadAvg={avgLoad?.dailyKwh ?? null}
+                    waterKwh={waterToday?.kwh ?? null}
+                />
 
-                            {/* Load: Actual / Average */}
-                            <div className="flex flex-col gap-1">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-base">⚡</span>
-                                        <span className="text-xs text-muted">Load</span>
-                                    </div>
-                                    <div className="text-right">
-                                        <span className="text-sm font-semibold text-purple-300">
-                                            {todayStats?.loadConsumption?.toFixed(1) ?? '—'}
-                                        </span>
-                                        <span className="text-xs text-muted mx-0.5">/</span>
-                                        <span className="text-xs text-muted">{avgLoad?.dailyKwh?.toFixed(0) ?? '—'}</span>
-                                    </div>
-                                </div>
-                                {/* Progress Bar */}
-                                <div className="h-1 w-full bg-surface rounded-full overflow-hidden flex">
-                                    <div
-                                        className="h-full bg-purple-400 rounded-full transition-all duration-1000"
-                                        style={{ width: `${Math.min(100, ((todayStats?.loadConsumption ?? 0) / (avgLoad?.dailyKwh || 1)) * 100)}%` }}
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Battery Cycles */}
-                            <div className="flex items-center justify-between pt-1">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🔋</span>
-                                    <span className="text-xs text-muted">Cycles</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-semibold text-cyan-300">
-                                        {todayStats?.batteryCycles != null ? todayStats.batteryCycles.toFixed(2) : '—'}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Water Heating */}
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-base">🔥</span>
-                                    <span className="text-xs text-muted">Water</span>
-                                </div>
-                                <div className="text-right">
-                                    <span className="text-sm font-semibold text-orange-300">
-                                        {waterToday?.kwh !== undefined ? waterToday.kwh.toFixed(1) : '—'}
-                                    </span>
-                                    <span className="text-xs text-muted ml-1">kWh</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </Card>
+                {/* Col 3: Strategy Domain (Moved here) */}
+                <StrategyDomain
+                    soc={soc}
+                    socTarget={currentSlotTarget}
+                    sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
+                    cycles={todayStats?.batteryCycles ?? null}
+                    riskLabel={{
+                        1: 'Safety',
+                        2: 'Conservative',
+                        3: 'Neutral',
+                        4: 'Aggressive',
+                        5: 'Gambler'
+                    }[riskAppetite]}
+                />
             </div >
         </main >
     )

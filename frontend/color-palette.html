@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Darkstar Design System — v6</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        /* Sharp grain texture using your noise.png */
+        body::after {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            opacity: 0.04;
+            z-index: 9999;
+            background-image: url('noise.png');
+            background-repeat: repeat;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', sans-serif;
+            background: #18181b;
+            color: #fff;
+            padding: 40px;
+            line-height: 1.5;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .subtitle {
+            color: #a1a1aa;
+            margin-bottom: 40px;
+            font-size: 14px;
+        }
+
+        .section {
+            margin-bottom: 56px;
+        }
+
+        .section-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: #71717a;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+
+        .palette-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-bottom: 24px;
+        }
+
+        .color-card {
+            width: 140px;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #27272a;
+        }
+
+        .color-card.wide {
+            width: 160px;
+        }
+
+        .color-swatch {
+            height: 65px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .color-info {
+            padding: 12px;
+        }
+
+        .color-name {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .color-value {
+            font-size: 10px;
+            color: #a1a1aa;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+
+        .color-use {
+            font-size: 9px;
+            color: #71717a;
+            margin-top: 4px;
+        }
+
+        /* Preview Cards */
+        .preview-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 24px;
+            margin-top: 32px;
+        }
+
+        .preview-card {
+            border-radius: 16px;
+            padding: 24px;
+            min-height: 300px;
+            position: relative;
+        }
+
+        .preview-card h3 {
+            font-size: 14px;
+            margin-bottom: 16px;
+            font-weight: 600;
+        }
+
+        .preview-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 16px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+
+        /* Glow buttons (dark mode only) */
+        .glow-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            margin-right: 8px;
+            transition: all 0.2s;
+        }
+
+        .glow-btn.primary {
+            background: #FFCE59;
+            color: #1a1d23;
+            box-shadow: 0 0 16px rgba(255, 206, 89, 0.4), 0 0 32px rgba(255, 206, 89, 0.2);
+        }
+
+        .glow-btn.primary:hover {
+            box-shadow: 0 0 20px rgba(255, 206, 89, 0.6), 0 0 40px rgba(255, 206, 89, 0.3);
+        }
+
+        .glow-btn.secondary {
+            background: #989FA5;
+            color: #fff;
+            box-shadow: 0 0 12px rgba(152, 159, 165, 0.3);
+        }
+
+        /* Flat buttons (light mode) */
+        .flat-btn {
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+
+        /* Mini Bar Graph */
+        .mini-bars {
+            display: flex;
+            align-items: flex-end;
+            gap: 2px;
+            height: 28px;
+        }
+
+        .mini-bar {
+            width: 4px;
+            border-radius: 2px;
+            animation: barPulse 2s ease-in-out infinite;
+        }
+
+        @keyframes barPulse {
+
+            0%,
+            100% {
+                opacity: 0.7;
+            }
+
+            50% {
+                opacity: 1;
+            }
+        }
+
+        .mini-bar:nth-child(1) {
+            animation-delay: 0s;
+        }
+
+        .mini-bar:nth-child(2) {
+            animation-delay: 0.1s;
+        }
+
+        .mini-bar:nth-child(3) {
+            animation-delay: 0.2s;
+        }
+
+        .mini-bar:nth-child(4) {
+            animation-delay: 0.3s;
+        }
+
+        .mini-bar:nth-child(5) {
+            animation-delay: 0.4s;
+        }
+
+        .mini-bar:nth-child(6) {
+            animation-delay: 0.5s;
+        }
+
+        .mini-bar:nth-child(7) {
+            animation-delay: 0.6s;
+        }
+
+        .mini-bar:nth-child(8) {
+            animation-delay: 0.7s;
+        }
+
+        .sparkline-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .data-value {
+            font-size: 14px;
+            font-weight: 700;
+            min-width: 55px;
+            text-align: right;
+            font-family: 'SF Mono', 'JetBrains Mono', monospace;
+        }
+
+        /* Dark Mode Preview */
+        .dark-preview {
+            background: #0f1216;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .dark-preview h3 {
+            color: #e6e9ef;
+        }
+
+        .dark-preview .preview-item {
+            background: #14191f;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            color: #e6e9ef;
+        }
+
+        .dark-preview .muted {
+            color: #a6b0bf;
+        }
+
+        /* TE Light Mode Preview */
+        .te-preview {
+            background: #DFDFDF;
+            border: 1px solid #C5C5C5;
+        }
+
+        .te-preview h3 {
+            color: #2D2D2D;
+        }
+
+        .te-preview .preview-item {
+            background: #EFEFEF;
+            border: 1px solid #D0D0D0;
+            color: #2D2D2D;
+        }
+
+        .te-preview .muted {
+            color: #6B6B6B;
+        }
+
+        /* ═══════════════════════════════════════════════════════════════════ */
+        /* FAT BORDER METRIC CARDS */
+        /* ═══════════════════════════════════════════════════════════════════ */
+        .flat-cards-showcase {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-top: 16px;
+        }
+
+        .metric-card {
+            height: 110px;
+            border-radius: 12px;
+            padding: 16px;
+            padding-left: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+            overflow: hidden;
+            border: none;
+            border-left: 12px solid;
+        }
+
+        .metric-card.dark {
+            background: #14191f;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+        }
+
+        .metric-card.light {
+            background: #EFEFEF;
+            box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+        }
+
+        .metric-card .label {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .metric-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            font-family: 'SF Mono', 'JetBrains Mono', monospace;
+        }
+
+        /* Color variants */
+        .metric-card.solar {
+            border-left-color: #FFCE59;
+        }
+
+        .metric-card.battery {
+            border-left-color: #1FB256;
+        }
+
+        .metric-card.house {
+            border-left-color: #A855F7;
+        }
+
+        .metric-card.water {
+            border-left-color: #4EA8DE;
+        }
+
+        .metric-card.grid {
+            border-left-color: #64748B;
+        }
+
+        .metric-card.error {
+            border-left-color: #F15132;
+        }
+
+        /* Notes */
+        .notes {
+            background: #27272a;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 32px;
+        }
+
+        .notes h4 {
+            font-size: 13px;
+            margin-bottom: 12px;
+            color: #FFCE59;
+        }
+
+        .notes ul {
+            font-size: 12px;
+            color: #a1a1aa;
+            padding-left: 20px;
+        }
+
+        .notes li {
+            margin-bottom: 6px;
+        }
+
+        .idea-box {
+            background: linear-gradient(135deg, #1a1a1e 0%, #1f1f23 100%);
+            border: 1px solid #3f3f46;
+            border-radius: 12px;
+            padding: 20px;
+            margin-top: 24px;
+        }
+
+        .idea-box h4 {
+            font-size: 13px;
+            margin-bottom: 12px;
+            color: #4EA8DE;
+        }
+
+        .idea-box p {
+            font-size: 12px;
+            color: #a1a1aa;
+            margin-bottom: 6px;
+        }
+
+        code {
+            background: #1a1a1e;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-family: 'SF Mono', monospace;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>🌟 Darkstar Design System v6</h1>
+    <p class="subtitle">TE Style — FAT Borders (12px), Sharp Grain, Button Glow</p>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- FLAIR COLORS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="section">
+        <div class="section-title">🎨 Flair Colors — Same in Both Modes</div>
+        <div class="palette-row">
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #FFCE59; color: #1a1d23;">SOLAR</div>
+                <div class="color-info">
+                    <div class="color-name">Solar / Accent</div>
+                    <div class="color-value">#FFCE59</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #1FB256; color: #fff;">BATTERY</div>
+                <div class="color-info">
+                    <div class="color-name">Battery / Charge</div>
+                    <div class="color-value">#1FB256</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #A855F7; color: #fff;">HOUSE</div>
+                <div class="color-info">
+                    <div class="color-name">House Load</div>
+                    <div class="color-value">#A855F7</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #4EA8DE; color: #fff;">WATER</div>
+                <div class="color-info">
+                    <div class="color-name">Water Heater</div>
+                    <div class="color-value">#4EA8DE</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #64748B; color: #fff;">GRID</div>
+                <div class="color-info">
+                    <div class="color-name">Grid</div>
+                    <div class="color-value">#64748B</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #F15132; color: #fff;">ERROR</div>
+                <div class="color-info">
+                    <div class="color-name">Error / Alert</div>
+                    <div class="color-value">#F15132</div>
+                </div>
+            </div>
+        </div>
+        <div class="palette-row">
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #989FA5; color: #fff;">NEUTRAL</div>
+                <div class="color-info">
+                    <div class="color-name">Neutral Button</div>
+                    <div class="color-value">#989FA5</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #F59E0B; color: #fff;">WARNING</div>
+                <div class="color-info">
+                    <div class="color-name">Warning</div>
+                    <div class="color-value">#F59E0B</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #06B6D4; color: #fff;">NIGHT</div>
+                <div class="color-info">
+                    <div class="color-name">Off-Peak</div>
+                    <div class="color-value">#06B6D4</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #EC4899; color: #fff;">PEAK</div>
+                <div class="color-info">
+                    <div class="color-name">Peak Rate</div>
+                    <div class="color-value">#EC4899</div>
+                </div>
+            </div>
+            <div class="color-card wide">
+                <div class="color-swatch" style="background: #8B5CF6; color: #fff;">AI</div>
+                <div class="color-info">
+                    <div class="color-name">AI / Smart</div>
+                    <div class="color-value">#8B5CF6</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- DARK + LIGHT PALETTES -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="section">
+        <div class="section-title">🌙 Dark Mode</div>
+        <div class="palette-row">
+            <div class="color-card">
+                <div class="color-swatch" style="background: #0f1216; color: #e6e9ef;">Canvas</div>
+                <div class="color-info">
+                    <div class="color-value">#0f1216</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #14191f; color: #e6e9ef;">Surface</div>
+                <div class="color-info">
+                    <div class="color-value">#14191f</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #181e25; color: #e6e9ef;">Surface2</div>
+                <div class="color-info">
+                    <div class="color-value">#181e25</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #242b34; color: #a6b0bf;">Line</div>
+                <div class="color-info">
+                    <div class="color-value">#242b34</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #14191f; color: #e6e9ef;">Text</div>
+                <div class="color-info">
+                    <div class="color-value">#e6e9ef</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #14191f; color: #a6b0bf;">Muted</div>
+                <div class="color-info">
+                    <div class="color-value">#a6b0bf</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-title">☀️ Light Mode — TE / OP-1</div>
+        <div class="palette-row">
+            <div class="color-card">
+                <div class="color-swatch" style="background: #DFDFDF; color: #2D2D2D;">Canvas</div>
+                <div class="color-info">
+                    <div class="color-value">#DFDFDF</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #EFEFEF; color: #2D2D2D;">Surface</div>
+                <div class="color-info">
+                    <div class="color-value">#EFEFEF</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #D0D0D0; color: #2D2D2D;">Surface2</div>
+                <div class="color-info">
+                    <div class="color-value">#D0D0D0</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #C0C0C0; color: #6B6B6B;">Line</div>
+                <div class="color-info">
+                    <div class="color-value">#C0C0C0</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #EFEFEF; color: #2D2D2D;">Text</div>
+                <div class="color-info">
+                    <div class="color-value">#2D2D2D</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #EFEFEF; color: #6B6B6B;">Muted</div>
+                <div class="color-info">
+                    <div class="color-value">#6B6B6B</div>
+                </div>
+            </div>
+            <div class="color-card">
+                <div class="color-swatch" style="background: #989FA5; color: #fff;">Neutral</div>
+                <div class="color-info">
+                    <div class="color-value">#989FA5</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- LIVE UI WITH GLOW BUTTONS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="section">
+        <div class="section-title">🖥️ Live UI — Button Glow (Dark Only)</div>
+        <div class="preview-container">
+            <!-- Dark Mode -->
+            <div class="preview-card dark-preview">
+                <h3>Dark Mode — Glow Buttons</h3>
+
+                <div class="preview-item">
+                    <span style="color: #FFCE59;">☀️ Solar</span>
+                    <div class="sparkline-container">
+                        <div class="mini-bars">
+                            <div class="mini-bar" style="height: 40%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 55%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 75%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 90%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 100%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 85%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 70%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 45%; background: #FFCE59;"></div>
+                        </div>
+                        <span class="data-value" style="color: #FFCE59;">4.2kW</span>
+                    </div>
+                </div>
+
+                <div class="preview-item">
+                    <span style="color: #1FB256;">🔋 Battery</span>
+                    <div class="sparkline-container">
+                        <div class="mini-bars">
+                            <div class="mini-bar" style="height: 60%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 65%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 70%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 75%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 80%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 82%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 85%; background: #1FB256;"></div>
+                            <div class="mini-bar" style="height: 85%; background: #1FB256;"></div>
+                        </div>
+                        <span class="data-value" style="color: #1FB256;">85%</span>
+                    </div>
+                </div>
+
+                <div class="preview-item">
+                    <span style="color: #A855F7;">🏠 House</span>
+                    <span class="data-value" style="color: #A855F7;">1.8kW</span>
+                </div>
+
+                <div class="preview-item">
+                    <span style="color: #4EA8DE;">💧 Water</span>
+                    <span class="data-value" style="color: #4EA8DE;">58°C</span>
+                </div>
+
+                <div class="preview-item" style="margin-top: 12px;">
+                    <span class="muted">Actions</span>
+                    <div>
+                        <button class="glow-btn primary">⚡ Boost</button>
+                        <button class="glow-btn secondary">🏖️ Vacation</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Light Mode -->
+            <div class="preview-card te-preview">
+                <h3>Light Mode — Flat Buttons</h3>
+
+                <div class="preview-item">
+                    <span style="color: #2D2D2D;">☀️ <b style="color: #FFCE59;">Solar</b></span>
+                    <div class="sparkline-container">
+                        <div class="mini-bars">
+                            <div class="mini-bar" style="height: 40%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 55%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 75%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 90%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 100%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 85%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 70%; background: #FFCE59;"></div>
+                            <div class="mini-bar" style="height: 45%; background: #FFCE59;"></div>
+                        </div>
+                        <span class="data-value" style="color: #2D2D2D;">4.2kW</span>
+                    </div>
+                </div>
+
+                <div class="preview-item">
+                    <span style="color: #2D2D2D;">🔋 <b style="color: #1FB256;">Battery</b></span>
+                    <span class="data-value" style="color: #2D2D2D;">85%</span>
+                </div>
+
+                <div class="preview-item">
+                    <span style="color: #2D2D2D;">🏠 <b style="color: #A855F7;">House</b></span>
+                    <span class="data-value" style="color: #2D2D2D;">1.8kW</span>
+                </div>
+
+                <div class="preview-item">
+                    <span style="color: #2D2D2D;">💧 <b style="color: #4EA8DE;">Water</b></span>
+                    <span class="data-value" style="color: #2D2D2D;">58°C</span>
+                </div>
+
+                <div class="preview-item" style="margin-top: 12px; background: #D0D0D0;">
+                    <span class="muted">Actions</span>
+                    <div>
+                        <button class="flat-btn" style="background: #FFCE59; color: #2D2D2D;">⚡ Boost</button>
+                        <button class="flat-btn" style="background: #989FA5; color: #fff;">🏖️ Vacation</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- FAT BORDER CARDS -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="section">
+        <div class="section-title">📦 Metric Cards — 12px Left Border</div>
+
+        <!-- Dark Mode -->
+        <p style="color: #a1a1aa; font-size: 11px; margin-bottom: 12px; margin-top: 24px;"><strong>Dark Mode</strong> —
+            Colored value text</p>
+        <div class="flat-cards-showcase">
+            <div class="metric-card dark solar">
+                <span class="label" style="color: #a6b0bf;">Solar</span>
+                <span class="value" style="color: #FFCE59;">4.2<small
+                        style="font-size: 14px; opacity: 0.7;">kW</small></span>
+            </div>
+            <div class="metric-card dark battery">
+                <span class="label" style="color: #a6b0bf;">Battery</span>
+                <span class="value" style="color: #1FB256;">85<small
+                        style="font-size: 14px; opacity: 0.7;">%</small></span>
+            </div>
+            <div class="metric-card dark house">
+                <span class="label" style="color: #a6b0bf;">House</span>
+                <span class="value" style="color: #A855F7;">1.8<small
+                        style="font-size: 14px; opacity: 0.7;">kW</small></span>
+            </div>
+            <div class="metric-card dark water">
+                <span class="label" style="color: #a6b0bf;">Water</span>
+                <span class="value" style="color: #EFEFEF;">58<small
+                        style="font-size: 14px; opacity: 0.7;">°C</small></span>
+            </div>
+        </div>
+
+
+
+        <!-- Light Mode -->
+        <p style="color: #a1a1aa; font-size: 11px; margin-bottom: 12px; margin-top: 24px;"><strong>Light Mode
+            </strong> — Dark value text</p>
+        <div class="flat-cards-showcase">
+            <div class="metric-card light solar">
+                <span class="label" style="color: #6B6B6B;">Solar</span>
+                <span class="value" style="color: #2D2D2D;">4.2<small
+                        style="font-size: 14px; opacity: 0.7;">kW</small></span>
+            </div>
+            <div class="metric-card light battery">
+                <span class="label" style="color: #6B6B6B;">Battery</span>
+                <span class="value" style="color: #2D2D2D;">85<small
+                        style="font-size: 14px; opacity: 0.7;">%</small></span>
+            </div>
+            <div class="metric-card light house">
+                <span class="label" style="color: #6B6B6B;">House</span>
+                <span class="value" style="color: #2D2D2D;">1.8<small
+                        style="font-size: 14px; opacity: 0.7;">kW</small></span>
+            </div>
+            <div class="metric-card light water">
+                <span class="label" style="color: #6B6B6B;">Water</span>
+                <span class="value" style="color: #2D2D2D;">58<small
+                        style="font-size: 14px; opacity: 0.7;">°C</small></span>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <!-- CSS EXPORT -->
+    <!-- ═══════════════════════════════════════════════════════════════════ -->
+    <div class="notes" style="background: #1a1a1e; border: 1px solid #27272a; margin-top: 40px;">
+        <h4>📋 CSS Variables v6</h4>
+        <pre style="font-size: 11px; color: #a6b0bf; overflow-x: auto; white-space: pre-wrap;">
+/* Light Mode — TE Style */
+:root {
+  --color-canvas: 223 223 223;      /* #DFDFDF */
+  --color-surface: 239 239 239;     /* #EFEFEF */
+  --color-surface2: 208 208 208;    /* #D0D0D0 */
+  --color-line: 192 192 192;        /* #C0C0C0 */
+  --color-text: 45 45 45;           /* #2D2D2D */
+  --color-muted: 107 107 107;       /* #6B6B6B */
+  --color-neutral: 152 159 165;     /* #989FA5 */
+  
+  /* Flair colors - SAME in both modes */
+  --color-accent: 255 206 89;       /* #FFCE59 */
+  --color-good: 31 178 86;          /* #1FB256 */
+  --color-house: 168 85 247;        /* #A855F7 */
+  --color-water: 78 168 222;        /* #4EA8DE */
+  --color-grid: 100 116 139;        /* #64748B */
+  --color-warn: 245 158 11;         /* #F59E0B */
+  --color-bad: 241 81 50;           /* #F15132 */
+}
+
+/* Dark Mode */
+.dark {
+  --color-canvas: 15 18 22;
+  --color-surface: 20 25 31;
+  --color-surface2: 24 30 37;
+  --color-line: 36 43 52;
+  --color-text: 230 233 239;
+  --color-muted: 166 176 191;
+  --color-neutral: 152 159 165;
+  /* Same flair colors */
+}
+
+/* Button glow (dark mode only) */
+.dark .btn-primary {
+  box-shadow: 0 0 16px rgba(255, 206, 89, 0.4);
+}
+
+/* Grain overlay */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.06;
+  z-index: 9999;
+  background: url('/noise.png') repeat;
+}
+        </pre>
+    </div>
+
+</body>
+
+</html>

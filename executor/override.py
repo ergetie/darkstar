@@ -108,12 +108,14 @@ class OverrideEvaluator:
         low_soc_threshold: float = 20.0,
         excess_pv_threshold_kw: float = 2.0,
         water_temp_boost: int = 70,
+        water_temp_max: int = 85,
         water_temp_off: int = 40,
     ):
         self.min_soc_floor = min_soc_floor
         self.low_soc_threshold = low_soc_threshold
         self.excess_pv_threshold_kw = excess_pv_threshold_kw
         self.water_temp_boost = water_temp_boost
+        self.water_temp_max = water_temp_max
         self.water_temp_off = water_temp_off
 
     def evaluate(self, state: SystemState, slot: Optional[SlotPlan] = None) -> OverrideResult:
@@ -185,12 +187,12 @@ class OverrideEvaluator:
                 },
             )
 
-        # Priority 5: Excess PV heating
-        # If we have excess PV and water isn't at max temp, boost heating
+        # Priority 5: Excess PV heating (PV dump to thermal storage)
+        # If we have excess PV and water isn't at max temp, heat to max
         excess_pv = state.current_pv_kw - state.current_load_kw
         if (
             excess_pv >= self.excess_pv_threshold_kw
-            and state.current_water_temp < self.water_temp_boost
+            and state.current_water_temp < self.water_temp_max
             and state.current_soc_percent >= 50  # Only if battery is healthy
         ):
             return OverrideResult(
@@ -198,9 +200,9 @@ class OverrideEvaluator:
                 override_type=OverrideType.EXCESS_PV_HEATING,
                 priority=5.0,
                 reason=f"Excess PV available ({excess_pv:.1f} kW). "
-                f"Boosting water heater to utilize free energy.",
+                f"Heating water to max temp to utilize free energy.",
                 actions={
-                    "water_temp": self.water_temp_boost,
+                    "water_temp": self.water_temp_max,
                 },
             )
 
@@ -236,6 +238,7 @@ def evaluate_overrides(
         low_soc_threshold=config.get("low_soc_threshold", 20.0),
         excess_pv_threshold_kw=config.get("excess_pv_threshold_kw", 2.0),
         water_temp_boost=config.get("water_temp_boost", 70),
+        water_temp_max=config.get("water_temp_max", 85),
         water_temp_off=config.get("water_temp_off", 40),
     )
     return evaluator.evaluate(state, slot)

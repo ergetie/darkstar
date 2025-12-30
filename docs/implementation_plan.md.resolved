@@ -1,0 +1,501 @@
+# DS1: Design System Implementation Plan
+
+> **Goal**: Create a production-grade design system with a visual preview and AI guidelines that ensures consistent UI across Darkstar.
+
+## User Review Required
+
+> [!IMPORTANT]
+> This plan creates new files and modifies existing CSS. Please review the proposed structure and component list before I proceed.
+
+---
+
+## Overview
+
+| Deliverable | Path | Purpose |
+|-------------|------|---------|
+| Design Preview | `docs/design-system/design-preview.html` | Single visual reference for all components |
+| AI Guidelines | `docs/design-system/AI_GUIDELINES.md` | Rules and instructions for AI implementation |
+| Updated CSS | [frontend/src/index.css](file:///Users/julia/Desktop/darkstar-main/frontend/src/index.css) | Centralized component classes |
+| Updated Config | [frontend/tailwind.config.cjs](file:///Users/julia/Desktop/darkstar-main/frontend/tailwind.config.cjs) | New tokens mapped to Tailwind |
+
+**SSOT Remains**: [frontend/src/index.css](file:///Users/julia/Desktop/darkstar-main/frontend/src/index.css) — The design preview references these values but is not the source of truth.
+
+---
+
+## Proposed Changes
+
+### Phase 1: Foundation & Tokens
+
+#### [MODIFY] [index.css](file:///Users/julia/Desktop/darkstar-main/frontend/src/index.css)
+
+Add foundational tokens that are missing:
+
+```css
+/* ============================================
+   TYPOGRAPHY SCALE
+   ============================================ */
+:root {
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'SF Pro Display', sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
+    
+    --text-xs: 0.625rem;    /* 10px */
+    --text-sm: 0.6875rem;   /* 11px */
+    --text-base: 0.75rem;   /* 12px */
+    --text-md: 0.8125rem;   /* 13px */
+    --text-lg: 0.875rem;    /* 14px */
+    --text-xl: 1rem;        /* 16px */
+    --text-2xl: 1.125rem;   /* 18px */
+    --text-3xl: 1.5rem;     /* 24px */
+    --text-4xl: 1.75rem;    /* 28px */
+}
+
+/* ============================================
+   SPACING SCALE (4px grid)
+   ============================================ */
+:root {
+    --space-1: 0.25rem;   /* 4px */
+    --space-2: 0.5rem;    /* 8px */
+    --space-3: 0.75rem;   /* 12px */
+    --space-4: 1rem;      /* 16px */
+    --space-5: 1.25rem;   /* 20px */
+    --space-6: 1.5rem;    /* 24px */
+    --space-8: 2rem;      /* 32px */
+    --space-10: 2.5rem;   /* 40px */
+    --space-12: 3rem;     /* 48px */
+}
+
+/* ============================================
+   BORDER RADIUS
+   ============================================ */
+:root {
+    --radius-sm: 0.5rem;    /* 8px */
+    --radius-md: 0.75rem;   /* 12px */
+    --radius-lg: 1rem;      /* 16px */
+    --radius-xl: 1.25rem;   /* 20px */
+    --radius-pill: 9999px;
+}
+```
+
+---
+
+### Phase 2: Component Classes
+
+#### [MODIFY] [index.css](file:///Users/julia/Desktop/darkstar-main/frontend/src/index.css)
+
+Add centralized component classes:
+
+**Buttons:**
+```css
+/* ============================================
+   BUTTON COMPONENTS
+   ============================================ */
+
+/* Base button */
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Primary - Accent yellow */
+.btn-primary {
+    background: rgb(var(--color-accent));
+    color: #100f0e;
+}
+.btn-primary:hover:not(:disabled) {
+    background: rgb(var(--color-accent2));
+}
+.dark .btn-primary {
+    box-shadow: 0 0 16px rgba(255, 206, 89, 0.4);
+}
+
+/* Secondary - Neutral gray */
+.btn-secondary {
+    background: rgb(var(--color-neutral));
+    color: #fff;
+}
+.dark .btn-secondary {
+    box-shadow: 0 0 12px rgba(152, 159, 165, 0.3);
+}
+
+/* Danger - Red */
+.btn-danger {
+    background: rgb(var(--color-bad));
+    color: #fff;
+}
+.btn-danger:hover:not(:disabled) {
+    filter: brightness(1.1);
+}
+
+/* Ghost - Transparent with border */
+.btn-ghost {
+    background: transparent;
+    border: 1px solid rgb(var(--color-line));
+    color: rgb(var(--color-muted));
+}
+.btn-ghost:hover:not(:disabled) {
+    border-color: rgb(var(--color-accent));
+    color: rgb(var(--color-accent));
+}
+
+/* Pill variant */
+.btn-pill {
+    border-radius: var(--radius-pill);
+    padding: 0.625rem 1.25rem;
+}
+```
+
+**Banners/Alerts:**
+```css
+/* ============================================
+   BANNER / ALERT COMPONENTS
+   ============================================ */
+
+.banner {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    margin-bottom: 1rem;
+}
+
+/* Info - Blue */
+.banner-info {
+    background: rgba(78, 168, 222, 0.2);
+    border: 1px solid rgba(78, 168, 222, 0.5);
+    color: rgb(78, 168, 222);
+}
+:not(.dark) .banner-info {
+    background: rgb(78, 168, 222);
+    border: none;
+    color: #fff;
+}
+
+/* Success - Green */
+.banner-success {
+    background: rgba(31, 178, 86, 0.2);
+    border: 1px solid rgba(31, 178, 86, 0.5);
+    color: rgb(31, 178, 86);
+}
+:not(.dark) .banner-success {
+    background: rgb(31, 178, 86);
+    border: none;
+    color: #fff;
+}
+
+/* Warning - Amber */
+.banner-warning {
+    background: rgba(245, 158, 11, 0.2);
+    border: 1px solid rgba(245, 158, 11, 0.5);
+    color: rgb(245, 158, 11);
+}
+:not(.dark) .banner-warning {
+    background: rgb(245, 158, 11);
+    border: none;
+    color: #fff;
+}
+
+/* Error - Red */
+.banner-error {
+    background: rgba(241, 81, 50, 0.2);
+    border: 1px solid rgba(241, 81, 50, 0.5);
+    color: rgb(241, 81, 50);
+}
+:not(.dark) .banner-error {
+    background: rgb(241, 81, 50);
+    border: none;
+    color: #fff;
+}
+```
+
+**Form Inputs:**
+```css
+/* ============================================
+   FORM INPUT COMPONENTS
+   ============================================ */
+
+.input {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-md);
+    background: rgb(var(--color-surface2));
+    border: 1px solid rgb(var(--color-line));
+    color: rgb(var(--color-text));
+    transition: border-color 0.2s;
+}
+
+.input:focus {
+    outline: none;
+    border-color: rgb(var(--color-accent));
+    box-shadow: 0 0 0 2px rgba(255, 206, 89, 0.2);
+}
+
+.input::placeholder {
+    color: rgb(var(--color-muted));
+}
+
+/* Toggle switch (base structure in CSS, logic in React) */
+.toggle {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 2.25rem;
+    height: 1.25rem;
+    border-radius: var(--radius-pill);
+    background: rgb(var(--color-surface2));
+    transition: background 0.2s;
+    cursor: pointer;
+}
+
+.toggle.active {
+    background: rgb(var(--color-accent));
+}
+
+.toggle-knob {
+    position: absolute;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 50%;
+    background: #fff;
+    transition: transform 0.2s;
+    left: 0.125rem;
+}
+
+.toggle.active .toggle-knob {
+    transform: translateX(1rem);
+}
+```
+
+**Badges/Chips:**
+```css
+/* ============================================
+   BADGE / CHIP COMPONENTS
+   ============================================ */
+
+.badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--radius-pill);
+    font-size: var(--text-xs);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.badge-accent { background: rgba(255, 206, 89, 0.2); color: rgb(var(--color-accent)); border: 1px solid rgba(255, 206, 89, 0.4); }
+.badge-good { background: rgba(31, 178, 86, 0.2); color: rgb(var(--color-good)); border: 1px solid rgba(31, 178, 86, 0.4); }
+.badge-warn { background: rgba(245, 158, 11, 0.2); color: rgb(var(--color-warn)); border: 1px solid rgba(245, 158, 11, 0.4); }
+.badge-bad { background: rgba(241, 81, 50, 0.2); color: rgb(var(--color-bad)); border: 1px solid rgba(241, 81, 50, 0.4); }
+.badge-muted { background: rgb(var(--color-surface2)); color: rgb(var(--color-muted)); border: 1px solid rgb(var(--color-line)); }
+```
+
+**Loading States:**
+```css
+/* ============================================
+   LOADING STATE COMPONENTS
+   ============================================ */
+
+/* Spinner */
+.spinner {
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid rgba(var(--color-accent), 0.3);
+    border-top-color: rgb(var(--color-accent));
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Skeleton loader */
+.skeleton {
+    background: linear-gradient(90deg, 
+        rgb(var(--color-surface2)) 25%, 
+        rgb(var(--color-surface)) 50%, 
+        rgb(var(--color-surface2)) 75%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.5s infinite;
+    border-radius: var(--radius-sm);
+}
+
+@keyframes skeleton-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Progress bar */
+.progress-bar {
+    height: 0.5rem;
+    background: rgb(var(--color-surface2));
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: rgb(var(--color-accent));
+    transition: width 0.3s ease;
+}
+```
+
+---
+
+### Phase 3: Design Preview HTML
+
+#### [NEW] [design-preview.html](file:///Users/julia/Desktop/darkstar-main/docs/design-system/design-preview.html)
+
+Single HTML file containing:
+1. **Header** — Title, version, theme toggle
+2. **Color Palette** — All flair colors + dark/light mode surfaces
+3. **Typography** — All text sizes with examples
+4. **Spacing** — Visual grid demonstration
+5. **Buttons** — All variants, both modes, side-by-side
+6. **Banners/Alerts** — Info, Success, Warning, Error
+7. **Form Elements** — Inputs, toggles, checkboxes, sliders
+8. **Metric Cards** — Fat border variants
+9. **Badges/Chips** — All color variants
+10. **Loading States** — Spinners, skeletons, progress bars
+11. **Modals/Overlays** — Example dialog
+12. **Data Visualization** — Mini-bars, sparklines
+13. **Misc** — Tooltips, cards, icons
+
+The file will include a JavaScript theme toggle to preview dark/light modes instantly.
+
+---
+
+### Phase 4: AI Guidelines
+
+#### [NEW] [AI_GUIDELINES.md](file:///Users/julia/Desktop/darkstar-main/docs/design-system/AI_GUIDELINES.md)
+
+Markdown document with:
+1. **Introduction** — Purpose and how to use
+2. **Color Rules** — When to use each color, opacity patterns
+3. **Typography Rules** — Which size for what, font weights
+4. **Spacing Rules** — 4px grid, standard gaps
+5. **Component Usage** — When to use each button type, banner type, etc.
+6. **Dark/Light Mode** — Specific rules (glows in dark only, solid in light)
+7. **DO ✅ / DON'T ❌** — Explicit patterns to follow/avoid
+8. **Code Examples** — Ready-to-copy TSX patterns
+9. **Reference** — Link to [frontend/src/index.css](file:///Users/julia/Desktop/darkstar-main/frontend/src/index.css) as SSOT
+
+---
+
+### Phase 5: Polish & Integration
+
+#### [MODIFY] [AGENTS.md](file:///Users/julia/Desktop/darkstar-main/AGENTS.md)
+
+Update the UI Design Guide reference to point to the new location (already done by user).
+
+#### [DELETE] [color-palette.html](file:///Users/julia/Desktop/darkstar-main/frontend/color-palette.html)
+
+Remove the old color palette file once the new design system is complete.
+
+---
+
+## Complete Component Inventory
+
+### Existing (document as-is)
+| Component | Status |
+|-----------|--------|
+| Color Tokens | ✅ Exists |
+| Flair Colors | ✅ Exists |
+| Dark/Light Mode Surfaces | ✅ Exists |
+| Card | ✅ Exists |
+| Metric Card (fat border) | ✅ Exists |
+| Mini Bars | ✅ Exists |
+| Button Glow (dark only) | ✅ Exists |
+| PillButton | ✅ Exists |
+| Toggle | ✅ Exists (inline) |
+| Tooltip | ✅ Exists |
+| ThemeToggle | ✅ Exists |
+| Banner (4 types inline) | ✅ Exists (needs centralization) |
+| Modal | ✅ Exists (needs centralization) |
+| SystemAlert | ✅ Exists |
+
+### New (create classes)
+| Component | Priority |
+|-----------|----------|
+| `.btn-primary` | High |
+| `.btn-secondary` | High |
+| `.btn-danger` | High |
+| `.btn-ghost` | High |
+| `.banner-info` | High |
+| `.banner-success` | High |
+| `.banner-warning` | High |
+| `.banner-error` | High |
+| `.input` | Medium |
+| `.toggle` (CSS version) | Medium |
+| `.badge-*` variants | Medium |
+| `.spinner` | Medium |
+| `.skeleton` | Medium |
+| `.progress-bar` | Medium |
+| `.modal-overlay` | Low |
+| `.modal-content` | Low |
+| `.dropdown` | Low (future) |
+| `.tabs` | Low (future) |
+| `.accordion` | Low (future) |
+| `.gauge` | Low (future) |
+| `.toast` | Low (future) |
+
+---
+
+## Verification Plan
+
+### Visual Verification
+1. Open `docs/design-system/design-preview.html` in browser
+2. Toggle between dark and light mode using the theme switcher
+3. Verify all components render correctly in both modes
+4. Check that colors match the CSS variables in [index.css](file:///Users/julia/Desktop/darkstar-main/frontend/src/index.css)
+
+### Integration Verification
+1. Run `npm run dev` in `frontend/` to start the dev server
+2. Verify the app still builds and runs without errors
+3. Check that existing components (Dashboard, Executor) still render correctly
+4. Verify no visual regressions in existing banners and buttons
+
+### Manual Test Steps (for user)
+1. Open the design preview HTML file
+2. Toggle dark/light mode - verify instant visual switch
+3. Compare button styles match between preview and live app
+4. Verify banner colors are consistent
+
+---
+
+## Estimated Effort
+
+| Phase | Estimated Time |
+|-------|---------------|
+| Phase 1: Foundation & Tokens | 15 min |
+| Phase 2: Component Classes | 30 min |
+| Phase 3: Design Preview HTML | 45 min |
+| Phase 4: AI Guidelines | 20 min |
+| Phase 5: Polish & Integration | 15 min |
+| **Total** | ~2 hours |
+
+---
+
+## Questions for User
+
+None currently — ready to proceed if you approve this plan!

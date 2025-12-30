@@ -288,9 +288,81 @@ flowchart LR
 
 The executor includes real-time override logic for edge cases:
 - **Low SoC Protection**: Prevents export when SoC is critically low
-- **Excess PV Utilization**: Boosts water heating when excess PV available
+- **Excess PV Utilization**: Heats water to `temp_max` when excess PV available
 - **Slot Failure Fallback**: Safe defaults if slot plan unavailable
+
+### Water Heater Temperature Hierarchy
+
+The executor uses a 4-level temperature system for water heater control:
+
+| Temp | Default | Purpose |
+|------|---------|---------|
+| `temp_off` | 40°C | Idle mode (legionella-safe minimum) |
+| `temp_normal` | 60°C | Scheduled heating by planner |
+| `temp_boost` | 70°C | Manual boost (Dashboard button) |
+| `temp_max` | 85°C | PV dump + safety limit (never exceeded) |
+
+**Safety Clamp**: All temperature commands are clamped to `temp_max` before sending to Home Assistant.
 
 ### Configuration
 
 See `config.yaml` under `executor:` section for all configurable entities and parameters.
+
+---
+
+## 8. Health Check System (Rev F4)
+
+Darkstar includes a comprehensive health monitoring system that validates system components and provides user-friendly error feedback.
+
+### Architecture
+
+```
+backend/
+├── health.py             # HealthChecker class
+│   ├── check_config_validity()   # YAML syntax, required fields, types
+│   ├── check_ha_connection()     # HA reachability, auth
+│   ├── check_entities()          # Entity existence, availability
+│   └── check_database()          # MariaDB connectivity
+```
+
+### Error Categories
+
+| Category | Severity | Example |
+|----------|----------|---------|
+| `config` | CRITICAL | Missing secrets.yaml, wrong types |
+| `ha_connection` | CRITICAL | HA unreachable, auth failed |
+| `entity` | CRITICAL | Sensor renamed/deleted in HA |
+| `database` | WARNING | MariaDB connection failed |
+| `planner` | WARNING | Schedule generation failed |
+
+### API Endpoint
+
+```http
+GET /api/health
+```
+
+Returns:
+```json
+{
+  "healthy": false,
+  "issues": [
+    {
+      "category": "entity",
+      "severity": "critical",
+      "message": "Entity not found: sensor.xyz",
+      "guidance": "Check that 'sensor.xyz' exists in Home Assistant...",
+      "entity_id": "sensor.xyz"
+    }
+  ],
+  "critical_count": 1,
+  "warning_count": 0
+}
+```
+
+### Frontend Integration
+
+The `SystemAlert` component displays:
+- **Red banner** for CRITICAL issues (blocks normal operation)
+- **Yellow banner** for WARNING issues (degraded but functional)
+
+Fetched on app load and every 60 seconds.

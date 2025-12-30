@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "extract-help": "node ../scripts/extract-config-help.js"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
@@ -18,7 +19,8 @@
     "react-calendar-timeline": "^0.30.0-beta.5",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.0",
-    "react-router-dom": "^6.30.1"
+    "react-router-dom": "^6.30.1",
+    "socket.io-client": "^4.7.5"
   },
   "devDependencies": {
     "@types/react": "^19.2.4",
