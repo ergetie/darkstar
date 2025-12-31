@@ -303,4 +303,17 @@ Created `/design-system` React route instead of static HTML (better: hot-reload,
 
 ---
 
+### [PLANNED] Rev DS2 — React Component Library
+
+**Goal:** Transition the Design System from "CSS Classes" (Phase 1) to a centralized "React Component Library" (Phase 2) to ensure type safety, consistency, and reusability across the application (specifically targeting `Settings.tsx`).
+
+**Plan:**
+- [ ] Create `frontend/src/components/ui/` directory for core atoms
+- [ ] Implement `Select` component (generic dropdown)
+- [ ] Implement `Modal` component (dialog/portal)
+- [ ] Implement `Toast` component (transient notifications)
+- [ ] Implement `Banner` and `Badge` React wrappers
+- [ ] Update `DesignSystem.tsx` to showcase new components
+- [ ] Refactor `Settings.tsx` to use new components
+
 ### NEXT REV HERE
