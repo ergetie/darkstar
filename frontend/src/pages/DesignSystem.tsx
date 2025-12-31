@@ -8,8 +8,14 @@
 import { useState } from 'react'
 import ThemeToggle from '../components/ThemeToggle'
 import ChartCard from '../components/ChartCard'
+import Select from '../components/ui/Select'
+import Modal from '../components/ui/Modal'
+import { Banner, Badge } from '../components/ui/Banner'
+import Switch from '../components/ui/Switch'
+import { useToast } from '../components/ui/Toast'
 
 export default function DesignSystem() {
+    const { toast } = useToast()
     const [toggleActive, setToggleActive] = useState(false)
     const [progressValue, setProgressValue] = useState(65)
     const [accordionOpen, setAccordionOpen] = useState(false)
@@ -123,26 +129,26 @@ export default function DesignSystem() {
             <section>
                 <h2 className="text-2xl font-semibold text-text mb-4">Banners / Alerts</h2>
                 <div className="space-y-2">
-                    <div className="banner banner-info">
+                    <Banner variant="info">
                         <span>ℹ️</span>
                         <span>Info Banner — Neutral information message</span>
-                    </div>
-                    <div className="banner banner-success">
+                    </Banner>
+                    <Banner variant="success">
                         <span>✅</span>
                         <span>Success Banner — Action completed successfully</span>
-                    </div>
-                    <div className="banner banner-warning">
+                    </Banner>
+                    <Banner variant="warning">
                         <span>⚠️</span>
                         <span>Warning Banner — Requires attention</span>
-                    </div>
-                    <div className="banner banner-error">
+                    </Banner>
+                    <Banner variant="error">
                         <span>❌</span>
                         <span>Error Banner — Critical issue detected</span>
-                    </div>
-                    <div className="banner banner-purple">
+                    </Banner>
+                    <Banner variant="purple">
                         <span>👻</span>
                         <span>Purple Banner — Special mode (shadow mode)</span>
-                    </div>
+                    </Banner>
                 </div>
             </section>
 
@@ -150,11 +156,11 @@ export default function DesignSystem() {
             <section>
                 <h2 className="text-2xl font-semibold text-text mb-4">Badges</h2>
                 <div className="flex flex-wrap gap-3 items-center">
-                    <span className="badge badge-accent">Accent</span>
-                    <span className="badge badge-good">Good</span>
-                    <span className="badge badge-warn">Warning</span>
-                    <span className="badge badge-bad">Error</span>
-                    <span className="badge badge-muted">Muted</span>
+                    <Badge variant="accent">Accent</Badge>
+                    <Badge variant="good">Good</Badge>
+                    <Badge variant="warn">Warning</Badge>
+                    <Badge variant="bad">Error</Badge>
+                    <Badge variant="muted">Muted</Badge>
                 </div>
             </section>
 
@@ -173,12 +179,7 @@ export default function DesignSystem() {
                     <div>
                         <label className="block text-sm text-muted mb-2">Toggle Switch</label>
                         <div className="flex items-center gap-3">
-                            <div
-                                className={`toggle ${toggleActive ? 'active' : ''}`}
-                                onClick={() => setToggleActive(!toggleActive)}
-                            >
-                                <div className="toggle-knob" />
-                            </div>
+                            <Switch checked={toggleActive} onCheckedChange={setToggleActive} />
                             <span className="text-sm text-text">{toggleActive ? 'On' : 'Off'}</span>
                         </div>
                     </div>
@@ -589,15 +590,19 @@ export default function DesignSystem() {
                         </div>
                     </div>
 
-                    {/* Dropdown Menu */}
+                    {/* Select (Dropdown) */}
                     <div className="bg-surface rounded-ds-lg p-4 shadow-float">
-                        <h4 className="text-sm font-semibold text-text mb-2">📋 Dropdown Menu</h4>
-                        <p className="text-xs text-muted mb-3">Popover menu with options.</p>
-                        <div className="bg-surface2 rounded-ds-md p-1 w-40 shadow-lg">
-                            <div className="px-3 py-2 text-xs text-text hover:bg-accent/10 rounded cursor-pointer">Option 1</div>
-                            <div className="px-3 py-2 text-xs text-text hover:bg-accent/10 rounded cursor-pointer">Option 2</div>
-                            <div className="px-3 py-2 text-xs text-bad rounded cursor-pointer">Delete</div>
-                        </div>
+                        <h4 className="text-sm font-semibold text-text mb-2">📋 Select (Dropdown)</h4>
+                        <p className="text-xs text-muted mb-3">Custom searchable dropdown.</p>
+                        <Select
+                            options={[
+                                { label: 'Option 1', value: '1' },
+                                { label: 'Option 2', value: '2' },
+                                { label: 'Delete', value: '3', group: 'Danger' }
+                            ]}
+                            value="1"
+                            onChange={() => { }}
+                        />
                     </div>
 
                     {/* Tabs */}
@@ -708,6 +713,19 @@ export default function DesignSystem() {
                         >
                             Open Modal
                         </button>
+                        <Modal
+                            open={modalOpen}
+                            onOpenChange={setModalOpen}
+                            title="Example Modal"
+                            footer={
+                                <>
+                                    <button className="btn btn-ghost" onClick={() => setModalOpen(false)}>Cancel</button>
+                                    <button className="btn btn-primary" onClick={() => setModalOpen(false)}>Confirm</button>
+                                </>
+                            }
+                        >
+                            <p className="text-text">This is a reusable modal component using React Portal.</p>
+                        </Modal>
                     </div>
 
                     {/* Accordion */}
@@ -779,14 +797,18 @@ export default function DesignSystem() {
                         <h4 className="text-sm font-semibold text-text mb-2">🍞 Toast Notification</h4>
                         <p className="text-xs text-muted mb-3">Temporary status messages.</p>
                         <div className="space-y-2">
-                            <div className="flex items-center gap-2 bg-good/20 border border-good/40 rounded-ds-md px-3 py-2">
-                                <span className="text-good">✓</span>
-                                <span className="text-xs text-text">Settings saved!</span>
-                            </div>
-                            <div className="flex items-center gap-2 bg-bad/20 border border-bad/40 rounded-ds-md px-3 py-2">
-                                <span className="text-bad">✕</span>
-                                <span className="text-xs text-text">Connection failed</span>
-                            </div>
+                            <button
+                                className="btn btn-secondary w-full text-xs"
+                                onClick={() => toast({ variant: 'success', message: 'Success!', description: 'Action completed successfully.' })}
+                            >
+                                Trigger Success Toast
+                            </button>
+                            <button
+                                className="btn btn-ghost w-full text-xs border border-bad/50 text-bad hover:bg-bad/10"
+                                onClick={() => toast({ variant: 'error', message: 'Error!', description: 'Something went wrong.' })}
+                            >
+                                Trigger Error Toast
+                            </button>
                         </div>
                     </div>
 
