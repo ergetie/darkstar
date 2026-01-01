@@ -85,9 +85,11 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 #### Phase 3: Chart Polish
 
-- [ ] Render `soc_target` as a step-line (not interpolated).
-- [ ] Implement mouse-wheel zoom for the main power chart.
-- [ ] Add tooltips for Price series explaining "VAT + Fees" breakdown.
+- [x] Render `soc_target` as a step-line (not interpolated).
+- [x] Refactor "Now Line" to Chart.js Plugin (for Zoom compatibility).
+- [x] Implement mouse-wheel zoom for the main power chart.
+- [x] Add tooltips for Price series explaining "VAT + Fees" breakdown.
+- [ ] Visual Polish (Gradients, Annotations, Thresholds).
 
 ---
 

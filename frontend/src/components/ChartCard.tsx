@@ -1,14 +1,15 @@
 import Card from './Card'
 import { useEffect, useRef, useState } from 'react'
-import { Chart as ChartJS, ChartConfiguration } from 'chart.js/auto'
+import { Chart as ChartJS, ChartConfiguration, Plugin } from 'chart.js/auto'
 import type { Chart, Scale, Tick, ChartData } from 'chart.js/auto'
+import zoomPlugin from 'chartjs-plugin-zoom'
+ChartJS.register(zoomPlugin)
 import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { filterSlotsByDay, formatHour, DaySel, isToday, isTomorrow } from '../lib/time'
-// Note: chartjs-plugin-annotation is not used for the
-// NOW marker; we use a CSS overlay instead to avoid
-// config recursion issues with the Chart.js proxies.
+// Note: We use a custom plugin for the NOW marker to support zooming.
+// CSS overlays don't work well with pan/zoom.
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
@@ -52,6 +53,26 @@ const chartOptions: ChartConfiguration['options'] = {
                     if (datasetLabel.includes('SEK/kWh')) {
                         formattedValue = value.toFixed(2)
                         unit = ' SEK/kWh'
+
+                        const data = context.chart.data as ExtendedChartData
+                        const pricing = data.pricingConfig
+
+                        // If we have pricing config, show breakdown
+                        if (pricing) {
+                            // Total = (Spot + Fees) * (1 + VAT/100)
+                            // Spot = (Total / (1 + VAT/100)) - Fees
+                            const vatMul = 1 + pricing.vat / 100
+                            // Avoid division by zero
+                            const basePrice = vatMul > 0 ? value / vatMul : value
+                            const spot = Math.max(0, basePrice - pricing.fees)
+                            // Fees + Tax part of the total
+                            const feesAndVat = value - spot
+
+                            return [
+                                `${datasetLabel}: ${formattedValue}${unit}`,
+                                `(Spot: ${spot.toFixed(2)} + Tax/Fees: ${feesAndVat.toFixed(2)})`,
+                            ] as any // Chart.js allows string arrays for multiline
+                        }
                     } else if (datasetLabel.includes('kW')) {
                         formattedValue = value.toFixed(1)
                         unit = ' kW'
@@ -65,6 +86,21 @@ const chartOptions: ChartConfiguration['options'] = {
 
                     return `${datasetLabel}: ${formattedValue}${unit}`
                 },
+            },
+        },
+        zoom: {
+            pan: {
+                enabled: true,
+                mode: 'x',
+            },
+            zoom: {
+                wheel: {
+                    enabled: true,
+                },
+                pinch: {
+                    enabled: true,
+                },
+                mode: 'x',
             },
         },
     },
@@ -177,7 +213,11 @@ interface ExtendedChartData extends ChartData {
     plugins?: unknown
 }
 
-const createChartData = (values: ChartValues, themeColors: Record<string, string> = {}): ExtendedChartData => {
+const createChartData = (
+    values: ChartValues,
+    themeColors: Record<string, string> = {},
+    pricing?: { vat: number; fees: number },
+): ExtendedChartData => {
     const getColor = (paletteIndex: number, fallback: string) => {
         const themeKey = `palette = ${paletteIndex}`
         return themeColors[themeKey] || fallback
@@ -298,7 +338,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     // Add no-data message if needed
     if (values.hasNoData) {
         // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ; (baseData as ExtendedChartData).plugins = {
+        ;(baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -318,9 +358,64 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     return {
         ...baseData,
         nowIndex: values.nowIndex ?? null,
-        nowPct: (values as any).nowPct ?? null,
+        nowPct: values.nowPct ?? null,
         hasNoData: !!values.hasNoData,
+        pricingConfig: pricing,
     }
+}
+
+const nowLinePlugin: Plugin = {
+    id: 'nowLine',
+    afterDatasetsDraw(chart) {
+        const {
+            ctx,
+            chartArea: { top, bottom },
+            scales: { x },
+        } = chart
+        const data = chart.data as ExtendedChartData
+        const nowPct = data.nowPct
+
+        if (typeof nowPct !== 'number' || nowPct < 0 || nowPct > 1) return
+
+        const totalLabels = data.labels?.length || 0
+        if (totalLabels < 2) return
+
+        // Calculate fractional index position
+        // nowPct is linear 0..1 fraction of the total domain duration
+        // For a time axis where labels represent intervals (e.g. 00:00 start),
+        // the full 24h duration corresponds to 'totalLabels' slots conceptually.
+        // (totalLabels - 1) ends at the *start* of the last slot.
+        // We want 1.0 to mapped to the end of the last slot.
+        const fractionalIndex = nowPct * totalLabels
+        const idx1 = Math.floor(fractionalIndex)
+        const idx2 = Math.ceil(fractionalIndex)
+        const ratio = fractionalIndex - idx1
+
+        const x1 = x.getPixelForValue(idx1)
+        const x2 = x.getPixelForValue(idx2)
+        const xPos = x1 + (x2 - x1) * ratio
+
+        // Check if visible (within current zoom)
+        if (xPos < x.left || xPos > x.right) return
+
+        ctx.save()
+        ctx.beginPath()
+        ctx.strokeStyle = '#e879f9' // accent / fuchsia
+        ctx.lineWidth = 2
+        ctx.setLineDash([5, 3])
+        ctx.moveTo(xPos, top)
+        ctx.lineTo(xPos, bottom)
+        ctx.stroke()
+        ctx.setLineDash([])
+
+        // Draw "NOW" Label
+        ctx.fillStyle = '#e879f9'
+        ctx.textAlign = 'center'
+        ctx.font = 'bold 10px sans-serif'
+        ctx.fillText('NOW', xPos, top - 6)
+
+        ctx.restore()
+    },
 }
 
 // Chart configuration helpers removed and consolidated into applyData
@@ -363,11 +458,20 @@ export default function ChartCard({
         socActual: true,
     })
     const [showOverlayMenu, setShowOverlayMenu] = useState(false)
+    const [pricingConfig, setPricingConfig] = useState<{ vat: number; fees: number } | undefined>()
 
     // Load overlay defaults from config
     useEffect(() => {
         Api.config()
             .then((config) => {
+                // Parse pricing for tooltips
+                if ((config as any)?.pricing) {
+                    const p = (config as any).pricing
+                    const vat = p.vat_percent ?? 25
+                    const fees = (p.grid_transfer_fee_sek ?? 0) + (p.energy_tax_sek ?? 0)
+                    setPricingConfig({ vat, fees })
+                }
+
                 const overlayDefaults = config?.dashboard?.overlay_defaults
                 if (overlayDefaults && typeof overlayDefaults === 'string') {
                     const defaultOverlays = overlayDefaults.split(',').map((s) => s.trim().toLowerCase())
@@ -426,8 +530,10 @@ export default function ChartCard({
                     load: sampleChart.load,
                 },
                 themeColors,
+                pricingConfig,
             ),
             options: chartOptions,
+            plugins: [nowLinePlugin],
         }
         chartRef.current = new ChartJS(ref.current, cfg)
 
@@ -456,7 +562,7 @@ export default function ChartCard({
         if (!isChartUsable(chartInstance) || Object.keys(themeColors).length === 0) return
         const applyData = (slots: ScheduleSlot[]) => {
             if (!isChartUsable(chartRef.current)) return
-            const liveData = buildLiveData(slots, currentDay, rangeState, themeColors)
+            const liveData = buildLiveData(slots, currentDay, rangeState, themeColors, pricingConfig)
             if (!liveData) return
 
             setHasNoDataMessage(!!liveData.hasNoData)
@@ -478,20 +584,6 @@ export default function ChartCard({
                 if (chartRef.current) {
                     chartRef.current.data = liveData
                     chartRef.current.update()
-
-                    // Compute CSS overlay position for "NOW" (0–1 within chartArea)
-                    if (
-                        typeof liveData.nowPct === 'number' &&
-                        liveData.nowPct >= 0 &&
-                        liveData.nowPct <= 1
-                    ) {
-                        const { left, width } = chartRef.current.chartArea
-                        const canvasWidth = chartRef.current.width
-                        const posPx = left + width * liveData.nowPct
-                        setNowPosition(posPx / canvasWidth)
-                    } else {
-                        setNowPosition(null)
-                    }
                 }
             } catch (err) {
                 console.error('Chart update error:', err)
@@ -516,9 +608,8 @@ export default function ChartCard({
                 console.error('Failed to load schedule:', err)
                 // Show an explicit "no data" overlay instead of leaving stale/mock data visible
                 setHasNoDataMessage(true)
-                setNowPosition(null)
             })
-    }, [currentDay, overlays, themeColors, rangeState, refreshToken, slotsOverride, useHistoryForToday])
+    }, [currentDay, overlays, themeColors, rangeState, refreshToken, slotsOverride, useHistoryForToday, pricingConfig])
 
     // Memoize theme colors to prevent unnecessary re-computations
     return (
@@ -529,19 +620,21 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                    rangeState === 'day'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                    }`}
+                                }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                    rangeState === '48h'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                    }`}
+                                }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -578,10 +671,11 @@ export default function ChartCard({
                                 e.preventDefault()
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
+                            className={`rounded-pill px-3 py-1 border ${
+                                overlays[key as keyof typeof overlays]
                                     ? 'bg-accent text-canvas border-accent'
                                     : 'border-line/60 text-muted hover:border-accent'
-                                }`}
+                            }`}
                         >
                             {label}
                         </button>
@@ -599,14 +693,6 @@ export default function ChartCard({
                         </div>
                     </div>
                 )}
-                {!hasNoDataMessage && currentDay === 'today' && nowPosition !== null && (
-                    <div className="pointer-events-none absolute inset-0 z-10">
-                        <div
-                            className="absolute top-2 bottom-6 border-l-2 border-accent/80"
-                            style={{ left: `${nowPosition * 100}%` }}
-                        />
-                    </div>
-                )}
                 <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }} />
             </div>
         </Card>
@@ -618,6 +704,7 @@ function buildLiveData(
     day: DaySel,
     range: ChartRange,
     themeColors: Record<string, string> = {},
+    pricing?: { vat: number; fees: number },
 ): ExtendedChartData | null {
     const filtered =
         range === 'day'
@@ -918,6 +1005,7 @@ function buildLiveData(
                 nowPct,
             },
             themeColors,
+            pricing,
         )
     }
 

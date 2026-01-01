@@ -387,3 +387,34 @@ HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy
 ---
 
 
+
+### [Planner] Investigate Charge vs PV Logic
+
+**Goal:** Ensure the planner does not schedule grid charging when there is excess PV.
+
+**Observation:** User reports seeing "Charge" actions scheduled during times of excess PV, which suggests it might be charging from grid instead of just self-consuming.
+
+**Hypothesis:**
+1.  Is this just a visualization issue (PV -> Battery shown as "Charge")?
+2.  Or is Kepler actually buying energy to charge when free PV is available?
+
+---
+
+### [Performance] General Application Speedup
+
+**Goal:** Audit and improve the performance of the entire stack.
+
+**Scope:**
+1.  **Planner:** Profiling  (Kepler MILP solver speed).
+2.  **Frontend:** Reduce re-renders, optimize Bundle size.
+3.  **Backend:** API response times, database query optimization.
+
+
+### [UI] Dashboard Settings Persistence
+
+**Goal:** Ensure settings changed in the Dashboard (Market Strategy, Water Comfort) are saved and persist on reload.
+
+**Reported Issue:** Changing "Market Strategy" or "Water Comfort" level in the dashboard does not save the setting.
+
+**Hypothesis:** The UI state might be local only or the API call to save config is missing/failing.
+
