@@ -14,7 +14,6 @@ import {
     Activity,
     Settings,
     Gauge,
-    Flame,
     Battery,
     Sun,
     Plug,
@@ -336,7 +335,7 @@ export default function Executor() {
     }, [])
 
     // --- WebSocket Event Handlers (Rev E1) ---
-    useSocket('live_metrics', (data) => {
+    useSocket('live_metrics', (data: any) => {
         setLive((prev) => {
             const next = { ...(prev || {}) }
             if (data.soc !== undefined) next.soc = { value: `${data.soc.toFixed(0)}%`, numeric: data.soc, unit: '%' }
@@ -389,7 +388,7 @@ export default function Executor() {
         })
     })
 
-    useSocket('executor_status', (data) => {
+    useSocket('executor_status', (data: any) => {
         setStatus(data)
     })
 
@@ -515,15 +514,11 @@ export default function Executor() {
     // Determine status color
     const statusColor = status?.enabled
         ? status?.shadow_mode
-            ? 'from-amber-900/60 via-surface to-surface'
-            : 'from-emerald-900/60 via-surface to-surface'
-        : 'from-slate-800/60 via-surface to-surface'
+            ? 'from-warn-900/60 via-surface to-surface'
+            : 'from-good-900/60 via-surface to-surface'
+        : 'from-neutral-800/60 via-surface to-surface'
 
-    const statusPulse = status?.enabled
-        ? status?.shadow_mode
-            ? 'bg-amber-400/90'
-            : 'bg-emerald-400/90'
-        : 'bg-slate-500/90'
+    const statusPulse = status?.enabled ? (status?.shadow_mode ? 'bg-warn/90' : 'bg-good/90') : 'bg-neutral/90'
 
     if (loading) {
         return (
@@ -550,9 +545,9 @@ export default function Executor() {
                             className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${
                                 status?.enabled
                                     ? status?.shadow_mode
-                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                                        : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                                    : 'bg-slate-500/20 border-slate-500/50 text-slate-400'
+                                        ? 'bg-warn/20 border-warn/50 text-warn'
+                                        : 'bg-good/20 border-good/50 text-good'
+                                    : 'bg-neutral/20 border-neutral/50 text-neutral'
                             }`}
                         >
                             {status?.enabled ? (status?.shadow_mode ? 'Shadow' : 'Active') : 'Disabled'}
@@ -565,10 +560,10 @@ export default function Executor() {
             </div>
 
             {error && (
-                <div className="rounded-xl p-3 bg-red-500/10 border border-red-500/30 flex items-center gap-3">
-                    <AlertTriangle className="h-4 w-4 text-red-400" />
-                    <span className="text-red-300 text-[11px] flex-1">{error}</span>
-                    <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-lg">
+                <div className="rounded-xl p-3 bg-bad/10 border border-bad/30 flex items-center gap-3">
+                    <AlertTriangle className="h-4 w-4 text-bad" />
+                    <span className="text-bad text-[11px] flex-1">{error}</span>
+                    <button onClick={() => setError(null)} className="text-bad hover:text-bad/80 text-lg">
                         ×
                     </button>
                 </div>
@@ -598,10 +593,10 @@ export default function Executor() {
                                 <span
                                     className={`h-1.5 w-1.5 rounded-full ${
                                         status?.last_run_status === 'success'
-                                            ? 'bg-emerald-400'
+                                            ? 'bg-good'
                                             : status?.last_run_status === 'error'
-                                              ? 'bg-red-400'
-                                              : 'bg-slate-400'
+                                              ? 'bg-bad'
+                                              : 'bg-neutral'
                                     }`}
                                 />
                                 {status?.last_run_status === 'success'
@@ -614,7 +609,7 @@ export default function Executor() {
                     </div>
 
                     {/* Quick Stats */}
-                    <div className="mt-4 pt-3 border-t border-white/10 grid grid-cols-3 gap-3">
+                    <div className="mt-4 pt-3 border-t border-line/10 grid grid-cols-3 gap-3">
                         <div>
                             <div className="text-[10px] text-muted/70 uppercase">Last Run</div>
                             <div className="text-sm font-mono text-text">{formatTime(status?.last_run_at)}</div>
@@ -630,8 +625,8 @@ export default function Executor() {
                     </div>
 
                     {status?.override_active && (
-                        <div className="mt-3 p-2 rounded-lg bg-amber-500/20 border border-amber-500/30">
-                            <div className="flex items-center gap-2 text-[11px] text-amber-300">
+                        <div className="mt-3 p-2 rounded-lg bg-warn/20 border border-warn/30">
+                            <div className="flex items-center gap-2 text-[11px] text-warn">
                                 <AlertTriangle className="h-3.5 w-3.5" />
                                 <span className="font-medium">Override Active:</span>
                                 <span>{status.override_type}</span>
@@ -735,16 +730,16 @@ export default function Executor() {
                                 <div className="text-xl font-bold text-text">{stats.total_executions}</div>
                                 <div className="text-[10px] text-muted">Total Runs</div>
                             </div>
-                            <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                                <div className="text-xl font-bold text-emerald-400">{stats.success_rate}%</div>
+                            <div className="p-3 rounded-lg bg-good/10 border border-good/20">
+                                <div className="text-xl font-bold text-good">{stats.success_rate}%</div>
                                 <div className="text-[10px] text-muted">Success Rate</div>
                             </div>
-                            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                                <div className="text-xl font-bold text-amber-400">{stats.override_count}</div>
+                            <div className="p-3 rounded-lg bg-warn/10 border border-warn/20">
+                                <div className="text-xl font-bold text-warn">{stats.override_count}</div>
                                 <div className="text-[10px] text-muted">Overrides</div>
                             </div>
-                            <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
-                                <div className="text-xl font-bold text-red-400">{stats.failed}</div>
+                            <div className="p-3 rounded-lg bg-bad/10 border border-bad/20">
+                                <div className="text-xl font-bold text-bad">{stats.failed}</div>
                                 <div className="text-[10px] text-muted">Failed</div>
                             </div>
                         </div>
@@ -780,7 +775,7 @@ export default function Executor() {
                                             console.error(e)
                                         }
                                     }}
-                                    className="text-[10px] px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+                                    className="text-[10px] px-2 py-1 rounded bg-bad/20 text-bad hover:bg-bad/30 transition-colors"
                                 >
                                     Cancel
                                 </button>
@@ -795,31 +790,29 @@ export default function Executor() {
                                 type: 'force_charge',
                                 label: 'Force Charge',
                                 icon: BatteryCharging,
-                                labelClass: 'text-emerald-400',
-                                btnClass:
-                                    'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20',
+                                labelClass: 'text-good',
+                                btnClass: 'bg-good/10 border-good/20 text-good hover:bg-good/20',
                             },
                             {
-                                type: 'force_export',
+                                type: 'force_discharge',
                                 label: 'Force Export',
                                 icon: Upload,
-                                labelClass: 'text-amber-400',
-                                btnClass: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20',
+                                labelClass: 'text-warn',
+                                btnClass: 'bg-warn/10 border-warn/20 text-warn hover:bg-warn/20',
                             },
                             {
-                                type: 'force_heat',
-                                label: 'Force Heat',
-                                icon: Flame,
-                                labelClass: 'text-orange-400',
-                                btnClass:
-                                    'bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20',
+                                type: 'force_water_heater',
+                                label: 'Boost Water',
+                                icon: Droplets,
+                                labelClass: 'text-warn',
+                                btnClass: 'bg-warn/10 border-warn/20 text-warn hover:bg-warn/20',
                             },
                             {
-                                type: 'force_stop',
-                                label: 'Stop All',
+                                type: 'inverter_off',
+                                label: 'Inverter Off',
                                 icon: Power,
-                                labelClass: 'text-red-400',
-                                btnClass: 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20',
+                                labelClass: 'text-bad',
+                                btnClass: 'bg-bad/10 border-bad/20 text-bad hover:bg-bad/20',
                             },
                         ].map((action) => (
                             <div key={action.type} className="flex items-center gap-2">
@@ -874,8 +867,10 @@ export default function Executor() {
                         <span
                             className={`text-[10px] px-2 py-0.5 rounded-full border ${
                                 live.work_mode.value.includes('Export')
-                                    ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-                                    : 'bg-blue-500/20 border-blue-500/30 text-blue-300'
+                                    ? status?.shadow_mode
+                                        ? 'bg-warn/20 border-warn/30 text-warn'
+                                        : 'bg-good/20 border-good/30 text-good'
+                                    : 'bg-water/20 border-water/30 text-water'
                             }`}
                         >
                             {live.work_mode.value}
@@ -1031,19 +1026,19 @@ export default function Executor() {
                                 {status.current_slot_plan && (
                                     <div className="mt-2 grid grid-cols-4 gap-2 text-[10px]">
                                         {status.current_slot_plan.charge_kw > 0 && (
-                                            <div className="flex items-center gap-1 text-emerald-400">
+                                            <div className="flex items-center gap-1 text-good">
                                                 <BatteryCharging className="h-3 w-3" />
                                                 <span>{status.current_slot_plan.charge_kw.toFixed(1)}kW</span>
                                             </div>
                                         )}
                                         {status.current_slot_plan.export_kw > 0 && (
-                                            <div className="flex items-center gap-1 text-amber-400">
+                                            <div className="flex items-center gap-1 text-warn">
                                                 <Upload className="h-3 w-3" />
                                                 <span>{status.current_slot_plan.export_kw.toFixed(1)}kW</span>
                                             </div>
                                         )}
                                         {status.current_slot_plan.water_kw > 0 && (
-                                            <div className="flex items-center gap-1 text-sky-400">
+                                            <div className="flex items-center gap-1 text-water">
                                                 <Droplets className="h-3 w-3" />
                                                 <span>{status.current_slot_plan.water_kw.toFixed(1)}kW</span>
                                             </div>
@@ -1071,7 +1066,7 @@ export default function Executor() {
                                     className={`rounded-xl border transition-all ${
                                         record.success
                                             ? 'bg-surface2/30 border-line/40 hover:border-line/60'
-                                            : 'bg-red-500/10 border-red-500/30 hover:border-red-500/50'
+                                            : 'bg-bad/10 border-bad/30 hover:border-bad/50'
                                     }`}
                                 >
                                     {/* Header Row - Always visible, clickable */}
@@ -1084,9 +1079,9 @@ export default function Executor() {
                                                 className={`h-3 w-3 text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
                                             />
                                             {record.success ? (
-                                                <CheckCircle className="h-4 w-4 text-emerald-400" />
+                                                <CheckCircle className="h-4 w-4 text-good" />
                                             ) : (
-                                                <AlertTriangle className="h-4 w-4 text-red-400" />
+                                                <AlertTriangle className="h-4 w-4 text-bad" />
                                             )}
                                             <span className="text-[11px] text-text font-mono">
                                                 {formatDateTime(record.executed_at)}
@@ -1094,17 +1089,17 @@ export default function Executor() {
                                             {/* Quick summary badges */}
                                             {record.commanded_charge_current_a &&
                                                 record.commanded_charge_current_a > 0 && (
-                                                    <span className="text-[9px] text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+                                                    <span className="text-[9px] text-good bg-good/20 px-1.5 py-0.5 rounded">
                                                         ⚡ Charge
                                                     </span>
                                                 )}
                                             {record.commanded_work_mode === 'Export First' && (
-                                                <span className="text-[9px] text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                                                <span className="text-[9px] text-warn bg-warn/20 px-1.5 py-0.5 rounded">
                                                     ↗ Export
                                                 </span>
                                             )}
                                             {record.commanded_water_temp && record.commanded_water_temp > 50 && (
-                                                <span className="text-[9px] text-orange-400 bg-orange-500/20 px-1.5 py-0.5 rounded">
+                                                <span className="text-[9px] text-warn bg-warn/20 px-1.5 py-0.5 rounded">
                                                     🔥 Heat
                                                 </span>
                                             )}
@@ -1120,7 +1115,7 @@ export default function Executor() {
                                         </div>
                                         <div className="flex items-center gap-2">
                                             {record.override_active ? (
-                                                <span className="text-[9px] text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/30">
+                                                <span className="text-[9px] text-warn bg-warn/20 px-2 py-0.5 rounded-full border border-warn/30">
                                                     {record.override_type}
                                                 </span>
                                             ) : null}
@@ -1145,9 +1140,7 @@ export default function Executor() {
                                                         <span className="text-muted/60">Charge</span>
                                                         <span
                                                             className={
-                                                                record.planned_charge_kw
-                                                                    ? 'text-emerald-400'
-                                                                    : 'text-muted/40'
+                                                                record.planned_charge_kw ? 'text-good' : 'text-muted/40'
                                                             }
                                                         >
                                                             {record.planned_charge_kw?.toFixed(1) ?? '—'} kW
@@ -1157,9 +1150,7 @@ export default function Executor() {
                                                         <span className="text-muted/60">Export</span>
                                                         <span
                                                             className={
-                                                                record.planned_export_kw
-                                                                    ? 'text-amber-400'
-                                                                    : 'text-muted/40'
+                                                                record.planned_export_kw ? 'text-warn' : 'text-muted/40'
                                                             }
                                                         >
                                                             {record.planned_export_kw?.toFixed(1) ?? '—'} kW
@@ -1169,9 +1160,7 @@ export default function Executor() {
                                                         <span className="text-muted/60">Water</span>
                                                         <span
                                                             className={
-                                                                record.planned_water_kw
-                                                                    ? 'text-orange-400'
-                                                                    : 'text-muted/40'
+                                                                record.planned_water_kw ? 'text-warn' : 'text-muted/40'
                                                             }
                                                         >
                                                             {record.planned_water_kw?.toFixed(1) ?? '—'} kW
@@ -1209,7 +1198,7 @@ export default function Executor() {
                                                         <span
                                                             className={
                                                                 record.commanded_grid_charging
-                                                                    ? 'text-emerald-400'
+                                                                    ? 'text-good'
                                                                     : 'text-muted/40'
                                                             }
                                                         >
@@ -1221,7 +1210,7 @@ export default function Executor() {
                                                         <span
                                                             className={
                                                                 record.commanded_charge_current_a
-                                                                    ? 'text-emerald-400'
+                                                                    ? 'text-good'
                                                                     : 'text-muted/40'
                                                             }
                                                         >
@@ -1233,7 +1222,7 @@ export default function Executor() {
                                                         <span
                                                             className={
                                                                 record.commanded_discharge_current_a
-                                                                    ? 'text-amber-400'
+                                                                    ? 'text-warn'
                                                                     : 'text-muted/40'
                                                             }
                                                         >
@@ -1252,7 +1241,7 @@ export default function Executor() {
                                                             className={
                                                                 record.commanded_water_temp &&
                                                                 record.commanded_water_temp > 50
-                                                                    ? 'text-orange-400'
+                                                                    ? 'text-warn'
                                                                     : 'text-muted/40'
                                                             }
                                                         >

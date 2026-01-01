@@ -94,7 +94,7 @@ export const SystemTab: React.FC = () => {
                                     </button>
                                     {haTestStatus && (
                                         <span
-                                            className={`text-xs ${haTestStatus.startsWith('Success') ? 'text-green-400' : 'text-red-400'}`}
+                                            className={`text-xs ${haTestStatus.startsWith('Success') ? 'text-good' : 'text-bad'}`}
                                         >
                                             {haTestStatus}
                                         </span>
@@ -119,8 +119,8 @@ export const SystemTab: React.FC = () => {
                             statusMessage.startsWith('Please fix') ||
                             statusMessage.startsWith('Save failed') ||
                             statusMessage.startsWith('Failed to load')
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                                ? 'bg-bad/10 border border-bad/30 text-bad'
+                                : 'bg-good/10 border border-good/30 text-good'
                         }`}
                     >
                         {statusMessage}

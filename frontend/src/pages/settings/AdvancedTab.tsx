@@ -46,20 +46,20 @@ export const AdvancedTab: React.FC = () => {
                     </div>
 
                     {section.title === 'Danger Zone' ? (
-                        <div className="mt-5 border border-red-500/20 bg-red-500/5 rounded-xl p-4">
+                        <div className="mt-5 border border-bad/20 bg-bad/5 rounded-xl p-4">
                             <div className="flex items-center justify-between gap-4">
                                 <div>
-                                    <h4 className="text-xs font-bold text-red-100 italic uppercase tracking-wider">
+                                    <h4 className="text-xs font-bold text-bad italic uppercase tracking-wider">
                                         Reset All Settings
                                     </h4>
-                                    <p className="text-[11px] text-red-400/80 mt-1">
+                                    <p className="text-[11px] text-bad/80 mt-1">
                                         Permanently delete all custom configurations and return to project factory
                                         defaults. This action cannot be undone.
                                     </p>
                                 </div>
                                 <button
                                     onClick={() => setResetModalOpen(true)}
-                                    className="rounded-lg bg-red-500/20 border border-red-500/30 px-3 py-1.5 text-[10px] font-bold text-red-400 uppercase tracking-wider hover:bg-red-500/30 transition"
+                                    className="rounded-lg bg-bad/20 border border-bad/30 px-3 py-1.5 text-[10px] font-bold text-bad uppercase tracking-wider hover:bg-bad/30 transition"
                                 >
                                     Reset to Defaults
                                 </button>
@@ -95,8 +95,8 @@ export const AdvancedTab: React.FC = () => {
                             statusMessage.startsWith('Please fix') ||
                             statusMessage.startsWith('Save failed') ||
                             statusMessage.startsWith('Failed to load')
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                                ? 'bg-bad/10 border border-bad/30 text-bad'
+                                : 'bg-good/10 border border-good/30 text-good'
                         }`}
                     >
                         {statusMessage}
@@ -121,7 +121,7 @@ export const AdvancedTab: React.FC = () => {
                         <button
                             onClick={handleResetAll}
                             disabled={resetLoading}
-                            className="bg-red-500 hover:bg-red-600 px-4 py-2 rounded-xl text-xs font-bold text-white transition disabled:opacity-50"
+                            className="bg-bad hover:bg-bad/80 px-4 py-2 rounded-xl text-xs font-bold text-white transition disabled:opacity-50"
                         >
                             {resetLoading ? 'Resetting...' : 'Yes, Reset Everything'}
                         </button>

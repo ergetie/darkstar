@@ -38,8 +38,6 @@ export default function Settings() {
 
     return (
         <>
-
-
             <main className="p-4 lg:p-8">
                 <div className="mx-auto max-w-5xl">
                     <div className="mb-6 flex flex-wrap gap-2">
@@ -47,10 +45,11 @@ export default function Settings() {
                             <button
                                 key={tab.id}
                                 onClick={() => setActiveTab(tab.id)}
-                                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition duration-300 ${activeTab === tab.id
+                                className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs font-bold uppercase tracking-wider transition duration-300 ${
+                                    activeTab === tab.id
                                         ? 'bg-accent text-[#100f0e] shadow-[0_0_20px_rgba(var(--color-accent-rgb),0.3)]'
                                         : 'bg-surface2 text-muted hover:bg-surface3 hover:text-white'
-                                    }`}
+                                }`}
                             >
                                 {tab.icon}
                                 {tab.label}

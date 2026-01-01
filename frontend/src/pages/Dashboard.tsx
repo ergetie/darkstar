@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, useCallback } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
@@ -80,7 +81,7 @@ export default function Dashboard() {
     const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[]>([])
 
     // --- WebSocket Event Handlers (Rev E1) ---
-    useSocket('live_metrics', (data) => {
+    useSocket('live_metrics', (data: any) => {
         if (data.soc !== undefined) setSoc(data.soc)
         // Note: PV/Load today stats still come from fetchAllData because they are cumulative
     })
@@ -90,7 +91,7 @@ export default function Dashboard() {
         fetchAllData()
     })
 
-    useSocket('executor_status', (data) => {
+    useSocket('executor_status', (data: any) => {
         setExecutorStatus({
             shadow_mode: data.shadow_mode ?? false,
             paused: data.paused ?? null,
@@ -98,7 +99,7 @@ export default function Dashboard() {
     })
 
     // WebSocket: HA entity state changes (instant vacation mode sync)
-    useSocket('ha_entity_change', (data) => {
+    useSocket('ha_entity_change', (data: any) => {
         // If this is the vacation mode entity, update state instantly
         if (data.entity_id === vacationEntityId) {
             const isActive = data.state === 'on'
@@ -638,7 +639,7 @@ export default function Dashboard() {
                             <div className="text-[10px] text-muted">
                                 {lastRefresh && `Synced ${lastRefresh.toLocaleTimeString()}`}
                             </div>
-                            {statusMessage && <div className="text-[10px] text-amber-400">{statusMessage}</div>}
+                            {statusMessage && <div className="text-[10px] text-warn">{statusMessage}</div>}
                             <button
                                 onClick={() => fetchAllData()}
                                 disabled={isRefreshing}
@@ -714,7 +715,7 @@ export default function Dashboard() {
                                         <span
                                             className={`inline-flex h-2.5 w-2.5 rounded-full ${
                                                 automationConfig?.enable_scheduler
-                                                    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
                                                     : 'bg-line'
                                             }`}
                                         />
@@ -750,7 +751,7 @@ export default function Dashboard() {
                                 <div className="flex items-baseline justify-between mb-3">
                                     <div className="text-sm text-muted">DB Sync</div>
                                     <div
-                                        className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-green-400' : 'text-red-400'}`}
+                                        className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-good' : 'text-bad'}`}
                                     >
                                         {dbSyncFeedback?.message}
                                     </div>

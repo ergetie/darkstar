@@ -139,7 +139,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
             </label>
             {renderInput()}
             {field.helper && field.type !== 'boolean' && <p className="text-[11px] text-muted">{field.helper}</p>}
-            {error && <p className="text-[11px] text-red-400">{error}</p>}
+            {error && <p className="text-[11px] text-bad">{error}</p>}
         </div>
     )
 }

@@ -50,8 +50,8 @@ export const ParametersTab: React.FC = () => {
                             statusMessage.startsWith('Please fix') ||
                             statusMessage.startsWith('Save failed') ||
                             statusMessage.startsWith('Failed to load')
-                                ? 'bg-red-500/10 border border-red-500/30 text-red-400'
-                                : 'bg-green-500/10 border border-green-500/30 text-green-400'
+                                ? 'bg-bad/10 border border-bad/30 text-bad'
+                                : 'bg-good/10 border border-good/30 text-good'
                         }`}
                     >
                         {statusMessage}
