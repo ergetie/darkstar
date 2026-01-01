@@ -15,7 +15,6 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **H** | History/DB | H1 |
 | **O** | Onboarding | O1 |
 | **UI** | User Interface | UI1, UI2 |
-| **U** | UI/UX Enhancements | U1-U28 |
 | **DS** | Design System | DS1 |
 | **F** | Fixes/Bugfixes | F1 |
 | **DX** | Developer Experience | DX1 |
@@ -69,8 +68,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 #### Phase 1: Bug Fixes
 
-- [ ] **Fix "Now Line" Alignment:** Debug and fix the issue where the "Now line" does not align with the current time/slot (varies between 24h and 48h views).
-- [ ] **Fix "Cost Reality" Widget:** Restore "Plan Cost" series in the Cost Reality comparison widget.
+- [x] **Fix "Now Line" Alignment:** Debug and fix the issue where the "Now line" does not align with the current time/slot (varies between 24h and 48h views).
+- [x] **Fix "Cost Reality" Widget:** Restore "Plan Cost" series in the Cost Reality comparison widget.
 
 ---
 

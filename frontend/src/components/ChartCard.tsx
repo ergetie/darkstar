@@ -167,10 +167,12 @@ type ChartValues = {
     hasNoData?: boolean
     day?: DaySel
     nowIndex?: number | null
+    nowPct?: number | null
 }
 
 interface ExtendedChartData extends ChartData {
     nowIndex?: number | null
+    nowPct?: number | null
     hasNoData?: boolean
     plugins?: unknown
 }
@@ -296,7 +298,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     // Add no-data message if needed
     if (values.hasNoData) {
         // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ;(baseData as ExtendedChartData).plugins = {
+        ; (baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -316,6 +318,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     return {
         ...baseData,
         nowIndex: values.nowIndex ?? null,
+        nowPct: (values as any).nowPct ?? null,
         hasNoData: !!values.hasNoData,
     }
 }
@@ -470,24 +473,25 @@ export default function ChartCard({
             if (ds[8]) ds[8].hidden = !overlays.socProjected
             if (ds[9]) ds[9].hidden = !overlays.socActual
 
-            // Compute CSS overlay position for "NOW" (0–1 across labels)
-            if (
-                currentDay === 'today' &&
-                typeof liveData.nowIndex === 'number' &&
-                liveData.nowIndex >= 0 &&
-                liveData.labels &&
-                liveData.labels.length > 1
-            ) {
-                const denom = liveData.labels.length - 1
-                setNowPosition(liveData.nowIndex / denom)
-            } else {
-                setNowPosition(null)
-            }
             try {
                 if (!isChartUsable(chartRef.current)) return
                 if (chartRef.current) {
                     chartRef.current.data = liveData
                     chartRef.current.update()
+
+                    // Compute CSS overlay position for "NOW" (0–1 within chartArea)
+                    if (
+                        typeof liveData.nowPct === 'number' &&
+                        liveData.nowPct >= 0 &&
+                        liveData.nowPct <= 1
+                    ) {
+                        const { left, width } = chartRef.current.chartArea
+                        const canvasWidth = chartRef.current.width
+                        const posPx = left + width * liveData.nowPct
+                        setNowPosition(posPx / canvasWidth)
+                    } else {
+                        setNowPosition(null)
+                    }
                 }
             } catch (err) {
                 console.error('Chart update error:', err)
@@ -525,21 +529,19 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === 'day'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                    }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === '48h'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                    }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -576,11 +578,10 @@ export default function ChartCard({
                                 e.preventDefault()
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${
-                                overlays[key as keyof typeof overlays]
+                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
                                     ? 'bg-accent text-canvas border-accent'
                                     : 'border-line/60 text-muted hover:border-accent'
-                            }`}
+                                }`}
                         >
                             {label}
                         </button>
@@ -746,6 +747,16 @@ function buildLiveData(
             }
         }
 
+        // Calculate precise time percentage for "Now Line"
+        let nowPct: number | null = null
+        if (day === 'today') {
+            const totalMs = steps * stepMs
+            const elapsed = now.getTime() - anchor.getTime()
+            if (elapsed >= 0 && elapsed <= totalMs) {
+                nowPct = elapsed / totalMs
+            }
+        }
+
         return createChartData(
             {
                 labels,
@@ -760,6 +771,7 @@ function buildLiveData(
                 socProjected,
                 socActual,
                 nowIndex,
+                nowPct,
             },
             themeColors,
         )
@@ -880,6 +892,15 @@ function buildLiveData(
             }
         }
 
+        // Calculate precise time percentage for "Now Line"
+        let nowPct: number | null = null
+        const totalMs = steps * stepMs
+        const elapsed = now.getTime() - anchor.getTime()
+        // For 48h view, we show "now" if it's within the window (which starts at 00:00 today)
+        if (elapsed >= 0 && elapsed <= totalMs) {
+            nowPct = elapsed / totalMs
+        }
+
         return createChartData(
             {
                 labels,
@@ -894,6 +915,7 @@ function buildLiveData(
                 socProjected,
                 socActual,
                 nowIndex,
+                nowPct,
             },
             themeColors,
         )
