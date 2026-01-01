@@ -15,7 +15,6 @@ export default function Debug() {
     const [timeRange, setTimeRange] = useState<LogTimeRange>('all')
 
     const [socHistory, setSocHistory] = useState<HistorySocResponse | null>(null)
-    const [socLoading, setSocLoading] = useState(false)
     const [socError, setSocError] = useState<string | null>(null)
     const [socDate, setSocDate] = useState<SocDateFilter>('today')
     const socCanvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -39,7 +38,6 @@ export default function Debug() {
 
     useEffect(() => {
         const loadSoc = () => {
-            setSocLoading(true)
             setSocError(null)
 
             let dateParam: string = 'today'
@@ -55,7 +53,6 @@ export default function Debug() {
                     console.error('Failed to fetch historic SoC:', err)
                     setSocError('Failed to load SoC history')
                 })
-                .finally(() => setSocLoading(false))
         }
 
         loadSoc()

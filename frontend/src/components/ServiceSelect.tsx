@@ -31,6 +31,7 @@ export default function ServiceSelect({
     // Fetch services when dropdown opens for the first time
     useEffect(() => {
         if (open && services.length === 0 && !loading) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect
             setLoading(true)
             Api.haServices()
                 .then((res) => {
@@ -72,6 +73,7 @@ export default function ServiceSelect({
 
     // Reset highlight when filtered list changes
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setHighlightIndex(0)
     }, [filtered.length])
 

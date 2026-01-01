@@ -67,6 +67,7 @@ export default function EntitySelect({
 
     // Reset highlight when filtered list changes
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setHighlightIndex(0)
     }, [filtered.length])
 

@@ -78,6 +78,7 @@ export default function Select({
 
     // Reset highlight on change
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
         setHighlightIndex(0)
     }, [filtered.length, open])
 

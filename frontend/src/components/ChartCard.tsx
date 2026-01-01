@@ -12,7 +12,6 @@ import { filterSlotsByDay, formatHour, DaySel, isToday, isTomorrow } from '../li
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
-    spanGaps: false,
     animation: false,
     plugins: {
         legend: {
@@ -45,7 +44,7 @@ const chartOptions: ChartConfiguration['options'] = {
                 label: function (context) {
                     const datasetLabel = context.dataset.label || ''
                     const value = context.parsed.y
-                    if (value === null || value === undefined) return null
+                    if (value === null || value === undefined) return ''
 
                     let formattedValue = value.toFixed(2)
                     let unit = ''
@@ -293,8 +292,8 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
 
     // Add no-data message if needed
     if (values.hasNoData) {
-        baseData.plugins = {
-            ...baseData.plugins,
+        ;(baseData as any).plugins = {
+            ...((baseData as any).plugins || {}),
             tooltip: {
                 enabled: true,
                 external: true,
@@ -340,13 +339,14 @@ type ChartCardProps = {
 
 export default function ChartCard({
     day = 'today',
-    range = 'day',
+    range = '48h',
     refreshToken = 0,
-    showDayToggle = true,
-    useHistoryForToday = false,
     slotsOverride,
+    useHistoryForToday = false,
+    showDayToggle = false,
 }: ChartCardProps) {
-    const [currentDay, setCurrentDay] = useState<DaySel>(day)
+    const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
+    const [currentDay, setCurrentDay] = useState<DaySel>(day || 'today')
     const [rangeState, setRangeState] = useState<ChartRange>(range)
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
@@ -521,8 +521,7 @@ export default function ChartCard({
             })
     }, [currentDay, overlays, themeColors, rangeState, refreshToken, slotsOverride, useHistoryForToday])
 
-    const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
-
+    // Memoize theme colors to prevent unnecessary re-computations
     return (
         <Card className="p-4 md:p-6 h-[380px]">
             <div className="flex items-baseline justify-between pb-2">

@@ -319,15 +319,14 @@ Created `/design-system` React route instead of static HTML (better: hot-reload,
 
 ---
 
-### [IN PROGRESS] Rev DX1: Linting & Formatting
+### [DONE] Rev DX1: Frontend Linting & Formatting
 **Goal:** Establish a robust linting and formatting pipeline for the frontend.
-- [x] Install ESLint, Prettier, and plugins
-- [x] Create `eslint.config.js` and `.prettierrc`
-- [x] Add scripts to `package.json` (`lint`, `lint:fix`, `format`)
-- [x] Update `AGENTS.md` with new protocols
-- [x] Fix Critical Lint Errors (Settings, Planning, Executor)
-- [ ] Resolving Remaining Lint Errors (Aurora, Dashboard, Debug)
-- [ ] Archive Unused Pages (Planning, Forecasting, Learning, Lab)
-- [ ] Verify `pnpm build` passes
+- [x] Install `eslint`, `prettier` and plugins
+- [x] Create configuration (`.eslintrc.cjs`, `.prettierrc`)
+- [x] Add NPM scripts (`lint`, `lint:fix`, `format`)
+- [x] Update `AGENTS.md` with linting usage
+- [x] Run initial lint and fix errors
+- [x] Archive unused pages to clean up noise
+- [x] Verify `pnpm build` passes
 
 ### NEXT REV HERE

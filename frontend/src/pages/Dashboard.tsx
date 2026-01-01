@@ -710,10 +710,11 @@ export default function Dashboard() {
                             <button
                                 onClick={() => fetchAllData()}
                                 disabled={isRefreshing}
-                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
-                                    ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
-                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                    }`}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
+                                    isRefreshing
+                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
+                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                }`}
                                 title="Manual sync"
                             >
                                 <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
@@ -779,10 +780,11 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-3">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${automationConfig?.enable_scheduler
-                                                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
-                                                : 'bg-line'
-                                                }`}
+                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                                                automationConfig?.enable_scheduler
+                                                    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                                                    : 'bg-line'
+                                            }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>

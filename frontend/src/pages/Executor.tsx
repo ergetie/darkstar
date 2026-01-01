@@ -288,7 +288,6 @@ import {
     Legend,
     Filler,
 } from 'chart.js'
-import { Line } from 'react-chartjs-2'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
@@ -525,18 +524,6 @@ export default function Executor() {
             ? 'bg-amber-400/90'
             : 'bg-emerald-400/90'
         : 'bg-slate-500/90'
-
-    const sparklineOptions: any = {
-        responsive: true,
-        maintainAspectRatio: false,
-        plugins: { legend: { display: false }, tooltip: { enabled: false } },
-        scales: { x: { display: false }, y: { display: false } },
-        elements: {
-            point: { radius: 0 },
-            line: { tension: 0.4, borderWidth: 1.5 },
-        },
-        animation: { duration: 0 },
-    }
 
     if (loading) {
         return (
