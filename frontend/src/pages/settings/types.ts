@@ -347,6 +347,26 @@ export const systemSections: SettingsSection[] = [
                 type: 'entity',
             },
             {
+                key: 'input_sensors.battery_power',
+                label: 'Battery Power (W/kW)',
+                helper: 'Positive = charging, negative = discharging',
+                path: ['input_sensors', 'battery_power'],
+                type: 'entity',
+            },
+            {
+                key: 'input_sensors.water_power',
+                label: 'Water Heater Power (W/kW)',
+                path: ['input_sensors', 'water_power'],
+                type: 'entity',
+            },
+            {
+                key: 'input_sensors.grid_power',
+                label: 'Grid Power (W/kW)',
+                helper: 'Positive = import, negative = export',
+                path: ['input_sensors', 'grid_power'],
+                type: 'entity',
+            },
+            {
                 key: 'input_sensors.alarm_state',
                 label: 'Alarm Control Panel',
                 path: ['input_sensors', 'alarm_state'],

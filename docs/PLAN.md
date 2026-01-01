@@ -15,6 +15,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **H** | History/DB | H1 |
 | **O** | Onboarding | O1 |
 | **UI** | User Interface | UI1, UI2 |
+| **U** | UI/UX Enhancements | U1-U28 |
 | **DS** | Design System | DS1 |
 | **F** | Fixes/Bugfixes | F1 |
 | **DX** | Developer Experience | DX1 |
@@ -60,7 +61,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 *All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*§
 
 
-### [PLANNED] Rev UI5 — Dashboard Polish & Financials
+### [IN PROGRESS] Rev UI5 — Dashboard Polish & Financials
 
 **Goal:** Transform the Dashboard from a live monitor into a polished financial tool with real-time energy visualization.
 
@@ -73,12 +74,13 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 2: Energy Flow Chart
+#### Phase 2: Energy Flow Chart [DONE]
 
-- [ ] **New Component:** Create an energy flow chart card for the Dashboard.
-- [ ] Show real-time flow between: PV → Battery → House Load → Grid (import/export).
-- [ ] Use animated traces and "hubs" like "github.com/flixlix/power-flow-card-plus".
-- [ ] Follow the design system in `docs/design-system/AI_GUIDELINES.md`.
+- [x] **New Component:** Create an energy flow chart card for the Dashboard.
+- [x] Show real-time flow between: PV → Battery → House Load → Grid (import/export).
+- [x] Use animated traces and "hubs" like "github.com/flixlix/power-flow-card-plus".
+- [x] Follow the design system in `docs/design-system/AI_GUIDELINES.md`.
+- [x] **Infrastructure**: Stabilized WebSocket server with `eventlet` in `scripts/dev-backend.sh`.
 
 ---
 

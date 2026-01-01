@@ -36,6 +36,7 @@ from planner.solver.adapter import (
 from planner.solver.kepler import KeplerSolver
 from planner.output.schedule import save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
+from backend.learning.store import LearningStore
 
 logger = logging.getLogger("darkstar.planner")
 
@@ -461,6 +462,20 @@ class PlannerPipeline:
                 window_responsibilities,
                 planner_state_debug,
             )
+
+            # Rev UI5: Always store plan to slot_plans for performance tracking
+            try:
+                tz = pytz.timezone(timezone_name)
+                sqlite_path = active_config.get("learning", {}).get(
+                    "sqlite_path", "data/planner_learning.db"
+                )
+                store = LearningStore(sqlite_path, tz)
+                # Reset index so start_time becomes a column (store_plan expects it)
+                plan_df = final_df.reset_index()
+                store.store_plan(plan_df)
+                logger.debug("Stored plan to slot_plans for performance tracking")
+            except Exception as store_err:
+                logger.warning("Failed to store plan to slot_plans: %s", store_err)
 
         return final_df
 

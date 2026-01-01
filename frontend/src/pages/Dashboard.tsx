@@ -7,7 +7,7 @@ import { motion } from 'framer-motion'
 import { Api, type PlannerSIndex } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
-import SmartAdvisor from '../components/SmartAdvisor'
+import AdvisorCard from '../components/AdvisorCard'
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
@@ -80,10 +80,28 @@ export default function Dashboard() {
     const [exportGuard, setExportGuard] = useState<boolean>(false)
     const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[]>([])
 
+    // Live power metrics for PowerFlowCard
+    const [livePower, setLivePower] = useState<{
+        pv_kw?: number
+        load_kw?: number
+        battery_kw?: number
+        grid_kw?: number
+        water_kw?: number
+    }>({})
+
     // --- WebSocket Event Handlers (Rev E1) ---
     useSocket('live_metrics', (data: any) => {
+        console.log('📊 live_metrics received:', data)
         if (data.soc !== undefined) setSoc(data.soc)
-        // Note: PV/Load today stats still come from fetchAllData because they are cumulative
+        // Capture all power metrics for PowerFlowCard
+        setLivePower((prev) => ({
+            ...prev,
+            pv_kw: data.pv_kw ?? prev.pv_kw,
+            load_kw: data.load_kw ?? prev.load_kw,
+            battery_kw: data.battery_kw ?? prev.battery_kw,
+            grid_kw: data.grid_kw ?? prev.grid_kw,
+            water_kw: data.water_kw ?? prev.water_kw,
+        }))
     })
 
     useSocket('plan_updated', () => {
@@ -625,9 +643,32 @@ export default function Dashboard() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                 >
-                    {/* Advisor */}
+                    {/* Advisor with Power Flow toggle */}
                     <div className="flex-1 min-h-0">
-                        <SmartAdvisor />
+                        <AdvisorCard
+                            powerFlowData={{
+                                solar: {
+                                    kw: livePower.pv_kw ?? 0,
+                                    todayKwh: todayStats?.pvProduction ?? undefined,
+                                },
+                                battery: {
+                                    kw: livePower.battery_kw ?? 0,
+                                    soc: soc ?? 50,
+                                },
+                                grid: {
+                                    kw: livePower.grid_kw ?? 0,
+                                    importKwh: todayStats?.gridImport ?? undefined,
+                                    exportKwh: todayStats?.gridExport ?? undefined,
+                                },
+                                house: {
+                                    kw: livePower.load_kw ?? 0,
+                                    todayKwh: todayStats?.loadConsumption ?? undefined,
+                                },
+                                water: {
+                                    kw: livePower.water_kw ?? 0,
+                                },
+                            }}
+                        />
                     </div>
                 </motion.div>
 

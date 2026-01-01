@@ -55,6 +55,9 @@ For complete requirements, see `requirements.txt`.
     ```
     Access the UI at **http://localhost:5173**.
 
+    > [!IMPORTANT]
+    > **WebSockets & Concurrency**: The backend must run via `python backend/run.py` (which `pnpm run dev` does automatically) to enable the `eventlet` WebSocket server. Standard `flask run` is NOT compatible with our production WebSocket features.
+
 ---
 
 ## Architecture & Algorithm
@@ -212,6 +215,7 @@ To auto-start Darkstar on boot via systemd:
     ExecStart=/usr/bin/pnpm run dev
     Restart=on-failure
     Environment=NODE_ENV=production
+    Environment=PYTHONPATH=.
 
     [Install]
     WantedBy=multi-user.target

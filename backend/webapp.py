@@ -15,6 +15,8 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 import pymysql
 import subprocess
 
+logger = logging.getLogger("darkstar.webapp")
+
 from planner.pipeline import PlannerPipeline
 from planner.simulation import simulate_schedule
 from planner.inputs.data_prep import prepare_df
@@ -44,6 +46,7 @@ print(DARKSTAR_ASCII)
 
 app = Flask(__name__)
 app.register_blueprint(aurora_bp)
+
 socketio.init_app(app)
 
 THEME_DIR = os.path.join(os.path.dirname(__file__), "themes")
@@ -112,7 +115,7 @@ _ring_buffer_handler = RingBufferHandler(maxlen=1000)
 _ring_buffer_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
 _ring_buffer_handler.setFormatter(_ring_buffer_formatter)
 
-logger = logging.getLogger("darkstar.webapp")
+# Logger already defined above
 logger.setLevel(logging.INFO)
 if not any(isinstance(h, RingBufferHandler) for h in logger.handlers):
     logger.addHandler(_ring_buffer_handler)
@@ -895,6 +898,16 @@ def health_check():
             "critical_count": 1,
             "warning_count": 0,
         })
+
+
+@app.route("/api/ha-socket", methods=["GET"])
+def ha_socket_status():
+    """Return diagnostic info about HA WebSocket connection and monitored entities."""
+    try:
+        from backend.ha_socket import get_ha_socket_status
+        return jsonify(get_ha_socket_status())
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/api/status", methods=["GET"])
@@ -2120,6 +2133,13 @@ def save_config():
 
             with open(secrets_path, "w", encoding="utf-8") as f:
                 yaml_handler.dump(secrets, f)
+            
+            # Reload HA socket client if connection params changed (Rev U1b)
+            try:
+                from backend.ha_socket import reload_ha_socket_client
+                reload_ha_socket_client()
+            except Exception:
+                pass
         except Exception as e:
             logger.error("Failed to save secrets.yaml: %s", e)
             return jsonify({"status": "error", "message": f"Failed to save secrets: {e}"})
@@ -2158,9 +2178,16 @@ def save_config():
             pipeline.generate_schedule(input_data, mode="full", save_to_file=True)
             sys.stderr.write("[DEBUG] schedule regenerated\n")
         except Exception as exc:
-            sys.stderr.write(f"[DEBUG] REGEN ERROR: {exc}\n")
+            logger.error("Failed to regenerate schedule: %s", exc)
 
-    sys.stderr.flush()
+    # Reload HA socket client if input sensors changed (Rev U1)
+    if "input_sensors" in new_config:
+        try:
+            from backend.ha_socket import reload_ha_socket_client
+            reload_ha_socket_client()
+            logger.info("HA socket client reloaded")
+        except Exception as e:
+            logger.error("Failed to reload ha_socket: %s", e)
     return jsonify({"status": "success"})
 
 

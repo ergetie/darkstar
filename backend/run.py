@@ -3,12 +3,16 @@ eventlet.monkey_patch()
 
 import os
 import logging
-from backend.webapp import app
-from backend.extensions import socketio
+import sys
+# Project root is assumed to be in PYTHONPATH
 
 # Configure logging for the runner
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("darkstar.run")
+
+# Import after monkey_patching
+from backend.webapp import app
+from backend.extensions import socketio
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))

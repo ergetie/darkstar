@@ -11,6 +11,7 @@
 - **Test inputs module**: `python inputs.py`
 - **Run full test suite**: `PYTHONPATH=. python -m pytest -q`
 - **Run single test**: `python -m pytest tests/test_module.py::test_function -v` (if pytest is used)
+- **Run Dev Environment (Frontend + Backend + WebSockets)**: `pnpm run dev` (This is the recommended way to run the full stack).
 
 ### Fish Shell (Important!)
 The development environment uses **fish shell**. Special characters in commit messages cause issues:

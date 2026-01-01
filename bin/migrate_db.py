@@ -1,6 +1,12 @@
-import pymysql
 import os
 import sys
+
+try:
+    import pymysql
+except ImportError:
+    print("Error: pymysql not installed.")
+    print("Install with: pip install pymysql")
+    sys.exit(1)
 
 # Add root to path to import inputs
 sys.path.append(os.getcwd())

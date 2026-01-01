@@ -8,6 +8,7 @@ import Settings from './pages/settings'
 import Aurora from './pages/Aurora'
 import Executor from './pages/Executor'
 import DesignSystem from './pages/DesignSystem'
+import PowerFlowLab from './pages/PowerFlowLab'
 import { Api, HealthResponse } from './lib/api'
 import { SystemAlert } from './components/SystemAlert'
 import { ToastProvider } from './components/ui/Toast'
@@ -71,6 +72,7 @@ export default function App() {
                             <Route path="/debug" element={<Debug />} />
                             <Route path="/settings" element={<Settings />} />
                             <Route path="/design-system" element={<DesignSystem />} />
+                            <Route path="/power-flow-lab" element={<PowerFlowLab />} />
                         </Routes>
                     </div>
                 </BrowserRouter>

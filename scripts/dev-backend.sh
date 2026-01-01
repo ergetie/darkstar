@@ -35,8 +35,8 @@ cleanup() {
 
 trap cleanup INT TERM
 
-# Run Flask API in the foreground
-python -m flask run --host 0.0.0.0 --port 5000
+# Run Darkstar with WebSockets using the eventlet runner (Rev U27)
+PYTHONPATH=. python backend/run.py
 
 # If Flask exits, clean up scheduler as well
 cleanup

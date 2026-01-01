@@ -11,17 +11,20 @@ logger = logging.getLogger("darkstar.ha_socket")
 
 class HAWebSocketClient:
     def __init__(self):
+        self._load_config()
+        self.id_counter = 1
+        self.monitored_entities = self._get_monitored_entities()
+        self.running = False
+
+    def _load_config(self):
+        """Load HA connection parameters from secrets.yaml."""
         self.config = load_home_assistant_config()
         base_url = self.config.get("url", "")
         if base_url.startswith("https"):
             self.url = base_url.replace("https", "wss") + "/api/websocket"
         else:
             self.url = base_url.replace("http", "ws") + "/api/websocket"
-            
         self.token = self.config.get("token")
-        self.id_counter = 1
-        self.monitored_entities = self._get_monitored_entities()
-        self.running = False
 
     def _get_monitored_entities(self) -> Dict[str, str]:
         # Load config to map entity_id -> metric_key
@@ -33,17 +36,21 @@ class HAWebSocketClient:
             if "battery_soc" in sensors: mapping[sensors["battery_soc"]] = "soc"
             if "pv_power" in sensors: mapping[sensors["pv_power"]] = "pv_kw"
             if "load_power" in sensors: mapping[sensors["load_power"]] = "load_kw"
-            if "grid_import_power" in sensors: mapping[sensors["grid_import_power"]] = "grid_import_kw"
-            if "grid_export_power" in sensors: mapping[sensors["grid_export_power"]] = "grid_export_kw"
+            if "grid_power" in sensors: mapping[sensors["grid_power"]] = "grid_kw"
+            if "battery_power" in sensors: mapping[sensors["battery_power"]] = "battery_kw"
+            if "water_power" in sensors: mapping[sensors["water_power"]] = "water_kw"
             if "vacation_mode" in sensors: mapping[sensors["vacation_mode"]] = "vacation_mode"
+            logger.info(f"HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}")
             return mapping
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to load monitored entities: {e}")
             return {}
 
     async def connect(self):
         while self.running:
             try:
-                async with websockets.connect(self.url) as ws:
+                # Increase max_size to 10MB to handle large HA get_states responses (Rev U3)
+                async with websockets.connect(self.url, max_size=10485760) as ws:
                     logger.info(f"Connected to HA WebSocket: {self.url}")
                     
                     # Authenticate
@@ -67,11 +74,29 @@ class HAWebSocketClient:
                         "type": "subscribe_events",
                         "event_type": "state_changed"
                     }))
+
+                    # Get initial states (Rev U2)
+                    states_id = self.id_counter
+                    self.id_counter += 1
+                    await ws.send(json.dumps({
+                        "id": states_id,
+                        "type": "get_states"
+                    }))
                     
                     # Listen loop
                     while self.running:
                         msg = await ws.recv()
                         data = json.loads(msg)
+                        
+                        # Handle the get_states response
+                        if data.get("id") == states_id and data.get("type") == "result":
+                            results = data.get("result", [])
+                            for state in results:
+                                entity_id = state.get("entity_id")
+                                if entity_id in self.monitored_entities:
+                                    self._handle_state_change(entity_id, state)
+                            continue
+
                         if data.get("type") == "event":
                             event = data.get("event", {})
                             entity_id = event.get("data", {}).get("entity_id")
@@ -94,10 +119,14 @@ class HAWebSocketClient:
                 state_val = new_state.get("state")
                 # Emit entity change event
                 from backend.events import emit_ha_entity_change
+                # Filter attributes to avoid massive payloads (Rev U12)
+                allowed_attrs = {"friendly_name", "unit_of_measurement", "device_class", "state_class"}
+                filtered_attrs = {k: v for k, v in new_state.get("attributes", {}).items() if k in allowed_attrs}
+                
                 emit_ha_entity_change(
                     entity_id=entity_id,
                     state=state_val,
-                    attributes=new_state.get("attributes", {})
+                    attributes=filtered_attrs
                 )
             except Exception as e:
                 logger.error(f"Failed to emit vacation_mode change: {e}")
@@ -106,12 +135,12 @@ class HAWebSocketClient:
         # Handle numeric sensors (existing logic)
         try:
             state_val = new_state.get("state")
-            if state_val in ("unknown", "unavailable"):
+            if state_val is None or str(state_val).lower() in ("unknown", "unavailable", "none", "null", ""):
                 return
                 
             value = float(state_val)
             # Normalize units if needed (kW vs W)
-            unit = new_state.get("attributes", {}).get("unit_of_measurement", "")
+            unit = str(new_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
             if unit == "W":
                 value = value / 1000.0
             
@@ -120,6 +149,9 @@ class HAWebSocketClient:
             
             # Import here to avoid circular imports at module level
             from backend.events import emit_live_metrics
+            # Only log at info if it's a significant change or periodically to avoid spam
+            # For now, info is fine for debugging
+            logger.info(f"Emitting live_metrics: {payload}")
             emit_live_metrics(payload)
             
         except (ValueError, TypeError):
@@ -127,7 +159,15 @@ class HAWebSocketClient:
 
     def start(self):
         self.running = True
-        threading.Thread(target=lambda: asyncio.run(self.connect()), daemon=True).start()
+        # Use Socket.IO background task instead of threading.Thread for eventlet compatibility (Rev U23)
+        from backend.extensions import socketio
+        socketio.start_background_task(lambda: asyncio.run(self.connect()))
+
+    def reload_monitored_entities(self):
+        """Reload the monitored entities mapping from config.yaml and HA params from secrets.yaml."""
+        logger.info("Reloading HA configuration...")
+        self._load_config()
+        self.monitored_entities = self._get_monitored_entities()
 
 # Global instance
 _ha_client = None
@@ -137,3 +177,18 @@ def start_ha_socket_client():
     if _ha_client is None:
         _ha_client = HAWebSocketClient()
         _ha_client.start()
+
+def reload_ha_socket_client():
+    """Trigger a reload of the monitored entities in the running client."""
+    if _ha_client:
+        _ha_client.reload_monitored_entities()
+
+def get_ha_socket_status() -> dict:
+    """Return diagnostic info about HA WebSocket connection."""
+    if _ha_client is None:
+        return {"status": "not_started", "monitored_entities": {}}
+    return {
+        "status": "running" if _ha_client.running else "stopped",
+        "monitored_entities": _ha_client.monitored_entities,
+        "url": _ha_client.url,
+    }
