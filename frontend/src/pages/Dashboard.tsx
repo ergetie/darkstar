@@ -7,6 +7,7 @@ import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
+import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
 
@@ -578,13 +579,25 @@ export default function Dashboard() {
             if ((currentSlot.charge_kw || 0) > 0.1) action = `Charge ${currentSlot.charge_kw?.toFixed(1)}kW`
             else if ((currentSlot.discharge_kw || 0) > 0.1)
                 action = `Discharge ${currentSlot.discharge_kw?.toFixed(1)}kW`
-            else if ((currentSlot.export_kw || 0) > 0.1) action = `Export ${currentSlot.export_kw?.toFixed(1)}kW`
-            else if ((currentSlot.water_kw || 0) > 0.1) action = `Heat Water`
+            else if ((currentSlot.export_kwh || 0) > 0.1) action = `Export ${currentSlot.export_kwh?.toFixed(1)}kWh`
+            else if ((currentSlot.water_heating_kw || 0) > 0.1) action = `Heat Water`
 
             nextActionText = ` · Next: ${action} (${minutesLeft}m)`
         }
     }
     const planBadge = `${freshnessText}${nextActionText}`
+
+    // Derive last/next planner runs for automation card
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
+    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
+    const everyMinutes =
+        automationConfig?.every_minutes && automationConfig.every_minutes > 0 ? automationConfig.every_minutes : null
+    let nextRunDate: Date | null = null
+    if (schedulerStatus?.next_run_at) {
+        nextRunDate = new Date(schedulerStatus.next_run_at)
+    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
+        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
+    }
 
     // Base display variables
     // Rev DX1: Removed unused variables (socDisplay, pvDays, weatherDays, sIndexDisplay, termDisplay)
