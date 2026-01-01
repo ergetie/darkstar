@@ -60,13 +60,13 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 *All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*§
 
 
-### [IN PROGRESS] Rev UI5 — Dashboard Polish & Financials
+### [DONE] Rev UI5 — Dashboard Polish & Financials
 
 **Goal:** Transform the Dashboard from a live monitor into a polished financial tool with real-time energy visualization.
 
 ---
 
-#### Phase 1: Bug Fixes
+#### Phase 1: Bug Fixes [DONE]
 
 - [x] **Fix "Now Line" Alignment:** Debug and fix the issue where the "Now line" does not align with the current time/slot (varies between 24h and 48h views).
 - [x] **Fix "Cost Reality" Widget:** Restore "Plan Cost" series in the Cost Reality comparison widget.
@@ -83,23 +83,26 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 3: Chart Polish
+#### Phase 3: Chart Polish [DONE]
 
 - [x] Render `soc_target` as a step-line (not interpolated).
 - [x] Refactor "Now Line" to Chart.js Plugin (for Zoom compatibility).
 - [x] Implement mouse-wheel zoom for the main power chart.
 - [x] Add tooltips for Price series explaining "VAT + Fees" breakdown.
-- [ ] Visual Polish (Gradients, Annotations, Thresholds).
+- [ ] Visual Polish (Gradients, Annotations, Thresholds) - **Moved to Rev UI6**.
 
 ---
 
-#### Phase 4: Financial Analytics
-
-- [ ] Integrate `pricing.subscription_fee_sek_per_month` into the cost engine.
-- [ ] Calculate and display monthly ROI / Break-even metrics on Dashboard.
+#### Phase 4: Financial Analytics - **Moved to Rev UI6**
 
 ---
 
+### [PLANNED] Rev UI6 — Chart Makeover & Financials
 
+**Goal:** Achieve a "Teenage Engineering" aesthetic and complete the financial analytics.
 
-### NEXT REV HERE
+**Plan:**
+
+* [ ] **Chart Makeover**: Brainstorm and implement "OLED" aesthetic (Glow, Gradients, Dotted Grid).
+* [ ] **Financials**: Implement detailed cost and savings breakdown.
+* [ ] **Bug Fix**: Fix Dashboard settings persistence.
