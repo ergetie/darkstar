@@ -329,4 +329,57 @@ Created `/design-system` React route instead of static HTML (better: hot-reload,
 - [x] Archive unused pages to clean up noise
 - [x] Verify `pnpm build` passes
 
+---
+
+### [PLANNED] Rev DX2 — Settings.tsx Production-Grade Refactor
+
+**Goal:** Transform `Settings.tsx` (2,325 lines, 43 top-level items) from an unmaintainable monolith into a production-grade, type-safe, modular component architecture. This includes eliminating the blanket `eslint-disable` and achieving zero lint warnings.
+
+**Current Problems:**
+1. **Monolith**: Single 2,325-line file with 1 giant component (lines 977–2324)
+2. **Type Safety**: File starts with `/* eslint-disable @typescript-eslint/no-explicit-any */`
+3. **Code Duplication**: Repetitive JSX for each field type across 4 tabs
+4. **Testability**: Impossible to unit test individual tabs or logic
+5. **DX**: Any change risks breaking unrelated functionality
+
+**Target Architecture:**
+```
+frontend/src/pages/settings/
+├── index.tsx              ← Main layout + tab router (slim)
+├── SystemTab.tsx          ← System settings tab
+├── ParametersTab.tsx      ← Parameters settings tab
+├── UITab.tsx              ← UI/Theme settings tab
+├── AdvancedTab.tsx        ← Experimental features tab
+├── components/
+│   └── SettingsField.tsx  ← Generic field renderer (handles number|text|boolean|select|entity)
+├── hooks/
+│   └── useSettingsForm.ts ← Shared form state, dirty tracking, save/reset logic
+├── types.ts               ← Field definitions (SystemField, ParameterField, etc.)
+└── utils.ts               ← getDeepValue, setDeepValue, buildPatch helpers
+```
+
+**Plan:**
+- [ ] Phase 1: Extract `types.ts` and `utils.ts` from Settings.tsx
+- [ ] Phase 2: Create `useSettingsForm` custom hook
+- [ ] Phase 3: Create `SettingsField` generic renderer component
+- [ ] Phase 4: Split into 4 tab components (System, Parameters, UI, Advanced)
+- [ ] Phase 5: Create slim `index.tsx` with tab router
+- [ ] Phase 6: Remove `eslint-disable`, achieve zero warnings
+- [ ] Phase 7: Verification (lint, build, AI-driven UI validation)
+
+**Validation Criteria:**
+1. `pnpm lint` returns 0 errors, 0 warnings
+2. `pnpm build` succeeds
+3. AI browser-based validation: Navigate to Settings, switch all tabs, verify forms render
+4. No runtime console errors
+
+**Context for Next AI Session:**
+- **File to refactor**: `frontend/src/pages/Settings.tsx` (2,325 lines)
+- **Existing UI components**: `frontend/src/components/ui/` (Select, Modal, Toast, Switch, Banner, Badge)
+- **Design system**: See `frontend/src/pages/DesignSystem.tsx` for component showcase
+- **API types**: `frontend/src/lib/api.ts` contains `ConfigResponse` type
+- **Related backlog**: See `[UI] UX/UI Review` in `docs/BACKLOG.md`
+- **Lint config**: `frontend/eslint.config.js`, run with `pnpm lint`
+- **Build**: `pnpm build` outputs to `backend/static/`
+
 ### NEXT REV HERE
