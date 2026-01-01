@@ -5,17 +5,8 @@ name: Build HA Add-on
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'backend/**'
-      - 'frontend/**'
-      - 'planner/**'
-      - 'executor/**'
-      - 'ml/**'
-      - 'darkstar/**'
-      - 'requirements.txt'
-      - '.github/workflows/build-addon.yml'
+    tags:
+      - 'v*'
   release:
     types: [published]
   workflow_dispatch:
@@ -52,10 +43,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version from config.yaml
+      - name: Extract version
         id: version
         run: |
-          VERSION=$(grep -E '^version:' darkstar/config.yaml | sed 's/version: *"\(.*\)"/\1/')
+          if [[ $GITHUB_REF == refs/tags/v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "Building version $VERSION from tag $GITHUB_REF"
+          else
+            VERSION=$(grep -E '^version:' darkstar/config.yaml | sed 's/version: *"\(.*\)"/\1/')
+            echo "Building version $VERSION from config.yaml (manual trigger)"
+          fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx

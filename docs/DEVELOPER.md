@@ -265,6 +265,7 @@ pnpm run dev  # OR run backend/scheduler separately
        git tag vX.Y.Z
        git push origin vX.Y.Z
        ```
+       (This automatically triggers the CI/CD build.)
     The sidebar fetches version from `/api/version` which uses `git describe --tags`.
 
 ## License

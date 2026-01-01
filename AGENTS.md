@@ -125,6 +125,8 @@ When releasing a new version:
 2. **Create git tag**: `git tag vX.Y.Z`
 3. **Push tag**: `git push origin vX.Y.Z`
 
+> **Note**: The CI/CD pipeline (`build-addon.yml`) is triggered **automatically** when you push a tag starting with `v`. It will build the Docker image and publish it to GHCR with the `X.Y.Z` tag and `latest`.
+
 The sidebar version is fetched from `/api/version` which uses `git describe --tags`. Without a proper tag, it shows `vX.Y.Z-N-ghash` format.
 
 ### Tooling
