@@ -157,7 +157,18 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 - Mobile responsiveness audit
 
 ---
+---
 
+### [Settings] Advanced Config Audit
+
+**Goal:** Identify missing config keys that are not yet exposed in the UI and move advanced keys to the "Advanced" tab.
+
+**Tasks:**
+- Audit `config.yaml` for keys missing in `Settings.tsx`
+- Identify keys in "System" or "Parameters" tabs that belong in "Advanced"
+- Implement changes in `Settings.tsx`
+
+---
 ### [Planner] Proactive PV Dump (Water Heating)
 
 **Goal:** Schedule water heating to `temp_max` proactively when PV surplus is forecasted.
