@@ -280,6 +280,18 @@ HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy
 
 ---
 
+### [Planner] Robustness: Schedule Persistence and Retry on Failure
+
+**Goal:** Prevent the application from wiping the existing schedule when the planner fails (e.g., due to API connection errors like 502) and implement a shorter retry interval for failed runs.
+
+**Notes:**
+- Current behavior seems to clear the schedule when an error occurs during planning.
+- Need a fallback to keep the last valid schedule if a new one cannot be generated.
+- Implement a faster retry loop (e.g., every 5-15 mins) if the primary run fails, instead of waiting for the next full hourly run.
+- Investigate the source of "error 502" mentioned by the user (likely API gateway or upstream connection issues).
+
+---
+
 ## ⏸️ On Hold
 
 ### Rev 63 — Export What-If Simulator
