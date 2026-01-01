@@ -125,7 +125,7 @@ export default function Debug() {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `SoC: ${ctx.parsed.y?.toFixed(1) ?? '--'}%`,
+                        label: (ctx: { parsed: { y: number | null } }) => `SoC: ${ctx.parsed.y?.toFixed(1) ?? '--'}%`,
                     },
                 },
             },
@@ -144,7 +144,7 @@ export default function Debug() {
         }
 
         if (socChartRef.current) {
-            socChartRef.current.data = data as any
+            socChartRef.current.data = data
             socChartRef.current.options = options
             socChartRef.current.update()
             return
@@ -152,7 +152,7 @@ export default function Debug() {
 
         socChartRef.current = new ChartJS(socCanvasRef.current, {
             type: 'line',
-            data: data as any,
+            data: data,
             options,
         })
 

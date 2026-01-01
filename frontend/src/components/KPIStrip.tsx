@@ -1,4 +1,5 @@
 import { TrendingDown, TrendingUp, Target, Zap, DollarSign, Activity } from 'lucide-react'
+import type { AuroraPerformanceData } from '../lib/api'
 import Card from './Card'
 
 interface KPIStripProps {
@@ -7,13 +8,7 @@ interface KPIStripProps {
         mae_load_aurora?: number | null
         max_price_spread?: number | null
     }
-    perfData?: {
-        cost_series: Array<{
-            date: string
-            planned: number
-            realized: number
-        }>
-    }
+    perfData?: AuroraPerformanceData | null
 }
 
 export default function KPIStrip({ metrics, perfData }: KPIStripProps) {

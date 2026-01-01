@@ -1,11 +1,11 @@
 import { useMemo } from 'react'
-import { Brain, CloudRain, Zap, GraduationCap, Info, Upload, Shield, Coffee, TrendingUp, Battery } from 'lucide-react'
+import { Brain, CloudRain, Zap, GraduationCap, Info, Upload, Shield, Coffee, TrendingUp } from 'lucide-react'
 
 interface StrategyEvent {
     timestamp: string
     type: string
     message: string
-    details?: Record<string, any>
+    details?: Record<string, unknown>
 }
 
 interface ActivityLogProps {

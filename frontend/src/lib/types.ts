@@ -33,12 +33,18 @@ export type AuroraGraduation = {
 export type AuroraRiskProfile = {
     persona: string
     base_factor: number
+    risk_appetite?: number
     current_factor?: number | null
     raw_factor?: number | null
     mode?: string
     max_factor?: number | null
     static_factor?: number | null
-    raw?: Record<string, any>
+    raw?: Record<string, unknown>
+}
+
+export type AuroraPerformanceData = {
+    soc_series: { time: string; planned: number; actual: number }[]
+    cost_series: { date: string; planned: number; realized: number }[]
 }
 
 export type AuroraWeatherVolatility = {
@@ -94,7 +100,7 @@ export type StrategyEvent = {
     timestamp: string
     type: string
     message: string
-    details?: Record<string, any>
+    details?: Record<string, unknown>
 }
 
 export type AuroraDashboardResponse = {
@@ -119,4 +125,13 @@ export type AuroraDashboardResponse = {
         forecast_bias?: number | null
     }
     generated_at: string
+}
+
+export type ToastVariant = 'success' | 'error' | 'warning' | 'info'
+
+export interface Toast {
+    id: string
+    message: string
+    description?: string
+    variant: ToastVariant
 }

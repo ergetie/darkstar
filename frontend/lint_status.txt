@@ -1,0 +1,91 @@
+
+> darkstar-sandbox@2.1.1 lint /home/s/sync/documents/projects/darkstar/frontend
+> eslint . --report-unused-disable-directives --max-warnings 0
+
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ChartCard.tsx
+   80:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   81:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   82:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  295:23  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  296:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  316:10  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  437:43  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  468:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  484:43  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  707:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  708:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  846:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  847:41  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  924:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/CorrectionHistoryChart.tsx
+  47:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  52:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/DecompositionChart.tsx
+   55:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  115:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ui/Toast.tsx
+  81:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/home/s/sync/documents/projects/darkstar/frontend/src/lib/api.ts
+  141:24  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  143:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  175:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  179:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  180:51  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  181:49  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  182:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  183:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  195:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  213:13  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  218:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  219:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  224:12  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  253:91  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  277:42  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  289:80  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  300:31  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  318:33  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  319:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  332:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  335:31  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  336:28  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  351:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  353:25  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  354:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/lib/hooks.ts
+  4:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Aurora.tsx
+   49:46  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   56:52  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   61:46  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  189:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  198:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  213:50  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  217:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  223:56  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  224:67  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  765:72  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Dashboard.tsx
+   14:79  warning  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  136:49  warning  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  137:45  warning  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  144:42  warning  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  148:45  warning  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  149:39  warning  Unexpected any. Specify a different type         @typescript-eslint/no-explicit-any
+  285:23  warning  'todaySlots' is assigned a value but never used  @typescript-eslint/no-unused-vars
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Debug.tsx
+  147:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  155:27  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 64 problems (0 errors, 64 warnings)
+
+ESLint found too many warnings (maximum: 0).
+ ELIFECYCLE  Command failed with exit code 1.

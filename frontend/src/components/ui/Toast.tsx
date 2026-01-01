@@ -1,22 +1,9 @@
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react'
+import { useState, useCallback, ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { X, CheckCircle, AlertTriangle, Info, AlertCircle } from 'lucide-react'
+import type { Toast, ToastVariant } from '../../lib/types'
 
-export type ToastVariant = 'success' | 'error' | 'warning' | 'info'
-
-interface Toast {
-    id: string
-    message: string
-    description?: string
-    variant: ToastVariant
-}
-
-interface ToastContextType {
-    toast: (props: Omit<Toast, 'id'>) => void
-    dismiss: (id: string) => void
-}
-
-const ToastContext = createContext<ToastContextType | undefined>(undefined)
+import { ToastContext } from '../../lib/useToast'
 
 /**
  * Toast Provider
@@ -78,24 +65,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     )
 }
 
-export function useToast() {
-    const context = useContext(ToastContext)
-    if (context === undefined) {
-        throw new Error('useToast must be used within a ToastProvider')
-    }
-    return context
-}
-
 function getToastStyles(variant: ToastVariant): string {
     switch (variant) {
         case 'success':
-            return 'bg-surface2 border-good text-text' // Using border color for accent
+            return 'bg-surface2 border-good text-text'
         case 'error':
             return 'bg-bad text-white border-bad'
         case 'warning':
             return 'bg-warn text-black border-warn'
         case 'info':
             return 'bg-surface2 border-line text-text'
+        default:
+            return ''
     }
 }
 
@@ -109,5 +90,7 @@ function getToastIcon(variant: ToastVariant) {
             return <AlertTriangle className="h-5 w-5 text-black" />
         case 'info':
             return <Info className="h-5 w-5 text-accent" />
+        default:
+            return null
     }
 }

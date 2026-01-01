@@ -407,7 +407,7 @@ export default function Executor() {
             try {
                 const liveRes = await executorApi.live()
                 setLive(liveRes)
-            } catch (e) {
+            } catch {
                 // ignore
             }
         }
@@ -420,7 +420,7 @@ export default function Executor() {
             try {
                 const notifRes = await executorApi.notifications.get()
                 setNotifications(notifRes)
-            } catch (e) {
+            } catch {
                 // Silently fail
             }
         }

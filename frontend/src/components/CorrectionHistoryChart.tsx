@@ -1,4 +1,4 @@
-import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend } from 'chart.js'
+import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Tooltip, Legend, TooltipItem } from 'chart.js'
 import { Bar } from 'react-chartjs-2'
 import type { AuroraHistoryDay } from '../lib/types'
 
@@ -44,12 +44,12 @@ export default function CorrectionHistoryChart({ history, impactTrend }: Props) 
                 bodyColor: '#e5e7eb',
                 padding: 8,
                 callbacks: {
-                    title(context: any) {
+                    title(context: TooltipItem<'bar'>[]) {
                         const idx = context[0].dataIndex
                         const raw = history[idx]
                         return raw?.date ?? ''
                     },
-                    label(context: any) {
+                    label(context: TooltipItem<'bar'>) {
                         const v = context.parsed.y
                         return `Total correction: ${typeof v === 'number' ? v.toFixed(2) : v} kWh`
                     },

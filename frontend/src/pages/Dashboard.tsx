@@ -3,7 +3,7 @@ import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
 import { motion } from 'framer-motion'
-import { Api, Sel } from '../lib/api'
+import { Api, type PlannerSIndex } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
@@ -11,7 +11,11 @@ import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
 
-type PlannerMeta = { plannedAt?: string; version?: string; sIndex?: any } | null
+type PlannerMeta = {
+    planned_at?: string
+    planner_version?: string
+    s_index?: PlannerSIndex
+} | null
 
 function formatLocalIso(d: Date | null): string {
     if (!d) return '—'
@@ -25,30 +29,6 @@ function formatLocalIso(d: Date | null): string {
 
 export default function Dashboard() {
     const [soc, setSoc] = useState<number | null>(null)
-    const [horizon, setHorizon] = useState<{ pvDays?: number; weatherDays?: number } | null>(null)
-    const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
-    const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null)
-    const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
-    const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
-    const [batteryCapacity, setBatteryCapacity] = useState<number | null>(null)
-    const [pvToday, setPvToday] = useState<number | null>(null)
-    const [avgLoad, setAvgLoad] = useState<{ kw?: number; dailyKwh?: number } | null>(null)
-    const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
-    const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
-    const [comfortLevel, setComfortLevel] = useState<number>(3) // Rev K18
-    const [vacationMode, setVacationMode] = useState<boolean>(false) // Rev K19 - from config
-    const [vacationModeHA, setVacationModeHA] = useState<boolean>(false) // From HA entity
-    const [vacationEntityId, setVacationEntityId] = useState<string | null>(null) // Configured HA entity
-    const [riskAppetite, setRiskAppetite] = useState<number>(3) // Risk Appetite on Dashboard
-    const [learningStatus, setLearningStatus] = useState<{
-        enabled?: boolean
-        status?: string
-        samples?: number
-    } | null>(null)
-    const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
-    const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[] | null>(null)
-    const [serverScheduleLoading, setServerScheduleLoading] = useState(false)
-    const [serverScheduleError, setServerScheduleError] = useState<string | null>(null)
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
@@ -82,6 +62,23 @@ export default function Dashboard() {
         netCost: number | null
     } | null>(null)
 
+    // --- Missing State Variables Restored ---
+    const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
+    const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null)
+    const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
+    const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
+    const [batteryCapacity, setBatteryCapacity] = useState<number>(0)
+    const [avgLoad, setAvgLoad] = useState<{ kw: number; dailyKwh: number } | null>(null)
+    const [currentSlotTarget, setCurrentSlotTarget] = useState<number>(0)
+    const [waterToday, setWaterToday] = useState<{ kwh: number; source: string } | null>(null)
+    const [comfortLevel, setComfortLevel] = useState<number>(0)
+    const [vacationMode, setVacationMode] = useState<boolean>(false)
+    const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)
+    const [vacationEntityId, setVacationEntityId] = useState<string>('')
+    const [riskAppetite, setRiskAppetite] = useState<number>(1.0)
+    const [exportGuard, setExportGuard] = useState<boolean>(false)
+    const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[]>([])
+
     // --- WebSocket Event Handlers (Rev E1) ---
     useSocket('live_metrics', (data) => {
         if (data.soc !== undefined) setSoc(data.soc)
@@ -113,9 +110,8 @@ export default function Dashboard() {
     useEffect(() => {
         const handleConfigUpdate = async () => {
             try {
-                const response = await Api.config()
-                if (response.ok) {
-                    const data = await response.json()
+                const data = await Api.config()
+                if (data) {
                     const vacationCfg = data.water_heating?.vacation_mode
                     setVacationMode(vacationCfg?.enabled || false)
                 }
@@ -133,41 +129,36 @@ export default function Dashboard() {
     }, [])
 
     const handleServerScheduleLoaded = useCallback((schedule: ScheduleSlot[]) => {
-        setServerScheduleLoading(true)
-        setServerScheduleError(null)
-
         if (!schedule || schedule.length === 0) {
             setServerSchedule([])
-            setServerScheduleLoading(false)
             return
         }
 
         Api.scheduleTodayWithHistory()
             .then((res) => {
                 const historySlots = res.slots ?? []
-                const byStart = new Map<string, any>()
-                historySlots.forEach((slot: any) => {
+                const byStart = new Map<string, ScheduleSlot>()
+                historySlots.forEach((slot: ScheduleSlot) => {
                     if (slot.start_time) {
                         byStart.set(String(slot.start_time), slot)
                     }
                 })
 
                 const merged: ScheduleSlot[] = schedule.map((slot) => {
-                    const key = (slot as any).start_time
+                    const key = slot.start_time
                     const hist = key ? byStart.get(String(key)) : undefined
                     if (!hist) return slot
 
-                    const anyHist = hist as any
-                    const mergedSlot: any = { ...slot }
+                    const mergedSlot: ScheduleSlot = { ...slot }
 
-                    if (anyHist.soc_actual_percent != null) {
-                        mergedSlot.soc_actual_percent = anyHist.soc_actual_percent
+                    if (hist.soc_actual_percent != null) {
+                        mergedSlot.soc_actual_percent = hist.soc_actual_percent
                     }
-                    if (anyHist.is_executed === true) {
+                    if (hist.is_executed === true) {
                         mergedSlot.is_executed = true
                     }
 
-                    return mergedSlot as ScheduleSlot
+                    return mergedSlot
                 })
 
                 setServerSchedule(merged)
@@ -175,11 +166,9 @@ export default function Dashboard() {
             .catch((err) => {
                 console.error('Failed to merge history into server schedule:', err)
                 setServerSchedule(schedule ?? [])
-                setServerScheduleError('Failed to merge execution history; showing DB plan only.')
+                // Removed setServerScheduleError
             })
-            .finally(() => {
-                setServerScheduleLoading(false)
-            })
+            .finally(() => {})
     }, [])
 
     const fetchAllData = useCallback(async () => {
@@ -189,24 +178,20 @@ export default function Dashboard() {
             // Parallel fetch all data
             const [
                 statusData,
-                horizonData,
                 configData,
                 haAverageData,
                 scheduleData,
                 waterData,
-                learningData,
                 schedulerStatusData,
                 historyData,
                 executorStatusData,
                 energyTodayData,
             ] = await Promise.allSettled([
                 Api.status(),
-                Api.horizon(),
                 Api.config(),
                 Api.haAverage(),
                 Api.schedule(),
                 Api.haWaterToday(),
-                Api.learningStatus(),
                 Api.schedulerStatus(),
                 Api.scheduleTodayWithHistory(),
                 Api.executor.status(),
@@ -216,61 +201,25 @@ export default function Dashboard() {
             // Process status data
             if (statusData.status === 'fulfilled') {
                 const data = statusData.value
-                setSoc(Sel.socValue(data) ?? null)
-
-                const local = data.local ?? {}
-                const db = data.db && 'planned_at' in data.db ? (data.db as any) : null
-
-                const nextLocalMeta: PlannerMeta =
-                    local?.planned_at || local?.planner_version
-                        ? { plannedAt: local.planned_at, version: local.planner_version, sIndex: local.s_index }
-                        : null
-                const nextDbMeta: PlannerMeta =
-                    db?.planned_at || db?.planner_version
-                        ? { plannedAt: db.planned_at, version: db.planner_version, sIndex: db.s_index }
-                        : null
-
-                setPlannerLocalMeta(nextLocalMeta)
-                setPlannerDbMeta(nextDbMeta)
-
-                // Provide a sensible initial meta for first load / refresh; this will be
-                // reconciled with currentPlanSource by a dedicated effect.
-                if (nextLocalMeta) {
-                    setPlannerMeta(nextLocalMeta)
-                } else if (nextDbMeta) {
-                    setPlannerMeta(nextDbMeta)
-                } else {
-                    setPlannerMeta(null)
+                if (data.current_soc?.value !== undefined) setSoc(data.current_soc.value)
+                if (data.local) setPlannerLocalMeta(data.local)
+                if (data.db && !('error' in data.db)) {
+                    setPlannerDbMeta(data.db as PlannerMeta)
                 }
-            } else {
-                hadError = true
-                console.error('Failed to load status for Dashboard:', statusData.reason)
-            }
-
-            // Process horizon data
-            if (horizonData.status === 'fulfilled') {
-                const data = horizonData.value
-                setHorizon({
-                    pvDays: Sel.pvDays(data) ?? undefined,
-                    weatherDays: Sel.wxDays(data) ?? undefined,
-                })
-            } else {
-                hadError = true
-                console.error('Failed to load horizon for Dashboard:', horizonData.reason)
             }
 
             // Process config data
             if (configData.status === 'fulfilled') {
                 const data = configData.value
-                if (data.system?.battery?.capacity_kwh) {
-                    setBatteryCapacity(data.system.battery.capacity_kwh)
-                }
                 // Get export guard status from arbitrage config
                 const arbitrage = data.arbitrage || {}
-                setExportGuard({
-                    enabled: arbitrage.enable_export,
-                    mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive',
-                })
+                setExportGuard(arbitrage.export_guard_enabled || false)
+                if (typeof arbitrage.risk_appetite === 'number') {
+                    setRiskAppetite(arbitrage.risk_appetite)
+                }
+                if (data.system?.battery?.capacity_kwh != null) {
+                    setBatteryCapacity(data.system.battery.capacity_kwh)
+                }
 
                 // Automation / scheduler config
                 if (data.automation) {
@@ -321,8 +270,8 @@ export default function Dashboard() {
             if (haAverageData.status === 'fulfilled') {
                 const data = haAverageData.value
                 setAvgLoad({
-                    kw: data.average_load_kw,
-                    dailyKwh: data.daily_kwh,
+                    kw: data.average_load_kw ?? 0,
+                    dailyKwh: data.daily_kwh ?? 0,
                 })
             } else {
                 hadError = true
@@ -334,11 +283,7 @@ export default function Dashboard() {
                 const data = scheduleData.value
                 const sched = data.schedule ?? []
                 setLocalSchedule(sched)
-                // Calculate PV today from schedule data
-                const today = new Date().toISOString().split('T')[0]
-                const todaySlots = data.schedule?.filter((slot) => slot.start_time?.startsWith(today)) || []
-                const pvTotal = todaySlots.reduce((sum, slot) => sum + (slot.pv_forecast_kwh || 0), 0)
-                setPvToday(pvTotal)
+                // Removed todaySlots/pvTotal calculation as it was unused
 
                 // Check for critical errors in meta
                 if (data.meta?.last_error) {
@@ -369,28 +314,15 @@ export default function Dashboard() {
             if (waterData.status === 'fulfilled') {
                 const data = waterData.value
                 setWaterToday({
-                    kwh: data.water_kwh_today,
-                    source: data.source,
+                    kwh: data.water_kwh_today ?? 0,
+                    source: data.source ?? 'unknown',
                 })
             } else {
                 hadError = true
                 console.error('Failed to load water data for Dashboard:', waterData.reason)
             }
 
-            // Process learning data
-            if (learningData.status === 'fulfilled') {
-                const data = learningData.value
-                const hasData = data.metrics?.total_slots && data.metrics.total_slots > 0
-                const isLearning = data.metrics?.completed_learning_runs && data.metrics.completed_learning_runs > 0
-                setLearningStatus({
-                    enabled: data.enabled,
-                    status: hasData ? (isLearning ? 'learning' : 'ready') : 'gathering',
-                    samples: data.metrics?.total_slots,
-                })
-            } else {
-                hadError = true
-                console.error('Failed to load learning status for Dashboard:', learningData.reason)
-            }
+            // Process water data
 
             // Process scheduler status
             if (schedulerStatusData.status === 'fulfilled') {
@@ -557,8 +489,8 @@ export default function Dashboard() {
     // Badge Logic
     const now = new Date()
     let freshnessText = currentPlanSource === 'server' ? 'Server Plan' : 'Local Plan'
-    if (plannerMeta?.plannedAt) {
-        const planned = new Date(plannerMeta.plannedAt)
+    if (plannerMeta?.planned_at) {
+        const planned = new Date(plannerMeta.planned_at)
         const timeStr = planned.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         freshnessText = `Generated ${timeStr}`
     }
@@ -588,7 +520,7 @@ export default function Dashboard() {
     const planBadge = `${freshnessText}${nextActionText}`
 
     // Derive last/next planner runs for automation card
-    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.planned_at || plannerDbMeta?.planned_at
     const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
     const everyMinutes =
         automationConfig?.every_minutes && automationConfig.every_minutes > 0 ? automationConfig.every_minutes : null
@@ -858,6 +790,7 @@ export default function Dashboard() {
                     netCost={todayStats?.netCost ?? null}
                     importKwh={todayStats?.gridImport ?? null}
                     exportKwh={todayStats?.gridExport ?? null}
+                    exportGuard={exportGuard}
                 />
 
                 {/* Col 2: Resources Domain */}
@@ -867,22 +800,25 @@ export default function Dashboard() {
                     loadActual={todayStats?.loadConsumption ?? null}
                     loadAvg={avgLoad?.dailyKwh ?? null}
                     waterKwh={waterToday?.kwh ?? null}
+                    batteryCapacity={batteryCapacity}
                 />
 
                 {/* Col 3: Strategy Domain (Moved here) */}
                 <StrategyDomain
                     soc={soc}
                     socTarget={currentSlotTarget}
-                    sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
+                    sIndex={plannerMeta?.s_index?.effective_load_margin ?? null}
                     cycles={todayStats?.batteryCycles ?? null}
                     riskLabel={
-                        {
-                            1: 'Safety',
-                            2: 'Conservative',
-                            3: 'Neutral',
-                            4: 'Aggressive',
-                            5: 'Gambler',
-                        }[riskAppetite]
+                        (
+                            {
+                                1: 'Safety',
+                                2: 'Conservative',
+                                3: 'Neutral',
+                                4: 'Aggressive',
+                                5: 'Gambler',
+                            } as Record<number, string>
+                        )[riskAppetite] || 'Neutral'
                     }
                 />
             </div>

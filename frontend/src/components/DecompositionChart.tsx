@@ -7,19 +7,23 @@ import {
     BarElement,
     Tooltip,
     Legend,
+    ScriptableContext,
+    TooltipItem,
+    ChartData,
+    ChartConfiguration,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 import type { AuroraHorizonSlot } from '../lib/types'
 
 ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip, Legend)
 
-type Props = {
+interface Props {
     slots: AuroraHorizonSlot[]
-    mode: 'load' | 'pv'
+    mode: 'pv' | 'load'
     highlightIndex?: number | null
 }
 
-export default function DecompositionChart({ slots, mode, highlightIndex }: Props) {
+export default function DecompositionChart({ slots, mode }: Props) {
     if (!slots || slots.length === 0) {
         return <div className="text-[11px] text-muted px-4 py-6">No forecast data available for the next 48 hours.</div>
     }
@@ -28,126 +32,94 @@ export default function DecompositionChart({ slots, mode, highlightIndex }: Prop
         new Date(s.slot_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     )
 
-    const isLoad = mode === 'load'
-
-    const baseSeries = slots.map((s) => (isLoad ? s.base.load_kwh : s.base.pv_kwh))
-    const finalSeries = slots.map((s) => (isLoad ? s.final.load_kwh : s.final.pv_kwh))
-    const correctionSeries = slots.map((s) => (isLoad ? s.correction.load_kwh : s.correction.pv_kwh))
-
-    const correctionColors = correctionSeries.map((v, idx) => {
-        const baseColor = v >= 0 ? 'rgba(34, 197, 94, 0.8)' : 'rgba(239, 68, 68, 0.8)'
-        if (typeof highlightIndex === 'number' && idx === highlightIndex) {
-            return v >= 0 ? 'rgba(34, 197, 94, 0.9)' : 'rgba(239, 68, 68, 0.9)'
-        }
-        return baseColor
-    })
-
-    const data = {
+    const data: ChartData<'line' | 'bar'> = {
         labels,
         datasets: [
             {
-                type: 'line' as const,
-                label: isLoad ? 'Base load (kWh)' : 'Base solar (kWh)',
-                data: baseSeries,
-                borderColor: 'rgba(148, 163, 184, 0.9)',
-                // Vertical gradient fill under the base forecast line
-
-                backgroundColor: (context: any) => {
-                    const chart = context.chart
-                    const { ctx, chartArea } = chart
-                    if (!chartArea) return 'rgba(56, 189, 248, 0.18)'
-                    const gradient = ctx.createLinearGradient(0, chartArea.bottom, 0, chartArea.top)
+                type: 'line',
+                label: mode === 'pv' ? 'Final PV' : 'Final Load',
+                data: slots.map((s) => (mode === 'pv' ? s.final.pv_kwh : s.final.load_kwh)),
+                borderColor: mode === 'pv' ? '#22c55e' : '#f97316',
+                backgroundColor: (context: ScriptableContext<'line'>) => {
+                    const ctx = context.chart.ctx
+                    const gradient = ctx.createLinearGradient(0, 0, 0, 200)
                     gradient.addColorStop(0, 'rgba(15, 23, 42, 0.0)')
-                    gradient.addColorStop(0.5, 'rgba(56, 189, 248, 0.12)')
-                    gradient.addColorStop(1, 'rgba(56, 189, 248, 0.25)')
+                    gradient.addColorStop(1, mode === 'pv' ? 'rgba(34, 197, 94, 0.1)' : 'rgba(249, 115, 22, 0.1)')
                     return gradient
                 },
-                borderWidth: 1.5,
-                tension: 0.4,
-                pointRadius: 0,
-                fill: 'origin',
-            },
-            {
-                type: 'line' as const,
-                label: isLoad ? 'Final load (kWh)' : 'Final solar (kWh)',
-                data: finalSeries,
-                borderColor: 'rgba(59, 130, 246, 0.98)',
-                backgroundColor: 'rgba(59, 130, 246, 0.3)',
                 borderWidth: 2,
-                borderDash: [4, 3],
                 tension: 0.4,
                 pointRadius: 0,
+                fill: true,
             },
             {
-                type: 'bar' as const,
-                label: isLoad ? 'Load correction (kWh)' : 'Solar correction (kWh)',
-                data: correctionSeries,
-                backgroundColor: correctionColors,
-                borderColor: correctionColors,
-                borderWidth: 0,
+                type: 'bar',
+                label: 'Base',
+                data: slots.map((s) => (mode === 'pv' ? s.base.pv_kwh : s.base.load_kwh)),
+                backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                borderWidth: 1,
+                borderRadius: 2,
+                yAxisID: 'y',
+            },
+            {
+                type: 'bar',
+                label: 'Correction',
+                data: slots.map((s) => (mode === 'pv' ? s.correction.pv_kwh : s.correction.load_kwh)),
+                backgroundColor: mode === 'pv' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(249, 115, 22, 0.2)',
+                borderRadius: 2,
                 yAxisID: 'y',
             },
         ],
     }
 
-    const options = {
+    const options: ChartConfiguration<'line' | 'bar'>['options'] = {
         responsive: true,
         maintainAspectRatio: false,
-        interaction: {
-            mode: 'index' as const,
-            intersect: false,
-        },
         plugins: {
-            legend: {
-                labels: {
-                    color: '#e5e7eb',
-                    font: { size: 10 },
-                },
-            },
+            legend: { display: false },
             tooltip: {
-                backgroundColor: '#020617',
-                borderColor: '#4b5563',
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                titleColor: 'rgba(255, 255, 255, 0.9)',
+                bodyColor: 'rgba(255, 255, 255, 0.7)',
+                borderColor: 'rgba(255, 255, 255, 0.1)',
                 borderWidth: 1,
-                titleColor: '#e5e7eb',
-                bodyColor: '#e5e7eb',
-                padding: 8,
+                padding: 10,
                 callbacks: {
-                    label(context: any) {
-                        const label = context.dataset.label || ''
-                        const value = context.parsed.y
-                        return `${label}: ${typeof value === 'number' ? value.toFixed(2) : value}`
+                    label: (context: TooltipItem<'line' | 'bar'>) => {
+                        let label = context.dataset.label || ''
+                        if (label) label += ': '
+                        if (context.parsed.y !== null) {
+                            label += context.parsed.y.toFixed(3) + ' kWh'
+                        }
+                        return label
                     },
                 },
             },
         },
         scales: {
             x: {
-                ticks: {
-                    color: '#9ca3af',
-                    maxRotation: 0,
-                    autoSkip: true,
-                    maxTicksLimit: 12,
-                    font: { size: 9 },
-                },
-                grid: {
-                    display: false,
-                },
+                grid: { display: false },
+                ticks: { color: '#64748b', font: { size: 10 }, maxTicksLimit: 8 },
             },
             y: {
-                ticks: {
-                    color: '#9ca3af',
-                    font: { size: 9 },
-                },
-                grid: {
-                    display: false,
-                },
+                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                ticks: { color: '#64748b', font: { size: 10 } },
             },
+        },
+        interaction: {
+            intersect: false,
+            mode: 'index',
         },
     }
 
     return (
-        <div className="w-full h-60 transition-opacity duration-300">
-            <Line key={mode} data={data} options={options} />
+        <div className="w-full h-full min-h-[240px]">
+            <Line
+                key={mode}
+                data={data as unknown as ChartData<'line'>}
+                options={options as unknown as ChartConfiguration<'line'>['options']}
+            />
         </div>
     )
 }

@@ -12,7 +12,7 @@ import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
 import { Banner, Badge } from '../components/ui/Banner'
 import Switch from '../components/ui/Switch'
-import { useToast } from '../components/ui/Toast'
+import { useToast } from '../lib/useToast'
 
 export default function DesignSystem() {
     const { toast } = useToast()

@@ -1,0 +1,119 @@
+
+> darkstar-sandbox@2.1.1 lint /home/s/sync/documents/projects/darkstar/frontend
+> eslint . --report-unused-disable-directives --max-warnings 0
+
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ActivityLog.tsx
+  8:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ChartCard.tsx
+   80:44  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+   81:36  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+   82:44  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  295:23  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  296:30  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  316:10  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  388:8   warning  React Hook useEffect has a missing dependency: 'overlays.socActual'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  437:43  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  468:41  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  484:43  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  707:41  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  708:41  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  846:41  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  847:41  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+  924:54  warning  Unexpected any. Specify a different type                                                                               @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/CorrectionHistoryChart.tsx
+  47:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  52:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/DecompositionChart.tsx
+   55:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  115:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/Sidebar.tsx
+  8:72  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/SmartAdvisor.tsx
+   20:25  warning  Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+   68:8   warning  React Hook useEffect has a missing dependency: 'fetchAdvice'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  136:52  warning  Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ui/Toast.tsx
+  81:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/home/s/sync/documents/projects/darkstar/frontend/src/lib/api.ts
+  137:24  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  139:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  171:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  175:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  176:51  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  177:49  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  178:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  179:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  191:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  209:13  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  214:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  215:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  220:12  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  249:91  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  273:42  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  285:80  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  296:31  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  314:33  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  315:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  328:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  331:31  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  332:28  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  347:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  349:25  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  350:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/lib/hooks.ts
+  4:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Aurora.tsx
+    1:30  warning  'useRef' is defined but never used                   @typescript-eslint/no-unused-vars
+   49:46  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   56:52  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+   61:46  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  162:11  warning  'riskLabelValue' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  195:55  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  204:55  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  219:50  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  223:56  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  229:56  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  230:67  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  771:72  warning  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Dashboard.tsx
+   14:79   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+   67:12   warning  'pvToday' is assigned a value but never used                   @typescript-eslint/no-unused-vars
+   78:12   warning  'serverScheduleLoading' is assigned a value but never used     @typescript-eslint/no-unused-vars
+   78:35   warning  'setServerScheduleLoading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   79:12   warning  'serverScheduleError' is assigned a value but never used       @typescript-eslint/no-unused-vars
+  139:49   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  140:45   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  147:42   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  151:45   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  152:39   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  171:29   error    Delete `·`                                                     prettier/prettier
+  181:17   warning  'horizonData' is assigned a value but never used               @typescript-eslint/no-unused-vars
+  186:17   warning  'learningData' is assigned a value but never used              @typescript-eslint/no-unused-vars
+  653:105  error    Insert `⏎····································`                 prettier/prettier
+  656:1    error    Delete `····`                                                  prettier/prettier
+  722:96   error    Insert `⏎················································`     prettier/prettier
+  725:1    error    Delete `····`                                                  prettier/prettier
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Debug.tsx
+  147:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  155:27  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Executor.tsx
+  410:22  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+  423:22  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 84 problems (5 errors, 79 warnings)
+  5 errors and 0 warnings potentially fixable with the `--fix` option.
+
+ ELIFECYCLE  Command failed with exit code 1.

@@ -1,0 +1,178 @@
+
+> darkstar-sandbox@2.1.1 lint /home/s/sync/documents/projects/darkstar/frontend
+> eslint . --report-unused-disable-directives --max-warnings 0
+
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ActivityLog.tsx
+  8:30  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ChartCard.tsx
+   80:44   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   81:36   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+   82:44   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  295:10   error    Delete `·`                                      prettier/prettier
+  295:24   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  296:30   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  316:10   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  437:43   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  468:41   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  484:22   error    Delete `·`                                      prettier/prettier
+  484:44   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  523:131  error    Insert `⏎····································`  prettier/prettier
+  526:1    error    Delete `····`                                   prettier/prettier
+  532:131  error    Insert `⏎····································`  prettier/prettier
+  535:1    error    Delete `····`                                   prettier/prettier
+  572:73   error    Insert `⏎································`      prettier/prettier
+  575:1    error    Delete `····`                                   prettier/prettier
+  704:41   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  705:41   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  843:41   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  844:41   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  921:54   warning  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/CorrectionHistoryChart.tsx
+  47:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  52:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/DecompositionChart.tsx
+   55:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  115:36  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/Sidebar.tsx
+  8:72  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/SmartAdvisor.tsx
+  110:101  error  Insert `⏎································`  prettier/prettier
+  111:1    error  Insert `····`                               prettier/prettier
+  112:1    error  Insert `····`                               prettier/prettier
+  113:1    error  Delete `····`                               prettier/prettier
+
+/home/s/sync/documents/projects/darkstar/frontend/src/components/ui/Toast.tsx
+  81:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/home/s/sync/documents/projects/darkstar/frontend/src/lib/api.ts
+  141:24  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  143:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  175:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  179:55  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  180:51  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  181:49  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  182:54  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  183:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  195:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  213:13  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  218:38  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  219:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  224:12  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  253:91  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  277:42  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  289:80  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  300:31  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  318:33  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  319:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  332:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  335:31  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  336:28  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  351:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  353:25  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  354:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/lib/hooks.ts
+  4:59  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Aurora.tsx
+   49:46   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+   56:52   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+   61:46   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  173:15   error    Delete `··`                                                                                                           prettier/prettier
+  174:1    error    Delete `··`                                                                                                           prettier/prettier
+  189:55   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  198:55   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  213:50   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  217:56   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  223:56   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  224:67   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+  273:43   error    Delete `··`                                                                                                           prettier/prettier
+  274:1    error    Delete `··`                                                                                                           prettier/prettier
+  364:102  error    Insert `⏎····································`                                                                        prettier/prettier
+  367:43   error    Delete `··`                                                                                                           prettier/prettier
+  368:1    error    Delete `··`                                                                                                           prettier/prettier
+  369:1    error    Replace `················································` with `············································`        prettier/prettier
+  370:1    error    Delete `····`                                                                                                         prettier/prettier
+  371:1    error    Replace `····················································` with `··············································`  prettier/prettier
+  372:47   error    Delete `······`                                                                                                       prettier/prettier
+  373:1    error    Delete `····`                                                                                                         prettier/prettier
+  416:173  error    Insert `⏎································`                                                                            prettier/prettier
+  417:1    error    Delete `····`                                                                                                         prettier/prettier
+  455:212  error    Insert `⏎································`                                                                            prettier/prettier
+  456:1    error    Delete `····`                                                                                                         prettier/prettier
+  459:47   error    Insert `⏎····································`                                                                        prettier/prettier
+  460:1    error    Delete `····`                                                                                                         prettier/prettier
+  473:212  error    Insert `⏎································`                                                                            prettier/prettier
+  474:1    error    Delete `····`                                                                                                         prettier/prettier
+  477:47   error    Insert `⏎····································`                                                                        prettier/prettier
+  478:1    error    Delete `····`                                                                                                         prettier/prettier
+  491:212  error    Insert `⏎································`                                                                            prettier/prettier
+  492:1    error    Delete `····`                                                                                                         prettier/prettier
+  495:47   error    Insert `⏎····································`                                                                        prettier/prettier
+  496:1    error    Delete `····`                                                                                                         prettier/prettier
+  734:1    error    Insert `····`                                                                                                         prettier/prettier
+  757:72   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Dashboard.tsx
+   14:79   warning  Unexpected any. Specify a different type                    @typescript-eslint/no-explicit-any
+  136:49   warning  Unexpected any. Specify a different type                    @typescript-eslint/no-explicit-any
+  137:45   warning  Unexpected any. Specify a different type                    @typescript-eslint/no-explicit-any
+  144:42   warning  Unexpected any. Specify a different type                    @typescript-eslint/no-explicit-any
+  148:45   warning  Unexpected any. Specify a different type                    @typescript-eslint/no-explicit-any
+  149:39   warning  Unexpected any. Specify a different type                    @typescript-eslint/no-explicit-any
+  168:29   error    Delete `·`                                                  prettier/prettier
+  286:23   warning  'pvTotal' is assigned a value but never used                @typescript-eslint/no-unused-vars
+  646:105  error    Insert `⏎····································`              prettier/prettier
+  649:1    error    Delete `····`                                               prettier/prettier
+  715:96   error    Insert `⏎················································`  prettier/prettier
+  718:1    error    Delete `····`                                               prettier/prettier
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Debug.tsx
+  147:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  155:27  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/home/s/sync/documents/projects/darkstar/frontend/src/pages/Executor.tsx
+   269:203  error    Insert `⏎················`                                                                                      prettier/prettier
+   270:1    error    Delete `····`                                                                                                   prettier/prettier
+   409:22   warning  '_e' is defined but never used                                                                                  @typescript-eslint/no-unused-vars
+   422:22   warning  '_e' is defined but never used                                                                                  @typescript-eslint/no-unused-vars
+   549:112  error    Insert `⏎································`                                                                      prettier/prettier
+   554:1    error    Delete `····`                                                                                                   prettier/prettier
+   597:76   error    Insert `⏎········································`                                                              prettier/prettier
+   600:47   error    Delete `··`                                                                                                     prettier/prettier
+   601:1    error    Delete `··`                                                                                                     prettier/prettier
+   602:1    error    Replace `········································` with `····································`                  prettier/prettier
+   607:39   error    Delete `··`                                                                                                     prettier/prettier
+   608:1    error    Delete `··`                                                                                                     prettier/prettier
+   701:202  error    Insert `⏎································`                                                                      prettier/prettier
+   704:1    error    Delete `····`                                                                                                   prettier/prettier
+   841:123  error    Insert `⏎················································`                                                      prettier/prettier
+   844:1    error    Replace `················································` with `············································`  prettier/prettier
+   870:87   error    Insert `⏎································`                                                                      prettier/prettier
+   873:1    error    Delete `····`                                                                                                   prettier/prettier
+   888:55   error    Insert `⏎····································`                                                                  prettier/prettier
+   891:43   error    Delete `··`                                                                                                     prettier/prettier
+   892:43   error    Delete `··`                                                                                                     prettier/prettier
+   893:1    error    Delete `····`                                                                                                   prettier/prettier
+   911:55   error    Insert `⏎····································`                                                                  prettier/prettier
+   912:1    error    Delete `····`                                                                                                   prettier/prettier
+   949:55   error    Insert `⏎····································`                                                                  prettier/prettier
+   950:1    error    Delete `····`                                                                                                   prettier/prettier
+   954:69   error    Insert `⏎········································`                                                              prettier/prettier
+   955:1    error    Delete `····`                                                                                                   prettier/prettier
+  1061:84   error    Insert `⏎········································`                                                              prettier/prettier
+  1064:1    error    Delete `····`                                                                                                   prettier/prettier
+  1243:65   error    Delete `····`                                                                                                   prettier/prettier
+  1412:162  error    Insert `⏎····································`                                                                  prettier/prettier
+  1415:1    error    Delete `····`                                                                                                   prettier/prettier
+
+✖ 143 problems (75 errors, 68 warnings)
+  75 errors and 0 warnings potentially fixable with the `--fix` option.
+
+ ELIFECYCLE  Command failed with exit code 1.

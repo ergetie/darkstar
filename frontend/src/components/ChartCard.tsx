@@ -1,7 +1,7 @@
 import Card from './Card'
 import { useEffect, useRef, useState } from 'react'
 import { Chart as ChartJS, ChartConfiguration } from 'chart.js/auto'
-import type { Chart } from 'chart.js/auto'
+import type { Chart, Scale, Tick, ChartData } from 'chart.js/auto'
 import { sampleChart } from '../lib/sample'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
@@ -75,11 +75,9 @@ const chartOptions: ChartConfiguration['options'] = {
                 color: '#a6b0bf',
                 maxRotation: 0,
                 autoSkip: false,
-                callback: function (value, index, ticks) {
+                callback: function (this: Scale, value: string | number, _index: number, _ticks: Tick[]) {
                     // Show only full hours as HH on the axis; keep labels as HH:mm
-                    const label = (this as any)?.getLabelForValue
-                        ? (this as any).getLabelForValue(value)
-                        : (ticks[index] as any)?.label
+                    const label = this.getLabelForValue(value as number)
                     if (typeof label !== 'string') return ''
                     const parts = label.split(':')
                     if (parts.length < 2) return ''
@@ -171,14 +169,19 @@ type ChartValues = {
     nowIndex?: number | null
 }
 
-const createChartData = (values: ChartValues, themeColors: Record<string, string> = {}) => {
-    // Use theme colors with fallbacks to Material Design colors
+interface ExtendedChartData extends ChartData {
+    nowIndex?: number | null
+    hasNoData?: boolean
+    plugins?: unknown
+}
+
+const createChartData = (values: ChartValues, themeColors: Record<string, string> = {}): ExtendedChartData => {
     const getColor = (paletteIndex: number, fallback: string) => {
         const themeKey = `palette = ${paletteIndex}`
         return themeColors[themeKey] || fallback
     }
 
-    const baseData = {
+    const baseData: ExtendedChartData = {
         labels: values.labels,
         datasets: [
             {
@@ -292,8 +295,8 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
 
     // Add no-data message if needed
     if (values.hasNoData) {
-        ;(baseData as any).plugins = {
-            ...((baseData as any).plugins || {}),
+        // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
+        ;(baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -313,18 +316,11 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     return {
         ...baseData,
         nowIndex: values.nowIndex ?? null,
-    } as any
+        hasNoData: !!values.hasNoData,
+    }
 }
 
-const fallbackData = createChartData(
-    {
-        labels: sampleChart.labels,
-        price: sampleChart.price,
-        pv: sampleChart.pv,
-        load: sampleChart.load,
-    },
-    {},
-) // Use empty theme colors initially, will be updated
+// Chart configuration helpers removed and consolidated into applyData
 
 type ChartRange = 'day' | '48h'
 
@@ -346,12 +342,11 @@ export default function ChartCard({
     showDayToggle = false,
 }: ChartCardProps) {
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
-    const [currentDay, setCurrentDay] = useState<DaySel>(day || 'today')
+    const currentDay = day || 'today'
     const [rangeState, setRangeState] = useState<ChartRange>(range)
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
     const [themeColors, setThemeColors] = useState<Record<string, string>>({})
-    const [currentTheme, setCurrentTheme] = useState<string>('')
     const [overlays, setOverlays] = useState({
         price: true,
         pv: true,
@@ -394,7 +389,7 @@ export default function ChartCard({
                 }
             })
             .catch((err) => console.error('Failed to load overlay defaults:', err))
-    }, [])
+    }, [overlays.socActual])
     const [nowPosition, setNowPosition] = useState<number | null>(null)
 
     useEffect(() => {
@@ -411,7 +406,6 @@ export default function ChartCard({
                     colorMap['background'] = currentThemeInfo.background
                     colorMap['foreground'] = currentThemeInfo.foreground
                     setThemeColors(colorMap)
-                    setCurrentTheme(themeData.current)
                 }
             })
             .catch((err) => console.error('Failed to load theme colors:', err))
@@ -444,7 +438,7 @@ export default function ChartCard({
 
     const isChartUsable = (chartInstance: Chart | null) => {
         if (!chartInstance) return false
-        const anyChart = chartInstance as any
+        const anyChart = chartInstance as unknown as { _destroyed?: boolean; _plugins?: unknown; $plugins?: unknown }
         if (anyChart._destroyed) return false
         if (anyChart._plugins === undefined && anyChart.$plugins === undefined) return false
         return true
@@ -461,7 +455,9 @@ export default function ChartCard({
             if (!isChartUsable(chartRef.current)) return
             const liveData = buildLiveData(slots, currentDay, rangeState, themeColors)
             if (!liveData) return
-            setHasNoDataMessage(liveData.hasNoData ?? false)
+
+            setHasNoDataMessage(!!liveData.hasNoData)
+
             const ds = liveData.datasets
             if (ds[0]) ds[0].hidden = !overlays.price
             if (ds[1]) ds[1].hidden = !overlays.pv
@@ -475,27 +471,26 @@ export default function ChartCard({
             if (ds[9]) ds[9].hidden = !overlays.socActual
 
             // Compute CSS overlay position for "NOW" (0–1 across labels)
-            const anyData = liveData as any
             if (
                 currentDay === 'today' &&
-                typeof anyData.nowIndex === 'number' &&
-                anyData.nowIndex >= 0 &&
+                typeof liveData.nowIndex === 'number' &&
+                liveData.nowIndex >= 0 &&
+                liveData.labels &&
                 liveData.labels.length > 1
             ) {
-                const idx = anyData.nowIndex as number
                 const denom = liveData.labels.length - 1
-                setNowPosition(idx / denom)
+                setNowPosition(liveData.nowIndex / denom)
             } else {
                 setNowPosition(null)
             }
             try {
                 if (!isChartUsable(chartRef.current)) return
                 if (chartRef.current) {
-                    ;(chartRef.current as any).data = liveData
+                    chartRef.current.data = liveData
                     chartRef.current.update()
                 }
             } catch (err) {
-                console.error('Chart update failed, skipping frame:', err)
+                console.error('Chart update error:', err)
             }
         }
 
@@ -622,7 +617,7 @@ function buildLiveData(
     day: DaySel,
     range: ChartRange,
     themeColors: Record<string, string> = {},
-) {
+): ExtendedChartData | null {
     const filtered =
         range === 'day'
             ? filterSlotsByDay(slots, day)
@@ -714,32 +709,25 @@ function buildLiveData(
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
-                const isExec = (slot as any).is_executed === true
-                const anySlot = slot as any
+                const isExec = slot.is_executed === true
 
                 price.push(slot.import_price_sek_kwh ?? null)
-                pv.push(
-                    isExec && anySlot.actual_pv_kwh != null ? anySlot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null),
-                )
+                pv.push(isExec && slot.actual_pv_kwh != null ? slot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null))
                 load.push(
-                    isExec && anySlot.actual_load_kwh != null
-                        ? anySlot.actual_load_kwh
-                        : (slot.load_forecast_kwh ?? null),
+                    isExec && slot.actual_load_kwh != null ? slot.actual_load_kwh : (slot.load_forecast_kwh ?? null),
                 )
                 // For charge/export, prefer actual_* when executed; discharge/water remain planned.
                 charge.push(
-                    isExec && anySlot.actual_charge_kw != null
-                        ? anySlot.actual_charge_kw
+                    isExec && slot.actual_charge_kw != null
+                        ? slot.actual_charge_kw
                         : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
                 )
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-                exp.push(
-                    isExec && anySlot.actual_export_kw != null ? anySlot.actual_export_kw : (slot.export_kwh ?? null),
-                )
+                exp.push(isExec && slot.actual_export_kw != null ? slot.actual_export_kw : (slot.export_kwh ?? null))
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
-                socActual.push(anySlot.soc_actual_percent != null ? anySlot.soc_actual_percent : null)
+                socActual.push(slot.soc_actual_percent != null ? slot.soc_actual_percent : null)
             } else {
                 price.push(null)
                 pv.push(null)
@@ -785,20 +773,23 @@ function buildLiveData(
                 const hour = i % 24
                 return `${String(hour).padStart(2, '0')}:00`
             })
-            return {
-                labels,
-                price: Array(labels.length).fill(null),
-                pv: Array(labels.length).fill(null),
-                load: Array(labels.length).fill(null),
-                charge: Array(labels.length).fill(null),
-                discharge: Array(labels.length).fill(null),
-                export: Array(labels.length).fill(null),
-                water: Array(labels.length).fill(null),
-                socTarget: Array(labels.length).fill(null),
-                socProjected: Array(labels.length).fill(null),
-                hasNoData: true,
-                day,
-            }
+            return createChartData(
+                {
+                    labels,
+                    price: Array(labels.length).fill(null),
+                    pv: Array(labels.length).fill(null),
+                    load: Array(labels.length).fill(null),
+                    charge: Array(labels.length).fill(null),
+                    discharge: Array(labels.length).fill(null),
+                    export: Array(labels.length).fill(null),
+                    water: Array(labels.length).fill(null),
+                    socTarget: Array(labels.length).fill(null),
+                    socProjected: Array(labels.length).fill(null),
+                    hasNoData: true,
+                    day,
+                },
+                themeColors,
+            )
         }
 
         const ordered = [...filtered].sort((a, b) => {
@@ -853,31 +844,24 @@ function buildLiveData(
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
-                const isExec = (slot as any).is_executed === true
-                const anySlot = slot as any
+                const isExec = slot.is_executed === true
 
                 price.push(slot.import_price_sek_kwh ?? null)
-                pv.push(
-                    isExec && anySlot.actual_pv_kwh != null ? anySlot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null),
-                )
+                pv.push(isExec && slot.actual_pv_kwh != null ? slot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null))
                 load.push(
-                    isExec && anySlot.actual_load_kwh != null
-                        ? anySlot.actual_load_kwh
-                        : (slot.load_forecast_kwh ?? null),
+                    isExec && slot.actual_load_kwh != null ? slot.actual_load_kwh : (slot.load_forecast_kwh ?? null),
                 )
                 charge.push(
-                    isExec && anySlot.actual_charge_kw != null
-                        ? anySlot.actual_charge_kw
+                    isExec && slot.actual_charge_kw != null
+                        ? slot.actual_charge_kw
                         : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
                 )
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-                exp.push(
-                    isExec && anySlot.actual_export_kw != null ? anySlot.actual_export_kw : (slot.export_kwh ?? null),
-                )
+                exp.push(isExec && slot.actual_export_kw != null ? slot.actual_export_kw : (slot.export_kwh ?? null))
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
-                socActual.push(anySlot.soc_actual_percent != null ? anySlot.soc_actual_percent : null)
+                socActual.push(slot.soc_actual_percent != null ? slot.soc_actual_percent : null)
             } else {
                 price.push(null)
                 pv.push(null)
@@ -931,7 +915,7 @@ function buildLiveData(
     const water = ordered.map((slot) => slot.water_heating_kw ?? null)
     const socTarget = ordered.map((slot) => slot.soc_target_percent ?? null)
     const socProjected = ordered.map((slot) => slot.projected_soc_percent ?? null)
-    const socActual = ordered.map((slot) => (slot as any).soc_actual_percent ?? null)
+    const socActual = ordered.map((slot) => slot.soc_actual_percent ?? null)
 
     const labels = ordered.map((slot) => formatHour(slot.start_time))
 

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo, ReactNode } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { ChevronDown, Check, Search } from 'lucide-react'
 
 export interface SelectOption {
@@ -198,7 +198,7 @@ export default function Select({
                         ) : (
                             <>
                                 {/* Ungrouped items */}
-                                {grouped.noGroup.map((option, i) => {
+                                {grouped.noGroup.map((option, _i) => {
                                     const isActive = selectedOption?.value === option.value
                                     const isHighlighted = flatList[highlightIndex]?.value === option.value
                                     return (

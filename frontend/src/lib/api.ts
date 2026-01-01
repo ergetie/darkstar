@@ -1,7 +1,12 @@
+export type PlannerSIndex = {
+    effective_load_margin?: number
+    [key: string]: unknown
+}
+
 export type StatusResponse = {
     current_soc?: { value: number; timestamp: string; source?: string }
-    local?: { planned_at?: string; planner_version?: string; s_index?: any }
-    db?: { planned_at?: string; planner_version?: string; s_index?: any } | { error?: string }
+    local?: { planned_at?: string; planner_version?: string; s_index?: PlannerSIndex }
+    db?: { planned_at?: string; planner_version?: string; s_index?: PlannerSIndex } | { error?: string }
 }
 
 export type HorizonResponse = {
@@ -19,7 +24,8 @@ export type ScheduleResponse = {
     meta?: {
         last_error?: string
         last_error_at?: string
-        [key: string]: any
+        overlay_defaults?: string[]
+        [key: string]: unknown
     }
 }
 export type ScheduleTodayWithHistoryResponse = {
@@ -29,7 +35,31 @@ export type ScheduleTodayWithHistoryResponse = {
 
 export type ConfigResponse = {
     system?: { battery?: { capacity_kwh?: number } }
-    [key: string]: any
+    arbitrage?: { export_guard_enabled?: boolean; risk_appetite?: number }
+    automation?: {
+        enable_scheduler?: boolean
+        write_to_mariadb?: boolean
+        external_executor_mode?: boolean
+        schedule?: { every_minutes?: number }
+    }
+    water_heating?: {
+        comfort_level?: number
+        vacation_mode?: { enabled?: boolean }
+    }
+    input_sensors?: {
+        vacation_mode?: string
+    }
+    dashboard?: {
+        overlay_defaults?: string
+    }
+    advisor?: {
+        enable_llm?: boolean
+        auto_fetch?: boolean
+    }
+    ui?: {
+        theme_accent_index?: number
+    }
+    [key: string]: unknown
 }
 export type ConfigSaveError = { field?: string; message: string }
 export type ConfigSaveResponse = { status?: string; errors?: ConfigSaveError[] }
@@ -37,13 +67,13 @@ export type ConfigSaveResponse = { status?: string; errors?: ConfigSaveError[] }
 export type HaAverageResponse = {
     average_load_kw?: number
     daily_kwh?: number
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export type WaterTodayResponse = {
     source?: 'home_assistant' | 'sqlite'
     water_kwh_today?: number
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export type LearningStatusResponse = {
@@ -68,7 +98,7 @@ export type LearningStatusResponse = {
     }
     sqlite_path?: string
     sync_interval_minutes?: number
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export type LearningHistoryEntry = {
@@ -116,9 +146,9 @@ export type DebugResponse = {
         base_factor?: number
         factor?: number
         max_factor?: number
-        [key: string]: any
+        [key: string]: unknown
     }
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export type DebugLogEntry = {
@@ -150,15 +180,15 @@ export type LearningRunResponse = {
     loops_run?: number
     changes_proposed?: number
     changes_applied?: number
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export type LearningLoopsResponse = {
-    forecast_calibrator?: { status?: string; result?: any }
-    threshold_tuner?: { status?: string; result?: any }
-    s_index_tuner?: { status?: string; result?: any }
-    export_guard_tuner?: { status?: string; result?: any }
-    [key: string]: any
+    forecast_calibrator?: { status?: string; result?: unknown }
+    threshold_tuner?: { status?: string; result?: unknown }
+    s_index_tuner?: { status?: string; result?: unknown }
+    export_guard_tuner?: { status?: string; result?: unknown }
+    [key: string]: unknown
 }
 
 export type SchedulerStatusResponse = {
@@ -170,7 +200,7 @@ export type SchedulerStatusResponse = {
     last_run_status?: string
     last_error?: string
     ml_training_last_run_at?: string
-    [key: string]: any
+    [key: string]: unknown
 }
 
 export type ThemeInfo = {
@@ -178,6 +208,25 @@ export type ThemeInfo = {
     background: string
     foreground: string
     palette: string[]
+}
+
+export type ExecutorStatusResponse = {
+    shadow_mode?: boolean
+    paused?: {
+        paused_at?: string
+        paused_minutes?: number
+    } | null
+    [key: string]: unknown
+}
+
+export type EnergyTodayResponse = {
+    grid_import_kwh: number | null
+    grid_export_kwh: number | null
+    battery_charge_kwh: number | null
+    battery_cycles: number | null
+    pv_production_kwh: number | null
+    load_consumption_kwh: number | null
+    net_cost_kr: number | null
 }
 
 export type ThemeResponse = {
@@ -188,18 +237,18 @@ export type ThemeResponse = {
 
 export type AdviceResponse = {
     advice: string
-    report: any
+    report: unknown
 }
 
 export type AnalystReport = {
     analyzed_at?: string
-    recommendations?: Record<string, any>
-    [key: string]: any
+    recommendations?: Record<string, unknown>
+    [key: string]: unknown
 }
 
 export type SimulateResponse = {
     schedule: import('./types').ScheduleSlot[]
-    meta?: any
+    meta?: unknown
 }
 
 export type ThemeSetResponse = {
@@ -226,9 +275,10 @@ export type HealthResponse = {
 }
 
 export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
+export type AuroraPerformanceData = import('./types').AuroraPerformanceData
 export type AuroraBriefingResponse = { briefing: string }
 
-async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: any): Promise<T> {
+async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
     // Strip leading slash to make paths relative - works with base href for HA Ingress
     const relativePath = path.startsWith('/') ? path.slice(1) : path
 
@@ -252,7 +302,7 @@ export const Api = {
     version: () => getJSON<{ version: string }>('/api/version'),
     horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
     config: () => getJSON<ConfigResponse>('/api/config'),
-    configSave: (payload: Record<string, any>) => getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
+    configSave: (payload: Record<string, unknown>) => getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
     configReset: () => getJSON<{ status: string }>('/api/config/reset', 'POST'),
     setTheme: (payload: { theme: string; accent_index?: number | null }) =>
         getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
@@ -264,7 +314,9 @@ export const Api = {
         getJSON<{ entities: { entity_id: string; friendly_name: string; domain: string }[] }>('/api/ha/entities'),
     haServices: () => getJSON<{ services: string[] }>('/api/ha/services'),
     haEntityState: (entityId: string) =>
-        getJSON<{ entity_id: string; state: string; attributes: Record<string, any> }>(`/api/ha/entity/${entityId}`),
+        getJSON<{ entity_id: string; state: string; attributes: Record<string, unknown> }>(
+            `/api/ha/entity/${entityId}`,
+        ),
     learningStatus: () => getJSON<LearningStatusResponse>('/api/learning/status'),
     learningHistory: () => getJSON<LearningHistoryResponse>('/api/learning/history'),
     learningDailyMetrics: () => getJSON<LearningDailyMetricsResponse>('/api/learning/daily_metrics'),
@@ -275,7 +327,7 @@ export const Api = {
     loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
     pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
     resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
-    simulate: async (payload: any): Promise<ScheduleResponse> => {
+    simulate: async (payload: unknown): Promise<ScheduleResponse> => {
         const response = await fetch('api/simulate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -293,8 +345,8 @@ export const Api = {
     debug: () => getJSON<DebugResponse>('/api/debug'),
     debugLogs: () => getJSON<DebugLogsResponse>('/api/debug/logs'),
     historySoc: (date: string | 'today' = 'today') => getJSON<HistorySocResponse>(`/api/history/soc?date=${date}`),
-    forecastEval: () => getJSON<any>('/api/forecast/eval'),
-    forecastDay: (date?: string) => getJSON<any>(date ? `/api/forecast/day?date=${date}` : '/api/forecast/day'),
+    forecastEval: () => getJSON<unknown>('/api/forecast/eval'),
+    forecastDay: (date?: string) => getJSON<unknown>(date ? `/api/forecast/day?date=${date}` : '/api/forecast/day'),
     forecastRunEval: (daysBack = 7) =>
         getJSON<{ status: string }>('/api/forecast/run_eval', 'POST', { days_back: daysBack }),
     forecastRunForward: (horizonHours = 48) =>
@@ -307,11 +359,11 @@ export const Api = {
         toggleReflex: (enabled: boolean) =>
             getJSON<{ status: string; enabled: boolean }>('/api/aurora/config/toggle_reflex', 'POST', { enabled }),
     },
-    performanceData: (days = 7) => getJSON<any>(`/api/performance/data?days=${days}`),
+    performanceData: (days = 7) => getJSON<AuroraPerformanceData>(`/api/performance/data?days=${days}`),
     // Executor controls
     executor: {
-        status: () => getJSON<any>('/api/executor/status'),
-        run: () => getJSON<any>('/api/executor/run', 'POST'),
+        status: () => getJSON<ExecutorStatusResponse>('/api/executor/status'),
+        run: () => getJSON<unknown>('/api/executor/run', 'POST'),
         pause: () =>
             getJSON<{ success: boolean; paused_at?: string; message?: string; error?: string }>(
                 '/api/executor/pause',
@@ -326,10 +378,10 @@ export const Api = {
                 error?: string
             }>('/api/executor/resume', 'POST'),
         quickAction: {
-            get: () => getJSON<{ quick_action: any | null }>('/api/executor/quick-action'),
+            get: () => getJSON<{ quick_action: unknown | null }>('/api/executor/quick-action'),
             set: (type: string, duration_minutes: number) =>
-                getJSON<any>('/api/executor/quick-action', 'POST', { type, duration_minutes }),
-            clear: () => getJSON<any>('/api/executor/quick-action', 'DELETE'),
+                getJSON<unknown>('/api/executor/quick-action', 'POST', { type, duration_minutes }),
+            clear: () => getJSON<unknown>('/api/executor/quick-action', 'DELETE'),
         },
     },
     waterBoost: {
@@ -346,16 +398,7 @@ export const Api = {
         cancel: () => getJSON<{ success: boolean; was_active?: boolean }>('/api/water/boost', 'DELETE'),
     },
     // Energy stats from HA sensors
-    energyToday: () =>
-        getJSON<{
-            grid_import_kwh: number | null
-            grid_export_kwh: number | null
-            battery_charge_kwh: number | null
-            battery_cycles: number | null
-            pv_production_kwh: number | null
-            load_consumption_kwh: number | null
-            net_cost_kr: number | null
-        }>('/api/energy/today'),
+    energyToday: () => getJSON<EnergyTodayResponse>('/api/energy/today'),
 }
 
 export const Sel = {

@@ -1,7 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Sparkles, RefreshCw, Zap, SunMedium } from 'lucide-react'
 import { Api, type AnalystReport } from '../lib/api'
 import Card from './Card'
+
+interface AdvisorRecommendation {
+    label?: string
+    best_grid_window?: {
+        start?: string
+        end?: string
+        avg_price?: number
+    }
+    best_solar_window?: {
+        start?: string
+        end?: string
+        avg_pv_surplus?: number
+    }
+}
 
 export default function SmartAdvisor() {
     const [advice, setAdvice] = useState<string | null>(null)
@@ -11,13 +25,13 @@ export default function SmartAdvisor() {
     const [autoFetch, setAutoFetch] = useState<boolean>(true)
     const [analystReport, setAnalystReport] = useState<AnalystReport | null>(null)
 
-    const fetchAdvice = async () => {
+    const fetchAdvice = useCallback(async () => {
         if (!llmEnabled) return
         setLoading(true)
         setError(false)
         try {
             const res = await Api.getAdvice()
-            if ((res as any).status === 'disabled') {
+            if (res && typeof res === 'object' && 'status' in res && res.status === 'disabled') {
                 setLlmEnabled(false)
                 setAdvice(null)
             } else {
@@ -29,9 +43,9 @@ export default function SmartAdvisor() {
         } finally {
             setLoading(false)
         }
-    }
+    }, [llmEnabled])
 
-    const fetchAnalystSummary = async () => {
+    const fetchAnalystSummary = useCallback(async () => {
         setLoading(true)
         setError(false)
         try {
@@ -43,7 +57,7 @@ export default function SmartAdvisor() {
         } finally {
             setLoading(false)
         }
-    }
+    }, [])
 
     useEffect(() => {
         // Load advisor settings (enable_llm + auto_fetch) from config
@@ -65,7 +79,7 @@ export default function SmartAdvisor() {
                 console.error('Failed to load advisor config:', err)
                 setLlmEnabled(false)
             })
-    }, [])
+    }, [fetchAdvice, fetchAnalystSummary])
 
     const canRequest = !!llmEnabled && !loading
 
@@ -133,7 +147,7 @@ export default function SmartAdvisor() {
                                 {Object.entries(analystReport.recommendations)
                                     .slice(0, 3)
                                     .map(([key, value]) => {
-                                        const rec: any = value ?? {}
+                                        const rec = (value as AdvisorRecommendation) ?? {}
                                         const label = rec.label || key
                                         const grid = rec.best_grid_window || {}
                                         const solar = rec.best_solar_window || {}

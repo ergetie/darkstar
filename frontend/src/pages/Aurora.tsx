@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Bot, Sparkles, Zap, SunMedium, Activity, Shield, Brain } from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { Bot, Sparkles, Zap, SunMedium, Activity, Brain } from 'lucide-react'
 import Card from '../components/Card'
 import DecompositionChart from '../components/DecompositionChart'
 import ContextRadar from '../components/ContextRadar'
@@ -8,7 +8,7 @@ import KPIStrip from '../components/KPIStrip'
 import ProbabilisticChart from '../components/ProbabilisticChart'
 import { Line, Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
-import type { AuroraDashboardResponse, SchedulerStatusResponse } from '../lib/api'
+import type { AuroraDashboardResponse, SchedulerStatusResponse, AuroraPerformanceData } from '../lib/api'
 
 // Import ChartJS components for the inline charts
 import {
@@ -31,16 +31,12 @@ export default function Aurora() {
     const [dashboard, setDashboard] = useState<AuroraDashboardResponse | null>(null)
     const [schedulerStatus, setSchedulerStatus] = useState<SchedulerStatusResponse | null>(null)
     const [briefing, setBriefing] = useState<string>('')
-    const [briefingUpdatedAt, setBriefingUpdatedAt] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [briefingLoading, setBriefingLoading] = useState(false)
     const [riskAppetite, setRiskAppetite] = useState<number>(3)
-    const [savingRisk, setSavingRisk] = useState(false)
     const [replanning, setReplanning] = useState(false)
     const [chartMode, setChartMode] = useState<'load' | 'pv'>('load')
     const [viewMode, setViewMode] = useState<'forecast' | 'soc'>('forecast')
-    const [riskStatus, setRiskStatus] = useState<string>('')
-    const riskStatusTimeoutRef = useRef<number | null>(null)
     const [autoTuneEnabled, setAutoTuneEnabled] = useState<boolean>(false)
     const [togglingAutoTune, setTogglingAutoTune] = useState(false)
     const [reflexEnabled, setReflexEnabled] = useState<boolean>(false)
@@ -49,20 +45,19 @@ export default function Aurora() {
     const [togglingProbabilistic, setTogglingProbabilistic] = useState(false)
 
     // Performance Data State
-    const [perfData, setPerfData] = useState<any>(null)
-    const [perfLoading, setPerfLoading] = useState(true)
+    const [perfData, setPerfData] = useState<AuroraPerformanceData | null>(null)
 
     const fetchDashboard = async () => {
         setLoading(true)
         try {
             const res = await Api.aurora.dashboard()
             setDashboard(res)
-            const ra = (res.state?.risk_profile as any)?.risk_appetite
+            const ra = res.state?.risk_profile?.risk_appetite
             if (typeof ra === 'number') {
                 setRiskAppetite(ra)
             }
             setAutoTuneEnabled(!!res.state?.auto_tune_enabled)
-            setReflexEnabled(!!(res.state as any)?.reflex_enabled)
+            setReflexEnabled(!!res.state?.reflex_enabled)
             setProbabilisticMode(res.state?.risk_profile?.mode === 'probabilistic')
         } catch (err) {
             console.error('Failed to load Aurora dashboard:', err)
@@ -93,8 +88,6 @@ export default function Aurora() {
                 setPerfData(data)
             } catch (err) {
                 console.error('Failed to load performance data:', err)
-            } finally {
-                setPerfLoading(false)
             }
         }
         fetchPerf()
@@ -106,7 +99,6 @@ export default function Aurora() {
         try {
             const res = await Api.aurora.briefing(dashboard)
             setBriefing(res.briefing)
-            setBriefingUpdatedAt(new Date().toISOString())
         } catch (err) {
             console.error('Failed to fetch Aurora briefing:', err)
             setBriefing('Failed to fetch Aurora briefing.')
@@ -117,22 +109,10 @@ export default function Aurora() {
 
     const handleRiskChange = async (value: number) => {
         setRiskAppetite(value)
-        setSavingRisk(true)
         try {
             await Api.configSave({ s_index: { risk_appetite: value } })
-            if (riskStatusTimeoutRef.current !== null) {
-                window.clearTimeout(riskStatusTimeoutRef.current)
-            }
-            setRiskStatus('Saved.')
-            riskStatusTimeoutRef.current = window.setTimeout(() => {
-                setRiskStatus('')
-                riskStatusTimeoutRef.current = null
-            }, 2000)
         } catch (err) {
             console.error('Failed to save risk level (risk_appetite):', err)
-            setRiskStatus('Failed to save.')
-        } finally {
-            setSavingRisk(false)
         }
     }
 
@@ -178,14 +158,7 @@ export default function Aurora() {
         }
     }
 
-    const riskLabel = useMemo(() => {
-        const persona = dashboard?.state?.risk_profile?.persona
-        if (!persona) return 'Unknown'
-        return persona
-    }, [dashboard])
-
     const graduationLabel = dashboard?.identity?.graduation?.label ?? 'infant'
-    const graduationRuns = dashboard?.identity?.graduation?.runs ?? 0
 
     const volatility = dashboard?.state?.weather_volatility
     const overallVol = volatility?.overall ?? 0
@@ -212,7 +185,7 @@ export default function Aurora() {
             datasets: [
                 {
                     label: 'Planned',
-                    data: perfData.soc_series.map((d: any) => ({ x: d.time, y: d.planned })),
+                    data: perfData.soc_series.map((d) => ({ x: d.time, y: d.planned })),
                     borderColor: '#94a3b8',
                     borderDash: [5, 5],
                     borderWidth: 1.5,
@@ -221,7 +194,7 @@ export default function Aurora() {
                 },
                 {
                     label: 'Actual',
-                    data: perfData.soc_series.map((d: any) => ({ x: d.time, y: d.actual })),
+                    data: perfData.soc_series.map((d) => ({ x: d.time, y: d.actual })),
                     borderColor: '#60a5fa',
                     backgroundColor: 'rgba(96, 165, 250, 0.1)',
                     borderWidth: 1.5,
@@ -236,19 +209,26 @@ export default function Aurora() {
     const costChartData = useMemo(() => {
         if (!perfData) return null
         return {
-            labels: perfData.cost_series.map((d: any) => d.date.slice(5)), // MM-DD
+            labels: perfData.cost_series.map((d: { date: string; planned: number; realized: number }) =>
+                d.date.slice(5),
+            ), // MM-DD
             datasets: [
                 {
                     label: 'Plan',
-                    data: perfData.cost_series.map((d: any) => d.planned),
+                    data: perfData.cost_series.map(
+                        (d: { date: string; planned: number; realized: number }) => d.planned,
+                    ),
                     backgroundColor: '#94a3b8',
                     borderRadius: 2,
                 },
                 {
                     label: 'Real',
-                    data: perfData.cost_series.map((d: any) => d.realized),
-                    backgroundColor: perfData.cost_series.map((d: any) =>
-                        d.realized <= d.planned ? '#34d399' : '#f87171',
+                    data: perfData.cost_series.map(
+                        (d: { date: string; planned: number; realized: number }) => d.realized,
+                    ),
+                    backgroundColor: perfData.cost_series.map(
+                        (d: { date: string; planned: number; realized: number }) =>
+                            d.realized <= d.planned ? '#34d399' : '#f87171',
                     ),
                     borderRadius: 2,
                 },
@@ -256,15 +236,7 @@ export default function Aurora() {
         }
     }, [perfData])
 
-    const sliderSteps = [0.9, 1.0, 1.1, 1.2, 1.5]
-    const riskLabels = ['Aggressive', 'Balanced', 'Cautious', 'Conservative', 'Fortified']
-    const riskDescriptions = [
-        'Minimal safety margin',
-        'Standard planning',
-        '+10% load buffer',
-        '+20% load buffer',
-        'Maximum safety, prioritize uptime',
-    ]
+    // For UI display, but currently handled via useMemo persona
 
     return (
         <div className="px-4 pt-16 pb-10 lg:px-8 lg:pt-10 space-y-6">
@@ -795,8 +767,16 @@ export default function Aurora() {
                                             }
                                         })
 
+                                        type ProbabilisticSlot = {
+                                            time: string
+                                            p10: number | null
+                                            p50: number | null
+                                            p90: number | null
+                                            actual?: number | null
+                                        }
+
                                         // 1. Create a map by timestamp to merge overlaps
-                                        const merged = new Map<string, any>()
+                                        const merged = new Map<string, ProbabilisticSlot>()
 
                                         // 2. Add History (Actuals + Forecasts)
                                         histData.forEach((h) => {

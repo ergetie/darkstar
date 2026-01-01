@@ -8,7 +8,6 @@ import {
     DollarSign,
     Droplets,
     Gauge,
-    Settings,
     Flame,
     BatteryCharging,
 } from 'lucide-react'
@@ -19,6 +18,7 @@ interface GridCardProps {
     netCost: number | null
     importKwh: number | null
     exportKwh: number | null
+    exportGuard?: boolean | null
 }
 
 interface ResourcesCardProps {
@@ -27,6 +27,7 @@ interface ResourcesCardProps {
     loadActual: number | null
     loadAvg: number | null
     waterKwh: number | null
+    batteryCapacity?: number | null
 }
 
 interface StrategyCardProps {
@@ -62,7 +63,7 @@ const ProgressBar = ({ value, total, colorClass }: { value: number; total: numbe
 
 // --- Domain Cards ---
 
-export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
+export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridCardProps) {
     const isPositive = (netCost ?? 0) <= 0 // Negative cost is good (profit/savings) or zero
     // Note: Darkstar convention might be "Cost" = positive.
     // If netCost is "Cost", then positive is bad.
@@ -80,6 +81,11 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                     <DollarSign className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Grid & Financial</span>
+                {exportGuard && (
+                    <span className="ml-auto text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 animate-pulse">
+                        Guard
+                    </span>
+                )}
             </div>
 
             {/* Big Metric: Net Cost */}
@@ -125,7 +131,14 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
     )
 }
 
-export function ResourcesDomain({ pvActual, pvForecast, loadActual, loadAvg, waterKwh }: ResourcesCardProps) {
+export function ResourcesDomain({
+    pvActual,
+    pvForecast,
+    loadActual,
+    loadAvg,
+    waterKwh,
+    batteryCapacity,
+}: ResourcesCardProps) {
     return (
         <Card className="p-4 flex flex-col h-full relative overflow-hidden">
             <div className="absolute inset-0 bg-amber-500/[0.01]" />
@@ -136,6 +149,9 @@ export function ResourcesDomain({ pvActual, pvForecast, loadActual, loadAvg, wat
                     <Zap className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Energy Resources</span>
+                {batteryCapacity != null && batteryCapacity > 0 && (
+                    <span className="ml-auto text-[9px] text-muted opacity-60">{batteryCapacity} kWh Cap</span>
+                )}
             </div>
 
             <div className="space-y-4 relative z-10">

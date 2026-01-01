@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { getSocket } from './socket'
 
-export const useSocket = (event: string, callback: (data: any) => void) => {
+export const useSocket = (event: string, callback: (data: unknown) => void) => {
     useEffect(() => {
         const socket = getSocket()
         socket.on(event, callback)

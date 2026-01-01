@@ -97,10 +97,10 @@
 
 /home/s/sync/documents/projects/darkstar/frontend/src/pages/Aurora.tsx
    40:11   warning  'riskStatusTimeoutRef' is assigned a value but never used                                                             @typescript-eslint/no-unused-vars
-   50:46   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
-   57:52   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
-   62:46   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
-  120:19   error    Empty block statement                                                                                                 no-empty
+   47:12   warning  'perfLoading' is assigned a value but never used                                                                      @typescript-eslint/no-unused-vars
+   51:46   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+   58:52   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
+   63:46   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
   166:11   warning  'riskLabelValue' is assigned a value but never used                                                                   @typescript-eslint/no-unused-vars
   183:15   error    Delete `··`                                                                                                           prettier/prettier
   184:1    error    Delete `··`                                                                                                           prettier/prettier
@@ -138,23 +138,42 @@
   767:72   warning  Unexpected any. Specify a different type                                                                              @typescript-eslint/no-explicit-any
 
 /home/s/sync/documents/projects/darkstar/frontend/src/pages/Dashboard.tsx
-    6:15   warning  'Sel' is defined but never used                                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
-   14:69   warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                          @typescript-eslint/no-explicit-any
-  120:49   warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                          @typescript-eslint/no-explicit-any
-  121:45   warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                          @typescript-eslint/no-explicit-any
-  128:42   warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                          @typescript-eslint/no-explicit-any
-  132:45   warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                          @typescript-eslint/no-explicit-any
-  133:39   warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                          @typescript-eslint/no-explicit-any
-  152:29   error    Delete `⏎············`                                                                                                                                                                                                                                                                            prettier/prettier
-  162:17   warning  'statusData' is assigned a value but never used                                                                                                                                                                                                                                                   @typescript-eslint/no-unused-vars
-  163:17   warning  'horizonData' is assigned a value but never used                                                                                                                                                                                                                                                  @typescript-eslint/no-unused-vars
-  168:17   warning  'learningData' is assigned a value but never used                                                                                                                                                                                                                                                 @typescript-eslint/no-unused-vars
-  193:23   warning  'arbitrage' is assigned a value but never used                                                                                                                                                                                                                                                    @typescript-eslint/no-unused-vars
-  389:8    warning  React Hook useEffect has unnecessary dependencies: 'currentPlanSource', 'plannerDbMeta', and 'plannerLocalMeta'. Either exclude them or remove the dependency array. Outer scope values like 'currentPlanSource' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  620:105  error    Insert `⏎····································`                                                                                                                                                                                                                                                    prettier/prettier
-  623:1    error    Delete `····`                                                                                                                                                                                                                                                                                     prettier/prettier
-  689:96   error    Insert `⏎················································`                                                                                                                                                                                                                                        prettier/prettier
-  692:1    error    Delete `····`                                                                                                                                                                                                                                                                                     prettier/prettier
+    6:15   warning  'Sel' is defined but never used                                @typescript-eslint/no-unused-vars
+   14:69   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+   62:12   warning  'horizon' is assigned a value but never used                   @typescript-eslint/no-unused-vars
+   62:21   warning  'setHorizon' is assigned a value but never used                @typescript-eslint/no-unused-vars
+   62:44   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+   63:30   warning  'setPlannerLocalMeta' is assigned a value but never used       @typescript-eslint/no-unused-vars
+   64:27   warning  'setPlannerDbMeta' is assigned a value but never used          @typescript-eslint/no-unused-vars
+   67:12   warning  'batteryCapacity' is assigned a value but never used           @typescript-eslint/no-unused-vars
+   67:29   warning  'setBatteryCapacity' is assigned a value but never used        @typescript-eslint/no-unused-vars
+   68:12   warning  'pvToday' is assigned a value but never used                   @typescript-eslint/no-unused-vars
+   77:12   warning  'learningStatus' is assigned a value but never used            @typescript-eslint/no-unused-vars
+   77:28   warning  'setLearningStatus' is assigned a value but never used         @typescript-eslint/no-unused-vars
+   77:58   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+   78:12   warning  'exportGuard' is assigned a value but never used               @typescript-eslint/no-unused-vars
+   78:25   warning  'setExportGuard' is assigned a value but never used            @typescript-eslint/no-unused-vars
+   80:12   warning  'serverScheduleLoading' is assigned a value but never used     @typescript-eslint/no-unused-vars
+   80:35   warning  'setServerScheduleLoading' is assigned a value but never used  @typescript-eslint/no-unused-vars
+   81:12   warning  'serverScheduleError' is assigned a value but never used       @typescript-eslint/no-unused-vars
+  142:49   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  143:45   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  150:42   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  154:45   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  155:39   warning  Unexpected any. Specify a different type                       @typescript-eslint/no-explicit-any
+  174:29   error    Delete `·`                                                     prettier/prettier
+  183:17   warning  'statusData' is assigned a value but never used                @typescript-eslint/no-unused-vars
+  184:17   warning  'horizonData' is assigned a value but never used               @typescript-eslint/no-unused-vars
+  189:17   warning  'learningData' is assigned a value but never used              @typescript-eslint/no-unused-vars
+  214:23   warning  'arbitrage' is assigned a value but never used                 @typescript-eslint/no-unused-vars
+  641:105  error    Insert `⏎····································`                 prettier/prettier
+  642:1    error    Insert `····`                                                  prettier/prettier
+  643:37   error    Insert `····`                                                  prettier/prettier
+  644:1    error    Delete `····`                                                  prettier/prettier
+  710:96   error    Insert `⏎················································`     prettier/prettier
+  711:1    error    Insert `····`                                                  prettier/prettier
+  712:49   error    Insert `····`                                                  prettier/prettier
+  713:1    error    Delete `····`                                                  prettier/prettier
 
 /home/s/sync/documents/projects/darkstar/frontend/src/pages/Debug.tsx
   147:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
@@ -164,7 +183,7 @@
   410:22  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
   423:22  warning  'e' is defined but never used  @typescript-eslint/no-unused-vars
 
-✖ 129 problems (33 errors, 96 warnings)
-  32 errors and 0 warnings potentially fixable with the `--fix` option.
+✖ 148 problems (36 errors, 112 warnings)
+  36 errors and 0 warnings potentially fixable with the `--fix` option.
 
  ELIFECYCLE  Command failed with exit code 1.
