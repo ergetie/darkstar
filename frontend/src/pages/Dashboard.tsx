@@ -1,13 +1,12 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
 import { motion } from 'framer-motion'
 import { Api, Sel } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { isToday, isTomorrow, type DaySel } from '../lib/time'
+import { isToday, isTomorrow } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
 
@@ -587,27 +586,8 @@ export default function Dashboard() {
     }
     const planBadge = `${freshnessText}${nextActionText}`
 
-    const socDisplay = soc !== null ? `${soc.toFixed(1)}%` : '—'
-    const pvDays = horizon?.pvDays ?? '—'
-    const weatherDays = horizon?.weatherDays ?? '—'
-
-    // Derive last/next planner runs for automation card
-    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
-    const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
-    const everyMinutes =
-        automationConfig?.every_minutes && automationConfig.every_minutes > 0 ? automationConfig.every_minutes : null
-    let nextRunDate: Date | null = null
-    if (schedulerStatus?.next_run_at) {
-        nextRunDate = new Date(schedulerStatus.next_run_at)
-    } else if (automationConfig?.enable_scheduler && lastRunDate && everyMinutes) {
-        nextRunDate = new Date(lastRunDate.getTime() + everyMinutes * 60 * 1000)
-    }
-
-    // S-Index Display Logic
-    const sIndexVal = plannerMeta?.sIndex?.effective_load_margin
-    const targetSocVal = plannerMeta?.sIndex?.target_soc?.target_percent
-    const sIndexDisplay = sIndexVal ? `x${sIndexVal.toFixed(2)}` : '—'
-    const termDisplay = targetSocVal ? `EOD ${targetSocVal.toFixed(0)}%` : ''
+    // Base display variables
+    // Rev DX1: Removed unused variables (socDisplay, pvDays, weatherDays, sIndexDisplay, termDisplay)
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-6">
@@ -717,11 +697,10 @@ export default function Dashboard() {
                             <button
                                 onClick={() => fetchAllData()}
                                 disabled={isRefreshing}
-                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
-                                    isRefreshing
-                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
-                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                }`}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
+                                    ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
+                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                    }`}
                                 title="Manual sync"
                             >
                                 <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
@@ -787,11 +766,10 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-3">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${
-                                                automationConfig?.enable_scheduler
-                                                    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
-                                                    : 'bg-line'
-                                            }`}
+                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${automationConfig?.enable_scheduler
+                                                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                                                : 'bg-line'
+                                                }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
