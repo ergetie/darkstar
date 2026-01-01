@@ -109,7 +109,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
             {/* Grid Flow Stats */}
             <div className="grid grid-cols-2 gap-2 mt-auto relative z-10">
                 <div className="p-2 rounded-lg bg-surface2/40 border border-line/30">
-                    <div className="flex items-center gap-1.5 text-red-300 mb-1">
+                    <div className="flex items-center gap-1.5 text-bad mb-1">
                         <ArrowDownToLine className="h-3 w-3" />
                         <span className="text-[10px]">Import</span>
                     </div>
@@ -118,7 +118,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
                     </div>
                 </div>
                 <div className="p-2 rounded-lg bg-surface2/40 border border-line/30">
-                    <div className="flex items-center gap-1.5 text-emerald-300 mb-1">
+                    <div className="flex items-center gap-1.5 text-good mb-1">
                         <ArrowUpFromLine className="h-3 w-3" />
                         <span className="text-[10px]">Export</span>
                     </div>
@@ -145,7 +145,7 @@ export function ResourcesDomain({
 
             {/* Header */}
             <div className="flex items-center gap-2 mb-4 relative z-10">
-                <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
+                <div className="p-1.5 rounded-lg bg-accent/10 text-accent">
                     <Zap className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Energy Resources</span>
@@ -158,7 +158,7 @@ export function ResourcesDomain({
                 {/* PV Section */}
                 <div>
                     <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 text-[11px] text-amber-300">
+                        <div className="flex items-center gap-1.5 text-[11px] text-accent">
                             <Sun className="h-3 w-3" />
                             <span>Solar Production</span>
                         </div>
@@ -168,13 +168,13 @@ export function ResourcesDomain({
                             {pvForecast?.toFixed(1) ?? '—'} kWh
                         </div>
                     </div>
-                    <ProgressBar value={pvActual ?? 0} total={pvForecast ?? 1} colorClass="bg-amber-400" />
+                    <ProgressBar value={pvActual ?? 0} total={pvForecast ?? 1} colorClass="bg-accent" />
                 </div>
 
                 {/* Load Section */}
                 <div>
                     <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 text-[11px] text-purple-300">
+                        <div className="flex items-center gap-1.5 text-[11px] text-house">
                             <Activity className="h-3 w-3" />
                             <span>House Load</span>
                         </div>
@@ -184,12 +184,12 @@ export function ResourcesDomain({
                             {loadAvg?.toFixed(1) ?? '—'} kWh
                         </div>
                     </div>
-                    <ProgressBar value={loadActual ?? 0} total={loadAvg ?? 1} colorClass="bg-purple-400" />
+                    <ProgressBar value={loadActual ?? 0} total={loadAvg ?? 1} colorClass="bg-house" />
                 </div>
 
                 {/* Water Section */}
                 <div className="flex items-center justify-between pt-2 border-t border-line/30">
-                    <div className="flex items-center gap-1.5 text-[11px] text-sky-300">
+                    <div className="flex items-center gap-1.5 text-[11px] text-water">
                         <Droplets className="h-3 w-3" />
                         <span>Water Heating</span>
                     </div>
@@ -205,11 +205,11 @@ export function ResourcesDomain({
 export function StrategyDomain({ soc, socTarget, sIndex, cycles, riskLabel }: StrategyCardProps) {
     return (
         <Card className="p-4 flex flex-col h-full relative overflow-hidden">
-            <div className="absolute inset-0 bg-blue-500/[0.01]" />
+            <div className="absolute inset-0 bg-ai/[0.01]" />
 
             {/* Header */}
             <div className="flex items-center gap-2 mb-4 relative z-10">
-                <div className="p-1.5 rounded-lg bg-blue-500/10 text-blue-400">
+                <div className="p-1.5 rounded-lg bg-ai/10 text-ai">
                     <Gauge className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Battery & Strategy</span>
@@ -220,7 +220,7 @@ export function StrategyDomain({ soc, socTarget, sIndex, cycles, riskLabel }: St
                 <div className="col-span-2 flex items-center gap-3 p-3 rounded-xl bg-surface2/30 border border-line/30">
                     <Battery
                         className={`h-8 w-8 ${
-                            (soc ?? 0) > 50 ? 'text-emerald-400' : (soc ?? 0) > 20 ? 'text-amber-400' : 'text-red-400'
+                            (soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
                         }`}
                     />
                     <div>
@@ -235,7 +235,7 @@ export function StrategyDomain({ soc, socTarget, sIndex, cycles, riskLabel }: St
                 <div>
                     <div className="text-[10px] text-muted uppercase tracking-wider mb-1">S-Index</div>
                     <div className="text-lg font-semibold text-text">{sIndex ? `x${sIndex.toFixed(2)}` : '—'}</div>
-                    <div className="text-[10px] text-blue-300/80">Strategy Factor</div>
+                    <div className="text-[10px] text-ai/80">Strategy Factor</div>
                 </div>
 
                 {/* Cycles / Risk */}
@@ -265,8 +265,7 @@ export function ControlParameters({
 
             <div className="space-y-3 relative z-10">
                 {/* 1. Risk Appetite Panel */}
-                <div className="bg-surface2/30 rounded-xl p-3 border border-line/50 relative overflow-hidden group">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-blue-500/50 to-purple-500/50" />
+                <div className="metric-card-border metric-card-border-house bg-surface2/30 p-3 overflow-hidden group">
                     <div className="flex justify-between items-baseline mb-2 pl-3">
                         <div className="text-[10px] text-muted uppercase tracking-wider flex items-center gap-2">
                             <span>Market Strategy</span>
@@ -295,11 +294,11 @@ export function ControlParameters({
                     <div className="flex gap-1 h-8 pl-3">
                         {[1, 2, 3, 4, 5].map((level) => {
                             const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]',
-                                2: 'bg-teal-500/20 text-teal-300 border-teal-500/40 shadow-[0_0_10px_rgba(20,184,166,0.2)]',
-                                3: 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]',
-                                4: 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]',
-                                5: 'bg-purple-500/20 text-purple-300 border-purple-500/40 shadow-[0_0_10px_rgba(168,85,247,0.2)]',
+                                1: 'bg-good text-[#100f0e] border-good shadow-[0_0_10px_rgba(var(--color-good),0.4)]',
+                                2: 'bg-night text-[#100f0e] border-night shadow-[0_0_10px_rgba(var(--color-night),0.4)]',
+                                3: 'bg-water text-[#100f0e] border-water shadow-[0_0_10px_rgba(var(--color-water),0.4)]',
+                                4: 'bg-warn text-[#100f0e] border-warn shadow-[0_0_10px_rgba(var(--color-warn),0.4)]',
+                                5: 'bg-ai text-[#100f0e] border-ai shadow-[0_0_10px_rgba(var(--color-ai),0.4)]',
                             }
                             const isActive = riskAppetite === level
                             return (
@@ -320,9 +319,7 @@ export function ControlParameters({
                 </div>
 
                 {/* 2. Water Comfort Panel */}
-                <div className="bg-surface2/30 rounded-xl p-3 border border-line/50 relative overflow-hidden">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-amber-500/50 to-red-500/50" />
-
+                <div className="metric-card-border metric-card-border-water bg-surface2/30 p-3 overflow-hidden">
                     <div className="flex justify-between items-center mb-2 pl-3">
                         <div className="text-[10px] text-muted uppercase tracking-wider flex items-center gap-2">
                             <span>Water Comfort</span>
@@ -346,11 +343,11 @@ export function ControlParameters({
                     <div className="flex gap-1 h-8 pl-3">
                         {[1, 2, 3, 4, 5].map((level) => {
                             const colorMap: Record<number, string> = {
-                                1: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)]',
-                                2: 'bg-teal-500/20 text-teal-300 border-teal-500/40 shadow-[0_0_10px_rgba(20,184,166,0.2)]',
-                                3: 'bg-blue-500/20 text-blue-300 border-blue-500/40 shadow-[0_0_10px_rgba(59,130,246,0.2)]',
-                                4: 'bg-amber-500/20 text-amber-300 border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]',
-                                5: 'bg-red-500/20 text-red-300 border-red-500/40 shadow-[0_0_10px_rgba(239,68,68,0.2)]',
+                                1: 'bg-good text-[#100f0e] border-good shadow-[0_0_10px_rgba(var(--color-good),0.4)]',
+                                2: 'bg-night text-[#100f0e] border-night shadow-[0_0_10px_rgba(var(--color-night),0.4)]',
+                                3: 'bg-water text-[#100f0e] border-water shadow-[0_0_10px_rgba(var(--color-water),0.4)]',
+                                4: 'bg-warn text-[#100f0e] border-warn shadow-[0_0_10px_rgba(var(--color-warn),0.4)]',
+                                5: 'bg-bad text-[#100f0e] border-bad shadow-[0_0_10px_rgba(var(--color-bad),0.4)]',
                             }
                             const isActive = comfortLevel === level
                             return (
@@ -371,8 +368,7 @@ export function ControlParameters({
                 </div>
 
                 {/* 3. Overrides Panel */}
-                <div className="bg-surface2/30 rounded-xl p-2 border border-line/50 flex gap-2 relative">
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-line/50" />
+                <div className="metric-card-border metric-card-border-muted bg-surface2/30 p-2 flex gap-2">
                     {/* Water Boost */}
                     <button
                         onClick={onWaterBoost}
@@ -388,7 +384,7 @@ export function ControlParameters({
                         onClick={onBatteryTopUp}
                         className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-surface hover:bg-surface2 border border-line/30 transition-all group"
                     >
-                        <div className="p-1 rounded-full bg-emerald-500/10 text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
+                        <div className="p-1 rounded-full bg-good/10 text-good group-hover:bg-good/20 transition-colors">
                             <BatteryCharging className="h-3.5 w-3.5" />
                         </div>
                         <span className="text-[10px] font-medium text-text">Top Up 50%</span>

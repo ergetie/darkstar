@@ -15,7 +15,7 @@
 | **Warn** (Amber) | `--color-warn` | Warnings, caution states |
 | **Bad** (Red) | `--color-bad` | Errors, negative values, critical alerts |
 | **Water** (Blue) | `--color-water` | Water heating related |
-| **House** (Purple) | `--color-house` | House load, consumption |
+| **House** (Teal) | `--color-house` | House load, consumption |
 | **Grid** (Slate) | `--color-grid` | Grid import/export |
 | **Peak** (Pink) | `--color-peak` | Peak pricing periods |
 | **Night** (Cyan) | `--color-night` | Night/off-peak periods |

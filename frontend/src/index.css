@@ -31,8 +31,8 @@
     /* Hover state */
     --color-good: 31 178 86;
     /* #1FB256 TE Green */
-    --color-house: 168 85 247;
-    /* #A855F7 Purple */
+    --color-house: 0 183 181;
+    /* #00B7B5 Teal */
     --color-water: 78 168 222;
     /* #4EA8DE TE Blue */
     --color-grid: 100 116 139;
@@ -489,6 +489,7 @@ body::before {
 
     /* ========== RANGE SLIDER ========== */
     .slider {
+        appearance: none;
         -webkit-appearance: none;
         width: 100%;
         height: 0.5rem;
@@ -866,6 +867,14 @@ body::before {
 
 .metric-card-border-bad {
     border-left-color: rgb(var(--color-bad));
+}
+
+.metric-card-border-warn {
+    border-left-color: rgb(var(--color-warn));
+}
+
+.metric-card-border-muted {
+    border-left-color: rgb(var(--color-line));
 }
 
 /* ============================================

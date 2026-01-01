@@ -44,7 +44,7 @@ export type ConfigResponse = {
     }
     water_heating?: {
         comfort_level?: number
-        vacation_mode?: { enabled?: boolean }
+        vacation_mode?: { enabled?: boolean; end_date?: string | null }
     }
     input_sensors?: {
         vacation_mode?: string

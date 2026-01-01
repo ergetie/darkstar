@@ -72,8 +72,8 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
                 typeof slot.projected_soc_percent === 'number'
                     ? slot.projected_soc_percent
                     : typeof slot.soc_target_percent === 'number'
-                        ? slot.soc_target_percent
-                        : null
+                      ? slot.soc_target_percent
+                      : null
             if (
                 noActions &&
                 typeof soc === 'number' &&
@@ -237,8 +237,8 @@ export default function Planning() {
                 typeof slot.projected_soc_percent === 'number'
                     ? slot.projected_soc_percent
                     : typeof slot.soc_target_percent === 'number'
-                        ? slot.soc_target_percent
-                        : null
+                      ? slot.soc_target_percent
+                      : null
 
             if (typeof soc === 'number') {
                 if (soc < caps.minSocPercent - 0.01) {

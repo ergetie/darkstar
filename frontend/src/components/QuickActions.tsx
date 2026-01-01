@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { Rocket, Pause, Play, Palmtree, Flame, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Rocket, Pause, Play, Palmtree, Flame, ChevronLeft, ChevronRight, Loader2 } from 'lucide-react'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 
@@ -269,19 +269,36 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
             {/* Buttons grid */}
             <div className="grid grid-cols-2 gap-3">
                 {/* 1. Run Planner */}
+                {/* 1. Run Planner */}
                 <button
-                    className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary
+                    className={`relative overflow-hidden flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary
                         ${
                             plannerPhase !== 'idle'
-                                ? 'bg-accent text-[#100f0e] cursor-wait'
+                                ? 'bg-surface border border-accent/50 text-accent cursor-wait'
                                 : 'bg-accent hover:bg-accent2 text-[#100f0e]'
                         }`}
                     onClick={handleRunPlanner}
                     disabled={plannerPhase !== 'idle'}
                     title="Run planner and execute"
                 >
-                    <Rocket className={`h-4 w-4 ${plannerPhase !== 'idle' ? 'animate-pulse' : ''}`} />
-                    <span>{getPlannerButtonText()}</span>
+                    {/* Progress Bar Background */}
+                    <div
+                        className={`absolute left-0 top-0 bottom-0 transition-all duration-[2000ms] ease-out pointer-events-none ${
+                            plannerPhase === 'idle' ? 'bg-transparent' : 'bg-accent/50'
+                        }`}
+                        style={{
+                            width: plannerPhase === 'idle' ? '0%' : plannerPhase === 'done' ? '100%' : '90%',
+                        }}
+                    />
+
+                    <div className="relative z-10 flex items-center gap-2">
+                        {plannerPhase === 'planning' || plannerPhase === 'executing' ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                            <Rocket className="h-4 w-4" />
+                        )}
+                        <span>{getPlannerButtonText()}</span>
+                    </div>
                 </button>
 
                 {/* 2. Executor Toggle (Pause/Resume) */}

@@ -33,7 +33,7 @@ export default function Dashboard() {
     const [isRefreshing, setIsRefreshing] = useState(false)
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
-    const [statusMessage, setStatusMessage] = useState<string | null>(null)
+
     const [automationConfig, setAutomationConfig] = useState<{
         enable_scheduler?: boolean
         write_to_mariadb?: boolean
@@ -174,7 +174,6 @@ export default function Dashboard() {
 
     const fetchAllData = useCallback(async () => {
         setIsRefreshing(true)
-        let hadError = false
         try {
             // Parallel fetch all data
             const [
@@ -263,7 +262,6 @@ export default function Dashboard() {
                         })
                 }
             } else {
-                hadError = true
                 console.error('Failed to load config for Dashboard:', configData.reason)
             }
 
@@ -275,7 +273,6 @@ export default function Dashboard() {
                     dailyKwh: data.daily_kwh ?? 0,
                 })
             } else {
-                hadError = true
                 console.error('Failed to load HA average for Dashboard:', haAverageData.reason)
             }
 
@@ -307,7 +304,6 @@ export default function Dashboard() {
                     setCurrentSlotTarget(currentSlot.soc_target_percent)
                 }
             } else {
-                hadError = true
                 console.error('Failed to load schedule for Dashboard:', scheduleData.reason)
             }
 
@@ -319,7 +315,6 @@ export default function Dashboard() {
                     source: data.source ?? 'unknown',
                 })
             } else {
-                hadError = true
                 console.error('Failed to load water data for Dashboard:', waterData.reason)
             }
 
@@ -392,10 +387,8 @@ export default function Dashboard() {
             setLastRefresh(new Date())
         } catch (error) {
             console.error('Error fetching dashboard data:', error)
-            hadError = true
         } finally {
             setIsRefreshing(false)
-            setStatusMessage(hadError ? 'Some dashboard data failed to load.' : null)
             // Nudge the overview chart to reload its schedule data so that
             // planner runs / server-plan loads are reflected without manual
             // day toggling.
@@ -632,31 +625,6 @@ export default function Dashboard() {
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                 >
-                    {/* Toolbar Card */}
-                    <Card className="p-3 flex items-center justify-between shrink-0">
-                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">{planBadge}</div>
-                        <div className="flex items-center gap-2">
-                            <div className="text-[10px] text-muted">
-                                {lastRefresh && `Synced ${lastRefresh.toLocaleTimeString()}`}
-                            </div>
-                            {statusMessage && <div className="text-[10px] text-warn">{statusMessage}</div>}
-                            <button
-                                onClick={() => fetchAllData()}
-                                disabled={isRefreshing}
-                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
-                                    isRefreshing
-                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
-                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                }`}
-                                title="Manual sync"
-                            >
-                                <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
-                                    {isRefreshing ? '⟳' : '↻'}
-                                </span>
-                            </button>
-                        </div>
-                    </Card>
-
                     {/* Advisor */}
                     <div className="flex-1 min-h-0">
                         <SmartAdvisor />
@@ -708,12 +676,12 @@ export default function Dashboard() {
                             />
                         </Card>
                         <Card className="flex-1 p-4 md:p-5">
-                            <div className="flex items-baseline justify-between mb-2">
-                                <div className="text-sm text-muted">Planner Automation</div>
-                                <div className="flex items-center gap-3">
+                            <div className="flex items-baseline justify-between mb-4">
+                                <div className="text-sm font-medium text-text">Planner Automation</div>
+                                <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                                            className={`inline-flex h-2 w-2 rounded-full ${
                                                 automationConfig?.enable_scheduler
                                                     ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
                                                     : 'bg-line'
@@ -725,24 +693,49 @@ export default function Dashboard() {
                                         type="button"
                                         onClick={toggleAutomationScheduler}
                                         disabled={automationSaving}
-                                        className="rounded-pill px-3 py-1 text-[10px] font-semibold border border-line/60 text-muted hover:border-accent hover:text-accent disabled:opacity-50 transition"
+                                        className="rounded-pill px-2 py-0.5 text-[10px] font-semibold border border-line/60 text-muted hover:border-accent hover:text-accent disabled:opacity-50 transition"
                                     >
                                         {automationConfig?.enable_scheduler ? 'Disable' : 'Enable'}
                                     </button>
                                 </div>
                             </div>
-                            <div className="text-[11px] text-muted">
-                                {automationConfig?.enable_scheduler
-                                    ? 'Planner will auto-run on the configured schedule.'
-                                    : 'Auto-planner is off. Use Quick Actions to run manually.'}
+
+                            {/* Plan Info Badge & Refresh */}
+                            <div className="mb-4 p-2 rounded-lg bg-surface2/30 border border-line/30 flex items-center justify-between">
+                                <div className="text-[10px] font-medium text-text">{planBadge}</div>
+                                <button
+                                    onClick={() => fetchAllData()}
+                                    disabled={isRefreshing}
+                                    className={`rounded-full p-1 transition ${
+                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                    }`}
+                                    title="Manual sync"
+                                >
+                                    <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>
+                                        {isRefreshing ? '⟳' : '↻'}
+                                    </span>
+                                </button>
                             </div>
-                            <div className="mt-2 space-y-1 text-[10px] text-muted">
-                                <div>Last plan run: {formatLocalIso(lastRunDate)}</div>
-                                <div>
-                                    Next expected run:{' '}
-                                    {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
+
+                            <div className="space-y-1 text-[10px] text-muted">
+                                <div className="flex justify-between">
+                                    <span>Last plan run:</span>
+                                    <span className="font-mono">{formatLocalIso(lastRunDate)}</span>
                                 </div>
-                                <div>DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}</div>
+                                <div className="flex justify-between">
+                                    <span>Next expected run:</span>
+                                    <span className="font-mono">
+                                        {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span>DB sync:</span>
+                                    <span>{automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}</span>
+                                </div>
+                                <div className="flex justify-between pt-1 border-t border-line/30 mt-1">
+                                    <span>Dashboard Sync:</span>
+                                    <span>{lastRefresh ? lastRefresh.toLocaleTimeString() : '—'}</span>
+                                </div>
                             </div>
                         </Card>
 

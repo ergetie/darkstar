@@ -17,7 +17,7 @@ const Item = ({
     onClick?: () => void
 }) => {
     const baseClass =
-        'group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface/80 hover:bg-surface2 transition'
+        'group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface2 hover:brightness-110 transition'
     const activeClass = 'ring-2 ring-accent/50'
 
     const content = (
