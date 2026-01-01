@@ -14,7 +14,7 @@ interface ModalProps {
 
 /**
  * Modal Component
- * 
+ *
  * Renders a dialog overlay using a React Portal.
  * Handles click-outside, escape key, and scroll locking.
  */
@@ -25,7 +25,7 @@ export default function Modal({
     children,
     footer,
     size = 'md',
-    className = ''
+    className = '',
 }: ModalProps) {
     const overlayRef = useRef<HTMLDivElement>(null)
 
@@ -47,7 +47,9 @@ export default function Modal({
         } else {
             document.body.style.overflow = ''
         }
-        return () => { document.body.style.overflow = '' }
+        return () => {
+            document.body.style.overflow = ''
+        }
     }, [open])
 
     if (!open) return null
@@ -56,13 +58,11 @@ export default function Modal({
         sm: 'max-w-sm',
         md: 'max-w-md',
         lg: 'max-w-2xl',
-        xl: 'max-w-4xl'
+        xl: 'max-w-4xl',
     }
 
     const content = (
-        <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
-        >
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
             {/* Backdrop */}
             <div
                 ref={overlayRef}
@@ -86,9 +86,7 @@ export default function Modal({
             >
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-line shrink-0">
-                    <div className="text-lg font-semibold text-text">
-                        {title}
-                    </div>
+                    <div className="text-lg font-semibold text-text">{title}</div>
                     <button
                         onClick={() => onOpenChange(false)}
                         className="p-1 rounded-md text-muted hover:text-text hover:bg-surface2 transition-colors"
@@ -98,9 +96,7 @@ export default function Modal({
                 </div>
 
                 {/* Body */}
-                <div className="px-6 py-4 overflow-y-auto scrollbar-thin">
-                    {children}
-                </div>
+                <div className="px-6 py-4 overflow-y-auto scrollbar-thin">{children}</div>
 
                 {/* Footer */}
                 {footer && (

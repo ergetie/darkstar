@@ -17,6 +17,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **UI** | User Interface | UI1, UI2 |
 | **DS** | Design System | DS1 |
 | **F** | Fixes/Bugfixes | F1 |
+| **DX** | Developer Experience | DX1 |
 
 ---
 
@@ -299,21 +300,34 @@ Created `/design-system` React route instead of static HTML (better: hot-reload,
 - [x] Migrated PillButton to use CSS custom properties
 - [x] Fixed grain texture (sharper, proper dark mode opacity)
 - [x] Fixed light mode visibility (spinner, badges)
-- [ ] Remove old `frontend/color-palette.html` (pending final verification)
+- [x] Remove old `frontend/color-palette.html` (pending final verification)
 
 ---
 
-### [PLANNED] Rev DS2 — React Component Library
+### [DONE] Rev DS2 — React Component Library
 
 **Goal:** Transition the Design System from "CSS Classes" (Phase 1) to a centralized "React Component Library" (Phase 2) to ensure type safety, consistency, and reusability across the application (specifically targeting `Settings.tsx`).
-
+    - **Status**: [DONE] (See `frontend/src/components/ui/`)
 **Plan:**
-- [ ] Create `frontend/src/components/ui/` directory for core atoms
-- [ ] Implement `Select` component (generic dropdown)
-- [ ] Implement `Modal` component (dialog/portal)
-- [ ] Implement `Toast` component (transient notifications)
-- [ ] Implement `Banner` and `Badge` React wrappers
-- [ ] Update `DesignSystem.tsx` to showcase new components
-- [ ] Refactor `Settings.tsx` to use new components
+- [x] Create `frontend/src/components/ui/` directory for core atoms
+- [x] Implement `Select` component (generic dropdown)
+- [x] Implement `Modal` component (dialog/portal)
+- [x] Implement `Toast` component (transient notifications)
+- [x] Implement `Banner` and `Badge` React wrappers
+- [x] Update `DesignSystem.tsx` to showcase new components
+- [x] Refactor `Settings.tsx` to use new components
+
+---
+
+### [IN PROGRESS] Rev DX1: Linting & Formatting
+**Goal:** Establish a robust linting and formatting pipeline for the frontend.
+- [x] Install ESLint, Prettier, and plugins
+- [x] Create `eslint.config.js` and `.prettierrc`
+- [x] Add scripts to `package.json` (`lint`, `lint:fix`, `format`)
+- [x] Update `AGENTS.md` with new protocols
+- [x] Fix Critical Lint Errors (Settings, Planning, Executor)
+- [ ] Resolving Remaining Lint Errors (Aurora, Dashboard, Debug)
+- [ ] Archive Unused Pages (Planning, Forecasting, Learning, Lab)
+- [ ] Verify `pnpm build` passes
 
 ### NEXT REV HERE

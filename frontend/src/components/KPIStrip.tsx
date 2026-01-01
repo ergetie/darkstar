@@ -22,16 +22,15 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
     let totalRealized = 0
 
     if (perfData?.cost_series) {
-        perfData.cost_series.forEach(d => {
+        perfData.cost_series.forEach((d) => {
             totalPlanned += d.planned
             totalRealized += d.realized
         })
     }
 
     const costDrift = totalRealized - totalPlanned
-    const costDriftLabel = costDrift <= 0
-        ? `Saved ${Math.abs(costDrift).toFixed(1)} SEK`
-        : `Overspent ${costDrift.toFixed(1)} SEK`
+    const costDriftLabel =
+        costDrift <= 0 ? `Saved ${Math.abs(costDrift).toFixed(1)} SEK` : `Overspent ${costDrift.toFixed(1)} SEK`
 
     const isSaving = costDrift <= 0
 
@@ -50,11 +49,15 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
             <Card className="p-4 flex items-center justify-between relative overflow-hidden group">
                 <div className={`absolute inset-0 opacity-[0.03] ${isSaving ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                 <div className="flex items-center gap-3 relative z-10">
-                    <div className={`p-2 rounded-full ${isSaving ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                    <div
+                        className={`p-2 rounded-full ${isSaving ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}
+                    >
                         <DollarSign className="h-5 w-5" />
                     </div>
                     <div>
-                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">7-Day Cost Drift</div>
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">
+                            7-Day Cost Drift
+                        </div>
                         <div className={`text-lg font-semibold ${isSaving ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {costDriftLabel}
                         </div>
@@ -74,11 +77,15 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
             <Card className="p-4 flex items-center justify-between relative overflow-hidden">
                 <div className={`absolute inset-0 opacity-[0.03] ${isProfitable ? 'bg-emerald-500' : 'bg-rose-500'}`} />
                 <div className="flex items-center gap-3 relative z-10">
-                    <div className={`p-2 rounded-full ${isProfitable ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                    <div
+                        className={`p-2 rounded-full ${isProfitable ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}
+                    >
                         <Activity className="h-5 w-5" />
                     </div>
                     <div>
-                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">Max Price Spread</div>
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">
+                            Max Price Spread
+                        </div>
                         <div className={`text-lg font-semibold ${isProfitable ? 'text-emerald-400' : 'text-rose-400'}`}>
                             {spreadLabel}
                         </div>
@@ -102,7 +109,9 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
                         <Zap className="h-5 w-5" />
                     </div>
                     <div>
-                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">PV Forecast Error</div>
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">
+                            PV Forecast Error
+                        </div>
                         <div className="text-lg font-semibold text-text">
                             {pvMae} <span className="text-xs font-normal text-muted">kWh</span>
                         </div>
@@ -122,7 +131,9 @@ export default function KPIStrip({ metrics, perfData }: KPIStripProps) {
                         <Activity className="h-5 w-5" />
                     </div>
                     <div>
-                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">Load Forecast Error</div>
+                        <div className="text-[10px] text-muted uppercase tracking-wider font-medium">
+                            Load Forecast Error
+                        </div>
                         <div className="text-lg font-semibold text-text">
                             {loadMae} <span className="text-xs font-normal text-muted">kWh</span>
                         </div>

@@ -3,12 +3,8 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import Sidebar from './components/Sidebar'
 import ErrorBoundary from './components/ErrorBoundary'
 import Dashboard from './pages/Dashboard'
-import Planning from './pages/Planning'
-import Learning from './pages/Learning'
 import Debug from './pages/Debug'
 import Settings from './pages/Settings'
-import Forecasting from './pages/Forecasting'
-import Lab from './pages/Lab'
 import Aurora from './pages/Aurora'
 import Executor from './pages/Executor'
 import DesignSystem from './pages/DesignSystem'
@@ -27,10 +23,7 @@ export default function App() {
         const checkHealth = async () => {
             try {
                 // Check both status and health
-                const [, health] = await Promise.all([
-                    Api.status(),
-                    Api.health()
-                ])
+                const [, health] = await Promise.all([Api.status(), Api.health()])
                 if (cancelled) return
                 errorCount = 0
                 setBackendOffline(false)
@@ -63,9 +56,7 @@ export default function App() {
                     <Sidebar />
                     <div className="lg:pl-[96px]">
                         {/* Show health alerts if not fully healthy */}
-                        {healthStatus && !healthStatus.healthy && (
-                            <SystemAlert health={healthStatus} />
-                        )}
+                        {healthStatus && !healthStatus.healthy && <SystemAlert health={healthStatus} />}
 
                         {/* Show backend offline banner only if no health status available */}
                         {backendOffline && !healthStatus && (
@@ -75,13 +66,9 @@ export default function App() {
                         )}
                         <Routes>
                             <Route path="/" element={<Dashboard />} />
-                            <Route path="/planning" element={<Planning />} />
-                            <Route path="/forecasting" element={<Forecasting />} />
                             <Route path="/executor" element={<Executor />} />
                             <Route path="/aurora" element={<Aurora />} />
-                            <Route path="/learning" element={<Learning />} />
                             <Route path="/debug" element={<Debug />} />
-                            <Route path="/lab" element={<Lab />} />
                             <Route path="/settings" element={<Settings />} />
                             <Route path="/design-system" element={<DesignSystem />} />
                         </Routes>

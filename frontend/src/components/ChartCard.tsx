@@ -65,7 +65,7 @@ const chartOptions: ChartConfiguration['options'] = {
                     }
 
                     return `${datasetLabel}: ${formattedValue}${unit}`
-                }
+                },
             },
         },
     },
@@ -96,7 +96,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: {
                 display: false,
                 text: 'SEK/kWh',
-                color: '#a6b0bf'
+                color: '#a6b0bf',
             },
             grid: { color: 'rgba(255,255,255,0.06)' },
             ticks: { color: '#a6b0bf', display: false },
@@ -108,7 +108,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: {
                 display: false,
                 text: 'kW',
-                color: '#a6b0bf'
+                color: '#a6b0bf',
             },
             grid: { display: false },
             ticks: { color: '#a6b0bf', display: false },
@@ -120,7 +120,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: {
                 display: false,
                 text: 'kWh',
-                color: '#a6b0bf'
+                color: '#a6b0bf',
             },
             grid: { display: false },
             ticks: { color: '#a6b0bf', display: false },
@@ -133,7 +133,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: {
                 display: true,
                 text: '%',
-                color: '#a6b0bf'
+                color: '#a6b0bf',
             },
             grid: { display: false },
             ticks: { color: '#a6b0bf' },
@@ -201,7 +201,7 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
                 backgroundColor: themeColors['palette = 2'] ? `${getColor(2, '#4CAF50')}30` : 'rgba(76,175,80,0.15)',
                 fill: true,
                 yAxisID: 'y4',
-                tension: .35,
+                tension: 0.35,
                 pointRadius: 0,
             },
             {
@@ -299,12 +299,13 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
                 enabled: true,
                 external: true,
                 callbacks: {
-                    title: () => values.day === 'tomorrow' ? 'No Price Data' : 'No Data',
-                    label: () => values.day === 'tomorrow'
-                        ? 'Schedule data not available yet. Check back later for prices.'
-                        : 'No schedule data available.'
-                }
-            }
+                    title: () => (values.day === 'tomorrow' ? 'No Price Data' : 'No Data'),
+                    label: () =>
+                        values.day === 'tomorrow'
+                            ? 'Schedule data not available yet. Check back later for prices.'
+                            : 'No schedule data available.',
+                },
+            },
         }
     }
 
@@ -316,12 +317,15 @@ const createChartData = (values: ChartValues, themeColors: Record<string, string
     } as any
 }
 
-const fallbackData = createChartData({
-    labels: sampleChart.labels,
-    price: sampleChart.price,
-    pv: sampleChart.pv,
-    load: sampleChart.load,
-}, {}) // Use empty theme colors initially, will be updated
+const fallbackData = createChartData(
+    {
+        labels: sampleChart.labels,
+        price: sampleChart.price,
+        pv: sampleChart.pv,
+        load: sampleChart.load,
+    },
+    {},
+) // Use empty theme colors initially, will be updated
 
 type ChartRange = 'day' | '48h'
 
@@ -365,10 +369,10 @@ export default function ChartCard({
     // Load overlay defaults from config
     useEffect(() => {
         Api.config()
-            .then(config => {
+            .then((config) => {
                 const overlayDefaults = config?.dashboard?.overlay_defaults
                 if (overlayDefaults && typeof overlayDefaults === 'string') {
-                    const defaultOverlays = overlayDefaults.split(',').map(s => s.trim().toLowerCase())
+                    const defaultOverlays = overlayDefaults.split(',').map((s) => s.trim().toLowerCase())
                     const hasSocActualToken =
                         defaultOverlays.includes('socactual') || defaultOverlays.includes('soc_actual')
                     const parsedOverlays = {
@@ -380,7 +384,8 @@ export default function ChartCard({
                         export: defaultOverlays.includes('export'),
                         water: defaultOverlays.includes('water'),
                         socTarget: defaultOverlays.includes('soctarget') || defaultOverlays.includes('soc_target'),
-                        socProjected: defaultOverlays.includes('socprojected') || defaultOverlays.includes('soc_projected'),
+                        socProjected:
+                            defaultOverlays.includes('socprojected') || defaultOverlays.includes('soc_projected'),
                         // Only override SoC Actual if config explicitly mentions it;
                         // otherwise keep the initial default (true).
                         socActual: hasSocActualToken ? true : overlays.socActual,
@@ -388,15 +393,15 @@ export default function ChartCard({
                     setOverlays(parsedOverlays)
                 }
             })
-            .catch(err => console.error('Failed to load overlay defaults:', err))
+            .catch((err) => console.error('Failed to load overlay defaults:', err))
     }, [])
     const [nowPosition, setNowPosition] = useState<number | null>(null)
 
     useEffect(() => {
         // Fetch theme colors on mount
         Api.theme()
-            .then(themeData => {
-                const currentThemeInfo = themeData.themes.find(t => t.name === themeData.current)
+            .then((themeData) => {
+                const currentThemeInfo = themeData.themes.find((t) => t.name === themeData.current)
                 if (currentThemeInfo) {
                     // Convert palette array to key-value format
                     const colorMap: Record<string, string> = {}
@@ -409,19 +414,22 @@ export default function ChartCard({
                     setCurrentTheme(themeData.current)
                 }
             })
-            .catch(err => console.error('Failed to load theme colors:', err))
+            .catch((err) => console.error('Failed to load theme colors:', err))
     }, [])
 
     useEffect(() => {
         if (!ref.current || Object.keys(themeColors).length === 0) return
         const cfg: ChartConfiguration = {
             type: 'bar',
-            data: createChartData({
-                labels: sampleChart.labels,
-                price: sampleChart.price,
-                pv: sampleChart.pv,
-                load: sampleChart.load,
-            }, themeColors),
+            data: createChartData(
+                {
+                    labels: sampleChart.labels,
+                    price: sampleChart.price,
+                    pv: sampleChart.pv,
+                    load: sampleChart.load,
+                },
+                themeColors,
+            ),
             options: chartOptions,
         }
         chartRef.current = new ChartJS(ref.current, cfg)
@@ -483,7 +491,7 @@ export default function ChartCard({
             try {
                 if (!isChartUsable(chartRef.current)) return
                 if (chartRef.current) {
-                    ; (chartRef.current as any).data = liveData
+                    ;(chartRef.current as any).data = liveData
                     chartRef.current.update()
                 }
             } catch (err) {
@@ -498,14 +506,14 @@ export default function ChartCard({
 
         const loader =
             useHistoryForToday && rangeState === 'day' && currentDay === 'today'
-                ? Api.scheduleTodayWithHistory().then(res => ({ schedule: res.slots }))
+                ? Api.scheduleTodayWithHistory().then((res) => ({ schedule: res.slots }))
                 : Api.schedule()
 
         loader
-            .then(data => {
+            .then((data) => {
                 applyData(data.schedule ?? [])
             })
-            .catch(err => {
+            .catch((err) => {
                 console.error('Failed to load schedule:', err)
                 // Show an explicit "no data" overlay instead of leaving stale/mock data visible
                 setHasNoDataMessage(true)
@@ -523,15 +531,21 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                                    }`}
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                    rangeState === 'day'
+                                        ? 'bg-accent text-canvas'
+                                        : 'bg-surface border border-line/60 text-muted'
+                                }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h' ? 'bg-accent text-canvas' : 'bg-surface border border-line/60 text-muted'
-                                    }`}
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                    rangeState === '48h'
+                                        ? 'bg-accent text-canvas'
+                                        : 'bg-surface border border-line/60 text-muted'
+                                }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -539,7 +553,7 @@ export default function ChartCard({
                         </div>
                         <button
                             className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
-                            onClick={() => setShowOverlayMenu(v => !v)}
+                            onClick={() => setShowOverlayMenu((v) => !v)}
                         >
                             Overlays
                         </button>
@@ -548,28 +562,31 @@ export default function ChartCard({
             </div>
             {showOverlayMenu && (
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                    {([
-                        ['Price', 'price'],
-                        ['PV', 'pv'],
-                        ['Load', 'load'],
-                        ['Charge', 'charge'],
-                        ['Discharge', 'discharge'],
-                        ['Export', 'export'],
-                        ['Water', 'water'],
-                        ['SoC Target', 'socTarget'],
-                        ['SoC Projected', 'socProjected'],
-                        ['SoC Actual', 'socActual'],
-                    ] as const).map(([label, key]) => (
+                    {(
+                        [
+                            ['Price', 'price'],
+                            ['PV', 'pv'],
+                            ['Load', 'load'],
+                            ['Charge', 'charge'],
+                            ['Discharge', 'discharge'],
+                            ['Export', 'export'],
+                            ['Water', 'water'],
+                            ['SoC Target', 'socTarget'],
+                            ['SoC Projected', 'socProjected'],
+                            ['SoC Actual', 'socActual'],
+                        ] as const
+                    ).map(([label, key]) => (
                         <button
                             key={key}
                             onClick={(e) => {
                                 e.preventDefault()
-                                setOverlays(o => ({ ...o, [key]: !o[key as keyof typeof o] }))
+                                setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
+                            className={`rounded-pill px-3 py-1 border ${
+                                overlays[key as keyof typeof overlays]
                                     ? 'bg-accent text-canvas border-accent'
                                     : 'border-line/60 text-muted hover:border-accent'
-                                }`}
+                            }`}
                         >
                             {label}
                         </button>
@@ -581,7 +598,9 @@ export default function ChartCard({
                     <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
                         <div className="text-center">
                             <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
-                            <div className="text-sm text-muted">Schedule data not available yet. Check back later for prices.</div>
+                            <div className="text-sm text-muted">
+                                Schedule data not available yet. Check back later for prices.
+                            </div>
                         </div>
                     </div>
                 )}
@@ -701,26 +720,22 @@ function buildLiveData(
 
                 price.push(slot.import_price_sek_kwh ?? null)
                 pv.push(
-                    isExec && anySlot.actual_pv_kwh != null
-                        ? anySlot.actual_pv_kwh
-                        : slot.pv_forecast_kwh ?? null,
+                    isExec && anySlot.actual_pv_kwh != null ? anySlot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null),
                 )
                 load.push(
                     isExec && anySlot.actual_load_kwh != null
                         ? anySlot.actual_load_kwh
-                        : slot.load_forecast_kwh ?? null,
+                        : (slot.load_forecast_kwh ?? null),
                 )
                 // For charge/export, prefer actual_* when executed; discharge/water remain planned.
                 charge.push(
                     isExec && anySlot.actual_charge_kw != null
                         ? anySlot.actual_charge_kw
-                        : slot.battery_charge_kw ?? slot.charge_kw ?? null,
+                        : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
                 )
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
                 exp.push(
-                    isExec && anySlot.actual_export_kw != null
-                        ? anySlot.actual_export_kw
-                        : slot.export_kwh ?? null,
+                    isExec && anySlot.actual_export_kw != null ? anySlot.actual_export_kw : (slot.export_kwh ?? null),
                 )
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
@@ -844,25 +859,21 @@ function buildLiveData(
 
                 price.push(slot.import_price_sek_kwh ?? null)
                 pv.push(
-                    isExec && anySlot.actual_pv_kwh != null
-                        ? anySlot.actual_pv_kwh
-                        : slot.pv_forecast_kwh ?? null,
+                    isExec && anySlot.actual_pv_kwh != null ? anySlot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null),
                 )
                 load.push(
                     isExec && anySlot.actual_load_kwh != null
                         ? anySlot.actual_load_kwh
-                        : slot.load_forecast_kwh ?? null,
+                        : (slot.load_forecast_kwh ?? null),
                 )
                 charge.push(
                     isExec && anySlot.actual_charge_kw != null
                         ? anySlot.actual_charge_kw
-                        : slot.battery_charge_kw ?? slot.charge_kw ?? null,
+                        : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
                 )
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
                 exp.push(
-                    isExec && anySlot.actual_export_kw != null
-                        ? anySlot.actual_export_kw
-                        : slot.export_kwh ?? null,
+                    isExec && anySlot.actual_export_kw != null ? anySlot.actual_export_kw : (slot.export_kwh ?? null),
                 )
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)

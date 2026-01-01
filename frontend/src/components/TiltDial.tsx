@@ -94,19 +94,9 @@ export default function TiltDial({ value, onChange }: TiltDialProps) {
             >
                 <svg viewBox="0 0 48 48" className="h-full w-full">
                     {/* Base circle */}
-                    <circle
-                        cx="24"
-                        cy="24"
-                        r="21"
-                        className="fill-surface2 stroke-line/40"
-                        strokeWidth="2"
-                    />
+                    <circle cx="24" cy="24" r="21" className="fill-surface2 stroke-line/40" strokeWidth="2" />
                     {/* Highlighted quarter arc for 90°–0° tilt */}
-                    <path
-                        d="M3 24 A21 21 0 0 1 24 3"
-                        className="fill-none stroke-accent/70"
-                        strokeWidth="2.2"
-                    />
+                    <path d="M3 24 A21 21 0 0 1 24 3" className="fill-none stroke-accent/70" strokeWidth="2.2" />
                     {/* Tick marks every 15° of tilt (0–90) */}
                     <g>
                         {Array.from({ length: 7 }).map((_, i) => {
@@ -119,19 +109,10 @@ export default function TiltDial({ value, onChange }: TiltDialProps) {
                             const y1 = 24 + outerR * Math.sin(rad)
                             const x2 = 24 + innerR * Math.cos(rad)
                             const y2 = 24 + innerR * Math.sin(rad)
-                            const cls =
-                                tilt === 0 || tilt === 90 ? 'stroke-line/80' : 'stroke-line/60'
+                            const cls = tilt === 0 || tilt === 90 ? 'stroke-line/80' : 'stroke-line/60'
                             const width = tilt === 0 || tilt === 90 ? 1.6 : 1.2
                             return (
-                                <line
-                                    key={tilt}
-                                    x1={x1}
-                                    y1={y1}
-                                    x2={x2}
-                                    y2={y2}
-                                    className={cls}
-                                    strokeWidth={width}
-                                />
+                                <line key={tilt} x1={x1} y1={y1} x2={x2} y2={y2} className={cls} strokeWidth={width} />
                             )
                         })}
                     </g>
@@ -158,12 +139,9 @@ export default function TiltDial({ value, onChange }: TiltDialProps) {
                 </svg>
             </div>
             <div className="text-[11px] text-muted leading-tight">
-                <div className="font-medium text-text">
-                    {Math.round(clampedValue)}°
-                </div>
+                <div className="font-medium text-text">{Math.round(clampedValue)}°</div>
                 <div>Drag along the arc: 0° = flat · 90° = vertical panel</div>
             </div>
         </div>
     )
 }
-

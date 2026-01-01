@@ -168,7 +168,6 @@ body::before {
    ============================================ */
 
 @layer components {
-
     /* ========== BUTTONS ========== */
     .btn {
         display: inline-flex;
@@ -454,7 +453,12 @@ body::before {
     }
 
     .skeleton {
-        background: linear-gradient(90deg, rgb(var(--color-surface2)) 25%, rgb(var(--color-surface)) 50%, rgb(var(--color-surface2)) 75%);
+        background: linear-gradient(
+            90deg,
+            rgb(var(--color-surface2)) 25%,
+            rgb(var(--color-surface)) 50%,
+            rgb(var(--color-surface2)) 75%
+        );
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s infinite;
         border-radius: var(--radius-sm);
@@ -576,7 +580,6 @@ body::before {
 
     /* ========== ANIMATIONS ========== */
     @keyframes pulse {
-
         0%,
         100% {
             opacity: 1;
@@ -588,7 +591,6 @@ body::before {
     }
 
     @keyframes bounce {
-
         0%,
         100% {
             transform: translateY(0);
@@ -632,7 +634,6 @@ body::before {
     }
 
     @keyframes glow-pulse {
-
         0%,
         100% {
             box-shadow: 0 0 8px rgba(255, 206, 89, 0.4);
@@ -818,11 +819,15 @@ body::before {
 
 /* Button glow — dark mode only */
 .dark .btn-glow-primary {
-    box-shadow: 0 0 16px rgba(255, 206, 89, 0.4), 0 0 32px rgba(255, 206, 89, 0.2);
+    box-shadow:
+        0 0 16px rgba(255, 206, 89, 0.4),
+        0 0 32px rgba(255, 206, 89, 0.2);
 }
 
 .dark .btn-glow-primary:hover {
-    box-shadow: 0 0 20px rgba(255, 206, 89, 0.6), 0 0 40px rgba(255, 206, 89, 0.3);
+    box-shadow:
+        0 0 20px rgba(255, 206, 89, 0.6),
+        0 0 40px rgba(255, 206, 89, 0.3);
 }
 
 .dark .btn-glow-green {
@@ -881,7 +886,6 @@ body::before {
 }
 
 @keyframes barPulse {
-
     0%,
     100% {
         opacity: 0.85;
@@ -1011,19 +1015,19 @@ body::before {
    ============================================ */
 
 .ds-timeline-battery {
-    background-color: #AAB6C4 !important;
+    background-color: #aab6c4 !important;
 }
 
 .ds-timeline-water {
-    background-color: #FF7A7A !important;
+    background-color: #ff7a7a !important;
 }
 
 .ds-timeline-export {
-    background-color: #9BF6A3 !important;
+    background-color: #9bf6a3 !important;
 }
 
 .ds-timeline-hold {
-    background-color: #FFD966 !important;
+    background-color: #ffd966 !important;
 }
 
 /* ============================================

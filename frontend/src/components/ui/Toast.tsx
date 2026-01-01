@@ -20,7 +20,7 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined)
 
 /**
  * Toast Provider
- * 
+ *
  * Wrap the app in this provider to enable usage of the useToast hook.
  */
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -30,15 +30,18 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         setToasts((prev) => prev.filter((t) => t.id !== id))
     }, [])
 
-    const toast = useCallback(({ message, description, variant }: Omit<Toast, 'id'>) => {
-        const id = Math.random().toString(36).substring(2, 9)
-        setToasts((prev) => [...prev, { id, message, description, variant }])
+    const toast = useCallback(
+        ({ message, description, variant }: Omit<Toast, 'id'>) => {
+            const id = Math.random().toString(36).substring(2, 9)
+            setToasts((prev) => [...prev, { id, message, description, variant }])
 
-        // Auto dismiss after 5 seconds
-        setTimeout(() => {
-            dismiss(id)
-        }, 5000)
-    }, [dismiss])
+            // Auto dismiss after 5 seconds
+            setTimeout(() => {
+                dismiss(id)
+            }, 5000)
+        },
+        [dismiss],
+    )
 
     return (
         <ToastContext.Provider value={{ toast, dismiss }}>
@@ -55,14 +58,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                                 ${getToastStyles(t.variant)}
                             `}
                         >
-                            <div className="shrink-0 mt-0.5">
-                                {getToastIcon(t.variant)}
-                            </div>
+                            <div className="shrink-0 mt-0.5">{getToastIcon(t.variant)}</div>
                             <div className="flex-1">
                                 <div className="font-semibold text-sm">{t.message}</div>
-                                {t.description && (
-                                    <div className="text-xs opacity-90 mt-1">{t.description}</div>
-                                )}
+                                {t.description && <div className="text-xs opacity-90 mt-1">{t.description}</div>}
                             </div>
                             <button
                                 onClick={() => dismiss(t.id)}
@@ -73,7 +72,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                         </div>
                     ))}
                 </div>,
-                document.body
+                document.body,
             )}
         </ToastContext.Provider>
     )

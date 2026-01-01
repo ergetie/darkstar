@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useRef, useState } from 'react'
 import Card from '../components/Card'
 import Kpi from '../components/Kpi'
@@ -42,7 +43,12 @@ export default function Learning() {
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [history, setHistory] = useState<LearningHistoryResponse | null>(null)
-    const [debugSIndex, setDebugSIndex] = useState<{ mode?: string; base_factor?: number; factor?: number; max_factor?: number } | null>(null)
+    const [debugSIndex, setDebugSIndex] = useState<{
+        mode?: string
+        base_factor?: number
+        factor?: number
+        max_factor?: number
+    } | null>(null)
     const [runLoading, setRunLoading] = useState(false)
     const [runMessage, setRunMessage] = useState<string | null>(null)
     const [loopsLoading, setLoopsLoading] = useState(false)
@@ -64,7 +70,7 @@ export default function Learning() {
                 Api.learningHistory(),
                 Api.debug(),
                 Api.learningDailyMetrics(),
-            ]).then(results => {
+            ]).then((results) => {
                 if (cancelled) return
 
                 const [learningRes, configRes, historyRes, debugRes, dailyRes] = results
@@ -134,10 +140,7 @@ export default function Learning() {
     const lastError = (learning as any)?.last_error as string | undefined
 
     const hasAnyMetricData =
-        (metrics && Object.keys(metrics).length > 0) ||
-        completed > 0 ||
-        failed > 0 ||
-        daysWithData > 0
+        (metrics && Object.keys(metrics).length > 0) || completed > 0 || failed > 0 || daysWithData > 0
 
     const latestSIndex = dailyMetrics?.s_index_base_factor
     const latestPvMae = dailyMetrics?.pv_error_mean_abs_kwh
@@ -211,7 +214,7 @@ export default function Learning() {
 
         // Aggregate changes_applied per day
         const changesByDate = new Map<string, number>()
-        runs.forEach(run => {
+        runs.forEach((run) => {
             const d = new Date(run.started_at)
             if (Number.isNaN(d.getTime())) return
             const dateKey = d.toISOString().slice(0, 10) // YYYY-MM-DD
@@ -225,26 +228,21 @@ export default function Learning() {
         for (const key of changesByDate.keys()) {
             dateSet.add(key)
         }
-        sHistory.forEach(entry => {
+        sHistory.forEach((entry) => {
             if (entry.date) dateSet.add(entry.date)
         })
 
         const sortedDates = Array.from(dateSet).sort()
 
         const labels = sortedDates
-        const changesApplied = sortedDates.map(d => changesByDate.get(d) ?? 0)
+        const changesApplied = sortedDates.map((d) => changesByDate.get(d) ?? 0)
 
         // Map S-index history by date and align to sortedDates
         const sIndexByDate = new Map<string, number | null>()
-        sHistory.forEach(entry => {
-            sIndexByDate.set(
-                entry.date,
-                entry.value !== null && entry.value !== undefined ? entry.value : null,
-            )
+        sHistory.forEach((entry) => {
+            sIndexByDate.set(entry.date, entry.value !== null && entry.value !== undefined ? entry.value : null)
         })
-        const sIndexValues = sortedDates.map(d =>
-            sIndexByDate.has(d) ? sIndexByDate.get(d)! : null,
-        )
+        const sIndexValues = sortedDates.map((d) => (sIndexByDate.has(d) ? sIndexByDate.get(d)! : null))
 
         const data = {
             labels,
@@ -355,9 +353,7 @@ export default function Learning() {
                             <span>Learning</span>
                             <span
                                 className={`rounded-pill border px-2.5 py-0.5 text-[11px] ${
-                                    enabled
-                                        ? 'border-emerald-500/60 text-emerald-300'
-                                        : 'border-line/70 text-muted'
+                                    enabled ? 'border-emerald-500/60 text-emerald-300' : 'border-line/70 text-muted'
                                 }`}
                             >
                                 {enabled ? 'enabled' : 'disabled'}
@@ -374,9 +370,7 @@ export default function Learning() {
                         <div className="flex items-center justify-between">
                             <span>Sync interval</span>
                             <span>
-                                {syncInterval !== undefined && syncInterval !== null
-                                    ? `${syncInterval} min`
-                                    : '—'}
+                                {syncInterval !== undefined && syncInterval !== null ? `${syncInterval} min` : '—'}
                             </span>
                         </div>
                         <div className="flex items-center justify-between">
@@ -409,14 +403,14 @@ export default function Learning() {
                         )}
                         {!loading && !error && !enabled && (
                             <div className="mt-3 rounded-xl2 border border-dashed border-line/60 bg-surface2/60 px-3 py-2 text-[12px] text-muted/90">
-                                Learning is currently <span className="font-semibold">disabled</span>. Enable it
-                                in the Settings → Parameters section to start collecting data.
+                                Learning is currently <span className="font-semibold">disabled</span>. Enable it in the
+                                Settings → Parameters section to start collecting data.
                             </div>
                         )}
                         {!loading && !error && enabled && !hasAnyMetricData && (
                             <div className="mt-3 rounded-xl2 border border-dashed border-line/60 bg-surface2/60 px-3 py-2 text-[12px] text-muted/90">
-                                Learning is enabled but no runs have been recorded yet. This panel will fill
-                                in after the planner has accumulated enough data.
+                                Learning is enabled but no runs have been recorded yet. This panel will fill in after
+                                the planner has accumulated enough data.
                             </div>
                         )}
                         {!loading && !error && lastError && (
@@ -431,22 +425,10 @@ export default function Learning() {
                 <Card className="p-5 lg:col-span-2">
                     <div className="text-sm text-muted mb-3">Metrics</div>
                     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                        <Kpi
-                            label="Completed runs"
-                            value={completed ? completed.toString() : '0'}
-                        />
-                        <Kpi
-                            label="Failed runs"
-                            value={failed ? failed.toString() : '0'}
-                        />
-                        <Kpi
-                            label="Days with data"
-                            value={daysWithData ? daysWithData.toString() : '0'}
-                        />
-                        <Kpi
-                            label="DB size"
-                            value={dbSize}
-                        />
+                        <Kpi label="Completed runs" value={completed ? completed.toString() : '0'} />
+                        <Kpi label="Failed runs" value={failed ? failed.toString() : '0'} />
+                        <Kpi label="Days with data" value={daysWithData ? daysWithData.toString() : '0'} />
+                        <Kpi label="DB size" value={dbSize} />
                     </div>
                     {latestSIndex !== undefined && latestSIndex !== null && (
                         <div className="mt-4 grid grid-cols-3 gap-3 text-[11px] text-muted">
@@ -454,24 +436,16 @@ export default function Learning() {
                                 <div className="uppercase tracking-wide text-[10px] text-muted/70">
                                     Learned S-index base
                                 </div>
+                                <div className="mt-0.5 text-[13px]">{latestSIndex.toFixed(3)}</div>
+                            </div>
+                            <div>
+                                <div className="uppercase tracking-wide text-[10px] text-muted/70">PV MAE (kWh)</div>
                                 <div className="mt-0.5 text-[13px]">
-                                    {latestSIndex.toFixed(3)}
+                                    {latestPvMae !== undefined && latestPvMae !== null ? latestPvMae.toFixed(3) : '—'}
                                 </div>
                             </div>
                             <div>
-                                <div className="uppercase tracking-wide text-[10px] text-muted/70">
-                                    PV MAE (kWh)
-                                </div>
-                                <div className="mt-0.5 text-[13px]">
-                                    {latestPvMae !== undefined && latestPvMae !== null
-                                        ? latestPvMae.toFixed(3)
-                                        : '—'}
-                                </div>
-                            </div>
-                            <div>
-                                <div className="uppercase tracking-wide text-[10px] text-muted/70">
-                                    Load MAE (kWh)
-                                </div>
+                                <div className="uppercase tracking-wide text-[10px] text-muted/70">Load MAE (kWh)</div>
                                 <div className="mt-0.5 text-[13px]">
                                     {latestLoadMae !== undefined && latestLoadMae !== null
                                         ? latestLoadMae.toFixed(3)
@@ -487,9 +461,8 @@ export default function Learning() {
                 <Card className="p-5 lg:col-span-2">
                     <div className="text-sm text-muted mb-3">Parameter impact</div>
                     <div className="text-sm text-muted/80">
-                        Read-only snapshot of key thresholds that learning can adjust
-                        (decision thresholds, S-index factors, daily change limits). Edits
-                        are made in the Settings tab.
+                        Read-only snapshot of key thresholds that learning can adjust (decision thresholds, S-index
+                        factors, daily change limits). Edits are made in the Settings tab.
                     </div>
                     <div className="mt-4 grid gap-3 text-sm text-muted/90 md:grid-cols-2">
                         <div className="rounded-xl2 border border-line/60 px-3 py-2">
@@ -529,11 +502,12 @@ export default function Learning() {
                                 <div className="flex items-center justify-between">
                                     <span>Current S-index</span>
                                     <span className="tabular-nums">
-                                        {debugSIndex?.factor ?? debugSIndex?.base_factor ?? config?.s_index?.base_factor ?? '—'}
+                                        {debugSIndex?.factor ??
+                                            debugSIndex?.base_factor ??
+                                            config?.s_index?.base_factor ??
+                                            '—'}
                                         {debugSIndex?.mode && (
-                                            <span className="ml-1 text-[11px] text-muted">
-                                                ({debugSIndex.mode})
-                                            </span>
+                                            <span className="ml-1 text-[11px] text-muted">({debugSIndex.mode})</span>
                                         )}
                                     </span>
                                 </div>
@@ -597,19 +571,14 @@ export default function Learning() {
                     </div>
                     {history?.recent_changes && history.recent_changes.length > 0 && (
                         <div className="mt-1 border-t border-line/50 pt-2">
-                            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">
-                                Recent changes
-                            </div>
+                            <div className="mb-1 text-[11px] uppercase tracking-wide text-muted">Recent changes</div>
                             <div className="space-y-1.5 max-h-32 overflow-auto text-[11px] text-muted/90">
                                 {history.recent_changes.slice(0, 6).map((chg, idx) => (
                                     <div key={`${chg.run_id ?? 'r'}-${chg.param_path}-${idx}`}>
                                         <div className="flex items-center justify-between">
-                                            <span className="truncate max-w-[10rem]">
-                                                {chg.param_path}
-                                            </span>
+                                            <span className="truncate max-w-[10rem]">{chg.param_path}</span>
                                             <span className="ml-2 tabular-nums text-right">
-                                                {chg.old_value ?? '—'}{' '}
-                                                <span className="mx-0.5 text-muted/70">→</span>
+                                                {chg.old_value ?? '—'} <span className="mx-0.5 text-muted/70">→</span>
                                                 {chg.new_value ?? '—'}
                                             </span>
                                         </div>
@@ -617,14 +586,10 @@ export default function Learning() {
                                             <span>
                                                 {chg.loop || 'learning'}{' '}
                                                 {chg.reason && (
-                                                    <span className="ml-1 line-clamp-1">
-                                                        · {chg.reason}
-                                                    </span>
+                                                    <span className="ml-1 line-clamp-1">· {chg.reason}</span>
                                                 )}
                                             </span>
-                                            {chg.started_at && (
-                                                <span>{formatTimestamp(chg.started_at)}</span>
-                                            )}
+                                            {chg.started_at && <span>{formatTimestamp(chg.started_at)}</span>}
                                         </div>
                                     </div>
                                 ))}

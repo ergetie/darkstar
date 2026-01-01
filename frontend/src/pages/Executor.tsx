@@ -1,5 +1,32 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect, useCallback } from 'react'
-import { Cpu, Play, Power, Eye, History, AlertTriangle, CheckCircle, Clock, Zap, RefreshCw, Activity, Settings, Gauge, Flame, Battery, Sun, Plug, ArrowDownToLine, ArrowUpFromLine, Bell, X, BatteryCharging, Upload, Droplets, ChevronDown } from 'lucide-react'
+import {
+    Cpu,
+    Play,
+    Power,
+    Eye,
+    History,
+    AlertTriangle,
+    CheckCircle,
+    Clock,
+    Zap,
+    RefreshCw,
+    Activity,
+    Settings,
+    Gauge,
+    Flame,
+    Battery,
+    Sun,
+    Plug,
+    ArrowDownToLine,
+    ArrowUpFromLine,
+    Bell,
+    X,
+    BatteryCharging,
+    Upload,
+    Droplets,
+    ChevronDown,
+} from 'lucide-react'
 import Card from '../components/Card'
 import MiniBarGraph from '../components/MiniBarGraph'
 import { useSocket } from '../lib/hooks'
@@ -103,7 +130,7 @@ const executorApi = {
         const r = await fetch('api/executor/toggle', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
         })
         if (!r.ok) throw new Error(`Toggle failed: ${r.status}`)
         return r.json()
@@ -138,7 +165,7 @@ const executorApi = {
             const r = await fetch('api/executor/notifications', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(settings)
+                body: JSON.stringify(settings),
             })
             if (!r.ok) throw new Error(`Notifications update failed: ${r.status}`)
             return r.json()
@@ -148,7 +175,7 @@ const executorApi = {
             const data = await r.json()
             if (!r.ok) throw new Error(data.error || `Test failed: ${r.status}`)
             return data
-        }
+        },
     },
     config: {
         get: async (): Promise<EntityConfig> => {
@@ -160,11 +187,11 @@ const executorApi = {
             const r = await fetch('api/executor/config', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(config)
+                body: JSON.stringify(config),
             })
             if (!r.ok) throw new Error(`Config update failed: ${r.status}`)
             return r.json()
-        }
+        },
     },
     quickAction: {
         get: async (): Promise<{ quick_action: QuickAction | null }> => {
@@ -176,7 +203,7 @@ const executorApi = {
             const r = await fetch('api/executor/quick-action', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type, duration_minutes })
+                body: JSON.stringify({ type, duration_minutes }),
             })
             if (!r.ok) throw new Error(`Quick action set failed: ${r.status}`)
             return r.json()
@@ -185,8 +212,8 @@ const executorApi = {
             const r = await fetch('api/executor/quick-action', { method: 'DELETE' })
             if (!r.ok) throw new Error(`Quick action clear failed: ${r.status}`)
             return r.json()
-        }
-    }
+        },
+    },
 }
 
 // Quick action type
@@ -216,21 +243,21 @@ type EntityConfig = {
 }
 
 // Toggle switch component
-function Toggle({ enabled, onChange, disabled = false, size = 'md' }: {
+function Toggle({
+    enabled,
+    onChange,
+    disabled = false,
+    size = 'md',
+}: {
     enabled: boolean
     onChange: (v: boolean) => void
     disabled?: boolean
     size?: 'sm' | 'md'
 }) {
-    const sizeClasses = size === 'sm'
-        ? 'h-5 w-9'
-        : 'h-6 w-11'
-    const knobClasses = size === 'sm'
-        ? 'h-3 w-3'
-        : 'h-4 w-4'
-    const translateClasses = size === 'sm'
-        ? (enabled ? 'translate-x-5' : 'translate-x-1')
-        : (enabled ? 'translate-x-6' : 'translate-x-1')
+    const sizeClasses = size === 'sm' ? 'h-5 w-9' : 'h-6 w-11'
+    const knobClasses = size === 'sm' ? 'h-3 w-3' : 'h-4 w-4'
+    const translateClasses =
+        size === 'sm' ? (enabled ? 'translate-x-5' : 'translate-x-1') : enabled ? 'translate-x-6' : 'translate-x-1'
 
     return (
         <button
@@ -239,8 +266,9 @@ function Toggle({ enabled, onChange, disabled = false, size = 'md' }: {
             aria-checked={enabled}
             disabled={disabled}
             onClick={() => onChange(!enabled)}
-            className={`relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${sizeClasses} ${enabled ? 'bg-accent' : 'bg-surface2'
-                } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${sizeClasses} ${
+                enabled ? 'bg-accent' : 'bg-surface2'
+            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         >
             <span
                 className={`inline-block transform rounded-full bg-white transition-transform ${knobClasses} ${translateClasses}`}
@@ -258,20 +286,11 @@ import {
     Title,
     Tooltip,
     Legend,
-    Filler
+    Filler,
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 
-ChartJS.register(
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    Title,
-    Tooltip,
-    Legend,
-    Filler
-)
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 export default function Executor() {
     const [status, setStatus] = useState<ExecutorStatus | null>(null)
@@ -304,7 +323,7 @@ export default function Executor() {
             const [statusRes, statsRes, historyRes] = await Promise.all([
                 executorApi.status(),
                 executorApi.stats(7),
-                executorApi.history(20)
+                executorApi.history(20),
             ])
             setStatus(statusRes)
             setStats(statsRes)
@@ -319,17 +338,30 @@ export default function Executor() {
 
     // --- WebSocket Event Handlers (Rev E1) ---
     useSocket('live_metrics', (data) => {
-        setLive(prev => ({
-            ...prev,
-            soc: data.soc !== undefined ? { value: `${data.soc.toFixed(0)}%`, numeric: data.soc, unit: '%' } : prev?.soc,
-            pv_power: data.pv_kw !== undefined ? { value: `${data.pv_kw.toFixed(1)} kW`, numeric: data.pv_kw * 1000, unit: 'W' } : prev?.pv_power,
-            load_power: data.load_kw !== undefined ? { value: `${data.load_kw.toFixed(1)} kW`, numeric: data.load_kw * 1000, unit: 'W' } : prev?.load_power,
-            grid_import: data.grid_import_kw !== undefined ? { value: `${data.grid_import_kw.toFixed(2)} kW`, numeric: data.grid_import_kw * 1000, unit: 'W' } : prev?.grid_import,
-            grid_export: data.grid_export_kw !== undefined ? { value: `${data.grid_export_kw.toFixed(2)} kW`, numeric: data.grid_export_kw * 1000, unit: 'W' } : prev?.grid_export,
-            work_mode: data.work_mode ? { value: data.work_mode } : prev?.work_mode
-        }));
+        setLive((prev) => {
+            const next = { ...(prev || {}) }
+            if (data.soc !== undefined) next.soc = { value: `${data.soc.toFixed(0)}%`, numeric: data.soc, unit: '%' }
+            if (data.pv_kw !== undefined)
+                next.pv_power = { value: `${data.pv_kw.toFixed(1)} kW`, numeric: data.pv_kw * 1000, unit: 'W' }
+            if (data.load_kw !== undefined)
+                next.load_power = { value: `${data.load_kw.toFixed(1)} kW`, numeric: data.load_kw * 1000, unit: 'W' }
+            if (data.grid_import_kw !== undefined)
+                next.grid_import = {
+                    value: `${data.grid_import_kw.toFixed(2)} kW`,
+                    numeric: data.grid_import_kw * 1000,
+                    unit: 'W',
+                }
+            if (data.grid_export_kw !== undefined)
+                next.grid_export = {
+                    value: `${data.grid_export_kw.toFixed(2)} kW`,
+                    numeric: data.grid_export_kw * 1000,
+                    unit: 'W',
+                }
+            if (data.work_mode) next.work_mode = { value: data.work_mode }
+            return next
+        })
 
-        setHistoryBuffer(prev => {
+        setHistoryBuffer((prev) => {
             const limit = 20
             const newLabels = [...prev.labels, '']
             const newSoc = [...prev.soc, data.soc ?? prev.soc[prev.soc.length - 1] ?? 0]
@@ -339,7 +371,12 @@ export default function Executor() {
             const newExport = [...prev.export, data.grid_export_kw ?? prev.export[prev.export.length - 1] ?? 0]
 
             if (newLabels.length > limit) {
-                newLabels.shift(); newSoc.shift(); newPv.shift(); newLoad.shift(); newImport.shift(); newExport.shift();
+                newLabels.shift()
+                newSoc.shift()
+                newPv.shift()
+                newLoad.shift()
+                newImport.shift()
+                newExport.shift()
             }
 
             return {
@@ -348,17 +385,18 @@ export default function Executor() {
                 pv: newPv,
                 load: newLoad,
                 import: newImport,
-                export: newExport
+                export: newExport,
             }
         })
-    });
+    })
 
     useSocket('executor_status', (data) => {
-        setStatus(data);
-    });
+        setStatus(data)
+    })
 
     // Initial data load
     useEffect(() => {
+        setLoading(true)
         fetchAll()
         const interval = setInterval(fetchAll, 30000) // Keep status polling as backup
         return () => clearInterval(interval)
@@ -370,7 +408,9 @@ export default function Executor() {
             try {
                 const liveRes = await executorApi.live()
                 setLive(liveRes)
-            } catch (e) { }
+            } catch (e) {
+                // ignore
+            }
         }
         loadInitialLive()
     }, [])
@@ -393,7 +433,7 @@ export default function Executor() {
         setSavingNotification(true)
         try {
             await executorApi.notifications.update({ [key]: value })
-            setNotifications(prev => prev ? { ...prev, [key]: value } : null)
+            setNotifications((prev) => (prev ? { ...prev, [key]: value } : null))
         } catch (e: any) {
             setError(e.message)
         } finally {
@@ -462,7 +502,12 @@ export default function Executor() {
     const formatDateTime = (iso?: string) => {
         if (!iso) return '—'
         try {
-            return new Date(iso).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+            return new Date(iso).toLocaleString('sv-SE', {
+                month: 'short',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+            })
         } catch {
             return iso
         }
@@ -488,9 +533,9 @@ export default function Executor() {
         scales: { x: { display: false }, y: { display: false } },
         elements: {
             point: { radius: 0 },
-            line: { tension: 0.4, borderWidth: 1.5 }
+            line: { tension: 0.4, borderWidth: 1.5 },
         },
-        animation: { duration: 0 }
+        animation: { duration: 0 },
     }
 
     if (loading) {
@@ -514,12 +559,15 @@ export default function Executor() {
                 <div>
                     <h1 className="text-lg font-medium text-text flex items-center gap-2">
                         Executor Control Center
-                        <span className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${status?.enabled
-                            ? status?.shadow_mode
-                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                                : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
-                            : 'bg-slate-500/20 border-slate-500/50 text-slate-400'
-                            }`}>
+                        <span
+                            className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${
+                                status?.enabled
+                                    ? status?.shadow_mode
+                                        ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                                        : 'bg-emerald-500/20 border-emerald-500/50 text-emerald-300'
+                                    : 'bg-slate-500/20 border-slate-500/50 text-slate-400'
+                            }`}
+                        >
                             {status?.enabled ? (status?.shadow_mode ? 'Shadow' : 'Active') : 'Disabled'}
                         </span>
                     </h1>
@@ -533,19 +581,22 @@ export default function Executor() {
                 <div className="rounded-xl p-3 bg-red-500/10 border border-red-500/30 flex items-center gap-3">
                     <AlertTriangle className="h-4 w-4 text-red-400" />
                     <span className="text-red-300 text-[11px] flex-1">{error}</span>
-                    <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-lg">×</button>
+                    <button onClick={() => setError(null)} className="text-red-400 hover:text-red-300 text-lg">
+                        ×
+                    </button>
                 </div>
             )}
 
             {/* Top Section - Status & Controls */}
             <div className="grid gap-4 lg:grid-cols-12">
-
                 {/* Status Hero Card */}
                 <Card className={`lg:col-span-5 p-4 md:p-5 bg-gradient-to-br ${statusColor} relative overflow-hidden`}>
                     <div className="relative z-10 flex items-start gap-4">
                         {/* Avatar & Pulse */}
                         <div className="relative flex items-center justify-center shrink-0">
-                            <div className={`absolute h-14 w-14 rounded-full ${statusPulse} opacity-30 animate-pulse`} />
+                            <div
+                                className={`absolute h-14 w-14 rounded-full ${statusPulse} opacity-30 animate-pulse`}
+                            />
                             <div className="relative flex items-center justify-center w-12 h-12 rounded-full bg-surface/90 border border-line/80 shadow-float ring-2 ring-accent/20">
                                 <Cpu className="h-6 w-6 text-accent drop-shadow-[0_0_12px_rgba(56,189,248,0.75)]" />
                             </div>
@@ -554,20 +605,23 @@ export default function Executor() {
                         <div className="flex-1 min-w-0">
                             <div className="text-xs font-semibold text-text uppercase tracking-wide">Status</div>
                             <div className="text-lg font-medium text-text">
-                                {status?.enabled
-                                    ? status?.shadow_mode
-                                        ? 'Shadow Mode'
-                                        : 'Executing'
-                                    : 'Standby'}
+                                {status?.enabled ? (status?.shadow_mode ? 'Shadow Mode' : 'Executing') : 'Standby'}
                             </div>
                             <div className="text-[11px] text-muted flex items-center gap-2 mt-1">
-                                <span className={`h-1.5 w-1.5 rounded-full ${status?.last_run_status === 'success' ? 'bg-emerald-400' :
-                                    status?.last_run_status === 'error' ? 'bg-red-400' :
-                                        'bg-slate-400'
-                                    }`} />
-                                {status?.last_run_status === 'success' ? 'Last run successful' :
-                                    status?.last_run_status === 'error' ? 'Last run failed' :
-                                        'No runs yet'}
+                                <span
+                                    className={`h-1.5 w-1.5 rounded-full ${
+                                        status?.last_run_status === 'success'
+                                            ? 'bg-emerald-400'
+                                            : status?.last_run_status === 'error'
+                                              ? 'bg-red-400'
+                                              : 'bg-slate-400'
+                                    }`}
+                                />
+                                {status?.last_run_status === 'success'
+                                    ? 'Last run successful'
+                                    : status?.last_run_status === 'error'
+                                      ? 'Last run failed'
+                                      : 'No runs yet'}
                             </div>
                         </div>
                     </div>
@@ -646,12 +700,13 @@ export default function Executor() {
                             <Bell className="h-4 w-4 text-muted" />
                             <span className="text-[11px] font-medium text-text">Notifications</span>
                         </div>
-                        {notifications && Object.entries(notifications).some(([k, v]) => k.startsWith('on_') && v === true) && (
-                            <div className="relative">
-                                <span className="absolute inset-0 rounded-full bg-accent/50 blur-sm animate-pulse" />
-                                <span className="relative h-2.5 w-2.5 rounded-full bg-accent block ring-2 ring-accent/30" />
-                            </div>
-                        )}
+                        {notifications &&
+                            Object.entries(notifications).some(([k, v]) => k.startsWith('on_') && v === true) && (
+                                <div className="relative">
+                                    <span className="absolute inset-0 rounded-full bg-accent/50 blur-sm animate-pulse" />
+                                    <span className="relative h-2.5 w-2.5 rounded-full bg-accent block ring-2 ring-accent/30" />
+                                </div>
+                            )}
                     </button>
 
                     {/* Run Now Button */}
@@ -659,8 +714,11 @@ export default function Executor() {
                         <button
                             onClick={handleManualRun}
                             disabled={running}
-                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface hover:bg-surface2 border border-line/50 text-[11px] font-medium transition-all ${running ? 'opacity-70 cursor-not-allowed text-muted' : 'text-text hover:border-accent/50'
-                                }`}
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface hover:bg-surface2 border border-line/50 text-[11px] font-medium transition-all ${
+                                running
+                                    ? 'opacity-70 cursor-not-allowed text-muted'
+                                    : 'text-text hover:border-accent/50'
+                            }`}
                         >
                             {running ? (
                                 <>
@@ -731,6 +789,7 @@ export default function Executor() {
                                             await executorApi.quickAction.clear()
                                             fetchAll()
                                         } catch (e) {
+                                            // ignore
                                             console.error(e)
                                         }
                                     }}
@@ -745,18 +804,46 @@ export default function Executor() {
                     {/* Action Buttons */}
                     <div className="space-y-2 flex-1">
                         {[
-                            { type: 'force_charge', label: 'Force Charge', icon: BatteryCharging, labelClass: 'text-emerald-400', btnClass: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' },
-                            { type: 'force_export', label: 'Force Export', icon: Upload, labelClass: 'text-amber-400', btnClass: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20' },
-                            { type: 'force_heat', label: 'Force Heat', icon: Flame, labelClass: 'text-orange-400', btnClass: 'bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20' },
-                            { type: 'force_stop', label: 'Stop All', icon: Power, labelClass: 'text-red-400', btnClass: 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20' },
-                        ].map(action => (
+                            {
+                                type: 'force_charge',
+                                label: 'Force Charge',
+                                icon: BatteryCharging,
+                                labelClass: 'text-emerald-400',
+                                btnClass:
+                                    'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20',
+                            },
+                            {
+                                type: 'force_export',
+                                label: 'Force Export',
+                                icon: Upload,
+                                labelClass: 'text-amber-400',
+                                btnClass: 'bg-amber-500/10 border-amber-500/20 text-amber-400 hover:bg-amber-500/20',
+                            },
+                            {
+                                type: 'force_heat',
+                                label: 'Force Heat',
+                                icon: Flame,
+                                labelClass: 'text-orange-400',
+                                btnClass:
+                                    'bg-orange-500/10 border-orange-500/20 text-orange-400 hover:bg-orange-500/20',
+                            },
+                            {
+                                type: 'force_stop',
+                                label: 'Stop All',
+                                icon: Power,
+                                labelClass: 'text-red-400',
+                                btnClass: 'bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20',
+                            },
+                        ].map((action) => (
                             <div key={action.type} className="flex items-center gap-2">
-                                <span className={`text-[11px] ${action.labelClass} w-20 font-medium flex items-center gap-1`}>
+                                <span
+                                    className={`text-[11px] ${action.labelClass} w-20 font-medium flex items-center gap-1`}
+                                >
                                     <action.icon className="h-3 w-3" />
                                     {action.label}
                                 </span>
                                 <div className="flex gap-1 flex-1">
-                                    {[15, 30, 60].map(mins => (
+                                    {[15, 30, 60].map((mins) => (
                                         <button
                                             key={mins}
                                             onClick={async () => {
@@ -768,10 +855,11 @@ export default function Executor() {
                                                 }
                                             }}
                                             disabled={status?.quick_action?.type === action.type}
-                                            className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${status?.quick_action?.type === action.type
-                                                ? 'bg-accent/20 border-accent/40 text-accent'
-                                                : action.btnClass
-                                                }`}
+                                            className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${
+                                                status?.quick_action?.type === action.type
+                                                    ? 'bg-accent/20 border-accent/40 text-accent'
+                                                    : action.btnClass
+                                            }`}
                                         >
                                             {mins}m
                                         </button>
@@ -796,10 +884,13 @@ export default function Executor() {
                         <span className="text-[9px] text-muted/70">(every 10s)</span>
                     </div>
                     {live?.work_mode && (
-                        <span className={`text-[10px] px-2 py-0.5 rounded-full border ${live.work_mode.value.includes('Export')
-                            ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
-                            : 'bg-blue-500/20 border-blue-500/30 text-blue-300'
-                            }`}>
+                        <span
+                            className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                                live.work_mode.value.includes('Export')
+                                    ? 'bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                                    : 'bg-blue-500/20 border-blue-500/30 text-blue-300'
+                            }`}
+                        >
                             {live.work_mode.value}
                         </span>
                     )}
@@ -812,9 +903,15 @@ export default function Executor() {
                             <MiniBarGraph data={historyBuffer.soc} colorClass="bg-good" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Battery className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50 ? 'text-good' :
-                                (live?.soc?.numeric ?? 0) > 20 ? 'text-warn' : 'text-bad'
-                                }`} />
+                            <Battery
+                                className={`h-6 w-6 ${
+                                    (live?.soc?.numeric ?? 0) > 50
+                                        ? 'text-good'
+                                        : (live?.soc?.numeric ?? 0) > 20
+                                          ? 'text-warn'
+                                          : 'text-bad'
+                                }`}
+                            />
                             <div>
                                 <div className="text-lg font-bold text-good">
                                     {live?.soc?.numeric?.toFixed(0) ?? '—'}%
@@ -830,8 +927,11 @@ export default function Executor() {
                             <MiniBarGraph data={historyBuffer.pv} colorClass="bg-accent" />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <Sun className={`h-6 w-6 ${(live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
-                                }`} />
+                            <Sun
+                                className={`h-6 w-6 ${
+                                    (live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
+                                }`}
+                            />
                             <div>
                                 <div className="text-lg font-bold text-accent">
                                     {live?.pv_power?.numeric ? (live.pv_power.numeric / 1000).toFixed(1) : '—'} kW
@@ -860,14 +960,23 @@ export default function Executor() {
                     {/* Grid Import - Grid Slate / Bad when high */}
                     <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
                         <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
-                            <MiniBarGraph data={historyBuffer.import} colorClass={(live?.grid_import?.numeric ?? 0) > 100 ? 'bg-bad' : 'bg-grid'} />
+                            <MiniBarGraph
+                                data={historyBuffer.import}
+                                colorClass={(live?.grid_import?.numeric ?? 0) > 100 ? 'bg-bad' : 'bg-grid'}
+                            />
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
-                            <ArrowDownToLine className={`h-6 w-6 ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
-                                }`} />
+                            <ArrowDownToLine
+                                className={`h-6 w-6 ${
+                                    (live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
+                                }`}
+                            />
                             <div>
-                                <div className={`text-lg font-bold ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
-                                    }`}>
+                                <div
+                                    className={`text-lg font-bold ${
+                                        (live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
+                                    }`}
+                                >
                                     {live?.grid_import?.numeric ? (live.grid_import.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
                                 <div className="text-[10px] text-muted">Grid Import</div>
@@ -957,9 +1066,11 @@ export default function Executor() {
                                                 <span>SoC→{status.current_slot_plan.soc_target}%</span>
                                             </div>
                                         )}
-                                        {!status.current_slot_plan.charge_kw && !status.current_slot_plan.export_kw && !status.current_slot_plan.water_kw && (
-                                            <div className="text-muted/60 col-span-4">Idle / Self-consumption</div>
-                                        )}
+                                        {!status.current_slot_plan.charge_kw &&
+                                            !status.current_slot_plan.export_kw &&
+                                            !status.current_slot_plan.water_kw && (
+                                                <div className="text-muted/60 col-span-4">Idle / Self-consumption</div>
+                                            )}
                                     </div>
                                 )}
                             </div>
@@ -970,10 +1081,11 @@ export default function Executor() {
                             return (
                                 <div
                                     key={record.id}
-                                    className={`rounded-xl border transition-all ${record.success
-                                        ? 'bg-surface2/30 border-line/40 hover:border-line/60'
-                                        : 'bg-red-500/10 border-red-500/30 hover:border-red-500/50'
-                                        }`}
+                                    className={`rounded-xl border transition-all ${
+                                        record.success
+                                            ? 'bg-surface2/30 border-line/40 hover:border-line/60'
+                                            : 'bg-red-500/10 border-red-500/30 hover:border-red-500/50'
+                                    }`}
                                 >
                                     {/* Header Row - Always visible, clickable */}
                                     <div
@@ -981,7 +1093,9 @@ export default function Executor() {
                                         onClick={() => setExpandedRecordId(isExpanded ? null : record.id)}
                                     >
                                         <div className="flex items-center gap-2">
-                                            <ChevronDown className={`h-3 w-3 text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+                                            <ChevronDown
+                                                className={`h-3 w-3 text-muted transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                                            />
                                             {record.success ? (
                                                 <CheckCircle className="h-4 w-4 text-emerald-400" />
                                             ) : (
@@ -991,20 +1105,30 @@ export default function Executor() {
                                                 {formatDateTime(record.executed_at)}
                                             </span>
                                             {/* Quick summary badges */}
-                                            {record.commanded_charge_current_a && record.commanded_charge_current_a > 0 && (
-                                                <span className="text-[9px] text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">⚡ Charge</span>
-                                            )}
+                                            {record.commanded_charge_current_a &&
+                                                record.commanded_charge_current_a > 0 && (
+                                                    <span className="text-[9px] text-emerald-400 bg-emerald-500/20 px-1.5 py-0.5 rounded">
+                                                        ⚡ Charge
+                                                    </span>
+                                                )}
                                             {record.commanded_work_mode === 'Export First' && (
-                                                <span className="text-[9px] text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">↗ Export</span>
+                                                <span className="text-[9px] text-amber-400 bg-amber-500/20 px-1.5 py-0.5 rounded">
+                                                    ↗ Export
+                                                </span>
                                             )}
                                             {record.commanded_water_temp && record.commanded_water_temp > 50 && (
-                                                <span className="text-[9px] text-orange-400 bg-orange-500/20 px-1.5 py-0.5 rounded">🔥 Heat</span>
+                                                <span className="text-[9px] text-orange-400 bg-orange-500/20 px-1.5 py-0.5 rounded">
+                                                    🔥 Heat
+                                                </span>
                                             )}
                                             {/* Idle badge if no active actions */}
-                                            {(!record.commanded_charge_current_a || record.commanded_charge_current_a === 0) &&
+                                            {(!record.commanded_charge_current_a ||
+                                                record.commanded_charge_current_a === 0) &&
                                                 record.commanded_work_mode !== 'Export First' &&
                                                 (!record.commanded_water_temp || record.commanded_water_temp <= 50) && (
-                                                    <span className="text-[9px] text-muted/60 bg-surface2/50 px-1.5 py-0.5 rounded">— Idle</span>
+                                                    <span className="text-[9px] text-muted/60 bg-surface2/50 px-1.5 py-0.5 rounded">
+                                                        — Idle
+                                                    </span>
                                                 )}
                                         </div>
                                         <div className="flex items-center gap-2">
@@ -1014,7 +1138,9 @@ export default function Executor() {
                                                 </span>
                                             ) : null}
                                             {record.duration_ms && (
-                                                <span className="text-[9px] text-muted font-mono">{record.duration_ms}ms</span>
+                                                <span className="text-[9px] text-muted font-mono">
+                                                    {record.duration_ms}ms
+                                                </span>
                                             )}
                                         </div>
                                     </div>
@@ -1024,85 +1150,166 @@ export default function Executor() {
                                         <div className="px-3 pb-3 border-t border-line/20">
                                             {/* Planned Actions */}
                                             <div className="mt-3">
-                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">Planned (from Schedule)</div>
+                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">
+                                                    Planned (from Schedule)
+                                                </div>
                                                 <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-[10px]">
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Charge</span>
-                                                        <span className={record.planned_charge_kw ? 'text-emerald-400' : 'text-muted/40'}>{record.planned_charge_kw?.toFixed(1) ?? '—'} kW</span>
+                                                        <span
+                                                            className={
+                                                                record.planned_charge_kw
+                                                                    ? 'text-emerald-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.planned_charge_kw?.toFixed(1) ?? '—'} kW
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Export</span>
-                                                        <span className={record.planned_export_kw ? 'text-amber-400' : 'text-muted/40'}>{record.planned_export_kw?.toFixed(1) ?? '—'} kW</span>
+                                                        <span
+                                                            className={
+                                                                record.planned_export_kw
+                                                                    ? 'text-amber-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.planned_export_kw?.toFixed(1) ?? '—'} kW
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Water</span>
-                                                        <span className={record.planned_water_kw ? 'text-orange-400' : 'text-muted/40'}>{record.planned_water_kw?.toFixed(1) ?? '—'} kW</span>
+                                                        <span
+                                                            className={
+                                                                record.planned_water_kw
+                                                                    ? 'text-orange-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.planned_water_kw?.toFixed(1) ?? '—'} kW
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">SoC Target</span>
-                                                        <span className="text-text">{record.planned_soc_target ?? '—'}%</span>
+                                                        <span className="text-text">
+                                                            {record.planned_soc_target ?? '—'}%
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">SoC Projected</span>
-                                                        <span className="text-text">{record.planned_soc_projected ?? '—'}%</span>
+                                                        <span className="text-text">
+                                                            {record.planned_soc_projected ?? '—'}%
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             {/* Commanded Values (What we actually set) */}
                                             <div className="mt-3">
-                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">Commanded (What We Set)</div>
+                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">
+                                                    Commanded (What We Set)
+                                                </div>
                                                 <div className="grid grid-cols-3 md:grid-cols-6 gap-2 text-[10px]">
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Work Mode</span>
-                                                        <span className="text-text font-medium">{record.commanded_work_mode ?? '—'}</span>
+                                                        <span className="text-text font-medium">
+                                                            {record.commanded_work_mode ?? '—'}
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Grid Charging</span>
-                                                        <span className={record.commanded_grid_charging ? 'text-emerald-400' : 'text-muted/40'}>{record.commanded_grid_charging ? 'ON' : 'OFF'}</span>
+                                                        <span
+                                                            className={
+                                                                record.commanded_grid_charging
+                                                                    ? 'text-emerald-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.commanded_grid_charging ? 'ON' : 'OFF'}
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Charge I</span>
-                                                        <span className={record.commanded_charge_current_a ? 'text-emerald-400' : 'text-muted/40'}>{record.commanded_charge_current_a ?? '—'} A</span>
+                                                        <span
+                                                            className={
+                                                                record.commanded_charge_current_a
+                                                                    ? 'text-emerald-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.commanded_charge_current_a ?? '—'} A
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Discharge I</span>
-                                                        <span className={record.commanded_discharge_current_a ? 'text-amber-400' : 'text-muted/40'}>{record.commanded_discharge_current_a ?? '—'} A</span>
+                                                        <span
+                                                            className={
+                                                                record.commanded_discharge_current_a
+                                                                    ? 'text-amber-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.commanded_discharge_current_a ?? '—'} A
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">SoC Target</span>
-                                                        <span className="text-text">{record.commanded_soc_target ?? '—'}%</span>
+                                                        <span className="text-text">
+                                                            {record.commanded_soc_target ?? '—'}%
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Water Temp</span>
-                                                        <span className={record.commanded_water_temp && record.commanded_water_temp > 50 ? 'text-orange-400' : 'text-muted/40'}>{record.commanded_water_temp ?? '—'}°C</span>
+                                                        <span
+                                                            className={
+                                                                record.commanded_water_temp &&
+                                                                record.commanded_water_temp > 50
+                                                                    ? 'text-orange-400'
+                                                                    : 'text-muted/40'
+                                                            }
+                                                        >
+                                                            {record.commanded_water_temp ?? '—'}°C
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
 
                                             {/* Before State */}
                                             <div className="mt-3">
-                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">State Before Execution</div>
+                                                <div className="text-[9px] text-muted uppercase tracking-wide mb-1.5">
+                                                    State Before Execution
+                                                </div>
                                                 <div className="grid grid-cols-3 md:grid-cols-5 gap-2 text-[10px]">
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">SoC</span>
-                                                        <span className="text-text">{record.before_soc_percent?.toFixed(0) ?? '—'}%</span>
+                                                        <span className="text-text">
+                                                            {record.before_soc_percent?.toFixed(0) ?? '—'}%
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Work Mode</span>
-                                                        <span className="text-text">{record.before_work_mode ?? '—'}</span>
+                                                        <span className="text-text">
+                                                            {record.before_work_mode ?? '—'}
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">PV Power</span>
-                                                        <span className="text-yellow-400">{record.before_pv_kw?.toFixed(1) ?? '—'} kW</span>
+                                                        <span className="text-yellow-400">
+                                                            {record.before_pv_kw?.toFixed(1) ?? '—'} kW
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Load</span>
-                                                        <span className="text-sky-400">{record.before_load_kw?.toFixed(1) ?? '—'} kW</span>
+                                                        <span className="text-sky-400">
+                                                            {record.before_load_kw?.toFixed(1) ?? '—'} kW
+                                                        </span>
                                                     </div>
                                                     <div className="flex flex-col">
                                                         <span className="text-muted/60">Water Temp</span>
-                                                        <span className="text-text">{record.before_water_temp ?? '—'}°C</span>
+                                                        <span className="text-text">
+                                                            {record.before_water_temp ?? '—'}°C
+                                                        </span>
                                                     </div>
                                                 </div>
                                             </div>
@@ -1129,10 +1336,13 @@ export default function Executor() {
 
             {/* Notifications Modal */}
             {showNotifications && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setShowNotifications(false)}>
+                <div
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                    onClick={() => setShowNotifications(false)}
+                >
                     <div
                         className="bg-surface border border-line rounded-2xl p-5 w-full max-w-md shadow-2xl"
-                        onClick={e => e.stopPropagation()}
+                        onClick={(e) => e.stopPropagation()}
                     >
                         <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-2">
@@ -1152,29 +1362,64 @@ export default function Executor() {
                                 {/* Service */}
                                 <div className="p-2 rounded-lg bg-surface2/30 border border-line/30 mb-3">
                                     <div className="text-[10px] text-muted mb-1">HA Notify Service</div>
-                                    <div className="text-[11px] text-text font-mono">{notifications.service || 'Not configured'}</div>
+                                    <div className="text-[11px] text-text font-mono">
+                                        {notifications.service || 'Not configured'}
+                                    </div>
                                 </div>
 
                                 {/* Toggle items */}
                                 {[
-                                    { key: 'on_charge_start', label: 'Charge Started', desc: 'When grid charging begins' },
+                                    {
+                                        key: 'on_charge_start',
+                                        label: 'Charge Started',
+                                        desc: 'When grid charging begins',
+                                    },
                                     { key: 'on_charge_stop', label: 'Charge Stopped', desc: 'When grid charging ends' },
-                                    { key: 'on_export_start', label: 'Export Started', desc: 'When battery export begins' },
-                                    { key: 'on_export_stop', label: 'Export Stopped', desc: 'When battery export ends' },
-                                    { key: 'on_water_heat_start', label: 'Water Heating Started', desc: 'When water heater activates' },
-                                    { key: 'on_water_heat_stop', label: 'Water Heating Stopped', desc: 'When water heater deactivates' },
-                                    { key: 'on_soc_target_change', label: 'SoC Target Changed', desc: 'When battery target changes' },
-                                    { key: 'on_override_activated', label: 'Override Activated', desc: 'When emergency override triggers' },
+                                    {
+                                        key: 'on_export_start',
+                                        label: 'Export Started',
+                                        desc: 'When battery export begins',
+                                    },
+                                    {
+                                        key: 'on_export_stop',
+                                        label: 'Export Stopped',
+                                        desc: 'When battery export ends',
+                                    },
+                                    {
+                                        key: 'on_water_heat_start',
+                                        label: 'Water Heating Started',
+                                        desc: 'When water heater activates',
+                                    },
+                                    {
+                                        key: 'on_water_heat_stop',
+                                        label: 'Water Heating Stopped',
+                                        desc: 'When water heater deactivates',
+                                    },
+                                    {
+                                        key: 'on_soc_target_change',
+                                        label: 'SoC Target Changed',
+                                        desc: 'When battery target changes',
+                                    },
+                                    {
+                                        key: 'on_override_activated',
+                                        label: 'Override Activated',
+                                        desc: 'When emergency override triggers',
+                                    },
                                     { key: 'on_error', label: 'Errors', desc: 'When execution fails' },
-                                ].map(item => (
-                                    <div key={item.key} className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50">
+                                ].map((item) => (
+                                    <div
+                                        key={item.key}
+                                        className="flex items-center justify-between p-2.5 rounded-lg bg-surface2/50 border border-line/50"
+                                    >
                                         <div className="flex flex-col">
                                             <span className="text-[11px] font-medium text-text">{item.label}</span>
                                             <span className="text-[9px] text-muted">{item.desc}</span>
                                         </div>
                                         <Toggle
                                             enabled={notifications[item.key as keyof NotificationSettings] as boolean}
-                                            onChange={(v) => handleNotificationToggle(item.key as keyof NotificationSettings, v)}
+                                            onChange={(v) =>
+                                                handleNotificationToggle(item.key as keyof NotificationSettings, v)
+                                            }
                                             disabled={savingNotification}
                                             size="sm"
                                         />
@@ -1188,10 +1433,11 @@ export default function Executor() {
                             <button
                                 onClick={handleTestNotification}
                                 disabled={testingNotification}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${testingNotification
-                                    ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
-                                    : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
-                                    }`}
+                                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${
+                                    testingNotification
+                                        ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
+                                        : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
+                                }`}
                             >
                                 {testingNotification ? (
                                     <>
@@ -1207,7 +1453,9 @@ export default function Executor() {
                             </button>
 
                             {testResult && (
-                                <div className={`mt-2 text-center text-[10px] ${testResult.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                                <div
+                                    className={`mt-2 text-center text-[10px] ${testResult.success ? 'text-emerald-400' : 'text-red-400'}`}
+                                >
                                     {testResult.message}
                                 </div>
                             )}

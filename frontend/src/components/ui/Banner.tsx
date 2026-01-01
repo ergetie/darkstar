@@ -9,11 +9,7 @@ interface BannerProps {
 }
 
 export function Banner({ variant = 'info', children, className = '' }: BannerProps) {
-    return (
-        <div className={`banner banner-${variant} ${className}`}>
-            {children}
-        </div>
-    )
+    return <div className={`banner banner-${variant} ${className}`}>{children}</div>
 }
 
 type BadgeVariant = 'accent' | 'good' | 'warn' | 'bad' | 'muted'
@@ -25,9 +21,5 @@ interface BadgeProps {
 }
 
 export function Badge({ variant = 'muted', children, className = '' }: BadgeProps) {
-    return (
-        <span className={`badge badge-${variant} ${className}`}>
-            {children}
-        </span>
-    )
+    return <span className={`badge badge-${variant} ${className}`}>{children}</span>
 }

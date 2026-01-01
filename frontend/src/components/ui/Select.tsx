@@ -19,7 +19,7 @@ interface SelectProps {
 
 /**
  * Generic Select Component
- * 
+ *
  * A reusable dropdown that matches the design system.
  * Supports grouping, search, and keyboard navigation.
  */
@@ -30,7 +30,7 @@ export default function Select({
     placeholder = 'Select...',
     disabled = false,
     className = '',
-    searchable = false
+    searchable = false,
 }: SelectProps) {
     const [open, setOpen] = useState(false)
     const [search, setSearch] = useState('')
@@ -40,16 +40,17 @@ export default function Select({
     const listRef = useRef<HTMLDivElement>(null)
 
     // Find selected option
-    const selectedOption = options.find(o => o.value === value)
+    const selectedOption = options.find((o) => o.value === value)
 
     // Filter options
     const filtered = useMemo(() => {
         if (!search.trim()) return options
         const lower = search.toLowerCase()
-        return options.filter(o =>
-            o.label.toLowerCase().includes(lower) ||
-            o.value.toLowerCase().includes(lower) ||
-            o.group?.toLowerCase().includes(lower)
+        return options.filter(
+            (o) =>
+                o.label.toLowerCase().includes(lower) ||
+                o.value.toLowerCase().includes(lower) ||
+                o.group?.toLowerCase().includes(lower),
         )
     }, [options, search])
 
@@ -58,7 +59,7 @@ export default function Select({
         const groups: Record<string, SelectOption[]> = {}
         const noGroup: SelectOption[] = []
 
-        filtered.forEach(o => {
+        filtered.forEach((o) => {
             if (o.group) {
                 if (!groups[o.group]) groups[o.group] = []
                 groups[o.group].push(o)
@@ -120,11 +121,11 @@ export default function Select({
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault()
-                setHighlightIndex(prev => Math.min(prev + 1, flatList.length - 1))
+                setHighlightIndex((prev) => Math.min(prev + 1, flatList.length - 1))
                 break
             case 'ArrowUp':
                 e.preventDefault()
-                setHighlightIndex(prev => Math.max(prev - 1, 0))
+                setHighlightIndex((prev) => Math.max(prev - 1, 0))
                 break
             case 'Enter':
                 e.preventDefault()
@@ -181,7 +182,7 @@ export default function Select({
                                     ref={inputRef}
                                     type="text"
                                     value={search}
-                                    onChange={e => setSearch(e.target.value)}
+                                    onChange={(e) => setSearch(e.target.value)}
                                     placeholder="Search..."
                                     className="w-full pl-8 pr-3 py-1.5 rounded-md bg-surface2 border border-line text-sm text-text placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/40"
                                     onKeyDown={handleKeyDown}
@@ -209,7 +210,9 @@ export default function Select({
                                                 ${isActive ? 'font-medium' : ''}
                                             `}
                                             onClick={() => handleSelect(option.value)}
-                                            onMouseEnter={() => setHighlightIndex(flatList.findIndex(o => o.value === option.value))}
+                                            onMouseEnter={() =>
+                                                setHighlightIndex(flatList.findIndex((o) => o.value === option.value))
+                                            }
                                         >
                                             <span>{option.label}</span>
                                             {isActive && <Check className="h-3.5 w-3.5 text-accent" />}
@@ -223,9 +226,9 @@ export default function Select({
                                         <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted/70 font-medium">
                                             {group}
                                         </div>
-                                        {groupOptions.map(option => {
+                                        {groupOptions.map((option) => {
                                             const isActive = selectedOption?.value === option.value
-                                            const idx = flatList.findIndex(o => o.value === option.value)
+                                            const idx = flatList.findIndex((o) => o.value === option.value)
                                             const isHighlighted = idx === highlightIndex
 
                                             return (

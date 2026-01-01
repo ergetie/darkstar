@@ -3,7 +3,7 @@
  *
  * Displays critical and warning banners at the top of the app
  * when system health issues are detected.
- * 
+ *
  * Styles are in index.css under @layer components.
  */
 
@@ -51,9 +51,7 @@ export function SystemAlert({ health, onDismiss }: SystemAlertProps) {
                             {criticalIssues.map((issue, idx) => (
                                 <li key={idx} className="system-alert__item">
                                     <strong>{issue.message}</strong>
-                                    {issue.entity_id && (
-                                        <code className="system-alert__entity">{issue.entity_id}</code>
-                                    )}
+                                    {issue.entity_id && <code className="system-alert__entity">{issue.entity_id}</code>}
                                     <div className="system-alert__guidance">{issue.guidance}</div>
                                 </li>
                             ))}
@@ -75,9 +73,7 @@ export function SystemAlert({ health, onDismiss }: SystemAlertProps) {
                 <div className="system-alert system-alert--warning">
                     <div className="system-alert__icon">⚡</div>
                     <div className="system-alert__content">
-                        <div className="system-alert__title">
-                            Warning{warningIssues.length > 1 ? 's' : ''}
-                        </div>
+                        <div className="system-alert__title">Warning{warningIssues.length > 1 ? 's' : ''}</div>
                         <ul className="system-alert__list">
                             {warningIssues.map((issue, idx) => (
                                 <li key={idx} className="system-alert__item">

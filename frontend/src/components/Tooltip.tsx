@@ -26,9 +26,7 @@ export default function Tooltip({ text, className = '' }: TooltipProps) {
 
             {isVisible && (
                 <div className="absolute z-50 w-64 p-2.5 text-xs bg-surface2 border border-line rounded-lg shadow-lg left-0 bottom-full mb-1.5">
-                    <div className="text-muted leading-relaxed">
-                        {text}
-                    </div>
+                    <div className="text-muted leading-relaxed">{text}</div>
                     {/* Arrow */}
                     <div className="absolute w-2 h-2 bg-surface2 border-r border-b border-line transform rotate-45 left-3 -bottom-1" />
                 </div>

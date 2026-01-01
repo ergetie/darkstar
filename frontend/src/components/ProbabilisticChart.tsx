@@ -11,16 +11,7 @@ import {
 } from 'chart.js'
 import { Line } from 'react-chartjs-2'
 
-ChartJS.register(
-    CategoryScale,
-    LinearScale,
-    PointElement,
-    LineElement,
-    Title,
-    Tooltip,
-    Legend,
-    Filler
-)
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend, Filler)
 
 export type SlotData = {
     time: string
@@ -37,7 +28,7 @@ type Props = {
 }
 
 export default function ProbabilisticChart({ title, slots, color }: Props) {
-    const labels = slots.map(s => {
+    const labels = slots.map((s) => {
         const d = new Date(s.time)
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
     })
@@ -47,50 +38,50 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
         datasets: [
             {
                 label: 'Actual',
-                data: slots.map(s => s.actual ?? null),
+                data: slots.map((s) => s.actual ?? null),
                 borderColor: '#94a3b8', // Slate-400
                 backgroundColor: '#94a3b8',
                 borderWidth: 2,
                 pointRadius: 0,
                 pointHitRadius: 10, // Keep hover target large
-                tension: 0.4,       // Smooth curve
-                spanGaps: true,     // Bridge small gaps
+                tension: 0.4, // Smooth curve
+                spanGaps: true, // Bridge small gaps
                 fill: false,
             },
             {
                 label: 'p90',
-                data: slots.map(s => s.p90),
+                data: slots.map((s) => s.p90),
                 borderColor: `${color}40`, // 25% opacity line
                 borderWidth: 1,
                 backgroundColor: `${color}33`, // 20% opacity fill
                 pointRadius: 0,
                 pointHitRadius: 10,
-                tension: 0.4,       // Smooth curve
+                tension: 0.4, // Smooth curve
                 spanGaps: true,
                 fill: '+1', // Fill to next dataset (p10)
             },
             {
                 label: 'p10 (Risk)',
-                data: slots.map(s => s.p10),
+                data: slots.map((s) => s.p10),
                 borderColor: `${color}80`, // Higher opacity
                 borderWidth: 1.5,
                 borderDash: [4, 4], // Dashed line
                 backgroundColor: 'transparent',
                 pointRadius: 0,
                 pointHitRadius: 10,
-                tension: 0.4,       // Smooth curve
+                tension: 0.4, // Smooth curve
                 spanGaps: true,
                 fill: false,
             },
             {
                 label: 'p50 (Forecast)',
-                data: slots.map(s => s.p50),
+                data: slots.map((s) => s.p50),
                 borderColor: color,
                 backgroundColor: color,
                 borderWidth: 2,
                 pointRadius: 0,
                 pointHitRadius: 10,
-                tension: 0.4,       // Smooth curve
+                tension: 0.4, // Smooth curve
                 spanGaps: true,
                 fill: false,
             },
@@ -108,7 +99,7 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
                     font: { size: 11 },
                     boxWidth: 8,
                     usePointStyle: true,
-                }
+                },
             },
             title: {
                 display: !!title,
@@ -116,7 +107,7 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
                 color: '#e2e8f0', // Slate-200
                 font: { size: 13, weight: 'normal' as const },
                 align: 'start' as const,
-                padding: { bottom: 10 }
+                padding: { bottom: 10 },
             },
             tooltip: {
                 mode: 'index' as const,
@@ -161,9 +152,9 @@ export default function ProbabilisticChart({ title, slots, color }: Props) {
             padding: {
                 bottom: 0,
                 left: 10,
-                right: 10
-            }
-        }
+                right: 10,
+            },
+        },
     }
 
     return (

@@ -14,20 +14,21 @@ interface ActivityLogProps {
 
 export default function ActivityLog({ events }: ActivityLogProps) {
     const sortedEvents = useMemo(() => {
-        return [...events].sort((a, b) =>
-            new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-        )
+        return [...events].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     }, [events])
 
     const getIcon = (event: StrategyEvent) => {
         const text = (event.type + ' ' + event.message).toLowerCase()
 
         if (text.includes('charge') || text.includes('charging')) return <Zap className="h-4 w-4 text-amber-400" />
-        if (text.includes('export') || text.includes('discharging')) return <Upload className="h-4 w-4 text-emerald-400" />
-        if (text.includes('defensive') || text.includes('safety') || text.includes('hold')) return <Shield className="h-4 w-4 text-blue-400" />
+        if (text.includes('export') || text.includes('discharging'))
+            return <Upload className="h-4 w-4 text-emerald-400" />
+        if (text.includes('defensive') || text.includes('safety') || text.includes('hold'))
+            return <Shield className="h-4 w-4 text-blue-400" />
         if (text.includes('idle') || text.includes('wait')) return <Coffee className="h-4 w-4 text-slate-400" />
         if (text.includes('weather')) return <CloudRain className="h-4 w-4 text-sky-400" />
-        if (text.includes('learning') || text.includes('tune')) return <GraduationCap className="h-4 w-4 text-purple-400" />
+        if (text.includes('learning') || text.includes('tune'))
+            return <GraduationCap className="h-4 w-4 text-purple-400" />
         if (text.includes('price') || text.includes('cost')) return <TrendingUp className="h-4 w-4 text-emerald-400" />
 
         switch (event.type) {
@@ -72,22 +73,20 @@ export default function ActivityLog({ events }: ActivityLogProps) {
                     {/* Content */}
                     <div className="flex-1 pt-1.5 min-w-0">
                         <div className="flex items-baseline justify-between gap-2">
-                            <p className="text-xs font-medium text-text truncate">
-                                {event.type.replace('_', ' ')}
-                            </p>
+                            <p className="text-xs font-medium text-text truncate">{event.type.replace('_', ' ')}</p>
                             <span className="text-[10px] text-muted shrink-0 font-mono">
                                 {formatTime(event.timestamp)}
                             </span>
                         </div>
-                        <p className="text-[11px] text-muted mt-0.5 leading-relaxed break-words">
-                            {event.message}
-                        </p>
+                        <p className="text-[11px] text-muted mt-0.5 leading-relaxed break-words">{event.message}</p>
                         {event.details && Object.keys(event.details).length > 0 && (
                             <div className="mt-1.5">
                                 <details className="group/details">
                                     <summary className="cursor-pointer text-[10px] text-accent/80 hover:text-accent select-none list-none flex items-center gap-1">
                                         <span>Details</span>
-                                        <span className="opacity-50 group-open/details:rotate-180 transition-transform">▼</span>
+                                        <span className="opacity-50 group-open/details:rotate-180 transition-transform">
+                                            ▼
+                                        </span>
                                     </summary>
                                     <pre className="mt-1 p-2 rounded bg-surface2/50 text-[10px] text-muted overflow-x-auto font-mono">
                                         {JSON.stringify(event.details, null, 2)}

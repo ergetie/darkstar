@@ -67,17 +67,13 @@ export default function Debug() {
             const level = (entry.level || '').toUpperCase()
             if (levelFilter === 'error') return level === 'ERROR' || level === 'CRITICAL'
             // warn_error
-            return (
-                level === 'WARN' ||
-                level === 'WARNING' ||
-                level === 'ERROR' ||
-                level === 'CRITICAL'
-            )
+            return level === 'WARN' || level === 'WARNING' || level === 'ERROR' || level === 'CRITICAL'
         })
         .filter((entry) => {
             if (timeRange === 'all') return true
             const ts = new Date(entry.timestamp).getTime()
             if (Number.isNaN(ts)) return true
+            // eslint-disable-next-line
             const now = Date.now()
             const deltaMs = now - ts
             const oneHour = 60 * 60 * 1000
@@ -132,7 +128,7 @@ export default function Debug() {
                 legend: { display: false },
                 tooltip: {
                     callbacks: {
-                        label: (ctx) => `SoC: ${ctx.parsed.y.toFixed(1)}%`,
+                        label: (ctx) => `SoC: ${ctx.parsed.y?.toFixed(1) ?? '--'}%`,
                     },
                 },
             },
@@ -182,7 +178,7 @@ export default function Debug() {
 
             <div className="grid gap-6 lg:grid-cols-3">
                 <Card className="p-5 lg:col-span-2">
-                        <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between mb-3">
                         <div className="text-sm text-muted">Logs</div>
                         <div className="flex items-center gap-2 text-[11px] text-muted">
                             <button
@@ -229,7 +225,10 @@ export default function Debug() {
                             <div className="px-3 py-2 text-muted/70">No logs captured yet.</div>
                         )}
                         {filteredLogs.map((entry, idx) => (
-                            <div key={`${entry.timestamp}-${idx}`} className="px-3 py-1.5 border-b border-line/20 last:border-b-0">
+                            <div
+                                key={`${entry.timestamp}-${idx}`}
+                                className="px-3 py-1.5 border-b border-line/20 last:border-b-0"
+                            >
                                 <span className="text-muted/60 mr-2">
                                     {new Date(entry.timestamp).toLocaleTimeString(undefined, {
                                         hour: '2-digit',
@@ -261,12 +260,13 @@ export default function Debug() {
                             <span>Error/critical entries</span>
                             <span className="tabular-nums">{errorLogs.length}</span>
                         </div>
-                        <div className="mt-3 text-[11px] text-muted/70 uppercase tracking-wide">
-                            Last errors
-                        </div>
+                        <div className="mt-3 text-[11px] text-muted/70 uppercase tracking-wide">Last errors</div>
                         <div className="space-y-1.5 max-h-40 overflow-auto">
                             {errorLogs.slice(-5).map((entry, idx) => (
-                                <div key={`${entry.timestamp}-err-${idx}`} className="rounded-md bg-rose-500/5 border border-rose-500/40 px-2 py-1.5">
+                                <div
+                                    key={`${entry.timestamp}-err-${idx}`}
+                                    className="rounded-md bg-rose-500/5 border border-rose-500/40 px-2 py-1.5"
+                                >
                                     <div className="text-[10px] text-rose-200/80 mb-0.5">
                                         {new Date(entry.timestamp).toLocaleTimeString(undefined, {
                                             hour: '2-digit',
@@ -275,9 +275,7 @@ export default function Debug() {
                                         })}{' '}
                                         · {entry.logger}
                                     </div>
-                                    <div className="text-[11px] text-rose-50/90 line-clamp-2">
-                                        {entry.message}
-                                    </div>
+                                    <div className="text-[11px] text-rose-50/90 line-clamp-2">{entry.message}</div>
                                 </div>
                             ))}
                             {errorLogs.length === 0 && (
@@ -305,8 +303,8 @@ export default function Debug() {
                         </div>
                     </div>
                     <div className="text-[13px] text-muted/80 mb-2">
-                        SoC (%) over the selected day from the learning database. Use this to correlate planner behaviour
-                        with actual SoC movement.
+                        SoC (%) over the selected day from the learning database. Use this to correlate planner
+                        behaviour with actual SoC movement.
                     </div>
                     {socError && <div className="text-[11px] text-amber-400 mb-2">{socError}</div>}
                     <div className="h-48">

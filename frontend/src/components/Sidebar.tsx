@@ -6,8 +6,9 @@ import { Api } from '../lib/api'
 import ThemeToggle from './ThemeToggle'
 
 const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; label: string; onClick?: () => void }) => {
-    const baseClass = "group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface/80 hover:bg-surface2 transition"
-    const activeClass = "ring-2 ring-accent/50"
+    const baseClass =
+        'group relative flex items-center justify-center w-12 h-12 rounded-2xl border border-line/70 bg-surface/80 hover:bg-surface2 transition'
+    const activeClass = 'ring-2 ring-accent/50'
 
     const content = (
         <>
@@ -20,22 +21,14 @@ const Item = ({ to, icon: Icon, label, onClick }: { to?: string; icon: any; labe
 
     if (to) {
         return (
-            <NavLink
-                to={to}
-                className={({ isActive }) => `${baseClass} ${isActive ? activeClass : ''}`}
-                title={label}
-            >
+            <NavLink to={to} className={({ isActive }) => `${baseClass} ${isActive ? activeClass : ''}`} title={label}>
                 {content}
             </NavLink>
         )
     }
 
     return (
-        <button
-            onClick={onClick}
-            className={baseClass}
-            title={label}
-        >
+        <button onClick={onClick} className={baseClass} title={label}>
             {content}
         </button>
     )
@@ -64,7 +57,7 @@ export default function Sidebar() {
     // Fetch version from backend API (always current)
     useEffect(() => {
         Api.version()
-            .then(data => setVersion(data.version || 'dev'))
+            .then((data) => setVersion(data.version || 'dev'))
             .catch(() => setVersion('dev'))
     }, [])
 
@@ -96,12 +89,27 @@ export default function Sidebar() {
 
                     {/* Version (Vertical) */}
                     <div className="py-2 flex flex-col items-center gap-2">
-                        <div className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${connected === true ? 'bg-good shadow-[0_0_8px_rgba(31,178,86,0.5)]' :
-                            connected === false ? 'bg-bad' :
-                                'bg-slate-700'
-                            }`} title={connected === true ? 'System Online' : connected === false ? 'System Offline' : 'Connecting...'} />
+                        <div
+                            className={`h-1.5 w-1.5 rounded-full transition-all duration-500 ${
+                                connected === true
+                                    ? 'bg-good shadow-[0_0_8px_rgba(31,178,86,0.5)]'
+                                    : connected === false
+                                      ? 'bg-bad'
+                                      : 'bg-slate-700'
+                            }`}
+                            title={
+                                connected === true
+                                    ? 'System Online'
+                                    : connected === false
+                                      ? 'System Offline'
+                                      : 'Connecting...'
+                            }
+                        />
 
-                        <span className="text-[10px] text-muted/30 font-mono select-none tracking-widest whitespace-nowrap opacity-50 hover:opacity-100 transition" style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}>
+                        <span
+                            className="text-[10px] text-muted/30 font-mono select-none tracking-widest whitespace-nowrap opacity-50 hover:opacity-100 transition"
+                            style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
+                        >
                             darkstar v{version}
                         </span>
                     </div>
@@ -152,25 +160,42 @@ export default function Sidebar() {
                     </div>
 
                     <div className="p-4 grid grid-cols-2 gap-3" onClick={closeMobile}>
-                        <Link to="/" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
+                        <Link
+                            to="/"
+                            className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}
+                        >
                             <Gauge className={`h-6 w-6 ${pathname === '/' ? 'text-accent' : 'text-muted'}`} />
                             <span className="text-sm">Dash</span>
                         </Link>
-                        <Link to="/executor" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/executor' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
+                        <Link
+                            to="/executor"
+                            className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/executor' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}
+                        >
                             <Cpu className={`h-6 w-6 ${pathname === '/executor' ? 'text-accent' : 'text-muted'}`} />
                             <span className="text-sm">Executor</span>
                         </Link>
-                        <Link to="/aurora" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/aurora' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
+                        <Link
+                            to="/aurora"
+                            className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/aurora' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}
+                        >
                             <Bot className={`h-6 w-6 ${pathname === '/aurora' ? 'text-accent' : 'text-muted'}`} />
                             <span className="text-sm">Aurora</span>
                         </Link>
                         {/* Lab tab hidden - pending future redesign */}
-                        <Link to="/debug" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/debug' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
+                        <Link
+                            to="/debug"
+                            className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/debug' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}
+                        >
                             <Bug className={`h-6 w-6 ${pathname === '/debug' ? 'text-accent' : 'text-muted'}`} />
                             <span className="text-sm">Debug</span>
                         </Link>
-                        <Link to="/settings" className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/settings' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}>
-                            <Settings className={`h-6 w-6 ${pathname === '/settings' ? 'text-accent' : 'text-muted'}`} />
+                        <Link
+                            to="/settings"
+                            className={`flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border ${pathname === '/settings' ? 'bg-surface2 border-accent/50 ring-1 ring-accent/50' : 'bg-surface/50 border-line/70'}`}
+                        >
+                            <Settings
+                                className={`h-6 w-6 ${pathname === '/settings' ? 'text-accent' : 'text-muted'}`}
+                            />
                             <span className="text-sm">Settings</span>
                         </Link>
                     </div>

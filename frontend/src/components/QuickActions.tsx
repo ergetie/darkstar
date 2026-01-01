@@ -247,10 +247,14 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
 
     const getPlannerButtonText = () => {
         switch (plannerPhase) {
-            case 'planning': return 'Planning...'
-            case 'executing': return 'Executing...'
-            case 'done': return 'Done ✓'
-            default: return 'Run Planner'
+            case 'planning':
+                return 'Planning...'
+            case 'executing':
+                return 'Executing...'
+            case 'done':
+                return 'Done ✓'
+            default:
+                return 'Run Planner'
         }
     }
 
@@ -267,9 +271,10 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                 {/* 1. Run Planner */}
                 <button
                     className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary
-                        ${plannerPhase !== 'idle'
-                            ? 'bg-accent text-[#100f0e] cursor-wait'
-                            : 'bg-accent hover:bg-accent2 text-[#100f0e]'
+                        ${
+                            plannerPhase !== 'idle'
+                                ? 'bg-accent text-[#100f0e] cursor-wait'
+                                : 'bg-accent hover:bg-accent2 text-[#100f0e]'
                         }`}
                     onClick={handleRunPlanner}
                     disabled={plannerPhase !== 'idle'}
@@ -282,9 +287,10 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                 {/* 2. Executor Toggle (Pause/Resume) */}
                 <button
                     className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition
-                        ${isPaused
-                            ? 'bg-bad/80 text-white ring-2 ring-bad shadow-[0_0_20px_rgba(241,81,50,0.5)] animate-pulse'
-                            : 'bg-good hover:bg-good/80 text-white btn-glow-green'
+                        ${
+                            isPaused
+                                ? 'bg-bad/80 text-white ring-2 ring-bad shadow-[0_0_20px_rgba(241,81,50,0.5)] animate-pulse'
+                                : 'bg-good hover:bg-good/80 text-white btn-glow-green'
                         } ${loading === 'pause' ? 'opacity-60 cursor-wait' : ''}`}
                     onClick={handleTogglePause}
                     disabled={loading === 'pause'}
@@ -307,16 +313,18 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                 </button>
 
                 {/* 3. Vacation Mode */}
-                <div className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition
-                    ${vacationActive
-                        ? 'bg-amber-500/30 border border-amber-500/50 ring-2 ring-amber-400/50 shadow-[0_0_15px_rgba(245,158,11,0.4)]'
-                        : 'bg-surface2 border border-line/50'
+                <div
+                    className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition
+                    ${
+                        vacationActive
+                            ? 'bg-amber-500/30 border border-amber-500/50 ring-2 ring-amber-400/50 shadow-[0_0_15px_rgba(245,158,11,0.4)]'
+                            : 'bg-surface2 border border-line/50'
                     } ${loading === 'vacation' ? 'opacity-60' : ''}`}
                 >
                     {!vacationActive && (
                         <>
                             <button
-                                onClick={() => setVacationDaysIndex(i => Math.max(0, i - 1))}
+                                onClick={() => setVacationDaysIndex((i) => Math.max(0, i - 1))}
                                 className="px-0.5 hover:text-accent"
                                 disabled={vacationDaysIndex === 0 || loading === 'vacation'}
                             >
@@ -326,9 +334,13 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                                 {VACATION_DAYS_OPTIONS[vacationDaysIndex]}d
                             </span>
                             <button
-                                onClick={() => setVacationDaysIndex(i => Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1))}
+                                onClick={() =>
+                                    setVacationDaysIndex((i) => Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1))
+                                }
                                 className="px-0.5 hover:text-accent"
-                                disabled={vacationDaysIndex === VACATION_DAYS_OPTIONS.length - 1 || loading === 'vacation'}
+                                disabled={
+                                    vacationDaysIndex === VACATION_DAYS_OPTIONS.length - 1 || loading === 'vacation'
+                                }
                             >
                                 <ChevronRight className="h-3 w-3" />
                             </button>
@@ -338,16 +350,15 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                         onClick={handleToggleVacation}
                         disabled={loading === 'vacation'}
                         className={`flex-1 flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition
-                            ${vacationActive
-                                ? 'bg-amber-500/50 text-amber-100'
-                                : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300/80 hover:text-amber-300'
+                            ${
+                                vacationActive
+                                    ? 'bg-amber-500/50 text-amber-100'
+                                    : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300/80 hover:text-amber-300'
                             }`}
                     >
                         <Palmtree className="h-3.5 w-3.5" />
                         {vacationActive ? (
-                            <span className="truncate">
-                                {vacationEndDate ? `→ ${vacationEndDate.slice(5)}` : 'ON'}
-                            </span>
+                            <span className="truncate">{vacationEndDate ? `→ ${vacationEndDate.slice(5)}` : 'ON'}</span>
                         ) : (
                             <span>Vacation</span>
                         )}
@@ -355,27 +366,34 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                 </div>
 
                 {/* 4. Water Boost */}
-                <div className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition
-                    ${boostActive
-                        ? 'bg-red-500/30 border border-red-500/50 ring-2 ring-red-400/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
-                        : 'bg-surface2 border border-line/50'
+                <div
+                    className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition
+                    ${
+                        boostActive
+                            ? 'bg-red-500/30 border border-red-500/50 ring-2 ring-red-400/50 shadow-[0_0_15px_rgba(239,68,68,0.4)]'
+                            : 'bg-surface2 border border-line/50'
                     } ${loading === 'boost' ? 'opacity-60' : ''}`}
                 >
                     {!boostActive && (
                         <>
                             <button
-                                onClick={() => setBoostMinutesIndex(i => Math.max(0, i - 1))}
+                                onClick={() => setBoostMinutesIndex((i) => Math.max(0, i - 1))}
                                 className="px-0.5 hover:text-accent"
                                 disabled={boostMinutesIndex === 0 || loading === 'boost'}
                             >
                                 <ChevronLeft className="h-3 w-3" />
                             </button>
                             <span className="mx-0.5 min-w-[24px] text-center text-muted">
-                                {BOOST_MINUTES_OPTIONS[boostMinutesIndex] === 120 ? '2h' :
-                                    BOOST_MINUTES_OPTIONS[boostMinutesIndex] === 60 ? '1h' : '30m'}
+                                {BOOST_MINUTES_OPTIONS[boostMinutesIndex] === 120
+                                    ? '2h'
+                                    : BOOST_MINUTES_OPTIONS[boostMinutesIndex] === 60
+                                      ? '1h'
+                                      : '30m'}
                             </span>
                             <button
-                                onClick={() => setBoostMinutesIndex(i => Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1))}
+                                onClick={() =>
+                                    setBoostMinutesIndex((i) => Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1))
+                                }
                                 className="px-0.5 hover:text-accent"
                                 disabled={boostMinutesIndex === BOOST_MINUTES_OPTIONS.length - 1 || loading === 'boost'}
                             >
@@ -387,9 +405,10 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                         onClick={handleToggleBoost}
                         disabled={loading === 'boost'}
                         className={`flex-1 flex items-center justify-center gap-1 py-1 px-2 rounded-lg transition
-                            ${boostActive
-                                ? 'bg-red-500/50 text-red-100'
-                                : 'bg-red-500/20 hover:bg-red-500/30 text-red-300/80 hover:text-red-300'
+                            ${
+                                boostActive
+                                    ? 'bg-red-500/50 text-red-100'
+                                    : 'bg-red-500/20 hover:bg-red-500/30 text-red-300/80 hover:text-red-300'
                             }`}
                     >
                         <Flame className={`h-3.5 w-3.5 ${boostActive ? 'animate-pulse' : ''}`} />
@@ -405,10 +424,9 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
             {/* Floating toast - doesn't shift layout */}
             {feedback && (
                 <div
-                    className={`absolute -bottom-8 left-0 right-0 text-center text-[10px] py-1 px-2 rounded-md transition-opacity animate-in fade-in slide-in-from-bottom-1 duration-300 ${feedback.type === 'success'
-                        ? 'text-green-400'
-                        : 'text-red-400'
-                        }`}
+                    className={`absolute -bottom-8 left-0 right-0 text-center text-[10px] py-1 px-2 rounded-md transition-opacity animate-in fade-in slide-in-from-bottom-1 duration-300 ${
+                        feedback.type === 'success' ? 'text-green-400' : 'text-red-400'
+                    }`}
                 >
                     {feedback.message}
                 </div>

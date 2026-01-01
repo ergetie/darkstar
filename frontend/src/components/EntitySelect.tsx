@@ -36,22 +36,21 @@ export default function EntitySelect({
     const listRef = useRef<HTMLDivElement>(null)
 
     // Find the selected entity for display
-    const selectedEntity = entities.find(e => e.entity_id === value)
+    const selectedEntity = entities.find((e) => e.entity_id === value)
 
     // Filter entities based on search
     const filtered = useMemo(() => {
         if (!search.trim()) return entities
         const lower = search.toLowerCase()
-        return entities.filter(e =>
-            e.entity_id.toLowerCase().includes(lower) ||
-            e.friendly_name.toLowerCase().includes(lower)
+        return entities.filter(
+            (e) => e.entity_id.toLowerCase().includes(lower) || e.friendly_name.toLowerCase().includes(lower),
         )
     }, [entities, search])
 
     // Group by domain
     const grouped = useMemo(() => {
         const groups: Record<string, Entity[]> = {}
-        filtered.forEach(e => {
+        filtered.forEach((e) => {
             const domain = e.domain || e.entity_id.split('.')[0]
             if (!groups[domain]) groups[domain] = []
             groups[domain].push(e)
@@ -62,7 +61,7 @@ export default function EntitySelect({
     // Flat list for keyboard navigation
     const flatList = useMemo(() => {
         const list: Entity[] = []
-        Object.values(grouped).forEach(group => list.push(...group))
+        Object.values(grouped).forEach((group) => list.push(...group))
         return list
     }, [grouped])
 
@@ -111,11 +110,11 @@ export default function EntitySelect({
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault()
-                setHighlightIndex(prev => Math.min(prev + 1, flatList.length - 1))
+                setHighlightIndex((prev) => Math.min(prev + 1, flatList.length - 1))
                 break
             case 'ArrowUp':
                 e.preventDefault()
-                setHighlightIndex(prev => Math.max(prev - 1, 0))
+                setHighlightIndex((prev) => Math.max(prev - 1, 0))
                 break
             case 'Enter':
                 e.preventDefault()
@@ -190,7 +189,7 @@ export default function EntitySelect({
                                 ref={inputRef}
                                 type="text"
                                 value={search}
-                                onChange={e => setSearch(e.target.value)}
+                                onChange={(e) => setSearch(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Search entities..."
                                 className="w-full pl-8 pr-3 py-1.5 rounded-md bg-surface2 border border-line text-sm text-text placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/40"
@@ -201,17 +200,15 @@ export default function EntitySelect({
                     {/* Entity list */}
                     <div ref={listRef} className="max-h-[240px] overflow-y-auto p-1">
                         {filtered.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-sm text-muted">
-                                No entities found
-                            </div>
+                            <div className="px-3 py-4 text-center text-sm text-muted">No entities found</div>
                         ) : (
                             Object.entries(grouped).map(([domain, domainEntities]) => (
                                 <div key={domain} className="mb-1">
                                     <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted/70 font-medium">
                                         {domain}
                                     </div>
-                                    {domainEntities.map(entity => {
-                                        const idx = flatList.findIndex(e => e.entity_id === entity.entity_id)
+                                    {domainEntities.map((entity) => {
+                                        const idx = flatList.findIndex((e) => e.entity_id === entity.entity_id)
                                         const isHighlighted = idx === highlightIndex
                                         const isSelected = entity.entity_id === value
 
@@ -228,8 +225,12 @@ export default function EntitySelect({
                                                     ${isSelected ? 'font-medium' : ''}
                                                 `}
                                             >
-                                                <div className="truncate">{entity.friendly_name || entity.entity_id}</div>
-                                                <div className="text-[10px] text-muted truncate">{entity.entity_id}</div>
+                                                <div className="truncate">
+                                                    {entity.friendly_name || entity.entity_id}
+                                                </div>
+                                                <div className="text-[10px] text-muted truncate">
+                                                    {entity.entity_id}
+                                                </div>
                                             </button>
                                         )
                                     })}

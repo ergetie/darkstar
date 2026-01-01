@@ -23,8 +23,6 @@ function formatLocalIso(d: Date | null): string {
     return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
-
-
 export default function Dashboard() {
     const [soc, setSoc] = useState<number | null>(null)
     const [horizon, setHorizon] = useState<{ pvDays?: number; weatherDays?: number } | null>(null)
@@ -37,12 +35,16 @@ export default function Dashboard() {
     const [avgLoad, setAvgLoad] = useState<{ kw?: number; dailyKwh?: number } | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number | null>(null)
     const [waterToday, setWaterToday] = useState<{ kwh?: number; source?: string } | null>(null)
-    const [comfortLevel, setComfortLevel] = useState<number>(3)  // Rev K18
-    const [vacationMode, setVacationMode] = useState<boolean>(false)  // Rev K19 - from config
-    const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)  // From HA entity
-    const [vacationEntityId, setVacationEntityId] = useState<string | null>(null)  // Configured HA entity
-    const [riskAppetite, setRiskAppetite] = useState<number>(3)  // Risk Appetite on Dashboard
-    const [learningStatus, setLearningStatus] = useState<{ enabled?: boolean; status?: string; samples?: number } | null>(null)
+    const [comfortLevel, setComfortLevel] = useState<number>(3) // Rev K18
+    const [vacationMode, setVacationMode] = useState<boolean>(false) // Rev K19 - from config
+    const [vacationModeHA, setVacationModeHA] = useState<boolean>(false) // From HA entity
+    const [vacationEntityId, setVacationEntityId] = useState<string | null>(null) // Configured HA entity
+    const [riskAppetite, setRiskAppetite] = useState<number>(3) // Risk Appetite on Dashboard
+    const [learningStatus, setLearningStatus] = useState<{
+        enabled?: boolean
+        status?: string
+        samples?: number
+    } | null>(null)
     const [exportGuard, setExportGuard] = useState<{ enabled?: boolean; mode?: string } | null>(null)
     const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[] | null>(null)
     const [serverScheduleLoading, setServerScheduleLoading] = useState(false)
@@ -51,21 +53,33 @@ export default function Dashboard() {
     const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
-    const [automationConfig, setAutomationConfig] = useState<{ enable_scheduler?: boolean; write_to_mariadb?: boolean; external_executor_mode?: boolean; every_minutes?: number | null } | null>(null)
+    const [automationConfig, setAutomationConfig] = useState<{
+        enable_scheduler?: boolean
+        write_to_mariadb?: boolean
+        external_executor_mode?: boolean
+        every_minutes?: number | null
+    } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
-    const [schedulerStatus, setSchedulerStatus] = useState<{ last_run_at?: string | null; last_run_status?: string | null; next_run_at?: string | null } | null>(null)
+    const [schedulerStatus, setSchedulerStatus] = useState<{
+        last_run_at?: string | null
+        last_run_status?: string | null
+        next_run_at?: string | null
+    } | null>(null)
     const [localSchedule, setLocalSchedule] = useState<ScheduleSlot[] | null>(null)
     const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
     const [lastError, setLastError] = useState<{ message: string; at: string } | null>(null)
-    const [executorStatus, setExecutorStatus] = useState<{ shadow_mode?: boolean; paused?: { paused_at?: string; paused_minutes?: number } | null } | null>(null)
+    const [executorStatus, setExecutorStatus] = useState<{
+        shadow_mode?: boolean
+        paused?: { paused_at?: string; paused_minutes?: number } | null
+    } | null>(null)
     const [todayStats, setTodayStats] = useState<{
-        gridImport: number | null;
-        gridExport: number | null;
-        batteryCycles: number | null;
-        pvProduction: number | null;
-        pvForecast: number | null;
-        loadConsumption: number | null;
-        netCost: number | null;
+        gridImport: number | null
+        gridExport: number | null
+        batteryCycles: number | null
+        pvProduction: number | null
+        pvForecast: number | null
+        loadConsumption: number | null
+        netCost: number | null
     } | null>(null)
 
     // --- WebSocket Event Handlers (Rev E1) ---
@@ -75,7 +89,7 @@ export default function Dashboard() {
     })
 
     useSocket('plan_updated', () => {
-        console.log("📅 Plan updated! Refreshing data...")
+        console.log('📅 Plan updated! Refreshing data...')
         fetchAllData()
     })
 
@@ -205,7 +219,7 @@ export default function Dashboard() {
                 setSoc(Sel.socValue(data) ?? null)
 
                 const local = data.local ?? {}
-                const db = (data.db && 'planned_at' in data.db) ? (data.db as any) : null
+                const db = data.db && 'planned_at' in data.db ? (data.db as any) : null
 
                 const nextLocalMeta: PlannerMeta =
                     local?.planned_at || local?.planner_version
@@ -255,7 +269,7 @@ export default function Dashboard() {
                 const arbitrage = data.arbitrage || {}
                 setExportGuard({
                     enabled: arbitrage.enable_export,
-                    mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive'
+                    mode: arbitrage.enable_peak_only_export ? 'peak_only' : 'passive',
                 })
 
                 // Automation / scheduler config
@@ -289,7 +303,7 @@ export default function Dashboard() {
                     setVacationEntityId(data.input_sensors.vacation_mode)
                     // Immediately fetch the HA entity state if configured
                     Api.haEntityState(data.input_sensors.vacation_mode)
-                        .then(entityData => {
+                        .then((entityData) => {
                             const isActive = entityData.state === 'on'
                             setVacationModeHA(isActive)
                         })
@@ -308,7 +322,7 @@ export default function Dashboard() {
                 const data = haAverageData.value
                 setAvgLoad({
                     kw: data.average_load_kw,
-                    dailyKwh: data.daily_kwh
+                    dailyKwh: data.daily_kwh,
                 })
             } else {
                 hadError = true
@@ -322,12 +336,8 @@ export default function Dashboard() {
                 setLocalSchedule(sched)
                 // Calculate PV today from schedule data
                 const today = new Date().toISOString().split('T')[0]
-                const todaySlots = data.schedule?.filter(slot =>
-                    slot.start_time?.startsWith(today)
-                ) || []
-                const pvTotal = todaySlots.reduce((sum, slot) =>
-                    sum + (slot.pv_forecast_kwh || 0), 0
-                )
+                const todaySlots = data.schedule?.filter((slot) => slot.start_time?.startsWith(today)) || []
+                const pvTotal = todaySlots.reduce((sum, slot) => sum + (slot.pv_forecast_kwh || 0), 0)
                 setPvToday(pvTotal)
 
                 // Check for critical errors in meta
@@ -342,7 +352,7 @@ export default function Dashboard() {
 
                 // Get current slot target
                 const now = new Date()
-                const currentSlot = sched.find(slot => {
+                const currentSlot = sched.find((slot) => {
                     const slotTime = new Date(slot.start_time || '')
                     const slotEnd = new Date(slotTime.getTime() + 30 * 60 * 1000) // 30 min slots
                     return now >= slotTime && now < slotEnd
@@ -360,7 +370,7 @@ export default function Dashboard() {
                 const data = waterData.value
                 setWaterToday({
                     kwh: data.water_kwh_today,
-                    source: data.source
+                    source: data.source,
                 })
             } else {
                 hadError = true
@@ -375,7 +385,7 @@ export default function Dashboard() {
                 setLearningStatus({
                     enabled: data.enabled,
                     status: hasData ? (isLearning ? 'learning' : 'ready') : 'gathering',
-                    samples: data.metrics?.total_slots
+                    samples: data.metrics?.total_slots,
                 })
             } else {
                 hadError = true
@@ -410,11 +420,11 @@ export default function Dashboard() {
             if (historyData.status === 'fulfilled' && historyData.value.slots) {
                 const todayStart = new Date()
                 todayStart.setHours(0, 0, 0, 0)
-                const todaySlots = historyData.value.slots.filter(s => {
+                const todaySlots = historyData.value.slots.filter((s) => {
                     const slotTime = new Date(s.start_time)
                     return slotTime >= todayStart
                 })
-                todaySlots.forEach(s => {
+                todaySlots.forEach((s) => {
                     pvForecastSum += s.pv_forecast_kwh ?? 0
                 })
             }
@@ -456,7 +466,7 @@ export default function Dashboard() {
             // Nudge the overview chart to reload its schedule data so that
             // planner runs / server-plan loads are reflected without manual
             // day toggling.
-            setChartRefreshToken(token => token + 1)
+            setChartRefreshToken((token) => token + 1)
         }
     }, [])
 
@@ -483,7 +493,7 @@ export default function Dashboard() {
         setAutomationSaving(true)
         try {
             await Api.configSave({ automation: { enable_scheduler: next } })
-            setAutomationConfig(prev => ({
+            setAutomationConfig((prev) => ({
                 enable_scheduler: next,
                 write_to_mariadb: prev?.write_to_mariadb,
                 external_executor_mode: prev?.external_executor_mode,
@@ -535,11 +545,9 @@ export default function Dashboard() {
     if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
         slotsOverride = serverSchedule
     } else if (currentPlanSource === 'local' && localSchedule && localSchedule.length > 0) {
-        const todayAndTomorrow = localSchedule.filter(
-            slot => isToday(slot.start_time) || isTomorrow(slot.start_time),
-        )
+        const todayAndTomorrow = localSchedule.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
         if (historySlots && historySlots.length > 0) {
-            const tomorrowSlots = todayAndTomorrow.filter(slot => isTomorrow(slot.start_time))
+            const tomorrowSlots = todayAndTomorrow.filter((slot) => isTomorrow(slot.start_time))
             slotsOverride = [...historySlots, ...tomorrowSlots]
         } else {
             slotsOverride = todayAndTomorrow
@@ -557,7 +565,7 @@ export default function Dashboard() {
 
     let nextActionText = ''
     if (slotsOverride) {
-        const currentSlot = slotsOverride.find(s => {
+        const currentSlot = slotsOverride.find((s) => {
             const start = new Date(s.start_time)
             const end = new Date(start.getTime() + 30 * 60 * 1000)
             return now >= start && now < end
@@ -569,7 +577,8 @@ export default function Dashboard() {
 
             let action = 'Idle'
             if ((currentSlot.charge_kw || 0) > 0.1) action = `Charge ${currentSlot.charge_kw?.toFixed(1)}kW`
-            else if ((currentSlot.discharge_kw || 0) > 0.1) action = `Discharge ${currentSlot.discharge_kw?.toFixed(1)}kW`
+            else if ((currentSlot.discharge_kw || 0) > 0.1)
+                action = `Discharge ${currentSlot.discharge_kw?.toFixed(1)}kW`
             else if ((currentSlot.export_kw || 0) > 0.1) action = `Export ${currentSlot.export_kw?.toFixed(1)}kW`
             else if ((currentSlot.water_kw || 0) > 0.1) action = `Heat Water`
 
@@ -585,9 +594,8 @@ export default function Dashboard() {
     // Derive last/next planner runs for automation card
     const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.plannedAt || plannerDbMeta?.plannedAt
     const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
-    const everyMinutes = automationConfig?.every_minutes && automationConfig.every_minutes > 0
-        ? automationConfig.every_minutes
-        : null
+    const everyMinutes =
+        automationConfig?.every_minutes && automationConfig.every_minutes > 0 ? automationConfig.every_minutes : null
     let nextRunDate: Date | null = null
     if (schedulerStatus?.next_run_at) {
         nextRunDate = new Date(schedulerStatus.next_run_at)
@@ -679,8 +687,6 @@ export default function Dashboard() {
                 </motion.div>
             )}
 
-
-
             {/* Row 1: Schedule Overview (24h / 48h) */}
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 <ChartCard
@@ -695,7 +701,11 @@ export default function Dashboard() {
             {/* Row 2: Controls & Advisor & Quick Actions */}
             <div className="grid gap-6 lg:grid-cols-3 items-stretch">
                 {/* Col 1: Toolbar + Advisor */}
-                <motion.div className="h-full flex flex-col gap-4" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+                <motion.div
+                    className="h-full flex flex-col gap-4"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                >
                     {/* Toolbar Card */}
                     <Card className="p-3 flex items-center justify-between shrink-0">
                         <div className="text-[10px] text-muted uppercase tracking-wider font-medium">{planBadge}</div>
@@ -703,18 +713,15 @@ export default function Dashboard() {
                             <div className="text-[10px] text-muted">
                                 {lastRefresh && `Synced ${lastRefresh.toLocaleTimeString()}`}
                             </div>
-                            {statusMessage && (
-                                <div className="text-[10px] text-amber-400">
-                                    {statusMessage}
-                                </div>
-                            )}
+                            {statusMessage && <div className="text-[10px] text-amber-400">{statusMessage}</div>}
                             <button
                                 onClick={() => fetchAllData()}
                                 disabled={isRefreshing}
-                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${isRefreshing
-                                    ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
-                                    : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
-                                    }`}
+                                className={`rounded-pill px-2 py-1 text-[10px] font-medium transition ${
+                                    isRefreshing
+                                        ? 'bg-surface border border-line/60 text-muted cursor-not-allowed'
+                                        : 'bg-surface border border-line/60 text-muted hover:border-accent hover:text-accent'
+                                }`}
                                 title="Manual sync"
                             >
                                 <span className={isRefreshing ? 'inline-block animate-spin' : ''}>
@@ -780,10 +787,11 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-3">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${automationConfig?.enable_scheduler
-                                                ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
-                                                : 'bg-line'
-                                                }`}
+                                            className={`inline-flex h-2.5 w-2.5 rounded-full ${
+                                                automationConfig?.enable_scheduler
+                                                    ? 'bg-emerald-400 shadow-[0_0_0_2px_rgba(16,185,129,0.4)]'
+                                                    : 'bg-line'
+                                            }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -803,16 +811,12 @@ export default function Dashboard() {
                                     : 'Auto-planner is off. Use Quick Actions to run manually.'}
                             </div>
                             <div className="mt-2 space-y-1 text-[10px] text-muted">
-                                <div>
-                                    Last plan run: {formatLocalIso(lastRunDate)}
-                                </div>
+                                <div>Last plan run: {formatLocalIso(lastRunDate)}</div>
                                 <div>
                                     Next expected run:{' '}
                                     {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
                                 </div>
-                                <div>
-                                    DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}
-                                </div>
+                                <div>DB sync: {automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}</div>
                             </div>
                         </Card>
 
@@ -820,7 +824,9 @@ export default function Dashboard() {
                             <Card className="flex-1 p-4 md:p-5 flex flex-col">
                                 <div className="flex items-baseline justify-between mb-3">
                                     <div className="text-sm text-muted">DB Sync</div>
-                                    <div className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-green-400' : 'text-red-400'}`}>
+                                    <div
+                                        className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-green-400' : 'text-red-400'}`}
+                                    >
                                         {dbSyncFeedback?.message}
                                     </div>
                                 </div>
@@ -876,15 +882,17 @@ export default function Dashboard() {
                     socTarget={currentSlotTarget}
                     sIndex={plannerMeta?.sIndex?.effective_load_margin ?? null}
                     cycles={todayStats?.batteryCycles ?? null}
-                    riskLabel={{
-                        1: 'Safety',
-                        2: 'Conservative',
-                        3: 'Neutral',
-                        4: 'Aggressive',
-                        5: 'Gambler'
-                    }[riskAppetite]}
+                    riskLabel={
+                        {
+                            1: 'Safety',
+                            2: 'Conservative',
+                            3: 'Neutral',
+                            4: 'Aggressive',
+                            5: 'Gambler',
+                        }[riskAppetite]
+                    }
                 />
-            </div >
-        </main >
+            </div>
+        </main>
     )
 }

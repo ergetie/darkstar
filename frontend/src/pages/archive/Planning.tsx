@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
-import PillButton from '../components/PillButton'
 import { Api } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
@@ -33,22 +32,17 @@ type PlanningConstraints = {
 
 const planningLanes: PlanningLane[] = [
     { id: 'battery', label: 'Battery', color: '#AAB6C4' },
-    { id: 'water',   label: 'Water',   color: '#FF7A7A' },
-    { id: 'export',  label: 'Export',  color: '#9BF6A3' },
-    { id: 'hold',    label: 'Hold',    color: '#FFD966' },
+    { id: 'water', label: 'Water', color: '#FF7A7A' },
+    { id: 'export', label: 'Export', color: '#9BF6A3' },
+    { id: 'hold', label: 'Hold', color: '#FFD966' },
 ]
 
 function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null): PlanningBlock[] {
-    const filtered = slots.filter(
-        (slot) => isToday(slot.start_time) || isTomorrow(slot.start_time),
-    )
+    const filtered = slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
 
     if (!filtered.length) return []
 
-    const sorted = [...filtered].sort(
-        (a, b) =>
-            new Date(a.start_time).getTime() - new Date(b.start_time).getTime(),
-    )
+    const sorted = [...filtered].sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime())
 
     const merged: PlanningBlock[] = []
     const lastByLane: Partial<Record<LaneId, PlanningBlock>> = {}
@@ -56,9 +50,7 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
 
     for (const slot of sorted) {
         const start = new Date(slot.start_time)
-        const end = slot.end_time
-            ? new Date(slot.end_time)
-            : new Date(start.getTime() + 30 * 60 * 1000)
+        const end = slot.end_time ? new Date(slot.end_time) : new Date(start.getTime() + 30 * 60 * 1000)
         const isHistorical = slot.is_historical === true
 
         const laneCandidates: LaneId[] = []
@@ -70,27 +62,22 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
         const water = slot.water_heating_kw ?? 0
         const exp = slot.export_kwh ?? 0
 
-        const noActions =
-            (charge || 0) <= 0 &&
-            (discharge || 0) <= 0 &&
-            (water || 0) <= 0 &&
-            (exp || 0) <= 0
+        const noActions = (charge || 0) <= 0 && (discharge || 0) <= 0 && (water || 0) <= 0 && (exp || 0) <= 0
 
         // Identify slots where the device cannot meaningfully act:
         // no controllable actions and SoC pinned to configured bounds.
         let isPinnedZeroCapacity = false
         if (caps) {
             const soc =
-                (typeof slot.projected_soc_percent === 'number'
+                typeof slot.projected_soc_percent === 'number'
                     ? slot.projected_soc_percent
                     : typeof slot.soc_target_percent === 'number'
-                      ? slot.soc_target_percent
-                      : null)
+                        ? slot.soc_target_percent
+                        : null
             if (
                 noActions &&
                 typeof soc === 'number' &&
-                (soc <= caps.minSocPercent + 0.01 ||
-                    soc >= caps.maxSocPercent - 0.01)
+                (soc <= caps.minSocPercent + 0.01 || soc >= caps.maxSocPercent - 0.01)
             ) {
                 isPinnedZeroCapacity = true
             }
@@ -134,30 +121,47 @@ function classifyBlocks(slots: ScheduleSlot[], caps?: PlanningConstraints | null
     return merged
 }
 
-export default function Planning(){
+export default function Planning() {
     const [schedule, setSchedule] = useState<ScheduleSlot[] | null>(null)
     const [blocks, setBlocks] = useState<PlanningBlock[]>([])
     const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null)
     const [error, setError] = useState<string | null>(null)
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(true)
     const [applying, setApplying] = useState(false)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
     const [historySlots, setHistorySlots] = useState<ScheduleSlot[] | null>(null)
-    const [chartSlots, setChartSlots] = useState<ScheduleSlot[] | null>(null)
     const [constraints, setConstraints] = useState<PlanningConstraints | null>(null)
 
     useEffect(() => {
         let cancelled = false
-        setLoading(true)
-        setError(null)
         Promise.allSettled([Api.schedule(), Api.scheduleTodayWithHistory(), Api.config()])
             .then(([schedRes, histRes, configRes]) => {
                 if (cancelled) return
 
+                let currentConstraints: PlanningConstraints | null = null
+                if (configRes.status === 'fulfilled') {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const cfg = configRes.value as any
+                    const battery = cfg.battery || {}
+                    const minSoc = Number(battery.min_soc_percent ?? 0)
+                    const maxSoc = Number(battery.max_soc_percent ?? 100)
+                    const maxChargeKw = Number(battery.max_charge_power_kw ?? 0)
+                    const maxDischargeKw = Number(battery.max_discharge_power_kw ?? 0)
+                    currentConstraints = {
+                        minSocPercent: Number.isFinite(minSoc) ? minSoc : 0,
+                        maxSocPercent: Number.isFinite(maxSoc) ? maxSoc : 100,
+                        maxChargeKw: Number.isFinite(maxChargeKw) ? maxChargeKw : 0,
+                        maxDischargeKw: Number.isFinite(maxDischargeKw) ? maxDischargeKw : 0,
+                    }
+                    setConstraints(currentConstraints)
+                } else {
+                    console.error('Failed to load config for Planning constraints:', configRes.reason)
+                }
+
                 if (schedRes.status === 'fulfilled') {
                     const sched = schedRes.value.schedule ?? []
                     setSchedule(sched)
-                    setBlocks(classifyBlocks(sched, constraints))
+                    setBlocks(classifyBlocks(sched, currentConstraints))
                     setSelectedBlockId(null)
                 } else {
                     console.error('Failed to load schedule for Planning:', schedRes.reason)
@@ -170,57 +174,34 @@ export default function Planning(){
                 } else {
                     console.error('Failed to load execution history for Planning:', histRes.reason)
                 }
-
-                if (configRes.status === 'fulfilled') {
-                    const cfg = configRes.value as any
-                    const battery = cfg.battery || {}
-                    const minSoc = Number(battery.min_soc_percent ?? 0)
-                    const maxSoc = Number(battery.max_soc_percent ?? 100)
-                    const maxChargeKw = Number(battery.max_charge_power_kw ?? 0)
-                    const maxDischargeKw = Number(battery.max_discharge_power_kw ?? 0)
-                    setConstraints({
-                        minSocPercent: Number.isFinite(minSoc) ? minSoc : 0,
-                        maxSocPercent: Number.isFinite(maxSoc) ? maxSoc : 100,
-                        maxChargeKw: Number.isFinite(maxChargeKw) ? maxChargeKw : 0,
-                        maxDischargeKw: Number.isFinite(maxDischargeKw) ? maxDischargeKw : 0,
-                    })
-                } else {
-                    console.error('Failed to load config for Planning constraints:', configRes.reason)
-                }
             })
             .finally(() => {
                 if (cancelled) return
                 setLoading(false)
             })
 
-        return () => { cancelled = true }
+        return () => {
+            cancelled = true
+        }
     }, [])
 
-    // Build merged chart slots when schedule or history changes
-    useEffect(() => {
-        if (!schedule) {
-            setChartSlots(null)
-            return
-        }
-        const todayAndTomorrow = schedule.filter(
-            slot => isToday(slot.start_time) || isTomorrow(slot.start_time),
-        )
-        if (historySlots && historySlots.length) {
-            const tomorrowSlots = todayAndTomorrow.filter(slot => isTomorrow(slot.start_time))
-            setChartSlots([...historySlots, ...tomorrowSlots])
-        } else {
-            setChartSlots(todayAndTomorrow)
-        }
-    }, [schedule, historySlots, constraints])
+    const planningBlocks = useMemo(() => blocks, [blocks])
 
-    const planningBlocks = useMemo(
-        () => blocks,
-        [blocks],
-    )
+    const chartSlots = useMemo(() => {
+        if (!schedule) return null
+
+        const todayAndTomorrow = schedule.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
+
+        if (historySlots && historySlots.length) {
+            const tomorrowSlots = todayAndTomorrow.filter((slot) => isTomorrow(slot.start_time))
+            return [...historySlots, ...tomorrowSlots]
+        }
+        return todayAndTomorrow
+    }, [schedule, historySlots])
 
     const handleBlockMove = ({ id, start, lane }: { id: string; start: Date; lane: LaneId }) => {
-        setBlocks(prev =>
-            prev.map(b => {
+        setBlocks((prev) =>
+            prev.map((b) => {
                 if (b.id !== id) return b
                 const duration = b.end.getTime() - b.start.getTime()
                 const newEnd = new Date(start.getTime() + duration)
@@ -230,9 +211,7 @@ export default function Planning(){
     }
 
     const handleBlockResize = ({ id, start, end }: { id: string; start: Date; end: Date }) => {
-        setBlocks(prev =>
-            prev.map(b => (b.id === id ? { ...b, start, end } : b)),
-        )
+        setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, start, end } : b)))
     }
 
     const handleBlockSelect = (id: string | null) => {
@@ -241,7 +220,7 @@ export default function Planning(){
 
     const handleDeleteSelected = () => {
         if (!selectedBlockId) return
-        setBlocks(prev => prev.filter(b => b.id !== selectedBlockId))
+        setBlocks((prev) => prev.filter((b) => b.id !== selectedBlockId))
         setSelectedBlockId(null)
     }
 
@@ -255,46 +234,28 @@ export default function Planning(){
         for (const slot of sched) {
             const time = slot.start_time
             const soc =
-                (typeof slot.projected_soc_percent === 'number'
+                typeof slot.projected_soc_percent === 'number'
                     ? slot.projected_soc_percent
                     : typeof slot.soc_target_percent === 'number'
-                      ? slot.soc_target_percent
-                      : null)
+                        ? slot.soc_target_percent
+                        : null
 
             if (typeof soc === 'number') {
                 if (soc < caps.minSocPercent - 0.01) {
-                    violations.push(
-                        `${time}: SoC ${soc.toFixed(1)}% below min ${caps.minSocPercent}%`,
-                    )
+                    violations.push(`${time}: SoC ${soc.toFixed(1)}% below min ${caps.minSocPercent}%`)
                 } else if (soc > caps.maxSocPercent + 0.01) {
-                    violations.push(
-                        `${time}: SoC ${soc.toFixed(1)}% above max ${caps.maxSocPercent}%`,
-                    )
+                    violations.push(`${time}: SoC ${soc.toFixed(1)}% above max ${caps.maxSocPercent}%`)
                 }
             }
 
-            const chargeKw = Math.max(
-                slot.battery_charge_kw ?? slot.charge_kw ?? 0,
-                0,
-            )
-            const dischargeKw = Math.max(
-                slot.battery_discharge_kw ?? slot.discharge_kw ?? 0,
-                0,
-            )
+            const chargeKw = Math.max(slot.battery_charge_kw ?? slot.charge_kw ?? 0, 0)
+            const dischargeKw = Math.max(slot.battery_discharge_kw ?? slot.discharge_kw ?? 0, 0)
 
             if (caps.maxChargeKw > 0 && chargeKw > caps.maxChargeKw + 1e-6) {
-                violations.push(
-                    `${time}: charge ${chargeKw.toFixed(
-                        2,
-                    )} kW exceeds max ${caps.maxChargeKw} kW`,
-                )
+                violations.push(`${time}: charge ${chargeKw.toFixed(2)} kW exceeds max ${caps.maxChargeKw} kW`)
             }
             if (caps.maxDischargeKw > 0 && dischargeKw > caps.maxDischargeKw + 1e-6) {
-                violations.push(
-                    `${time}: discharge ${dischargeKw.toFixed(
-                        2,
-                    )} kW exceeds max ${caps.maxDischargeKw} kW`,
-                )
+                violations.push(`${time}: discharge ${dischargeKw.toFixed(2)} kW exceeds max ${caps.maxDischargeKw} kW`)
             }
         }
 
@@ -302,8 +263,7 @@ export default function Planning(){
 
         const first = violations[0]
         const extraCount = violations.length - 1
-        const suffix =
-            extraCount > 0 ? ` (and ${extraCount} more slots)` : ''
+        const suffix = extraCount > 0 ? ` (and ${extraCount} more slots)` : ''
         return {
             ok: false,
             message: `Manual plan violates device/SoC limits: ${first}${suffix}`,
@@ -320,7 +280,7 @@ export default function Planning(){
             export: 'Export',
             hold: 'Hold',
         }
-        const payload = blocks.map(b => ({
+        const payload = blocks.map((b) => ({
             id: b.id,
             group: b.lane,
             title: null,
@@ -329,7 +289,7 @@ export default function Planning(){
             end: b.end.toISOString(),
         }))
         Api.simulate(payload)
-            .then(res => {
+            .then((res) => {
                 const sched = res.schedule ?? []
                 const validation = validateSimulatedSchedule(sched, constraints)
                 if (!validation.ok) {
@@ -341,9 +301,9 @@ export default function Planning(){
                 setSchedule(sched)
                 setBlocks(classifyBlocks(sched, constraints))
                 setSelectedBlockId(null)
-                setChartRefreshToken(token => token + 1)
+                setChartRefreshToken((token) => token + 1)
             })
-            .catch(err => {
+            .catch((err) => {
                 console.error('Failed to apply manual changes:', err)
                 setError('Failed to apply manual changes')
             })
@@ -358,7 +318,7 @@ export default function Planning(){
         start.setMinutes(start.getMinutes() < 30 ? 0 : 30, 0, 0)
         const end = new Date(start.getTime() + 60 * 60 * 1000) // 1 hour
         const id = `manual-${Date.now()}-${lane}`
-        setBlocks(prev => [
+        setBlocks((prev) => [
             ...prev,
             {
                 id,
@@ -372,67 +332,67 @@ export default function Planning(){
 
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
-        <Card className="p-4 md:p-6 mb-6">
-        <div className="flex items-baseline justify-between pb-4">
-        <div className="text-sm text-muted">Planning Timeline</div>
-        <div className="text-[11px] text-muted">
-            {loading && 'Loading schedule…'}
-            {!loading && error && error}
-        </div>
-        </div>
+            <Card className="p-4 md:p-6 mb-6">
+                <div className="flex items-baseline justify-between pb-4">
+                    <div className="text-sm text-muted">Planning Timeline</div>
+                    <div className="text-[11px] text-muted">
+                        {loading && 'Loading schedule…'}
+                        {!loading && error && error}
+                    </div>
+                </div>
 
-        <div className="rounded-xl2 border border-line/60 bg-surface2 overflow-hidden">
-        <PlanningTimeline
-            lanes={planningLanes}
-            blocks={planningBlocks}
-            selectedBlockId={selectedBlockId}
-            onBlockMove={handleBlockMove}
-            onBlockResize={handleBlockResize}
-            onBlockSelect={handleBlockSelect}
-            onAddBlock={handleAddBlock}
-        />
-        </div>
+                <div className="rounded-xl2 border border-line/60 bg-surface2 overflow-hidden">
+                    <PlanningTimeline
+                        lanes={planningLanes}
+                        blocks={planningBlocks}
+                        selectedBlockId={selectedBlockId}
+                        onBlockMove={handleBlockMove}
+                        onBlockResize={handleBlockResize}
+                        onBlockSelect={handleBlockSelect}
+                        onAddBlock={handleAddBlock}
+                    />
+                </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-        <button
-            className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold disabled:opacity-40"
-            disabled={loading || applying || blocks.length === 0}
-            onClick={handleApply}
-        >
-            Apply manual changes
-        </button>
-        <div className="flex gap-2">
-            <button
-                className="rounded-pill border border-line/70 px-4 py-2.5 text-text hover:border-accent disabled:opacity-40"
-                disabled={!selectedBlockId}
-                onClick={handleDeleteSelected}
-            >
-                Delete block
-            </button>
-            <button
-                className="rounded-pill border border-line/70 px-4 py-2.5 text-text hover:border-accent disabled:opacity-40"
-                disabled={loading || !schedule}
-                onClick={() => {
-                    if (!schedule) return
-                    setBlocks(classifyBlocks(schedule))
-                    setSelectedBlockId(null)
-                }}
-            >
-                Reset plan
-            </button>
-        </div>
-        </div>
-        </Card>
+                <div className="mt-4 flex flex-wrap items-center gap-3">
+                    <button
+                        className="rounded-pill bg-accent text-canvas px-5 py-2.5 font-semibold disabled:opacity-40"
+                        disabled={loading || applying || blocks.length === 0}
+                        onClick={handleApply}
+                    >
+                        Apply manual changes
+                    </button>
+                    <div className="flex gap-2">
+                        <button
+                            className="rounded-pill border border-line/70 px-4 py-2.5 text-text hover:border-accent disabled:opacity-40"
+                            disabled={!selectedBlockId}
+                            onClick={handleDeleteSelected}
+                        >
+                            Delete block
+                        </button>
+                        <button
+                            className="rounded-pill border border-line/70 px-4 py-2.5 text-text hover:border-accent disabled:opacity-40"
+                            disabled={loading || !schedule}
+                            onClick={() => {
+                                if (!schedule) return
+                                setBlocks(classifyBlocks(schedule))
+                                setSelectedBlockId(null)
+                            }}
+                        >
+                            Reset plan
+                        </button>
+                    </div>
+                </div>
+            </Card>
 
-        {chartSlots && chartSlots.length > 0 && (
-            <ChartCard
-                day="today"
-                range="48h"
-                showDayToggle={false}
-                refreshToken={chartRefreshToken}
-                slotsOverride={chartSlots}
-            />
-        )}
+            {chartSlots && chartSlots.length > 0 && (
+                <ChartCard
+                    day="today"
+                    range="48h"
+                    showDayToggle={false}
+                    refreshToken={chartRefreshToken}
+                    slotsOverride={chartSlots}
+                />
+            )}
         </main>
     )
 }

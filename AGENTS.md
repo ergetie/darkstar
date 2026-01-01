@@ -43,6 +43,12 @@ import pandas as pd
 import pytz
 import yaml
 
+### Linting & Quality Control
+*   **Mandatory Checks**: At the end of **every revision** (before marking as done), you MUST run the standard linting suite.
+    *   **Frontend**: `pnpm lint` (must be error-free) and `pnpm format`.
+    *   **Backend**: `ruff check .` (if Python files were touched).
+*   **Zero-Error Policy**: Do not leave known lint errors. If a rule cannot be satisfied, use a specific suppression comment with a justification, but prefer fixing the code.
+
 from inputs import get_all_input_data
 ```
 
@@ -123,8 +129,12 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
 
 ### Tooling
 - After major code changes or a completed revision:
-  - Run `black .` (or the project’s configured formatter) to normalize formatting.
-  - Run `flake8 .` to catch style and lint issues before committing.
+  - **Frontend**:
+    - Run `pnpm format` in `frontend/` to fix formatting issues automatically.
+    - Run `pnpm lint` in `frontend/` to verify code quality.
+  - **Backend/General**:
+    - Run `black .` (or the project’s configured formatter) to normalize formatting.
+    - Run `flake8 .` to catch style and lint issues before committing.
 
 ### Development Protocol
 - **Production-Grade Only**: Always implement production-grade solutions. Never take shortcuts or use quick-fix approaches. Prefer clean, maintainable, and robust implementations.

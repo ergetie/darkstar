@@ -33,10 +33,10 @@ export default function ServiceSelect({
         if (open && services.length === 0 && !loading) {
             setLoading(true)
             Api.haServices()
-                .then(res => {
+                .then((res) => {
                     setServices(res.services || [])
                 })
-                .catch(err => {
+                .catch((err) => {
                     console.error('Failed to fetch HA services:', err)
                 })
                 .finally(() => {
@@ -49,13 +49,13 @@ export default function ServiceSelect({
     const filtered = useMemo(() => {
         if (!search.trim()) return services
         const lower = search.toLowerCase()
-        return services.filter(s => s.toLowerCase().includes(lower))
+        return services.filter((s) => s.toLowerCase().includes(lower))
     }, [services, search])
 
     // Group by domain (first part of service string)
     const grouped = useMemo(() => {
         const groups: Record<string, string[]> = {}
-        filtered.forEach(s => {
+        filtered.forEach((s) => {
             const domain = s.split('.')[0] || 'other'
             if (!groups[domain]) groups[domain] = []
             groups[domain].push(s)
@@ -66,7 +66,7 @@ export default function ServiceSelect({
     // Flat list for keyboard navigation
     const flatList = useMemo(() => {
         const list: string[] = []
-        Object.values(grouped).forEach(group => list.push(...group))
+        Object.values(grouped).forEach((group) => list.push(...group))
         return list
     }, [grouped])
 
@@ -115,11 +115,11 @@ export default function ServiceSelect({
         switch (e.key) {
             case 'ArrowDown':
                 e.preventDefault()
-                setHighlightIndex(prev => Math.min(prev + 1, flatList.length - 1))
+                setHighlightIndex((prev) => Math.min(prev + 1, flatList.length - 1))
                 break
             case 'ArrowUp':
                 e.preventDefault()
-                setHighlightIndex(prev => Math.max(prev - 1, 0))
+                setHighlightIndex((prev) => Math.max(prev - 1, 0))
                 break
             case 'Enter':
                 e.preventDefault()
@@ -194,7 +194,7 @@ export default function ServiceSelect({
                                 ref={inputRef}
                                 type="text"
                                 value={search}
-                                onChange={e => setSearch(e.target.value)}
+                                onChange={(e) => setSearch(e.target.value)}
                                 onKeyDown={handleKeyDown}
                                 placeholder="Search services..."
                                 className="w-full pl-8 pr-3 py-1.5 rounded-md bg-surface2 border border-line text-sm text-text placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/40"
@@ -209,16 +209,14 @@ export default function ServiceSelect({
                                 Loading from Home Assistant...
                             </div>
                         ) : filtered.length === 0 ? (
-                            <div className="px-3 py-4 text-center text-sm text-muted">
-                                No services found
-                            </div>
+                            <div className="px-3 py-4 text-center text-sm text-muted">No services found</div>
                         ) : (
                             Object.entries(grouped).map(([domain, domainServices]) => (
                                 <div key={domain} className="mb-1">
                                     <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-muted/70 font-medium">
                                         {domain}
                                     </div>
-                                    {domainServices.map(service => {
+                                    {domainServices.map((service) => {
                                         const idx = flatList.indexOf(service)
                                         const isHighlighted = idx === highlightIndex
                                         const isSelected = service === value

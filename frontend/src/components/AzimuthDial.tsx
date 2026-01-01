@@ -88,13 +88,7 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
                 aria-valuenow={Math.round(clampedValue)}
             >
                 <svg viewBox="0 0 48 48" className="h-full w-full">
-                    <circle
-                        cx="24"
-                        cy="24"
-                        r="21"
-                        className="fill-surface2 stroke-line/60"
-                        strokeWidth="2"
-                    />
+                    <circle cx="24" cy="24" r="21" className="fill-surface2 stroke-line/60" strokeWidth="2" />
                     {/* Tick marks */}
                     <g>
                         {Array.from({ length: 12 }).map((_, i) => {
@@ -108,21 +102,10 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
                             const y1 = 24 + outerR * Math.sin(rad)
                             const x2 = 24 + innerR * Math.cos(rad)
                             const y2 = 24 + innerR * Math.sin(rad)
-                            const cls =
-                                isCardinal || isDiagonal
-                                    ? 'stroke-line/80'
-                                    : 'stroke-line/40'
+                            const cls = isCardinal || isDiagonal ? 'stroke-line/80' : 'stroke-line/40'
                             const width = isCardinal ? 1.6 : 1
                             return (
-                                <line
-                                    key={angle}
-                                    x1={x1}
-                                    y1={y1}
-                                    x2={x2}
-                                    y2={y2}
-                                    className={cls}
-                                    strokeWidth={width}
-                                />
+                                <line key={angle} x1={x1} y1={y1} x2={x2} y2={y2} className={cls} strokeWidth={width} />
                             )
                         })}
                     </g>
@@ -155,12 +138,8 @@ export default function AzimuthDial({ value, onChange }: AzimuthDialProps) {
                 </svg>
             </div>
             <div className="text-[11px] text-muted leading-tight">
-                <div className="font-medium text-text">
-                    {Math.round(clampedValue)}°
-                </div>
-                <div>
-                    0° = North · 90° = East · 180° = South · 270° = West
-                </div>
+                <div className="font-medium text-text">{Math.round(clampedValue)}°</div>
+                <div>0° = North · 90° = East · 180° = South · 270° = West</div>
             </div>
         </div>
     )

@@ -1,6 +1,6 @@
 /**
  * PillButton Component
- * 
+ *
  * Uses CSS custom property for dynamic color support.
  * Default color is accent gold if not specified.
  */
@@ -15,22 +15,18 @@ interface PillButtonProps {
     disabled?: boolean
 }
 
-export default function PillButton({
-    label,
-    color,
-    textColor,
-    onClick,
-    disabled
-}: PillButtonProps) {
+export default function PillButton({ label, color, textColor, onClick, disabled }: PillButtonProps) {
     return (
         <button
             className="btn btn-pill btn-dynamic shadow-float"
             onClick={onClick}
             disabled={disabled}
-            style={{
-                '--btn-bg': color,
-                '--btn-text': textColor,
-            } as React.CSSProperties}
+            style={
+                {
+                    '--btn-bg': color,
+                    '--btn-text': textColor,
+                } as React.CSSProperties
+            }
         >
             {label}
         </button>

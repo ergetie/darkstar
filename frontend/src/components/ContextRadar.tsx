@@ -1,22 +1,7 @@
-import {
-    Chart as ChartJS,
-    RadialLinearScale,
-    PointElement,
-    LineElement,
-    Filler,
-    Tooltip,
-    Legend,
-} from 'chart.js'
+import { Chart as ChartJS, RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend } from 'chart.js'
 import { Radar } from 'react-chartjs-2'
 
-ChartJS.register(
-    RadialLinearScale,
-    PointElement,
-    LineElement,
-    Filler,
-    Tooltip,
-    Legend
-)
+ChartJS.register(RadialLinearScale, PointElement, LineElement, Filler, Tooltip, Legend)
 
 interface ContextRadarProps {
     weatherVolatility: {
@@ -50,24 +35,13 @@ export default function ContextRadar({
     const confidenceScore = forecastAccuracy
 
     // Price Spread: 0 SEK = 0, 2.5 SEK = 100 (high opportunity)
-    const spreadScore = priceSpread != null
-        ? Math.max(0, Math.min(100, (priceSpread / 2.5) * 100))
-        : 50 // Default to middle
+    const spreadScore = priceSpread != null ? Math.max(0, Math.min(100, (priceSpread / 2.5) * 100)) : 50 // Default to middle
 
     // Forecast Bias: 0 = centered (50), ±2 kWh = extremes
     // Positive bias = over-predicting (cautious), negative = under-predicting (risky)
-    const biasScore = forecastBias != null
-        ? Math.max(0, Math.min(100, ((forecastBias + 2) / 4) * 100))
-        : 50 // Default to centered
+    const biasScore = forecastBias != null ? Math.max(0, Math.min(100, ((forecastBias + 2) / 4) * 100)) : 50 // Default to centered
 
-    const labels = [
-        'Cloud Vol.',
-        'Temp Vol.',
-        'Aggression',
-        'Accuracy',
-        'Spread',
-        'Bias'
-    ]
+    const labels = ['Cloud Vol.', 'Temp Vol.', 'Aggression', 'Accuracy', 'Spread', 'Bias']
     const pointColors = [
         '#38bdf8', // Sky - Cloud
         '#f472b6', // Pink - Temp
@@ -114,7 +88,7 @@ export default function ContextRadar({
                 bodyColor: '#cbd5e1',
                 borderColor: '#334155',
                 borderWidth: 1,
-            }
+            },
         },
         maintainAspectRatio: false,
     }
@@ -139,9 +113,7 @@ export default function ContextRadar({
                                 className="w-2 h-2 rounded-full shadow-sm ring-1 ring-white/10"
                                 style={{ backgroundColor: pointColors[idx] }}
                             />
-                            <span className="text-[9px] text-muted font-medium leading-tight">
-                                {label}
-                            </span>
+                            <span className="text-[9px] text-muted font-medium leading-tight">{label}</span>
                         </div>
                     ))}
                 </div>
@@ -152,9 +124,7 @@ export default function ContextRadar({
                                 className="w-2 h-2 rounded-full shadow-sm ring-1 ring-white/10"
                                 style={{ backgroundColor: pointColors[idx + 3] }}
                             />
-                            <span className="text-[9px] text-muted font-medium leading-tight">
-                                {label}
-                            </span>
+                            <span className="text-[9px] text-muted font-medium leading-tight">{label}</span>
                         </div>
                     ))}
                 </div>
@@ -162,4 +132,3 @@ export default function ContextRadar({
         </div>
     )
 }
-
