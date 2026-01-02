@@ -16,8 +16,9 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **O** | Onboarding | O1 |
 | **UI** | User Interface | UI1, UI2 |
 | **DS** | Design System | DS1 |
-| **F** | Fixes/Bugfixes | F1 |
+| **F** | Fixes/Bugfixes | F1-F6 |
 | **DX** | Developer Experience | DX1 |
+| **ARC** | Architecture | ARC1 |
 
 ---
 
@@ -137,3 +138,36 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 * [x] **Bug Fix**: Strange thin vertical line on left side of Chart and Strategy cards.
 * [x] **Financials**: Implement detailed cost and savings breakdown.
 * [x] **Bug Fix**: Fix Dashboard settings persistence.
+
+---
+
+### [IN PROGRESS] Rev F6 — Robustness & Fixes
+
+**Goal:** Fix critical bugs (Chart Export) and improve system stability (Scheduler Smart Retry).
+
+**Plan:**
+
+* [ ] **Fix: Export Chart Visualization**
+    *   *Bug:* Historical slots show self-consumption as export.
+    *   *Fix:* Update `webapp.py` to stop mapping `battery_discharge` to `export`.
+* [ ] **Planner Robustness: Persistence & Retry**
+    *   *Goal:* Prevent schedule wipes on failure and retry intelligently (smart connectivity check).
+    *   *Tasks:* Update `scheduler.py` loop and `pipeline.py` error handling.
+
+---
+
+### [PLANNED] Rev ARC1 — Architecture Modernization (FastAPI)
+
+**Goal:** Migrate from legacy Flask (WSGI) to **FastAPI (ASGI)** to achieve 100% production-grade, state-of-the-art asynchronous performance.
+
+**Plan:**
+
+* [ ] **Architecture Pivot: Flask -> FastAPI**
+    *   *Why:* Flask is synchronous (blocking). Legacy `eventlet` is abandoned. FastAPI is native async (non-blocking) and SOTA.
+    *   *Tasks:*
+        *   Rewrite `webapp.py` using `FastAPI` router.
+        *   Convert endpoints to `async def`.
+        *   Replace `flask-socketio` with `python-socketio` (ASGI mode).
+        *   Update `Dockerfile` to run `uvicorn`.
+* [ ] **Performance Validation**
+    *   Compare throughput and latency.

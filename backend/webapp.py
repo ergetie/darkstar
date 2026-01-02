@@ -655,7 +655,8 @@ def schedule_today_with_history():
                     # Convert to exec_map format for compatibility
                     exec_map[key] = {
                         "actual_charge_kw": slot.get("battery_charge_kw", 0),
-                        "actual_export_kw": slot.get("battery_discharge_kw", 0),
+                        # actual_export_kw: Do NOT map discharge to export. This was the bug.
+                        # Frontend will fall back to planned export if actual is missing.
                         "actual_soc": slot.get("before_soc_percent"),
                         "water_heating_kw": slot.get("water_heating_kw", 0),
                     }

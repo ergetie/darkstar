@@ -37,15 +37,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ## 📋 Backlog
 
 ### [Planner] Investigate Unexpected Export in Schedule
+**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
-**Goal:** Understand why the chart/schedule shows excessive grid export.
-
-**Questions:**
-- Is Kepler only planning forward from current time?
-- Are we incorrectly merging historic plan data with future schedule?
-- Is the displayed export actual history or planned future?
-
-**Notes:** Need to trace data flow: Kepler output → Schedule storage → Chart display.
+---
 
 ---
 
@@ -69,15 +63,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-### [UI] Fix Cost Reality Not Displaying Plan Cost
-
-**Goal:** "Cost Reality" view should show plan cost for comparison.
-
-**Reported Issue:** Plan cost is not displaying in the Cost Reality widget.
-
----
-
-### [Analytics] Implement Monthly Cost Analysis
+### [Analytics] Implement Monthly Cost Analysis (IS THIS ALREADY DONE?)
 
 **Goal:** Use `pricing.subscription_fee_sek_per_month` to show total monthly costs.
 
@@ -180,23 +166,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ### [Backend] Migrate Away from Eventlet
+**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
-**Goal:** Replace deprecated Eventlet with a modern async solution.
-
-**Current State:**
-```
-DeprecationWarning: Eventlet is deprecated. It is currently being maintained 
-in bugfix mode, and we strongly recommend against using it for new projects.
-```
-
-**Options:**
-- Migrate to native `asyncio` + `aiohttp`
-- Use `gevent` (similar API but maintained)
-- Use Flask-SocketIO with native threading
-
-**Impact:** Affects WebSocket implementation and background threads.
-
-**Notes:** See https://eventlet.readthedocs.io/en/latest/asyncio/migration.html
+---
 
 ---
 
@@ -292,14 +264,9 @@ HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy
 ---
 
 ### [Planner] Robustness: Schedule Persistence and Retry on Failure
+**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
-**Goal:** Prevent the application from wiping the existing schedule when the planner fails (e.g., due to API connection errors like 502) and implement a shorter retry interval for failed runs.
-
-**Notes:**
-- Current behavior seems to clear the schedule when an error occurs during planning.
-- Need a fallback to keep the last valid schedule if a new one cannot be generated.
-- Implement a faster retry loop (e.g., every 5-15 mins) if the primary run fails, instead of waiting for the next full hourly run.
-- Investigate the source of "error 502" mentioned by the user (likely API gateway or upstream connection issues).
+---
 
 ---
 
@@ -389,32 +356,10 @@ HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy
 
 
 ### [Planner] Investigate Charge vs PV Logic
-
-**Goal:** Ensure the planner does not schedule grid charging when there is excess PV.
-
-**Observation:** User reports seeing "Charge" actions scheduled during times of excess PV, which suggests it might be charging from grid instead of just self-consuming.
-
-**Hypothesis:**
-1.  Is this just a visualization issue (PV -> Battery shown as "Charge")?
-2.  Or is Kepler actually buying energy to charge when free PV is available?
+**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
 ---
 
-### [Performance] General Application Speedup
+---
 
-**Goal:** Audit and improve the performance of the entire stack.
-
-**Scope:**
-1.  **Planner:** Profiling  (Kepler MILP solver speed).
-2.  **Frontend:** Reduce re-renders, optimize Bundle size.
-3.  **Backend:** API response times, database query optimization.
-
-
-### [UI] Dashboard Settings Persistence
-
-**Goal:** Ensure settings changed in the Dashboard (Market Strategy, Water Comfort) are saved and persist on reload.
-
-**Reported Issue:** Changing "Market Strategy" or "Water Comfort" level in the dashboard does not save the setting.
-
-**Hypothesis:** The UI state might be local only or the API call to save config is missing/failing.
 
