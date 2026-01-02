@@ -216,12 +216,27 @@ interface ExtendedChartData extends ChartData {
 
 const createChartData = (
     values: ChartValues,
-    themeColors: Record<string, string> = {},
+    _themeColors: Record<string, string> = {}, // Deprecated - using Design System tokens directly
     pricing?: { vat: number; fees: number },
 ): ExtendedChartData => {
-    const getColor = (paletteIndex: number, fallback: string) => {
-        const themeKey = `palette = ${paletteIndex}`
-        return themeColors[themeKey] || fallback
+    // Design System Colors (from index.css)
+    // Semantic mapping - APPROVED V2:
+    // - accent (gold): PV/Solar - it's the SUN
+    // - grid (grey): Import Price - neutral
+    // - house (cyan): Load - house consumption
+    // - good (green): Export - positive (selling)
+    // - bad (orange): Charge/Discharge - costs money
+    // - water (blue): Water heating
+    // - night (cyan): SoC lines
+    const DS = {
+        accent: '#FFCE59', // --color-accent: PV/Solar (SUN)
+        grid: '#64748B', // --color-grid: Import Price (neutral)
+        house: '#00B7B5', // --color-house: Load (cyan)
+        good: '#1FB256', // --color-good: Export
+        bad: '#F15132', // --color-bad: Charge (costs money)
+        peak: '#EC4899', // --color-peak: Discharge (pink)
+        water: '#4EA8DE', // --color-water: Water heating
+        night: '#06B6D4', // --color-night: SoC lines
     }
 
     const baseData: ExtendedChartData = {
@@ -231,128 +246,181 @@ const createChartData = (
                 type: 'line',
                 label: 'Import Price (SEK/kWh)',
                 data: values.price,
-                borderColor: getColor(4, '#2196F3'), // palette 4 (blue)
+                borderColor: DS.grid, // Grey - neutral grid price
                 backgroundColor: (context: any) => {
                     const ctx = context.chart.ctx
+                    const isDark = document.documentElement.classList.contains('dark')
+                    const opacity = isDark ? 0.35 : 0.5 // Higher in light mode
                     const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
-                    const color = getColor(4, '#2196F3')
-                    gradient.addColorStop(0, `${color}40`) // 25% opacity at top
-                    gradient.addColorStop(1, `${color}00`) // 0% opacity at bottom
+                    gradient.addColorStop(0, `rgba(100, 116, 139, ${opacity})`) // DS.grid
+                    gradient.addColorStop(1, 'rgba(100, 116, 139, 0)')
                     return gradient
                 },
                 fill: true,
                 yAxisID: 'y',
-                tension: 0.1, // Slight curve for organic feel
-                stepped: false, // Step lines feel 'blocky', organic curves feel cleaner for price
+                tension: 0.4,
                 pointRadius: 0,
-                borderWidth: 2,
+                borderWidth: 3,
                 order: 1,
-                // Custom property for our plugin
-                glow: true,
-            } as any, // Cast to any to allow custom properties
+            } as any,
             {
                 type: 'line',
                 label: 'PV Forecast (kW)',
                 data: values.pv,
-                borderColor: getColor(2, '#4CAF50'), // palette 2 (green)
+                borderColor: DS.accent, // Gold - it's the SUN
                 backgroundColor: (context: any) => {
                     const ctx = context.chart.ctx
+                    const isDark = document.documentElement.classList.contains('dark')
+                    const opacity = isDark ? 0.5 : 0.65 // Higher in light mode
                     const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
-                    const color = getColor(2, '#4CAF50')
-                    gradient.addColorStop(0, `${color}40`)
-                    gradient.addColorStop(1, `${color}00`)
+                    gradient.addColorStop(0, `rgba(255, 206, 89, ${opacity})`) // DS.accent
+                    gradient.addColorStop(1, 'rgba(255, 206, 89, 0)')
                     return gradient
                 },
                 fill: true,
                 yAxisID: 'y4',
-                tension: 0.4, // Smooth curve
+                tension: 0.4,
                 pointRadius: 0,
-                borderWidth: 2,
+                borderWidth: 3,
                 order: 2,
-                glow: true,
             } as any,
             {
                 type: 'bar',
                 label: 'Load (kW)',
                 data: values.load,
-                backgroundColor: `${getColor(3, '#FF9800')}80`, // more transparent
-                borderRadius: 0,
+                backgroundColor: 'rgba(0, 183, 181, 0.3)', // DS.house cyan at 30%
+                borderWidth: 0,
+                borderRadius: 2,
                 yAxisID: 'y1',
-                barPercentage: 1,
-                categoryPercentage: 1,
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
                 grouped: false,
+                order: 0, // Render in front of gradient lines
             },
             {
                 type: 'bar',
                 label: 'Charge (kW)',
                 data: values.charge ?? values.labels.map(() => null),
-                backgroundColor: `${getColor(4, '#2196F3')}80`, // more transparent
+                backgroundColor: 'rgba(241, 81, 50, 0.3)', // DS.bad - grid charge costs money
+                borderWidth: 0,
+                borderRadius: 2,
                 hidden: true,
                 yAxisID: 'y1',
-                barPercentage: 1,
-                categoryPercentage: 1,
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
                 grouped: false,
+                order: 0,
             },
             {
                 type: 'bar',
                 label: 'Discharge (kW)',
                 data: values.discharge ?? values.labels.map(() => null),
-                backgroundColor: `${getColor(1, '#F44336')}80`, // more transparent
+                backgroundColor: 'rgba(236, 72, 153, 0.3)', // DS.peak (pink) at 30%
+                borderWidth: 0,
+                borderRadius: 2,
                 hidden: true,
                 yAxisID: 'y1',
-                barPercentage: 1,
-                categoryPercentage: 1,
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
                 grouped: false,
+                order: 0,
             },
             {
                 type: 'bar',
                 label: 'Export (kWh)',
                 data: values.export ?? values.labels.map(() => null),
-                backgroundColor: `${getColor(2, '#4CAF50')}80`, // more transparent
+                backgroundColor: 'rgba(31, 178, 86, 0.3)', // DS.good - selling is positive!
+                borderWidth: 0,
+                borderRadius: 2,
                 hidden: true,
-                yAxisID: 'y2', // Use kWh axis
-                barPercentage: 1,
-                categoryPercentage: 1,
+                yAxisID: 'y2',
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
                 grouped: false,
+                order: 0,
             },
             {
                 type: 'bar',
                 label: 'Water Heating (kW)',
                 data: values.water ?? values.labels.map(() => null),
-                backgroundColor: `${getColor(5, '#FF5722')}80`, // more transparent
+                backgroundColor: 'rgba(78, 168, 222, 0.3)', // DS.water at 30%
+                borderWidth: 0,
+                borderRadius: 2,
                 hidden: true,
                 yAxisID: 'y1',
-                barPercentage: 1,
-                categoryPercentage: 1,
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
                 grouped: false,
+                order: 0,
             },
             {
                 type: 'line',
                 label: 'SoC Target (%)',
                 data: values.socTarget ?? values.labels.map(() => null),
-                borderColor: getColor(13, '#9C27B0'), // palette 13 (pink) or Material Purple
-                yAxisID: 'y3', // Use percentage axis
+                borderColor: DS.night, // Cyan
+                borderDash: [0, 6], // Round dots (0 dash + round cap = dots)
+                borderCapStyle: 'round',
+                backgroundColor: (context: any) => {
+                    const ctx = context.chart.ctx
+                    const isDark = document.documentElement.classList.contains('dark')
+                    const opacity = isDark ? 0.05 : 0.1 // Very subtle fill
+                    const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
+                    gradient.addColorStop(0, `rgba(6, 182, 212, ${opacity})`) // DS.night
+                    gradient.addColorStop(1, 'rgba(6, 182, 212, 0)')
+                    return gradient
+                },
+                fill: true,
+                // Dim historical segments (before nowIndex) to 50% opacity
+                segment: {
+                    borderColor: (ctx: any) => {
+                        const nowIdx = values.nowIndex ?? -1
+                        if (nowIdx >= 0 && ctx.p1DataIndex < nowIdx) {
+                            return 'rgba(6, 182, 212, 0.5)' // DS.night at 50%
+                        }
+                        return DS.night
+                    },
+                },
+                yAxisID: 'y3',
                 pointRadius: 0,
+                borderWidth: 3,
                 tension: 0,
                 stepped: 'after',
                 hidden: true,
-            },
+                order: 10, // Render behind other datasets (higher = further back)
+            } as any,
             {
                 type: 'line',
                 label: 'SoC Projected (%)',
                 data: values.socProjected ?? values.labels.map(() => null),
-                borderColor: getColor(14, '#FFEB3B'), // palette 14 or fallback yellow
-                yAxisID: 'y3', // Use percentage axis
+                borderColor: DS.night, // Cyan - solid line
+                // Dim historical segments (before nowIndex) to 50% opacity
+                segment: {
+                    borderColor: (ctx: any) => {
+                        const nowIdx = values.nowIndex ?? -1
+                        // If segment end point is before nowIndex, it's historical
+                        if (nowIdx >= 0 && ctx.p1DataIndex < nowIdx) {
+                            return 'rgba(6, 182, 212, 0.5)' // DS.night at 50%
+                        }
+                        return DS.night
+                    },
+                },
+                yAxisID: 'y3',
                 pointRadius: 0,
+                borderWidth: 3,
+                tension: 0.3,
                 hidden: true,
-            },
+            } as any,
             {
                 type: 'line',
                 label: 'SoC Actual (%)',
                 data: values.socActual ?? values.labels.map(() => null),
-                borderColor: getColor(15, '#80CBC4'), // palette 15 or fallback teal
+                borderColor: DS.night, // Cyan - dotted to differentiate
+                borderDash: [0, 6], // Round dots (same as SoC Target)
+                borderCapStyle: 'round',
                 yAxisID: 'y3',
                 pointRadius: 0,
+                borderWidth: 3,
+                tension: 0.3,
                 hidden: true,
             },
         ],
@@ -523,7 +591,7 @@ const glowPlugin: Plugin = {
         if (dataset.glow) {
             ctx.save()
             ctx.shadowColor = dataset.borderColor as string
-            ctx.shadowBlur = 15
+            ctx.shadowBlur = 8 // Subtle glow (reduced from 15)
             ctx.shadowOffsetX = 0
             ctx.shadowOffsetY = 0
         }

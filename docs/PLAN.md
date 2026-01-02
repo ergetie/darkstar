@@ -128,14 +128,13 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Plan:**
 
-* [/] **Chart Makeover**: Implement selected aesthetic (**Option A: The Field V2**).
+* [x] **Chart Makeover**: Implement selected aesthetic (**Option A: The Field V2**).
     *   [x] Refactor `DecompositionChart` to support variants.
     *   [x] Implement Dot Grid via **Chart.js Plugin** (production-grade, pans/zooms with chart).
     *   [x] Disable old Chart.js grid lines in `ChartCard`.
     *   [x] Add Glow effect plugin to `ChartCard`.
-    *   [ ] **Migrate `ChartCard` colors from API/theme to Design System tokens.**
+    *   [x] **Migrate `ChartCard` colors from API/theme to Design System tokens.**
     *   [ ] Refactor `EnergyFlow` to match Design System.
-    *   [ ] Add "Now" line with pulsing "Live" dot.
 * [x] **Bug Fix**: Strange thin vertical line on left side of Chart and Strategy cards.
 * [ ] **Financials**: Implement detailed cost and savings breakdown.
 * [ ] **Bug Fix**: Fix Dashboard settings persistence.

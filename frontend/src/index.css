@@ -112,8 +112,8 @@
     /* Hover state */
     --color-good: 31 178 86;
     /* #1FB256 TE Green */
-    --color-house: 168 85 247;
-    /* #A855F7 Purple */
+    --color-house: 0 183 181;
+    /* #00B7B5 Cyan - same as light mode */
     --color-water: 78 168 222;
     /* #4EA8DE TE Blue */
     --color-grid: 100 116 139;
@@ -168,6 +168,7 @@ body::before {
    ============================================ */
 
 @layer components {
+
     /* ========== BUTTONS ========== */
     .btn {
         display: inline-flex;
@@ -453,12 +454,10 @@ body::before {
     }
 
     .skeleton {
-        background: linear-gradient(
-            90deg,
-            rgb(var(--color-surface2)) 25%,
-            rgb(var(--color-surface)) 50%,
-            rgb(var(--color-surface2)) 75%
-        );
+        background: linear-gradient(90deg,
+                rgb(var(--color-surface2)) 25%,
+                rgb(var(--color-surface)) 50%,
+                rgb(var(--color-surface2)) 75%);
         background-size: 200% 100%;
         animation: skeleton-shimmer 1.5s infinite;
         border-radius: var(--radius-sm);
@@ -581,6 +580,7 @@ body::before {
 
     /* ========== ANIMATIONS ========== */
     @keyframes pulse {
+
         0%,
         100% {
             opacity: 1;
@@ -592,6 +592,7 @@ body::before {
     }
 
     @keyframes bounce {
+
         0%,
         100% {
             transform: translateY(0);
@@ -635,6 +636,7 @@ body::before {
     }
 
     @keyframes glow-pulse {
+
         0%,
         100% {
             box-shadow: 0 0 8px rgba(255, 206, 89, 0.4);
@@ -895,6 +897,7 @@ body::before {
 }
 
 @keyframes barPulse {
+
     0%,
     100% {
         opacity: 0.85;
