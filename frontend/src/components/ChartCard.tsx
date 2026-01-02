@@ -154,6 +154,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: { display: false, text: 'kW' },
             grid: { display: false },
             ticks: { display: false },
+            border: { display: false },
         },
         y2: {
             position: 'left',
@@ -162,6 +163,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: { display: false, text: 'kWh' },
             grid: { display: false },
             ticks: { display: false },
+            border: { display: false },
             display: false,
         },
         y3: {
@@ -171,6 +173,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: { display: true, text: '%', color: '#a6b0bf' },
             grid: { display: false },
             ticks: { color: '#a6b0bf', font: { family: 'monospace', size: 10 } },
+            border: { display: false },
             display: false,
         },
         y4: {
@@ -180,6 +183,7 @@ const chartOptions: ChartConfiguration['options'] = {
             title: { display: false, text: 'kW (PV)' },
             grid: { display: false },
             ticks: { display: false },
+            border: { display: false },
         },
     },
 }

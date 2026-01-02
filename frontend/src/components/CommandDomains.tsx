@@ -219,9 +219,8 @@ export function StrategyDomain({ soc, socTarget, sIndex, cycles, riskLabel }: St
                 {/* SoC Big Display */}
                 <div className="col-span-2 flex items-center gap-3 p-3 rounded-xl bg-surface2/30 border border-line/30">
                     <Battery
-                        className={`h-8 w-8 ${
-                            (soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
-                        }`}
+                        className={`h-8 w-8 ${(soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
+                            }`}
                     />
                     <div>
                         <div className="text-2xl font-bold text-text">{soc?.toFixed(0) ?? '—'}%</div>
@@ -260,9 +259,6 @@ export function ControlParameters({
 }: ControlParametersProps) {
     return (
         <Card className="p-4 flex flex-col h-full relative overflow-hidden">
-            {/* Connective Line (Left) */}
-            <div className="absolute left-[19px] top-6 bottom-6 w-[1px] bg-line/30 z-0" />
-
             <div className="space-y-3 relative z-10">
                 {/* 1. Risk Appetite Panel */}
                 <div className="metric-card-border metric-card-border-house bg-surface2/30 p-3 overflow-hidden group">
@@ -271,13 +267,12 @@ export function ControlParameters({
                             <span>Market Strategy</span>
                             {/* LED Indicator */}
                             <div
-                                className={`h-1.5 w-1.5 rounded-full transition-colors ${
-                                    riskAppetite > 3
+                                className={`h-1.5 w-1.5 rounded-full transition-colors ${riskAppetite > 3
                                         ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
                                         : riskAppetite < 2
-                                          ? 'bg-emerald-400'
-                                          : 'bg-blue-400'
-                                }`}
+                                            ? 'bg-emerald-400'
+                                            : 'bg-blue-400'
+                                    }`}
                             />
                         </div>
                         <div className="text-xs font-medium text-text">
@@ -305,11 +300,10 @@ export function ControlParameters({
                                 <button
                                     key={level}
                                     onClick={() => setRiskAppetite(level)}
-                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${
-                                        isActive
+                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
                                             ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
                                             : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
-                                    }`}
+                                        }`}
                                 >
                                     {level}
                                 </button>
@@ -354,11 +348,10 @@ export function ControlParameters({
                                 <button
                                     key={level}
                                     onClick={() => setComfortLevel(level)}
-                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${
-                                        isActive
+                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
                                             ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
                                             : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
-                                    }`}
+                                        }`}
                                 >
                                     {level}
                                 </button>
