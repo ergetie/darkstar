@@ -35,8 +35,8 @@ cleanup() {
 
 trap cleanup INT TERM
 
-# Run Darkstar with WebSockets using the eventlet runner (Rev U27)
-PYTHONPATH=. python backend/run.py
+# Run Darkstar with FastAPI/Uvicorn (Rev ARC1)
+uvicorn backend.main:app --host 0.0.0.0 --port 5000 --reload --log-level info
 
 # If Flask exits, clean up scheduler as well
 cleanup
