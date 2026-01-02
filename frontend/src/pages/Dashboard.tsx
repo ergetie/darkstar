@@ -187,7 +187,7 @@ export default function Dashboard() {
                 setServerSchedule(schedule ?? [])
                 // Removed setServerScheduleError
             })
-            .finally(() => {})
+            .finally(() => { })
     }, [])
 
     const fetchAllData = useCallback(async () => {
@@ -229,11 +229,13 @@ export default function Dashboard() {
             // Process config data
             if (configData.status === 'fulfilled') {
                 const data = configData.value
-                // Get export guard status from arbitrage config
+                // Get export guard status from arbitrage config (legacy)
                 const arbitrage = data.arbitrage || {}
                 setExportGuard(arbitrage.export_guard_enabled || false)
-                if (typeof arbitrage.risk_appetite === 'number') {
-                    setRiskAppetite(arbitrage.risk_appetite)
+                // Read risk_appetite from s_index (correct location)
+                const sIndex = (data as Record<string, unknown>).s_index as Record<string, unknown> | undefined
+                if (typeof sIndex?.risk_appetite === 'number') {
+                    setRiskAppetite(sIndex.risk_appetite)
                 }
                 if (data.system?.battery?.capacity_kwh != null) {
                     setBatteryCapacity(data.system.battery.capacity_kwh)
@@ -722,11 +724,10 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2 w-2 rounded-full ${
-                                                automationConfig?.enable_scheduler
+                                            className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
                                                     ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
                                                     : 'bg-line'
-                                            }`}
+                                                }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -747,9 +748,8 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => fetchAllData()}
                                     disabled={isRefreshing}
-                                    className={`rounded-full p-1 transition ${
-                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
-                                    }`}
+                                    className={`rounded-full p-1 transition ${isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                        }`}
                                     title="Manual sync"
                                 >
                                     <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>
