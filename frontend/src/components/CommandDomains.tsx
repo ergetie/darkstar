@@ -19,7 +19,6 @@ interface GridCardProps {
     netCost: number | null
     importKwh: number | null
     exportKwh: number | null
-    exportGuard?: boolean | null
 }
 
 interface ResourcesCardProps {
@@ -64,7 +63,7 @@ const ProgressBar = ({ value, total, colorClass }: { value: number; total: numbe
 
 // --- Domain Cards ---
 
-export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridCardProps) {
+export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
     const [period, setPeriod] = React.useState<'today' | 'yesterday' | 'week' | 'month'>('today')
     const [rangeData, setRangeData] = React.useState<{
         import_cost_sek: number
@@ -133,11 +132,6 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
                     <DollarSign className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Grid & Financial</span>
-                {exportGuard && (
-                    <span className="ml-auto text-[9px] bg-good/20 text-good px-1.5 py-0.5 rounded border border-good/20 animate-pulse">
-                        Guard
-                    </span>
-                )}
             </div>
 
             {/* Period Toggle */}

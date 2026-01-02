@@ -35,7 +35,6 @@ export type ScheduleTodayWithHistoryResponse = {
 
 export type ConfigResponse = {
     system?: { battery?: { capacity_kwh?: number } }
-    arbitrage?: { export_guard_enabled?: boolean; risk_appetite?: number }
     automation?: {
         enable_scheduler?: boolean
         write_to_mariadb?: boolean

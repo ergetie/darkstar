@@ -77,7 +77,6 @@ export default function Dashboard() {
     const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)
     const [vacationEntityId, setVacationEntityId] = useState<string>('')
     const [riskAppetite, setRiskAppetite] = useState<number>(1.0)
-    const [exportGuard, setExportGuard] = useState<boolean>(false)
     const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[]>([])
 
     // Live power metrics for PowerFlowCard
@@ -229,10 +228,7 @@ export default function Dashboard() {
             // Process config data
             if (configData.status === 'fulfilled') {
                 const data = configData.value
-                // Get export guard status from arbitrage config (legacy)
-                const arbitrage = data.arbitrage || {}
-                setExportGuard(arbitrage.export_guard_enabled || false)
-                // Read risk_appetite from s_index (correct location)
+                // Read risk_appetite from s_index
                 const sIndex = (data as Record<string, unknown>).s_index as Record<string, unknown> | undefined
                 if (typeof sIndex?.risk_appetite === 'number') {
                     setRiskAppetite(sIndex.risk_appetite)
@@ -725,8 +721,8 @@ export default function Dashboard() {
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
                                             className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
-                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
-                                                    : 'bg-line'
+                                                ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
+                                                : 'bg-line'
                                                 }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
@@ -825,7 +821,6 @@ export default function Dashboard() {
                     netCost={todayStats?.netCost ?? null}
                     importKwh={todayStats?.gridImport ?? null}
                     exportKwh={todayStats?.gridExport ?? null}
-                    exportGuard={exportGuard}
                 />
 
                 {/* Col 2: Resources Domain */}
