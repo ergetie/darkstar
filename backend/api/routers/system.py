@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from backend.extensions import socketio  # NOTE: To be removed/replaced later
+
 from backend.core.websockets import ws_manager
 import subprocess
 import yaml

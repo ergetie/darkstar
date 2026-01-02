@@ -160,8 +160,10 @@ class HAWebSocketClient:
     def start(self):
         self.running = True
         # Use Socket.IO background task instead of threading.Thread for eventlet compatibility (Rev U23)
-        from backend.extensions import socketio
-        socketio.start_background_task(lambda: asyncio.run(self.connect()))
+        # Use simple thread for background loop (Rev ARC1)
+        import threading
+        # backend.extensions import removed
+        threading.Thread(target=lambda: asyncio.run(self.connect()), daemon=True).start()
 
     def reload_monitored_entities(self):
         """Reload the monitored entities mapping from config.yaml and HA params from secrets.yaml."""
