@@ -229,6 +229,26 @@ export type EnergyTodayResponse = {
     net_cost_kr: number | null
 }
 
+export type EnergyRangeResponse = {
+    period: 'today' | 'yesterday' | 'week' | 'month'
+    start_date: string
+    end_date: string
+    grid_import_kwh: number
+    grid_export_kwh: number
+    battery_charge_kwh: number
+    battery_discharge_kwh: number
+    water_heating_kwh: number
+    pv_production_kwh: number
+    load_consumption_kwh: number
+    import_cost_sek: number
+    export_revenue_sek: number
+    grid_charge_cost_sek: number
+    self_consumption_savings_sek: number
+    net_cost_sek: number
+    slot_count: number
+    error?: string
+}
+
 export type ThemeResponse = {
     current: string
     accent_index?: number
@@ -399,6 +419,8 @@ export const Api = {
     },
     // Energy stats from HA sensors
     energyToday: () => getJSON<EnergyTodayResponse>('/api/energy/today'),
+    energyRange: (period: 'today' | 'yesterday' | 'week' | 'month') =>
+        getJSON<EnergyRangeResponse>(`/api/energy/range?period=${period}`),
 }
 
 export const Sel = {

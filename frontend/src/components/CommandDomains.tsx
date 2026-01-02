@@ -66,8 +66,55 @@ const ProgressBar = ({ value, total, colorClass }: { value: number; total: numbe
 
 export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridCardProps) {
     const [period, setPeriod] = React.useState<'today' | 'yesterday' | 'week' | 'month'>('today')
-    const isPositive = (netCost ?? 0) <= 0 // Negative cost is good (profit/savings) or zero
-    // Note: Darkstar convention: positive = you pay, negative = you earn.
+    const [rangeData, setRangeData] = React.useState<{
+        import_cost_sek: number
+        export_revenue_sek: number
+        grid_charge_cost_sek: number
+        self_consumption_savings_sek: number
+        net_cost_sek: number
+        grid_import_kwh: number
+        grid_export_kwh: number
+        slot_count: number
+    } | null>(null)
+    const [loading, setLoading] = React.useState(false)
+
+    // Fetch data when period changes
+    React.useEffect(() => {
+        let cancelled = false
+        setLoading(true)
+
+        import('../lib/api').then(({ Api }) => {
+            Api.energyRange(period)
+                .then((data) => {
+                    if (!cancelled) {
+                        setRangeData({
+                            import_cost_sek: data.import_cost_sek,
+                            export_revenue_sek: data.export_revenue_sek,
+                            grid_charge_cost_sek: data.grid_charge_cost_sek,
+                            self_consumption_savings_sek: data.self_consumption_savings_sek,
+                            net_cost_sek: data.net_cost_sek,
+                            grid_import_kwh: data.grid_import_kwh,
+                            grid_export_kwh: data.grid_export_kwh,
+                            slot_count: data.slot_count,
+                        })
+                    }
+                })
+                .catch(() => {
+                    if (!cancelled) setRangeData(null)
+                })
+                .finally(() => {
+                    if (!cancelled) setLoading(false)
+                })
+        })
+
+        return () => { cancelled = true }
+    }, [period])
+
+    // Use range data for display, fallback to props for "today"
+    const displayNetCost = rangeData?.net_cost_sek ?? netCost
+    const displayImport = rangeData?.grid_import_kwh ?? importKwh
+    const displayExport = rangeData?.grid_export_kwh ?? exportKwh
+    const isPositive = (displayNetCost ?? 0) <= 0
 
     const periods = [
         { key: 'today', label: 'Today' },
@@ -77,14 +124,12 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
     ] as const
 
     return (
-        <Card className="p-4 flex flex-col justify-between h-full relative overflow-hidden group">
+        <Card className="p-4 flex flex-col h-full relative overflow-hidden group">
             <div className={`absolute inset-0 opacity-[0.03] ${isPositive ? 'bg-good' : 'bg-bad'}`} />
 
             {/* Header */}
-            <div className="flex items-center gap-2 mb-3 relative z-10">
-                <div
-                    className={`p-1.5 rounded-lg ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}
-                >
+            <div className="flex items-center gap-2 mb-2 relative z-10">
+                <div className={`p-1.5 rounded-lg ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}>
                     <DollarSign className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Grid & Financial</span>
@@ -96,17 +141,15 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
             </div>
 
             {/* Period Toggle */}
-            <div className="flex gap-1 mb-3 relative z-10">
+            <div className="flex gap-1 mb-2 relative z-10">
                 {periods.map((p) => (
                     <button
                         key={p.key}
                         onClick={() => setPeriod(p.key)}
-                        disabled={p.key !== 'today'} // Only today is available for now
                         className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${period === p.key
-                            ? 'bg-accent/20 text-accent border border-accent/30'
-                            : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50 disabled:opacity-40 disabled:cursor-not-allowed'
+                                ? 'bg-accent/20 text-accent border border-accent/30'
+                                : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
                             }`}
-                        title={p.key !== 'today' ? 'Coming soon' : undefined}
                     >
                         {p.label}
                     </button>
@@ -114,24 +157,44 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
             </div>
 
             {/* Big Metric: Net Cost */}
-            <div className="mb-4 relative z-10">
+            <div className="mb-3 relative z-10">
                 <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
                     Net {period === 'today' ? 'Daily' : period === 'yesterday' ? 'Yesterday' : period === 'week' ? 'Weekly' : 'Monthly'} Cost
                 </div>
                 <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-bold ${isPositive ? 'text-good' : 'text-bad'}`}>
-                        {netCost != null ? Math.abs(netCost).toFixed(2) : '—'}
+                    <span className={`text-2xl font-bold ${loading ? 'opacity-50' : ''} ${isPositive ? 'text-good' : 'text-bad'}`}>
+                        {displayNetCost != null ? Math.abs(displayNetCost).toFixed(2) : '—'}
                     </span>
                     <span className="text-xs text-muted">kr</span>
-                    {netCost !== null && (
-                        <span
-                            className={`text-[10px] ml-2 px-1.5 py-0.5 rounded ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}
-                        >
-                            {netCost > 0 ? 'COST' : 'EARNING'}
+                    {displayNetCost !== null && !loading && (
+                        <span className={`text-[10px] ml-2 px-1.5 py-0.5 rounded ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}>
+                            {displayNetCost > 0 ? 'COST' : 'EARNING'}
                         </span>
                     )}
                 </div>
             </div>
+
+            {/* Financial Breakdown */}
+            {rangeData && (
+                <div className="grid grid-cols-2 gap-1.5 mb-2 relative z-10 text-[10px]">
+                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Import Cost</span>
+                        <span className="text-bad font-medium">{rangeData.import_cost_sek.toFixed(1)} kr</span>
+                    </div>
+                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Export Rev</span>
+                        <span className="text-good font-medium">{rangeData.export_revenue_sek.toFixed(1)} kr</span>
+                    </div>
+                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Grid Charge</span>
+                        <span className="text-bad font-medium">{rangeData.grid_charge_cost_sek.toFixed(1)} kr</span>
+                    </div>
+                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Self-Use Saved</span>
+                        <span className="text-accent font-medium">{rangeData.self_consumption_savings_sek.toFixed(1)} kr</span>
+                    </div>
+                </div>
+            )}
 
             {/* Grid Flow Stats */}
             <div className="grid grid-cols-2 gap-2 mt-auto relative z-10">
@@ -140,8 +203,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
                         <ArrowDownToLine className="h-3 w-3" />
                         <span className="text-[10px]">Import</span>
                     </div>
-                    <div className="text-lg font-semibold text-text">
-                        {importKwh?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted font-normal">kWh</span>
+                    <div className={`text-lg font-semibold text-text ${loading ? 'opacity-50' : ''}`}>
+                        {displayImport?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted font-normal">kWh</span>
                     </div>
                 </div>
                 <div className="p-2 rounded-lg bg-surface2/40 border border-line/30">
@@ -149,8 +212,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
                         <ArrowUpFromLine className="h-3 w-3" />
                         <span className="text-[10px]">Export</span>
                     </div>
-                    <div className="text-lg font-semibold text-text">
-                        {exportKwh?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted font-normal">kWh</span>
+                    <div className={`text-lg font-semibold text-text ${loading ? 'opacity-50' : ''}`}>
+                        {displayExport?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted font-normal">kWh</span>
                     </div>
                 </div>
             </div>

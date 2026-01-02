@@ -1120,6 +1120,228 @@ def energy_today():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/energy/range", methods=["GET"])
+def energy_range():
+    """
+    Calculate energy and financial stats for a date range.
+    
+    Query params:
+        period: 'today' | 'yesterday' | 'week' | 'month'
+    
+    Calculates from execution_log + price data:
+        - grid_import_kwh, grid_export_kwh
+        - battery_charge_kwh, battery_discharge_kwh
+        - water_heating_kwh
+        - import_cost_sek, export_revenue_sek, grid_charge_cost_sek
+        - self_consumption_savings_sek, net_cost_sek
+    """
+    try:
+        config = _load_yaml("config.yaml")
+        tz_name = config.get("timezone", "Europe/Stockholm")
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone("Europe/Stockholm")
+    
+    period = request.args.get("period", "today")
+    now = datetime.now(tz)
+    today = now.date()
+    
+    # Determine date range based on period
+    if period == "yesterday":
+        start_date = today - timedelta(days=1)
+        end_date = today
+    elif period == "week":
+        start_date = today - timedelta(days=7)
+        end_date = today + timedelta(days=1)  # Include today
+    elif period == "month":
+        start_date = today - timedelta(days=30)
+        end_date = today + timedelta(days=1)
+    else:  # today
+        start_date = today
+        end_date = today + timedelta(days=1)
+    
+    start_dt = tz.localize(datetime.combine(start_date, datetime.min.time()))
+    end_dt = tz.localize(datetime.combine(end_date, datetime.min.time()))
+    
+    start_iso = start_dt.isoformat()
+    end_iso = end_dt.isoformat()
+    
+    # Get execution records from SQLite
+    db_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+    
+    totals = {
+        "grid_import_kwh": 0.0,
+        "grid_export_kwh": 0.0,
+        "battery_charge_kwh": 0.0,
+        "battery_discharge_kwh": 0.0,
+        "water_heating_kwh": 0.0,
+        "pv_production_kwh": 0.0,
+        "load_consumption_kwh": 0.0,
+        "import_cost_sek": 0.0,
+        "export_revenue_sek": 0.0,
+        "grid_charge_cost_sek": 0.0,
+        "self_consumption_savings_sek": 0.0,
+        "net_cost_sek": 0.0,
+        "slot_count": 0,
+    }
+    
+    if not os.path.exists(db_path):
+        return jsonify({
+            "period": period,
+            "start_date": start_date.isoformat(),
+            "end_date": (end_date - timedelta(days=1)).isoformat(),
+            **totals,
+            "error": "Database not found"
+        })
+    
+    # Load price map from schedule.json for cost calculations
+    price_map: dict[datetime, dict] = {}
+    try:
+        from inputs import get_nordpool_data
+        price_slots = get_nordpool_data("config.yaml")
+        for p in price_slots:
+            st = p["start_time"]
+            if isinstance(st, datetime):
+                if st.tzinfo is None:
+                    st_local = tz.localize(st)
+                else:
+                    st_local = st.astimezone(tz)
+                key = st_local.replace(tzinfo=None)
+                price_map[key] = {
+                    "import_price": float(p.get("import_price_sek_kwh") or 0.0),
+                    "export_price": float(p.get("export_price_sek_kwh") or p.get("import_price_sek_kwh") or 0.0),
+                }
+    except Exception as exc:
+        logger.warning("Failed to load price data for /api/energy/range: %s", exc)
+    
+    # Also try to build price map from schedule.json
+    try:
+        with open("schedule.json", "r") as f:
+            schedule_data = json.load(f)
+        for slot in schedule_data.get("schedule", []):
+            start_str = slot.get("start_time")
+            if not start_str:
+                continue
+            try:
+                start = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
+                if start.tzinfo is None:
+                    local = tz.localize(start)
+                else:
+                    local = start.astimezone(tz)
+                key = local.replace(tzinfo=None)
+                if key not in price_map:
+                    import_price = float(slot.get("import_price_sek_kwh") or 0.0)
+                    export_price = float(slot.get("export_price_sek_kwh") or import_price)
+                    price_map[key] = {"import_price": import_price, "export_price": export_price}
+            except Exception:
+                pass
+    except Exception:
+        pass
+    
+    # Query execution_log
+    with sqlite3.connect(db_path, timeout=30.0) as conn:
+        conn.row_factory = sqlite3.Row
+        
+        # Get execution records for the period
+        cursor = conn.execute(
+            """
+            SELECT 
+                slot_start,
+                planned_charge_kw,
+                planned_discharge_kw,
+                planned_water_kw,
+                before_pv_kw,
+                before_load_kw,
+                executed_at
+            FROM execution_log
+            WHERE slot_start >= ? AND slot_start < ?
+            ORDER BY slot_start ASC
+            """,
+            (start_iso, end_iso),
+        )
+        
+        # Process each slot (15-minute intervals -> divide by 4 for kWh)
+        slot_duration_hours = 0.25  # 15 minutes
+        seen_slots = set()  # Dedupe by slot_start
+        
+        for row in cursor:
+            slot_start = row["slot_start"]
+            if slot_start in seen_slots:
+                continue
+            seen_slots.add(slot_start)
+            
+            # Convert powers to energy (kW * hours = kWh)
+            charge_kwh = (float(row["planned_charge_kw"] or 0)) * slot_duration_hours
+            discharge_kwh = (float(row["planned_discharge_kw"] or 0)) * slot_duration_hours
+            water_kwh = (float(row["planned_water_kw"] or 0)) * slot_duration_hours
+            pv_kwh = (float(row["before_pv_kw"] or 0)) * slot_duration_hours
+            load_kwh = (float(row["before_load_kw"] or 0)) * slot_duration_hours
+            
+            totals["battery_charge_kwh"] += charge_kwh
+            totals["battery_discharge_kwh"] += discharge_kwh
+            totals["water_heating_kwh"] += water_kwh
+            totals["pv_production_kwh"] += pv_kwh
+            totals["load_consumption_kwh"] += load_kwh
+            totals["slot_count"] += 1
+            
+            # Calculate net grid flow
+            # Grid import = load - pv + charge (if positive)
+            # Grid export = discharge (we sell to grid)
+            net_grid = load_kwh - pv_kwh + charge_kwh - discharge_kwh
+            if net_grid > 0:
+                totals["grid_import_kwh"] += net_grid
+            else:
+                totals["grid_export_kwh"] += abs(net_grid)
+            
+            # Get price for this slot
+            try:
+                slot_dt = datetime.fromisoformat(slot_start)
+                if slot_dt.tzinfo:
+                    slot_dt = slot_dt.astimezone(tz).replace(tzinfo=None)
+                # Try exact match, then hourly fallback
+                prices = price_map.get(slot_dt) or price_map.get(
+                    slot_dt.replace(minute=0, second=0, microsecond=0)
+                )
+            except Exception:
+                prices = None
+            
+            if prices:
+                import_price = prices.get("import_price", 0)
+                export_price = prices.get("export_price", 0)
+                
+                # Calculate costs
+                if net_grid > 0:
+                    totals["import_cost_sek"] += net_grid * import_price
+                else:
+                    totals["export_revenue_sek"] += abs(net_grid) * export_price
+                
+                # Grid charging cost (buying electricity to charge battery)
+                totals["grid_charge_cost_sek"] += charge_kwh * import_price
+                
+                # Self-consumption savings (using PV instead of buying)
+                self_consumed = min(pv_kwh, load_kwh)
+                totals["self_consumption_savings_sek"] += self_consumed * import_price
+    
+    # Calculate net cost (import + charge - export revenue)
+    totals["net_cost_sek"] = (
+        totals["import_cost_sek"] 
+        + totals["grid_charge_cost_sek"] 
+        - totals["export_revenue_sek"]
+    )
+    
+    # Round all values
+    for key in totals:
+        if isinstance(totals[key], float):
+            totals[key] = round(totals[key], 2)
+    
+    return jsonify({
+        "period": period,
+        "start_date": start_date.isoformat(),
+        "end_date": (end_date - timedelta(days=1)).isoformat(),
+        **totals,
+    })
+
+
 @app.route("/api/executor/toggle", methods=["POST"])
 def executor_toggle():
     """Enable or disable the executor."""
