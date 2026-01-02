@@ -1,6 +1,13 @@
 import Card from './Card'
 import { useEffect, useRef, useState } from 'react'
-import { Chart as ChartJS, ChartConfiguration, Plugin } from 'chart.js/auto'
+import {
+    Chart as ChartJS,
+    ChartConfiguration,
+    ChartDataset,
+    Plugin,
+    ScriptableContext,
+    ScriptableLineSegmentContext,
+} from 'chart.js/auto'
 import type { Chart, Scale, Tick, ChartData } from 'chart.js/auto'
 import zoomPlugin from 'chartjs-plugin-zoom'
 ChartJS.register(zoomPlugin)
@@ -71,7 +78,7 @@ const chartOptions: ChartConfiguration['options'] = {
                             return [
                                 `${datasetLabel}: ${formattedValue}${unit}`,
                                 `(Spot: ${spot.toFixed(2)} + Tax/Fees: ${feesAndVat.toFixed(2)})`,
-                            ] as any // Chart.js allows string arrays for multiline
+                            ] as unknown as string[] // Chart.js allows string arrays for multiline
                         }
                     } else if (datasetLabel.includes('kW')) {
                         formattedValue = value.toFixed(1)
@@ -247,7 +254,7 @@ const createChartData = (
                 label: 'Import Price (SEK/kWh)',
                 data: values.price,
                 borderColor: DS.grid, // Grey - neutral grid price
-                backgroundColor: (context: any) => {
+                backgroundColor: (context: ScriptableContext<'line'>) => {
                     const ctx = context.chart.ctx
                     const isDark = document.documentElement.classList.contains('dark')
                     const opacity = isDark ? 0.35 : 0.5 // Higher in light mode
@@ -262,13 +269,13 @@ const createChartData = (
                 pointRadius: 0,
                 borderWidth: 3,
                 order: 1,
-            } as any,
+            } as ChartDataset,
             {
                 type: 'line',
                 label: 'PV Forecast (kW)',
                 data: values.pv,
                 borderColor: DS.accent, // Gold - it's the SUN
-                backgroundColor: (context: any) => {
+                backgroundColor: (context: ScriptableContext<'line'>) => {
                     const ctx = context.chart.ctx
                     const isDark = document.documentElement.classList.contains('dark')
                     const opacity = isDark ? 0.5 : 0.65 // Higher in light mode
@@ -283,7 +290,7 @@ const createChartData = (
                 pointRadius: 0,
                 borderWidth: 3,
                 order: 2,
-            } as any,
+            } as ChartDataset,
             {
                 type: 'bar',
                 label: 'Load (kW)',
@@ -360,7 +367,7 @@ const createChartData = (
                 borderColor: DS.night, // Cyan
                 borderDash: [0, 6], // Round dots (0 dash + round cap = dots)
                 borderCapStyle: 'round',
-                backgroundColor: (context: any) => {
+                backgroundColor: (context: ScriptableContext<'line'>) => {
                     const ctx = context.chart.ctx
                     const isDark = document.documentElement.classList.contains('dark')
                     const opacity = isDark ? 0.05 : 0.1 // Very subtle fill
@@ -372,7 +379,7 @@ const createChartData = (
                 fill: true,
                 // Dim historical segments (before nowIndex) to 50% opacity
                 segment: {
-                    borderColor: (ctx: any) => {
+                    borderColor: (ctx: ScriptableLineSegmentContext) => {
                         const nowIdx = values.nowIndex ?? -1
                         if (nowIdx >= 0 && ctx.p1DataIndex < nowIdx) {
                             return 'rgba(6, 182, 212, 0.5)' // DS.night at 50%
@@ -387,7 +394,7 @@ const createChartData = (
                 stepped: 'after',
                 hidden: true,
                 order: 10, // Render behind other datasets (higher = further back)
-            } as any,
+            } as ChartDataset,
             {
                 type: 'line',
                 label: 'SoC Projected (%)',
@@ -395,7 +402,7 @@ const createChartData = (
                 borderColor: DS.night, // Cyan - solid line
                 // Dim historical segments (before nowIndex) to 50% opacity
                 segment: {
-                    borderColor: (ctx: any) => {
+                    borderColor: (ctx: ScriptableLineSegmentContext) => {
                         const nowIdx = values.nowIndex ?? -1
                         // If segment end point is before nowIndex, it's historical
                         if (nowIdx >= 0 && ctx.p1DataIndex < nowIdx) {
@@ -409,7 +416,7 @@ const createChartData = (
                 borderWidth: 3,
                 tension: 0.3,
                 hidden: true,
-            } as any,
+            } as ChartDataset,
             {
                 type: 'line',
                 label: 'SoC Actual (%)',
@@ -577,7 +584,10 @@ const glowPlugin: Plugin = {
     },
     afterDatasetDraw(chart, args) {
         const { ctx } = chart
-        const dataset = chart.data.datasets[args.index] as any
+        const dataset = chart.data.datasets[args.index] as unknown as {
+            glow?: boolean
+            borderColor?: string
+        }
 
         // Only restore if we saved in beforeDatasetDraw
         if (dataset.glow) {
@@ -586,7 +596,10 @@ const glowPlugin: Plugin = {
     },
     beforeDatasetDraw(chart, args) {
         const { ctx } = chart
-        const dataset = chart.data.datasets[args.index] as any
+        const dataset = chart.data.datasets[args.index] as unknown as {
+            glow?: boolean
+            borderColor?: string
+        }
 
         if (dataset.glow) {
             ctx.save()
@@ -645,8 +658,8 @@ export default function ChartCard({
         Api.config()
             .then((config) => {
                 // Parse pricing for tooltips
-                if ((config as any)?.pricing) {
-                    const p = (config as any).pricing
+                if (config.pricing) {
+                    const p = config.pricing
                     const vat = p.vat_percent ?? 25
                     const fees = (p.grid_transfer_fee_sek ?? 0) + (p.energy_tax_sek ?? 0)
                     setPricingConfig({ vat, fees })
@@ -677,7 +690,6 @@ export default function ChartCard({
             })
             .catch((err) => console.error('Failed to load overlay defaults:', err))
     }, [overlays.socActual])
-    const [nowPosition, setNowPosition] = useState<number | null>(null)
 
     useEffect(() => {
         // Fetch theme colors on mount
@@ -723,7 +735,7 @@ export default function ChartCard({
                 chartRef.current = null
             }
         }
-    }, [themeColors]) // Re-create chart when theme colors are loaded
+    }, [themeColors, pricingConfig]) // Re-create chart when theme colors are loaded
 
     const isChartUsable = (chartInstance: Chart | null) => {
         if (!chartInstance) return false

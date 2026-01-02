@@ -45,6 +45,11 @@ export type ConfigResponse = {
         comfort_level?: number
         vacation_mode?: { enabled?: boolean; end_date?: string | null }
     }
+    pricing?: {
+        vat_percent?: number
+        grid_transfer_fee_sek?: number
+        energy_tax_sek?: number
+    }
     input_sensors?: {
         vacation_mode?: string
     }
