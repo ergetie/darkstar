@@ -165,6 +165,10 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 * [ ] **Architecture Pivot: Flask -> FastAPI**
     *   *Why:* Flask is synchronous (blocking). Legacy `eventlet` is abandoned. FastAPI is native async (non-blocking) and SOTA.
     *   *Modularization:* This revision explicitly fulfills the backlog goal of splitting the monolithic `webapp.py`. Instead of Flask Blueprints, we will use **FastAPI APIRouters** for a clean, modular structure.
+    *   *Technical Strategy:*
+        *   **Entry Point**: `backend/main.py` (ASGI app definition).
+        *   **Routing**: Split `webapp.py` into `backend/api/routers/{system,theme,forecast,schedule}.py`.
+        *   **Bridge**: Use `backend/core/websockets.py` to bridge sync Executor events to async Socket.IO.
     *   *Tasks:*
         *   **Refactor/Modularize**: Deconstruct `webapp.py` into `backend/api/routers/*.py`.
         *   Convert endpoints to `async def`.
