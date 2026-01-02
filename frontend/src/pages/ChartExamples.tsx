@@ -56,7 +56,9 @@ export default function ChartExamples() {
                 <div className="flex items-baseline justify-between">
                     <div>
                         <h2 className="text-xl font-bold text-accent">Option A: "The Field" (Fixed)</h2>
-                        <p className="text-sm text-muted">Tactile, vertical gradients, glowing lines. Now with a real CSS dot grid.</p>
+                        <p className="text-sm text-muted">
+                            Tactile, vertical gradients, glowing lines. Now with a real CSS dot grid.
+                        </p>
                     </div>
                 </div>
                 <div className="relative h-[360px] w-full bg-surface rounded-2xl border border-line shadow-float overflow-hidden p-6">
@@ -76,7 +78,6 @@ export default function ChartExamples() {
                     </div>
                 </div>
                 <div className="relative h-[360px] w-full bg-black rounded-xl border border-[#333] p-6 shadow-2xl font-mono">
-
                     <DecompositionChart slots={slots} mode="pv" variant="oled" />
                 </div>
             </section>
@@ -86,7 +87,9 @@ export default function ChartExamples() {
                 <div className="flex items-baseline justify-between">
                     <div>
                         <h2 className="text-xl font-bold text-black dark:text-white">Option C: "The Swiss"</h2>
-                        <p className="text-sm text-muted">Brutalist, thick lines, solid colors. No gradients, no fluff.</p>
+                        <p className="text-sm text-muted">
+                            Brutalist, thick lines, solid colors. No gradients, no fluff.
+                        </p>
                     </div>
                 </div>
                 <div className="relative h-[360px] w-full bg-[#f4f4f5] border-4 border-black p-8">

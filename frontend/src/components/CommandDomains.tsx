@@ -106,7 +106,9 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                 })
         })
 
-        return () => { cancelled = true }
+        return () => {
+            cancelled = true
+        }
     }, [period])
 
     // Use range data for display, fallback to props for "today"
@@ -140,10 +142,11 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                     <button
                         key={p.key}
                         onClick={() => setPeriod(p.key)}
-                        className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${period === p.key
-                            ? 'bg-accent/20 text-accent border border-accent/30'
-                            : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
-                            }`}
+                        className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${
+                            period === p.key
+                                ? 'bg-accent/20 text-accent border border-accent/30'
+                                : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
+                        }`}
                     >
                         {p.label}
                     </button>
@@ -153,15 +156,27 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
             {/* Big Metric: Net Cost */}
             <div className="mb-3 relative z-10">
                 <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
-                    Net {period === 'today' ? 'Daily' : period === 'yesterday' ? 'Yesterday' : period === 'week' ? '7 Day' : '30 Day'} Cost
+                    Net{' '}
+                    {period === 'today'
+                        ? 'Daily'
+                        : period === 'yesterday'
+                          ? 'Yesterday'
+                          : period === 'week'
+                            ? '7 Day'
+                            : '30 Day'}{' '}
+                    Cost
                 </div>
                 <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-bold ${loading ? 'opacity-50' : ''} ${isPositive ? 'text-good' : 'text-bad'}`}>
+                    <span
+                        className={`text-2xl font-bold ${loading ? 'opacity-50' : ''} ${isPositive ? 'text-good' : 'text-bad'}`}
+                    >
                         {displayNetCost != null ? Math.abs(displayNetCost).toFixed(2) : '—'}
                     </span>
                     <span className="text-xs text-muted">kr</span>
                     {displayNetCost !== null && !loading && (
-                        <span className={`text-[10px] ml-2 px-1.5 py-0.5 rounded ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}>
+                        <span
+                            className={`text-[10px] ml-2 px-1.5 py-0.5 rounded ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}
+                        >
                             {displayNetCost > 0 ? 'COST' : 'EARNING'}
                         </span>
                     )}
@@ -185,7 +200,9 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                     </div>
                     <div className="flex justify-between p-1.5 rounded bg-surface2/30">
                         <span className="text-muted">Self-Use Saved</span>
-                        <span className="text-accent font-medium">{rangeData.self_consumption_savings_sek.toFixed(1)} kr</span>
+                        <span className="text-accent font-medium">
+                            {rangeData.self_consumption_savings_sek.toFixed(1)} kr
+                        </span>
                     </div>
                 </div>
             )}
@@ -198,7 +215,8 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                         <span className="text-[10px]">Import</span>
                     </div>
                     <div className={`text-lg font-semibold text-text ${loading ? 'opacity-50' : ''}`}>
-                        {displayImport?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted font-normal">kWh</span>
+                        {displayImport?.toFixed(1) ?? '—'}{' '}
+                        <span className="text-[10px] text-muted font-normal">kWh</span>
                     </div>
                 </div>
                 <div className="p-2 rounded-lg bg-surface2/40 border border-line/30">
@@ -207,7 +225,8 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                         <span className="text-[10px]">Export</span>
                     </div>
                     <div className={`text-lg font-semibold text-text ${loading ? 'opacity-50' : ''}`}>
-                        {displayExport?.toFixed(1) ?? '—'} <span className="text-[10px] text-muted font-normal">kWh</span>
+                        {displayExport?.toFixed(1) ?? '—'}{' '}
+                        <span className="text-[10px] text-muted font-normal">kWh</span>
                     </div>
                 </div>
             </div>
@@ -303,8 +322,9 @@ export function StrategyDomain({ soc, socTarget, sIndex, cycles, riskLabel }: St
                 {/* SoC Big Display */}
                 <div className="col-span-2 flex items-center gap-3 p-3 rounded-xl bg-surface2/30 border border-line/30">
                     <Battery
-                        className={`h-8 w-8 ${(soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
-                            }`}
+                        className={`h-8 w-8 ${
+                            (soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
+                        }`}
                     />
                     <div>
                         <div className="text-2xl font-bold text-text">{soc?.toFixed(0) ?? '—'}%</div>
@@ -351,12 +371,13 @@ export function ControlParameters({
                             <span>Market Strategy</span>
                             {/* LED Indicator */}
                             <div
-                                className={`h-1.5 w-1.5 rounded-full transition-colors ${riskAppetite > 3
-                                    ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
-                                    : riskAppetite < 2
-                                        ? 'bg-emerald-400'
-                                        : 'bg-blue-400'
-                                    }`}
+                                className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                                    riskAppetite > 3
+                                        ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
+                                        : riskAppetite < 2
+                                          ? 'bg-emerald-400'
+                                          : 'bg-blue-400'
+                                }`}
                             />
                         </div>
                         <div className="text-xs font-medium text-text">
@@ -384,10 +405,11 @@ export function ControlParameters({
                                 <button
                                     key={level}
                                     onClick={() => setRiskAppetite(level)}
-                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
-                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                        : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
-                                        }`}
+                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${
+                                        isActive
+                                            ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
+                                            : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
+                                    }`}
                                 >
                                     {level}
                                 </button>
@@ -432,10 +454,11 @@ export function ControlParameters({
                                 <button
                                     key={level}
                                     onClick={() => setComfortLevel(level)}
-                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
-                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                        : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
-                                        }`}
+                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${
+                                        isActive
+                                            ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
+                                            : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
+                                    }`}
                                 >
                                     {level}
                                 </button>

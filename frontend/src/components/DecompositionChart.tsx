@@ -70,9 +70,8 @@ export default function DecompositionChart({ slots, mode, variant = 'field' }: P
                 pointBackgroundColor: '#000',
                 pointBorderColor: mainColor,
                 fill: isField,
-                // @ts-ignore
+                // @ts-expect-error shadowColor is custom plugin prop
                 shadowColor: isField ? mainColor : isOled ? mainColor : 'transparent',
-                // @ts-ignore
                 shadowBlur: isField ? 15 : isOled ? 8 : 0,
             },
             {
@@ -92,7 +91,7 @@ export default function DecompositionChart({ slots, mode, variant = 'field' }: P
         responsive: true,
         maintainAspectRatio: false,
         layout: {
-            padding: { top: 20, bottom: 10, left: 10, right: 10 }
+            padding: { top: 20, bottom: 10, left: 10, right: 10 },
         },
         plugins: {
             legend: { display: false },
@@ -130,7 +129,7 @@ export default function DecompositionChart({ slots, mode, variant = 'field' }: P
                         family: isOled ? 'monospace' : 'inherit',
                         weight: isSwiss ? 'bold' : 'normal',
                     },
-                    maxTicksLimit: 8
+                    maxTicksLimit: 8,
                 },
                 border: { display: isSwiss || isOled },
             },
@@ -146,7 +145,7 @@ export default function DecompositionChart({ slots, mode, variant = 'field' }: P
                         size: 10,
                         family: isOled ? 'monospace' : 'inherit',
                         weight: isSwiss ? 'bold' : 'normal',
-                    }
+                    },
                 },
                 border: { display: isSwiss || isOled },
             },
@@ -163,9 +162,9 @@ export default function DecompositionChart({ slots, mode, variant = 'field' }: P
             style={
                 isField
                     ? {
-                        backgroundImage: `radial-gradient(rgb(var(--color-grid) / 0.2) 1px, transparent 1px)`,
-                        backgroundSize: '20px 20px',
-                    }
+                          backgroundImage: `radial-gradient(rgb(var(--color-grid) / 0.2) 1px, transparent 1px)`,
+                          backgroundSize: '20px 20px',
+                      }
                     : undefined
             }
         >
