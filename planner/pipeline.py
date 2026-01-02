@@ -431,6 +431,14 @@ class PlannerPipeline:
         final_df = apply_soc_target_percent(final_df, active_config, now_slot)
 
         # 7. Output & Observability
+        # Safety Check: Do not save empty/garbage plan
+        if mode == "full" and (final_df.empty or "battery_charge_kw" not in final_df.columns):
+            logger.error(
+                "Planner generated invalid schedule (empty or missing columns). Aborting save to prevent data loss."
+            )
+            # This will bubble up to scheduler.py as an error, triggering the smart retry loop
+            raise ValueError("Planner generated invalid schedule (safety guard)")
+
         if save_to_file:
             # Prepare window responsibilities (placeholder, Kepler doesn't return windows yet)
             # We can infer them or leave empty.

@@ -205,8 +205,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ### [Backend] Refactor webapp.py into Flask Blueprints
-
-**Goal:** Split the monolithic `webapp.py` (3,400+ lines, 96 functions) into modular Flask Blueprints.
+**Moved to [PLAN.md](PLAN.md) (Rev ARC1 - Superseded by FastAPI Router Migration)**
 
 **Current State:** All API endpoints, themes, forecasts, health checks, executor logic, and database code are in one file, making it hard to maintain and test.
 

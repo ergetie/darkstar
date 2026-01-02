@@ -7,11 +7,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-import yaml
-
 from bin.run_planner import main as run_planner_main, load_yaml
 import pytz
+import requests
 from ml.train import train_models
+from backend.learning.reflex import AuroraReflex
 
 
 @dataclass
@@ -84,6 +84,39 @@ def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
         ml_training_time=ml_time,
         timezone=timezone_str,
     )
+
+
+def check_dependencies(cfg_or_dict: Any) -> bool:
+    """Check availability of critical dependencies (HA) before retrying."""
+
+    # We need the FULL config to get HA URL/Token, not just SchedulerConfig wrapper.
+    try:
+        full_cfg = load_yaml("config.yaml")
+    except Exception:
+        return False
+
+    ha_cfg = full_cfg.get("home_assistant", {}) or {}
+
+    # Try Supervisor first (Add-on mode), then Config (Docker mode)
+    ha_url = os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core" or ha_cfg.get("url")
+    ha_token = os.environ.get("SUPERVISOR_TOKEN") or ha_cfg.get("token")
+
+    if ha_url and ha_token:
+        try:
+            headers = {
+                "Authorization": f"Bearer {ha_token}",
+                "Content-Type": "application/json",
+            }
+            # Simple API ping
+            resp = requests.get(f"{ha_url}/api/", headers=headers, timeout=5)
+            if resp.status_code != 200:
+                print(f"[scheduler] HA Dependency Check Failed: {resp.status_code}")
+                return False
+        except Exception as e:
+            print(f"[scheduler] HA Dependency Check Error: {e}")
+            return False
+
+    return True
 
 
 def load_status() -> SchedulerStatus:
@@ -165,9 +198,6 @@ def run_planner_once() -> Tuple[bool, Optional[str]]:
         return False, f"Planner exited with code {code}"
     except Exception as exc:
         return False, str(exc)
-
-
-from backend.learning.reflex import AuroraReflex
 
 
 def run_reflex_once() -> Tuple[bool, Optional[str]]:
@@ -259,8 +289,9 @@ def main() -> int:
 
         # --- Aurora Reflex Daily Job (04:00 AM) ---
         now = datetime.now(timezone.utc)
-        # Convert to local time for 4 AM check (assuming Europe/Stockholm from config, but simple check here)
-        # We'll just use UTC for simplicity or rely on the fact that the machine is likely in local time or we want 4 AM UTC.
+        # Convert to local time for 4 AM check (assuming Europe/Stockholm from config)
+        # We'll just use UTC for simplicity or rely on the fact that the machine
+        # is likely in local time or we want 4 AM UTC.
         # Let's assume 4 AM UTC for now to be safe.
         if now.hour == 4 and now.minute < 30:
             today_str = now.date().isoformat()
@@ -289,7 +320,8 @@ def main() -> int:
                         last_run_ts = datetime.fromisoformat(status.ml_training_last_run_at)
                         # Ensure timezone awareness for comparison
                         if last_run_ts.tzinfo is None:
-                            # Assume UTC if stored without TZ, but that shouldn't happen with isoformat
+                            # Assume UTC if stored without TZ, but that
+                            # shouldn't happen with isoformat
                             last_run_ts = pytz.utc.localize(last_run_ts)
 
                         # Compare
@@ -301,7 +333,7 @@ def main() -> int:
                 if should_run:
                     print(
                         f"[scheduler] ML Training Catch-Up Triggered! "
-                        f"Last slot: {last_scheduled_slot}, Last run: {status.ml_training_last_run_at}"
+                        f"Last: {last_scheduled_slot}, Run: {status.ml_training_last_run_at}"
                     )
                     ml_ok, ml_err = run_ml_training_task()
 
@@ -332,9 +364,45 @@ def main() -> int:
         ok, error = run_planner_once()
         finished_at = datetime.now(timezone.utc)
 
+        if not ok:
+            print(f"[scheduler] Planner Failed: {error}. Entering Smart Retry Mode.")
+            status.last_run_at = finished_at.isoformat()
+            status.last_run_status = "error"
+            status.last_error = error
+            save_status(status)
+
+            # Smart Retry Loop
+            # We assume transient failure (e.g. HA Down), so we wait short intervals
+            # until dependencies recover, then trigger immediate run.
+            retry_interval_s = 60
+            while True:
+                time.sleep(retry_interval_s)
+
+                # Reload config to allow user to disable scheduler to break loop
+                cfg = load_scheduler_config()
+                if not cfg.enabled:
+                    print("[scheduler] Scheduler disabled by user. Exiting retry loop.")
+                    break
+
+                # Check Dependencies
+                if check_dependencies(cfg):
+                    print("[scheduler] Dependencies recovered! Triggering immediate re-plan.")
+                    # Schedule "now" so the loop picks it up immediately
+                    status.next_run_at = datetime.now(timezone.utc).isoformat()
+                    save_status(status)
+                    break
+                else:
+                    print(
+                        f"[scheduler] Dependencies still down. "
+                        f"Retrying in {retry_interval_s}s..."
+                    )
+
+            continue
+
+        # Logic for SUCCESS
         status.last_run_at = finished_at.isoformat()
-        status.last_run_status = "success" if ok else "error"
-        status.last_error = None if ok else error
+        status.last_run_status = "success"
+        status.last_error = None
         status.next_run_at = _compute_next_run(
             finished_at, cfg.every_minutes, cfg.jitter_minutes
         ).isoformat()

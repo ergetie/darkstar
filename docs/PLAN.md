@@ -147,10 +147,10 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Plan:**
 
-* [ ] **Fix: Export Chart Visualization**
+* [x] **Fix: Export Chart Visualization**
     *   *Bug:* Historical slots show self-consumption as export.
     *   *Fix:* Update `webapp.py` to stop mapping `battery_discharge` to `export`.
-* [ ] **Planner Robustness: Persistence & Retry**
+* [x] **Planner Robustness: Persistence & Retry**
     *   *Goal:* Prevent schedule wipes on failure and retry intelligently (smart connectivity check).
     *   *Tasks:* Update `scheduler.py` loop and `pipeline.py` error handling.
 
@@ -164,8 +164,9 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 * [ ] **Architecture Pivot: Flask -> FastAPI**
     *   *Why:* Flask is synchronous (blocking). Legacy `eventlet` is abandoned. FastAPI is native async (non-blocking) and SOTA.
+    *   *Modularization:* This revision explicitly fulfills the backlog goal of splitting the monolithic `webapp.py`. Instead of Flask Blueprints, we will use **FastAPI APIRouters** for a clean, modular structure.
     *   *Tasks:*
-        *   Rewrite `webapp.py` using `FastAPI` router.
+        *   **Refactor/Modularize**: Deconstruct `webapp.py` into `backend/api/routers/*.py`.
         *   Convert endpoints to `async def`.
         *   Replace `flask-socketio` with `python-socketio` (ASGI mode).
         *   Update `Dockerfile` to run `uvicorn`.
