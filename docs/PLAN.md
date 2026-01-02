@@ -101,8 +101,39 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 **Goal:** Achieve a "Teenage Engineering" aesthetic and complete the financial analytics.
 
+**Brainstorming: Chart Aesthetics**
+
+> [!NOTE]
+> Options maximizing "Teenage Engineering" + "OLED" vibes.
+
+*   **Option A: "The Field" (V2)**
+    *   *Vibe:* OP-1 Field / TX-6. Smooth, tactile, high-fidelity.
+    *   *Grid:* **Fixed**: Real CSS Dot Grid (1px dots, 24px spacing).
+    *   *Lines:* Soft 3px stroke with bloom/shadow.
+    *   *Fill:* Vertical gradient (Color -> Transparent).
+
+*   **Option B: "The OLED" (New)**
+    *   *Vibe:* High-end Audio Gear / Cyber.
+    *   *Grid:* Faint, dark grey lines.
+    *   *Lines:* Extremely thin (2px), Neon Cyan/Pink.
+    *   *Fill:* NONE. Pure vector look.
+    *   *Background:* Pure Black (#000000).
+
+*   **Option C: "The Swiss" (New)**
+    *   *Vibe:* Braun / Brutalist Print.
+    *   *Grid:* None.
+    *   *Lines:* Thick (4px), Solid Black or Red.
+    *   *Fill:* Solid low-opacity blocks (no gradients).
+    *   *Font:* Bold, contrasting.
+
 **Plan:**
 
-* [ ] **Chart Makeover**: Brainstorm and implement "OLED" aesthetic (Glow, Gradients, Dotted Grid).
+* [/] **Chart Makeover**: Implement selected aesthetic (**Option A: The Field V2**).
+    *   [x] Refactor `DecompositionChart` to support variants.
+    *   [x] Implement Dot Grid via **Chart.js Plugin** (production-grade, pans/zooms with chart).
+    *   [x] Disable old Chart.js grid lines in `ChartCard`.
+    *   [x] Add Glow effect plugin to `ChartCard`.
+    *   [ ] Refactor `EnergyFlow` to match Design System.
+    *   [ ] Add "Now" line with pulsing "Live" dot.
 * [ ] **Financials**: Implement detailed cost and savings breakdown.
 * [ ] **Bug Fix**: Fix Dashboard settings persistence.

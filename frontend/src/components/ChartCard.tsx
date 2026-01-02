@@ -106,13 +106,18 @@ const chartOptions: ChartConfiguration['options'] = {
     },
     scales: {
         x: {
-            grid: { color: 'rgba(255,255,255,0.06)' },
+            grid: {
+                display: false, // Disabled - using dot grid plugin instead
+            },
             ticks: {
-                color: '#a6b0bf',
+                color: '#6c7086',
+                font: {
+                    family: 'monospace',
+                    size: 10,
+                },
                 maxRotation: 0,
                 autoSkip: false,
                 callback: function (this: Scale, value: string | number, _index: number, _ticks: Tick[]) {
-                    // Show only full hours as HH on the axis; keep labels as HH:mm
                     const label = this.getLabelForValue(value as number)
                     if (typeof label !== 'string') return ''
                     const parts = label.split(':')
@@ -121,6 +126,7 @@ const chartOptions: ChartConfiguration['options'] = {
                     return mm === '00' ? hh : ''
                 },
             },
+            border: { display: false },
         },
         y: {
             position: 'right',
@@ -129,61 +135,51 @@ const chartOptions: ChartConfiguration['options'] = {
             title: {
                 display: false,
                 text: 'SEK/kWh',
-                color: '#a6b0bf',
             },
-            grid: { color: 'rgba(255,255,255,0.06)' },
-            ticks: { color: '#a6b0bf', display: false },
+            grid: {
+                display: false, // Disabled - using dot grid plugin instead
+            },
+            border: { display: false },
+            ticks: {
+                display: false,
+                color: '#6c7086',
+                font: { family: 'monospace', size: 10 },
+                callback: (val) => `${val} SEK`,
+            },
         },
         y1: {
             position: 'left',
             min: 0,
             max: 9,
-            title: {
-                display: false,
-                text: 'kW',
-                color: '#a6b0bf',
-            },
+            title: { display: false, text: 'kW' },
             grid: { display: false },
-            ticks: { color: '#a6b0bf', display: false },
+            ticks: { display: false },
         },
         y2: {
             position: 'left',
             min: 0,
             max: 9,
-            title: {
-                display: false,
-                text: 'kWh',
-                color: '#a6b0bf',
-            },
+            title: { display: false, text: 'kWh' },
             grid: { display: false },
-            ticks: { color: '#a6b0bf', display: false },
+            ticks: { display: false },
             display: false,
         },
         y3: {
             position: 'right',
             min: 0,
             max: 100,
-            title: {
-                display: true,
-                text: '%',
-                color: '#a6b0bf',
-            },
+            title: { display: true, text: '%', color: '#a6b0bf' },
             grid: { display: false },
-            ticks: { color: '#a6b0bf' },
+            ticks: { color: '#a6b0bf', font: { family: 'monospace', size: 10 } },
             display: false,
         },
-        // Dedicated axis for PV/history so we can zoom it
         y4: {
             position: 'left',
             min: 0,
             max: 1.5,
-            title: {
-                display: false,
-                text: 'kW (PV)',
-                color: '#a6b0bf',
-            },
+            title: { display: false, text: 'kW (PV)' },
             grid: { display: false },
-            ticks: { color: '#a6b0bf', display: false },
+            ticks: { display: false },
         },
     },
 }
@@ -211,6 +207,7 @@ interface ExtendedChartData extends ChartData {
     nowPct?: number | null
     hasNoData?: boolean
     plugins?: unknown
+    pricingConfig?: { vat: number; fees: number }
 }
 
 const createChartData = (
@@ -230,24 +227,46 @@ const createChartData = (
                 type: 'line',
                 label: 'Import Price (SEK/kWh)',
                 data: values.price,
-                borderColor: getColor(4, '#2196F3'), // palette 4 (blue) or Material Blue
-                backgroundColor: themeColors['palette = 4'] ? `${getColor(4, '#2196F3')}20` : 'rgba(33,150,243,0.1)',
+                borderColor: getColor(4, '#2196F3'), // palette 4 (blue)
+                backgroundColor: (context: any) => {
+                    const ctx = context.chart.ctx
+                    const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
+                    const color = getColor(4, '#2196F3')
+                    gradient.addColorStop(0, `${color}40`) // 25% opacity at top
+                    gradient.addColorStop(1, `${color}00`) // 0% opacity at bottom
+                    return gradient
+                },
+                fill: true,
                 yAxisID: 'y',
-                tension: 0,
-                stepped: 'after',
+                tension: 0.1, // Slight curve for organic feel
+                stepped: false, // Step lines feel 'blocky', organic curves feel cleaner for price
                 pointRadius: 0,
-            },
+                borderWidth: 2,
+                order: 1,
+                // Custom property for our plugin
+                glow: true,
+            } as any, // Cast to any to allow custom properties
             {
                 type: 'line',
                 label: 'PV Forecast (kW)',
                 data: values.pv,
-                borderColor: getColor(2, '#4CAF50'), // palette 2 (green) or Material Green
-                backgroundColor: themeColors['palette = 2'] ? `${getColor(2, '#4CAF50')}30` : 'rgba(76,175,80,0.15)',
+                borderColor: getColor(2, '#4CAF50'), // palette 2 (green)
+                backgroundColor: (context: any) => {
+                    const ctx = context.chart.ctx
+                    const gradient = ctx.createLinearGradient(0, 0, 0, context.chart.height)
+                    const color = getColor(2, '#4CAF50')
+                    gradient.addColorStop(0, `${color}40`)
+                    gradient.addColorStop(1, `${color}00`)
+                    return gradient
+                },
                 fill: true,
                 yAxisID: 'y4',
-                tension: 0.35,
+                tension: 0.4, // Smooth curve
                 pointRadius: 0,
-            },
+                borderWidth: 2,
+                order: 2,
+                glow: true,
+            } as any,
             {
                 type: 'bar',
                 label: 'Load (kW)',
@@ -338,7 +357,7 @@ const createChartData = (
     // Add no-data message if needed
     if (values.hasNoData) {
         // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ;(baseData as ExtendedChartData).plugins = {
+        ; (baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -400,21 +419,110 @@ const nowLinePlugin: Plugin = {
 
         ctx.save()
         ctx.beginPath()
-        ctx.strokeStyle = '#e879f9' // accent / fuchsia
-        ctx.lineWidth = 2
-        ctx.setLineDash([5, 3])
+        ctx.strokeStyle = '#e879f9'
+        ctx.lineWidth = 1.5
+        ctx.shadowColor = '#e879f9'
+        ctx.shadowBlur = 10
+        ctx.setLineDash([4, 4])
         ctx.moveTo(xPos, top)
         ctx.lineTo(xPos, bottom)
         ctx.stroke()
         ctx.setLineDash([])
 
-        // Draw "NOW" Label
+        // Draw "NOW" Label with Glow
         ctx.fillStyle = '#e879f9'
         ctx.textAlign = 'center'
-        ctx.font = 'bold 10px sans-serif'
-        ctx.fillText('NOW', xPos, top - 6)
+        ctx.font = 'bold 10px monospace'
+        ctx.fillText('NOW', xPos, top - 8)
 
         ctx.restore()
+    },
+}
+
+// Production-grade dot grid plugin - aligns with data slots, zoom-adaptive
+const dotGridPlugin: Plugin = {
+    id: 'dotGrid',
+    beforeDraw(chart) {
+        const { ctx, chartArea, scales } = chart
+        if (!chartArea || !scales.x) return
+
+        const { left, right, top, bottom } = chartArea
+        const xScale = scales.x
+        const dotRadius = 1
+        const yDotSpacing = 30 // Visual spacing in pixels for Y axis
+
+        ctx.save()
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.25)' // --color-grid at 25% opacity
+
+        const totalLabels = chart.data.labels?.length || 0
+        if (totalLabels < 2) {
+            ctx.restore()
+            return
+        }
+
+        // Calculate pixels per slot to determine zoom level
+        const firstX = xScale.getPixelForValue(0)
+        const secondX = xScale.getPixelForValue(1)
+        const pixelsPerSlot = Math.abs(secondX - firstX)
+
+        // Adaptive step: if zoomed out (small pixels/slot), show hourly (every 4 slots for 15-min data)
+        // If zoomed in (large pixels/slot), show every slot
+        let step = 1
+        if (pixelsPerSlot < 8) {
+            step = 4 // Hourly when very zoomed out
+        } else if (pixelsPerSlot < 15) {
+            step = 2 // Every 30 min when moderately zoomed out
+        }
+
+        // Draw dots at each visible data slot position (X) and at regular Y intervals
+        for (let i = 0; i < totalLabels; i += step) {
+            const x = xScale.getPixelForValue(i)
+
+            // Skip if outside visible area
+            if (x < left - 5 || x > right + 5) continue
+
+            // Draw dots vertically at regular intervals
+            for (let y = top; y <= bottom; y += yDotSpacing) {
+                ctx.beginPath()
+                ctx.arc(x, y, dotRadius, 0, Math.PI * 2)
+                ctx.fill()
+            }
+        }
+
+        ctx.restore()
+    },
+}
+
+// Custom plugin for OLED-like glow effects
+const glowPlugin: Plugin = {
+    id: 'glowEffects',
+    beforeDatasetsDraw(chart) {
+        const { ctx } = chart
+        ctx.save()
+        // Default shadow settings
+        ctx.shadowBlur = 0
+        ctx.shadowColor = 'transparent'
+    },
+    afterDatasetDraw(chart, args) {
+        const { ctx } = chart
+        const dataset = chart.data.datasets[args.index] as any
+
+        // Only restore if we saved in beforeDatasetDraw
+        if (dataset.glow) {
+            ctx.restore()
+        }
+    },
+    beforeDatasetDraw(chart, args) {
+        const { ctx } = chart
+        const dataset = chart.data.datasets[args.index] as any
+
+        if (dataset.glow) {
+            ctx.save()
+            ctx.shadowColor = dataset.borderColor as string
+            ctx.shadowBlur = 15
+            ctx.shadowOffsetX = 0
+            ctx.shadowOffsetY = 0
+        }
     },
 }
 
@@ -533,7 +641,7 @@ export default function ChartCard({
                 pricingConfig,
             ),
             options: chartOptions,
-            plugins: [nowLinePlugin],
+            plugins: [dotGridPlugin, nowLinePlugin, glowPlugin],
         }
         chartRef.current = new ChartJS(ref.current, cfg)
 
@@ -620,21 +728,19 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === 'day'
-                                        ? 'bg-accent text-canvas'
-                                        : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
+                                    ? 'bg-accent text-canvas'
+                                    : 'bg-surface border border-line/60 text-muted'
+                                    }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === '48h'
-                                        ? 'bg-accent text-canvas'
-                                        : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
+                                    ? 'bg-accent text-canvas'
+                                    : 'bg-surface border border-line/60 text-muted'
+                                    }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -671,11 +777,10 @@ export default function ChartCard({
                                 e.preventDefault()
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${
-                                overlays[key as keyof typeof overlays]
-                                    ? 'bg-accent text-canvas border-accent'
-                                    : 'border-line/60 text-muted hover:border-accent'
-                            }`}
+                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
+                                ? 'bg-accent text-canvas border-accent'
+                                : 'border-line/60 text-muted hover:border-accent'
+                                }`}
                         >
                             {label}
                         </button>
