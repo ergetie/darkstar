@@ -1,3 +1,4 @@
+import React from 'react'
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
@@ -64,41 +65,67 @@ const ProgressBar = ({ value, total, colorClass }: { value: number; total: numbe
 // --- Domain Cards ---
 
 export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridCardProps) {
+    const [period, setPeriod] = React.useState<'today' | 'yesterday' | 'week' | 'month'>('today')
     const isPositive = (netCost ?? 0) <= 0 // Negative cost is good (profit/savings) or zero
-    // Note: Darkstar convention might be "Cost" = positive.
-    // If netCost is "Cost", then positive is bad.
-    // Let's assume net_cost_kr: positive = you pay, negative = you earn.
+    // Note: Darkstar convention: positive = you pay, negative = you earn.
+
+    const periods = [
+        { key: 'today', label: 'Today' },
+        { key: 'yesterday', label: 'Yesterday' },
+        { key: 'week', label: 'Week' },
+        { key: 'month', label: 'Month' },
+    ] as const
 
     return (
         <Card className="p-4 flex flex-col justify-between h-full relative overflow-hidden group">
-            <div className={`absolute inset-0 opacity-[0.03] ${isPositive ? 'bg-emerald-500' : 'bg-red-500'}`} />
+            <div className={`absolute inset-0 opacity-[0.03] ${isPositive ? 'bg-good' : 'bg-bad'}`} />
 
             {/* Header */}
             <div className="flex items-center gap-2 mb-3 relative z-10">
                 <div
-                    className={`p-1.5 rounded-lg ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}
+                    className={`p-1.5 rounded-lg ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}
                 >
                     <DollarSign className="h-4 w-4" />
                 </div>
                 <span className="text-sm font-medium text-text">Grid & Financial</span>
                 {exportGuard && (
-                    <span className="ml-auto text-[9px] bg-emerald-500/20 text-emerald-400 px-1.5 py-0.5 rounded border border-emerald-500/20 animate-pulse">
+                    <span className="ml-auto text-[9px] bg-good/20 text-good px-1.5 py-0.5 rounded border border-good/20 animate-pulse">
                         Guard
                     </span>
                 )}
             </div>
 
+            {/* Period Toggle */}
+            <div className="flex gap-1 mb-3 relative z-10">
+                {periods.map((p) => (
+                    <button
+                        key={p.key}
+                        onClick={() => setPeriod(p.key)}
+                        disabled={p.key !== 'today'} // Only today is available for now
+                        className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${period === p.key
+                            ? 'bg-accent/20 text-accent border border-accent/30'
+                            : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50 disabled:opacity-40 disabled:cursor-not-allowed'
+                            }`}
+                        title={p.key !== 'today' ? 'Coming soon' : undefined}
+                    >
+                        {p.label}
+                    </button>
+                ))}
+            </div>
+
             {/* Big Metric: Net Cost */}
             <div className="mb-4 relative z-10">
-                <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">Net Daily Cost</div>
+                <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
+                    Net {period === 'today' ? 'Daily' : period === 'yesterday' ? 'Yesterday' : period === 'week' ? 'Weekly' : 'Monthly'} Cost
+                </div>
                 <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-bold ${isPositive ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <span className={`text-2xl font-bold ${isPositive ? 'text-good' : 'text-bad'}`}>
                         {netCost != null ? Math.abs(netCost).toFixed(2) : '—'}
                     </span>
                     <span className="text-xs text-muted">kr</span>
                     {netCost !== null && (
                         <span
-                            className={`text-[10px] ml-2 px-1.5 py-0.5 rounded ${isPositive ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'}`}
+                            className={`text-[10px] ml-2 px-1.5 py-0.5 rounded ${isPositive ? 'bg-good/10 text-good' : 'bg-bad/10 text-bad'}`}
                         >
                             {netCost > 0 ? 'COST' : 'EARNING'}
                         </span>
@@ -268,10 +295,10 @@ export function ControlParameters({
                             {/* LED Indicator */}
                             <div
                                 className={`h-1.5 w-1.5 rounded-full transition-colors ${riskAppetite > 3
-                                        ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
-                                        : riskAppetite < 2
-                                            ? 'bg-emerald-400'
-                                            : 'bg-blue-400'
+                                    ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
+                                    : riskAppetite < 2
+                                        ? 'bg-emerald-400'
+                                        : 'bg-blue-400'
                                     }`}
                             />
                         </div>
@@ -301,8 +328,8 @@ export function ControlParameters({
                                     key={level}
                                     onClick={() => setRiskAppetite(level)}
                                     className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
-                                            ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                            : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
+                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
+                                        : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
                                         }`}
                                 >
                                     {level}
@@ -349,8 +376,8 @@ export function ControlParameters({
                                     key={level}
                                     onClick={() => setComfortLevel(level)}
                                     className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
-                                            ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                            : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
+                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
+                                        : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
                                         }`}
                                 >
                                     {level}

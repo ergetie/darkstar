@@ -134,7 +134,6 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     *   [x] Disable old Chart.js grid lines in `ChartCard`.
     *   [x] Add Glow effect plugin to `ChartCard`.
     *   [x] **Migrate `ChartCard` colors from API/theme to Design System tokens.**
-    *   [ ] Refactor `EnergyFlow` to match Design System.
 * [x] **Bug Fix**: Strange thin vertical line on left side of Chart and Strategy cards.
 * [ ] **Financials**: Implement detailed cost and savings breakdown.
 * [ ] **Bug Fix**: Fix Dashboard settings persistence.
