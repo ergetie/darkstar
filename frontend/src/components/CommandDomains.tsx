@@ -119,8 +119,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
     const periods = [
         { key: 'today', label: 'Today' },
         { key: 'yesterday', label: 'Yesterday' },
-        { key: 'week', label: 'Week' },
-        { key: 'month', label: 'Month' },
+        { key: 'week', label: '7 Days' },
+        { key: 'month', label: '30 Days' },
     ] as const
 
     return (
@@ -147,8 +147,8 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
                         key={p.key}
                         onClick={() => setPeriod(p.key)}
                         className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${period === p.key
-                                ? 'bg-accent/20 text-accent border border-accent/30'
-                                : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
+                            ? 'bg-accent/20 text-accent border border-accent/30'
+                            : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
                             }`}
                     >
                         {p.label}
@@ -159,7 +159,7 @@ export function GridDomain({ netCost, importKwh, exportKwh, exportGuard }: GridC
             {/* Big Metric: Net Cost */}
             <div className="mb-3 relative z-10">
                 <div className="text-[10px] text-muted uppercase tracking-wider mb-0.5">
-                    Net {period === 'today' ? 'Daily' : period === 'yesterday' ? 'Yesterday' : period === 'week' ? 'Weekly' : 'Monthly'} Cost
+                    Net {period === 'today' ? 'Daily' : period === 'yesterday' ? 'Yesterday' : period === 'week' ? '7 Day' : '30 Day'} Cost
                 </div>
                 <div className="flex items-baseline gap-1">
                     <span className={`text-2xl font-bold ${loading ? 'opacity-50' : ''} ${isPositive ? 'text-good' : 'text-bad'}`}>
