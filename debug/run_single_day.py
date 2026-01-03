@@ -1,5 +1,5 @@
-import sys
 import os
+import sys
 
 sys.path.append(os.getcwd())
 from debug.benchmark_range import run_day

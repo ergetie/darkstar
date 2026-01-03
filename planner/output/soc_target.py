@@ -12,7 +12,7 @@ This ensures the inverter receives the correct target for each slot type:
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 
@@ -21,8 +21,8 @@ logger = logging.getLogger("darkstar.planner.soc_target")
 
 def apply_soc_target_percent(
     df: pd.DataFrame,
-    config: Dict[str, Any],
-    now_slot: Optional[pd.Timestamp] = None,
+    config: dict[str, Any],
+    now_slot: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """
     Derive per-slot SoC target signal based on planner actions and configuration.
@@ -72,12 +72,12 @@ def apply_soc_target_percent(
     battery_config = config.get("battery", {})
     min_soc_percent = float(battery_config.get("min_soc_percent", 12.0))
     max_soc_percent = float(battery_config.get("max_soc_percent", 100.0))
-    capacity_kwh = float(battery_config.get("capacity_kwh", 34.2))
+    float(battery_config.get("capacity_kwh", 34.2))
 
     # Manual planning configuration
     manual_cfg = config.get("manual_planning", {}) or {}
 
-    def _clamp(value: Optional[float], fallback: float) -> float:
+    def _clamp(value: float | None, fallback: float) -> float:
         """Clamp value to min/max SoC bounds."""
         if value is None:
             return fallback
@@ -95,7 +95,7 @@ def apply_soc_target_percent(
     manual_export_target = _clamp(manual_cfg.get("export_target_percent"), guard_floor_percent)
 
     # Initialize targets array with min_soc
-    targets: List[float] = [min_soc_percent for _ in range(len(df))]
+    targets: list[float] = [min_soc_percent for _ in range(len(df))]
 
     # Determine now position for historical vs future slot handling
     index_list = list(df.index)
@@ -262,7 +262,7 @@ def apply_soc_target_percent(
     return df
 
 
-def _group_into_blocks(indices: List[int], max_gap: int = 1) -> List[List[int]]:
+def _group_into_blocks(indices: list[int], max_gap: int = 1) -> list[list[int]]:
     """
     Group indices into contiguous blocks, allowing for small gaps.
 

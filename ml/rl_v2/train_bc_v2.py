@@ -10,19 +10,19 @@ import argparse
 import json
 import sqlite3
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from learning import LearningEngine, get_learning_engine
 from torch.utils.data import DataLoader, TensorDataset
 
-from learning import LearningEngine, get_learning_engine
 from ml.benchmark.milp_solver import solve_optimal_schedule
 from ml.rl_v2.contract import RlV2StateSpec
 
@@ -60,7 +60,7 @@ def _get_engine() -> LearningEngine:
     return engine
 
 
-def _load_candidate_days(engine: LearningEngine, max_days: int) -> List[str]:
+def _load_candidate_days(engine: LearningEngine, max_days: int) -> list[str]:
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         rows = conn.execute(
             """
@@ -80,7 +80,7 @@ def _load_candidate_days(engine: LearningEngine, max_days: int) -> List[str]:
 def _build_day_pairs_v2(
     day: str,
     seq_len: int,
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Build (state, oracle_action, soc_percent, sample_weight) for RL v2 BC."""
     df = solve_optimal_schedule(day)
     if df.empty:
@@ -139,10 +139,10 @@ def _build_day_pairs_v2(
     q25 = float(np.quantile(prices, 0.25))
     q75 = float(np.quantile(prices, 0.75))
 
-    states: List[np.ndarray] = []
-    actions: List[List[float]] = []
-    soc_targets: List[float] = []
-    sample_weights: List[float] = []
+    states: list[np.ndarray] = []
+    actions: list[list[float]] = []
+    soc_targets: list[float] = []
+    sample_weights: list[float] = []
 
     for idx in range(T):
         row = df.iloc[idx]
@@ -242,10 +242,10 @@ def main() -> int:
     if not days:
         raise SystemExit("[oracle-bc-v2] No candidate days found in data_quality_daily.")
 
-    xs: List[np.ndarray] = []
-    ys: List[np.ndarray] = []
-    socs: List[np.ndarray] = []
-    ws: List[np.ndarray] = []
+    xs: list[np.ndarray] = []
+    ys: list[np.ndarray] = []
+    socs: list[np.ndarray] = []
+    ws: list[np.ndarray] = []
 
     print(f"[oracle-bc-v2] Building dataset from {len(days)} days...")
     for day in days:
@@ -277,7 +277,7 @@ def main() -> int:
     if not mask_finite.all():
         before = len(mask_finite)
         after = int(mask_finite.sum())
-        print(f"[oracle-bc-v2] Dropping {before - after} non-finite samples " f"(keeping {after}).")
+        print(f"[oracle-bc-v2] Dropping {before - after} non-finite samples (keeping {after}).")
     X = X[mask_finite]
     Y = Y[mask_finite]
     W = W[mask_finite]
@@ -289,7 +289,7 @@ def main() -> int:
 
     model = OracleBcV2Net(in_dim=X.shape[1], hidden_dim=cfg.hidden_dim, out_dim=Y.shape[1])
     optimizer = optim.Adam(model.parameters(), lr=cfg.learning_rate)
-    loss_fn = nn.MSELoss()
+    nn.MSELoss()
 
     lambda_soc = 0.1
     model.train()
@@ -322,7 +322,7 @@ def main() -> int:
             epoch_loss += float(loss.item()) * batch_x.size(0)
             weight_sum += float(w_clamped.mean().item()) * batch_x.size(0)
         epoch_loss /= max(len(dataset), 1)
-        print(f"[oracle-bc-v2] Epoch {epoch+1}/{cfg.epochs} " f"- weighted loss: {epoch_loss:.4f}")
+        print(f"[oracle-bc-v2] Epoch {epoch + 1}/{cfg.epochs} - weighted loss: {epoch_loss:.4f}")
 
     run_id = str(uuid.uuid4())
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -337,9 +337,9 @@ def main() -> int:
     print("[oracle-bc-v2] Saved model to", model_path)
 
     hyper = asdict(cfg)
-    metrics: Dict[str, Any] = {
+    metrics: dict[str, Any] = {
         "note": "Oracle behaviour cloning v2 (sequence state, SoC+cost-weighted).",
-        "num_samples": int(len(X)),
+        "num_samples": len(X),
         "output_dim": int(Y.shape[1]),
     }
 

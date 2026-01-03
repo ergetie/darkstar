@@ -13,13 +13,9 @@ Determines:
 """
 
 import logging
-
-# import math
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 # from typing import Any, Dict, Optional, Tuple
-
 from .config import ControllerConfig, WaterHeaterConfig
 from .override import OverrideResult, SlotPlan, SystemState
 
@@ -56,7 +52,7 @@ class Controller:
     Ported from n8n Helios Executor "Controller" JavaScript node.
     """
 
-    def __init__(self, config: ControllerConfig, water_heater_config: WaterHeaterConfig = None):
+    def __init__(self, config: ControllerConfig, water_heater_config: WaterHeaterConfig | None = None):
         self.config = config
         self.water_heater_config = water_heater_config or WaterHeaterConfig()
 
@@ -64,7 +60,7 @@ class Controller:
         self,
         slot: SlotPlan,
         state: SystemState,
-        override: Optional[OverrideResult] = None,
+        override: OverrideResult | None = None,
     ) -> ControllerDecision:
         """
         Determine what actions to take based on slot plan and override.
@@ -91,7 +87,7 @@ class Controller:
         override: OverrideResult,
     ) -> ControllerDecision:
         """Apply override actions instead of plan."""
-        actions = override.actions
+        actions = override.actions or {}
 
         # Use override values, falling back to safe defaults
         work_mode = actions.get("work_mode", "Zero Export To CT")
@@ -134,10 +130,7 @@ class Controller:
     def _follow_plan(self, slot: SlotPlan, state: SystemState) -> ControllerDecision:
         """Follow the slot plan for normal operation."""
         # Determine work mode based on planned export
-        if slot.export_kw > 0:
-            work_mode = "Export First"
-        else:
-            work_mode = "Zero Export To CT"
+        work_mode = "Export First" if slot.export_kw > 0 else "Zero Export To CT"
 
         # Determine grid charging
         # Grid charging is enabled when we're actively charging from grid
@@ -168,7 +161,7 @@ class Controller:
             reason=reason,
         )
 
-    def _calculate_charge_current(self, slot: SlotPlan, state: SystemState) -> Tuple[float, bool]:
+    def _calculate_charge_current(self, slot: SlotPlan, state: SystemState) -> tuple[float, bool]:
         """
         Calculate the charge current to command.
 
@@ -193,7 +186,11 @@ class Controller:
 
         logger.info(
             "Charge current calc: %.2f kW / %.1fV = %.1f A → rounded %.1f A → clamped %.1f A",
-            slot.charge_kw, self.config.worst_case_voltage_v, raw_current, rounded, clamped
+            slot.charge_kw,
+            self.config.worst_case_voltage_v,
+            raw_current,
+            rounded,
+            clamped,
         )
 
         # Decide if we should write (only if significant change from current)
@@ -205,7 +202,7 @@ class Controller:
 
     def _calculate_discharge_current(
         self, slot: SlotPlan, state: SystemState
-    ) -> Tuple[float, bool]:
+    ) -> tuple[float, bool]:
         """
         Calculate the discharge current to command.
 
@@ -245,7 +242,7 @@ class Controller:
 
     def _generate_reason(self, slot: SlotPlan, work_mode: str, grid_charging: bool) -> str:
         """Generate a human-readable reason for the decision."""
-        parts = []
+        parts: list[str] = []
 
         if slot.charge_kw > 0:
             parts.append(f"Charge {slot.charge_kw:.1f}kW")
@@ -266,9 +263,9 @@ class Controller:
 def make_decision(
     slot: SlotPlan,
     state: SystemState,
-    override: Optional[OverrideResult] = None,
-    config: Optional[ControllerConfig] = None,
-    water_heater_config: Optional[WaterHeaterConfig] = None,
+    override: OverrideResult | None = None,
+    config: ControllerConfig | None = None,
+    water_heater_config: WaterHeaterConfig | None = None,
 ) -> ControllerDecision:
     """
     Convenience function to make a controller decision.
@@ -285,4 +282,3 @@ def make_decision(
     """
     controller = Controller(config or ControllerConfig(), water_heater_config)
     return controller.decide(slot, state, override)
-

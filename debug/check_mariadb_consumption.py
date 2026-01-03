@@ -1,7 +1,8 @@
 import sys
-import yaml
-import pymysql
 from pathlib import Path
+
+import pymysql
+import yaml
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -9,7 +10,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 def load_secrets():
     try:
-        with open("secrets.yaml", "r") as f:
+        with open("secrets.yaml") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
         print("❌ secrets.yaml not found!")
@@ -34,9 +35,8 @@ def main():
     secrets = load_secrets()
 
     try:
-        with connect_db(secrets) as conn:
-            with conn.cursor() as cur:
-                query = """
+        with connect_db(secrets) as conn, conn.cursor() as cur:
+            query = """
                     SELECT 
                         SUM(grid_import_kwh) as total_import,
                         SUM(actual_load_kwh) as total_load,
@@ -44,19 +44,19 @@ def main():
                     FROM execution_history 
                     WHERE slot_start BETWEEN '2025-11-24 00:00:00' AND '2025-11-30 23:59:59'
                 """
-                cur.execute(query)
-                res = cur.fetchone()
+            cur.execute(query)
+            res = cur.fetchone()
 
-                print(f"   Slots: {res['slots']}")
-                print(f"   Total Import: {res['total_import']} kWh")
-                print(f"   Total Load:   {res['total_load']} kWh")
+            print(f"   Slots: {res['slots']}")
+            print(f"   Total Import: {res['total_import']} kWh")
+            print(f"   Total Load:   {res['total_load']} kWh")
 
-                user_import = 258.0
-                db_import = float(res["total_import"] or 0.0)
+            user_import = 258.0
+            db_import = float(res["total_import"] or 0.0)
 
-                print(f"\n   User Import: {user_import}")
-                print(f"   DB Import:   {db_import}")
-                print(f"   Diff:        {db_import - user_import}")
+            print(f"\n   User Import: {user_import}")
+            print(f"   DB Import:   {db_import}")
+            print(f"   Diff:        {db_import - user_import}")
 
     except Exception as e:
         print(f"❌ Check failed: {e}")

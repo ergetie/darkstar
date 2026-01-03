@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
-import sqlite3
 
 from backend.learning import LearningEngine
 
@@ -30,10 +29,10 @@ class AntaresSlotRecord:
     pv_kwh: float
     import_kwh: float
     export_kwh: float
-    batt_charge_kwh: Optional[float]
-    batt_discharge_kwh: Optional[float]
-    soc_start_percent: Optional[float]
-    soc_end_percent: Optional[float]
+    batt_charge_kwh: float | None
+    batt_discharge_kwh: float | None
+    soc_start_percent: float | None
+    soc_end_percent: float | None
     battery_masked: bool
 
 
@@ -109,7 +108,7 @@ def _expand_episode_schedule(
     """
     import json
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for _, ep in episodes.iterrows():
         episode_id = ep["episode_id"]
         episode_date = ep.get("episode_date")
@@ -165,7 +164,7 @@ def _expand_episode_schedule(
 def build_antares_training_dataset(
     config_path: str = "config.yaml",
     include_mask_battery: bool = True,
-) -> List[AntaresSlotRecord]:
+) -> list[AntaresSlotRecord]:
     """
     Build a slot-level Antares v1 training dataset from simulation episodes.
 
@@ -229,7 +228,7 @@ def build_antares_training_dataset(
 
     merged = sched_df.merge(obs_df, on="slot_start", how="left")
 
-    records: List[AntaresSlotRecord] = []
+    records: list[AntaresSlotRecord] = []
     for row in merged.to_dict("records"):
         status = row.get("data_quality_status") or "unknown"
         battery_masked = bool(status == "mask_battery")

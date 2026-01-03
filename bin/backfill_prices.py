@@ -1,18 +1,18 @@
 import argparse
-from datetime import date, timedelta, datetime
-import sys
 import os
+import sys
+from datetime import date, timedelta
 
 sys.path.append(os.getcwd())
 
-import yaml
-from nordpool.elspot import Prices
-from learning import LearningEngine
 import pytz
+import yaml
+from learning import LearningEngine
+from nordpool.elspot import Prices
 
 
 def load_config(path="config.yaml"):
-    with open(path, "r") as f:
+    with open(path) as f:
         return yaml.safe_load(f)
 
 

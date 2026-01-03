@@ -1,6 +1,6 @@
-import requests
 import json
-import sys
+
+import requests
 
 # SN4 = SE4 (Malmö). Change to SN3 (Stockholm) if needed.
 area = "SN4"

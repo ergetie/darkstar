@@ -1,7 +1,8 @@
-import sqlite3
-import pandas as pd
 import os
+import sqlite3
 from datetime import datetime
+
+import pandas as pd
 import pytz
 
 DB_PATH = "data/planner_learning.db"
@@ -76,7 +77,7 @@ def verify():
         if max_night_pv == 0.0:
             print("   ✅ PASS: Night PV is hard-clamped to 0.")
         else:
-            print(f"   ❌ FAIL: Solar production detected at night!")
+            print("   ❌ FAIL: Solar production detected at night!")
     else:
         print("   ⚠️ Warning: No night slots found in future window.")
 

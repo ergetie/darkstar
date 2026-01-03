@@ -1,10 +1,11 @@
-import pandas as pd
-from datetime import datetime, timedelta
-import pytz
 import sqlite3
-from ml.data_activator import fetch_entity_history
-from inputs import load_home_assistant_config
+from datetime import datetime, timedelta
+
+import pandas as pd
 from learning import get_learning_engine
+
+from inputs import load_home_assistant_config
+from ml.data_activator import fetch_entity_history
 
 
 def debug_night():
@@ -24,7 +25,7 @@ def debug_night():
     print(f"📅 Inspecting window: {start_time} to {end_time}")
 
     # 2. Check Config
-    config = load_home_assistant_config()
+    load_home_assistant_config()
     # We use the consumption entity defined in secrets/config
     # Try to find the load sensor mapping
     mappings = engine.config.get("input_sensors", {})

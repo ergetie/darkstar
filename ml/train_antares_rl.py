@@ -12,13 +12,11 @@ Usage (from project root, after installing RL deps):
 
 import argparse
 import json
-import os
 import sqlite3
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
 
 import numpy as np
 
@@ -49,7 +47,7 @@ def _ensure_rl_schema(engine: LearningEngine) -> None:
         conn.commit()
 
 
-def _load_train_val_bounds(engine: LearningEngine) -> Dict[str, str]:
+def _load_train_val_bounds(engine: LearningEngine) -> dict[str, str]:
     """Derive a simple time-based train/val split from data_quality_daily."""
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         rows = conn.execute(

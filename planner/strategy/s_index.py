@@ -7,8 +7,9 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 import pytz
@@ -16,13 +17,13 @@ import pytz
 
 def calculate_dynamic_s_index(
     df: pd.DataFrame,
-    s_index_cfg: Dict[str, Any],
+    s_index_cfg: dict[str, Any],
     max_factor: float,
     timezone_name: str,
-    daily_pv_forecast: Optional[Dict[str, float]] = None,
-    daily_load_forecast: Optional[Dict[str, float]] = None,
-    fetch_temperature_fn: Optional[Callable[[List[int], Any], Dict[int, float]]] = None,
-) -> Tuple[Optional[float], Dict[str, Any], Dict[int, float]]:
+    daily_pv_forecast: dict[str, float] | None = None,
+    daily_load_forecast: dict[str, float] | None = None,
+    fetch_temperature_fn: Callable[[list[int], Any], dict[int, float]] | None = None,
+) -> tuple[float | None, dict[str, Any], dict[int, float]]:
     """
     Compute dynamic S-index factor based on PV/load deficit and temperature.
 
@@ -51,7 +52,7 @@ def calculate_dynamic_s_index(
     except (ValueError, TypeError):
         day_offsets = [1, 2, 3, 4]
 
-    normalized_days: List[int] = []
+    normalized_days: list[int] = []
     for offset in day_offsets:
         try:
             offset_int = int(offset)
@@ -75,8 +76,8 @@ def calculate_dynamic_s_index(
     daily_pv_map = daily_pv_forecast or {}
     daily_load_map = daily_load_forecast or {}
 
-    deficits: List[float] = []
-    considered_days: List[int] = []
+    deficits: list[float] = []
+    considered_days: list[int] = []
     for offset in normalized_days:
         target_date = today + timedelta(days=offset)
         mask = local_dates == target_date
@@ -111,7 +112,7 @@ def calculate_dynamic_s_index(
 
     avg_deficit = sum(deficits) / len(deficits) if deficits else 0.0
 
-    temps_map: Dict[int, float] = {}
+    temps_map: dict[int, float] = {}
     mean_temp = None
     temp_adjustment = 0.0
     if temp_weight > 0 and fetch_temperature_fn is not None:
@@ -148,11 +149,11 @@ def calculate_dynamic_s_index(
 
 def calculate_probabilistic_s_index(
     df: pd.DataFrame,
-    s_index_cfg: Dict[str, Any],
+    s_index_cfg: dict[str, Any],
     max_factor: float,
     timezone_name: str,
-    daily_probabilistic: Optional[Dict[str, Dict[str, float]]] = None,
-) -> Tuple[Optional[float], Dict[str, Any]]:
+    daily_probabilistic: dict[str, dict[str, float]] | None = None,
+) -> tuple[float | None, dict[str, Any]]:
     """
     Compute S-index factor using Sigma Scaling (Rev A28).
 
@@ -193,7 +194,7 @@ def calculate_probabilistic_s_index(
     except (ValueError, TypeError):
         day_offsets = [1, 2, 3, 4]
 
-    normalized_days: List[int] = sorted(set(int(d) for d in day_offsets if int(d) > 0))
+    normalized_days: list[int] = sorted(set(int(d) for d in day_offsets if int(d) > 0))
     if not normalized_days:
         return None, {"mode": "probabilistic", "reason": "no_valid_days"}
 
@@ -299,10 +300,10 @@ def calculate_probabilistic_s_index(
 
 def calculate_target_soc_risk_factor(
     df: pd.DataFrame,
-    s_index_cfg: Dict[str, Any],
+    s_index_cfg: dict[str, Any],
     timezone_name: str,
-    fetch_temperature_fn: Optional[Callable[[List[int], Any], Dict[int, float]]] = None,
-) -> Tuple[float, Dict[str, Any]]:
+    fetch_temperature_fn: Callable[[list[int], Any], dict[int, float]] | None = None,
+) -> tuple[float, dict[str, Any]]:
     """
     Calculate risk factor for end-of-day target SOC.
 
@@ -393,7 +394,7 @@ def calculate_target_soc_risk_factor(
                 pv_deficit_ratio += weight * deficit
 
     # Temperature adjustment (same as before, but only additive)
-    temps_map: Dict[int, float] = {}
+    temps_map: dict[int, float] = {}
     if fetch_temperature_fn is not None:
         temps_map = fetch_temperature_fn([1, 2], tz)
 
@@ -456,10 +457,10 @@ def calculate_target_soc_risk_factor(
     # Direct mapping of risk_appetite to buffer multiplier
     # Negative values for Gambler mode allow targeting BELOW min_soc
     BUFFER_MULTIPLIER_MAP = {
-        1: 1.5,   # Safety: 150% buffer (higher than neutral)
-        2: 1.2,   # Conservative: 120% buffer
-        3: 1.0,   # Neutral: 100% buffer (raw_factor)
-        4: 0.5,   # Aggressive: 50% buffer
+        1: 1.5,  # Safety: 150% buffer (higher than neutral)
+        2: 1.2,  # Conservative: 120% buffer
+        3: 1.0,  # Neutral: 100% buffer (raw_factor)
+        4: 0.5,  # Aggressive: 50% buffer
         5: -0.5,  # Gambler: NEGATIVE buffer (target below min_soc, bet on replan!)
     }
     buffer_multiplier = BUFFER_MULTIPLIER_MAP.get(risk_appetite, 1.0)
@@ -509,10 +510,10 @@ def calculate_target_soc_risk_factor(
 # Keep old function as alias for backwards compatibility
 def calculate_future_risk_factor(
     df: pd.DataFrame,
-    s_index_cfg: Dict[str, Any],
+    s_index_cfg: dict[str, Any],
     timezone_name: str,
-    fetch_temperature_fn: Optional[Callable[[List[int], Any], Dict[int, float]]] = None,
-) -> Tuple[float, Dict[str, Any]]:
+    fetch_temperature_fn: Callable[[list[int], Any], dict[int, float]] | None = None,
+) -> tuple[float, dict[str, Any]]:
     """
     DEPRECATED: Use calculate_target_soc_risk_factor instead.
 
@@ -524,10 +525,10 @@ def calculate_future_risk_factor(
 
 def calculate_dynamic_target_soc(
     risk_factor: float,
-    battery_config: Dict[str, Any],
-    s_index_cfg: Dict[str, Any],
-    raw_factor: Optional[float] = None,
-) -> Tuple[float, float, Dict[str, Any]]:
+    battery_config: dict[str, Any],
+    s_index_cfg: dict[str, Any],
+    raw_factor: float | None = None,
+) -> tuple[float, float, dict[str, Any]]:
     """
     Calculate Dynamic Target SoC based on risk_appetite level.
 
@@ -553,11 +554,11 @@ def calculate_dynamic_target_soc(
     # These are the user's expected targets regardless of weather
     # Tuned for: Level 3 → ~30% winter, ~20% summer (with min_soc=12%)
     LEVEL_BUFFER_MAP = {
-        1: 35.0,   # Safety: +35% above min_soc
-        2: 20.0,   # Conservative: +20%
-        3: 10.0,   # Neutral: +10%
-        4: 3.0,    # Aggressive: +3%
-        5: -7.0,   # Gambler: -7% (target below min_soc, bet on MPC replan!)
+        1: 35.0,  # Safety: +35% above min_soc
+        2: 20.0,  # Conservative: +20%
+        3: 10.0,  # Neutral: +10%
+        4: 3.0,  # Aggressive: +3%
+        5: -7.0,  # Gambler: -7% (target below min_soc, bet on MPC replan!)
     }
     base_buffer = LEVEL_BUFFER_MAP.get(risk_appetite, 10.0)
 
@@ -589,4 +590,3 @@ def calculate_dynamic_target_soc(
     }
 
     return target_soc_pct, target_soc_kwh, debug
-

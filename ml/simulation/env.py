@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -25,7 +25,7 @@ class StepResult:
     next_state: np.ndarray
     reward: float
     done: bool
-    info: Dict[str, Any]
+    info: dict[str, Any]
 
 
 class AntaresMPCEnv:
@@ -43,7 +43,7 @@ class AntaresMPCEnv:
         self.timezone = pytz.timezone(self.loader.timezone_name)
 
         # Load config for PlannerPipeline
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             self._config = yaml.safe_load(f) or {}
         self.pipeline = PlannerPipeline(self._config)
 
@@ -66,9 +66,9 @@ class AntaresMPCEnv:
 
         self._soc_kwh: float = 0.0
 
-        self._schedule: Optional[pd.DataFrame] = None
+        self._schedule: pd.DataFrame | None = None
         self._current_idx: int = 0
-        self._current_day: Optional[date] = None
+        self._current_day: date | None = None
 
     def _normalize_day(self, day: Any) -> date:
         if isinstance(day, date) and not isinstance(day, datetime):
@@ -234,7 +234,7 @@ class AntaresMPCEnv:
         first_row = self._schedule.iloc[self._current_idx]
         return self._build_state_vector(first_row)
 
-    def step(self, action: Optional[Any] = None) -> StepResult:
+    def step(self, action: Any | None = None) -> StepResult:
         """Advance one 15-minute slot, optionally overriding MPC actions.
 
         - If `action` is None, the deterministic MPC schedule is replayed.

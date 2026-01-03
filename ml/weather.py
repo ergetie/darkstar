@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Dict, List
 
 import pandas as pd
 import pytz
@@ -9,16 +8,16 @@ import requests
 import yaml
 
 
-def _load_config(config_path: str = "config.yaml") -> Dict:
+def _load_config(config_path: str = "config.yaml") -> dict:
     """Load configuration from YAML file."""
-    with open(config_path, "r", encoding="utf-8") as handle:
+    with open(config_path, encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 
 def get_weather_series(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
 ) -> pd.DataFrame:
@@ -50,7 +49,7 @@ def get_weather_series(
     today_local = datetime.now(tz).date()
 
     try:
-        hourly_params: List[str] = [
+        hourly_params: list[str] = [
             "temperature_2m",
             "cloud_cover",
             "shortwave_radiation",
@@ -99,13 +98,10 @@ def get_weather_series(
         return pd.DataFrame(dtype="float64")
 
     dt_index = pd.to_datetime(times)
-    if dt_index.tz is None:
-        dt_index = dt_index.tz_localize("UTC")
-    else:
-        dt_index = dt_index.tz_convert("UTC")
+    dt_index = dt_index.tz_localize("UTC") if dt_index.tz is None else dt_index.tz_convert("UTC")
     dt_index = dt_index.tz_convert(tz)
 
-    data: Dict[str, List[float]] = {}
+    data: dict[str, list[float]] = {}
     if temps and len(temps) == len(times):
         data["temp_c"] = temps
     if clouds and len(clouds) == len(times):
@@ -124,10 +120,10 @@ def get_weather_series(
 def get_weather_volatility(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """
     Calculate normalized volatility scores for cloud cover and temperature.
 
@@ -172,7 +168,7 @@ def get_weather_volatility(
 def get_temperature_series(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
 ) -> pd.Series:

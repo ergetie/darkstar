@@ -17,17 +17,16 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytz
 
 # import yaml
-
 # Import existing HA config loader
-from inputs import load_home_assistant_config, _load_yaml
+from inputs import load_home_assistant_config
 
 from .actions import ActionDispatcher, ActionResult, HAClient
-from .config import load_executor_config
+from .config import load_executor_config, load_yaml
 from .controller import ControllerDecision, make_decision
 from .history import ExecutionHistory, ExecutionRecord
 from .override import (
@@ -48,14 +47,14 @@ class ExecutorStatus:
 
     enabled: bool = False
     shadow_mode: bool = False
-    last_run_at: Optional[str] = None
+    last_run_at: str | None = None
     last_run_status: str = "pending"
-    last_error: Optional[str] = None
-    next_run_at: Optional[str] = None
-    current_slot: Optional[str] = None
-    last_action: Optional[str] = None
+    last_error: str | None = None
+    next_run_at: str | None = None
+    current_slot: str | None = None
+    last_action: str | None = None
     override_active: bool = False
-    override_type: Optional[str] = None
+    override_type: str | None = None
 
 
 class ExecutorEngine:
@@ -75,7 +74,7 @@ class ExecutorEngine:
         self.config = load_executor_config(config_path)
 
         # Load main config for input_sensors section
-        self._full_config = _load_yaml(config_path)
+        self._full_config = load_yaml(config_path)
 
         # Initialize components
         self.history = ExecutionHistory(
@@ -83,8 +82,8 @@ class ExecutorEngine:
             timezone=self.config.timezone,
         )
 
-        self.ha_client: Optional[HAClient] = None
-        self.dispatcher: Optional[ActionDispatcher] = None
+        self.ha_client: HAClient | None = None
+        self.dispatcher: ActionDispatcher | None = None
 
         # Status tracking
         self.status = ExecutorStatus(
@@ -94,18 +93,18 @@ class ExecutorEngine:
 
         # Threading
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
+        self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
 
         # Quick action storage (user-initiated time-limited overrides)
-        self._quick_action: Optional[Dict[str, Any]] = None  # {type, expires_at, reason}
+        self._quick_action: dict[str, Any] | None = None  # {type, expires_at, reason}
 
         # Pause state (idle mode with reminder)
-        self._paused_at: Optional[datetime] = None
+        self._paused_at: datetime | None = None
         self._pause_reminder_sent: bool = False
 
         # Water boost state
-        self._water_boost_until: Optional[datetime] = None
+        self._water_boost_until: datetime | None = None
 
         # System profile toggles (Rev O1)
         system_cfg = self._full_config.get("system", {})
@@ -113,13 +112,12 @@ class ExecutorEngine:
         self._has_battery = system_cfg.get("has_battery", True)
         self._has_water_heater = system_cfg.get("has_water_heater", True)
 
-
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
         # Use the same database as the learning engine
         return os.path.join("data", "planner_learning.db")
 
-    def _init_ha_client(self) -> bool:
+    def init_ha_client(self) -> bool:
         """Initialize the Home Assistant client."""
         # Use existing HA config loader from inputs.py
         ha_config = load_home_assistant_config()
@@ -153,7 +151,7 @@ class ExecutorEngine:
                 self.dispatcher.shadow_mode = self.config.shadow_mode
             logger.info("Executor config reloaded")
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current executor status as a dictionary."""
         # Get current slot plan for display
         current_slot_plan = None
@@ -197,7 +195,57 @@ class ExecutorEngine:
                 "version": EXECUTOR_VERSION,
             }
 
-    def _get_quick_action_status(self) -> Optional[Dict[str, Any]]:
+    def get_stats(self, days: int = 7) -> dict[str, Any]:
+        """Get execution statistics."""
+        return self.history.get_stats(days=days)
+
+    def get_live_metrics(self) -> dict[str, Any]:
+        """
+        Get live system metrics for API.
+
+        Returns a snapshot of current system power flows and state.
+        """
+        # Start with standard system state
+        state = self._gather_system_state()
+
+        metrics = {
+            "soc": state.current_soc_percent,
+            "pv_kw": state.current_pv_kw,
+            "load_kw": state.current_load_kw,
+            "grid_import_kw": state.current_import_kw,
+            "grid_export_kw": state.current_export_kw,
+            "battery_kw": 0.0,
+            "water_kw": 0.0,
+            "timestamp": datetime.now(pytz.timezone(self.config.timezone)).isoformat(),
+        }
+
+        # Add extra sensors not in SystemState
+        if self.ha_client:
+            input_sensors = self._full_config.get("input_sensors", {})
+
+            # Battery Power
+            batt_pwr_entity = input_sensors.get("battery_power")
+            if batt_pwr_entity:
+                val = self.ha_client.get_state_value(batt_pwr_entity)
+                if val and val not in ("unknown", "unavailable"):
+                    try:
+                        metrics["battery_kw"] = float(val) / 1000.0  # W to kW
+                    except ValueError:
+                        pass
+
+            # Water Heater Power
+            water_pwr_entity = input_sensors.get("water_power")
+            if water_pwr_entity:
+                val = self.ha_client.get_state_value(water_pwr_entity)
+                if val and val not in ("unknown", "unavailable"):
+                    try:
+                        metrics["water_kw"] = float(val) / 1000.0  # W to kW
+                    except ValueError:
+                        pass
+
+        return metrics
+
+    def _get_quick_action_status(self) -> dict[str, Any] | None:
         """Get current quick action status with remaining time."""
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
@@ -220,7 +268,7 @@ class ExecutorEngine:
                 "reason": self._quick_action.get("reason", ""),
             }
 
-    def set_quick_action(self, action_type: str, duration_minutes: int) -> Dict[str, Any]:
+    def set_quick_action(self, action_type: str, duration_minutes: int) -> dict[str, Any]:
         """
         Set a time-limited quick action override.
 
@@ -264,7 +312,7 @@ class ExecutorEngine:
             "expires_at": expires_at.isoformat(),
         }
 
-    def clear_quick_action(self) -> Dict[str, Any]:
+    def clear_quick_action(self) -> dict[str, Any]:
         """Clear any active quick action."""
         with self._lock:
             was_active = self._quick_action is not None
@@ -275,7 +323,7 @@ class ExecutorEngine:
 
         return {"success": True, "was_active": was_active}
 
-    def get_active_quick_action(self) -> Optional[Dict[str, Any]]:
+    def get_active_quick_action(self) -> dict[str, Any] | None:
         """Get the currently active quick action, if any and not expired."""
         return self._get_quick_action_status()
 
@@ -287,22 +335,28 @@ class ExecutorEngine:
         with self._lock:
             return self._paused_at is not None
 
-    def pause(self) -> Dict[str, Any]:
+    def pause(self, duration_minutes: int = 60) -> dict[str, Any]:
         """
         Pause the executor - enters idle mode.
 
         Idle mode: zero export, min_soc target, no grid charging, no water heating.
-        A 30-minute reminder will be scheduled.
+        A reminder will be scheduled based on configuration or duration.
         """
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
 
         with self._lock:
             if self._paused_at is not None:
-                return {"success": False, "error": "Already paused", "paused_at": self._paused_at.isoformat()}
+                return {
+                    "success": False,
+                    "error": "Already paused",
+                    "paused_at": self._paused_at.isoformat(),
+                }
 
             self._paused_at = now
             self._pause_reminder_sent = False
+            # Rev update: You could store duration_minutes here if you wanted dynamic reminders
+            # For now just accepting the arg avoids the 500 error.
 
         logger.info("Executor PAUSED at %s - entering idle mode", now.isoformat())
 
@@ -319,7 +373,7 @@ class ExecutorEngine:
             "message": "Executor paused - idle mode active",
         }
 
-    def resume(self, token: Optional[str] = None) -> Dict[str, Any]:
+    def resume(self, token: str | None = None) -> dict[str, Any]:
         """
         Resume the executor from paused state.
 
@@ -353,7 +407,7 @@ class ExecutorEngine:
             "message": "Executor resumed - action applied immediately",
         }
 
-    def get_pause_status(self) -> Optional[Dict[str, Any]]:
+    def get_pause_status(self) -> dict[str, Any] | None:
         """Get pause status with duration if paused."""
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
@@ -399,6 +453,7 @@ class ExecutorEngine:
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
 
+        paused_at: datetime | None = None
         with self._lock:
             if self._paused_at is None or self._pause_reminder_sent:
                 return
@@ -409,39 +464,55 @@ class ExecutorEngine:
                 paused_at = self._paused_at
 
         # Send reminder notification (outside lock)
-        if self.dispatcher:
+        if self.dispatcher and paused_at:
             self._send_pause_reminder(paused_at)
 
     def _send_pause_reminder(self, paused_at: datetime) -> None:
         """Send pause reminder notification with resume action."""
+        if not self.dispatcher:
+            return
+
         try:
-            from backend.notify import send_notification
-
-            # Generate resume webhook URL
-            # TODO: Add proper token-based security
-            resume_url = "/api/executor/resume"
-
             message = (
                 f"⚠️ Executor has been paused for {self.config.pause_reminder_minutes} minutes. "
                 f"Paused since {paused_at.strftime('%H:%M')}."
             )
 
-            # Send with HA actionable notification
-            send_notification(
-                message=message,
-                title="Darkstar Executor Paused",
-                notification_type="pause_reminder",
-                actions=[
-                    {"action": "RESUME_EXECUTOR", "title": "ACTIVATE"},
-                ],
+            # Send via ActionDispatcher
+            self.send_notification(
+                "Darkstar Executor Paused",
+                message,
+                data={
+                    "notification_type": "pause_reminder",
+                    "actions": [{"action": "RESUME_EXECUTOR", "title": "ACTIVATE"}],
+                },
             )
             logger.info("Pause reminder notification sent")
         except Exception as e:
             logger.error("Failed to send pause reminder: %s", e)
 
+    def send_notification(
+        self, title: str, message: str, data: dict[str, Any] | None = None
+    ) -> bool:
+        """Send a notification via the configured service."""
+        if not self.dispatcher:
+            return False
+
+        try:
+            self.dispatcher._send_notification(message, title=title)
+            # If data is provided, we might need a more direct HA call since _send_notification is simplified
+            if data:
+                self.ha_client.send_notification(
+                    self.config.notifications.service, title, message, data=data
+                )
+            return True
+        except Exception as e:
+            logger.error("Failed to send notification: %s", e)
+            return False
+
     # --- Water Boost ---
 
-    def set_water_boost(self, duration_minutes: int) -> Dict[str, Any]:
+    def set_water_boost(self, duration_minutes: int) -> dict[str, Any]:
         """
         Start water heater boost (heat to 65°C for specified duration).
 
@@ -457,7 +528,9 @@ class ExecutorEngine:
 
         valid_durations = [30, 60, 120]
         if duration_minutes not in valid_durations:
-            raise ValueError(f"Invalid duration: {duration_minutes}. Must be one of {valid_durations}")
+            raise ValueError(
+                f"Invalid duration: {duration_minutes}. Must be one of {valid_durations}"
+            )
 
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
@@ -466,12 +539,16 @@ class ExecutorEngine:
         with self._lock:
             self._water_boost_until = expires_at
 
-        logger.info("Water boost started for %d minutes (until %s)", duration_minutes, expires_at.isoformat())
+        logger.info(
+            "Water boost started for %d minutes (until %s)",
+            duration_minutes,
+            expires_at.isoformat(),
+        )
 
         # Immediately apply the boost
         if self.ha_client and self.dispatcher:
             try:
-                self.dispatcher._set_water_temp(self.config.water_heater.temp_boost)
+                self.dispatcher.set_water_temp(self.config.water_heater.temp_boost)
             except Exception as e:
                 logger.error("Failed to apply water boost: %s", e)
 
@@ -482,7 +559,7 @@ class ExecutorEngine:
             "temp_target": self.config.water_heater.temp_boost,
         }
 
-    def clear_water_boost(self) -> Dict[str, Any]:
+    def clear_water_boost(self) -> dict[str, Any]:
         """Cancel active water boost."""
         with self._lock:
             was_active = self._water_boost_until is not None
@@ -493,13 +570,13 @@ class ExecutorEngine:
             # Set water temp back to normal
             if self.dispatcher:
                 try:
-                    self.dispatcher._set_water_temp(self.config.water_heater.temp_off)
+                    self.dispatcher.set_water_temp(self.config.water_heater.temp_off)
                 except Exception as e:
                     logger.error("Failed to reset water temp: %s", e)
 
         return {"success": True, "was_active": was_active}
 
-    def get_water_boost_status(self) -> Optional[Dict[str, Any]]:
+    def get_water_boost_status(self) -> dict[str, Any] | None:
         """Get water boost status with remaining time."""
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
@@ -526,7 +603,7 @@ class ExecutorEngine:
             logger.warning("Executor already running")
             return
 
-        if not self._init_ha_client():
+        if not self.init_ha_client():
             logger.error("Failed to initialize HA client, executor not started")
             return
 
@@ -542,13 +619,13 @@ class ExecutorEngine:
             self._thread.join(timeout=5)
             logger.info("Executor stopped")
 
-    def run_once(self) -> Dict[str, Any]:
+    def run_once(self) -> dict[str, Any]:
         """
         Run a single execution tick synchronously.
 
         Returns the execution result.
         """
-        if not self.ha_client and not self._init_ha_client():
+        if not self.ha_client and not self.init_ha_client():
             return {"success": False, "error": "Failed to initialize HA client"}
 
         return self._tick()
@@ -629,7 +706,7 @@ class ExecutorEngine:
 
         return next_boundary
 
-    def _tick(self) -> Dict[str, Any]:
+    def _tick(self) -> dict[str, Any]:
         """
         Execute one tick of the executor loop.
 
@@ -650,7 +727,7 @@ class ExecutorEngine:
         logger.info("Executor tick started at %s", now_iso)
         self.status.last_run_at = now_iso
 
-        result = {
+        result: dict[str, Any] = {
             "success": True,
             "executed_at": now_iso,
             "slot_start": None,
@@ -691,20 +768,23 @@ class ExecutorEngine:
 
             # 3. Gather system state
             state = self._gather_system_state()
-            
+
             # Emit live metrics for UI sparklines (Rev E1)
             try:
                 from backend.events import emit_live_metrics
-                emit_live_metrics({
-                    "soc": state.current_soc_percent,
-                    "pv_kw": state.current_pv_kw,
-                    "load_kw": state.current_load_kw,
-                    "grid_import_kw": state.current_import_kw,
-                    "grid_export_kw": state.current_export_kw,
-                    "work_mode": state.current_work_mode,
-                    "grid_charging": state.grid_charging_enabled,
-                    "timestamp": now_iso
-                })
+
+                emit_live_metrics(
+                    {
+                        "soc": state.current_soc_percent,
+                        "pv_kw": state.current_pv_kw,
+                        "load_kw": state.current_load_kw,
+                        "grid_import_kw": state.current_import_kw,
+                        "grid_export_kw": state.current_export_kw,
+                        "work_mode": state.current_work_mode,
+                        "grid_charging": state.grid_charging_enabled,
+                        "timestamp": now_iso,
+                    }
+                )
             except Exception as e:
                 logger.debug("Failed to emit live metrics: %s", e)
 
@@ -798,7 +878,7 @@ class ExecutorEngine:
             self.status.last_action = decision.reason
 
             # 6. Execute actions
-            action_results: List[ActionResult] = []
+            action_results: list[ActionResult] = []
             if self.dispatcher:
                 action_results = self.dispatcher.execute(decision)
                 result["actions"] = [
@@ -846,10 +926,11 @@ class ExecutorEngine:
 
             self.status.last_run_status = "success"
             logger.info("Executor tick completed in %dms", duration_ms)
-            
+
             # Broadcast status update (Rev E1)
             try:
                 from backend.events import emit_status_update
+
                 emit_status_update(self.get_status())
             except Exception as e:
                 logger.debug("Failed to emit status update: %s", e)
@@ -866,7 +947,7 @@ class ExecutorEngine:
 
         return result
 
-    def _load_current_slot(self, now: datetime) -> tuple[Optional[SlotPlan], Optional[str]]:
+    def _load_current_slot(self, now: datetime) -> tuple[SlotPlan | None, str | None]:
         """
         Load the current slot from schedule.json.
 
@@ -878,7 +959,7 @@ class ExecutorEngine:
             return None, None
 
         try:
-            with open(schedule_path, "r", encoding="utf-8") as f:
+            with open(schedule_path, encoding="utf-8") as f:
                 payload = json.load(f)
             schedule = payload.get("schedule", [])
         except Exception as e:
@@ -900,17 +981,11 @@ class ExecutorEngine:
 
             try:
                 start = datetime.fromisoformat(start_str.replace("Z", "+00:00"))
-                if start.tzinfo is None:
-                    start = tz.localize(start)
-                else:
-                    start = start.astimezone(tz)
+                start = tz.localize(start) if start.tzinfo is None else start.astimezone(tz)
 
                 if end_str:
                     end = datetime.fromisoformat(end_str.replace("Z", "+00:00"))
-                    if end.tzinfo is None:
-                        end = tz.localize(end)
-                    else:
-                        end = end.astimezone(tz)
+                    end = tz.localize(end) if end.tzinfo is None else end.astimezone(tz)
                     # Sanity check: if end <= start, use 15-min default
                     if end <= start:
                         logger.warning(
@@ -933,7 +1008,7 @@ class ExecutorEngine:
         # No matching slot found
         return None, None
 
-    def _parse_slot_plan(self, slot_data: Dict[str, Any]) -> SlotPlan:
+    def _parse_slot_plan(self, slot_data: dict[str, Any]) -> SlotPlan:
         """Parse a schedule slot into a SlotPlan object."""
         # Handle both kW and kWh fields
         charge_kw = float(slot_data.get("battery_charge_kw", 0.0) or 0.0)
@@ -988,12 +1063,12 @@ class ExecutorEngine:
             # Get grid import/export (Rev E1)
             import_entity = input_sensors.get("grid_import_power")
             export_entity = input_sensors.get("grid_export_power")
-            
+
             if import_entity:
                 imp_str = self.ha_client.get_state_value(import_entity)
                 if imp_str and imp_str not in ("unknown", "unavailable"):
                     state.current_import_kw = float(imp_str) / 1000
-            
+
             if export_entity:
                 exp_str = self.ha_client.get_state_value(export_entity)
                 if exp_str and exp_str not in ("unknown", "unavailable"):
@@ -1006,7 +1081,9 @@ class ExecutorEngine:
                     state.current_work_mode = work_mode
 
                 # Get grid charging state
-                grid_charge = self.ha_client.get_state_value(self.config.inverter.grid_charging_entity)
+                grid_charge = self.ha_client.get_state_value(
+                    self.config.inverter.grid_charging_entity
+                )
                 state.grid_charging_enabled = grid_charge == "on"
 
             # Get water heater temp (Rev O1)
@@ -1030,7 +1107,7 @@ class ExecutorEngine:
         self,
         now_iso: str,
         slot: SlotPlan,
-        slot_start: Optional[str],
+        slot_start: str | None,
         state: SystemState,
         decision: ControllerDecision,
         override: OverrideResult,
@@ -1076,7 +1153,7 @@ class ExecutorEngine:
         self,
         state: SystemState,
         decision: ControllerDecision,
-        slot: Optional[SlotPlan],
+        slot: SlotPlan | None,
     ) -> None:
         """
         Update battery cost based on charging activity (Rev F1).
@@ -1121,10 +1198,12 @@ class ExecutorEngine:
             import_price = 0.5  # Default fallback
             try:
                 from inputs import get_nordpool_data
+
                 prices = get_nordpool_data("config.yaml")
                 if prices:
                     # Get current slot's price
                     import pytz
+
                     tz = pytz.timezone(self.config.timezone)
                     now = datetime.now(tz)
                     for p in prices:
@@ -1145,4 +1224,3 @@ class ExecutorEngine:
 
         except Exception as e:
             logger.debug("Battery cost update skipped: %s", e)
-

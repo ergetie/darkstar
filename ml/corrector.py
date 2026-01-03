@@ -1,19 +1,19 @@
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import pytz
-import sqlite3
 
 from backend.learning import LearningEngine, get_learning_engine
-from ml.weather import get_weather_series
 from ml.context_features import get_vacation_mode_series
 from ml.train import _build_time_features
+from ml.weather import get_weather_series
+import contextlib
 
 
 @dataclass
@@ -127,7 +127,7 @@ def _load_training_frame(engine: LearningEngine, days_back: int = 30) -> pd.Data
 def _train_error_models(
     df: pd.DataFrame,
     models_dir: str = "ml/models",
-) -> Dict[str, lgb.Booster]:
+) -> dict[str, lgb.Booster]:
     """
     Train LightGBM models to predict residuals for PV and load.
     """
@@ -148,7 +148,7 @@ def _train_error_models(
 
     X = df[feature_cols].fillna(0.0)
 
-    models: Dict[str, lgb.Booster] = {}
+    models: dict[str, lgb.Booster] = {}
     for target, model_name in (
         ("pv_residual", "pv_error.lgb"),
         ("load_residual", "load_error.lgb"),
@@ -178,7 +178,7 @@ def _train_error_models(
     return models
 
 
-def train(models_dir: str = "ml/models") -> Dict[str, Any]:
+def train(models_dir: str = "ml/models") -> dict[str, Any]:
     """
     Train or refresh the Aurora Correction models.
     """
@@ -203,22 +203,18 @@ def train(models_dir: str = "ml/models") -> Dict[str, Any]:
     }
 
 
-def _load_error_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
-    models: Dict[str, lgb.Booster] = {}
-    try:
+def _load_error_models(models_dir: str = "ml/models") -> dict[str, lgb.Booster]:
+    models: dict[str, lgb.Booster] = {}
+    with contextlib.suppress(Exception):
         models["pv_residual"] = lgb.Booster(model_file=f"{models_dir}/pv_error.lgb")
-    except Exception:
-        pass
-    try:
+    with contextlib.suppress(Exception):
         models["load_residual"] = lgb.Booster(model_file=f"{models_dir}/load_error.lgb")
-    except Exception:
-        pass
     return models
 
 
 def _compute_stats_bias(
     engine: LearningEngine, days_back: int = 14
-) -> Dict[Tuple[int, int], Tuple[float, float]]:
+) -> dict[tuple[int, int], tuple[float, float]]:
     """
     Compute rolling average residual per (day_of_week, hour) for PV and load.
     """
@@ -241,17 +237,14 @@ def _compute_stats_bias(
           AND f.load_forecast_kwh IS NOT NULL
     """
 
-    buckets: Dict[Tuple[int, int], List[Tuple[float, float]]] = {}
+    buckets: dict[tuple[int, int], list[tuple[float, float]]] = {}
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         for slot_start, pv_kwh, load_kwh, pv_forecast, load_forecast in conn.execute(
             sql, (cutoff_date,)
         ):
             try:
                 ts = pd.Timestamp(slot_start)
-                if ts.tzinfo is None:
-                    ts = ts.tz_localize(tz)
-                else:
-                    ts = ts.tz_convert(tz)
+                ts = ts.tz_localize(tz) if ts.tzinfo is None else ts.tz_convert(tz)
                 dow = ts.weekday()
                 hour = ts.hour
             except Exception:
@@ -261,7 +254,7 @@ def _compute_stats_bias(
             load_err = float(load_kwh or 0.0) - float(load_forecast or 0.0)
             buckets.setdefault((dow, hour), []).append((pv_err, load_err))
 
-    stats: Dict[Tuple[int, int], Tuple[float, float]] = {}
+    stats: dict[tuple[int, int], tuple[float, float]] = {}
     for key, vals in buckets.items():
         if not vals:
             continue
@@ -289,7 +282,7 @@ def predict_corrections(
     horizon_hours: int = 48,
     forecast_version: str = "aurora",
     models_dir: str = "ml/models",
-) -> Tuple[List[Dict[str, Any]], str]:
+) -> tuple[list[dict[str, Any]], str]:
     """
     Predict per-slot corrections for the upcoming horizon using the Graduation Path.
 
@@ -323,7 +316,7 @@ def predict_corrections(
     if not base_records:
         return [], "none"
 
-    corrections: List[Dict[str, Any]] = []
+    corrections: list[dict[str, Any]] = []
 
     if level.level == 0:
         # Infant: no corrections at all.

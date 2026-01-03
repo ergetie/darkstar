@@ -6,7 +6,7 @@ from backend.strategy.engine import StrategyEngine
 
 
 def load_config(path: str = "config.yaml") -> dict:
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 

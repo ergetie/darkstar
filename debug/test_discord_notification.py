@@ -8,8 +8,9 @@ This simulates what happens in run_planner error handler:
 3. Tries to send HA notification (should fail)
 4. Falls back to Discord (should work)
 """
-import sys
+
 import os
+import sys
 
 sys.path.insert(0, os.getcwd())
 
@@ -22,29 +23,29 @@ import yaml
 
 try:
     # Load config for HA service name
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f) or {}
-    
+
     executor_cfg = config.get("executor", {})
     notif_cfg = executor_cfg.get("notifications", {})
     ha_service = notif_cfg.get("service")
-    
+
     # Load secrets for Discord webhook
-    with open("secrets.yaml", "r") as f:
+    with open("secrets.yaml") as f:
         secrets = yaml.safe_load(f) or {}
-    
+
     notif_secrets = secrets.get("notifications", {})
     discord_webhook_url = notif_secrets.get("discord_webhook_url")
-    
-    print(f"✅ Config loaded successfully")
+
+    print("✅ Config loaded successfully")
     print(f"   Discord webhook: {'SET' if discord_webhook_url else 'NOT SET'}")
     print(f"   HA service: {ha_service or 'NOT SET'}")
-    
+
     if not discord_webhook_url:
         print("❌ PROBLEM: Discord webhook not configured in secrets.yaml!")
         print("   Path: notifications.discord_webhook_url in secrets.yaml")
         sys.exit(1)
-        
+
 except Exception as e:
     print(f"❌ Failed to load config/secrets: {e}")
     sys.exit(1)
@@ -80,7 +81,11 @@ from inputs import load_home_assistant_config
 
 ha_config = load_home_assistant_config() or {}
 print(f"   HA config loaded: {bool(ha_config)}")
-print(f"   HA URL: {ha_config.get('url', 'NOT SET')[:30]}..." if ha_config.get('url') else "   HA URL: NOT SET")
+print(
+    f"   HA URL: {ha_config.get('url', 'NOT SET')[:30]}..."
+    if ha_config.get("url")
+    else "   HA URL: NOT SET"
+)
 
 # Now simulate what run_planner does
 result = send_critical_notification(

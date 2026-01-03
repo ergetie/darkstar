@@ -2,13 +2,11 @@
 """Test script to verify risk_appetite affects target SOC properly."""
 
 import yaml
-import pytz
-from datetime import datetime
 
 from inputs import get_all_input_data
 from planner.inputs.data_prep import prepare_df
 from planner.inputs.weather import fetch_temperature_forecast
-from planner.strategy.s_index import calculate_target_soc_risk_factor, calculate_dynamic_target_soc
+from planner.strategy.s_index import calculate_dynamic_target_soc, calculate_target_soc_risk_factor
 
 with open("config.yaml") as f:
     config = yaml.safe_load(f)
@@ -39,7 +37,7 @@ for appetite in [1, 2, 3, 4, 5]:
     )
 
     print(
-        f'Level {appetite}: mult={debug["buffer_multiplier"]:.2f}, adjusted_buf={debug["adjusted_buffer"]:+.3f}, risk_factor={risk_factor:.4f} -> Target SOC: {target_pct:.1f}%'
+        f"Level {appetite}: mult={debug['buffer_multiplier']:.2f}, adjusted_buf={debug['adjusted_buffer']:+.3f}, risk_factor={risk_factor:.4f} -> Target SOC: {target_pct:.1f}%"
     )
 
 print()
@@ -52,7 +50,7 @@ risk_factor, debug = calculate_target_soc_risk_factor(
     timezone_name,
     fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(days, t, config),
 )
-print(f'  raw_factor: {debug["raw_factor"]}')
-print(f'  buffer_above_one: {debug["buffer_above_one"]}')
-print(f'  pv_contribution: {debug["pv_contribution"]}')
-print(f'  temp_contribution: {debug["temp_contribution"]}')
+print(f"  raw_factor: {debug['raw_factor']}")
+print(f"  buffer_above_one: {debug['buffer_above_one']}")
+print(f"  pv_contribution: {debug['pv_contribution']}")
+print(f"  temp_contribution: {debug['temp_contribution']}")

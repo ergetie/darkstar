@@ -9,17 +9,17 @@ Handles saving the final schedule to JSON, including:
 
 import json
 import os
-import yaml
 import subprocess
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import pytz
+import yaml
 
-from planner.output.formatter import dataframe_to_json_response
-from planner.output.debug import generate_debug_payload
 from planner.observability.logging import record_debug_payload
+from planner.output.debug import generate_debug_payload
+from planner.output.formatter import dataframe_to_json_response
 
 # Try to import db_writer from root
 try:
@@ -49,12 +49,12 @@ def get_git_version() -> str:
 
 def save_schedule_to_json(
     schedule_df: pd.DataFrame,
-    config: Dict[str, Any],
-    now_slot: Optional[pd.Timestamp],
-    forecast_meta: Dict[str, Any],
-    s_index_debug: Optional[Dict[str, Any]],
-    window_responsibilities: List[Dict[str, Any]],
-    planner_state: Dict[str, Any],
+    config: dict[str, Any],
+    now_slot: pd.Timestamp | None,
+    forecast_meta: dict[str, Any],
+    s_index_debug: dict[str, Any] | None,
+    window_responsibilities: list[dict[str, Any]],
+    planner_state: dict[str, Any],
     output_path: str = "schedule.json",
 ) -> None:
     """
@@ -85,7 +85,7 @@ def save_schedule_to_json(
         secrets_path = "secrets.yaml"
         secrets = {}
         if os.path.exists(secrets_path):
-            with open(secrets_path, "r") as f:
+            with open(secrets_path) as f:
                 secrets = yaml.safe_load(f) or {}
 
         # Get current time in local timezone

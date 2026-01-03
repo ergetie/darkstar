@@ -1,7 +1,7 @@
 import os
 import sys
+
 import yaml
-import json
 
 sys.path.append(os.getcwd())
 
@@ -21,12 +21,12 @@ def test_voice():
     }
 
     try:
-        with open("secrets.yaml", "r") as f:
+        with open("secrets.yaml") as f:
             secrets = yaml.safe_load(f)
     except Exception:
         secrets = {}
 
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
     print("   📞 Calling OpenRouter...")

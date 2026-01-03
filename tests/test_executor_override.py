@@ -5,8 +5,6 @@ Tests the override evaluation logic that determines when real-time
 conditions should override the scheduled plan.
 """
 
-import pytest
-
 from executor.override import (
     OverrideEvaluator,
     OverrideResult,
@@ -215,7 +213,8 @@ class TestOverrideEvaluatorExcessPVHeating:
         """Excess PV with healthy battery and cold water triggers heating."""
         evaluator = OverrideEvaluator(
             excess_pv_threshold_kw=2.0,
-            water_temp_boost=70,
+            water_temp_boost=70,  # Configured boost
+            water_temp_max=85,    # Configured max
         )
         state = SystemState(
             current_pv_kw=5.0,
@@ -229,7 +228,8 @@ class TestOverrideEvaluatorExcessPVHeating:
         assert result.override_needed is True
         assert result.override_type == OverrideType.EXCESS_PV_HEATING
         assert result.priority == 5.0
-        assert result.actions["water_temp"] == 70
+        # Should heat to MAX (dump load), not just boost
+        assert result.actions["water_temp"] == 85
 
     def test_excess_pv_low_battery_no_heating(self):
         """Excess PV but low battery - preserve battery instead of heating."""
@@ -260,16 +260,17 @@ class TestOverrideEvaluatorExcessPVHeating:
         assert result.override_type != OverrideType.EXCESS_PV_HEATING
 
     def test_water_already_hot_no_heating(self):
-        """Water already at boost temp - no need to heat more."""
+        """Water already at MAX temp - no need to heat more."""
         evaluator = OverrideEvaluator(
             excess_pv_threshold_kw=2.0,
             water_temp_boost=70,
+            water_temp_max=85,
         )
         state = SystemState(
             current_pv_kw=5.0,
             current_load_kw=2.0,
             current_soc_percent=60.0,
-            current_water_temp=72.0,  # Already above boost
+            current_water_temp=86.0,  # Already above MAX
         )
 
         result = evaluator.evaluate(state)

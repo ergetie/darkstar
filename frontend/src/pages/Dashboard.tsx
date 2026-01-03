@@ -65,7 +65,7 @@ export default function Dashboard() {
 
     // --- Missing State Variables Restored ---
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
-    const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null)
+    // const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null) // Unused
     const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
     const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
     const [batteryCapacity, setBatteryCapacity] = useState<number>(0)
@@ -197,32 +197,46 @@ export default function Dashboard() {
                 statusData,
                 configData,
                 haAverageData,
-                scheduleData,
-                waterData,
+                scheduleData, // learningStatusData unused
+                ,
                 schedulerStatusData,
-                historyData,
+                todayStatsData,
+                waterData,
+                auroraData,
                 executorStatusData,
-                energyTodayData,
+                historyData,
             ] = await Promise.allSettled([
                 Api.status(),
                 Api.config(),
                 Api.haAverage(),
                 Api.schedule(),
-                Api.haWaterToday(),
+                Api.learningStatus(),
                 Api.schedulerStatus(),
-                Api.scheduleTodayWithHistory(),
-                Api.executor.status(),
                 Api.energyToday(),
+                Api.haWaterToday(),
+                Api.aurora.dashboard(),
+                Api.executor.status(),
+                Api.scheduleTodayWithHistory(),
             ])
 
-            // Process status data
+            // Extract SoC from status API (flat structure: soc_percent)
             if (statusData.status === 'fulfilled') {
                 const data = statusData.value
-                if (data.current_soc?.value !== undefined) setSoc(data.current_soc.value)
-                if (data.local) setPlannerLocalMeta(data.local)
-                if (data.db && !('error' in data.db)) {
-                    setPlannerDbMeta(data.db as PlannerMeta)
+                if (data.soc_percent != null) {
+                    setSoc(data.soc_percent)
+                } else if (data.current_soc?.value != null) {
+                    setSoc(data.current_soc.value) // Fallback for legacy format
                 }
+            }
+
+            // Calculate PV Forecast for today from Aurora horizon
+            let pvForecastTotal = 0
+            if (auroraData.status === 'fulfilled' && auroraData.value?.horizon?.slots) {
+                const now = new Date()
+                const todayStr = now.toISOString().split('T')[0]
+                pvForecastTotal = auroraData.value.horizon.slots
+                    .filter((s) => s.slot_start.startsWith(todayStr))
+                    .reduce((sum, s) => sum + (s.final?.pv_kwh || 0), 0)
             }
 
             // Process config data
@@ -233,27 +247,25 @@ export default function Dashboard() {
                 if (typeof sIndex?.risk_appetite === 'number') {
                     setRiskAppetite(sIndex.risk_appetite)
                 }
-                if (data.system?.battery?.capacity_kwh != null) {
-                    setBatteryCapacity(data.system.battery.capacity_kwh)
+                // Battery config is at config.battery, not config.system.battery
+                if (data.battery?.capacity_kwh != null) {
+                    setBatteryCapacity(data.battery.capacity_kwh)
+                } else if (data.system?.battery?.capacity_kwh != null) {
+                    setBatteryCapacity(data.system.battery.capacity_kwh) // Fallback
                 }
 
                 // Automation / scheduler config
                 if (data.automation) {
-                    const automation = data.automation
                     setAutomationConfig({
-                        enable_scheduler: automation.enable_scheduler,
-                        write_to_mariadb: automation.write_to_mariadb,
-                        external_executor_mode: automation.external_executor_mode,
-                        // Optional Rev57-style schedule block; falls back to null when absent
-                        every_minutes: automation.schedule?.every_minutes ?? null,
+                        enable_scheduler: data.automation.enable_scheduler,
+                        write_to_mariadb: data.automation.write_to_mariadb,
+                        external_executor_mode: data.automation.external_executor_mode,
+                        every_minutes: data.automation.schedule?.every_minutes ?? null,
                     })
                 } else {
                     setAutomationConfig(null)
                 }
 
-                // Auto-refresh was removed in UI2 - dashboard is now WebSocket-based
-
-                // Load comfort level and vacation mode from water_heating config
                 if (data.water_heating) {
                     if (typeof data.water_heating.comfort_level === 'number') {
                         setComfortLevel(data.water_heating.comfort_level)
@@ -263,78 +275,64 @@ export default function Dashboard() {
                     }
                 }
 
-                // Load vacation mode HA entity ID
                 if (data.input_sensors?.vacation_mode) {
                     setVacationEntityId(data.input_sensors.vacation_mode)
-                    // Immediately fetch the HA entity state if configured
                     Api.haEntityState(data.input_sensors.vacation_mode)
                         .then((entityData) => {
-                            const isActive = entityData.state === 'on'
-                            setVacationModeHA(isActive)
+                            setVacationModeHA(entityData.state === 'on')
                         })
-                        .catch(() => {
-                            // Entity not available, gracefully ignore
-                            setVacationModeHA(false)
-                        })
+                        .catch(() => setVacationModeHA(false))
                 }
             } else {
-                console.error('Failed to load config for Dashboard:', configData.reason)
+                console.error('Failed to load config:', configData.reason)
             }
 
             // Process HA average data
             if (haAverageData.status === 'fulfilled') {
-                const data = haAverageData.value
                 setAvgLoad({
-                    kw: data.average_load_kw ?? 0,
-                    dailyKwh: data.daily_kwh ?? 0,
+                    kw: haAverageData.value.average_load_kw ?? 0,
+                    dailyKwh: haAverageData.value.daily_kwh ?? 0,
                 })
-            } else {
-                console.error('Failed to load HA average for Dashboard:', haAverageData.reason)
             }
 
             // Process schedule data
-            if (scheduleData.status === 'fulfilled') {
+            if (scheduleData.status === 'fulfilled' && scheduleData.value) {
                 const data = scheduleData.value
-                const sched = data.schedule ?? []
-                setLocalSchedule(sched)
-                // Removed todaySlots/pvTotal calculation as it was unused
+                setLocalSchedule(data.schedule ?? [])
 
-                // Check for critical errors in meta
-                if (data.meta?.last_error) {
-                    setLastError({
-                        message: data.meta.last_error,
-                        at: data.meta.last_error_at || '',
+                // Extract plannerMeta from schedule.meta for s-index display
+                if (data.meta) {
+                    setPlannerLocalMeta({
+                        planned_at: data.meta.planned_at as string | undefined,
+                        planner_version: data.meta.planner_version as string | undefined,
+                        s_index: data.meta.s_index as PlannerSIndex | undefined,
                     })
+                }
+
+                if (data.meta?.last_error) {
+                    setLastError({ message: data.meta.last_error, at: data.meta.last_error_at || '' })
                 } else {
                     setLastError(null)
                 }
 
-                // Get current slot target
                 const now = new Date()
-                const currentSlot = sched.find((slot) => {
+                const currentSlot = (data.schedule ?? []).find((slot) => {
                     const slotTime = new Date(slot.start_time || '')
-                    const slotEnd = new Date(slotTime.getTime() + 30 * 60 * 1000) // 30 min slots
+                    const slotEnd = new Date(slotTime.getTime() + 30 * 60 * 1000)
                     return now >= slotTime && now < slotEnd
                 })
                 if (currentSlot?.soc_target_percent !== undefined) {
                     setCurrentSlotTarget(currentSlot.soc_target_percent)
                 }
-            } else {
-                console.error('Failed to load schedule for Dashboard:', scheduleData.reason)
             }
 
             // Process water data
             if (waterData.status === 'fulfilled') {
-                const data = waterData.value
                 setWaterToday({
-                    kwh: data.water_kwh_today ?? 0,
-                    source: data.source ?? 'unknown',
+                    kwh: waterData.value.water_kwh_today ?? 0,
+                    source: waterData.value.source ?? 'unknown',
                 })
-            } else {
-                console.error('Failed to load water data for Dashboard:', waterData.reason)
             }
-
-            // Process water data
 
             // Process scheduler status
             if (schedulerStatusData.status === 'fulfilled') {
@@ -344,60 +342,43 @@ export default function Dashboard() {
                     last_run_status: data.last_run_status ?? null,
                     next_run_at: data.next_run_at ?? null,
                 })
-            } else {
-                console.error('Failed to load scheduler status for Dashboard:', schedulerStatusData.reason)
             }
 
-            // Process execution history for today (for SoC Actual in charts)
+            // Process history
             if (historyData.status === 'fulfilled') {
-                const data = historyData.value
-                const histSlots = data.slots ?? []
-                setHistorySlots(histSlots)
-
-                // No longer calculating stats here - now using Api.energyToday()
-            } else {
-                console.error('Failed to load schedule history for Dashboard:', historyData.reason)
-            }
-
-            // Calculate PV Forecast for today from history slots (if available)
-            let pvForecastSum = 0
-            if (historyData.status === 'fulfilled' && historyData.value.slots) {
-                const todayStart = new Date()
-                todayStart.setHours(0, 0, 0, 0)
-                const todaySlots = historyData.value.slots.filter((s) => {
-                    const slotTime = new Date(s.start_time)
-                    return slotTime >= todayStart
-                })
-                todaySlots.forEach((s) => {
-                    pvForecastSum += s.pv_forecast_kwh ?? 0
-                })
+                setHistorySlots(historyData.value.slots ?? [])
+                // Fallback for PV Forecast if Aurora missing
+                if (pvForecastTotal === 0 && historyData.value.slots) {
+                    const todayStart = new Date()
+                    todayStart.setHours(0, 0, 0, 0)
+                    historyData.value.slots.forEach((s) => {
+                        if (new Date(s.start_time) >= todayStart) {
+                            pvForecastTotal += s.pv_forecast_kwh ?? 0
+                        }
+                    })
+                }
             }
 
             // Process executor status
             if (executorStatusData.status === 'fulfilled') {
-                const data = executorStatusData.value
                 setExecutorStatus({
-                    shadow_mode: data.shadow_mode ?? false,
-                    paused: data.paused ?? null,
+                    shadow_mode: executorStatusData.value.shadow_mode ?? false,
+                    paused: executorStatusData.value.paused ?? null,
                 })
-            } else {
-                console.error('Failed to load executor status for Dashboard:', executorStatusData.reason)
             }
 
-            // Process energy today from HA sensors
-            if (energyTodayData.status === 'fulfilled') {
-                const data = energyTodayData.value
+            // Process energy today
+            if (todayStatsData.status === 'fulfilled') {
+                const data = todayStatsData.value
                 setTodayStats({
-                    gridImport: data.grid_import_kwh,
-                    gridExport: data.grid_export_kwh,
-                    batteryCycles: data.battery_cycles,
-                    pvProduction: data.pv_production_kwh,
-                    pvForecast: Math.round(pvForecastSum * 10) / 10,
-                    loadConsumption: data.load_consumption_kwh,
-                    netCost: data.net_cost_kr,
+                    gridImport: data.grid_import_kwh ?? null,
+                    gridExport: data.grid_export_kwh ?? null,
+                    batteryCycles: data.battery_cycles ?? null,
+                    pvProduction: data.pv_production_kwh ?? null,
+                    pvForecast: pvForecastTotal > 0 ? parseFloat(pvForecastTotal.toFixed(1)) : null,
+                    loadConsumption: data.load_consumption_kwh ?? null,
+                    netCost: data.net_cost_kr ?? null,
                 })
-            } else {
-                console.error('Failed to load energy today for Dashboard:', energyTodayData.reason)
             }
 
             setLastRefresh(new Date())
@@ -416,12 +397,12 @@ export default function Dashboard() {
     useEffect(() => {
         let nextMeta: PlannerMeta = null
         if (currentPlanSource === 'server') {
-            nextMeta = plannerDbMeta
+            nextMeta = null // plannerDbMeta was unused/always null
         } else {
             nextMeta = plannerLocalMeta
         }
         setPlannerMeta(nextMeta)
-    }, [currentPlanSource, plannerLocalMeta, plannerDbMeta])
+    }, [currentPlanSource, plannerLocalMeta])
 
     // Initial data fetch
     useEffect(() => {
@@ -530,7 +511,7 @@ export default function Dashboard() {
     const planBadge = `${freshnessText}${nextActionText}`
 
     // Derive last/next planner runs for automation card
-    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.planned_at || plannerDbMeta?.planned_at
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.planned_at
     const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
     const everyMinutes =
         automationConfig?.every_minutes && automationConfig.every_minutes > 0 ? automationConfig.every_minutes : null
@@ -839,7 +820,12 @@ export default function Dashboard() {
                 <StrategyDomain
                     soc={soc}
                     socTarget={currentSlotTarget}
-                    sIndex={plannerMeta?.s_index?.effective_load_margin ?? null}
+                    sIndex={
+                        plannerMeta?.s_index?.effective_load_margin ??
+                        plannerMeta?.s_index?.risk_factor ??
+                        plannerMeta?.s_index?.factor ??
+                        null
+                    }
                     cycles={todayStats?.batteryCycles ?? null}
                     riskLabel={
                         (

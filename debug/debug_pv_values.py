@@ -3,7 +3,7 @@ import json
 
 def check_pv():
     print("🔍 Checking PV values in schedule.json...")
-    with open("schedule.json", "r") as f:
+    with open("schedule.json") as f:
         data = json.load(f)
 
     min_pv = 0.0

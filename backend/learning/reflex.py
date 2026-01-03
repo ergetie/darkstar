@@ -1,14 +1,11 @@
 import logging
-import os
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-import pandas as pd
-import pytz
 from ruamel.yaml import YAML
 
 from backend.learning.engine import LearningEngine
-from backend.learning.store import LearningStore
 from backend.strategy.history import append_strategy_event
 
 # Configure logging
@@ -61,7 +58,7 @@ class AuroraReflex:
     """
 
     def __init__(self, config_path: str = "config.yaml"):
-        self.config_path = config_path
+        self.config_path = Path(config_path)
         self.learning_engine = LearningEngine(config_path)
         self.store = self.learning_engine.store
         self.yaml = YAML()
@@ -69,10 +66,10 @@ class AuroraReflex:
         self.timezone = self.learning_engine.timezone
 
         # Load current config
-        with open(config_path, "r", encoding="utf-8") as f:
+        with self.config_path.open(encoding="utf-8") as f:
             self.config = self.yaml.load(f)
 
-    def run(self, dry_run: bool = False) -> List[str]:
+    def run(self, dry_run: bool = False) -> list[str]:
         """
         Run all analyzers and apply updates if needed.
         Returns a list of actions taken (or proposed).
@@ -166,7 +163,7 @@ class AuroraReflex:
 
         return new_value
 
-    def analyze_safety(self) -> Tuple[Dict, str]:
+    def analyze_safety(self) -> tuple[dict, str]:
         """
         Monitor low-SoC events during peak hours.
         If SoC < 5% during 16:00-20:00 too often, increase s_index.base_factor.
@@ -178,7 +175,7 @@ class AuroraReflex:
 
         # Check rate limit
         if not self._can_update(param_path):
-            return {}, f"Safety: Rate limited (changed today already)"
+            return {}, "Safety: Rate limited (changed today already)"
 
         # Query low-SoC events
         events_30d = self.store.get_low_soc_events(
@@ -242,7 +239,7 @@ class AuroraReflex:
             f"Safety: Stable ({num_events} events in 30d, base_factor={current_value:.3f})",
         )
 
-    def analyze_confidence(self) -> Tuple[Dict, str]:
+    def analyze_confidence(self) -> tuple[dict, str]:
         """
         Compare PV forecast vs actuals to detect systematic bias.
         If over-predicting (positive bias), lower confidence to increase safety margin.
@@ -317,7 +314,7 @@ class AuroraReflex:
             f"Confidence: Stable (bias={mean_bias:.2f} kWh, MAE={mae:.2f} kWh, {len(df)} samples)",
         )
 
-    def analyze_roi(self) -> Tuple[Dict, str]:
+    def analyze_roi(self) -> tuple[dict, str]:
         """
         Analyze battery ROI by comparing realized profit per cycle vs configured cost.
 
@@ -353,11 +350,11 @@ class AuroraReflex:
             )
 
         # Calculate realized profit per cycle
-        profit_per_cycle = net_profit / cycles if cycles > 0 else 0
+        net_profit / cycles if cycles > 0 else 0
 
         current_cost = self.config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.2)
-        min_val, max_val = BOUNDS[param_path]
-        max_change = MAX_DAILY_CHANGE[param_path]
+        _min_val, _max_val = BOUNDS[param_path]
+        MAX_DAILY_CHANGE[param_path]
 
         # Compare profit per kWh charged vs current cost
         profit_per_kwh = net_profit / total_charge if total_charge > 0 else 0
@@ -387,7 +384,7 @@ class AuroraReflex:
             f"ROI: Stable (profit={profit_per_kwh:.2f} SEK/kWh, {cycles:.1f} cycles, cost={current_cost:.2f})",
         )
 
-    def analyze_capacity(self) -> Tuple[Dict, str]:
+    def analyze_capacity(self) -> tuple[dict, str]:
         """
         Detect battery capacity fade by analyzing discharge efficiency.
 
@@ -434,7 +431,7 @@ class AuroraReflex:
             f"Capacity: Healthy (estimated {estimated:.1f} kWh, configured {current_capacity:.1f} kWh)",
         )
 
-    def update_config(self, updates: Dict[str, Any], dry_run: bool) -> None:
+    def update_config(self, updates: dict[str, Any], dry_run: bool) -> None:
         """
         Apply updates to config.yaml using ruamel.yaml to preserve comments.
         Also logs changes to strategy history and updates reflex state.
@@ -442,7 +439,7 @@ class AuroraReflex:
         updates: dict of "path.to.key" -> new_value
         """
         # Reload config to ensure we have the latest comment structure
-        with open(self.config_path, "r", encoding="utf-8") as f:
+        with self.config_path.open(encoding="utf-8") as f:
             data = self.yaml.load(f)
 
         changes_made = []
@@ -481,7 +478,7 @@ class AuroraReflex:
 
         if not dry_run:
             # Write config
-            with open(self.config_path, "w", encoding="utf-8") as f:
+            with self.config_path.open("w", encoding="utf-8") as f:
                 self.yaml.dump(data, f)
             logger.info("Config saved.")
 

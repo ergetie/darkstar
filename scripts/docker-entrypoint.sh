@@ -102,9 +102,9 @@ log "Recorder started (PID: $RECORDER_PID)"
 # Brief pause to let background services initialize
 sleep 2
 
-# Start Darkstar API with WebSockets (foreground, but backgrounded for wait)
-log "Starting Darkstar API with WebSockets on port 5000..."
-python backend/run.py &
+# Start Darkstar API with FastAPI/Uvicorn (Rev ARC1)
+log "Starting Darkstar ASGI Server (Uvicorn) on port 5000..."
+uvicorn backend.main:app --host 0.0.0.0 --port 5000 --log-level info &
 FLASK_PID=$!
 log "Darkstar started (PID: $FLASK_PID)"
 

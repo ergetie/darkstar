@@ -1,15 +1,15 @@
 import sqlite3
-import yaml
-import pandas as pd
 from datetime import datetime, timedelta
+
 import pytz
+import yaml
 
 
 def explode_rows():
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
     db_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
-    tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
+    pytz.timezone(config.get("timezone", "Europe/Stockholm"))
 
     print(f"--- Exploding Hourly Rows in {db_path} ---")
 

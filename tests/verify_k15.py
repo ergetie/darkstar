@@ -1,17 +1,16 @@
 import os
-import sys
 import sqlite3
-import yaml
+import sys
 from datetime import datetime
-import pandas as pd
-import pytz
+
+import yaml
 
 # Add project root to path
 sys.path.insert(0, os.getcwd())
 
 from backend.learning import get_learning_engine
-from planner.pipeline import PlannerPipeline
 from inputs import get_all_input_data
+from planner.pipeline import PlannerPipeline
 
 
 def verify_db_forecasts():
@@ -54,7 +53,7 @@ def verify_planner_pipeline():
         input_data = get_all_input_data("config.yaml")
 
         # Load config
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
 
         print(f"Config S-Index Mode: {config.get('s_index', {}).get('mode')}")

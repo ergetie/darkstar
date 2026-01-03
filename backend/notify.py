@@ -6,7 +6,6 @@ Tries HA notification first, falls back to Discord webhook.
 """
 
 import logging
-from typing import Optional
 
 import requests
 
@@ -16,10 +15,10 @@ logger = logging.getLogger(__name__)
 def send_critical_notification(
     title: str,
     message: str,
-    ha_service: Optional[str] = None,
-    ha_url: Optional[str] = None,
-    ha_token: Optional[str] = None,
-    discord_webhook_url: Optional[str] = None,
+    ha_service: str | None = None,
+    ha_url: str | None = None,
+    ha_token: str | None = None,
+    discord_webhook_url: str | None = None,
 ) -> bool:
     """
     Send a critical notification with fallback support.

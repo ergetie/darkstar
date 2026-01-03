@@ -1,10 +1,10 @@
 import logging
 import sqlite3
-import pymysql
-import pandas as pd
-from typing import Dict, Any, Optional
 from datetime import datetime
-import pytz
+from typing import Any
+
+import pandas as pd
+import pymysql
 
 from backend.learning.store import LearningStore
 
@@ -17,7 +17,7 @@ class MariaDBSync:
     to the local SQLite LearningStore.
     """
 
-    def __init__(self, store: LearningStore, secrets: Dict[str, Any]):
+    def __init__(self, store: LearningStore, secrets: dict[str, Any]):
         self.store = store
         self.secrets = secrets
         self.db_config = secrets.get("mariadb", {})
@@ -43,11 +43,10 @@ class MariaDBSync:
         count = 0
 
         try:
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    # Fetch plans
-                    query = """
-                        SELECT 
+            with self._connect() as conn, conn.cursor() as cur:
+                # Fetch plans
+                query = """
+                        SELECT
                             slot_start,
                             charge_kw,
                             export_kw,
@@ -59,8 +58,8 @@ class MariaDBSync:
                         WHERE slot_start >= DATE_SUB(NOW(), INTERVAL %s DAY)
                         ORDER BY planned_at DESC
                     """
-                    cur.execute(query, (days_back,))
-                    rows = cur.fetchall()
+                cur.execute(query, (days_back,))
+                rows = cur.fetchall()
 
             if not rows:
                 logger.info("No plans found in MariaDB")
@@ -184,10 +183,9 @@ class MariaDBSync:
         count = 0
 
         try:
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    query = """
-                        SELECT 
+            with self._connect() as conn, conn.cursor() as cur:
+                query = """
+                        SELECT
                             slot_start,
                             planned_charge_kw,
                             planned_export_kw,
@@ -199,8 +197,8 @@ class MariaDBSync:
                         FROM execution_history
                         WHERE slot_start >= DATE_SUB(NOW(), INTERVAL %s DAY)
                     """
-                    cur.execute(query, (days_back,))
-                    rows = cur.fetchall()
+                cur.execute(query, (days_back,))
+                rows = cur.fetchall()
 
             if not rows:
                 return 0
@@ -275,10 +273,9 @@ class MariaDBSync:
         count = 0
 
         try:
-            with self._connect() as conn:
-                with conn.cursor() as cur:
-                    query = """
-                        SELECT 
+            with self._connect() as conn, conn.cursor() as cur:
+                query = """
+                        SELECT
                             slot_start,
                             actual_soc,
                             actual_load_kwh,
@@ -292,8 +289,8 @@ class MariaDBSync:
                         FROM execution_history
                         WHERE slot_start >= DATE_SUB(NOW(), INTERVAL %s DAY)
                     """
-                    cur.execute(query, (days_back,))
-                    rows = cur.fetchall()
+                cur.execute(query, (days_back,))
+                rows = cur.fetchall()
 
             if not rows:
                 return 0

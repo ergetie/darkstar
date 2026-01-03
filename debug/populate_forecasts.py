@@ -1,19 +1,18 @@
-import asyncio
-import yaml
-import pandas as pd
 from datetime import datetime, timedelta
+
 import pytz
+import yaml
+from learning import get_learning_engine
 
 # Import existing tools
-from inputs import get_forecast_data, get_initial_state
-from learning import get_learning_engine
+from inputs import get_forecast_data
 
 
 def force_populate():
     print("🚀 Force-populating database with 7-day forecast...")
 
     # 1. Load Config
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
     # Temporarily disable 'aurora' in memory so get_forecast_data
@@ -34,7 +33,7 @@ def force_populate():
     # 3. Fetch Data (Async)
     # Run forecast logic
     forecast_result = get_forecast_data(price_slots, config)
-    forecast_slots = forecast_result.get("slots", [])
+    forecast_result.get("slots", [])
 
     if not slots:
         print("❌ Failed to generate slots.")

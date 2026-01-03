@@ -1,13 +1,14 @@
 import json
 import logging
+from typing import Any
+
 import requests
-from typing import Dict, Any
 
 logger = logging.getLogger("darkstar.voice")
 
 
 def get_advice(
-    analyst_report: Dict[str, Any], config: Dict[str, Any], secrets: Dict[str, Any]
+    analyst_report: dict[str, Any], config: dict[str, Any], secrets: dict[str, Any]
 ) -> str:
     """
     Send Analyst report to LLM and get a text summary.

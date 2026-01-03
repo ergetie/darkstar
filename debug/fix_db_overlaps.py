@@ -1,6 +1,6 @@
 import sqlite3
+
 import pandas as pd
-from datetime import datetime, timedelta
 import pytz
 
 DB_PATH = "data/planner_learning.db"
@@ -24,7 +24,6 @@ def fix_overlaps():
     # Sort by start ASC, end DESC to handle duplicates (larger one comes first)
     df = df.sort_values(["slot_start", "slot_end"], ascending=[True, False]).reset_index(drop=True)
 
-    overlaps = []
     modifications = []  # (rowid, new_end)
     deletions = []  # rowid
 

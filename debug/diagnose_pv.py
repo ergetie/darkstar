@@ -1,12 +1,13 @@
 from __future__ import annotations
-import pandas as pd
-import numpy as np
+
 from datetime import datetime, timedelta
+
+import pandas as pd
 from learning import get_learning_engine
-from ml.train import _build_time_features, _load_slot_observations
+
 from ml.forward import _load_models
+from ml.train import _build_time_features, _load_slot_observations
 from ml.weather import get_weather_series
-from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
 def diagnose_pv():
@@ -77,7 +78,7 @@ def diagnose_pv():
         pred_contrib = models["pv"].predict(X_input, pred_contrib=True)
         contributions = pred_contrib[0][:-1]
         impacts = sorted(
-            zip(trained_features, contributions), key=lambda x: abs(x[1]), reverse=True
+            zip(trained_features, contributions, strict=False), key=lambda x: abs(x[1]), reverse=True
         )
 
         print("\n   🏆 Top Drivers:")

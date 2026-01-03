@@ -9,7 +9,6 @@ planner; it is a reference for lab work under ml/rl_v2/.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Tuple
 
 
 @dataclass
@@ -43,6 +42,6 @@ class RlV2ActionSpec:
         - export_kw
     """
 
-    def bounds(self) -> Tuple[float, float]:
+    def bounds(self) -> tuple[float, float]:
         # Symmetric generic bounds; concrete env should clamp to config.
         return 0.0, 10.0

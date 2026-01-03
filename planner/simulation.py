@@ -4,12 +4,13 @@ Simulation Module
 Functions for simulating battery state and costs based on a schedule.
 """
 
+from typing import Any
+
 import pandas as pd
-from typing import Any, Dict
 
 
 def simulate_schedule(
-    df: pd.DataFrame, config: Dict[str, Any], initial_state: Dict[str, Any]
+    df: pd.DataFrame, config: dict[str, Any], initial_state: dict[str, Any]
 ) -> pd.DataFrame:
     """
     Simulate a schedule with given battery actions and return the projected results.
@@ -26,8 +27,8 @@ def simulate_schedule(
 
     battery_config = config.get("battery", {})
     capacity_kwh = float(battery_config.get("capacity_kwh", 0.0))
-    min_soc_pct = float(battery_config.get("min_soc_percent", 10.0))
-    max_soc_pct = float(battery_config.get("max_soc_percent", 100.0))
+    float(battery_config.get("min_soc_percent", 10.0))
+    float(battery_config.get("max_soc_percent", 100.0))
 
     # Efficiency
     roundtrip = float(battery_config.get("roundtrip_efficiency_percent", 95.0))

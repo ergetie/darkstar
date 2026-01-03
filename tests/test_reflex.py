@@ -14,22 +14,20 @@ from unittest.mock import MagicMock, patch
 import pytest
 import pytz
 
-from backend.learning.store import LearningStore
 from backend.learning.reflex import (
-    AuroraReflex,
     BOUNDS,
+    CONFIDENCE_BIAS_THRESHOLD,
+    CONFIDENCE_LOOKBACK_DAYS,
+    CONFIDENCE_MIN_SAMPLES,
     MAX_DAILY_CHANGE,
     SAFETY_CRITICAL_EVENT_COUNT,
     SAFETY_LOW_SOC_THRESHOLD,
     SAFETY_PEAK_HOURS,
     SAFETY_RELAXATION_DAYS,
-    CONFIDENCE_BIAS_THRESHOLD,
-    CONFIDENCE_MIN_SAMPLES,
-    CONFIDENCE_LOOKBACK_DAYS,
-    ROI_LOOKBACK_DAYS,
-    ROI_MIN_CYCLES,
-    CAPACITY_FADE_THRESHOLD,
+    AuroraReflex,
 )
+from backend.learning.store import LearningStore
+import contextlib
 
 
 @pytest.fixture
@@ -44,10 +42,8 @@ def temp_db():
     yield db_path, store, tz
 
     # Cleanup
-    try:
+    with contextlib.suppress(OSError):
         os.unlink(db_path)
-    except OSError:
-        pass
 
 
 @pytest.fixture
@@ -68,7 +64,7 @@ class TestLowSocEventsQuery:
 
     def test_no_events_returns_empty(self, temp_db):
         """When no low-SoC events exist, return empty list."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         events = store.get_low_soc_events(days_back=30)
         assert events == []
@@ -160,14 +156,14 @@ class TestReflexState:
 
     def test_get_reflex_state_none_when_new(self, temp_db):
         """New parameters should return None."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         state = store.get_reflex_state("s_index.base_factor")
         assert state is None
 
     def test_update_and_get_reflex_state(self, temp_db):
         """Can store and retrieve reflex state."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         store.update_reflex_state("s_index.base_factor", 1.12)
 
@@ -178,7 +174,7 @@ class TestReflexState:
 
     def test_change_count_increments(self, temp_db):
         """Multiple updates should increment change_count."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         store.update_reflex_state("s_index.base_factor", 1.12)
         store.update_reflex_state("s_index.base_factor", 1.14)
@@ -250,7 +246,7 @@ class TestAnalyzeSafety:
             reflex.timezone = tz
             reflex.learning_engine = MagicMock()
 
-            updates, msg = reflex.analyze_safety()
+            updates, _msg = reflex.analyze_safety()
 
             assert "s_index.base_factor" in updates
             new_value = updates["s_index.base_factor"]
@@ -259,7 +255,7 @@ class TestAnalyzeSafety:
 
     def test_no_events_60d_relaxes_base_factor(self, temp_db, mock_config):
         """With no events in 60 days, should propose decrease."""
-        db_path, store, tz = temp_db
+        _db_path, store, tz = temp_db
 
         # No events inserted - database is empty
 
@@ -270,7 +266,7 @@ class TestAnalyzeSafety:
             reflex.timezone = tz
             reflex.learning_engine = MagicMock()
 
-            updates, msg = reflex.analyze_safety()
+            updates, _msg = reflex.analyze_safety()
 
             assert "s_index.base_factor" in updates
             new_value = updates["s_index.base_factor"]
@@ -279,7 +275,7 @@ class TestAnalyzeSafety:
 
     def test_rate_limit_blocks_same_day_change(self, temp_db, mock_config):
         """Cannot change parameter twice on the same day."""
-        db_path, store, tz = temp_db
+        _db_path, store, tz = temp_db
 
         # Simulate a change made today
         store.update_reflex_state("s_index.base_factor", 1.12)
@@ -334,7 +330,7 @@ class TestAnalyzeSafety:
 
     def test_respects_min_bound(self, temp_db, mock_config):
         """Should not go below minimum bound."""
-        db_path, store, tz = temp_db
+        _db_path, store, tz = temp_db
 
         # Set current value to min
         mock_config["s_index"]["base_factor"] = 1.0
@@ -358,7 +354,7 @@ class TestForecastVsActualQuery:
 
     def test_no_data_returns_empty_df(self, temp_db):
         """When no forecast data exists, return empty DataFrame."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         df = store.get_forecast_vs_actual(days_back=14, target="pv")
         assert len(df) == 0
@@ -578,7 +574,7 @@ class TestArbitrageStats:
 
     def test_empty_returns_zeros(self, temp_db):
         """Empty database should return zeros."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         stats = store.get_arbitrage_stats(days_back=30)
         assert stats["total_export_revenue"] == 0.0
@@ -699,7 +695,7 @@ class TestAnalyzeROI:
             reflex.timezone = tz
             reflex.learning_engine = MagicMock()
 
-            updates, msg = reflex.analyze_roi()
+            updates, _msg = reflex.analyze_roi()
 
             # Should propose increase
             if "battery_economics.battery_cycle_cost_kwh" in updates:
@@ -711,7 +707,7 @@ class TestCapacityEstimate:
 
     def test_insufficient_data_returns_none(self, temp_db):
         """With insufficient data, should return None."""
-        db_path, store, tz = temp_db
+        _db_path, store, _tz = temp_db
 
         estimated = store.get_capacity_estimate(days_back=30)
         assert estimated is None
@@ -756,7 +752,7 @@ class TestAnalyzeCapacity:
 
     def test_insufficient_data_no_change(self, temp_db, mock_config):
         """With insufficient data, should not make changes."""
-        db_path, store, tz = temp_db
+        _db_path, store, tz = temp_db
 
         with patch.object(AuroraReflex, "__init__", lambda self, path: None):
             reflex = AuroraReflex.__new__(AuroraReflex)

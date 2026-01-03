@@ -1,14 +1,15 @@
-import sqlite3
 import json
+import sqlite3
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
 import pandas as pd
-import numpy as np
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
+
 from backend.learning.store import LearningStore
 
 
 class Analyst:
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
         self.learning_config = config.get("learning", {})
         self.store = LearningStore(
@@ -16,7 +17,7 @@ class Analyst:
             config.get("timezone", "Europe/Stockholm"),
         )
 
-    def analyze_forecast_accuracy(self, days: int = 7) -> Dict[str, Any]:
+    def analyze_forecast_accuracy(self, days: int = 7) -> dict[str, Any]:
         """
         Analyze forecast accuracy over the last N days.
         Returns bias metrics for Load and PV.
@@ -29,7 +30,7 @@ class Analyst:
         # Since we don't have a direct join table, we fetch both and merge in pandas.
 
         # Fetch Observations (Actuals)
-        end_date = datetime.now(timezone.utc)
+        end_date = datetime.now(UTC)
         start_date = end_date - timedelta(days=days)
 
         obs_df = self._fetch_observations(start_date, end_date)
@@ -138,7 +139,7 @@ class Analyst:
             with sqlite3.connect(self.store.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO learning_daily_metrics 
+                    INSERT OR REPLACE INTO learning_daily_metrics
                     (date, pv_adjustment_by_hour_kwh, load_adjustment_by_hour_kwh, s_index_base_factor, updated_at)
                     VALUES (?, ?, ?, ?, ?)
                     """,
@@ -147,7 +148,7 @@ class Analyst:
                         json.dumps(pv_adj),
                         json.dumps(load_adj),
                         s_index_base_factor,
-                        datetime.now(timezone.utc).isoformat(),
+                        datetime.now(UTC).isoformat(),
                     ),
                 )
                 conn.commit()
@@ -158,7 +159,7 @@ class Analyst:
         except Exception as e:
             print(f"Analyst: Failed to write overlays: {e}")
 
-    def _calculate_new_s_index_base_factor(self, global_bias: Dict[str, float]) -> float:
+    def _calculate_new_s_index_base_factor(self, global_bias: dict[str, float]) -> float:
         """
         Calculate updated s_index_base_factor based on forecast bias.
 
@@ -184,8 +185,8 @@ class Analyst:
             with sqlite3.connect(self.store.db_path) as conn:
                 cursor = conn.execute(
                     """
-                    SELECT s_index_base_factor FROM learning_daily_metrics 
-                    WHERE s_index_base_factor IS NOT NULL 
+                    SELECT s_index_base_factor FROM learning_daily_metrics
+                    WHERE s_index_base_factor IS NOT NULL
                     ORDER BY date DESC LIMIT 1
                     """
                 )
@@ -228,16 +229,8 @@ class Analyst:
                 if not df.empty:
                     df["slot_start"] = pd.to_datetime(df["slot_start"], utc=True)
                     # Convert start/end to UTC for comparison
-                    start_utc = (
-                        start.astimezone(timezone.utc)
-                        if start.tzinfo
-                        else start.replace(tzinfo=timezone.utc)
-                    )
-                    end_utc = (
-                        end.astimezone(timezone.utc)
-                        if end.tzinfo
-                        else end.replace(tzinfo=timezone.utc)
-                    )
+                    start_utc = start.astimezone(UTC) if start.tzinfo else start.replace(tzinfo=UTC)
+                    end_utc = end.astimezone(UTC) if end.tzinfo else end.replace(tzinfo=UTC)
 
                     df = df[(df["slot_start"] >= start_utc) & (df["slot_start"] <= end_utc)]
                 return df
@@ -254,16 +247,8 @@ class Analyst:
                 if not df.empty:
                     df["slot_start"] = pd.to_datetime(df["slot_start"], utc=True)
                     # Convert start/end to UTC for comparison
-                    start_utc = (
-                        start.astimezone(timezone.utc)
-                        if start.tzinfo
-                        else start.replace(tzinfo=timezone.utc)
-                    )
-                    end_utc = (
-                        end.astimezone(timezone.utc)
-                        if end.tzinfo
-                        else end.replace(tzinfo=timezone.utc)
-                    )
+                    start_utc = start.astimezone(UTC) if start.tzinfo else start.replace(tzinfo=UTC)
+                    end_utc = end.astimezone(UTC) if end.tzinfo else end.replace(tzinfo=UTC)
 
                     df = df[(df["slot_start"] >= start_utc) & (df["slot_start"] <= end_utc)]
                 return df

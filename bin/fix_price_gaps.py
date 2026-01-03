@@ -1,11 +1,11 @@
 import sqlite3
+
 import yaml
-import os
 
 
 def fix_price_gaps():
     # Load config to find DB
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
     db_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
 

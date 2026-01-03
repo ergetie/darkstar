@@ -1,20 +1,14 @@
-import eventlet
-eventlet.monkey_patch()
-
-import os
 import logging
-import sys
-# Project root is assumed to be in PYTHONPATH
+import os
 
-# Configure logging for the runner
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("darkstar.run")
+import uvicorn
 
-# Import after monkey_patching
-from backend.webapp import app
-from backend.extensions import socketio
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    logger = logging.getLogger("darkstar.run")
 
-if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    logger.info(f"🚀 Starting Darkstar with WebSockets on port {port}...")
-    socketio.run(app, host='0.0.0.0', port=port, log_output=True)
+    logger.info(f"🚀 Starting Darkstar (Rev ARC1) with Uvicorn on port {port}...")
+
+    # Run Uvicorn specifically
+    uvicorn.run("backend.main:app", host="0.0.0.0", port=port, reload=True, log_level="info")

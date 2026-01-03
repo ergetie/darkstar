@@ -1,8 +1,9 @@
 import asyncio
-import yaml
 import json
 import ssl
 from datetime import datetime
+
+import yaml
 
 try:
     import websockets
@@ -12,9 +13,9 @@ except ImportError:
 
 
 async def check_sum():
-    with open("secrets.yaml", "r") as f:
+    with open("secrets.yaml") as f:
         secrets = yaml.safe_load(f)
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
     ha = secrets.get("home_assistant", {})
@@ -37,7 +38,7 @@ async def check_sum():
         ssl_context.verify_mode = ssl.CERT_NONE
 
     print(f"--- Auditing {entity_id} ---")
-    print(f"Target Date: 2025-11-08")
+    print("Target Date: 2025-11-08")
 
     async with websockets.connect(ws_url, ssl=ssl_context) as ws:
         # Auth
@@ -74,7 +75,7 @@ async def check_sum():
 
         print("-" * 55)
         print(f"TOTAL DAILY LOAD (Calculated): {total_change:.3f} kWh")
-        print(f"EXPECTED (User):              ~23.600 kWh")
+        print("EXPECTED (User):              ~23.600 kWh")
 
 
 if __name__ == "__main__":

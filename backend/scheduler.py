@@ -2,16 +2,18 @@ import json
 import os
 import random
 import time
-from dataclasses import dataclass, asdict
-from datetime import datetime, timedelta, timezone
+from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, cast
 
-from bin.run_planner import main as run_planner_main, load_yaml
 import pytz
 import requests
-from ml.train import train_models
+import yaml
+
 from backend.learning.reflex import AuroraReflex
+from bin.run_planner import main as run_planner_main
+from ml.train import train_models
 
 
 @dataclass
@@ -20,7 +22,7 @@ class SchedulerConfig:
     every_minutes: int
     jitter_minutes: int
     ml_training_enabled: bool = False
-    ml_training_days: Tuple[int, ...] = ()
+    ml_training_days: tuple[int, ...] = ()
     ml_training_time: str = "03:00"
     timezone: str = "UTC"
 
@@ -30,11 +32,11 @@ class SchedulerStatus:
     enabled: bool
     every_minutes: int
     jitter_minutes: int
-    last_run_at: Optional[str] = None
-    next_run_at: Optional[str] = None
-    last_run_status: Optional[str] = None
-    last_error: Optional[str] = None
-    ml_training_last_run_at: Optional[str] = None
+    last_run_at: str | None = None
+    next_run_at: str | None = None
+    last_run_status: str | None = None
+    last_error: str | None = None
+    ml_training_last_run_at: str | None = None
 
 
 STATUS_PATH = Path("data") / "scheduler_status.json"
@@ -44,16 +46,35 @@ def _ensure_data_dir() -> None:
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+def load_yaml(path: str) -> dict[str, Any]:
+    try:
+        data_path = Path(path)
+        with data_path.open(encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return cast("dict[str, Any]", data) if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
     cfg = load_yaml(config_path)
-    automation = cfg.get("automation", {}) or {}
+
+    automation: dict[str, Any] = (
+        cfg.get("automation", {}) if isinstance(cfg.get("automation"), dict) else {}
+    )
+
     enabled = bool(automation.get("enable_scheduler", False))
-    schedule = automation.get("schedule", {}) or {}
-    raw_every = schedule.get("every_minutes")
-    raw_jitter = schedule.get("jitter_minutes", 0)
+
+    raw_schedule = automation.get("schedule", {})
+    schedule: dict[str, Any] = (
+        cast("dict[str, Any]", raw_schedule) if isinstance(raw_schedule, dict) else {}
+    )
+
+    raw_every: Any = schedule.get("every_minutes")
+    raw_jitter: Any = schedule.get("jitter_minutes", 0)
 
     try:
-        every_minutes = int(raw_every)
+        every_minutes = int(raw_every)  # type: ignore
     except (TypeError, ValueError):
         every_minutes = 60
     if every_minutes < 15:
@@ -67,9 +88,17 @@ def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
         jitter_minutes = 0
 
     # ML Training Config
-    ml_cfg = automation.get("ml_training", {}) or {}
+    raw_ml_cfg = automation.get("ml_training", {})
+    ml_cfg: dict[str, Any] = (
+        cast("dict[str, Any]", raw_ml_cfg) if isinstance(raw_ml_cfg, dict) else {}
+    )
+
     ml_enabled = bool(ml_cfg.get("enabled", False))
-    ml_days = tuple(ml_cfg.get("run_days", []))
+    raw_days: Any = ml_cfg.get("run_days", [])
+    ml_days: tuple[int, ...] = (
+        tuple(cast("list[int]", raw_days)) if isinstance(raw_days, list) else ()
+    )
+
     ml_time = str(ml_cfg.get("run_time", "03:00"))
 
     # System Timezone
@@ -90,16 +119,19 @@ def check_dependencies(cfg_or_dict: Any) -> bool:
     """Check availability of critical dependencies (HA) before retrying."""
 
     # We need the FULL config to get HA URL/Token, not just SchedulerConfig wrapper.
-    try:
-        full_cfg = load_yaml("config.yaml")
-    except Exception:
-        return False
+    full_cfg = load_yaml("config.yaml")
 
-    ha_cfg = full_cfg.get("home_assistant", {}) or {}
+    raw_ha = full_cfg.get("home_assistant", {})
+    ha_cfg: dict[str, Any] = cast("dict[str, Any]", raw_ha) if isinstance(raw_ha, dict) else {}
 
     # Try Supervisor first (Add-on mode), then Config (Docker mode)
-    ha_url = os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core" or ha_cfg.get("url")
-    ha_token = os.environ.get("SUPERVISOR_TOKEN") or ha_cfg.get("token")
+    ha_url: str | None = os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core"
+    if not ha_url:
+        ha_url = str(ha_cfg.get("url")) if ha_cfg.get("url") else None
+
+    ha_token: str | None = os.environ.get("SUPERVISOR_TOKEN") or (
+        str(ha_cfg.get("token")) if ha_cfg.get("token") else None
+    )
 
     if ha_url and ha_token:
         try:
@@ -131,7 +163,10 @@ def load_status() -> SchedulerStatus:
 
     try:
         with STATUS_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f) or {}
+            raw_data = json.load(f)
+            data: dict[str, Any] = (
+                cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
+            )
     except Exception:
         cfg = load_scheduler_config()
         return SchedulerStatus(
@@ -144,19 +179,21 @@ def load_status() -> SchedulerStatus:
 
     return SchedulerStatus(
         enabled=bool(data.get("enabled", cfg.enabled)),
-        every_minutes=int(data.get("every_minutes", cfg.every_minutes)),
-        jitter_minutes=int(data.get("jitter_minutes", cfg.jitter_minutes)),
-        last_run_at=data.get("last_run_at"),
-        next_run_at=data.get("next_run_at"),
-        last_run_status=data.get("last_run_status"),
-        last_error=data.get("last_error"),
-        ml_training_last_run_at=data.get("ml_training_last_run_at"),
+        every_minutes=int(data.get("every_minutes", cfg.every_minutes) or 60),
+        jitter_minutes=int(data.get("jitter_minutes", cfg.jitter_minutes) or 0),
+        last_run_at=str(data.get("last_run_at")) if data.get("last_run_at") else None,
+        next_run_at=str(data.get("next_run_at")) if data.get("next_run_at") else None,
+        last_run_status=str(data.get("last_run_status")) if data.get("last_run_status") else None,
+        last_error=str(data.get("last_error")) if data.get("last_error") else None,
+        ml_training_last_run_at=str(data.get("ml_training_last_run_at"))
+        if data.get("ml_training_last_run_at")
+        else None,
     )
 
 
 def save_status(status: SchedulerStatus) -> None:
     _ensure_data_dir()
-    payload: Dict[str, Any] = asdict(status)
+    payload: dict[str, Any] = asdict(status)
     with STATUS_PATH.open("w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -173,7 +210,7 @@ def _maybe_init_next_run(status: SchedulerStatus, cfg: SchedulerConfig) -> Sched
     if status.next_run_at:
         return status
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if status.last_run_at:
         try:
             last = datetime.fromisoformat(status.last_run_at)
@@ -190,7 +227,7 @@ def _maybe_init_next_run(status: SchedulerStatus, cfg: SchedulerConfig) -> Sched
     return status
 
 
-def run_planner_once() -> Tuple[bool, Optional[str]]:
+def run_planner_once() -> tuple[bool, str | None]:
     try:
         code = run_planner_main()
         if code == 0:
@@ -200,7 +237,7 @@ def run_planner_once() -> Tuple[bool, Optional[str]]:
         return False, str(exc)
 
 
-def run_reflex_once() -> Tuple[bool, Optional[str]]:
+def run_reflex_once() -> tuple[bool, str | None]:
     try:
         reflex = AuroraReflex()
         report = reflex.run()
@@ -211,8 +248,8 @@ def run_reflex_once() -> Tuple[bool, Optional[str]]:
 
 
 def get_last_scheduled_time(
-    run_days: Tuple[int, ...], run_time_str: str, timezone_str: str
-) -> Optional[datetime]:
+    run_days: tuple[int, ...], run_time_str: str, timezone_str: str
+) -> datetime | None:
     """
     Calculate the most recent past occurrence of the schedule.
     run_days: List of integers (0=Monday, ... 6=Sunday).
@@ -229,7 +266,7 @@ def get_last_scheduled_time(
         target_hour, target_minute = map(int, run_time_str.split(":"))
 
         # Check the last 14 days (covering 2 weeks) to find the most recent slot
-        candidates = []
+        candidates: list[datetime] = []
         for days_back in range(15):
             d = now - timedelta(days=days_back)
             if d.weekday() in run_days:
@@ -249,7 +286,7 @@ def get_last_scheduled_time(
         return None
 
 
-def run_ml_training_task() -> Tuple[bool, Optional[str]]:
+def run_ml_training_task() -> tuple[bool, str | None]:
     """Safe wrapper for ML training task."""
     print("[scheduler] Starting ML Training Task...")
     try:
@@ -264,6 +301,16 @@ def run_ml_training_task() -> Tuple[bool, Optional[str]]:
 
 
 def main() -> int:
+    import sys
+
+    if "--once" in sys.argv:
+        print("[scheduler] Running in ONE-SHOT mode.")
+        ok, err = run_planner_once()
+        if not ok:
+            print(f"[scheduler] One-shot run failed: {err}")
+            return 1
+        print("[scheduler] One-shot run success.")
+        return 0
 
     cfg = load_scheduler_config()
     status = load_status()
@@ -288,7 +335,7 @@ def main() -> int:
         status.jitter_minutes = cfg.jitter_minutes
 
         # --- Aurora Reflex Daily Job (04:00 AM) ---
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         # Convert to local time for 4 AM check (assuming Europe/Stockholm from config)
         # We'll just use UTC for simplicity or rely on the fact that the machine
         # is likely in local time or we want 4 AM UTC.
@@ -303,7 +350,6 @@ def main() -> int:
 
         # --- ML Training Catch-Up Logic ---
         if cfg.ml_training_enabled:
-
             # 1. Determine "Last Valid Slot"
             last_scheduled_slot = get_last_scheduled_time(
                 cfg.ml_training_days, cfg.ml_training_time, cfg.timezone
@@ -339,7 +385,7 @@ def main() -> int:
 
                     # Update status
                     if ml_ok:
-                        now_utc = datetime.now(timezone.utc)
+                        now_utc = datetime.now(UTC)
                         status.ml_training_last_run_at = now_utc.isoformat()
                         save_status(status)
                         print("[scheduler] ML Training Completed Successfully.")
@@ -348,7 +394,6 @@ def main() -> int:
         # ----------------------------------
 
         if not cfg.enabled:
-
             save_status(status)
             continue
 
@@ -360,9 +405,9 @@ def main() -> int:
         if now < next_run:
             continue
 
-        started_at = datetime.now(timezone.utc)
+        started_at = datetime.now(UTC)
         ok, error = run_planner_once()
-        finished_at = datetime.now(timezone.utc)
+        finished_at = datetime.now(UTC)
 
         if not ok:
             print(f"[scheduler] Planner Failed: {error}. Entering Smart Retry Mode.")
@@ -388,13 +433,12 @@ def main() -> int:
                 if check_dependencies(cfg):
                     print("[scheduler] Dependencies recovered! Triggering immediate re-plan.")
                     # Schedule "now" so the loop picks it up immediately
-                    status.next_run_at = datetime.now(timezone.utc).isoformat()
+                    status.next_run_at = datetime.now(UTC).isoformat()
                     save_status(status)
                     break
                 else:
                     print(
-                        f"[scheduler] Dependencies still down. "
-                        f"Retrying in {retry_interval_s}s..."
+                        f"[scheduler] Dependencies still down. Retrying in {retry_interval_s}s..."
                     )
 
             continue

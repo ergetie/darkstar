@@ -1,25 +1,24 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict
 
 import pandas as pd
 import pytz
 import requests
 import yaml
 
-from inputs import _make_ha_headers, load_home_assistant_config
+from inputs import make_ha_headers, load_home_assistant_config
 
 
-def _load_config(config_path: str = "config.yaml") -> Dict:
-    with open(config_path, "r", encoding="utf-8") as f:
+def _load_config(config_path: str = "config.yaml") -> dict:
+    with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
 def get_vacation_mode_series(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
 ) -> pd.Series:
@@ -42,7 +41,7 @@ def get_vacation_mode_series(
     if not url or not token:
         return pd.Series(dtype="float32")
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,
@@ -103,7 +102,7 @@ def get_vacation_mode_series(
 def get_alarm_armed_series(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
 ) -> pd.Series:
@@ -125,7 +124,7 @@ def get_alarm_armed_series(
     if not url or not token:
         return pd.Series(dtype="float32")
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,

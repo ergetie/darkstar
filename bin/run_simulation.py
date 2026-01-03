@@ -2,13 +2,13 @@
 
 import argparse
 import copy
-import learning
 import math
 import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 
+import learning
 import pandas as pd
 import pytz
 import yaml
@@ -63,7 +63,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        with open("config.yaml", "r", encoding="utf-8") as fp:
+        with open("config.yaml", encoding="utf-8") as fp:
             base_config = yaml.safe_load(fp) or {}
     except FileNotFoundError:
         print("config.yaml not found. Please run from project root.")
@@ -126,8 +126,7 @@ def main() -> int:
                 )
                 if first_slot and last_slot:
                     print(
-                        "[simulation] Available observation range is "
-                        f"{first_slot} → {last_slot}."
+                        f"[simulation] Available observation range is {first_slot} → {last_slot}."
                     )
                 else:
                     print(

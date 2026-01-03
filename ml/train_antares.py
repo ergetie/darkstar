@@ -7,15 +7,15 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from learning import LearningEngine, get_learning_engine
+
 from ml.api import get_antares_slots
 from ml.train import _build_time_features
-
 
 TARGET_COLUMNS = ["batt_charge_kwh", "batt_discharge_kwh", "export_kwh"]
 
@@ -82,7 +82,7 @@ def _ensure_training_runs_table(db_path: str) -> None:
         conn.commit()
 
 
-def _build_feature_frame(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
+def _build_feature_frame(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     data = df.copy()
     data["slot_start"] = pd.to_datetime(
         data["slot_start"],
@@ -94,7 +94,7 @@ def _build_feature_frame(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
 
     data = _build_time_features(data)
 
-    feature_cols: List[str] = [
+    feature_cols: list[str] = [
         "hour",
         "day_of_week",
         "month",
@@ -121,20 +121,19 @@ def _build_feature_frame(df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
     return data, feature_cols
 
 
-def _split_train_val(data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
+def _split_train_val(data: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     dates = sorted(data["episode_date_dt"].unique())
     if not dates:
         return data.iloc[0:0].copy(), data.iloc[0:0].copy()
 
     if len(dates) == 1:
         train_dates = set(dates)
-        val_dates: set = set()
     else:
         split_index = int(len(dates) * 0.8)
         if split_index <= 0:
             split_index = 1
         train_dates = set(dates[:split_index])
-        val_dates = set(dates[split_index:])
+        set(dates[split_index:])
 
     data = data.copy()
     data["is_train"] = data["episode_date_dt"].isin(train_dates)
@@ -146,13 +145,12 @@ def _split_train_val(data: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame]:
 def _train_target_model(
     target: str,
     full_data: pd.DataFrame,
-    feature_cols: List[str],
+    feature_cols: list[str],
     min_samples: int,
-) -> Tuple[lgb.LGBMRegressor | None, Dict[str, Any]]:
+) -> tuple[lgb.LGBMRegressor | None, dict[str, Any]]:
     data = full_data.copy()
-    if target in ("batt_charge_kwh", "batt_discharge_kwh"):
-        if "battery_masked" in data.columns:
-            data = data[~data["battery_masked"].astype(bool)]
+    if target in ("batt_charge_kwh", "batt_discharge_kwh") and "battery_masked" in data.columns:
+        data = data[~data["battery_masked"].astype(bool)]
 
     data = data[data[target].notnull()]
     if data.empty:
@@ -187,8 +185,8 @@ def _train_target_model(
 
     if len(X_train) < min_samples:
         return None, {
-            "train_samples": int(len(X_train)),
-            "val_samples": int(len(val_subset)),
+            "train_samples": len(X_train),
+            "val_samples": len(val_subset),
             "mae": None,
             "rmse": None,
         }
@@ -222,9 +220,9 @@ def _train_target_model(
             mae = float(np.mean(np.abs(err)))
             rmse = float(np.sqrt(np.mean(err**2)))
 
-    metrics: Dict[str, Any] = {
-        "train_samples": int(len(X_train)),
-        "val_samples": int(len(val_subset)),
+    metrics: dict[str, Any] = {
+        "train_samples": len(X_train),
+        "val_samples": len(val_subset),
         "mae": mae,
         "rmse": rmse,
     }
@@ -232,7 +230,7 @@ def _train_target_model(
 
 
 def _save_models(
-    models: Dict[str, lgb.LGBMRegressor],
+    models: dict[str, lgb.LGBMRegressor],
     base_dir: Path,
     run_id: str,
 ) -> Path:
@@ -254,7 +252,7 @@ def _log_training_run(
     cfg: TrainingConfig,
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
-    metrics: Dict[str, Any],
+    metrics: dict[str, Any],
     artifact_dir: Path,
 ) -> None:
     train_dates = sorted(train_df["episode_date_dt"].unique())
@@ -338,8 +336,8 @@ def main() -> int:
         return 1
 
     run_id = str(uuid.uuid4())
-    models: Dict[str, lgb.LGBMRegressor] = {}
-    target_metrics: Dict[str, Any] = {}
+    models: dict[str, lgb.LGBMRegressor] = {}
+    target_metrics: dict[str, Any] = {}
 
     for target in TARGET_COLUMNS:
         if target not in data.columns:
@@ -367,7 +365,7 @@ def main() -> int:
 
     artifact_dir = _save_models(models, cfg.models_dir, run_id)
 
-    baseline_cost_stats: Dict[str, Any] = {}
+    baseline_cost_stats: dict[str, Any] = {}
     if not val_df.empty:
         if {"import_kwh", "export_kwh", "import_price_sek_kwh", "export_price_sek_kwh"}.issubset(
             val_df.columns

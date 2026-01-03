@@ -1,6 +1,6 @@
 import json
 import sqlite3
-from typing import Any, Dict, Optional
+from typing import Any
 
 from learning import LearningEngine
 
@@ -32,7 +32,7 @@ def main() -> None:
         system_id: str = "simulation"
         if context_json:
             try:
-                ctx: Dict[str, Any] = json.loads(context_json)
+                ctx: dict[str, Any] = json.loads(context_json)
                 system_id = str(ctx.get("system_id") or system_id)
             except Exception:
                 system_id = "simulation"

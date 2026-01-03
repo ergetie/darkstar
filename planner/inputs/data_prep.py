@@ -7,7 +7,7 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pandas as pd
 import pytz
@@ -147,7 +147,7 @@ def build_forecast_dataframe(forecast_data: list, tz_name: str) -> pd.DataFrame:
     return df
 
 
-def prepare_df(input_data: Dict[str, Any], tz_name: Optional[str] = None) -> pd.DataFrame:
+def prepare_df(input_data: dict[str, Any], tz_name: str | None = None) -> pd.DataFrame:
     """
     Merge price and forecast feeds by timestamp and return a timezone-aware DataFrame.
 
@@ -179,8 +179,8 @@ def prepare_df(input_data: Dict[str, Any], tz_name: Optional[str] = None) -> pd.
 
 def apply_safety_margins(
     df: pd.DataFrame,
-    config: Dict[str, Any],
-    overlays: Dict[str, Any],
+    config: dict[str, Any],
+    overlays: dict[str, Any],
     effective_load_margin: float,
 ) -> pd.DataFrame:
     """
@@ -218,18 +218,16 @@ def apply_safety_margins(
             local_index = df.index.tz_localize(tz)
 
         hours = local_index.hour
-        if pv_adj:
-            if len(pv_adj) == 24:
-                # Apply adjustment and clamp to 0 to prevent negative PV
-                raw_pv = df["adjusted_pv_kwh"] + hours.map(lambda h: float(pv_adj[h])).values
-                df["adjusted_pv_kwh"] = raw_pv.clip(lower=0.0)
-        if load_adj:
-            if len(load_adj) == 24:
-                # Apply adjustment and clamp to 0 to prevent negative load
-                raw_adjusted = (
-                    df["adjusted_load_kwh"] + hours.map(lambda h: float(load_adj[h])).values
-                )
-                df["adjusted_load_kwh"] = raw_adjusted.clip(lower=0.0)
+        if pv_adj and len(pv_adj) == 24:
+            # Apply adjustment and clamp to 0 to prevent negative PV
+            raw_pv = df["adjusted_pv_kwh"] + hours.map(lambda h: float(pv_adj[h])).values
+            df["adjusted_pv_kwh"] = raw_pv.clip(lower=0.0)
+        if load_adj and len(load_adj) == 24:
+            # Apply adjustment and clamp to 0 to prevent negative load
+            raw_adjusted = (
+                df["adjusted_load_kwh"] + hours.map(lambda h: float(load_adj[h])).values
+            )
+            df["adjusted_load_kwh"] = raw_adjusted.clip(lower=0.0)
 
     return df
 

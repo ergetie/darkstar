@@ -1,20 +1,20 @@
-import unittest
 import os
-import json
 import shutil
-from backend.strategy.history import append_strategy_event, get_strategy_history, HISTORY_FILE
+import unittest
+
+from backend.strategy.history import HISTORY_FILE, append_strategy_event, get_strategy_history
 
 
 class TestStrategyHistory(unittest.TestCase):
     def setUp(self):
-        # Backup existing history if any
-        if os.path.exists(HISTORY_FILE):
-            shutil.move(HISTORY_FILE, HISTORY_FILE + ".bak")
+        # Backup existing history if it exists
+        if HISTORY_FILE.exists():
+            shutil.move(HISTORY_FILE, str(HISTORY_FILE) + ".bak")
 
     def tearDown(self):
         # Restore backup
-        if os.path.exists(HISTORY_FILE + ".bak"):
-            shutil.move(HISTORY_FILE + ".bak", HISTORY_FILE)
+        if os.path.exists(str(HISTORY_FILE) + ".bak"):
+            shutil.move(str(HISTORY_FILE) + ".bak", HISTORY_FILE)
         elif os.path.exists(HISTORY_FILE):
             os.remove(HISTORY_FILE)
 

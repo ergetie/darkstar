@@ -1,9 +1,10 @@
 import sqlite3
+
 import yaml
 
 
 def fix_load_gaps():
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
     db_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
 

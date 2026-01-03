@@ -1,8 +1,7 @@
-import time
-import torch
-import gymnasium as gym
-import numpy as np
 import argparse
+import time
+
+import torch
 from stable_baselines3 import PPO
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import SubprocVecEnv

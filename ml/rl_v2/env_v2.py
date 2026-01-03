@@ -20,14 +20,13 @@ Reward is the negative slot cost:
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import date as _date_cls, datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any
 
-import sqlite3
 import numpy as np
 import pandas as pd
-import pytz
 
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.simulation.data_loader import SimulationDataLoader
@@ -40,7 +39,7 @@ class RlV2StepResult:
     next_state: np.ndarray
     reward: float
     done: bool
-    info: Dict[str, Any]
+    info: dict[str, Any]
 
 
 class AntaresEnvV2:
@@ -72,8 +71,8 @@ class AntaresEnvV2:
 
         self._state_spec = RlV2StateSpec(seq_len=seq_len)
 
-        self._day: Optional[_date_cls] = None
-        self._df: Optional[pd.DataFrame] = None
+        self._day: _date_cls | None = None
+        self._df: pd.DataFrame | None = None
         self._current_idx: int = 0
 
         self._soc_kwh: float = 0.0
@@ -206,7 +205,7 @@ class AntaresEnvV2:
         state[2 + seq_len :] = net_load_seq
         return state
 
-    def step(self, action: Optional[Dict[str, float]]) -> RlV2StepResult:
+    def step(self, action: dict[str, float] | None) -> RlV2StepResult:
         """Advance one slot using the requested battery actions."""
         if self._df is None or self._day is None:
             raise RuntimeError("AntaresEnvV2.reset() must be called before step().")
@@ -300,7 +299,7 @@ class AntaresEnvV2:
             reward -= terminal_penalty
             slot_cost += terminal_penalty
 
-        info: Dict[str, Any] = {
+        info: dict[str, Any] = {
             "day": self._day.isoformat(),
             "index": idx,
             "done": done,

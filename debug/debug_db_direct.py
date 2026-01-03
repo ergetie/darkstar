@@ -1,6 +1,5 @@
-import sqlite3
 import os
-import sys
+import sqlite3
 
 DB_PATH = "learning.db"  # Default guess, checking list_dir next
 

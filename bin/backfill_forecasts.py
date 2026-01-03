@@ -1,16 +1,15 @@
 import asyncio
+import os
 import sqlite3
 import sys
-import os
-from datetime import datetime, timedelta
-import pytz
+from datetime import timedelta
+
 import pandas as pd
-import yaml
+import pytz
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from ml.simulation.ha_client import HomeAssistantHistoryClient
 from ml.simulation.data_loader import SimulationDataLoader
 
 DB_PATH = "data/planner_learning.db"

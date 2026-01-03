@@ -5,9 +5,10 @@ Mixed-Integer Linear Programming solver for optimal battery scheduling.
 Migrated from backend/kepler/solver.py during Rev K13 modularization.
 """
 
-import pulp
 from collections import defaultdict
-from typing import List
+
+import pulp
+
 from .types import KeplerConfig, KeplerInput, KeplerResult, KeplerResultSlot
 
 
@@ -48,9 +49,9 @@ class KeplerSolver:
             water_start = pulp.LpVariable.dicts("water_start", range(T), cat="Binary")
             water_spacing_viol = pulp.LpVariable.dicts("water_spacing_viol", range(T), cat="Binary")
         else:
-            water_heat = {t: 0 for t in range(T)}
-            water_start = {t: 0 for t in range(T)}
-            water_spacing_viol = {t: 0 for t in range(T)}
+            water_heat = dict.fromkeys(range(T), 0)
+            water_start = dict.fromkeys(range(T), 0)
+            water_spacing_viol = dict.fromkeys(range(T), 0)
 
         # SoC state variables (T+1 states for T slots)
 
@@ -64,7 +65,9 @@ class KeplerSolver:
 
         # Slack variables
         soc_violation = pulp.LpVariable.dicts("soc_violation_kwh", range(T + 1), lowBound=0.0)
-        target_violation = pulp.LpVariable("target_violation_kwh", lowBound=0.0)  # End-of-horizon target
+        target_violation = pulp.LpVariable(
+            "target_violation_kwh", lowBound=0.0
+        )  # End-of-horizon target
         import_breach = pulp.LpVariable.dicts("import_breach_kwh", range(T), lowBound=0.0)
         ramp_up = pulp.LpVariable.dicts("ramp_up_kwh", range(T), lowBound=0.0)
         ramp_down = pulp.LpVariable.dicts("ramp_down_kwh", range(T), lowBound=0.0)
@@ -77,7 +80,7 @@ class KeplerSolver:
         total_cost = []
 
         # Penalty constants
-        MIN_SOC_PENALTY = 1000.0      # Hard constraint - don't violate min_soc!
+        MIN_SOC_PENALTY = 1000.0  # Hard constraint - don't violate min_soc!
         # Target penalty comes from config (derived from risk_appetite in pipeline)
         target_soc_penalty = config.target_soc_penalty_sek
         CURTAILMENT_PENALTY = 0.1
@@ -89,7 +92,9 @@ class KeplerSolver:
             h = slot_hours[t]
 
             # Water heating load for this slot (kWh)
-            water_load_kwh = water_heat[t] * config.water_heating_power_kw * h if water_enabled else 0
+            water_load_kwh = (
+                water_heat[t] * config.water_heating_power_kw * h if water_enabled else 0
+            )
 
             # Energy Balance Constraint (water load added to demand side)
             prob += (
@@ -102,7 +107,7 @@ class KeplerSolver:
                 if t == 0:
                     prob += water_start[t] == water_heat[t]
                 else:
-                    prob += water_start[t] >= water_heat[t] - water_heat[t-1]
+                    prob += water_start[t] >= water_heat[t] - water_heat[t - 1]
 
             # Battery Dynamics Constraint
             prob += soc[t + 1] == soc[t] + charge[t] * config.charge_efficiency - discharge[t] / (
@@ -145,7 +150,7 @@ class KeplerSolver:
             slot_curtailment_cost = curtailment[t] * CURTAILMENT_PENALTY
             slot_shedding_cost = load_shedding[t] * LOAD_SHEDDING_PENALTY
             slot_import_breach_cost = import_breach[t] * IMPORT_BREACH_PENALTY
-            
+
             # NOTE: Rev K20 stored_energy_cost was removed - it incorrectly made
             # charging unprofitable by adding cost on discharge without offsetting
             # credit on charge. The terminal_value and wear_cost are sufficient
@@ -195,7 +200,9 @@ class KeplerSolver:
                 day_slot_indices = slots_by_day[day]
                 if i == 0:
                     # First day: reduce by what's already heated today
-                    day_min_kwh = max(0.0, config.water_heating_min_kwh - config.water_heated_today_kwh)
+                    day_min_kwh = max(
+                        0.0, config.water_heating_min_kwh - config.water_heated_today_kwh
+                    )
                 else:
                     # Future days: full daily requirement
                     day_min_kwh = config.water_heating_min_kwh
@@ -212,17 +219,25 @@ class KeplerSolver:
                 gap_slots = max(1, int(config.water_heating_max_gap_hours / avg_slot_hours))
                 gap_violation = pulp.LpVariable.dicts("gap_viol", range(T), lowBound=0.0)
                 for start in range(T - gap_slots + 1):
-                    prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots)) + gap_violation[start] >= 1
-                
+                    prob += (
+                        pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots))
+                        + gap_violation[start]
+                        >= 1
+                    )
+
                 # Tier 2: Double penalty for very long gaps (> 1.5x threshold)
                 gap_slots_2 = max(1, int(config.water_heating_max_gap_hours * 1.5 / avg_slot_hours))
                 gap_violation_2 = pulp.LpVariable.dicts("gap_viol_2", range(T), lowBound=0.0)
                 for start in range(T - gap_slots_2 + 1):
-                    prob += pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots_2)) + gap_violation_2[start] >= 1
+                    prob += (
+                        pulp.lpSum(water_heat[t] for t in range(start, start + gap_slots_2))
+                        + gap_violation_2[start]
+                        >= 1
+                    )
 
                 gap_violation_penalty = config.water_comfort_penalty_sek * (
-                    pulp.lpSum(gap_violation[t] for t in range(T - gap_slots + 1)) +
-                    pulp.lpSum(gap_violation_2[t] for t in range(T - gap_slots_2 + 1))
+                    pulp.lpSum(gap_violation[t] for t in range(T - gap_slots + 1))
+                    + pulp.lpSum(gap_violation_2[t] for t in range(T - gap_slots_2 + 1))
                 )
 
             # Constraint 3: Soft Efficiency Penalty (Spacing) (Rev K21)
@@ -235,8 +250,10 @@ class KeplerSolver:
                         # If we start at t AND were heating at j, it's a spacing violation
                         # Linearized: viol >= start[t] + heat[j] - 1
                         prob += water_spacing_viol[t] >= water_start[t] + water_heat[j] - 1
-                
-                spacing_violation_penalty = config.water_spacing_penalty_sek * pulp.lpSum(water_spacing_viol)
+
+                spacing_violation_penalty = config.water_spacing_penalty_sek * pulp.lpSum(
+                    water_spacing_viol
+                )
 
         # Terminal Value
         terminal_value = soc[T] * config.terminal_value_sek_kwh

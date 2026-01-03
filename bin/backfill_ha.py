@@ -1,11 +1,12 @@
 import asyncio
-import yaml
 import json
 import sqlite3
 import ssl
 import sys
 from datetime import datetime, timedelta
+
 import pytz
+import yaml
 
 try:
     import websockets
@@ -15,12 +16,12 @@ except ImportError:
 
 
 def load_config():
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         return yaml.safe_load(f)
 
 
 def load_secrets():
-    with open("secrets.yaml", "r") as f:
+    with open("secrets.yaml") as f:
         return yaml.safe_load(f)
 
 

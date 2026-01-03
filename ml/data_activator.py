@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime, timedelta
-from typing import Dict, List, Tuple
 
 import pytz
 import requests
-
-from inputs import _make_ha_headers, load_home_assistant_config
 from learning import LearningEngine, get_learning_engine
+
+from inputs import make_ha_headers, load_home_assistant_config
 
 
 def _parse_iso_timestamp(value: str) -> datetime | None:
@@ -31,7 +30,7 @@ def fetch_entity_history(
     end_time: datetime,
     *,
     timeout: int = 30,
-) -> List[Tuple[datetime, float]]:
+) -> list[tuple[datetime, float]]:
     """Fetch cumulative history for a single Home Assistant entity.
 
     Returns a list of (timestamp, numeric_value) tuples suitable for
@@ -48,7 +47,7 @@ def fetch_entity_history(
         )
         return []
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,
@@ -76,7 +75,7 @@ def fetch_entity_history(
 
     # Home Assistant returns a list-of-lists: [[state, state, ...], ...]
     states = payload[0]
-    records: List[Tuple[datetime, float]] = []
+    records: list[tuple[datetime, float]] = []
 
     for state in states:
         ts_str = state.get("last_changed") or state.get("last_updated")
@@ -110,7 +109,7 @@ def _build_cumulative_data(
     engine: LearningEngine,
     start_time: datetime,
     end_time: datetime,
-) -> Dict[str, List[Tuple[datetime, float]]]:
+) -> dict[str, list[tuple[datetime, float]]]:
     """Build cumulative_data dict for etl_cumulative_to_slots from config input_sensors."""
     sensor_mappings = engine.config.get("input_sensors", {}) or {}
     if not sensor_mappings:
@@ -119,13 +118,12 @@ def _build_cumulative_data(
 
     print(f"Found {len(sensor_mappings)} sensor mappings in config.yaml.")
 
-    cumulative_data: Dict[str, List[Tuple[datetime, float]]] = {}
+    cumulative_data: dict[str, list[tuple[datetime, float]]] = {}
 
     for canonical_name, entity_id in sensor_mappings.items():
         if not entity_id or "your_total" in str(entity_id):
             print(
-                f"Warning: Skipping placeholder or empty sensor '{canonical_name}': "
-                f"{entity_id!r}",
+                f"Warning: Skipping placeholder or empty sensor '{canonical_name}': {entity_id!r}",
             )
             continue
 
@@ -136,7 +134,7 @@ def _build_cumulative_data(
 
         cumulative_data[canonical_name] = history
         print(
-            f"Fetched {len(history)} samples for '{canonical_name}' " f"from '{entity_id}'.",
+            f"Fetched {len(history)} samples for '{canonical_name}' from '{entity_id}'.",
         )
 
     if not cumulative_data:
@@ -156,9 +154,7 @@ def _parse_args() -> argparse.Namespace:
         "--days-back",
         type=int,
         default=30,
-        help=(
-            "Number of days of history to backfill, counting backwards from now " "(default: 30)."
-        ),
+        help=("Number of days of history to backfill, counting backwards from now (default: 30)."),
     )
     return parser.parse_args()
 
@@ -181,7 +177,7 @@ def main() -> None:
     end_time = now_utc
 
     print(
-        "Historical data range (UTC): " f"{start_time.isoformat()} to {end_time.isoformat()}",
+        f"Historical data range (UTC): {start_time.isoformat()} to {end_time.isoformat()}",
     )
 
     cumulative_data = _build_cumulative_data(engine, start_time, end_time)

@@ -8,10 +8,11 @@ Validates HA connection, entity availability, config validity, and database conn
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any
 
+import httpx
 import pytz
-import requests
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,9 @@ class HealthIssue:
     severity: str  # "critical", "warning", "info"
     message: str  # User-friendly message
     guidance: str  # How to fix
-    entity_id: Optional[str] = None  # Specific entity involved (if applicable)
+    entity_id: str | None = None  # Specific entity involved (if applicable)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "category": self.category,
             "severity": self.severity,
@@ -42,14 +43,14 @@ class HealthStatus:
     """Overall system health status."""
 
     healthy: bool
-    issues: List[HealthIssue] = field(default_factory=list)
+    issues: list[HealthIssue] = field(default_factory=list[HealthIssue])
     checked_at: str = ""
 
     def __post_init__(self):
         if not self.checked_at:
             self.checked_at = datetime.now(pytz.UTC).isoformat()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "healthy": self.healthy,
             "issues": [issue.to_dict() for issue in self.issues],
@@ -71,13 +72,13 @@ class HealthChecker:
     """
 
     def __init__(self, config_path: str = "config.yaml"):
-        self.config_path = config_path
-        self._config: Optional[Dict] = None
-        self._secrets: Optional[Dict] = None
+        self.config_path = Path(config_path)
+        self._config: dict[str, Any] = {}
+        self._secrets: dict[str, Any] = {}
 
-    def check_all(self) -> HealthStatus:
+    async def check_all(self) -> HealthStatus:
         """Run all health checks and return combined status."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         # Load config first (needed for other checks)
         config_issues = self.check_config_validity()
@@ -85,11 +86,11 @@ class HealthChecker:
 
         # If config is valid, proceed with other checks
         if not any(i.category == "config" and i.severity == "critical" for i in issues):
-            issues.extend(self.check_ha_connection())
+            issues.extend(await self.check_ha_connection())
 
             # Only check entities if HA is connected
             if not any(i.category == "ha_connection" for i in issues):
-                issues.extend(self.check_entities())
+                issues.extend(await self.check_entities())
 
         issues.extend(self.check_database())
 
@@ -99,13 +100,13 @@ class HealthChecker:
 
         return HealthStatus(healthy=healthy, issues=issues)
 
-    def check_config_validity(self) -> List[HealthIssue]:
+    def check_config_validity(self) -> list[HealthIssue]:
         """Validate config.yaml exists and has required structure."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         # Load config
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with self.config_path.open(encoding="utf-8") as f:
                 self._config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             issues.append(
@@ -130,7 +131,7 @@ class HealthChecker:
 
         # Load secrets
         try:
-            with open("secrets.yaml", "r", encoding="utf-8") as f:
+            with Path("secrets.yaml").open(encoding="utf-8") as f:
                 self._secrets = yaml.safe_load(f) or {}
         except FileNotFoundError:
             issues.append(
@@ -156,9 +157,9 @@ class HealthChecker:
 
         return issues
 
-    def _validate_config_structure(self) -> List[HealthIssue]:
+    def _validate_config_structure(self) -> list[HealthIssue]:
         """Validate config has required sections and correct types."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._config:
             return issues
@@ -212,9 +213,9 @@ class HealthChecker:
 
         return issues
 
-    def check_ha_connection(self) -> List[HealthIssue]:
+    async def check_ha_connection(self) -> list[HealthIssue]:
         """Check if Home Assistant is reachable."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._secrets:
             return issues  # Already reported in config check
@@ -227,11 +228,11 @@ class HealthChecker:
             return issues  # Already reported in config check
 
         try:
-            response = requests.get(
-                f"{url}/api/",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
-            )
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{url}/api/",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
 
             if response.status_code == 401:
                 issues.append(
@@ -252,22 +253,22 @@ class HealthChecker:
                     )
                 )
 
-        except requests.exceptions.ConnectionError:
-            issues.append(
-                HealthIssue(
-                    category="ha_connection",
-                    severity="critical",
-                    message="Cannot connect to Home Assistant",
-                    guidance=f"Check that Home Assistant is running and reachable at {url}",
-                )
-            )
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             issues.append(
                 HealthIssue(
                     category="ha_connection",
                     severity="critical",
                     message="Home Assistant connection timed out",
                     guidance="Home Assistant is slow or unreachable. Check network connectivity.",
+                )
+            )
+        except httpx.RequestError as e:
+            issues.append(
+                HealthIssue(
+                    category="ha_connection",
+                    severity="critical",
+                    message=f"Cannot connect to Home Assistant: {e}",
+                    guidance=f"Check that Home Assistant is running and reachable at {url}",
                 )
             )
         except Exception as e:
@@ -282,9 +283,9 @@ class HealthChecker:
 
         return issues
 
-    def check_entities(self) -> List[HealthIssue]:
+    async def check_entities(self) -> list[HealthIssue]:
         """Check if configured entities exist in Home Assistant."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._config or not self._secrets:
             return issues
@@ -297,7 +298,7 @@ class HealthChecker:
             return issues
 
         # Collect all entity IDs from config
-        entities_to_check: List[tuple] = []  # (entity_id, config_key)
+        entities_to_check: list[tuple[str, str]] = []  # (entity_id, config_key)
 
         # Input sensors
         input_sensors = self._config.get("input_sensors", {})
@@ -310,7 +311,12 @@ class HealthChecker:
         if executor:
             # Inverter entities
             inverter = executor.get("inverter", {})
-            for key in ["work_mode_entity", "grid_charging_entity", "max_charging_current_entity", "max_discharging_current_entity"]:
+            for key in [
+                "work_mode_entity",
+                "grid_charging_entity",
+                "max_charging_current_entity",
+                "max_discharging_current_entity",
+            ]:
                 entity_id = inverter.get(key)
                 if entity_id:
                     entities_to_check.append((entity_id, f"executor.inverter.{key}"))
@@ -329,48 +335,47 @@ class HealthChecker:
 
         # Check each entity
         headers = {"Authorization": f"Bearer {token}"}
-        for entity_id, config_key in entities_to_check:
-            try:
-                response = requests.get(
-                    f"{url}/api/states/{entity_id}",
-                    headers=headers,
-                    timeout=5,
-                )
-
-                if response.status_code == 404:
-                    issues.append(
-                        HealthIssue(
-                            category="entity",
-                            severity="critical",
-                            message=f"Entity not found: {entity_id}",
-                            guidance=f"Check that '{entity_id}' exists in Home Assistant. Update {config_key} in config.yaml if renamed.",
-                            entity_id=entity_id,
-                        )
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for entity_id, config_key in entities_to_check:
+                try:
+                    response = await client.get(
+                        f"{url}/api/states/{entity_id}",
+                        headers=headers,
                     )
-                elif response.status_code == 200:
-                    # Check for unavailable state
-                    state_data = response.json()
-                    state_value = state_data.get("state")
-                    if state_value == "unavailable":
+
+                    if response.status_code == 404:
                         issues.append(
                             HealthIssue(
                                 category="entity",
-                                severity="warning",
-                                message=f"Entity unavailable: {entity_id}",
-                                guidance=f"The entity '{entity_id}' exists but is currently unavailable. Check your device/integration.",
+                                severity="critical",
+                                message=f"Entity not found: {entity_id}",
+                                guidance=f"Check that '{entity_id}' exists in Home Assistant. Update {config_key} in config.yaml if renamed.",
                                 entity_id=entity_id,
                             )
                         )
-
-            except requests.exceptions.RequestException:
-                # Connection issues already reported in check_ha_connection
-                pass
+                    elif response.status_code == 200:
+                        # Check for unavailable state
+                        state_data = response.json()
+                        state_value = state_data.get("state")
+                        if state_value == "unavailable":
+                            issues.append(
+                                HealthIssue(
+                                    category="entity",
+                                    severity="warning",
+                                    message=f"Entity unavailable: {entity_id}",
+                                    guidance=f"The entity '{entity_id}' exists but is currently unavailable. Check your device/integration.",
+                                    entity_id=entity_id,
+                                )
+                            )
+                except httpx.RequestError:
+                    # Connection issues already reported in check_ha_connection
+                    pass
 
         return issues
 
-    def check_database(self) -> List[HealthIssue]:
+    def check_database(self) -> list[HealthIssue]:
         """Check database connectivity."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._secrets:
             return issues
@@ -417,7 +422,7 @@ class HealthChecker:
         return issues
 
 
-def get_health_status(config_path: str = "config.yaml") -> HealthStatus:
+async def get_health_status(config_path: str = "config.yaml") -> HealthStatus:
     """Convenience function to get current health status."""
     checker = HealthChecker(config_path)
-    return checker.check_all()
+    return await checker.check_all()

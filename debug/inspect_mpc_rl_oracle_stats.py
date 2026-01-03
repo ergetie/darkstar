@@ -8,17 +8,17 @@ Usage:
 """
 
 import argparse
-from typing import Any, Dict
+from typing import Any
 
 import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.benchmark.milp_solver import solve_optimal_schedule
 from ml.policy.antares_rl_policy import AntaresRLPolicyV1
 from ml.simulation.env import AntaresMPCEnv
 
 
-def _load_latest_rl_run(engine: LearningEngine) -> Dict[str, str]:
+def _load_latest_rl_run(engine: LearningEngine) -> dict[str, str]:
     import sqlite3
 
     try:
@@ -62,7 +62,7 @@ def _build_rl_df(day: str, policy: AntaresRLPolicyV1) -> pd.DataFrame:
     if schedule.index.name in {"start_time", "slot_start"} and "start_time" not in schedule.columns:
         schedule = schedule.reset_index()
 
-    rows: list[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     idx = 0
     while True:
         row0 = schedule.iloc[idx]

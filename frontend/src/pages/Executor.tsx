@@ -325,7 +325,7 @@ export default function Executor() {
             ])
             setStatus(statusRes)
             setStats(statsRes)
-            setHistory(historyRes.records)
+            setHistory(historyRes.records ?? [])
             setError(null)
         } catch (e: any) {
             setError(e.message || 'Failed to load executor data')
@@ -404,10 +404,46 @@ export default function Executor() {
     useEffect(() => {
         const loadInitialLive = async () => {
             try {
-                const liveRes = await executorApi.live()
-                setLive(liveRes)
-            } catch {
-                // ignore
+                const data: any = await executorApi.live()
+                // Transform raw data to UI format (same as socket handler)
+                const formatted: any = {}
+
+                if (data.soc !== undefined)
+                    formatted.soc = { value: `${Number(data.soc).toFixed(0)}%`, numeric: Number(data.soc), unit: '%' }
+
+                if (data.pv_kw !== undefined)
+                    formatted.pv_power = {
+                        value: `${Number(data.pv_kw).toFixed(1)} kW`,
+                        numeric: Number(data.pv_kw) * 1000,
+                        unit: 'W',
+                    }
+
+                if (data.load_kw !== undefined)
+                    formatted.load_power = {
+                        value: `${Number(data.load_kw).toFixed(1)} kW`,
+                        numeric: Number(data.load_kw) * 1000,
+                        unit: 'W',
+                    }
+
+                if (data.grid_import_kw !== undefined)
+                    formatted.grid_import = {
+                        value: `${Number(data.grid_import_kw).toFixed(2)} kW`,
+                        numeric: Number(data.grid_import_kw) * 1000,
+                        unit: 'W',
+                    }
+
+                if (data.grid_export_kw !== undefined)
+                    formatted.grid_export = {
+                        value: `${Number(data.grid_export_kw).toFixed(2)} kW`,
+                        numeric: Number(data.grid_export_kw) * 1000,
+                        unit: 'W',
+                    }
+
+                if (data.work_mode) formatted.work_mode = { value: data.work_mode }
+
+                setLive(formatted)
+            } catch (e) {
+                console.error('Failed to load initial live metrics', e)
             }
         }
         loadInitialLive()
@@ -990,7 +1026,7 @@ export default function Executor() {
                     <div className="flex items-center gap-2">
                         <History className="h-4 w-4 text-accent" />
                         <span className="text-xs font-medium text-text">Execution History</span>
-                        <span className="text-[10px] text-muted">({history.length} records)</span>
+                        <span className="text-[10px] text-muted">({history?.length ?? 0} records)</span>
                     </div>
                     <button
                         onClick={fetchAll}
@@ -1001,7 +1037,7 @@ export default function Executor() {
                     </button>
                 </div>
 
-                {history.length === 0 ? (
+                {(history?.length ?? 0) === 0 ? (
                     <div className="text-center py-12 text-muted">
                         <Clock className="h-10 w-10 mx-auto opacity-20 mb-3" />
                         <p className="text-[11px]">No execution history yet.</p>

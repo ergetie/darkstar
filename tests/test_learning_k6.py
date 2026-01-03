@@ -1,14 +1,14 @@
-import os
-import sqlite3
 import json
-import pytest
-import pandas as pd
+import sqlite3
 import sys
 from pathlib import Path
 
+import pandas as pd
+import pytest
+
 sys.path.append(str(Path(__file__).parent.parent))
 from datetime import datetime, timedelta
-import pytz
+
 from backend.learning.engine import LearningEngine
 
 

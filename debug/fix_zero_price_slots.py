@@ -14,20 +14,19 @@ separately.
 """
 
 import sqlite3
-from typing import Any, Dict, List, Tuple
 
 import pandas as pd
 import yaml
 
 
 def _load_db_path(config_path: str = "config.yaml") -> str:
-    with open(config_path, "r", encoding="utf-8") as handle:
+    with open(config_path, encoding="utf-8") as handle:
         cfg = yaml.safe_load(handle) or {}
     learning = cfg.get("learning", {}) or {}
     return learning.get("sqlite_path", "data/planner_learning.db")
 
 
-def _find_days_with_zero_prices(conn: sqlite3.Connection) -> List[Tuple[str, int, int]]:
+def _find_days_with_zero_prices(conn: sqlite3.Connection) -> list[tuple[str, int, int]]:
     rows = conn.execute(
         """
         SELECT
@@ -40,7 +39,7 @@ def _find_days_with_zero_prices(conn: sqlite3.Connection) -> List[Tuple[str, int
         """
     ).fetchall()
 
-    result: List[Tuple[str, int, int]] = []
+    result: list[tuple[str, int, int]] = []
     for day, total, zero_import in rows:
         zero_import = zero_import or 0
         if zero_import > 0 and zero_import < total:
@@ -83,13 +82,13 @@ def _fix_day(conn: sqlite3.Connection, day: str) -> int:
         # If export is entirely zero/NULL, fall back to import as a proxy.
         exp_fixed = imp_fixed.copy()
 
-    updates: List[Tuple[float, float, str]] = []
+    updates: list[tuple[float, float, str]] = []
     for slot_start, old_imp, old_exp, new_imp, new_exp in zip(
         df["slot_start"],
         imp,
         exp,
         imp_fixed,
-        exp_fixed,
+        exp_fixed, strict=False,
     ):
         if float(old_imp) == float(new_imp) and float(old_exp) == float(new_exp):
             continue

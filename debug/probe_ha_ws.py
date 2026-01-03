@@ -1,7 +1,8 @@
 import asyncio
-import yaml
 import json
 import ssl
+
+import yaml
 
 try:
     import websockets
@@ -10,9 +11,9 @@ except ImportError:
     exit(1)
 
 # Load Config
-with open("secrets.yaml", "r") as f:
+with open("secrets.yaml") as f:
     secrets = yaml.safe_load(f)
-with open("config.yaml", "r") as f:
+with open("config.yaml") as f:
     config = yaml.safe_load(f)
 
 ha = secrets.get("home_assistant", {})
@@ -42,7 +43,7 @@ async def fetch_stats():
 
     async with websockets.connect(ws_url, ssl=ssl_context) as websocket:
         # 1. Auth Phase
-        auth_req = await websocket.recv()
+        await websocket.recv()
         await websocket.send(json.dumps({"type": "auth", "access_token": token}))
         auth_resp = await websocket.recv()
         auth_data = json.loads(auth_resp)

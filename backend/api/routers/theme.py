@@ -1,0 +1,204 @@
+import json
+import logging
+from pathlib import Path
+from typing import Any, cast
+
+import yaml
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+
+logger = logging.getLogger("darkstar.api.theme")
+router = APIRouter(tags=["theme"])
+
+THEME_DIR = Path(__file__).resolve().parent.parent.parent / "themes"
+
+
+class ThemeSelectRequest(BaseModel):
+    theme: str
+    accent_index: int | None = None
+
+
+# Helper functions (ported from webapp.py)
+def _parse_legacy_theme_format(text: str) -> dict[str, Any]:
+    """Parse simple key/value themes."""
+    palette: list[str | None] = [None] * 16
+    data: dict[str, Any] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" in line:
+            key, value = line.split("=", 1)
+        elif ":" in line:
+            key, value = line.split(":", 1)
+        else:
+            continue
+        key, value = key.strip(), value.strip()
+        if key.lower() == "palette":
+            if "=" in value:
+                idx_str, color = value.split("=", 1)
+                idx = int(idx_str.strip())
+                color = color.strip()
+            else:
+                try:
+                    idx = palette.index(None)
+                except ValueError as exc:
+                    raise ValueError("Too many palette entries") from exc
+                color = value
+            if idx < 0 or idx > 15:
+                raise ValueError(f"Palette index {idx} out of range 0-15")
+            palette[idx] = color
+        else:
+            data[key.lower().replace("-", "_")] = value
+    if any(swatch is None for swatch in palette):
+        raise ValueError("Palette must define 16 colours")
+    data["palette"] = palette
+    return data
+
+
+def _normalise_theme(name: str, raw_data: dict[str, Any]) -> dict[str, Any]:
+    # if not isinstance(raw_data, dict):
+    #    raise ValueError("Theme data must be a mapping")
+    palette = raw_data.get("palette")
+    palette_list = cast("list[Any]", palette)
+    if not isinstance(palette, (list, tuple)) or len(palette_list) != 16:
+        raise ValueError("Palette must contain exactly 16 colours")
+
+    proper_palette = palette_list
+
+    def _clean_colour(value: Any, key: str) -> str:
+        if not isinstance(value, str):
+            raise ValueError(f"{key} must be a string")
+        value = value.strip()
+        if not value.startswith("#"):
+            raise ValueError(f"{key} must be a hex colour starting with #")
+        return value
+
+    return {
+        "name": name,
+        "foreground": _clean_colour(raw_data.get("foreground", "#ffffff"), "foreground"),
+        "background": _clean_colour(raw_data.get("background", "#000000"), "background"),
+        "palette": [_clean_colour(c, f"palette[{i}]") for i, c in enumerate(proper_palette)],
+    }
+
+
+def _load_theme_file(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    filename = path.name
+    try:
+        if filename.lower().endswith(".json"):
+            raw_data = json.loads(text)
+        elif filename.lower().endswith((".yaml", ".yml")):
+            raw_data = yaml.safe_load(text)
+        else:
+            raw_data = _parse_legacy_theme_format(text)
+    except Exception as exc:
+        raise ValueError(f"Failed to parse theme '{filename}': {exc}") from exc
+    return _normalise_theme(path.stem or filename, raw_data)
+
+
+def load_themes(theme_dir: Path = THEME_DIR) -> dict[str, Any]:
+    themes: dict[str, Any] = {}
+    if not theme_dir.is_dir():
+        return themes
+    for path in sorted(theme_dir.iterdir()):
+        if not path.is_file():
+            continue
+        try:
+            theme = _load_theme_file(path)
+            themes[theme["name"]] = theme
+        except Exception as exc:
+            logger.warning("Skipping theme '%s': %s", path.name, exc)
+            continue
+    return themes
+
+
+AVAILABLE_THEMES: dict[str, Any] = {}
+
+
+@router.get(
+    "/api/themes",
+    summary="List Themes",
+    description="Return all available themes and the currently selected theme.",
+)
+async def list_themes() -> dict[str, Any]:
+    """Return all available themes and the currently selected theme."""
+    global AVAILABLE_THEMES
+    AVAILABLE_THEMES = load_themes()  # pyright: ignore [reportConstantRedefinition]
+
+    current_name = None
+    accent_index = None
+    config_path = Path("config.yaml")
+    if config_path.exists():
+        try:
+            with config_path.open() as handle:
+                config: dict[str, Any] = yaml.safe_load(handle) or {}
+                ui = config.get("ui", {})
+                current_name = str(ui.get("theme")) if ui.get("theme") else None
+                accent_index = (
+                    int(ui.get("theme_accent_index", 0))
+                    if ui.get("theme_accent_index") is not None
+                    else None
+                )
+        except Exception:
+            pass
+
+    if current_name not in AVAILABLE_THEMES:
+        current_name = next(iter(AVAILABLE_THEMES.keys()), None)
+
+    return {
+        "current": current_name,
+        "accent_index": accent_index,
+        "themes": list(AVAILABLE_THEMES.values()),
+    }
+
+
+@router.post(
+    "/api/theme",
+    summary="Select Theme",
+    description="Persist a selected theme to config.yaml.",
+)
+async def select_theme(payload: ThemeSelectRequest) -> dict[str, Any]:
+    """Persist a selected theme to config.yaml."""
+    global AVAILABLE_THEMES
+    AVAILABLE_THEMES = load_themes()  # pyright: ignore [reportConstantRedefinition]
+
+    if payload.theme not in AVAILABLE_THEMES:
+        raise HTTPException(status_code=404, detail=f"Theme '{payload.theme}' not found")
+
+    if payload.accent_index is not None and not (0 <= payload.accent_index <= 15):
+        raise HTTPException(status_code=400, detail="accent_index must be between 0 and 15")
+
+    from ruamel.yaml import YAML
+
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True  # type: ignore
+    config_path = Path("config.yaml")
+
+    try:
+        if config_path.exists():
+            with config_path.open(encoding="utf-8") as handle:
+                loaded = yaml_handler.load(handle)  # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+                config: dict[str, Any] = (
+                    cast("dict[str, Any]", loaded) if isinstance(loaded, dict) else {}
+                )
+        else:
+            config = {}
+    except Exception as exc:
+        logger.error("Failed to load config.yaml for theme update: %s", exc)
+        config = {}
+
+    ui_section = config.setdefault("ui", {})
+    ui_section["theme"] = payload.theme
+    if payload.accent_index is not None:
+        ui_section["theme_accent_index"] = payload.accent_index
+
+    with config_path.open("w", encoding="utf-8") as handle:
+        yaml_handler.dump(config, handle)  # pyright: ignore [reportUnknownMemberType]
+
+    return {
+        "status": "success",
+        "current": payload.theme,
+        "accent_index": payload.accent_index,
+        "theme": AVAILABLE_THEMES[payload.theme],
+    }

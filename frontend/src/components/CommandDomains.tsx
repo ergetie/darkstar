@@ -13,6 +13,7 @@ import {
     BatteryCharging,
 } from 'lucide-react'
 import Card from './Card'
+import { Api } from '../lib/api'
 
 // --- Types ---
 interface GridCardProps {
@@ -82,29 +83,27 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
         let cancelled = false
         setLoading(true)
 
-        import('../lib/api').then(({ Api }) => {
-            Api.energyRange(period)
-                .then((data) => {
-                    if (!cancelled) {
-                        setRangeData({
-                            import_cost_sek: data.import_cost_sek,
-                            export_revenue_sek: data.export_revenue_sek,
-                            grid_charge_cost_sek: data.grid_charge_cost_sek,
-                            self_consumption_savings_sek: data.self_consumption_savings_sek,
-                            net_cost_sek: data.net_cost_sek,
-                            grid_import_kwh: data.grid_import_kwh,
-                            grid_export_kwh: data.grid_export_kwh,
-                            slot_count: data.slot_count,
-                        })
-                    }
-                })
-                .catch(() => {
-                    if (!cancelled) setRangeData(null)
-                })
-                .finally(() => {
-                    if (!cancelled) setLoading(false)
-                })
-        })
+        Api.energyRange(period)
+            .then((data) => {
+                if (!cancelled) {
+                    setRangeData({
+                        import_cost_sek: data.import_cost_sek,
+                        export_revenue_sek: data.export_revenue_sek,
+                        grid_charge_cost_sek: data.grid_charge_cost_sek,
+                        self_consumption_savings_sek: data.self_consumption_savings_sek,
+                        net_cost_sek: data.net_cost_sek,
+                        grid_import_kwh: data.grid_import_kwh,
+                        grid_export_kwh: data.grid_export_kwh,
+                        slot_count: data.slot_count,
+                    })
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setRangeData(null)
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false)
+            })
 
         return () => {
             cancelled = true

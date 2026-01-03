@@ -1,6 +1,7 @@
-import pandas as pd
 import sqlite3
 from datetime import datetime, timedelta
+
+import pandas as pd
 from learning import get_learning_engine
 
 engine = get_learning_engine()
@@ -12,7 +13,7 @@ tomorrow_noon = (now + timedelta(days=1)).replace(hour=12, minute=0, second=0, m
 window_start = tomorrow_noon - timedelta(hours=1)
 window_end = tomorrow_noon + timedelta(hours=1)
 
-print(f"\n--- VERIFYING PV CORRECTIONS (Midday) ---")
+print("\n--- VERIFYING PV CORRECTIONS (Midday) ---")
 print(f"Target Window: {window_start.strftime('%Y-%m-%d %H:%M')} to {window_end.strftime('%H:%M')}")
 
 with sqlite3.connect(engine.db_path) as conn:

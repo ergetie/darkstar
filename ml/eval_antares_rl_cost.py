@@ -10,12 +10,12 @@ Usage (from project root):
 import argparse
 import sqlite3
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.benchmark.milp_solver import solve_optimal_schedule
 from ml.policy.antares_rl_policy import AntaresRLPolicyV1
 from ml.simulation.env import AntaresMPCEnv
@@ -34,7 +34,7 @@ def _get_engine() -> LearningEngine:
     return engine
 
 
-def _load_latest_rl_run(engine: LearningEngine) -> Optional[RlRunInfo]:
+def _load_latest_rl_run(engine: LearningEngine) -> RlRunInfo | None:
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             row = conn.execute(
@@ -52,8 +52,8 @@ def _load_latest_rl_run(engine: LearningEngine) -> Optional[RlRunInfo]:
     return RlRunInfo(run_id=row[0], artifact_dir=row[1])
 
 
-def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
-    days: List[str] = []
+def _load_eval_days(engine: LearningEngine, max_days: int) -> list[str]:
+    days: list[str] = []
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             rows = conn.execute(
@@ -99,7 +99,7 @@ def _run_rl_cost(day: str, policy: AntaresRLPolicyV1) -> float:
     return -total_reward
 
 
-def _maybe_run_oracle(day: str) -> Optional[float]:
+def _maybe_run_oracle(day: str) -> float | None:
     try:
         df = solve_optimal_schedule(day)
     except Exception:
@@ -136,7 +136,7 @@ def main() -> int:
 
     policy = AntaresRLPolicyV1.load_from_dir(run.artifact_dir)
 
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
 
     for d in days:
         print(f"[rl-cost] Day {d}: running MPC, RL, Oracle...")

@@ -7,7 +7,7 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 import pandas as pd
 import pytz
@@ -16,7 +16,7 @@ import pytz
 def apply_manual_plan(
     df: pd.DataFrame,
     manual_plan: Any,
-    config: Optional[Dict[str, Any]] = None,
+    config: dict[str, Any] | None = None,
 ) -> pd.DataFrame:
     """
     Apply user-created manual actions to the plan and annotate manual_action flags.
@@ -59,7 +59,7 @@ def apply_manual_plan(
     else:
         manual_items = []
 
-    def _infer_action(entry: dict) -> Optional[str]:
+    def _infer_action(entry: dict) -> str | None:
         action = entry.get("content") or entry.get("action") or entry.get("title")
         if action:
             return str(action).strip()
@@ -110,10 +110,7 @@ def apply_manual_plan(
             start_time = tz.localize(start_time)
         else:
             start_time = start_time.tz_convert(tz)
-        if end_time.tzinfo is None:
-            end_time = tz.localize(end_time)
-        else:
-            end_time = end_time.tz_convert(tz)
+        end_time = tz.localize(end_time) if end_time.tzinfo is None else end_time.tz_convert(tz)
 
         mask = (working_df.index >= start_time) & (working_df.index < end_time)
         if not mask.any():

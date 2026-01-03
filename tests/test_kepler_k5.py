@@ -1,7 +1,9 @@
-import pytest
 from datetime import datetime, timedelta
-from backend.kepler.types import KeplerConfig, KeplerInputSlot, KeplerInput
+
+import pytest
+
 from backend.kepler.solver import KeplerSolver
+from backend.kepler.types import KeplerConfig, KeplerInput, KeplerInputSlot
 
 
 def test_export_threshold():

@@ -7,36 +7,36 @@ Coordinates Input → Strategy → Solver → Output flow.
 
 from __future__ import annotations
 
-import logging
 import copy
-from typing import Any, Dict, Optional
+import logging
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
 import pytz
 
-from planner.inputs.data_prep import prepare_df, apply_safety_margins
+from backend.learning.store import LearningStore
+from planner.inputs.data_prep import apply_safety_margins, prepare_df
 from planner.inputs.learning import load_learning_overlays
 from planner.inputs.weather import fetch_temperature_forecast
-from planner.strategy.s_index import (
-    calculate_dynamic_s_index,
-    calculate_probabilistic_s_index,
-    calculate_future_risk_factor,
-    calculate_dynamic_target_soc,
-)
-from planner.strategy.windows import identify_windows
-from planner.strategy.manual_plan import apply_manual_plan
-from planner.scheduling.water_heating import schedule_water_heating
-from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
-from planner.solver.adapter import (
-    planner_to_kepler_input,
-    config_to_kepler_config,
-    kepler_result_to_dataframe,
-)
-from planner.solver.kepler import KeplerSolver
 from planner.output.schedule import save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
-from backend.learning.store import LearningStore
+from planner.scheduling.water_heating import schedule_water_heating
+from planner.solver.adapter import (
+    config_to_kepler_config,
+    kepler_result_to_dataframe,
+    planner_to_kepler_input,
+)
+from planner.solver.kepler import KeplerSolver
+from planner.strategy.manual_plan import apply_manual_plan
+from planner.strategy.s_index import (
+    calculate_dynamic_s_index,
+    calculate_dynamic_target_soc,
+    calculate_future_risk_factor,
+    calculate_probabilistic_s_index,
+)
+from planner.strategy.windows import identify_windows
+from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
 
 logger = logging.getLogger("darkstar.planner")
 
@@ -50,7 +50,7 @@ class PlannerPipeline:
         - "baseline": Kepler only, no Aurora overlays (for A/B comparison)
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         """
         Initialize the pipeline with configuration.
 
@@ -67,7 +67,7 @@ class PlannerPipeline:
             if section not in self.config:
                 raise ValueError(f"Missing required config section: {section}")
 
-    def _apply_overrides(self, config: Dict[str, Any], overrides: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_overrides(self, config: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
         """Apply configuration overrides recursively."""
         new_config = copy.deepcopy(config)
 
@@ -83,12 +83,12 @@ class PlannerPipeline:
 
     def generate_schedule(
         self,
-        input_data: Dict[str, Any],
-        overrides: Optional[Dict[str, Any]] = None,
+        input_data: dict[str, Any],
+        overrides: dict[str, Any] | None = None,
         mode: str = "full",
         save_to_file: bool = True,
         record_training_episode: bool = False,
-        now_override: Optional[datetime] = None,
+        now_override: datetime | None = None,
     ) -> pd.DataFrame:
         """
         Generate an optimal battery schedule.
@@ -119,7 +119,9 @@ class PlannerPipeline:
 
         logger.info(
             "System profile: solar=%s, battery=%s, water=%s",
-            has_solar, has_battery, has_water_heater
+            has_solar,
+            has_battery,
+            has_water_heater,
         )
 
         # 2. Load Inputs
@@ -150,7 +152,6 @@ class PlannerPipeline:
             now_slot = pd.Timestamp.now(tz=tz).floor("15min")
 
         # 3. Strategy (S-Index & Safety Margins)
-        planner_state = {}
         s_index_debug = {}
         effective_load_margin = 1.0
         target_soc_kwh = 0.0
@@ -197,10 +198,7 @@ class PlannerPipeline:
                         days, t, active_config
                     ),
                 )
-                if factor is not None:
-                    effective_load_margin = factor
-                else:
-                    effective_load_margin = base_factor
+                effective_load_margin = factor if factor is not None else base_factor
 
                 s_index_debug.update(s_debug or {})
 
@@ -216,10 +214,14 @@ class PlannerPipeline:
 
             # Calculate Dynamic Target SoC
             # Pass raw_factor for weather adjustment (independent of risk level)
-            raw_factor_for_weather = risk_debug.get("raw_factor_with_weather", risk_debug.get("raw_factor", 1.0))
+            raw_factor_for_weather = risk_debug.get(
+                "raw_factor_with_weather", risk_debug.get("raw_factor", 1.0)
+            )
             target_soc_pct, target_soc_kwh, soc_debug = calculate_dynamic_target_soc(
-                risk_factor, active_config.get("battery", {}), s_index_cfg,
-                raw_factor=raw_factor_for_weather
+                risk_factor,
+                active_config.get("battery", {}),
+                s_index_cfg,
+                raw_factor=raw_factor_for_weather,
             )
 
             # Extract raw factor from s_debug (handle both naming conventions)
@@ -243,7 +245,7 @@ class PlannerPipeline:
 
         # Identify Windows (Pass 1)
         initial_state = input_data.get("initial_state", {})
-        df, window_debug = identify_windows(df, active_config, initial_state, now_slot)
+        df, _window_debug = identify_windows(df, active_config, initial_state, now_slot)
 
         # 4. Schedule Water Heating
         # Get water heater daily consumption from HA sensor (Rev K18)
@@ -321,7 +323,9 @@ class PlannerPipeline:
             kepler_config.water_heating_max_gap_hours = 0.0  # Disable top-ups
 
             # Check if anti-legionella cycle is due
-            sqlite_path = active_config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+            sqlite_path = active_config.get("learning", {}).get(
+                "sqlite_path", "data/planner_learning.db"
+            )
             last_al = load_last_anti_legionella(sqlite_path)
 
             # Smart detection: If water was already heated today (≥2 kWh), treat as anti-legionella done
@@ -330,12 +334,16 @@ class PlannerPipeline:
                 logger.info(
                     "Vacation mode: No prior anti-legionella record, but %.1f kWh already heated today. "
                     "Setting last_anti_legionella_at to today.",
-                    ha_water_today
+                    ha_water_today,
                 )
                 save_last_anti_legionella(sqlite_path, now_slot.to_pydatetime())
                 last_al = now_slot.to_pydatetime()
 
-            days_since = (now_slot.to_pydatetime().replace(tzinfo=None) - last_al.replace(tzinfo=None)).days if last_al else 999
+            days_since = (
+                (now_slot.to_pydatetime().replace(tzinfo=None) - last_al.replace(tzinfo=None)).days
+                if last_al
+                else 999
+            )
             interval_days = int(vacation_cfg.get("anti_legionella_interval_days", 7))
 
             # Trigger scheduling after 14:00 (when tomorrow's prices are available)
@@ -348,15 +356,22 @@ class PlannerPipeline:
                 schedule_anti_legionella = True
                 logger.info(
                     "Anti-legionella due: %d days since last (interval=%d). Scheduling %.1f kWh.",
-                    days_since, interval_days, al_kwh
+                    days_since,
+                    interval_days,
+                    al_kwh,
                 )
             else:
                 logger.debug(
                     "Anti-legionella not due: %d days since last, hour=%d",
-                    days_since, now_slot.hour
+                    days_since,
+                    now_slot.hour,
                 )
 
-        logger.info("Kepler input initial_soc_kwh: %.3f, water_heated_today: %.2f kWh", kepler_input.initial_soc_kwh, ha_water_today)
+        logger.info(
+            "Kepler input initial_soc_kwh: %.3f, water_heated_today: %.2f kWh",
+            kepler_input.initial_soc_kwh,
+            ha_water_today,
+        )
 
         # Target SoC is applied via soft constraint in Kepler solver:
         # - min_soc violation: 1000 SEK/kWh (HARD - don't violate!)
@@ -364,14 +379,14 @@ class PlannerPipeline:
         # Safety = high penalty (harder to violate), Gambler = low penalty (easier to trade off)
         if mode == "full" and target_soc_kwh > 0:
             kepler_config.target_soc_kwh = target_soc_kwh
-            
+
             # Target penalty derived from risk_appetite
             RISK_PENALTY_MAP = {
-                1: 20.0,    # Safety: Strong incentive to hit target
-                2: 14.0,    # Conservative
-                3: 8.0,     # Neutral
-                4: 5.0,     # Aggressive
-                5: 2.0,     # Gambler: Easy to trade off for profit
+                1: 20.0,  # Safety: Strong incentive to hit target
+                2: 14.0,  # Conservative
+                3: 8.0,  # Neutral
+                4: 5.0,  # Aggressive
+                5: 2.0,  # Gambler: Easy to trade off for profit
             }
             risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
             kepler_config.target_soc_penalty_sek = RISK_PENALTY_MAP.get(risk_appetite, 8.0)
@@ -489,8 +504,8 @@ class PlannerPipeline:
 
 
 def generate_schedule(
-    input_data: Dict[str, Any],
-    config: Optional[Dict[str, Any]] = None,
+    input_data: dict[str, Any],
+    config: dict[str, Any] | None = None,
     mode: str = "full",
     save_to_file: bool = True,
 ) -> pd.DataFrame:
@@ -509,7 +524,7 @@ def generate_schedule(
     if config is None:
         import yaml
 
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
 
     pipeline = PlannerPipeline(config)

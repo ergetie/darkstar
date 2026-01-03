@@ -10,7 +10,7 @@ import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytz
 
@@ -26,41 +26,41 @@ class ExecutionRecord:
     slot_start: str  # Which slot we were executing
 
     # What we planned to do (from schedule.json)
-    planned_charge_kw: Optional[float] = None
-    planned_discharge_kw: Optional[float] = None
-    planned_export_kw: Optional[float] = None
-    planned_water_kw: Optional[float] = None
-    planned_soc_target: Optional[int] = None
-    planned_soc_projected: Optional[int] = None
+    planned_charge_kw: float | None = None
+    planned_discharge_kw: float | None = None
+    planned_export_kw: float | None = None
+    planned_water_kw: float | None = None
+    planned_soc_target: int | None = None
+    planned_soc_projected: int | None = None
 
     # What we actually commanded (after override logic)
-    commanded_work_mode: Optional[str] = None
-    commanded_grid_charging: Optional[int] = None  # 0/1
-    commanded_charge_current_a: Optional[float] = None
-    commanded_discharge_current_a: Optional[float] = None
-    commanded_soc_target: Optional[int] = None
-    commanded_water_temp: Optional[int] = None
+    commanded_work_mode: str | None = None
+    commanded_grid_charging: int | None = None  # 0/1
+    commanded_charge_current_a: float | None = None
+    commanded_discharge_current_a: float | None = None
+    commanded_soc_target: int | None = None
+    commanded_water_temp: int | None = None
 
     # State before execution
-    before_soc_percent: Optional[float] = None
-    before_work_mode: Optional[str] = None
-    before_water_temp: Optional[float] = None
-    before_pv_kw: Optional[float] = None
-    before_load_kw: Optional[float] = None
+    before_soc_percent: float | None = None
+    before_work_mode: str | None = None
+    before_water_temp: float | None = None
+    before_pv_kw: float | None = None
+    before_load_kw: float | None = None
 
     # Override info
     override_active: int = 0
-    override_type: Optional[str] = None
-    override_reason: Optional[str] = None
+    override_type: str | None = None
+    override_reason: str | None = None
 
     # Execution result
     success: int = 1  # 1=success, 0=failure
-    error_message: Optional[str] = None
-    duration_ms: Optional[int] = None
+    error_message: str | None = None
+    duration_ms: int | None = None
 
     # Metadata
     source: str = "native"
-    executor_version: Optional[str] = None
+    executor_version: str | None = None
 
 
 class ExecutionHistory:
@@ -191,7 +191,7 @@ class ExecutionHistory:
             conn.commit()
             return cursor.lastrowid or 0
 
-    def update_slot_observation(self, slot_start: str, action_summary: Dict[str, Any]) -> None:
+    def update_slot_observation(self, slot_start: str, action_summary: dict[str, Any]) -> None:
         """
         Update slot_observations.executed_action for learning integration.
 
@@ -215,9 +215,9 @@ class ExecutionHistory:
         self,
         limit: int = 100,
         offset: int = 0,
-        slot_start: Optional[str] = None,
-        success_only: Optional[bool] = None,
-    ) -> List[Dict[str, Any]]:
+        slot_start: str | None = None,
+        success_only: bool | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Query execution history with optional filters.
 
@@ -231,7 +231,7 @@ class ExecutionHistory:
             List of execution records as dictionaries
         """
         query = "SELECT * FROM execution_log WHERE 1=1"
-        params: List[Any] = []
+        params: list[Any] = []
 
         if slot_start:
             query += " AND slot_start = ?"
@@ -249,10 +249,14 @@ class ExecutionHistory:
             cursor = conn.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]
 
-    def get_latest(self) -> Optional[Dict[str, Any]]:
+    def get_latest(self) -> dict[str, Any] | None:
         """Get the most recent execution record."""
         records = self.get_history(limit=1)
         return records[0] if records else None
+
+    def get_recent(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Get the N most recent execution records."""
+        return self.get_history(limit=limit)
 
     def cleanup_old_records(self, retention_days: int = 30) -> int:
         """
@@ -272,7 +276,7 @@ class ExecutionHistory:
                 logger.info("Cleaned up %d old execution records", deleted)
             return deleted
 
-    def get_stats(self, days: int = 7) -> Dict[str, Any]:
+    def get_stats(self, days: int = 7) -> dict[str, Any]:
         """
         Get execution statistics for the last N days.
 
@@ -321,9 +325,7 @@ class ExecutionHistory:
             "override_types": {row[0]: row[1] for row in override_types if row[0]},
         }
 
-    def get_todays_slots(
-        self, today_start: datetime, now: datetime
-    ) -> List[Dict[str, Any]]:
+    def get_todays_slots(self, today_start: datetime, now: datetime) -> list[dict[str, Any]]:
         """
         Get today's execution records formatted for schedule merging.
 
@@ -367,7 +369,7 @@ class ExecutionHistory:
             rows = cursor.fetchall()
 
         # Group by slot_start, keeping latest execution per slot
-        slot_map: Dict[str, Dict[str, Any]] = {}
+        slot_map: dict[str, dict[str, Any]] = {}
         for row in rows:
             slot_start = row["slot_start"]
             # If we already have this slot, only update if this execution is newer
@@ -392,20 +394,20 @@ class ExecutionHistory:
                 "water_heating_kw": round(float(row["planned_water_kw"] or 0), 2),
                 "soc_target_percent": int(row["planned_soc_target"] or 0),
                 "projected_soc_percent": int(row["planned_soc_projected"] or 0),
-                "before_soc_percent": float(row["before_soc_percent"]) if row["before_soc_percent"] else None,
+                "before_soc_percent": float(row["before_soc_percent"])
+                if row["before_soc_percent"]
+                else None,
                 "is_historical": True,
                 "_executed_at": row["executed_at"],  # For dedup, removed later
             }
 
         # Sort by start_time and assign slot numbers, remove internal fields
-        preserved = []
+        preserved: list[dict[str, Any]] = []
         for i, slot_start in enumerate(sorted(slot_map.keys())):
             slot = slot_map[slot_start]
             slot["slot_number"] = i + 1
             del slot["_executed_at"]
             preserved.append(slot)
 
-        logger.info(
-            "[preservation] Loaded %d past slots from executor SQLite", len(preserved)
-        )
+        logger.info("[preservation] Loaded %d past slots from executor SQLite", len(preserved))
         return preserved

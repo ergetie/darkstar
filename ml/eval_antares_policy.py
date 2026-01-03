@@ -8,20 +8,15 @@ over a sample of days, and compares its predicted actions to the MPC
 schedule actions (MAE/RMSE per target).
 """
 
-import json
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 
 import numpy as np
-import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.policy.antares_policy import AntaresPolicyV1
 from ml.simulation.env import AntaresMPCEnv
-
 
 TARGET_NAMES = ["battery_charge_kw", "battery_discharge_kw", "export_kw"]
 
@@ -58,8 +53,8 @@ def _load_latest_policy_run(engine: LearningEngine) -> PolicyRunInfo | None:
     return PolicyRunInfo(run_id=row[0], models_dir=Path(row[1]))
 
 
-def _load_eval_days(engine: LearningEngine, max_days: int = 20) -> List[str]:
-    days: List[str] = []
+def _load_eval_days(engine: LearningEngine, max_days: int = 20) -> list[str]:
+    days: list[str] = []
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             rows = conn.execute(
@@ -85,14 +80,14 @@ def _ascii_bar(ratio: float, width: int = 20) -> str:
     return "█" * filled + "·" * (width - filled)
 
 
-def evaluate_policy(policy: AntaresPolicyV1, days: List[str]) -> Dict[str, Dict[str, float]]:
+def evaluate_policy(policy: AntaresPolicyV1, days: list[str]) -> dict[str, dict[str, float]]:
     env = AntaresMPCEnv(config_path="config.yaml")
-    errors: Dict[str, List[float]] = {name: [] for name in TARGET_NAMES}
-    scales: Dict[str, List[float]] = {name: [] for name in TARGET_NAMES}
+    errors: dict[str, list[float]] = {name: [] for name in TARGET_NAMES}
+    scales: dict[str, list[float]] = {name: [] for name in TARGET_NAMES}
 
     for day in days:
         try:
-            state = env.reset(day)
+            env.reset(day)
         except Exception:
             continue
 
@@ -116,7 +111,7 @@ def evaluate_policy(policy: AntaresPolicyV1, days: List[str]) -> Dict[str, Dict[
             scales["battery_discharge_kw"].append(true_discharge)
             scales["export_kw"].append(true_export)
 
-    metrics: Dict[str, Dict[str, float]] = {}
+    metrics: dict[str, dict[str, float]] = {}
     for name in TARGET_NAMES:
         err = np.array(errors[name], dtype=float)
         scale = np.array(scales[name], dtype=float)

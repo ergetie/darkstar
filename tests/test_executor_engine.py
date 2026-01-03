@@ -22,22 +22,19 @@ from executor.config import (
     WaterHeaterConfig,
 )
 from executor.engine import ExecutorEngine, ExecutorStatus
+import contextlib
 
 
 @pytest.fixture
 def temp_schedule():
     """Create a temporary schedule.json file."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False, encoding="utf-8"
-    ) as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False, encoding="utf-8") as f:
         schedule_path = f.name
 
     yield schedule_path
 
-    try:
+    with contextlib.suppress(OSError):
         os.unlink(schedule_path)
-    except OSError:
-        pass
 
 
 @pytest.fixture
@@ -48,10 +45,8 @@ def temp_db():
 
     yield db_path
 
-    try:
+    with contextlib.suppress(OSError):
         os.unlink(db_path)
-    except OSError:
-        pass
 
 
 def make_schedule(slots: list, timezone: str = "Europe/Stockholm") -> dict:
@@ -113,11 +108,9 @@ class TestExecutorEngineInit:
                 schedule_path="schedule.json",
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
-                with patch.object(
-                    ExecutorEngine, "_get_db_path", return_value=temp_db
-                ):
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     engine = ExecutorEngine("config.yaml")
 
                     assert engine.history is not None
@@ -134,11 +127,9 @@ class TestLoadCurrentSlot:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
-                with patch.object(
-                    ExecutorEngine, "_get_db_path", return_value=temp_db
-                ):
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     engine = ExecutorEngine("config.yaml")
                     engine.config.schedule_path = temp_schedule
                     yield engine
@@ -162,7 +153,7 @@ class TestLoadCurrentSlot:
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
 
-        slot, slot_start = engine._load_current_slot(now)
+        slot, _slot_start = engine._load_current_slot(now)
 
         assert slot is None
 
@@ -173,9 +164,11 @@ class TestLoadCurrentSlot:
         # Create a slot that spans now
         slot_start = now - timedelta(minutes=5)
 
-        schedule = make_schedule([
-            make_slot(slot_start, charge_kw=5.0, soc_target=80),
-        ])
+        schedule = make_schedule(
+            [
+                make_slot(slot_start, charge_kw=5.0, soc_target=80),
+            ]
+        )
         with open(temp_schedule, "w", encoding="utf-8") as f:
             json.dump(schedule, f)
 
@@ -193,9 +186,11 @@ class TestLoadCurrentSlot:
         # Create slots in the past
         old_slot = now - timedelta(hours=2)
 
-        schedule = make_schedule([
-            make_slot(old_slot, charge_kw=5.0),
-        ])
+        schedule = make_schedule(
+            [
+                make_slot(old_slot, charge_kw=5.0),
+            ]
+        )
         with open(temp_schedule, "w", encoding="utf-8") as f:
             json.dump(schedule, f)
 
@@ -215,11 +210,9 @@ class TestParseSlotPlan:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
-                with patch.object(
-                    ExecutorEngine, "_get_db_path", return_value=temp_db
-                ):
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
 
     def test_parses_charge_slot(self, engine):
@@ -275,11 +268,9 @@ class TestQuickActions:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
-                with patch.object(
-                    ExecutorEngine, "_get_db_path", return_value=temp_db
-                ):
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
 
     def test_set_quick_action(self, engine):
@@ -337,11 +328,9 @@ class TestGetStatus:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
-                with patch.object(
-                    ExecutorEngine, "_get_db_path", return_value=temp_db
-                ):
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
 
     def test_get_status_returns_dict(self, engine):
@@ -384,11 +373,9 @@ class TestRunOnce:
             )
             mock_config.return_value = config
 
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {"input_sensors": {}}
-                with patch.object(
-                    ExecutorEngine, "_get_db_path", return_value=temp_db
-                ):
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     engine = ExecutorEngine("config.yaml")
 
                     # Mock HA client
@@ -402,9 +389,8 @@ class TestRunOnce:
 
                     # Create dispatcher
                     from executor.actions import ActionDispatcher
-                    engine.dispatcher = ActionDispatcher(
-                        mock_ha, config, shadow_mode=False
-                    )
+
+                    engine.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
 
                     yield engine
 
@@ -440,9 +426,11 @@ class TestRunOnce:
         now = datetime.now(tz)
         slot_start = now - timedelta(minutes=5)
 
-        schedule = make_schedule([
-            make_slot(slot_start, charge_kw=5.0, soc_target=80),
-        ])
+        schedule = make_schedule(
+            [
+                make_slot(slot_start, charge_kw=5.0, soc_target=80),
+            ]
+        )
         with open(temp_schedule, "w", encoding="utf-8") as f:
             json.dump(schedule, f)
 

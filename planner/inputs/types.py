@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 
 @dataclass(frozen=True)
@@ -53,10 +53,10 @@ class PlannerInput:
 
     horizon_start: datetime
     horizon_end: datetime
-    slots: Tuple[SlotData, ...]
+    slots: tuple[SlotData, ...]
     initial_soc_percent: float
     battery_capacity_kwh: float
-    context: Dict[str, Any]
+    context: dict[str, Any]
 
     @property
     def slot_count(self) -> int:
@@ -69,7 +69,7 @@ class PlannerInput:
         delta = self.horizon_end - self.horizon_start
         return delta.total_seconds() / 3600
 
-    def get_slot(self, index: int) -> Optional[SlotData]:
+    def get_slot(self, index: int) -> SlotData | None:
         """Get a slot by index, or None if out of bounds."""
         if 0 <= index < len(self.slots):
             return self.slots[index]

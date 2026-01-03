@@ -25,7 +25,9 @@ The development environment uses **fish shell**. Special characters in commit me
 - `nordpool` - Electricity price data fetching
 - `pytz` - Timezone handling
 - `requests` - REST clients for Home Assistant and forecasts
-- `flask` - Web UI and diagnostics API layer
+- `fastapi` - Modern async API framework (ASGI)
+- `uvicorn` - ASGI server
+- `python-socketio` - Async WebSocket support
 - `lightgbm`: Aurora ML models
 
 
@@ -136,8 +138,10 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
     - Run `pnpm format` in `frontend/` to fix formatting issues automatically.
     - Run `pnpm lint` in `frontend/` to verify code quality.
   - **Backend/General**:
-    - Run `black .` (or the project’s configured formatter) to normalize formatting.
-    - Run `flake8 .` to catch style and lint issues before committing.
+    - Run `ruff format .` to normalize formatting.
+    - Run `ruff check .` to lint and catch issues.
+    - Run `pyright .` to verify type safety (strict mode).
+    - Or simply run `./lint.sh` for all checks at once.
 
 ### Development Protocol
 - **Production-Grade Only**: Always implement production-grade solutions. Never take shortcuts or use quick-fix approaches. Prefer clean, maintainable, and robust implementations.
@@ -159,7 +163,7 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
   - **Updating any files in the `docs/` directory.**
 
 ## Project Structure
-- `backend/` - Flask API, Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
+- `backend/` - FastAPI API (Rev ARC1), Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
 - `frontend/` - React + Vite UI application.
 - `ml/` - Aurora Machine Learning pipeline (`train.py`, `forward.py`).
 - `inputs.py` - Data fetching (Home Assistant, Nordpool).

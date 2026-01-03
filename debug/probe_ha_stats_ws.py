@@ -7,12 +7,12 @@ import yaml
 
 
 def load_config() -> dict:
-    with open("config.yaml", "r", encoding="utf-8") as f:
+    with open("config.yaml", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
 def load_secrets() -> dict:
-    with open("secrets.yaml", "r", encoding="utf-8") as f:
+    with open("secrets.yaml", encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 

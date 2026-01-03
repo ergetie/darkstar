@@ -1,6 +1,8 @@
 import unittest
 from datetime import datetime
+
 import pytz
+
 from backend.astro import SunCalculator
 
 
@@ -19,7 +21,7 @@ class TestSunCalculator(unittest.TestCase):
 
         # 3 AM might be twilight or sun up in Stockholm summer?
         # Sunrise is around 3:30 AM.
-        dt_early = datetime(2024, 6, 21, 3, 0, 0, tzinfo=pytz.timezone(self.tz))
+        datetime(2024, 6, 21, 3, 0, 0, tzinfo=pytz.timezone(self.tz))
         # With 30 min buffer, it might be close.
 
         # Midnight is definitely dark

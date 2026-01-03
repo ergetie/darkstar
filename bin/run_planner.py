@@ -1,21 +1,19 @@
-import json
 import os
 import subprocess
 import sys
-from datetime import datetime
 
 # Add project root to sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import yaml
 
-from planner.pipeline import generate_schedule
 from inputs import get_all_input_data
+from planner.pipeline import generate_schedule
 
 
 def load_yaml(path):
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         return {}

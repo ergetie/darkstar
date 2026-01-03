@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from datetime import datetime
+from typing import Any
 
 import pandas as pd
-import pytz
 
 from backend.learning import LearningEngine, get_learning_engine
 from ml.corrector import predict_corrections
@@ -20,7 +19,7 @@ def _get_engine() -> LearningEngine:
 
 def _apply_corrections_to_db(
     engine: LearningEngine,
-    corrections: List[Dict[str, Any]],
+    corrections: list[dict[str, Any]],
     forecast_version: str,
 ) -> None:
     if not corrections:
@@ -64,7 +63,7 @@ def _apply_corrections_to_db(
 def run_inference(
     horizon_hours: int = 168,
     forecast_version: str = "aurora",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Orchestrate Aurora base forecast + correction models and persist results.
 

@@ -1,79 +1,63 @@
 import logging
-import threading
-from flask import request
-from flask_socketio import emit
-from backend.extensions import socketio
+from typing import Any
+
+from backend.core.websockets import ws_manager
 
 logger = logging.getLogger("darkstar.events")
 
-# Caches for latest state to sync new clients (Rev U7)
-# Use RLock to allow nested calls and prevent deadlocks in multi-threaded environments
-CACHE_LOCK = threading.RLock()
-LATEST_METRICS = {}
-LATEST_STATUS = {}
+# Caches for latest state (Rev U7/U22)
+# We can use a simple dict if we assume the manager handles threading safety for us,
+# but keeping a local cache for 'connect' handling is good.
+_LATEST_METRICS: dict[str, Any] = {}
+_LATEST_STATUS: dict[str, Any] = {}
 
-def emit_status_update(status_data: dict):
-    """Broadcast executor status update to all connected clients."""
-    try:
-        if not isinstance(status_data, dict):
-            return
-        with CACHE_LOCK:
-            LATEST_STATUS.update(status_data)
-        socketio.emit("executor_status", status_data)
-    except Exception as e:
-        logger.error(f"Failed to emit executor_status: {e}")
 
-def emit_live_metrics(live_data: dict):
-    """Broadcast live system metrics (SoC, PV, Load) to all connected clients."""
-    try:
-        if not isinstance(live_data, dict):
-            return
-        with CACHE_LOCK:
-            LATEST_METRICS.update(live_data)
-        socketio.emit("live_metrics", live_data)
-    except Exception as e:
-        logger.error(f"Failed to emit live_metrics: {e}")
+def emit_status_update(status_data: dict[str, Any]):
+    """Broadcast executor status update (Thread-safe)."""
+    # status_data is typed as dict[str, Any]
+    _LATEST_STATUS.update(status_data)
+    # emit_sync handles the bridge to the async loop
+    ws_manager.emit_sync("executor_status", status_data)
+
+
+def emit_live_metrics(live_data: dict[str, Any]):
+    """Broadcast live metrics (Thread-safe)."""
+    # live_data is typed as dict[str, Any]
+    _LATEST_METRICS.update(live_data)
+    ws_manager.emit_sync("live_metrics", live_data)
+
 
 def emit_plan_updated():
-    """Notify clients that a new schedule has been generated."""
-    try:
-        socketio.emit("plan_updated", {"timestamp": "now"})
-    except Exception as e:
-        logger.error(f"Failed to emit plan_updated: {e}")
+    """Notify clients of plan update."""
+    ws_manager.emit_sync("plan_updated", {"timestamp": "now"})
 
-def emit_ha_entity_change(entity_id: str, state: str, attributes: dict = None):
-    """Broadcast HA entity state change to all connected clients."""
-    try:
-        # Filter attributes to avoid massive payloads (Rev U12)
-        filtered_attributes = {k: v for k, v in (attributes or {}).items() if k in ["unit_of_measurement", "icon", "friendly_name", "device_class"]}
-        payload = {
-            "entity_id": entity_id,
-            "state": state,
-            "attributes": filtered_attributes
-        }
-        socketio.emit("ha_entity_change", payload)
-    except Exception as e:
-        logger.error(f"Failed to emit ha_entity_change: {e}")
 
-# Connection handler to sync latest state (Rev U22)
-@socketio.on('connect')
-def handle_connect():
-    """Send latest metrics and status to newly connected client."""
-    try:
-        # Standard emit() inside an event handler targets the sender automatically.
-        logger.info("🔌 Client connected, performing initial sync")
-        
-        with CACHE_LOCK:
-            metrics = dict(LATEST_METRICS) if LATEST_METRICS else {}
-            status = dict(LATEST_STATUS) if LATEST_STATUS else {}
+def emit_ha_entity_change(entity_id: str, state: str, attributes: dict[str, Any] | None = None):
+    """Broadcast HA entity change."""
+    filtered = {
+        k: v
+        for k, v in (attributes or {}).items()
+        if k in ["unit_of_measurement", "icon", "friendly_name", "device_class"]
+    }
+    payload: dict[str, Any] = {"entity_id": entity_id, "state": state, "attributes": filtered}
+    ws_manager.emit_sync("ha_entity_change", payload)
 
-        if metrics:
-            emit('live_metrics', metrics)
-        
-        if status:
-            emit('executor_status', status)
-            
-    except Exception as e:
-        logger.error(f"❌ Error in handle_connect: {e}")
 
-# Note: request is used implicitly by emit() in connection context
+# Register Event Handlers
+# This code runs on import, so when 'backend.events' is imported by main or others,
+# the handlers are registered on the singleton SIO instance.
+
+
+@ws_manager.sio.on("connect")  # pyright: ignore [reportUnknownMemberType, reportUntypedFunctionDecorator]
+async def handle_connect(sid: str, environ: dict[str, Any]):
+    logger.info(f"🔌 Client connected: {sid}")
+    # Send cached state
+    if _LATEST_METRICS:
+        await ws_manager.emit("live_metrics", _LATEST_METRICS, to=sid)
+    if _LATEST_STATUS:
+        await ws_manager.emit("executor_status", _LATEST_STATUS, to=sid)
+
+
+@ws_manager.sio.on("disconnect")  # pyright: ignore [reportUnknownMemberType, reportUntypedFunctionDecorator]
+async def handle_disconnect(sid: str):
+    logger.info(f"Client disconnected: {sid}")

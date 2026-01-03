@@ -1,9 +1,8 @@
 from datetime import datetime, timedelta
-from typing import Optional, Tuple
+
 import pytz
 from astral import LocationInfo
 from astral.sun import sun
-from astral.location import Location
 
 
 class SunCalculator:
@@ -19,7 +18,7 @@ class SunCalculator:
             longitude=longitude,
         )
 
-    def get_sun_times(self, date: datetime) -> Optional[Tuple[datetime, datetime]]:
+    def get_sun_times(self, date: datetime) -> tuple[datetime, datetime] | None:
         """
         Get sunrise and sunset for a specific date.
         Returns (sunrise, sunset) tuple or None if sun doesn't rise/set (polar day/night).

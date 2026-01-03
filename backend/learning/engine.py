@@ -1,13 +1,13 @@
-import os
-import sqlite3
 import json
+import sqlite3
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from pathlib import Path
+from typing import Any
+
 import pandas as pd
 import pytz
 import yaml
-from pathlib import Path
 
 from backend.learning.store import LearningStore
 
@@ -30,14 +30,14 @@ class LearningEngine:
         raw_map = self.learning_config.get("sensor_map", {}) or {}
         self.sensor_map = {str(v).lower(): str(k).lower() for k, v in raw_map.items()}
 
-    def _load_config(self, config_path: str) -> Dict:
+    def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file"""
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with Path(config_path).open(encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
             # Fallback to default config
-            with open("config.default.yaml", "r", encoding="utf-8") as f:
+            with Path("config.default.yaml").open(encoding="utf-8") as f:
                 return yaml.safe_load(f)
 
     # Delegate storage methods to store
@@ -47,11 +47,11 @@ class LearningEngine:
     def store_slot_observations(self, observations_df: pd.DataFrame) -> None:
         self.store.store_slot_observations(observations_df)
 
-    def store_forecasts(self, forecasts: List[Dict], forecast_version: str) -> None:
+    def store_forecasts(self, forecasts: list[dict], forecast_version: str) -> None:
         self.store.store_forecasts(forecasts, forecast_version)
 
     def log_training_episode(
-        self, input_data: Dict, schedule_df: pd.DataFrame, config_overrides: Optional[Dict] = None
+        self, input_data: dict, schedule_df: pd.DataFrame, config_overrides: dict | None = None
     ) -> None:
         """
         Log a training episode (inputs + outputs) for RL.
@@ -112,14 +112,14 @@ class LearningEngine:
 
     def etl_cumulative_to_slots(
         self,
-        cumulative_data: Dict[str, List[Tuple[datetime, float]]],
+        cumulative_data: dict[str, list[tuple[datetime, float]]],
         resolution_minutes: int = 15,
     ) -> pd.DataFrame:
         """
         Convert cumulative sensor data to 15-minute slot deltas
         """
         # (Logic identical to original learning.py, preserved here)
-        slot_records: Dict[str, pd.DataFrame] = {}
+        slot_records: dict[str, pd.DataFrame] = {}
         for sensor_name, data in cumulative_data.items():
             if data:
                 df = pd.DataFrame(data, columns=["timestamp", "cumulative_value"])
@@ -158,7 +158,7 @@ class LearningEngine:
         )
 
         slot_df = pd.DataFrame({"slot_start": slots[:-1], "slot_end": slots[1:]})
-        quality_flags: List[Dict] = [{} for _ in range(len(slot_df))]  # Simplified type hint
+        [{} for _ in range(len(slot_df))]  # Simplified type hint
 
         for sensor_name, df in slot_records.items():
             canonical = self._canonical_sensor_name(sensor_name)
@@ -192,7 +192,7 @@ class LearningEngine:
         slot_df["duration_minutes"] = resolution_minutes
         return slot_df
 
-    def calculate_metrics(self, days_back: int = 7) -> Dict[str, Any]:
+    def calculate_metrics(self, days_back: int = 7) -> dict[str, Any]:
         """Calculate learning metrics for the last N days"""
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
@@ -212,7 +212,7 @@ class LearningEngine:
             # 2. Plan Deviation (New for K6)
             # MAE of (Planned Charge - Actual Charge)
             plan_query = """
-                SELECT 
+                SELECT
                     AVG(ABS(o.batt_charge_kwh - p.planned_charge_kwh)) as mae_charge,
                     AVG(ABS(o.batt_discharge_kwh - p.planned_discharge_kwh)) as mae_discharge,
                     AVG(ABS(o.soc_end_percent - p.planned_soc_percent)) as mae_soc
@@ -231,7 +231,7 @@ class LearningEngine:
             # Realized Cost ~= (Import * Price) - (Export * Price)
             # Compare with Planned Cost.
             cost_query = """
-                SELECT 
+                SELECT
                     SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost,
                     SUM(p.planned_cost_sek) as planned_cost
                 FROM slot_observations o
@@ -249,7 +249,7 @@ class LearningEngine:
 
             return metrics
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get current status of the learning engine."""
         last_obs = self.store.get_last_observation_time()
 
@@ -265,7 +265,7 @@ class LearningEngine:
             "timezone": str(self.timezone),
         }
 
-    def get_performance_series(self, days_back: int = 7) -> Dict[str, List[Dict]]:
+    def get_performance_series(self, days_back: int = 7) -> dict[str, list[dict]]:
         """
         Get time-series data for performance visualization.
         Returns:
@@ -279,7 +279,7 @@ class LearningEngine:
 
             # 1. SoC Series (15-min resolution)
             soc_query = """
-                SELECT 
+                SELECT
                     o.slot_start,
                     p.planned_soc_percent,
                     o.soc_end_percent
@@ -295,7 +295,7 @@ class LearningEngine:
 
             # 2. Cost Series (Daily resolution)
             cost_query = """
-                SELECT 
+                SELECT
                     DATE(o.slot_start) as day,
                     SUM(p.planned_cost_sek) as planned_cost,
                     SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost

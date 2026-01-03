@@ -1,15 +1,12 @@
-import sys
-import os
 import logging
+import os
+import sys
 from datetime import datetime, timedelta
-import pandas as pd
-import json
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from backend.api.aurora import _fetch_horizon_series, _get_engine_and_config
-from backend.learning.store import LearningStore
+from backend.api.aurora import _get_engine_and_config
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -18,17 +15,16 @@ logger = logging.getLogger(__name__)
 
 def debug_dashboard_data():
     try:
-        engine, config = _get_engine_and_config()
+        engine, _config = _get_engine_and_config()
 
         print("\n=== 1. Testing Store Fetch Directly ===")
         # Mimic the call in aurora.py
         # df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv")
         # We need to see what this returns
 
-        days_back = 2
 
         # Manually run the query from store.py logic to see raw rows
-        with open("backend/learning/store.py") as f:
+        with open("backend/learning/store.py"):
             # Just reading to confirm logic? No, let's call the method if possible.
             pass
 

@@ -1,5 +1,7 @@
-import pandas as pd
 import logging
+from typing import Any, cast
+
+import pandas as pd
 
 logger = logging.getLogger("darkstar.analyst")
 
@@ -10,13 +12,13 @@ class EnergyAnalyst:
     defined in config.yaml (appliances).
     """
 
-    def __init__(self, schedule_json: dict, config: dict):
-        self.schedule = schedule_json.get("schedule", [])
+    def __init__(self, schedule_json: dict[str, Any], config: dict[str, Any]):
+        self.schedule: list[dict[str, Any]] = schedule_json.get("schedule", [])
         self.meta = schedule_json.get("meta", {})
-        self.appliances = config.get("appliances", {})
+        self.appliances: dict[str, Any] = config.get("appliances", {})
         self._df = self._to_dataframe(self.schedule)
 
-    def _to_dataframe(self, schedule: list) -> pd.DataFrame:
+    def _to_dataframe(self, schedule: list[dict[str, Any]]) -> pd.DataFrame:
         if not schedule:
             return pd.DataFrame()
         df = pd.DataFrame(schedule)
@@ -37,7 +39,7 @@ class EnergyAnalyst:
 
         return df
 
-    def analyze(self) -> dict:
+    def analyze(self) -> dict[str, Any]:
         """
         Find best windows for all configured appliances.
         """
@@ -53,10 +55,13 @@ class EnergyAnalyst:
         if future_df.empty:
             future_df = self._df
 
-        results = {}
+        results: dict[str, Any] = {}
         for key, app in self.appliances.items():
-            duration = float(app.get("duration_hours", 1.0))
-            label = app.get("label", key)
+            if not isinstance(app, dict):
+                continue
+            app_dict = cast("dict[str, Any]", app)
+            duration = float(str(app_dict.get("duration_hours", 1.0)))
+            label = str(app_dict.get("label", key))
 
             recommendation = self._find_windows_for_duration(future_df, duration)
             recommendation["label"] = label
@@ -64,14 +69,14 @@ class EnergyAnalyst:
 
         return {"analyzed_at": now.isoformat(), "recommendations": results}
 
-    def _find_windows_for_duration(self, df: pd.DataFrame, duration_hours: float) -> dict:
+    def _find_windows_for_duration(self, df: pd.DataFrame, duration_hours: float) -> dict[str, Any]:
         slots_needed = int(duration_hours * 4)
 
         if len(df) < slots_needed:
             return {"error": "Horizon too short"}
 
-        best_grid = {"start": None, "avg_price": float("inf"), "end": None}
-        best_solar = {"start": None, "avg_pv_surplus": float("-inf"), "end": None}
+        best_grid: dict[str, Any] = {"start": None, "avg_price": float("inf"), "end": None}
+        best_solar: dict[str, Any] = {"start": None, "avg_pv_surplus": float("-inf"), "end": None}
 
         for i in range(len(df) - slots_needed):
             window = df.iloc[i : i + slots_needed]

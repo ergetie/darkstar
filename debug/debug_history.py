@@ -1,13 +1,10 @@
-import sys
-import os
 import logging
-from datetime import datetime
-import pandas as pd
+import os
+import sys
 
 # Add project root to path
 sys.path.append(os.getcwd())
 
-from backend.learning.store import LearningStore
 from backend.api.aurora import _get_engine_and_config
 
 # Setup logging
@@ -17,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 def debug_history():
     try:
-        engine, config = _get_engine_and_config()
+        engine, _config = _get_engine_and_config()
         if not hasattr(engine, "store"):
             print("Engine has no store!")
             return

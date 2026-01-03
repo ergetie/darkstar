@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import math
 import sqlite3
-from datetime import datetime, timezone, date
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, date, datetime
+from typing import Any
 
 import pandas as pd
 import pytz
@@ -21,7 +21,7 @@ def build_water_segments(
     slot_duration: pd.Timedelta,
     max_gap_slots: int,
     tolerance: float,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Break cheap slots into contiguous segments respecting tolerance/gap.
     """
@@ -30,7 +30,7 @@ def build_water_segments(
     allowed_gap = slot_duration * max(1, max_gap + 1)
     tolerance = max(0.0, tolerance or 0.0)
 
-    current_segment: List[Tuple[pd.Timestamp, float]] = []
+    current_segment: list[tuple[pd.Timestamp, float]] = []
     prev_slot_time = None
     current_min = None
     current_max = None
@@ -72,7 +72,7 @@ def build_water_segments(
 
 
 def calculate_block_cost(
-    block: List[pd.Timestamp],
+    block: list[pd.Timestamp],
     cheap_slots_sorted: pd.DataFrame,
 ) -> float:
     """Calculate the total cost of a block of water heating slots."""
@@ -87,10 +87,10 @@ def calculate_block_cost(
 
 
 def find_best_merge(
-    blocks: List[List[pd.Timestamp]],
+    blocks: list[list[pd.Timestamp]],
     cheap_slots_sorted: pd.DataFrame,
     slot_duration: pd.Timedelta,
-) -> Optional[int]:
+) -> int | None:
     """Find the best pair of blocks to merge with minimal cost penalty."""
     if len(blocks) < 2:
         return None
@@ -130,9 +130,9 @@ def find_best_merge(
 
 
 def merge_blocks(
-    blocks: List[List[pd.Timestamp]],
+    blocks: list[list[pd.Timestamp]],
     merge_idx: int,
-) -> List[List[pd.Timestamp]]:
+) -> list[list[pd.Timestamp]]:
     """Merge two adjacent blocks at the specified index."""
     if merge_idx >= len(blocks) - 1:
         return blocks
@@ -142,8 +142,8 @@ def merge_blocks(
 
 
 def should_merge_water_blocks(
-    block_a: List[pd.Timestamp],
-    block_b: List[pd.Timestamp],
+    block_a: list[pd.Timestamp],
+    block_b: list[pd.Timestamp],
     tolerance: float,
     max_gap_slots: int,
     slot_duration: pd.Timedelta,
@@ -168,12 +168,12 @@ def should_merge_water_blocks(
 
 
 def merge_water_blocks_by_tolerance(
-    blocks: List[List[pd.Timestamp]],
+    blocks: list[list[pd.Timestamp]],
     tolerance: float,
     max_gap_slots: int,
     slot_duration: pd.Timedelta,
     cheap_slots_sorted: pd.DataFrame,
-) -> List[List[pd.Timestamp]]:
+) -> list[list[pd.Timestamp]]:
     """Merge adjacent blocks when price spread + gap constraints allow it."""
     if not blocks or len(blocks) < 2:
         return blocks
@@ -199,9 +199,9 @@ def merge_water_blocks_by_tolerance(
 
 
 def get_consolidation_params(
-    water_heating_config: Dict[str, Any],
-    charging_strategy: Dict[str, Any],
-) -> Tuple[float, int]:
+    water_heating_config: dict[str, Any],
+    charging_strategy: dict[str, Any],
+) -> tuple[float, int]:
     """Get tolerance and gap configuration for water block consolidation."""
     tolerance = water_heating_config.get("block_consolidation_tolerance_sek")
     if tolerance is None:
@@ -229,7 +229,7 @@ def select_slots_from_segments(
     slot_duration: pd.Timedelta,
     tolerance: float,
     max_gap_slots: int,
-) -> List[pd.Timestamp]:
+) -> list[pd.Timestamp]:
     """Create slot candidates by combining contiguous segments before falling back."""
     cheap_slots_by_time = cheap_slots_sorted.sort_index()
     segments = build_water_segments(cheap_slots_by_time, slot_duration, max_gap_slots, tolerance)
@@ -254,13 +254,13 @@ def select_slots_from_segments(
 
 
 def consolidate_to_blocks(
-    selected_slots: List[pd.Timestamp],
+    selected_slots: list[pd.Timestamp],
     max_blocks: int,
     slot_duration: pd.Timedelta,
     cheap_slots_sorted: pd.DataFrame,
-    water_heating_config: Dict[str, Any],
-    charging_strategy: Dict[str, Any],
-) -> List[pd.Timestamp]:
+    water_heating_config: dict[str, Any],
+    charging_strategy: dict[str, Any],
+) -> list[pd.Timestamp]:
     """Group selected slots into up to max_blocks contiguous groups."""
     if len(selected_slots) <= 1:
         return selected_slots
@@ -312,9 +312,9 @@ def select_optimal_water_slots(
     slots_needed: int,
     max_blocks_per_day: int,
     slot_duration: pd.Timedelta,
-    water_heating_config: Dict[str, Any],
-    charging_strategy: Dict[str, Any],
-) -> List[pd.Timestamp]:
+    water_heating_config: dict[str, Any],
+    charging_strategy: dict[str, Any],
+) -> list[pd.Timestamp]:
     """Select optimal water heating slots."""
     if slots_needed <= 0 or cheap_slots_sorted.empty:
         return []
@@ -358,13 +358,13 @@ def select_optimal_water_slots(
 
 def get_daily_water_usage_kwh(
     target_date: date,
-    learning_config: Dict[str, Any],
-    ha_water_today: Optional[float] = None,
-    today_date: Optional[date] = None,
+    learning_config: dict[str, Any],
+    ha_water_today: float | None = None,
+    today_date: date | None = None,
 ) -> float:
     """Retrieve recorded water usage for the specified date."""
     if today_date is None:
-        today_date = datetime.now(timezone.utc).date()
+        today_date = datetime.now(UTC).date()
 
     if target_date == today_date and ha_water_today is not None:
         return max(0.0, ha_water_today)
@@ -388,7 +388,7 @@ def get_daily_water_usage_kwh(
                 INSERT OR IGNORE INTO daily_water (date, used_kwh, updated_at)
                 VALUES (?, 0, ?)
                 """,
-                (date_key, datetime.now(timezone.utc).isoformat()),
+                (date_key, datetime.now(UTC).isoformat()),
             )
             conn.commit()
     except Exception:
@@ -399,9 +399,9 @@ def get_daily_water_usage_kwh(
 
 def schedule_water_heating(
     df: pd.DataFrame,
-    config: Dict[str, Any],
+    config: dict[str, Any],
     now_slot: pd.Timestamp,
-    ha_water_today: Optional[float] = None,
+    ha_water_today: float | None = None,
 ) -> pd.DataFrame:
     """
     Schedule water heating in contiguous blocks per day.

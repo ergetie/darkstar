@@ -180,7 +180,7 @@ export default function Aurora() {
 
     // Performance Charts Data
     const socChartData = useMemo(() => {
-        if (!perfData) return null
+        if (!perfData || !perfData.soc_series || perfData.soc_series.length === 0) return null
         return {
             datasets: [
                 {
@@ -207,7 +207,7 @@ export default function Aurora() {
     }, [perfData])
 
     const costChartData = useMemo(() => {
-        if (!perfData) return null
+        if (!perfData || !perfData.cost_series || perfData.cost_series.length === 0) return null
         return {
             labels: perfData.cost_series.map((d: { date: string; planned: number; realized: number }) =>
                 d.date.slice(5),
