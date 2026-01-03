@@ -132,8 +132,8 @@ async def get_ha_entity(entity_id: str) -> dict[str, Any]:
 )
 async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[str, Any]:
     """Calculate average value for an entity over the last N hours."""
-    from inputs import get_load_profile_from_ha, load_yaml
     from backend.core.cache import cache
+    from inputs import get_load_profile_from_ha, load_yaml
 
     # Check cache first
     cache_key = f"ha_average:{entity_id}:{hours}"

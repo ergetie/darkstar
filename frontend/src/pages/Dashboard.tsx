@@ -11,6 +11,7 @@ import AdvisorCard from '../components/AdvisorCard'
 import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
+import { useToast } from '../lib/useToast'
 
 type PlannerMeta = {
     planned_at?: string
@@ -88,6 +89,8 @@ export default function Dashboard() {
         water_kw?: number
     }>({})
 
+    const { toast } = useToast()
+
     // --- WebSocket Event Handlers (Rev E1) ---
     useSocket('live_metrics', (data: any) => {
         console.log('📊 live_metrics received:', data)
@@ -105,6 +108,12 @@ export default function Dashboard() {
 
     useSocket('schedule_updated', (data: any) => {
         console.log('📅 Schedule updated via push:', data)
+        // Show toast notification (Rev ARC8)
+        toast({
+            message: 'Schedule updated',
+            description: `${data.slot_count ?? 0} slots generated`,
+            variant: 'success',
+        })
         // Targeted refresh - only fetch schedule, not everything
         Api.schedule().then((data) => {
             if (data.schedule) setLocalSchedule(data.schedule)
@@ -196,25 +205,20 @@ export default function Dashboard() {
                 setServerSchedule(schedule ?? [])
                 // Removed setServerScheduleError
             })
-            .finally(() => { })
+            .finally(() => {})
     }, [])
 
     const fetchCriticalData = useCallback(async () => {
         setIsRefreshing(true)
         try {
-            const [
-                statusData,
-                configData,
-                scheduleData,
-                executorStatusData,
-                schedulerStatusData,
-            ] = await Promise.allSettled([
-                Api.status(),
-                Api.config(),
-                Api.schedule(),
-                Api.executor.status(),
-                Api.schedulerStatus(),
-            ])
+            const [statusData, configData, scheduleData, executorStatusData, schedulerStatusData] =
+                await Promise.allSettled([
+                    Api.status(),
+                    Api.config(),
+                    Api.schedule(),
+                    Api.executor.status(),
+                    Api.schedulerStatus(),
+                ])
 
             // Process critical data
             if (statusData.status === 'fulfilled') {
@@ -231,7 +235,8 @@ export default function Dashboard() {
 
                 // Battery capacity
                 if (data.battery?.capacity_kwh != null) setBatteryCapacity(data.battery.capacity_kwh)
-                else if (data.system?.battery?.capacity_kwh != null) setBatteryCapacity(data.system.battery.capacity_kwh)
+                else if (data.system?.battery?.capacity_kwh != null)
+                    setBatteryCapacity(data.system.battery.capacity_kwh)
 
                 // Automation config
                 if (data.automation) {
@@ -245,8 +250,10 @@ export default function Dashboard() {
 
                 // Water/Vacation config
                 if (data.water_heating) {
-                    if (typeof data.water_heating.comfort_level === 'number') setComfortLevel(data.water_heating.comfort_level)
-                    if (typeof data.water_heating.vacation_mode?.enabled === 'boolean') setVacationMode(data.water_heating.vacation_mode.enabled)
+                    if (typeof data.water_heating.comfort_level === 'number')
+                        setComfortLevel(data.water_heating.comfort_level)
+                    if (typeof data.water_heating.vacation_mode?.enabled === 'boolean')
+                        setVacationMode(data.water_heating.vacation_mode.enabled)
                 }
 
                 if (data.input_sensors?.vacation_mode) {
@@ -307,7 +314,6 @@ export default function Dashboard() {
             }
 
             setLastRefresh(new Date())
-
         } catch (error) {
             console.error('Error fetching critical data:', error)
         } finally {
@@ -381,10 +387,17 @@ export default function Dashboard() {
                         }
                     })
                     // Update todayStats again if needed or use state setter function
-                    setTodayStats(prev => prev ? ({ ...prev, pvForecast: pvForecastTotal > 0 ? parseFloat(pvForecastTotal.toFixed(1)) : (prev.pvForecast) }) : null)
+                    setTodayStats((prev) =>
+                        prev
+                            ? {
+                                  ...prev,
+                                  pvForecast:
+                                      pvForecastTotal > 0 ? parseFloat(pvForecastTotal.toFixed(1)) : prev.pvForecast,
+                              }
+                            : null,
+                    )
                 }
             }
-
         } catch (error) {
             console.error('Error fetching deferred data:', error)
         } finally {
@@ -707,10 +720,11 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
-                                                ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
-                                                : 'bg-line'
-                                                }`}
+                                            className={`inline-flex h-2 w-2 rounded-full ${
+                                                automationConfig?.enable_scheduler
+                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
+                                                    : 'bg-line'
+                                            }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -731,8 +745,9 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => fetchAllData()}
                                     disabled={isRefreshing}
-                                    className={`rounded-full p-1 transition ${isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
-                                        }`}
+                                    className={`rounded-full p-1 transition ${
+                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                    }`}
                                     title="Manual sync"
                                 >
                                     <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>

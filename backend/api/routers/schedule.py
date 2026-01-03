@@ -32,21 +32,18 @@ def get_executor_instance() -> Any | None:
     description="Returns the current status of the background scheduler.",
 )
 async def get_scheduler_status():
-    """Get scheduler status (is it running, last run, etc)."""
-    try:
-        status_path = Path("data/scheduler_status.json")
-        if status_path.exists():
-            with status_path.open() as f:
-                return json.load(f)
-    except Exception as e:
-        logger.warning(f"Failed to read scheduler status: {e}")
+    """Get live scheduler status from in-process service."""
+    from backend.services.scheduler_service import scheduler_service
 
+    status = scheduler_service.status
     return {
-        "running": False,
-        "last_run": None,
-        "next_run": None,
-        "status": "idle",
-        "error": "Status file not found",
+        "running": status.running,
+        "enabled": status.enabled,
+        "last_run_at": status.last_run_at.isoformat() if status.last_run_at else None,
+        "next_run_at": status.next_run_at.isoformat() if status.next_run_at else None,
+        "last_run_status": status.last_run_status,
+        "last_error": status.last_error,
+        "current_task": status.current_task,
     }
 
 
@@ -119,10 +116,10 @@ async def get_schedule() -> dict[str, Any]:
             logger.warning("Price overlay unavailable: %s", exc)
 
     result = cast("dict[str, Any]", _clean_nans(data))
-    
+
     # Cache result
     await cache.set(cache_key, result, ttl_seconds=300.0)
-    
+
     return result
 
 
