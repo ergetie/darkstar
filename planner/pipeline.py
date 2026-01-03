@@ -499,23 +499,8 @@ class PlannerPipeline:
                 logger.debug("Stored plan to slot_plans for performance tracking")
             except Exception as store_err:
                 logger.warning("Failed to store plan to slot_plans: %s", store_err)
-            
-            # Rev GAP: Emit WebSocket event for instant refresh
-            try:
-                from backend.core.websockets import ws_manager
-                
-                # Invalidate cache and push event
-                ws_manager.invalidate_and_push_sync(
-                    cache_key="schedule:current",
-                    event="schedule_updated",
-                    data={
-                        "planned_at": now_slot.isoformat(),
-                        "slot_count": len(final_df),
-                        "status": "success"
-                    }
-                )
-            except Exception as e:
-                logger.warning(f"Failed to emit schedule_updated event: {e}")
+
+            # Note: Cache invalidation and WebSocket emit moved to planner_service.py (Rev ARC8)
 
         return final_df
 
