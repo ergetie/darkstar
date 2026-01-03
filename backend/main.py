@@ -68,33 +68,39 @@ def create_app() -> socketio.ASGIApp:
         from backend.ha_socket import start_ha_socket_client
         start_ha_socket_client()
 
-    
-    # 5. Health Check (Basic) - Will be expanded later
-    from datetime import datetime, timezone
-    
+    # 5. Health Check - Using comprehensive HealthChecker
     @app.get("/api/health")
-    async def health_check():
+    def health_check():
         """
-        Return system health status matchin frontend HealthResponse:
-        {
-            healthy: boolean
-            issues: HealthIssue[]
-            checked_at: string
-            critical_count: number
-            warning_count: number
-        }
+        Return system health status.
+        Uses sync function (not async) because HealthChecker uses blocking I/O.
+        FastAPI runs sync handlers in threadpool automatically.
         """
-        # Placeholder logic - assume healthy for now
-        return {
-            "healthy": True,
-            "issues": [],
-            "checked_at": datetime.now(timezone.utc).isoformat(),
-            "critical_count": 0,
-            "warning_count": 0,
-            "status": "ok", # Legacy support
-            "mode": "fastapi",
-            "rev": "ARC1"
-        }
+        try:
+            from backend.health import get_health_status
+            status = get_health_status()
+            result = status.to_dict()
+        except Exception as e:
+            # Fallback if health check itself fails
+            from datetime import datetime, timezone
+            result = {
+                "healthy": False,
+                "issues": [{
+                    "category": "health_check",
+                    "severity": "critical",
+                    "message": f"Health check failed: {e}",
+                    "guidance": "Check backend logs for details.",
+                    "entity_id": None,
+                }],
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+                "critical_count": 1,
+                "warning_count": 0,
+            }
+        # Add backwards-compatible fields
+        result["status"] = "ok" if result["healthy"] else "unhealthy"
+        result["mode"] = "fastapi"
+        result["rev"] = "ARC1"
+        return result
 
     # 6. Mount Static Files (Frontend)
     # We expect 'backend/static' to contain the built React app (or symlinks in dev)
