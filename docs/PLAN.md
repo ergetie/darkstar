@@ -30,7 +30,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     
 3.  **Status Protocol:**
     
-    -   Update the status tag in the Header: `### [STATUS] Rev ID — Title`
+    -   Update the status tag in the Header: `### [STATUS] REV // ID00 — Title`
         
     -   Allowed Statuses: `[DRAFT]`, `[PLANNED]`, `[IN PROGRESS]`, `[DONE]`, `[PAUSED]`, `[OBSOLETE]`.
         
