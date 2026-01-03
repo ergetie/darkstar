@@ -12,7 +12,6 @@ from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
 
 
-
 def load_home_assistant_config() -> dict[str, Any]:
     """Read Home Assistant configuration from secrets.yaml."""
     try:
@@ -48,7 +47,7 @@ def load_notification_secrets() -> dict[str, Any]:
     return notif_secrets
 
 
-def _make_ha_headers(token: str) -> dict[str, str]:
+def make_ha_headers(token: str) -> dict[str, str]:
     """Return headers for Home Assistant REST calls."""
     return {
         "Authorization": f"Bearer {token}",
@@ -65,7 +64,7 @@ def load_yaml(path: str) -> dict[str, Any]:
         return {}
 
 
-def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> dict[str, Any] | None:
+def get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> dict[str, Any] | None:
     """Fetch a single entity state from Home Assistant."""
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
@@ -76,7 +75,7 @@ def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> dict[str, Any]
 
     endpoint = f"{url.rstrip('/')}/api/states/{entity_id}"
     try:
-        response = requests.get(endpoint, headers=_make_ha_headers(token), timeout=timeout)
+        response = requests.get(endpoint, headers=make_ha_headers(token), timeout=timeout)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as exc:
@@ -86,7 +85,7 @@ def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> dict[str, Any]
 
 def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> float | None:
     """Return the numeric state of a Home Assistant sensor if available."""
-    state = _get_ha_entity_state(entity_id, timeout=timeout)
+    state = get_ha_entity_state(entity_id, timeout=timeout)
     if not state:
         return None
 
@@ -103,7 +102,7 @@ def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> flo
 
 def get_home_assistant_bool(entity_id: str, *, timeout: int = 10) -> bool:
     """Return True if entity is 'on', 'true', 'armed', etc."""
-    state = _get_ha_entity_state(entity_id, timeout=timeout)
+    state = get_ha_entity_state(entity_id, timeout=timeout)
     if not state:
         return False
 
@@ -159,11 +158,11 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     # Combine data
     today_values: list[dict[str, Any]] = []
     if today_data and today_data.get("areas") and today_data["areas"].get(price_area):
-        today_values = cast(list[dict[str, Any]], today_data["areas"][price_area].get("values", []))
+        today_values = cast("list[dict[str, Any]]", today_data["areas"][price_area].get("values", []))
 
     tomorrow_values: list[dict[str, Any]] = []
     if tomorrow_data and tomorrow_data.get("areas") and tomorrow_data["areas"].get(price_area):
-        tomorrow_values = cast(list[dict[str, Any]], tomorrow_data["areas"][price_area].get("values", []))
+        tomorrow_values = cast("list[dict[str, Any]]", tomorrow_data["areas"][price_area].get("values", []))
 
     # Use only known market data (do not duplicate unknown future)
     all_entries: list[dict[str, Any]] = today_values + tomorrow_values
@@ -248,7 +247,7 @@ def get_forecast_data(price_slots: list[dict[str, Any]], config: dict[str, Any])
     Generate PV and load forecasts based on price slots and configuration.
     Synchronous wrapper that handles both DB-backed (Aurora) and async fallbacks.
     """
-    forecasting_cfg = cast(dict[str, Any], config.get("forecasting", {}) or {})
+    forecasting_cfg = cast("dict[str, Any]", config.get("forecasting", {}) or {})
     active_version = str(forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg"))
 
     if active_version == "aurora":
@@ -276,10 +275,10 @@ def _get_forecast_data_aurora(price_slots: list[dict[str, Any]], config: dict[st
 
     # 2. Fetch HA Load Baseline for fallback
     try:
-        ha_profile = _get_load_profile_from_ha(config)
+        ha_profile = get_load_profile_from_ha(config)
     except Exception:
         ha_profile = [0.0] * 96
-        
+
     forecast_data: list[dict[str, Any]] = []
     if db_slots:
         print("Info: Using AURORA forecasts from learning DB (aurora).")
@@ -370,8 +369,8 @@ def _get_forecast_data_aurora(price_slots: list[dict[str, Any]], config: dict[st
                     # Just in case code structure changed or valid ha_profile logic was conditioned
                     # We will re-fetch or use 0 default to avoid crash
                     try:
-                        load_val = _get_load_profile_from_ha(config)[idx]
-                    except:
+                        load_val = get_load_profile_from_ha(config)[idx]
+                    except Exception:
                         load_val = 0.0
             else:
                 load_val = base_load + load_corr
@@ -415,11 +414,11 @@ async def _get_forecast_data_async(price_slots: list[dict[str, Any]], config: di
     longitude = float(location.get("longitude", 18.1))
 
     solar_array: dict[str, Any] = system_config.get("solar_array", {}) if isinstance(system_config.get("solar_array"), dict) else {}
-        
+
     kwp = float(solar_array.get("kwp", 5.0))
     azimuth = float(solar_array.get("azimuth", 180))
     tilt = float(solar_array.get("tilt", 30))
-    
+
     timezone = str(config.get("timezone", "Europe/Stockholm"))
     local_tz = pytz.timezone(timezone)
 
@@ -493,10 +492,10 @@ async def _get_forecast_data_async(price_slots: list[dict[str, Any]], config: di
                 daily_pv_forecast[target_date] = last_value
 
     try:
-        load_profile = _get_load_profile_from_ha(config)
+        load_profile = get_load_profile_from_ha(config)
     except Exception as exc:
         print(f"Warning: Failed to get HA load profile, using dummy: {exc}")
-        load_profile = _get_dummy_load_profile(config)
+        load_profile = get_dummy_load_profile(config)
 
     daily_load_total = sum(load_profile)
     daily_load_forecast: dict[str, float] = {}
@@ -683,7 +682,7 @@ def build_db_forecast_for_slots(
     forecasting_cfg = config.get("forecasting", {})
     if not isinstance(forecasting_cfg, dict):
         forecasting_cfg = {}
-        
+
     version = str(forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg"))
 
     timezone = str(config.get("timezone", "Europe/Stockholm"))
@@ -744,7 +743,7 @@ def build_db_forecast_for_slots(
     return result
 
 
-def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
+def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     """Fetch actual load profile from Home Assistant historical data.
 
     Notes on averaging logic:
@@ -757,7 +756,7 @@ def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
-    token = cast(str, ha_config.get("token", ""))
+    token = cast("str", ha_config.get("token", ""))
 
     # Read entity ID from config.yaml
     input_sensors: dict[str, Any] = config.get("input_sensors", {}) if isinstance(config.get("input_sensors"), dict) else {}
@@ -766,10 +765,10 @@ def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
     if not all([url, token, entity_id]):
         print("Warning: Missing Home Assistant configuration for load profile")
-        return _get_dummy_load_profile(config)
+        return get_dummy_load_profile(config)
 
     # Set up headers and API URL
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
 
     # Calculate time range for last 7 days
     end_time = datetime.now(pytz.UTC)
@@ -791,13 +790,13 @@ def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         data = response.json()
         if not data or not data[0]:
             print("Warning: No data received from Home Assistant")
-            return _get_dummy_load_profile(config)
+            return get_dummy_load_profile(config)
 
         # Process state changes into energy deltas
         states = data[0]
         if len(states) < 2:
             print("Warning: Insufficient data points from Home Assistant")
-            return _get_dummy_load_profile(config)
+            return get_dummy_load_profile(config)
 
         # Convert to local timezone for processing
         local_tz = pytz.timezone("Europe/Stockholm")
@@ -878,7 +877,7 @@ def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         total_daily = sum(daily_profile)
         if total_daily <= 0:
             print("Warning: No valid energy consumption data found")
-            return _get_dummy_load_profile(config)
+            return get_dummy_load_profile(config)
 
         print(f"Successfully loaded HA data: {total_daily:.2f} kWh/day average")
 
@@ -893,13 +892,13 @@ def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
     except requests.RequestException as e:
         print(f"Warning: Failed to fetch data from Home Assistant: {e}")
-        return _get_dummy_load_profile(config)
+        return get_dummy_load_profile(config)
     except Exception as e:
         print(f"Warning: Error processing Home Assistant data: {e}")
-        return _get_dummy_load_profile(config)
+        return get_dummy_load_profile(config)
 
 
-def _get_dummy_load_profile(config: dict[str, Any]) -> list[float]:
+def get_dummy_load_profile(config: dict[str, Any]) -> list[float]:
     """Create a dummy load profile (sine wave pattern)."""
     import math
 
@@ -922,7 +921,7 @@ if __name__ == "__main__":
             for i in range(min(5, len(data["price_data"]))):
                 slot = data["price_data"][i]
                 # forecast_data is the list matching price_slots
-                forecast_slots = cast(list[dict[str, Any]], data.get("forecast_data", []))
+                forecast_slots = cast("list[dict[str, Any]]", data.get("forecast_data", []))
                 forecast = forecast_slots[i] if i < len(forecast_slots) else {}
                 slot_time = slot["start_time"]
                 import_price = slot["import_price_sek_kwh"]

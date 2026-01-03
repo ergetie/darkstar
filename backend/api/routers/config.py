@@ -1,9 +1,9 @@
 import os
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, Body, HTTPException
 
-from inputs import load_yaml, load_home_assistant_config, load_notification_secrets
+from inputs import load_home_assistant_config, load_notification_secrets, load_yaml
 
 router = APIRouter(tags=["config"])
 
@@ -24,21 +24,21 @@ async def get_config() -> dict[str, Any]:
             if "home_assistant" not in conf:
                 conf["home_assistant"] = {}
             # Update only keys that exist in secrets (overwriting config.yaml placeholders)
-            conf["home_assistant"].update(ha_secrets)
+            cast("dict[str, Any]", conf["home_assistant"]).update(ha_secrets)
 
         # Merge Notification secrets
         notif_secrets = load_notification_secrets()
         if notif_secrets:
             if "notifications" not in conf:
                 conf["notifications"] = {}
-            conf["notifications"].update(notif_secrets)
+            cast("dict[str, Any]", conf["notifications"]).update(notif_secrets)
 
         # Sanitize secrets before returning
         if "home_assistant" in conf:
-            conf["home_assistant"].pop("token", None)
+            cast("dict[str, Any]", conf["home_assistant"]).pop("token", None)
         if "notifications" in conf:
             for key in ["api_key", "token", "password", "webhook_url"]:
-                conf.get("notifications", {}).pop(key, None)
+                cast("dict[str, Any]", conf.get("notifications", {})).pop(key, None)
 
         return conf
     except Exception as e:
@@ -50,7 +50,7 @@ async def get_config() -> dict[str, Any]:
     summary="Save Configuration",
     description="Updates config.yaml with new values.",
 )
-async def save_config(payload: dict[str, Any] = Body(...)):
+async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
     """Save config.yaml."""
     try:
         from ruamel.yaml import YAML
@@ -64,18 +64,21 @@ async def save_config(payload: dict[str, Any] = Body(...)):
         def deep_update(source: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
             for key, value in overrides.items():
                 if isinstance(value, dict) and value:
-                    returned = deep_update(source.get(key, {}), value)
+                    returned = deep_update(
+                        cast("dict[str, Any]", source.get(key, {})),
+                        cast("dict[str, Any]", value)
+                    )
                     source[key] = returned
                 else:
                     source[key] = overrides[key]
             return source
 
         with open("config.yaml", encoding="utf-8") as f:
-            data: dict[str, Any] = yaml_handler.load(f) or {}
+            data = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
             deep_update(data, payload)
 
         with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(data, f)
+            yaml_handler.dump(data, f) # type: ignore
 
         return {"status": "success"}
     except Exception as e:
@@ -87,7 +90,7 @@ async def save_config(payload: dict[str, Any] = Body(...)):
     summary="Reset Configuration",
     description="Resets config.yaml to defaults.",
 )
-async def reset_config():
+async def reset_config() -> dict[str, str]:
     """Reset to default config."""
     if os.path.exists("config.default.yaml"):
         import shutil

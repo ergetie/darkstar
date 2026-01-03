@@ -6,14 +6,13 @@ Provides debug endpoints for logs, history, and diagnostics.
 
 import json
 import logging
-import sqlite3
 from collections import deque
 from datetime import UTC, datetime
+from typing import Any
 
-import pytz
 import aiosqlite
+import pytz
 from fastapi import APIRouter, HTTPException, Query
-from backend.learning import get_learning_engine
 
 logger = logging.getLogger("darkstar.api.debug")
 
@@ -24,9 +23,9 @@ router = APIRouter(tags=["debug"])
 class RingBufferHandler(logging.Handler):
     """In-memory ring buffer for log entries that the UI can poll."""
 
-    def __init__(self, maxlen: int = 1000):
+    def __init__(self, maxlen: int = 1000) -> None:
         super().__init__()
-        self._buffer = deque(maxlen=maxlen)
+        self._buffer: deque[dict[str, Any]] = deque(maxlen=maxlen)
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
@@ -41,7 +40,7 @@ class RingBufferHandler(logging.Handler):
         }
         self._buffer.append(entry)
 
-    def get_logs(self) -> list:
+    def get_logs(self) -> list[dict[str, Any]]:
         return list(self._buffer)
 
 
@@ -61,7 +60,7 @@ if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
     summary="Get Planner Debug Data",
     description="Return comprehensive planner debug data from schedule.json.",
 )
-async def debug_data():
+async def debug_data() -> dict[str, Any]:
     """Return comprehensive planner debug data from schedule.json."""
     try:
         with open("schedule.json") as f:
@@ -87,7 +86,7 @@ async def debug_data():
     summary="Get Server Logs",
     description="Return recent server logs stored in the ring buffer handler.",
 )
-async def debug_logs():
+async def debug_logs() -> dict[str, Any]:
     """Return recent server logs stored in the ring buffer handler."""
     try:
         return {"logs": _ring_buffer_handler.get_logs()}
@@ -101,7 +100,7 @@ async def debug_logs():
     summary="Get Historic SoC",
     description="Return historic SoC data for today from learning database.",
 )
-async def historic_soc(date: str = Query("today")):
+async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
     """Return historic SoC data for today from learning database."""
     try:
         from backend.learning import get_learning_engine
@@ -140,7 +139,7 @@ async def historic_soc(date: str = Query("today")):
             }
 
         # Convert to JSON format
-        slots = []
+        slots: list[dict[str, Any]] = []
         for row in rows:
             slots.append(
                 {"timestamp": row[0], "soc_percent": row[1], "quality_flags": row[2] or ""}
@@ -158,20 +157,21 @@ async def historic_soc(date: str = Query("today")):
     summary="Get Performance Metrics",
     description="Get performance metrics for charts.",
 )
-async def get_performance_metrics(days: int = Query(7, ge=1, le=90)):
+async def get_performance_metrics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     """Get performance metrics for charts."""
     try:
-        from backend.learning import get_learning_engine
+        from typing import cast
 
+        from backend.learning import get_learning_engine
         engine = get_learning_engine()
-        data = engine.get_performance_series(days_back=days)
+        data = cast("dict[str, Any]", engine.get_performance_series(days_back=days)) # type: ignore
         return data
     except Exception:
         logger.exception("Failed to get performance metrics")
         return {"soc_series": [], "cost_series": []}
 
 
-from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, load_yaml
+from inputs import get_dummy_load_profile, get_load_profile_from_ha, load_yaml
 
 
 @router.get(
@@ -179,12 +179,12 @@ from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, load_yaml
     summary="Debug Load Profile",
     description="Debug endpoint to test HA load profile fetching.",
 )
-async def debug_load_profile():
+async def debug_load_profile() -> dict[str, Any]:
     """Debug endpoint to test HA load profile fetching."""
     try:
         conf = load_yaml("config.yaml") or {}
         try:
-            profile = _get_load_profile_from_ha(conf)
+            profile = get_load_profile_from_ha(conf)
             return {
                 "source": "ha",
                 "profile_sum": sum(profile),
@@ -192,7 +192,7 @@ async def debug_load_profile():
                 "message": "Successfully fetched from HA",
             }
         except Exception as e:
-            dummy = _get_dummy_load_profile(conf)
+            dummy = get_dummy_load_profile(conf)
             return {
                 "source": "dummy_fallback",
                 "error": str(e),

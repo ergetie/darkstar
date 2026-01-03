@@ -1,20 +1,20 @@
-from datetime import datetime, timedelta
-
-import pytz
-import httpx
 import logging
 import traceback
+from datetime import datetime, timedelta
+from typing import Any, cast
+
+import httpx
+import pytz
 from fastapi import APIRouter, HTTPException
 
 # Reuse existing helpers from inputs.py to ensure consistency
 from inputs import (
-    _get_ha_entity_state,  # pyright: ignore [reportPrivateUsage]
-    load_yaml,  # pyright: ignore [reportPrivateUsage]
-    _make_ha_headers,  # pyright: ignore [reportPrivateUsage]
+    get_ha_entity_state,
     get_home_assistant_sensor_float,
     load_home_assistant_config,
+    load_yaml,
+    make_ha_headers,
 )
-from typing import Any, cast
 
 logger = logging.getLogger("darkstar.api.services")
 
@@ -34,7 +34,7 @@ async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     if not url or not token:
         return 0.0
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
 
     end_time = datetime.now(pytz.UTC)
     start_time = end_time - timedelta(hours=hours)
@@ -112,7 +112,7 @@ async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     description="Returns the state of a specific Home Assistant entity.",
 )
 async def get_ha_entity(entity_id: str) -> dict[str, Any]:
-    state = _get_ha_entity_state(entity_id)
+    state = get_ha_entity_state(entity_id)
     if not state:
         return {
             "entity_id": entity_id,
@@ -130,13 +130,13 @@ async def get_ha_entity(entity_id: str) -> dict[str, Any]:
 )
 async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[str, Any]:
     """Calculate average value for an entity over the last N hours."""
-    from inputs import _get_load_profile_from_ha, load_yaml  # pyright: ignore [reportPrivateUsage]
+    from inputs import get_load_profile_from_ha, load_yaml
 
     if not entity_id:
         # Default to load power sensor
         config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
         sensors: dict[str, Any] = config.get("input_sensors", {})
-        entity_id = cast(str | None, sensors.get("load_power"))
+        entity_id = cast("str | None", sensors.get("load_power"))
 
     if not entity_id:
         return {"average": 0.0, "entity_id": None, "hours": hours}
@@ -146,8 +146,8 @@ async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[
     # Fallback to static profile if history unavailable/zero
     if avg_val == 0.0:
         try:
-            config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
-            profile = _get_load_profile_from_ha(config)
+            config = load_yaml("config.yaml")
+            profile = get_load_profile_from_ha(config)
             if profile:
                 avg_val = sum(profile) / len(profile)
         except Exception as e:
@@ -192,7 +192,7 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
         return {"entities": []}
 
     try:
-        headers = _make_ha_headers(token)
+        headers = make_ha_headers(token)
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{url.rstrip('/')}/api/states", headers=headers)
         if resp.status_code == 200:
@@ -231,7 +231,7 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
         engine = get_learning_engine()
         if hasattr(engine, "get_performance_series"):
             data = engine.get_performance_series(days_back=days) # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
-            return cast(dict[str, Any], data)
+            return cast("dict[str, Any]", data)
         else:
             return {
                 "soc_series": [],
@@ -260,7 +260,7 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
 )
 async def get_water_today() -> dict[str, Any]:
     """Get today's water heating energy usage."""
-    config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+    config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
 
@@ -280,7 +280,7 @@ async def get_water_today() -> dict[str, Any]:
 async def get_system_status() -> dict[str, Any]:
     """Get instantaneous system status (SoC, Power Flow)."""
     # Load sensors
-    config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+    config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
 
     def get_val(key: str, default: float = 0.0) -> float:
@@ -324,7 +324,9 @@ async def get_system_status() -> dict[str, Any]:
 )
 async def get_water_boost():
     """Get current water boost status from executor."""
-    from backend.api.routers.executor import get_executor_instance  # pyright: ignore [reportPrivateUsage]
+    from backend.api.routers.executor import (
+        get_executor_instance,  # pyright: ignore [reportPrivateUsage]
+    )
     executor = get_executor_instance()
     if not executor:
         return {"boost": False, "source": "no_executor"}
@@ -348,7 +350,9 @@ async def get_water_boost():
 async def set_water_boost() -> dict[str, str]:
     """Activate water heater boost via executor quick action."""
     try:
-        from backend.api.routers.executor import get_executor_instance # pyright: ignore [reportPrivateUsage]
+        from backend.api.routers.executor import (
+            get_executor_instance,  # pyright: ignore [reportPrivateUsage]
+        )
         executor = get_executor_instance()
         if not executor:
             logger.error("Executor unavailable for water boost")
@@ -384,7 +388,9 @@ async def set_water_boost() -> dict[str, str]:
 async def cancel_water_boost() -> dict[str, str]:
     """Cancel active water boost."""
     try:
-        from backend.api.routers.executor import get_executor_instance # pyright: ignore [reportPrivateUsage]
+        from backend.api.routers.executor import (
+            get_executor_instance,  # pyright: ignore [reportPrivateUsage]
+        )
         executor = get_executor_instance()
         if executor and hasattr(executor, 'clear_water_boost'):
             executor.clear_water_boost()
@@ -622,7 +628,7 @@ async def get_ha_services() -> dict[str, list[str]]:
         return {"services": []}
 
     try:
-        headers = _make_ha_headers(token)
+        headers = make_ha_headers(token)
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{url.rstrip('/')}/api/services", headers=headers)
         if resp.status_code == 200:
@@ -655,7 +661,7 @@ async def test_ha_connection() -> dict[str, str]:
         return {"status": "error", "message": "HA not configured"}
 
     try:
-        headers = _make_ha_headers(token)
+        headers = make_ha_headers(token)
         async with httpx.AsyncClient(timeout=5.0) as client:
             resp = await client.get(f"{url.rstrip('/')}/api/", headers=headers)
         if resp.status_code == 200:
@@ -674,9 +680,11 @@ async def test_ha_connection() -> dict[str, str]:
 async def get_ha_socket_status() -> dict[str, Any]:
     """Return status of the HA WebSocket connection."""
     try:
-        from backend.ha_socket import get_socket_status # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
+        from backend.ha_socket import (
+            get_socket_status,  # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
+        )
 
-        return cast(dict[str, Any], get_socket_status())
+        return cast("dict[str, Any]", get_socket_status())
     except ImportError:
         return {"status": "unavailable", "message": "HA socket module not loaded"}
     except Exception as e:
@@ -691,9 +699,11 @@ async def get_ha_socket_status() -> dict[str, Any]:
 async def get_db_current_schedule() -> dict[str, Any]:
     """Get the current schedule from the database."""
     try:
-        from db_writer import get_current_schedule_from_db # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
+        from db_writer import (
+            get_current_schedule_from_db,  # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
+        )
 
-        schedule = cast(dict[str, Any], get_current_schedule_from_db())
+        schedule = cast("dict[str, Any]", get_current_schedule_from_db())
         return {"schedule": schedule}
     except ImportError:
         return {"schedule": None, "message": "DB module not available"}
@@ -711,15 +721,15 @@ async def push_to_db() -> dict[str, str]:
     try:
         import json
 
-        from db_writer import write_schedule_to_db # pyright: ignore [reportMissingImports]
+        from db_writer import write_schedule_to_db  # pyright: ignore [reportMissingImports]
 
         with open("schedule.json") as f:
             schedule = json.load(f)
-        
+
         # Load necessary configs for db write
-        config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
-        secrets = load_yaml("secrets.yaml") # pyright: ignore [reportPrivateUsage]
-        
+        config = load_yaml("config.yaml")
+        secrets = load_yaml("secrets.yaml")
+
         write_schedule_to_db(schedule, "v1", config, secrets)
         return {"status": "success", "message": "Schedule pushed to DB"}
     except Exception as e:
@@ -736,16 +746,16 @@ async def run_simulation() -> dict[str, Any]:
     try:
         import json
 
-        from planner.simulation import simulate_schedule # pyright: ignore [reportMissingImports]
+        from planner.simulation import simulate_schedule  # pyright: ignore [reportMissingImports]
 
         with open("schedule.json") as f:
             schedule = json.load(f)
-            
-        config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
-        initial_state: dict[str, Any] = {} # Simplified simulation 
-        
+
+        config = load_yaml("config.yaml")
+        initial_state: dict[str, Any] = {} # Simplified simulation
+
         result = simulate_schedule(schedule, config, initial_state)
-        return {"status": "success", "result": cast(dict[str, Any], result)}
+        return {"status": "success", "result": cast("dict[str, Any]", result)}
     except ImportError:
         return {"status": "error", "message": "Simulation module not available"}
     except Exception as e:

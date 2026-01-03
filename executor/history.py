@@ -254,6 +254,10 @@ class ExecutionHistory:
         records = self.get_history(limit=1)
         return records[0] if records else None
 
+    def get_recent(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Get the N most recent execution records."""
+        return self.get_history(limit=limit)
+
     def cleanup_old_records(self, retention_days: int = 30) -> int:
         """
         Delete execution records older than retention_days.

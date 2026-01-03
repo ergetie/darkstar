@@ -117,7 +117,7 @@ class ExecutorEngine:
         # Use the same database as the learning engine
         return os.path.join("data", "planner_learning.db")
 
-    def _init_ha_client(self) -> bool:
+    def init_ha_client(self) -> bool:
         """Initialize the Home Assistant client."""
         # Use existing HA config loader from inputs.py
         ha_config = load_home_assistant_config()
@@ -479,18 +479,36 @@ class ExecutorEngine:
             )
 
             # Send via ActionDispatcher
-            self.dispatcher.ha.send_notification(
-                service=self.config.notifications.service,
-                title="Darkstar Executor Paused",
-                message=message,
+            self.send_notification(
+                "Darkstar Executor Paused",
+                message,
                 data={
                     "notification_type": "pause_reminder",
                     "actions": [{"action": "RESUME_EXECUTOR", "title": "ACTIVATE"}],
-                }
+                },
             )
             logger.info("Pause reminder notification sent")
         except Exception as e:
             logger.error("Failed to send pause reminder: %s", e)
+
+    def send_notification(
+        self, title: str, message: str, data: dict[str, Any] | None = None
+    ) -> bool:
+        """Send a notification via the configured service."""
+        if not self.dispatcher:
+            return False
+
+        try:
+            self.dispatcher._send_notification(message, title=title)
+            # If data is provided, we might need a more direct HA call since _send_notification is simplified
+            if data:
+                self.ha_client.send_notification(
+                    self.config.notifications.service, title, message, data=data
+                )
+            return True
+        except Exception as e:
+            logger.error("Failed to send notification: %s", e)
+            return False
 
     # --- Water Boost ---
 
@@ -585,7 +603,7 @@ class ExecutorEngine:
             logger.warning("Executor already running")
             return
 
-        if not self._init_ha_client():
+        if not self.init_ha_client():
             logger.error("Failed to initialize HA client, executor not started")
             return
 
@@ -607,7 +625,7 @@ class ExecutorEngine:
 
         Returns the execution result.
         """
-        if not self.ha_client and not self._init_ha_client():
+        if not self.ha_client and not self.init_ha_client():
             return {"success": False, "error": "Failed to initialize HA client"}
 
         return self._tick()

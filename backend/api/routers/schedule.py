@@ -8,7 +8,7 @@ import pytz
 from fastapi import APIRouter
 
 # Local imports (using absolute paths relative to project root)
-from inputs import load_yaml, get_nordpool_data
+from inputs import get_nordpool_data, load_yaml
 
 # executor/history needs access
 # We might need to adjust python path in dev-backend.sh if not matching
@@ -72,7 +72,7 @@ async def get_schedule() -> dict[str, Any]:
             # We assume config.yaml is in root
             price_slots = get_nordpool_data("config.yaml")
             tz = pytz.timezone("Europe/Stockholm")  # Default fallback
-            
+
             # Try to read timezone from config
             config = load_yaml("config.yaml")
             if "timezone" in config:
@@ -107,7 +107,7 @@ async def get_schedule() -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Price overlay unavailable: %s", exc)
 
-    return cast(dict[str, Any], _clean_nans(data))
+    return cast("dict[str, Any]", _clean_nans(data))
 
 
 # ... Porting schedule_today_with_history ...
@@ -239,7 +239,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
         merged_slots.append(slot)
 
     result_data = {"date": today_local.isoformat(), "slots": merged_slots}
-    return cast(dict[str, Any], _clean_nans(result_data))
+    return cast("dict[str, Any]", _clean_nans(result_data))
 
 
 def _clean_nans(obj: Any) -> Any:
@@ -251,7 +251,7 @@ def _clean_nans(obj: Any) -> Any:
             return 0.0
         return obj
     if isinstance(obj, dict):
-        return {str(k): _clean_nans(v) for k, v in obj.items()}
+        return {str(k): _clean_nans(v) for k, v in cast("dict[Any, Any]", obj).items()}
     if isinstance(obj, list):
-        return [_clean_nans(v) for v in obj]
+        return [_clean_nans(v) for v in cast("list[Any]", obj)]
     return obj

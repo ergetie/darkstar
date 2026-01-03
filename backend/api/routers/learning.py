@@ -7,11 +7,10 @@ Provides endpoints for the learning engine (auto-tuning, forecast calibration).
 import json
 import logging
 import sqlite3
+from typing import Any, cast
+
 import aiosqlite
-
 from fastapi import APIRouter, HTTPException, Query
-
-from typing import Any, cast, Optional
 
 logger = logging.getLogger("darkstar.api.learning")
 
@@ -30,12 +29,12 @@ def _get_learning_engine() -> Any:
     summary="Get Learning Status",
     description="Return learning engine status and metrics.",
 )
-async def learning_status():
+async def learning_status() -> dict[str, Any]:
     """Return learning engine status and metrics."""
     try:
         engine = _get_learning_engine()
         status = engine.get_status()
-        return status
+        return cast("dict[str, Any]", status)
     except Exception as e:
         logger.exception("Failed to get learning status")
         raise HTTPException(status_code=500, detail=str(e))
@@ -46,33 +45,32 @@ async def learning_status():
     summary="Get Learning History",
     description="Return learning engine run history.",
 )
-async def learning_history(limit: int = Query(20, ge=1, le=100)):
+async def learning_history(limit: int = Query(20, ge=1, le=100)) -> dict[str, Any]:
     """Return learning engine run history."""
     try:
         engine = _get_learning_engine()
         db_path = str(getattr(engine, "db_path", ""))
 
-        async with aiosqlite.connect(db_path) as conn:
-            async with conn.execute(
-                """
+        async with aiosqlite.connect(db_path) as conn, conn.execute(
+            """
                 SELECT id, started_at, status, result_metrics_json, params_json
                 FROM learning_runs
                 ORDER BY started_at DESC
                 LIMIT ?
             """,
-                (limit,),
-            ) as cursor:
+            (limit,),
+        ) as cursor:
 
-                runs = []
-                for row in await cursor.fetchall():
-                    run = {
-                        "id": row[0],
-                        "run_date": row[1],
-                        "status": row[2],
-                        "metrics": json.loads(row[3]) if row[3] else None,
-                        "config_changes": json.loads(row[4]) if row[4] else None,
-                    }
-                    runs.append(run)
+            runs: list[dict[str, Any]] = []
+            for row in await cursor.fetchall():
+                run = {
+                    "id": row[0],
+                    "run_date": row[1],
+                    "status": row[2],
+                    "metrics": json.loads(row[3]) if row[3] else None,
+                    "config_changes": json.loads(row[4]) if row[4] else None,
+                }
+                runs.append(run)
 
         return {"runs": runs, "count": len(runs)}
     except sqlite3.OperationalError as e:
@@ -84,24 +82,31 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+import asyncio
+
+
 @router.post(
     "/api/learning/run",
     summary="Trigger Learning Run",
     description="Trigger learning orchestration manually.",
 )
-async def learning_run():
+async def learning_run() -> dict[str, Any]:
     """Trigger learning orchestration manually."""
     try:
         from backend.learning.reflex import AuroraReflex
         from ml.train import train_models
 
-        # Run Reflex
-        reflex = AuroraReflex()
-        reflex_report = reflex.run(dry_run=False)
+        def _run_heavy_tasks():
+            # Run Reflex
+            reflex = AuroraReflex()
+            report = reflex.run(dry_run=False)
 
-        # Run Training (Sync, blocking for now)
-        # TODO: Offload to background task
-        train_models(days_back=90, min_samples=100)
+            # Run Training
+            train_models(days_back=90, min_samples=100)
+            return report
+
+        # Offload to thread to avoid blocking event loop
+        reflex_report = await asyncio.to_thread(_run_heavy_tasks)
 
         return {
             "status": "success",
@@ -120,7 +125,7 @@ async def learning_run():
     summary="Get Learning Loops",
     description="Get status of individual learning loops.",
 )
-async def learning_loops():
+async def learning_loops() -> dict[str, Any]:
     """Get status of individual learning loops."""
     try:
         engine = _get_learning_engine()
@@ -131,7 +136,7 @@ async def learning_loops():
         async with aiosqlite.connect(db_path) as conn:
             # Check for learning_loops table
             async with conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='learning_loops'
             """) as cursor:
                 if await cursor.fetchone():
@@ -158,7 +163,7 @@ async def learning_loops():
         return {"loops": result}
     except Exception as e:
         logger.exception("Failed to get learning loops")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -175,7 +180,7 @@ async def learning_daily_metrics():
         async with aiosqlite.connect(db_path) as conn:
             # Check if table exists
             async with conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='daily_metrics'
             """) as cursor:
                 if not await cursor.fetchone():
@@ -200,7 +205,7 @@ async def learning_daily_metrics():
             }
     except Exception as e:
         logger.exception("Failed to get daily metrics")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -208,7 +213,7 @@ async def learning_daily_metrics():
     summary="Get Learning Changes",
     description="Return recent learning configuration changes.",
 )
-async def learning_changes(limit: int = Query(10, ge=1, le=50)):
+async def learning_changes(limit: int = Query(10, ge=1, le=50)) -> dict[str, Any]:
     """Return recent learning configuration changes."""
     try:
         engine = _get_learning_engine()
@@ -217,7 +222,7 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
         async with aiosqlite.connect(db_path) as conn:
             # Check if table exists
             async with conn.execute("""
-                SELECT name FROM sqlite_master 
+                SELECT name FROM sqlite_master
                 WHERE type='table' AND name='config_versions'
             """) as cursor:
                 if not await cursor.fetchone():
@@ -233,7 +238,7 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
                 (limit,),
             ) as cursor:
 
-                changes = []
+                changes: list[dict[str, Any]] = []
                 for row in await cursor.fetchall():
                     change = {
                         "id": row[0],
@@ -247,7 +252,7 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
         return {"changes": changes}
     except Exception as e:
         logger.exception("Failed to get learning changes")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post(
@@ -255,7 +260,7 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
     summary="Record Observation",
     description="Trigger observation recording from current system state.",
 )
-async def record_observation():
+async def record_observation() -> dict[str, str]:
     """Trigger observation recording from current system state."""
     try:
         # Import the recording function
@@ -267,4 +272,4 @@ async def record_observation():
         return {"status": "error", "message": "Recorder module not available"}
     except Exception as e:
         logger.exception("Failed to record observation")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

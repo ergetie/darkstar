@@ -13,7 +13,12 @@ _executor_engine = None
 _executor_lock = threading.Lock()
 
 
-def get_executor_instance():
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from executor import ExecutorEngine
+
+def get_executor_instance() -> "ExecutorEngine | None":
     global _executor_engine
     if _executor_engine is None:
         with _executor_lock:
@@ -23,10 +28,8 @@ def get_executor_instance():
                     from executor import ExecutorEngine
 
                     _executor_engine = ExecutorEngine()
-                    # Initialize HA Client roughly if needed
-                    # In webapp.py it called _init_ha_client()
-                    if hasattr(_executor_engine, "_init_ha_client"):
-                        _executor_engine._init_ha_client()
+                    # Initialize HA Client
+                    _executor_engine.init_ha_client()
                 except ImportError as e:
                     logger.error("Failed to import executor: %s", e)
                 except Exception as e:
@@ -60,7 +63,7 @@ class PauseRequest(BaseModel):
     summary="Get Executor Status",
     description="Returns the current operational status of the executor.",
 )
-async def get_status():
+async def get_status() -> dict[str, Any]:
     """Return current executor status."""
     executor = get_executor_instance()
     if executor is None:
@@ -73,15 +76,15 @@ async def get_status():
     summary="Toggle Executor",
     description="Enables or disables the executor loop.",
 )
-async def toggle_executor(payload: ToggleRequest):
+async def toggle_executor(payload: ToggleRequest) -> dict[str, Any]:
     """Enable or disable the executor."""
-    try:
-        from ruamel.yaml import YAML
+    from ruamel.yaml import YAML
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
 
-        yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True
+    try:
         with open("config.yaml", encoding="utf-8") as f:
-            config = yaml_handler.load(f) or {}
+            config = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
     except Exception:
         config = {}
 
@@ -92,7 +95,7 @@ async def toggle_executor(payload: ToggleRequest):
         executor_cfg["shadow_mode"] = payload.shadow_mode
 
     with open("config.yaml", "w", encoding="utf-8") as f:
-        yaml_handler.dump(config, f)
+        yaml_handler.dump(config, f) # type: ignore
 
     # Reload executor
     executor = get_executor_instance()
@@ -115,7 +118,7 @@ async def toggle_executor(payload: ToggleRequest):
     summary="Trigger Executor Run",
     description="Forcefully triggers a single execution loop iteration.",
 )
-async def run_once():
+async def run_once() -> dict[str, str]:
     """Trigger a single loop run."""
     executor = get_executor_instance()
     if executor:
@@ -129,16 +132,11 @@ async def run_once():
     summary="Get Quick Action Status",
     description="Returns the status of any active quick action.",
 )
-async def get_quick_actions():
+async def get_quick_actions() -> dict[str, Any]:
     executor = get_executor_instance()
     if not executor:
         return {"quick_action": None}
-    # Check if executor has an active quick action attribute
-    if hasattr(executor, "active_quick_action"):
-        return {"quick_action": executor.active_quick_action}
-    if hasattr(executor, "get_quick_action_status"):
-        return {"quick_action": executor.get_quick_action_status()}
-    return {"quick_action": None}
+    return {"quick_action": executor.get_active_quick_action()}
 
 
 @router.post(
@@ -146,16 +144,12 @@ async def get_quick_actions():
     summary="Set Quick Action",
     description="Activates a temporary override (quick action).",
 )
-async def set_quick_action(payload: QuickActionRequest):
+async def set_quick_action(payload: QuickActionRequest) -> dict[str, str]:
     executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
 
-    # Try different method signatures
-    if hasattr(executor, "set_quick_action"):
-        executor.set_quick_action(payload.action, payload.duration_minutes, payload.params)
-    elif hasattr(executor, "activate_quick_action"):
-        executor.activate_quick_action(payload.action, payload.duration_minutes)
+    executor.set_quick_action(payload.action, payload.duration_minutes)
     return {"status": "success"}
 
 
@@ -164,15 +158,11 @@ async def set_quick_action(payload: QuickActionRequest):
     summary="Clear Quick Action",
     description="Cancels any active quick action.",
 )
-async def clear_quick_action(action: str | None = None):
+async def clear_quick_action() -> dict[str, str]:
     executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
-    if hasattr(executor, "clear_quick_action"):
-        if action:
-            executor.clear_quick_action(action)
-        else:
-            executor.clear_quick_action()
+    executor.clear_quick_action()
     return {"status": "success"}
 
 
@@ -181,18 +171,17 @@ async def clear_quick_action(action: str | None = None):
     summary="Pause Executor",
     description="Pauses the executor for a specified duration.",
 )
-async def pause_executor(payload: PauseRequest):
+async def pause_executor(payload: PauseRequest) -> dict[str, Any]:
     executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
-    if hasattr(executor, "pause"):
-        executor.pause(payload.duration_minutes)
-        paused_until = getattr(executor, "paused_until", None)
-        return {
-            "status": "success",
-            "paused_until": paused_until.isoformat() if paused_until else None,
-        }
-    return {"status": "error", "message": "Pause not supported"}
+
+    executor.pause(payload.duration_minutes)
+    status = executor.get_pause_status()
+    return {
+        "status": "success",
+        "paused_until": status["paused_at"] if status else None,
+    }
 
 
 @router.post(
@@ -205,12 +194,11 @@ async def pause_executor(payload: PauseRequest):
     summary="Resume Executor (GET)",
     description="Resumes the executor via GET request (e.g. for simple links).",
 )
-async def resume_executor():
+async def resume_executor() -> dict[str, str]:
     executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
-    if hasattr(executor, "resume"):
-        executor.resume()
+    executor.resume()
     return {"status": "success"}
 
 
@@ -224,27 +212,22 @@ async def get_history(
     offset: int = 0,
     slot_start: str | None = None,
     success_only: str | None = None,
-):
+) -> dict[str, Any]:
     executor = get_executor_instance()
-    if not executor or not hasattr(executor, "history") or executor.history is None:
+    if not executor or not executor.history:
         return {"records": [], "count": 0}
 
     try:
-        # Try the full get_history method like old webapp.py
-        if hasattr(executor.history, "get_history"):
-            success = None
-            if success_only is not None:
-                success = success_only.lower() in ("true", "1", "yes")
-            records = executor.history.get_history(
-                limit=limit,
-                offset=offset,
-                slot_start=slot_start,
-                success_only=success,
-            )
-        elif hasattr(executor.history, "get_recent"):
-            records = executor.history.get_recent(limit=limit)
-        else:
-            records = []
+        success = None
+        if success_only is not None:
+            success = success_only.lower() in ("true", "1", "yes")
+
+        records = executor.history.get_history(
+            limit=limit,
+            offset=offset,
+            slot_start=slot_start,
+            success_only=success,
+        )
         return {"records": records, "count": len(records)}
     except Exception as e:
         logger.exception("Error getting executor history")
@@ -256,15 +239,11 @@ async def get_history(
     summary="Get Execution Statistics",
     description="Returns execution statistics over a specified period.",
 )
-async def get_stats(days: int = 7):
+async def get_stats(days: int = 7) -> dict[str, Any]:
     executor = get_executor_instance()
     if not executor:
         return {}
-    if hasattr(executor, "get_stats"):
-        return executor.get_stats(days=days)
-    if hasattr(executor, "history") and executor.history:
-        return executor.history.get_stats(days=days)
-    return {}
+    return executor.get_stats(days=days)
 
 
 @router.get(
@@ -272,7 +251,7 @@ async def get_stats(days: int = 7):
     summary="Get Executor Config",
     description="Returns the current executor configuration.",
 )
-async def get_executor_config():
+async def get_executor_config() -> dict[str, Any]:
     """Return current executor configuration."""
     executor = get_executor_instance()
     if executor is None:
@@ -287,54 +266,30 @@ async def get_executor_config():
         "manual_override_entity": getattr(cfg, "manual_override_entity", None),
         "soc_target_entity": getattr(cfg, "soc_target_entity", None),
         "inverter": {
-            "work_mode_entity": cfg.inverter.work_mode_entity if hasattr(cfg, "inverter") else None,
-            "grid_charging_entity": cfg.inverter.grid_charging_entity
-            if hasattr(cfg, "inverter")
-            else None,
+            "work_mode_entity": cfg.inverter.work_mode_entity,
+            "grid_charging_entity": cfg.inverter.grid_charging_entity,
             "max_charging_current_entity": getattr(
                 cfg.inverter, "max_charging_current_entity", None
-            )
-            if hasattr(cfg, "inverter")
-            else None,
+            ),
             "max_discharging_current_entity": getattr(
                 cfg.inverter, "max_discharging_current_entity", None
-            )
-            if hasattr(cfg, "inverter")
-            else None,
-        }
-        if hasattr(cfg, "inverter")
-        else {},
+            ),
+        },
         "water_heater": {
-            "target_entity": cfg.water_heater.target_entity
-            if hasattr(cfg, "water_heater")
-            else None,
-            "temp_normal": cfg.water_heater.temp_normal if hasattr(cfg, "water_heater") else None,
-            "temp_off": cfg.water_heater.temp_off if hasattr(cfg, "water_heater") else None,
-            "temp_boost": cfg.water_heater.temp_boost if hasattr(cfg, "water_heater") else None,
-            "temp_max": cfg.water_heater.temp_max if hasattr(cfg, "water_heater") else None,
-        }
-        if hasattr(cfg, "water_heater")
-        else {},
+            "target_entity": cfg.water_heater.target_entity,
+            "temp_normal": cfg.water_heater.temp_normal,
+            "temp_off": cfg.water_heater.temp_off,
+            "temp_boost": cfg.water_heater.temp_boost,
+            "temp_max": cfg.water_heater.temp_max,
+        },
         "notifications": {
-            "service": cfg.notifications.service if hasattr(cfg, "notifications") else None,
-            "on_charge_start": getattr(cfg.notifications, "on_charge_start", False)
-            if hasattr(cfg, "notifications")
-            else False,
-            "on_charge_stop": getattr(cfg.notifications, "on_charge_stop", False)
-            if hasattr(cfg, "notifications")
-            else False,
-            "on_export_start": getattr(cfg.notifications, "on_export_start", False)
-            if hasattr(cfg, "notifications")
-            else False,
-            "on_export_stop": getattr(cfg.notifications, "on_export_stop", False)
-            if hasattr(cfg, "notifications")
-            else False,
-            "on_error": getattr(cfg.notifications, "on_error", False)
-            if hasattr(cfg, "notifications")
-            else False,
-        }
-        if hasattr(cfg, "notifications")
-        else {},
+            "service": cfg.notifications.service,
+            "on_charge_start": getattr(cfg.notifications, "on_charge_start", False),
+            "on_charge_stop": getattr(cfg.notifications, "on_charge_stop", False),
+            "on_export_start": getattr(cfg.notifications, "on_export_start", False),
+            "on_export_stop": getattr(cfg.notifications, "on_export_stop", False),
+            "on_error": getattr(cfg.notifications, "on_error", False),
+        },
     }
 
 
@@ -343,23 +298,22 @@ async def get_executor_config():
     summary="Update Executor Config",
     description="Updates the executor configuration.",
 )
-async def update_executor_config(request: Request):
+async def update_executor_config(request: Request) -> dict[str, str]:
     """Update executor entity configuration."""
     from ruamel.yaml import YAML
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
 
     payload = await request.json()
 
     try:
-        yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True
-
         with open("config.yaml", encoding="utf-8") as f:
-            config = yaml_handler.load(f)
+            config = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
 
         if "executor" not in config:
             config["executor"] = {}
 
-        executor_cfg = config["executor"]
+        executor_cfg = cast("dict[str, Any]", config["executor"])
 
         # Update flat fields
         for key in ["enabled", "shadow_mode", "interval_seconds", "soc_target_entity"]:
@@ -381,11 +335,11 @@ async def update_executor_config(request: Request):
                 executor_cfg["water_heater"][key] = value
 
         with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(config, f)
+            yaml_handler.dump(config, f) # type: ignore
 
         # Reload executor config
         executor = get_executor_instance()
-        if executor and hasattr(executor, "reload_config"):
+        if executor:
             executor.reload_config()
 
         return {"status": "success", "message": "Configuration updated"}
@@ -400,10 +354,10 @@ async def update_executor_config(request: Request):
     summary="Get Notification Settings",
     description="Returns current notification settings.",
 )
-async def get_notifications():
+async def get_notifications() -> dict[str, Any]:
     """Get notification settings."""
     executor = get_executor_instance()
-    if executor and hasattr(executor, "config") and hasattr(executor.config, "notifications"):
+    if executor and executor.config and executor.config.notifications:
         cfg = executor.config.notifications
         return {
             "service": cfg.service,
@@ -421,12 +375,12 @@ async def get_notifications():
     # Fallback to config file
     try:
         from ruamel.yaml import YAML
-
         yaml_handler = YAML()
         with open("config.yaml", encoding="utf-8") as f:
-            config = yaml_handler.load(f) or {}
+            config = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
 
-        notify_cfg = config.get("executor", {}).get("notifications", {})
+        executor_cfg = cast("dict[str, Any]", config.get("executor", {}))
+        notify_cfg = cast("dict[str, Any]", executor_cfg.get("notifications", {}))
         return {
             "service": notify_cfg.get("service"),
             "on_charge_start": notify_cfg.get("on_charge_start", False),
@@ -444,34 +398,35 @@ async def get_notifications():
     summary="Update Notification Settings",
     description="Updates notification settings.",
 )
-async def update_notifications(request: Request):
+async def update_notifications(request: Request) -> dict[str, str]:
     """Update notification settings."""
     from ruamel.yaml import YAML
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True
 
     payload = await request.json()
 
     try:
-        yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True
-
         with open("config.yaml", encoding="utf-8") as f:
-            config = yaml_handler.load(f)
+            config = cast("dict[str, Any]", yaml_handler.load(f)) # type: ignore
 
         if "executor" not in config:
             config["executor"] = {}
-        if "notifications" not in config["executor"]:
-            config["executor"]["notifications"] = {}
 
-        notify_cfg = config["executor"]["notifications"]
+        executor_cfg = cast("dict[str, Any]", config["executor"])
+        if "notifications" not in executor_cfg:
+            executor_cfg["notifications"] = {}
+
+        notify_cfg = cast("dict[str, Any]", executor_cfg["notifications"])
         for key, value in payload.items():
             notify_cfg[key] = value
 
         with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(config, f)
+            yaml_handler.dump(config, f) # type: ignore
 
         # Reload executor config
         executor = get_executor_instance()
-        if executor and hasattr(executor, "reload_config"):
+        if executor:
             executor.reload_config()
 
         return {"status": "success"}
@@ -486,21 +441,18 @@ async def update_notifications(request: Request):
     summary="Test Notifications",
     description="Sends a test notification to verify configuration.",
 )
-async def test_notifications():
+async def test_notifications() -> dict[str, str]:
     """Send a test notification."""
     executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor not available")
 
     try:
-        if hasattr(executor, "send_notification"):
-            executor.send_notification("Test", "This is a test notification from Darkstar")
-            return {"status": "success", "message": "Test notification sent"}
-        elif hasattr(executor, "notifier") and hasattr(executor.notifier, "send"):
-            executor.notifier.send("Test", "This is a test notification from Darkstar")
+        success = executor.send_notification("Test", "This is a test notification from Darkstar")
+        if success:
             return {"status": "success", "message": "Test notification sent"}
         else:
-            return {"status": "error", "message": "Notification sending not available"}
+            return {"status": "error", "message": "Notification sending failed"}
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -510,10 +462,8 @@ async def test_notifications():
     summary="Get Live Metrics",
     description="Returns real-time metrics from the executor.",
 )
-async def get_live():
+async def get_live() -> dict[str, Any]:
     executor = get_executor_instance()
     if not executor:
         return {}
-    if hasattr(executor, "get_live_metrics"):
-        return executor.get_live_metrics()
-    return {}
+    return executor.get_live_metrics()
