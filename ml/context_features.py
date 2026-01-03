@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Dict
 
 import pandas as pd
 import pytz
@@ -11,15 +10,15 @@ import yaml
 from inputs import _make_ha_headers, load_home_assistant_config
 
 
-def _load_config(config_path: str = "config.yaml") -> Dict:
-    with open(config_path, "r", encoding="utf-8") as f:
+def _load_config(config_path: str = "config.yaml") -> dict:
+    with open(config_path, encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 
 def get_vacation_mode_series(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
 ) -> pd.Series:
@@ -103,7 +102,7 @@ def get_vacation_mode_series(
 def get_alarm_armed_series(
     start_time: datetime,
     end_time: datetime,
-    config: Dict | None = None,
+    config: dict | None = None,
     *,
     config_path: str = "config.yaml",
 ) -> pd.Series:

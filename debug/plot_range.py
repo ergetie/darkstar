@@ -1,9 +1,8 @@
 import argparse
-import pandas as pd
-import matplotlib.pyplot as plt
+
 import matplotlib.dates as mdates
-import sys
-import os
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def plot_range(csv_path, output_path):
@@ -15,7 +14,7 @@ def plot_range(csv_path, output_path):
     df["cumulative_savings"] = df["savings"].cumsum()
 
     # Create Figure
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
+    _fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10), sharex=True)
 
     # Plot 1: Daily Cost Comparison
     width = 0.35

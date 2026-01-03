@@ -1,5 +1,6 @@
-import sqlite3
 import os
+import sqlite3
+
 import pandas as pd
 
 # This matches the path in your file list
@@ -48,7 +49,7 @@ def check_db():
             avg_with_zeros = df["load_kwh"].mean()
             avg_without_zeros = valid_load["load_kwh"].mean()
 
-            print(f"\n📉 IMPACT ON AI:")
+            print("\n📉 IMPACT ON AI:")
             print(f"   Average WITH zeros:    {avg_with_zeros:.3f} kWh")
             print(f"   Average WITHOUT zeros: {avg_without_zeros:.3f} kWh")
             print(

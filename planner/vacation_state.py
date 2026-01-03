@@ -10,7 +10,6 @@ Rev K19: Anti-legionella cycle tracking.
 import logging
 import sqlite3
 from datetime import datetime
-from typing import Optional
 
 logger = logging.getLogger("darkstar.planner.vacation")
 
@@ -27,7 +26,7 @@ def _ensure_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def load_last_anti_legionella(sqlite_path: str) -> Optional[datetime]:
+def load_last_anti_legionella(sqlite_path: str) -> datetime | None:
     """
     Load the last anti-legionella run timestamp from SQLite.
 

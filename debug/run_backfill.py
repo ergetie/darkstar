@@ -1,5 +1,5 @@
-import sys
 import logging
+import sys
 from pathlib import Path
 
 # Add project root to path

@@ -9,17 +9,16 @@ Usage:
 
 import argparse
 import sqlite3
-from typing import Any, Dict, List
+from typing import Any
 
-import numpy as np
 import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.policy.antares_rl_policy import AntaresRLPolicyV1
 from ml.simulation.env import AntaresMPCEnv
 
 
-def _load_latest_rl_run(engine: LearningEngine) -> Dict[str, str]:
+def _load_latest_rl_run(engine: LearningEngine) -> dict[str, str]:
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         row = conn.execute(
             """
@@ -97,7 +96,7 @@ def main() -> int:
 
     cycle_cost = engine.config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.20)
 
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
 
     for idx in range(len(schedule)):
         row = schedule.iloc[idx].copy()

@@ -8,13 +8,12 @@ daily schedule under perfect hindsight (historical load/PV/prices) and
 simple battery constraints.
 """
 
+import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import pandas as pd
-import pytz
-import sqlite3
 import yaml
 
 try:
@@ -38,9 +37,9 @@ class OracleConfig:
     wear_cost_sek_per_kwh: float
 
 
-def _load_yaml(path: str) -> Dict[str, Any]:
+def _load_yaml(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as fp:
+        with open(path, encoding="utf-8") as fp:
             return yaml.safe_load(fp) or {}
     except FileNotFoundError:
         return {}
@@ -218,7 +217,7 @@ def solve_optimal_schedule(
         )
 
     # Build result DataFrame
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     cumulative_cost = 0.0
     for t in range(T):
         slot = slots.iloc[t]

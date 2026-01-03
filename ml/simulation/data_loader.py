@@ -4,7 +4,7 @@ import asyncio
 import math
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 import pytz
@@ -27,7 +27,7 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
         return default
 
 
-def _parse_iso(value: Any) -> Optional[datetime]:
+def _parse_iso(value: Any) -> datetime | None:
     """Parse an ISO8601 string into a datetime, handling trailing Z."""
     if value is None:
         return None
@@ -73,9 +73,9 @@ class SimulationDataLoader:
         self.ha_client = HomeAssistantHistoryClient()
 
     @staticmethod
-    def _load_yaml(path: str) -> Dict[str, Any]:
+    def _load_yaml(path: str) -> dict[str, Any]:
         try:
-            with open(path, "r", encoding="utf-8") as fp:
+            with open(path, encoding="utf-8") as fp:
                 return yaml.safe_load(fp) or {}
         except FileNotFoundError:
             return {}
@@ -93,8 +93,8 @@ class SimulationDataLoader:
     def get_window_inputs(
         self,
         now: datetime,
-        horizon_hours: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        horizon_hours: int | None = None,
+    ) -> dict[str, Any]:
         """Return price/forecast inputs covering the requested window."""
         horizon = horizon_hours or self.horizon_hours
         start = self._localize_datetime(now)
@@ -113,7 +113,7 @@ class SimulationDataLoader:
             "timezone": self.timezone_name,
         }
 
-    def get_initial_state_from_history(self, now: datetime) -> Dict[str, float]:
+    def get_initial_state_from_history(self, now: datetime) -> dict[str, float]:
         """Return the historical SoC for the most recent observation before `now`."""
         start_iso = self._to_utc_iso(now)
         query = (
@@ -137,7 +137,7 @@ class SimulationDataLoader:
             "battery_cost_sek_per_kwh": self.battery_cost,
         }
 
-    def _load_price_data(self, start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    def _load_price_data(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         query = (
             "SELECT slot_start, slot_end, import_price_sek_kwh, export_price_sek_kwh "
             "FROM slot_observations "
@@ -160,7 +160,7 @@ class SimulationDataLoader:
         df["slot_start"] = df["slot_start"].dt.tz_convert(self.timezone)
         df["slot_end"] = df["slot_end"].dt.tz_convert(self.timezone)
 
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         for row in df.to_dict("records"):
             base = {
                 "import_price_sek_kwh": _safe_float(row.get("import_price_sek_kwh")),
@@ -176,13 +176,13 @@ class SimulationDataLoader:
             records.extend(segments)
         return sorted(records, key=lambda item: item["start_time"])
 
-    def _load_forecast_slots(self, start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    def _load_forecast_slots(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         version = self.config.get("forecasting", {}).get("active_forecast_version") or "aurora"
         try:
             slots = get_forecast_slots(start, end, version)
         except Exception:
             slots = []
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for slot in slots:
             slot_start = slot.get("slot_start")
             if not isinstance(slot_start, datetime):
@@ -204,7 +204,7 @@ class SimulationDataLoader:
             )
         return sorted(result, key=lambda item: item["start_time"])
 
-    def _build_naive_forecasts(self, start: datetime, end: datetime) -> List[Dict[str, Any]]:
+    def _build_naive_forecasts(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         observations = self._build_forecasts_from_observations(start, end)
         if observations:
             return observations
@@ -218,19 +218,19 @@ class SimulationDataLoader:
 
     def _collect_sensor_points(
         self, start: datetime, end: datetime
-    ) -> Dict[str, List[Dict[str, Any]]]:
+    ) -> dict[str, list[dict[str, Any]]]:
         if not self.ha_client.enabled:
             return {}
 
-        async def _gather() -> Dict[str, List[Dict[str, Any]]]:
-            tasks: Dict[str, asyncio.Task] = {}
+        async def _gather() -> dict[str, list[dict[str, Any]]]:
+            tasks: dict[str, asyncio.Task] = {}
             for key, entity in self.sensor_entities.items():
                 if not entity:
                     continue
                 tasks[key] = asyncio.create_task(
                     self.ha_client.fetch_statistics(entity, start, end)
                 )
-            results: Dict[str, List[Dict[str, Any]]] = {}
+            results: dict[str, list[dict[str, Any]]] = {}
             for key, task in tasks.items():
                 try:
                     results[key] = await task
@@ -245,10 +245,10 @@ class SimulationDataLoader:
 
     def _convert_sensor_points(
         self,
-        points: List[Dict[str, Any]],
+        points: list[dict[str, Any]],
         value_key: str,
-    ) -> List[Dict[str, Any]]:
-        records: List[Dict[str, Any]] = []
+    ) -> list[dict[str, Any]]:
+        records: list[dict[str, Any]] = []
         for point in points:
             start = _parse_iso(point.get("start"))
             end = _parse_iso(point.get("end"))
@@ -262,10 +262,10 @@ class SimulationDataLoader:
 
     def _merge_sensor_slots(
         self,
-        load_slots: List[Dict[str, Any]],
-        pv_slots: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        timeline: Dict[datetime, Dict[str, float]] = {}
+        load_slots: list[dict[str, Any]],
+        pv_slots: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        timeline: dict[datetime, dict[str, float]] = {}
         for slot in load_slots:
             start_time = slot["start_time"]
             entry = timeline.setdefault(start_time, {})
@@ -274,7 +274,7 @@ class SimulationDataLoader:
             start_time = slot["start_time"]
             entry = timeline.setdefault(start_time, {})
             entry["pv_kwh"] = entry.get("pv_kwh", 0.0) + _safe_float(slot.get("pv_kwh"))
-        result: List[Dict[str, Any]] = []
+        result: list[dict[str, Any]] = []
         for start_time in sorted(timeline):
             values = timeline[start_time]
             result.append(
@@ -289,7 +289,7 @@ class SimulationDataLoader:
 
     def _build_forecasts_from_observations(
         self, start: datetime, end: datetime
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         query = (
             "SELECT slot_start, slot_end, pv_kwh, load_kwh "
             "FROM slot_observations "
@@ -312,7 +312,7 @@ class SimulationDataLoader:
         df["slot_start"] = df["slot_start"].dt.tz_convert(self.timezone)
         df["slot_end"] = df["slot_end"].dt.tz_convert(self.timezone)
 
-        records: List[Dict[str, Any]] = []
+        records: list[dict[str, Any]] = []
         for row in df.to_dict("records"):
             base = {
                 "pv_kwh": _safe_float(row.get("pv_kwh")),
@@ -339,17 +339,17 @@ class SimulationDataLoader:
         self,
         start: datetime,
         end: datetime,
-        base: Dict[str, Any],
+        base: dict[str, Any],
         divisor_keys: tuple[str, ...],
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         duration = int((end - start).total_seconds() // 60)
         if duration <= 0:
             return []
         segments = max(1, math.ceil(duration / 15))
-        shares: Dict[str, float] = {}
+        shares: dict[str, float] = {}
         for key in divisor_keys:
             shares[key] = _safe_float(base.get(key)) / segments
-        entries: List[Dict[str, Any]] = []
+        entries: list[dict[str, Any]] = []
         for index in range(segments):
             segment_start = start + timedelta(minutes=index * 15)
             if segment_start >= end:
@@ -364,8 +364,8 @@ class SimulationDataLoader:
         return entries
 
     @staticmethod
-    def _aggregate_daily(slots: List[Dict[str, Any]], key: str) -> Dict[str, float]:
-        totals: Dict[str, float] = {}
+    def _aggregate_daily(slots: list[dict[str, Any]], key: str) -> dict[str, float]:
+        totals: dict[str, float] = {}
         for slot in slots:
             start = slot.get("start_time")
             if not isinstance(start, datetime):

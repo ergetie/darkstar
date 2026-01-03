@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 logger = logging.getLogger("darkstar.strategy.history")
 
@@ -16,7 +16,7 @@ def _ensure_data_dir():
 
 
 def append_strategy_event(
-    event_type: str, message: str, details: Optional[Dict[str, Any]] = None
+    event_type: str, message: str, details: dict[str, Any] | None = None
 ) -> None:
     """
     Append a new event to the strategy history log.
@@ -38,7 +38,7 @@ def append_strategy_event(
     history = []
     try:
         if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE, "r") as f:
+            with open(HISTORY_FILE) as f:
                 history = json.load(f)
     except Exception as e:
         logger.warning(f"Failed to read strategy history: {e}")
@@ -58,14 +58,14 @@ def append_strategy_event(
         logger.error(f"Failed to write strategy history: {e}")
 
 
-def get_strategy_history(limit: int = 50) -> List[Dict[str, Any]]:
+def get_strategy_history(limit: int = 50) -> list[dict[str, Any]]:
     """
     Retrieve the latest strategy history entries.
     """
     try:
         if not os.path.exists(HISTORY_FILE):
             return []
-        with open(HISTORY_FILE, "r") as f:
+        with open(HISTORY_FILE) as f:
             history = json.load(f)
         return history[:limit]
     except Exception as e:

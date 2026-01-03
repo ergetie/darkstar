@@ -12,7 +12,7 @@ excess PV utilization).
 import logging
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ class OverrideResult:
     override_type: OverrideType = OverrideType.NONE
     priority: float = 0.0
     reason: str = ""
-    actions: Dict[str, Any] = None
+    actions: dict[str, Any] = None
 
     def __post_init__(self):
         if self.actions is None:
@@ -118,7 +118,7 @@ class OverrideEvaluator:
         self.water_temp_max = water_temp_max
         self.water_temp_off = water_temp_off
 
-    def evaluate(self, state: SystemState, slot: Optional[SlotPlan] = None) -> OverrideResult:
+    def evaluate(self, state: SystemState, slot: SlotPlan | None = None) -> OverrideResult:
         """
         Evaluate current state and slot plan for override conditions.
 
@@ -218,8 +218,8 @@ class OverrideEvaluator:
 
 def evaluate_overrides(
     state: SystemState,
-    slot: Optional[SlotPlan] = None,
-    config: Optional[Dict[str, Any]] = None,
+    slot: SlotPlan | None = None,
+    config: dict[str, Any] | None = None,
 ) -> OverrideResult:
     """
     Convenience function to evaluate overrides with default or custom config.

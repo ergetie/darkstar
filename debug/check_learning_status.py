@@ -1,13 +1,14 @@
-import pandas as pd
 import sqlite3
 from datetime import datetime
+
+import pandas as pd
 from learning import get_learning_engine
 
 engine = get_learning_engine()
 tz = engine.timezone
 now = datetime.now(tz)
 
-print(f"\n--- VERIFYING CORRECTIONS ---")
+print("\n--- VERIFYING CORRECTIONS ---")
 print(f"Current Time: {now}")
 
 with sqlite3.connect(engine.db_path) as conn:

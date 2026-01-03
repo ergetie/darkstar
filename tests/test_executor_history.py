@@ -13,6 +13,7 @@ import pytest
 import pytz
 
 from executor.history import ExecutionHistory, ExecutionRecord
+import contextlib
 
 
 @pytest.fixture
@@ -24,10 +25,8 @@ def temp_db():
     yield db_path
 
     # Cleanup
-    try:
+    with contextlib.suppress(OSError):
         os.unlink(db_path)
-    except OSError:
-        pass
 
 
 @pytest.fixture
@@ -63,7 +62,7 @@ class TestExecutionHistorySchema:
 
     def test_creates_table_on_init(self, temp_db):
         """Table is created on initialization."""
-        history = ExecutionHistory(temp_db)
+        ExecutionHistory(temp_db)
 
         # Check table exists
         with sqlite3.connect(temp_db) as conn:
@@ -74,17 +73,24 @@ class TestExecutionHistorySchema:
 
     def test_schema_has_required_columns(self, temp_db):
         """Table has all required columns."""
-        history = ExecutionHistory(temp_db)
+        ExecutionHistory(temp_db)
 
         with sqlite3.connect(temp_db) as conn:
             cursor = conn.execute("PRAGMA table_info(execution_log)")
             columns = {row[1] for row in cursor.fetchall()}
 
         expected = {
-            "id", "executed_at", "slot_start",
-            "planned_charge_kw", "planned_discharge_kw", "planned_export_kw",
-            "commanded_work_mode", "commanded_grid_charging",
-            "before_soc_percent", "success", "source",
+            "id",
+            "executed_at",
+            "slot_start",
+            "planned_charge_kw",
+            "planned_discharge_kw",
+            "planned_export_kw",
+            "commanded_work_mode",
+            "commanded_grid_charging",
+            "before_soc_percent",
+            "success",
+            "source",
         }
         assert expected.issubset(columns)
 
@@ -235,7 +241,7 @@ class TestGetStats:
         """get_stats correctly counts executions."""
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
-        
+
         # 2 successful, 1 failed - use recent dates
         for i, success in enumerate([1, 1, 0]):
             exec_time = (now - timedelta(hours=i)).isoformat()
@@ -256,7 +262,7 @@ class TestGetStats:
         """get_stats counts override activations."""
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
-        
+
         # 1 with override, 2 without - use recent dates
         for i, override in enumerate([1, 0, 0]):
             exec_time = (now - timedelta(hours=i)).isoformat()
@@ -288,18 +294,22 @@ class TestCleanupOldRecords:
         old_time = (now - timedelta(days=40)).isoformat()
         new_time = (now - timedelta(days=5)).isoformat()
 
-        history.log_execution(ExecutionRecord(
-            executed_at=old_time,
-            slot_start=old_time,
-            commanded_work_mode="Old",
-            success=1,
-        ))
-        history.log_execution(ExecutionRecord(
-            executed_at=new_time,
-            slot_start=new_time,
-            commanded_work_mode="New",
-            success=1,
-        ))
+        history.log_execution(
+            ExecutionRecord(
+                executed_at=old_time,
+                slot_start=old_time,
+                commanded_work_mode="Old",
+                success=1,
+            )
+        )
+        history.log_execution(
+            ExecutionRecord(
+                executed_at=new_time,
+                slot_start=new_time,
+                commanded_work_mode="New",
+                success=1,
+            )
+        )
 
         # Cleanup with 30-day retention
         deleted = history.cleanup_old_records(retention_days=30)

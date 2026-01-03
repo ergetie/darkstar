@@ -1,6 +1,6 @@
-import sys
-import sqlite3
 import logging
+import sqlite3
+import sys
 from pathlib import Path
 
 # Add project root to path

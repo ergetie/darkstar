@@ -11,19 +11,19 @@ It iterates over a list of historical days (clean/mask_battery) and
 delegates per-slot dynamics and rewards to AntaresMPCEnv.
 """
 
+import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
-import sqlite3
 
 from backend.learning import LearningEngine, get_learning_engine
 from ml.simulation.env import AntaresMPCEnv
 
 
-def _load_candidate_days(engine: LearningEngine, *, min_days: int = 30) -> List[str]:
+def _load_candidate_days(engine: LearningEngine, *, min_days: int = 30) -> list[str]:
     """Return a chronologically ordered list of clean/mask_battery days."""
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         rows = conn.execute(
@@ -45,7 +45,7 @@ class DayIterator:
     days: Sequence[str]
     index: int = 0
 
-    def next_day(self) -> Optional[str]:
+    def next_day(self) -> str | None:
         if not self.days:
             return None
         day = self.days[self.index]
@@ -67,10 +67,10 @@ class AntaresRLEnv:
         self.env = AntaresMPCEnv(config_path=config_path)
         self.days = _load_candidate_days(self.engine)
         self._iterator = DayIterator(self.days)
-        self._current_day: Optional[str] = None
-        self._low_price_threshold: Optional[float] = None
-        self._high_price_threshold: Optional[float] = None
-        self._initial_soc_percent: Optional[float] = None
+        self._current_day: str | None = None
+        self._low_price_threshold: float | None = None
+        self._high_price_threshold: float | None = None
+        self._initial_soc_percent: float | None = None
 
     @staticmethod
     def _sanitize_state(state: np.ndarray) -> np.ndarray:
@@ -97,8 +97,8 @@ class AntaresRLEnv:
                 # - low threshold: 80% of median non-zero import price
                 # - high threshold: 120% of median (rough proxy for "expensive")
                 schedule = getattr(self.env, "_schedule", None)
-                threshold: Optional[float] = None
-                high_threshold: Optional[float] = None
+                threshold: float | None = None
+                high_threshold: float | None = None
                 if schedule is not None:
                     df = schedule.copy()
                     if (
@@ -132,14 +132,14 @@ class AntaresRLEnv:
 
                 return self._sanitize_state(state)
 
-            except Exception as e:
+            except Exception:
                 # If reset failed (e.g. empty data), just try the next day
                 # print(f"Warning: Skipping day {day} due to error: {e}")
                 attempts += 1
 
         raise RuntimeError(f"Failed to find a valid simulation day after {max_retries} attempts.")
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, Dict[str, Any]]:
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, dict[str, Any]]:
         """
         Take an environment step.
 
@@ -147,7 +147,7 @@ class AntaresRLEnv:
             [battery_charge_kw, battery_discharge_kw, export_kw_placeholder]
         """
         if action is None:
-            action_dict: Dict[str, Any] = {}
+            action_dict: dict[str, Any] = {}
         else:
             action = np.asarray(action, dtype=float).flatten()
             if action.shape[0] < 3:

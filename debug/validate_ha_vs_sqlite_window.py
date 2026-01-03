@@ -3,9 +3,9 @@ import asyncio
 import json
 import sqlite3
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any
 
 import pytz
 import yaml
@@ -33,17 +33,17 @@ class DayQualitySummary:
     metadata_json: str = ""
 
 
-def load_config() -> Dict[str, Any]:
-    with open("config.yaml", "r", encoding="utf-8") as handle:
+def load_config() -> dict[str, Any]:
+    with open("config.yaml", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 
-def load_secrets() -> Dict[str, Any]:
-    with open("secrets.yaml", "r", encoding="utf-8") as handle:
+def load_secrets() -> dict[str, Any]:
+    with open("secrets.yaml", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 
-def resolve_db_path(config: Dict[str, Any]) -> str:
+def resolve_db_path(config: dict[str, Any]) -> str:
     learning_cfg = config.get("learning") or {}
     return learning_cfg.get("sqlite_path") or "data/planner_learning.db"
 
@@ -55,7 +55,7 @@ def parse_date(value: str) -> date:
         raise argparse.ArgumentTypeError("Dates must be ISO formatted (YYYY-MM-DD)") from exc
 
 
-def build_channel_set(raw: Optional[str]) -> Set[str]:
+def build_channel_set(raw: str | None) -> set[str]:
     """
     Parse --channels argument into a canonical set.
 
@@ -67,7 +67,7 @@ def build_channel_set(raw: Optional[str]) -> Set[str]:
         return base
 
     tokens = {token.strip().lower() for token in raw.split(",") if token.strip()}
-    result: Set[str] = set()
+    result: set[str] = set()
     for token in tokens:
         if token == "batt":
             result.add("batt_charge")
@@ -145,7 +145,7 @@ def persist_day_summary(conn: sqlite3.Connection, summary: DayQualitySummary) ->
 def fetch_sqlite_slots_for_day(
     conn: sqlite3.Connection,
     target_day: date,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Fetch all slot_observations rows for a local calendar day.
 
@@ -173,13 +173,13 @@ def fetch_sqlite_slots_for_day(
         (f"{prefix}%",),
     )
     columns = [col[0] for col in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+    return [dict(zip(columns, row, strict=False)) for row in cursor.fetchall()]
 
 
 def aggregate_sqlite_hourly(
-    slots: List[Dict[str, Any]],
+    slots: list[dict[str, Any]],
     tz: pytz.BaseTzInfo,
-) -> Tuple[Dict[str, Dict[int, float]], int, int]:
+) -> tuple[dict[str, dict[int, float]], int, int]:
     """
     Aggregate slot-level energy into per-hour sums for each channel.
 
@@ -188,7 +188,7 @@ def aggregate_sqlite_hourly(
         missing_slots: number of slots with missing core energy values
         soc_issues: number of slots with obvious SoC anomalies
     """
-    hourly: Dict[str, Dict[int, float]] = {
+    hourly: dict[str, dict[int, float]] = {
         "load": defaultdict(float),
         "pv": defaultdict(float),
         "import": defaultdict(float),
@@ -199,8 +199,8 @@ def aggregate_sqlite_hourly(
     missing_slots = 0
     soc_issues = 0
 
-    previous_soc_end: Optional[float] = None
-    previous_time: Optional[datetime] = None
+    previous_soc_end: float | None = None
+    previous_time: datetime | None = None
 
     for row in slots:
         slot_start_str = row.get("slot_start")
@@ -208,10 +208,7 @@ def aggregate_sqlite_hourly(
             continue
         try:
             dt = datetime.fromisoformat(slot_start_str)
-            if dt.tzinfo is None:
-                dt = tz.localize(dt)
-            else:
-                dt = dt.astimezone(tz)
+            dt = tz.localize(dt) if dt.tzinfo is None else dt.astimezone(tz)
         except Exception:
             # If parsing fails, skip this slot but count as missing.
             missing_slots += 1
@@ -274,8 +271,8 @@ async def fetch_ha_statistics_window(
     tz: pytz.BaseTzInfo,
     start_day: date,
     end_day: date,
-    channel_entities: Dict[str, str],
-) -> Dict[str, Dict[date, Dict[int, float]]]:
+    channel_entities: dict[str, str],
+) -> dict[str, dict[date, dict[int, float]]]:
     """
     Fetch HA LTS statistics for all requested entities over the date window.
 
@@ -283,7 +280,7 @@ async def fetch_ha_statistics_window(
         channel -> day -> hour -> kWh
     """
     secrets = load_secrets()
-    config = load_config()
+    load_config()
 
     ha_cfg = secrets.get("home_assistant", {}) or {}
     base_url = (ha_cfg.get("url") or "").rstrip("/")
@@ -315,7 +312,7 @@ async def fetch_ha_statistics_window(
         # No HA entities configured; nothing to compare
         return {}
 
-    channel_hourly: Dict[str, Dict[date, Dict[int, float]]] = {
+    channel_hourly: dict[str, dict[date, dict[int, float]]] = {
         "load": defaultdict(lambda: defaultdict(float)),
         "pv": defaultdict(lambda: defaultdict(float)),
         "import": defaultdict(lambda: defaultdict(float)),
@@ -390,11 +387,11 @@ async def fetch_ha_statistics_window(
 def classify_day(
     day: date,
     tolerance_kwh: float,
-    sqlite_hourly: Dict[str, Dict[int, float]],
-    ha_hourly: Dict[str, Dict[date, Dict[int, float]]],
+    sqlite_hourly: dict[str, dict[int, float]],
+    ha_hourly: dict[str, dict[date, dict[int, float]]],
     missing_slots: int,
     soc_issues: int,
-    active_channels: Set[str],
+    active_channels: set[str],
 ) -> DayQualitySummary:
     """
     Compare SQLite vs HA per-hour data and derive a day-level quality label.
@@ -402,14 +399,14 @@ def classify_day(
     core_channels = {"load", "pv", "import", "export"}
     core_channels &= active_channels
 
-    bad_hours: Dict[str, int] = {
+    bad_hours: dict[str, int] = {
         "load": 0,
         "pv": 0,
         "import": 0,
         "export": 0,
         "batt": 0,
     }
-    flagged_hours_detail: Dict[str, List[Tuple[int, float, float, float]]] = {}
+    flagged_hours_detail: dict[str, list[tuple[int, float, float, float]]] = {}
 
     # Core channels: compare SQLite vs HA where both sides exist
     for channel in core_channels:
@@ -454,7 +451,7 @@ def classify_day(
         if bad_hours["batt"] > 0:
             status = "mask_battery"
 
-    metadata: Dict[str, Any] = {
+    metadata: dict[str, Any] = {
         "tolerance_kwh": tolerance_kwh,
         "core_bad_total": core_bad_total,
         "bad_hours": bad_hours,
@@ -488,7 +485,7 @@ async def main_async(args: argparse.Namespace) -> int:
 
     # Map canonical channels to HA entities from input_sensors.
     sensors = config.get("input_sensors", {}) or {}
-    channel_entities: Dict[str, str] = {}
+    channel_entities: dict[str, str] = {}
     if "load" in channels:
         channel_entities["load"] = sensors.get("total_load_consumption")
     if "pv" in channels:

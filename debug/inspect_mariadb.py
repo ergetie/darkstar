@@ -1,18 +1,19 @@
 import sys
-import yaml
-import pymysql
-import pandas as pd
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 # Add project root to path
 from pathlib import Path
+
+import pandas as pd
+import pymysql
+import yaml
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 
 def load_secrets():
     try:
-        with open("secrets.yaml", "r") as f:
+        with open("secrets.yaml") as f:
             return yaml.safe_load(f)
     except FileNotFoundError:
         print("❌ secrets.yaml not found!")
@@ -37,12 +38,11 @@ def main():
     secrets = load_secrets()
 
     try:
-        with connect_db(secrets) as conn:
-            with conn.cursor() as cur:
-                # Check last 7 days
-                print("\n📅 Checking last 7 days...")
-                cur.execute(
-                    """
+        with connect_db(secrets) as conn, conn.cursor() as cur:
+            # Check last 7 days
+            print("\n📅 Checking last 7 days...")
+            cur.execute(
+                """
                     SELECT 
                         slot_start, 
                         actual_soc, 
@@ -53,36 +53,36 @@ def main():
                     WHERE slot_start >= DATE_SUB(NOW(), INTERVAL 7 DAY)
                     ORDER BY slot_start ASC
                 """
-                )
-                rows = cur.fetchall()
+            )
+            rows = cur.fetchall()
 
-                if not rows:
-                    print("❌ No data in last 7 days!")
-                    return
+            if not rows:
+                print("❌ No data in last 7 days!")
+                return
 
-                df = pd.DataFrame(rows)
-                print(f"   Total Rows: {len(df)}")
+            df = pd.DataFrame(rows)
+            print(f"   Total Rows: {len(df)}")
 
-                # Check for NULLs
-                null_actual = df["actual_soc"].isnull().sum()
-                null_planned = df["planned_soc_projected"].isnull().sum()
-                print(f"   NULL Actual SoC: {null_actual}")
-                print(f"   NULL Planned SoC: {null_planned}")
+            # Check for NULLs
+            null_actual = df["actual_soc"].isnull().sum()
+            null_planned = df["planned_soc_projected"].isnull().sum()
+            print(f"   NULL Actual SoC: {null_actual}")
+            print(f"   NULL Planned SoC: {null_planned}")
 
-                if null_planned > 0:
-                    print("\n   Sample rows with NULL Planned SoC:")
-                    print(df[df["planned_soc_projected"].isnull()].head(3))
+            if null_planned > 0:
+                print("\n   Sample rows with NULL Planned SoC:")
+                print(df[df["planned_soc_projected"].isnull()].head(3))
 
-                # Check for Time Gaps
-                df["slot_start"] = pd.to_datetime(df["slot_start"])
-                df["diff"] = df["slot_start"].diff()
+            # Check for Time Gaps
+            df["slot_start"] = pd.to_datetime(df["slot_start"])
+            df["diff"] = df["slot_start"].diff()
 
-                # Expected diff is 15 mins
-                gaps = df[df["diff"] > timedelta(minutes=15)]
-                print(f"\n   Time Gaps (>15m): {len(gaps)}")
-                if len(gaps) > 0:
-                    print("   Sample Gaps:")
-                    print(gaps[["slot_start", "diff"]].head(5))
+            # Expected diff is 15 mins
+            gaps = df[df["diff"] > timedelta(minutes=15)]
+            print(f"\n   Time Gaps (>15m): {len(gaps)}")
+            if len(gaps) > 0:
+                print("   Sample Gaps:")
+                print(gaps[["slot_start", "diff"]].head(5))
 
     except Exception as e:
         print(f"❌ Inspection failed: {e}")

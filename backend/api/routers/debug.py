@@ -8,8 +8,7 @@ import json
 import logging
 import sqlite3
 from collections import deque
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 import pytz
 from fastapi import APIRouter, HTTPException, Query
@@ -29,9 +28,9 @@ class RingBufferHandler(logging.Handler):
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
-            timestamp = datetime.fromtimestamp(record.created, tz=timezone.utc)
+            timestamp = datetime.fromtimestamp(record.created, tz=UTC)
         except Exception:
-            timestamp = datetime.now(timezone.utc)
+            timestamp = datetime.now(UTC)
         entry = {
             "timestamp": timestamp.isoformat(),
             "level": record.levelname,
@@ -59,7 +58,7 @@ if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
 async def debug_data():
     """Return comprehensive planner debug data from schedule.json."""
     try:
-        with open("schedule.json", "r") as f:
+        with open("schedule.json") as f:
             data = json.load(f)
 
         debug_section = data.get("debug", {})
@@ -92,9 +91,9 @@ async def historic_soc(date: str = Query("today")):
     """Return historic SoC data for today from learning database."""
     try:
         from backend.learning import get_learning_engine
-        
+
         tz = pytz.timezone("Europe/Stockholm")
-        
+
         # Determine target date
         if date == "today":
             target_date = datetime.now(tz).date()
@@ -127,17 +126,15 @@ async def historic_soc(date: str = Query("today")):
         # Convert to JSON format
         slots = []
         for row in rows:
-            slots.append({
-                "timestamp": row[0], 
-                "soc_percent": row[1], 
-                "quality_flags": row[2] or ""
-            })
+            slots.append(
+                {"timestamp": row[0], "soc_percent": row[1], "quality_flags": row[2] or ""}
+            )
 
         return {"date": target_date.isoformat(), "slots": slots, "count": len(slots)}
 
     except Exception as e:
         logger.exception("Failed to fetch historical SoC data")
-        raise HTTPException(500, f"Failed to fetch historical SoC data: {str(e)}")
+        raise HTTPException(500, f"Failed to fetch historical SoC data: {e!s}")
 
 
 @router.get("/api/performance/metrics")
@@ -145,15 +142,17 @@ async def get_performance_metrics(days: int = Query(7, ge=1, le=90)):
     """Get performance metrics for charts."""
     try:
         from backend.learning import get_learning_engine
+
         engine = get_learning_engine()
         data = engine.get_performance_series(days_back=days)
         return data
-    except Exception as e:
+    except Exception:
         logger.exception("Failed to get performance metrics")
         return {"soc_series": [], "cost_series": []}
 
 
-from inputs import _load_yaml, _get_load_profile_from_ha, _get_dummy_load_profile
+from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, _load_yaml
+
 
 @router.get("/api/debug/load_profile")
 async def debug_load_profile():
@@ -163,19 +162,19 @@ async def debug_load_profile():
         try:
             profile = _get_load_profile_from_ha(conf)
             return {
-                "source": "ha", 
-                "profile_sum": sum(profile), 
+                "source": "ha",
+                "profile_sum": sum(profile),
                 "profile": profile,
-                "message": "Successfully fetched from HA"
+                "message": "Successfully fetched from HA",
             }
         except Exception as e:
             dummy = _get_dummy_load_profile(conf)
             return {
-                "source": "dummy_fallback", 
-                "error": str(e), 
-                "profile_sum": sum(dummy), 
+                "source": "dummy_fallback",
+                "error": str(e),
+                "profile_sum": sum(dummy),
                 "profile": dummy,
-                "message": "Failed to fetch from HA, used dummy"
+                "message": "Failed to fetch from HA, used dummy",
             }
     except Exception as e:
-        return {"error": f"Critical error: {str(e)}"}
+        return {"error": f"Critical error: {e!s}"}

@@ -7,10 +7,7 @@ Provides endpoints for the learning engine (auto-tuning, forecast calibration).
 import json
 import logging
 import sqlite3
-from datetime import datetime, timedelta
-from typing import Any, Dict
 
-import pytz
 from fastapi import APIRouter, HTTPException, Query
 
 logger = logging.getLogger("darkstar.api.learning")
@@ -21,6 +18,7 @@ router = APIRouter(tags=["learning"])
 def _get_learning_engine():
     """Get the learning engine instance."""
     from backend.learning import get_learning_engine
+
     return get_learning_engine()
 
 
@@ -41,16 +39,19 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)):
     """Return learning engine run history."""
     try:
         engine = _get_learning_engine()
-        
+
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT id, run_date, status, metrics_json, config_changes_json
                 FROM learning_runs
                 ORDER BY run_date DESC
                 LIMIT ?
-            """, (limit,))
-            
+            """,
+                (limit,),
+            )
+
             runs = []
             for row in cursor.fetchall():
                 run = {
@@ -61,7 +62,7 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)):
                     "config_changes": json.loads(row[4]) if row[4] else None,
                 }
                 runs.append(run)
-        
+
         return {"runs": runs, "count": len(runs)}
     except sqlite3.OperationalError as e:
         if "no such table" in str(e):
@@ -78,10 +79,10 @@ async def learning_run():
     try:
         engine = _get_learning_engine()
         from backend.learning import NightlyOrchestrator
-        
+
         orchestrator = NightlyOrchestrator(engine)
         result = orchestrator.run_nightly_job()
-        
+
         return result
     except ImportError:
         return {"status": "error", "message": "NightlyOrchestrator not available"}
@@ -95,12 +96,12 @@ async def learning_loops():
     """Get status of individual learning loops."""
     try:
         engine = _get_learning_engine()
-        
+
         # Get loop statuses from database
         loops_status = {}
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            
+
             # Check for learning_loops table
             cursor.execute("""
                 SELECT name FROM sqlite_master 
@@ -117,7 +118,7 @@ async def learning_loops():
                         "status": row[2],
                         "error": row[3],
                     }
-        
+
         # Define known loops with their statuses
         known_loops = ["pv_forecast", "load_forecast", "s_index", "arbitrage"]
         result = {}
@@ -126,7 +127,7 @@ async def learning_loops():
                 result[loop] = loops_status[loop]
             else:
                 result[loop] = {"status": "not_run", "last_run": None, "error": None}
-        
+
         return {"loops": result}
     except Exception as e:
         logger.exception("Failed to get learning loops")
@@ -138,10 +139,10 @@ async def learning_daily_metrics():
     """Get latest daily metrics from learning engine."""
     try:
         engine = _get_learning_engine()
-        
+
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            
+
             # Check if table exists
             cursor.execute("""
                 SELECT name FROM sqlite_master 
@@ -149,7 +150,7 @@ async def learning_daily_metrics():
             """)
             if not cursor.fetchone():
                 return {"message": "Daily metrics table not yet created"}
-            
+
             cursor.execute("""
                 SELECT date, pv_error_mean_abs_kwh, load_error_mean_abs_kwh, s_index_base_factor
                 FROM daily_metrics
@@ -157,10 +158,10 @@ async def learning_daily_metrics():
                 LIMIT 1
             """)
             row = cursor.fetchone()
-            
+
             if not row:
                 return {"message": "No daily metrics yet"}
-            
+
             return {
                 "date": row[0],
                 "pv_error_mean_abs_kwh": float(row[1]) if row[1] is not None else None,
@@ -177,10 +178,10 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
     """Return recent learning configuration changes."""
     try:
         engine = _get_learning_engine()
-        
+
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
-            
+
             # Check if table exists
             cursor.execute("""
                 SELECT name FROM sqlite_master 
@@ -188,14 +189,17 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
             """)
             if not cursor.fetchone():
                 return {"changes": [], "message": "Config versions table not yet created"}
-            
-            cursor.execute("""
+
+            cursor.execute(
+                """
                 SELECT id, created_at, reason, applied, metrics_json
                 FROM config_versions
                 ORDER BY created_at DESC
                 LIMIT ?
-            """, (limit,))
-            
+            """,
+                (limit,),
+            )
+
             changes = []
             for row in cursor.fetchall():
                 change = {
@@ -206,7 +210,7 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
                     "metrics": json.loads(row[4]) if row[4] else None,
                 }
                 changes.append(change)
-        
+
         return {"changes": changes}
     except Exception as e:
         logger.exception("Failed to get learning changes")
@@ -219,6 +223,7 @@ async def record_observation():
     try:
         # Import the recording function
         from backend.recorder import record_observation_from_current_state
+
         record_observation_from_current_state()
         return {"status": "success", "message": "Observation recorded"}
     except ImportError:

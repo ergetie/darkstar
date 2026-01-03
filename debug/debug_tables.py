@@ -1,12 +1,12 @@
-import sys
 import os
 import sqlite3
+
 import yaml
 
 
 def get_db_path():
     try:
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
         return config.get("learning", {}).get("db_path", "data/learning.db")
     except:

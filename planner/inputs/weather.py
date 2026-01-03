@@ -4,14 +4,15 @@ Weather Input
 Functions for fetching weather forecasts (temperature, etc.).
 """
 
+from datetime import UTC, datetime
+from typing import Any
+
 import requests
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
 
 
 def fetch_temperature_forecast(
-    days_ahead: List[int], tz: Any, config: Dict[str, Any]
-) -> Dict[int, float]:
+    days_ahead: list[int], tz: Any, config: dict[str, Any]
+) -> dict[int, float]:
     """
     Fetch mean daily temperatures for the requested day offsets.
 
@@ -35,7 +36,7 @@ def fetch_temperature_forecast(
     try:
         today = datetime.now(tz).date()
     except Exception:
-        today = datetime.now(timezone.utc).date()
+        today = datetime.now(UTC).date()
 
     max_offset = max(days_ahead)
     timezone_name = config.get("timezone", "Europe/Stockholm")
@@ -64,8 +65,8 @@ def fetch_temperature_forecast(
     dates = daily.get("time", [])
     temps = daily.get("temperature_2m_mean", [])
 
-    result: Dict[int, float] = {}
-    for date_str, temp in zip(dates, temps):
+    result: dict[int, float] = {}
+    for date_str, temp in zip(dates, temps, strict=False):
         try:
             date_obj = datetime.fromisoformat(date_str).date()
         except ValueError:

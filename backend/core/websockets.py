@@ -1,16 +1,21 @@
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any
+
 import socketio
 
 logger = logging.getLogger("darkstar.websockets")
+
 
 class WebSocketManager:
     """
     Singleton manager for the Socket.IO AsyncServer.
     Handles the bridge between synchronous threads (Executor) and the async event loop.
     """
-    _instance = None
+
+    _instance: "WebSocketManager | None" = None
+    sio: socketio.AsyncServer
+    loop: asyncio.AbstractEventLoop | None = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -20,9 +25,9 @@ class WebSocketManager:
                 async_mode="asgi",
                 cors_allowed_origins="*",
                 logger=False,  # Set to True for verbose debug
-                engineio_logger=False
+                engineio_logger=False,
             )
-            cls._instance.loop: Optional[asyncio.AbstractEventLoop] = None
+            cls._instance.loop = None
         return cls._instance
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
@@ -30,13 +35,13 @@ class WebSocketManager:
         self.loop = loop
         logger.info("WebSocketManager: Event loop captured.")
 
-    async def emit(self, event: str, data: Any, to: Optional[str] = None):
+    async def emit(self, event: str, data: Any, to: str | None = None):
         """
         Emit an event from an async context (e.g. FastAPI route).
         """
         await self.sio.emit(event, data, to=to)
 
-    def emit_sync(self, event: str, data: Any, to: Optional[str] = None):
+    def emit_sync(self, event: str, data: Any, to: str | None = None):
         """
         Emit an event from a synchronous context (e.g. Executor thread).
         This schedules the emit coroutine on the main event loop.
@@ -44,13 +49,16 @@ class WebSocketManager:
         if self.loop is None or self.loop.is_closed():
             # This might happen during shutdown or if called before startup
             if self.loop is None:
-                logger.warning(f"WebSocketManager: emit_sync('{event}') called before loop capture.")
+                logger.warning(
+                    f"WebSocketManager: emit_sync('{event}') called before loop capture."
+                )
             return
 
         try:
             asyncio.run_coroutine_threadsafe(self.sio.emit(event, data, to=to), self.loop)
         except Exception as e:
             logger.error(f"WebSocketManager: Failed to schedule emit_sync('{event}'): {e}")
+
 
 # Global instance
 ws_manager = WebSocketManager()

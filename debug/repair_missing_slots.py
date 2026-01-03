@@ -1,18 +1,17 @@
 import argparse
 import sqlite3
 from datetime import date, datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 
-import pytz
 import yaml
 
 
-def load_config() -> Dict[str, Any]:
-    with open("config.yaml", "r", encoding="utf-8") as handle:
+def load_config() -> dict[str, Any]:
+    with open("config.yaml", encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 
-def resolve_db_path(config: Dict[str, Any]) -> str:
+def resolve_db_path(config: dict[str, Any]) -> str:
     learning_cfg = config.get("learning") or {}
     return learning_cfg.get("sqlite_path") or "data/planner_learning.db"
 
@@ -24,7 +23,7 @@ def parse_date(value: str) -> date:
         raise argparse.ArgumentTypeError("Expected YYYY-MM-DD") from exc
 
 
-def find_missing_slots(conn: sqlite3.Connection, day: date) -> List[datetime]:
+def find_missing_slots(conn: sqlite3.Connection, day: date) -> list[datetime]:
     prefix = day.isoformat()
     cur = conn.cursor()
     cur.execute(
@@ -37,14 +36,14 @@ def find_missing_slots(conn: sqlite3.Connection, day: date) -> List[datetime]:
 
     # Use configured timezone but rely on calendar day/00:00..23:45 grid.
     dt_start = datetime.fromisoformat(f"{prefix}T00:00:00+01:00")
-    expected: List[datetime] = []
+    expected: list[datetime] = []
     current = dt_start
     for _ in range(96):
         expected.append(current)
         current += timedelta(minutes=15)
 
     existing = set(rows)
-    missing: List[datetime] = []
+    missing: list[datetime] = []
     for ts in expected:
         ts_str = ts.isoformat()
         if ts_str not in existing:
@@ -52,7 +51,7 @@ def find_missing_slots(conn: sqlite3.Connection, day: date) -> List[datetime]:
     return missing
 
 
-def insert_slots(conn: sqlite3.Connection, missing: List[datetime]) -> int:
+def insert_slots(conn: sqlite3.Connection, missing: list[datetime]) -> int:
     if not missing:
         return 0
     rows = []

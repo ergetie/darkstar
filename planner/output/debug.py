@@ -5,11 +5,12 @@ This module handles the generation of debug payloads for the planner,
 including window responsibilities, water analysis, and metrics.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 import pandas as pd
 
 
-def prepare_windows_for_json(window_responsibilities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def prepare_windows_for_json(window_responsibilities: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Prepare window responsibilities for JSON serialization.
 
@@ -41,7 +42,7 @@ def prepare_windows_for_json(window_responsibilities: List[Dict[str, Any]]) -> L
     return json_windows
 
 
-def prepare_sample_schedule_for_json(sample_df: pd.DataFrame) -> List[Dict[str, Any]]:
+def prepare_sample_schedule_for_json(sample_df: pd.DataFrame) -> list[dict[str, Any]]:
     """
     Prepare sample schedule DataFrame for JSON serialization.
 
@@ -70,11 +71,11 @@ def prepare_sample_schedule_for_json(sample_df: pd.DataFrame) -> List[Dict[str, 
 
 def generate_debug_payload(
     schedule_df: pd.DataFrame,
-    window_responsibilities: List[Dict[str, Any]],
-    debug_config: Dict[str, Any],
-    planner_state: Dict[str, Any],
-    s_index_debug: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    window_responsibilities: list[dict[str, Any]],
+    debug_config: dict[str, Any],
+    planner_state: dict[str, Any],
+    s_index_debug: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Generate debug payload with windows, gaps, charging plan, water analysis, and metrics.
 

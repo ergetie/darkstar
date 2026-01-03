@@ -1,7 +1,6 @@
-import sys
 import os
+import sys
 from datetime import datetime, timedelta
-import pytz
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -41,7 +40,7 @@ def inspect_day(date_str):
         inputs = loader.get_window_inputs(start_dt)
         p_len = len(inputs.get("price_data", []))
         f_len = len(inputs.get("forecast_data", []))
-        print(f"get_window_inputs result:")
+        print("get_window_inputs result:")
         print(f"  Price Data: {p_len} slots")
         print(f"  Forecast Data: {f_len} slots")
 

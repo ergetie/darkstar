@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import sqlite3
 from datetime import datetime
-from typing import Any, Dict, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
-import sqlite3
 
 from backend.learning import LearningEngine, get_learning_engine
 
@@ -25,7 +25,7 @@ def get_forecast_slots(
     start_time: datetime,
     end_time: datetime,
     forecast_version: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Return forecast slots for the given time window and version.
 
@@ -76,7 +76,7 @@ def get_forecast_slots(
     df = df.dropna(subset=["slot_start"])
     df["slot_start"] = df["slot_start"].dt.tz_convert(engine.timezone)
 
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     for row in df.to_dict("records"):
         records.append(
             {
@@ -112,21 +112,21 @@ def get_antares_slots(dataset_version: str = "v1") -> pd.DataFrame:
     - Currently supports dataset_version=\"v1\" only.
     - Wraps `build_antares_training_dataset` and converts records to a stable
       tabular form for downstream training/analysis.
-    
+
     Note: This function requires the ml.simulation module which is not
     included in production Docker builds.
     """
     # Lazy import - only available in development environment
-    from ml.simulation.dataset import AntaresSlotRecord, build_antares_training_dataset
-    
+    from ml.simulation.dataset import build_antares_training_dataset
+
     if dataset_version != "v1":
         raise ValueError(f"Unsupported dataset_version: {dataset_version}")
 
-    records: List[AntaresSlotRecord] = build_antares_training_dataset()
+    records: list[AntaresSlotRecord] = build_antares_training_dataset()
     if not records:
         return pd.DataFrame()
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for rec in records:
         rows.append(
             {

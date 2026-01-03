@@ -6,16 +6,14 @@ import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Tuple
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import pytz
 
 from backend.learning import LearningEngine, get_learning_engine
-from ml.weather import get_weather_series
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
+from ml.weather import get_weather_series
 
 
 @dataclass
@@ -36,9 +34,7 @@ def _parse_args() -> argparse.Namespace:
         "--days-back",
         type=int,
         default=90,
-        help=(
-            "Number of days of historical slot_observations to use for training " "(default: 90)."
-        ),
+        help=("Number of days of historical slot_observations to use for training (default: 90)."),
     )
     parser.add_argument(
         "--min-samples",

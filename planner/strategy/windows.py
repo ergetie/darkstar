@@ -5,13 +5,14 @@ Logic for identifying cheap charging windows based on price thresholds and dynam
 """
 
 import math
+from typing import Any
+
 import pandas as pd
-from typing import Any, Dict, Tuple
 
 
 def identify_windows(
-    df: pd.DataFrame, config: Dict[str, Any], initial_state: Dict[str, Any], now_slot: Any
-) -> Tuple[pd.DataFrame, Dict[str, Any]]:
+    df: pd.DataFrame, config: dict[str, Any], initial_state: dict[str, Any], now_slot: Any
+) -> tuple[pd.DataFrame, dict[str, Any]]:
     """
     Identify cheap windows with Dynamic Expansion (Smart Thresholds).
 

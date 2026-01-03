@@ -10,14 +10,14 @@ import argparse
 import json
 import sqlite3
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.benchmark.milp_solver import solve_optimal_schedule
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.env_v2 import AntaresEnvV2
@@ -55,7 +55,7 @@ def _get_engine() -> LearningEngine:
     return engine
 
 
-def _load_latest_bc_v2_run(engine: LearningEngine) -> Optional[BcV2RunInfo]:
+def _load_latest_bc_v2_run(engine: LearningEngine) -> BcV2RunInfo | None:
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             row = conn.execute(
@@ -85,8 +85,8 @@ def _load_latest_bc_v2_run(engine: LearningEngine) -> Optional[BcV2RunInfo]:
     )
 
 
-def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
-    days: List[str] = []
+def _load_eval_days(engine: LearningEngine, max_days: int) -> list[str]:
+    days: list[str] = []
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             rows = conn.execute(
@@ -144,7 +144,7 @@ def _run_bc_v2_cost(day: str, model: OracleBcV2Net, spec: RlV2StateSpec) -> floa
     return -total_reward
 
 
-def _maybe_run_oracle(day: str) -> Optional[float]:
+def _maybe_run_oracle(day: str) -> float | None:
     try:
         df = solve_optimal_schedule(day)
     except Exception:
@@ -189,7 +189,7 @@ def main() -> int:
     print(f"  run_id:      {bc_run.run_id}")
     print(f"  artifact_dir:{bc_run.artifact_dir}")
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for day in days:
         print(f"[oracle-bc-v2-cost] Day {day}: running MPC, Oracle-BC v2, Oracle...")
         mpc_cost = _run_mpc_cost(day)
@@ -223,8 +223,7 @@ def main() -> int:
     print(f"  MPC total:     {mpc_total:8.2f} SEK")
     print(f"  BC v2 total:   {bc_total:8.2f} SEK")
     print(
-        f"  ΔBCv2-MPC:     {delta_total:8.2f} SEK "
-        f"({delta_total / mpc_total * 100:4.1f} % of MPC)"
+        f"  ΔBCv2-MPC:     {delta_total:8.2f} SEK ({delta_total / mpc_total * 100:4.1f} % of MPC)"
     )
     if not oracle_sub.empty:
         oracle_total = float(oracle_sub.sum())

@@ -1,9 +1,10 @@
 import asyncio
-import yaml
 import json
 import ssl
 from datetime import datetime, timedelta
+
 import pytz
+import yaml
 
 try:
     import websockets
@@ -13,9 +14,9 @@ except ImportError:
 
 
 async def check_sum_robust():
-    with open("secrets.yaml", "r") as f:
+    with open("secrets.yaml") as f:
         secrets = yaml.safe_load(f)
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
 
     ha = secrets.get("home_assistant", {})
@@ -84,7 +85,7 @@ async def check_sum_robust():
             if dt_local.date() == target_day or dt_local.date() == target_day + timedelta(days=1):
                 # Show hours 23, 00, 01 to spot the transition
                 if dt_local.hour in [0, 1, 23]:
-                    print(f"{str(dt_local):<25} | {cumulative:<15}")
+                    print(f"{dt_local!s:<25} | {cumulative:<15}")
 
             # Capture Midnight Start
             if dt_local.date() == target_day and dt_local.hour == 0:
@@ -100,7 +101,7 @@ async def check_sum_robust():
             print(f"Start Sum (00:00): {start_sum}")
             print(f"End Sum   (00:00): {end_sum}")
             print(f"ROBUST DAILY LOAD: {diff:.3f} kWh")
-            print(f"EXPECTED (User):   ~34.700 kWh")
+            print("EXPECTED (User):   ~34.700 kWh")
         else:
             print("Could not find exact midnight alignment.")
 

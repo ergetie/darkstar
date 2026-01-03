@@ -5,10 +5,10 @@ Handles persistence of debug payloads and other observability metrics.
 """
 
 import json
-import sqlite3
 import os
-from datetime import datetime, timezone
-from typing import Dict, Any
+import sqlite3
+from datetime import UTC, datetime
+from typing import Any
 
 
 def ensure_learning_schema(db_path: str) -> None:
@@ -29,7 +29,7 @@ def ensure_learning_schema(db_path: str) -> None:
         conn.commit()
 
 
-def record_debug_payload(payload: Dict[str, Any], learning_config: Dict[str, Any]) -> None:
+def record_debug_payload(payload: dict[str, Any], learning_config: dict[str, Any]) -> None:
     """
     Persist planner debug payloads for observability.
 
@@ -45,7 +45,7 @@ def record_debug_payload(payload: Dict[str, Any], learning_config: Dict[str, Any
     # Ensure schema exists
     ensure_learning_schema(db_path)
 
-    timestamp = datetime.now(timezone.utc).isoformat()
+    timestamp = datetime.now(UTC).isoformat()
 
     try:
         with sqlite3.connect(db_path) as conn:

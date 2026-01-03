@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 
@@ -20,7 +20,7 @@ class AntaresRLPolicyV1:
     model: Any
 
     @classmethod
-    def load_from_dir(cls, path: str | Path) -> "AntaresRLPolicyV1":
+    def load_from_dir(cls, path: str | Path) -> AntaresRLPolicyV1:
         from stable_baselines3 import PPO
 
         model_path = Path(path) / "model.zip"
@@ -30,7 +30,7 @@ class AntaresRLPolicyV1:
         model = PPO.load(model_path.as_posix(), device="cpu")
         return cls(model=model)
 
-    def predict(self, state: np.ndarray) -> Dict[str, float]:
+    def predict(self, state: np.ndarray) -> dict[str, float]:
         if self.model is None:
             return {
                 "battery_charge_kw": 0.0,
@@ -73,8 +73,9 @@ class AntaresRLPolicyOracleBC:
     model: Any
 
     @classmethod
-    def load_from_dir(cls, path: str | Path) -> "AntaresRLPolicyOracleBC":
+    def load_from_dir(cls, path: str | Path) -> AntaresRLPolicyOracleBC:
         import torch
+
         from ml.train_antares_oracle_bc import OracleBcNet
 
         base = Path(path)
@@ -89,7 +90,7 @@ class AntaresRLPolicyOracleBC:
         net.eval()
         return cls(model=net)
 
-    def predict(self, state: np.ndarray) -> Dict[str, float]:
+    def predict(self, state: np.ndarray) -> dict[str, float]:
         import torch
 
         if self.model is None:

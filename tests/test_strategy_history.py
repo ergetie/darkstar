@@ -1,8 +1,8 @@
-import unittest
 import os
-import json
 import shutil
-from backend.strategy.history import append_strategy_event, get_strategy_history, HISTORY_FILE
+import unittest
+
+from backend.strategy.history import HISTORY_FILE, append_strategy_event, get_strategy_history
 
 
 class TestStrategyHistory(unittest.TestCase):

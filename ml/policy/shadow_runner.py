@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.policy.antares_policy import AntaresPolicyV1
 from ml.policy.antares_rl_policy import AntaresRLPolicyV1
 
@@ -18,7 +18,7 @@ class PolicyRunInfo:
     kind: str  # 'supervised' or 'rl'
 
 
-def _load_latest_supervised_run(engine: LearningEngine) -> Optional[PolicyRunInfo]:
+def _load_latest_supervised_run(engine: LearningEngine) -> PolicyRunInfo | None:
     """Load the most recent supervised (LightGBM) policy run metadata from SQLite."""
     import sqlite3
 
@@ -40,7 +40,7 @@ def _load_latest_supervised_run(engine: LearningEngine) -> Optional[PolicyRunInf
     return PolicyRunInfo(run_id=str(row[0]), models_dir=str(row[1]), kind="supervised")
 
 
-def _load_latest_rl_run(engine: LearningEngine) -> Optional[PolicyRunInfo]:
+def _load_latest_rl_run(engine: LearningEngine) -> PolicyRunInfo | None:
     """Load the most recent RL policy run metadata from SQLite."""
     import sqlite3
 
@@ -85,12 +85,12 @@ def _build_state_from_row(row: pd.Series, *, hour_of_day: int) -> np.ndarray:
 
 
 def _apply_action_clamps(
-    action: Dict[str, float],
+    action: dict[str, float],
     *,
     max_charge_kw: float,
     max_discharge_kw: float,
     max_export_kw: float,
-) -> Dict[str, float]:
+) -> dict[str, float]:
     """Clamp raw policy outputs to simple physical limits."""
     charge = float(action.get("battery_charge_kw", 0.0) or 0.0)
     discharge = float(action.get("battery_discharge_kw", 0.0) or 0.0)
@@ -139,10 +139,7 @@ def _build_shadow_schedule_df(
         raise ValueError("schedule_df must contain a 'start_time' column")
 
     starts = pd.to_datetime(df["start_time"])
-    if starts.dt.tz is None:
-        starts = starts.dt.tz_localize(tz)
-    else:
-        starts = starts.dt.tz_convert(tz)
+    starts = starts.dt.tz_localize(tz) if starts.dt.tz is None else starts.dt.tz_convert(tz)
 
     df["start_time"] = starts.dt.strftime("%Y-%m-%dT%H:%M:%S%z")
 
@@ -182,8 +179,8 @@ def run_shadow_for_schedule(
     schedule_df: pd.DataFrame,
     *,
     policy_type: str = "lightgbm",
-    system_suffix: Optional[str] = None,
-) -> Optional[Dict[str, Any]]:
+    system_suffix: str | None = None,
+) -> dict[str, Any] | None:
     """
     Build an Antares shadow schedule payload for the given planner schedule.
 
@@ -228,10 +225,7 @@ def run_shadow_for_schedule(
     tz = engine.timezone
     first_start_raw = shadow_df.iloc[0]["start_time"]
     first_ts = pd.to_datetime(first_start_raw)
-    if first_ts.tzinfo is None:
-        first_ts = tz.localize(first_ts)
-    else:
-        first_ts = first_ts.astimezone(tz)
+    first_ts = tz.localize(first_ts) if first_ts.tzinfo is None else first_ts.astimezone(tz)
 
     plan_date = first_ts.date().isoformat()
     episode_start_local = first_ts.replace(microsecond=0).isoformat()
@@ -244,7 +238,7 @@ def run_shadow_for_schedule(
         "slots": len(schedule_records),
     }
 
-    payload: Dict[str, Any] = {
+    payload: dict[str, Any] = {
         "system_id": system_id,
         "plan_date": plan_date,
         "episode_start_local": episode_start_local,

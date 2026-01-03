@@ -11,18 +11,17 @@ import argparse
 import json
 import sqlite3
 import uuid
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
+from learning import LearningEngine, get_learning_engine
 from torch.utils.data import DataLoader, TensorDataset
 
-from learning import LearningEngine, get_learning_engine
 from ml.benchmark.milp_solver import solve_optimal_schedule
 from ml.simulation.env import AntaresMPCEnv
 
@@ -52,7 +51,7 @@ class OracleBcNet(nn.Module):
         return self.net(x)
 
 
-def _load_candidate_days(engine: LearningEngine, max_days: int) -> List[str]:
+def _load_candidate_days(engine: LearningEngine, max_days: int) -> list[str]:
     """Return the most recent clean/mask_battery days, oldest first."""
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         rows = conn.execute(
@@ -73,10 +72,10 @@ def _load_candidate_days(engine: LearningEngine, max_days: int) -> List[str]:
 def _build_day_pairs(
     env: AntaresMPCEnv,
     day: str,
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray]:
     """Build (state, oracle_action) pairs for a single day."""
     # MPC-based schedule and state vectors
-    state = env.reset(day)
+    env.reset(day)
     schedule = env._schedule.copy()  # type: ignore[attr-defined]
     if schedule.index.name in {"start_time", "slot_start"} and "start_time" not in schedule.columns:
         schedule = schedule.reset_index()
@@ -91,8 +90,8 @@ def _build_day_pairs(
     if joined.empty:
         return np.empty((0, 8), dtype=np.float32), np.empty((0, 3), dtype=np.float32)
 
-    states: List[List[float]] = []
-    actions: List[List[float]] = []
+    states: list[list[float]] = []
+    actions: list[list[float]] = []
 
     for _, row in joined.iterrows():
         # Build state via the same helper used in RL env.
@@ -169,8 +168,8 @@ def main() -> int:
 
     env = AntaresMPCEnv(config_path="config.yaml")
 
-    xs: List[np.ndarray] = []
-    ys: List[np.ndarray] = []
+    xs: list[np.ndarray] = []
+    ys: list[np.ndarray] = []
 
     print(f"[oracle-bc] Building dataset from {len(days)} days...")
     for day in days:
@@ -218,7 +217,7 @@ def main() -> int:
             optimizer.step()
             epoch_loss += float(loss.item()) * batch_x.size(0)
         epoch_loss /= len(dataset)
-        print(f"[oracle-bc] Epoch {epoch+1}/{cfg.epochs} - MSE loss: {epoch_loss:.4f}")
+        print(f"[oracle-bc] Epoch {epoch + 1}/{cfg.epochs} - MSE loss: {epoch_loss:.4f}")
 
     run_id = str(uuid.uuid4())
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")

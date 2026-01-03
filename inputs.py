@@ -1,6 +1,6 @@
-from datetime import datetime, timedelta, date
 import math
-from typing import Any, Dict, Optional, List
+from datetime import date, datetime, timedelta
+from typing import Any
 
 import pytz
 import requests
@@ -12,10 +12,10 @@ from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
 
 
-def load_home_assistant_config() -> Dict[str, Any]:
+def load_home_assistant_config() -> dict[str, Any]:
     """Read Home Assistant configuration from secrets.yaml."""
     try:
-        with open("secrets.yaml", "r") as file:
+        with open("secrets.yaml") as file:
             secrets = yaml.safe_load(file) or {}
     except FileNotFoundError:
         return {}
@@ -29,10 +29,10 @@ def load_home_assistant_config() -> Dict[str, Any]:
     return ha_config
 
 
-def load_notification_secrets() -> Dict[str, Any]:
+def load_notification_secrets() -> dict[str, Any]:
     """Read notification secrets (e.g., Discord webhook) from secrets.yaml."""
     try:
-        with open("secrets.yaml", "r") as file:
+        with open("secrets.yaml") as file:
             secrets = yaml.safe_load(file) or {}
     except FileNotFoundError:
         return {}
@@ -46,7 +46,7 @@ def load_notification_secrets() -> Dict[str, Any]:
     return notif_secrets
 
 
-def _make_ha_headers(token: str) -> Dict[str, str]:
+def _make_ha_headers(token: str) -> dict[str, str]:
     """Return headers for Home Assistant REST calls."""
     return {
         "Authorization": f"Bearer {token}",
@@ -54,15 +54,15 @@ def _make_ha_headers(token: str) -> Dict[str, str]:
     }
 
 
-def _load_yaml(path: str) -> Dict[str, Any]:
+def _load_yaml(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r") as f:
+        with open(path) as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         return {}
 
 
-def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> Optional[Dict[str, Any]]:
+def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> dict[str, Any] | None:
     """Fetch a single entity state from Home Assistant."""
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
@@ -81,7 +81,7 @@ def _get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> Optional[Dict[
         return None
 
 
-def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> Optional[float]:
+def get_home_assistant_sensor_float(entity_id: str, *, timeout: int = 10) -> float | None:
     """Return the numeric state of a Home Assistant sensor if available."""
     state = _get_ha_entity_state(entity_id, timeout=timeout)
     if not state:
@@ -128,7 +128,7 @@ def get_nordpool_data(config_path="config.yaml"):
             - export_price_sek_kwh (float): Export price in SEK per kwh (estimated as 90% of import)
     """
     # Load configuration
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
 
     nordpool_config = config.get("nordpool", {})
@@ -252,6 +252,7 @@ def get_forecast_data(price_slots, config):
     else:
         # Fallback uses async Open-Meteo API
         import asyncio
+
         return asyncio.run(_get_forecast_data_async(price_slots, config))
 
 
@@ -274,12 +275,12 @@ def _get_forecast_data_aurora(price_slots, config):
     forecast_data: list[dict] = []
     if db_slots:
         print("Info: Using AURORA forecasts from learning DB (aurora).")
-        for slot, db_slot in zip(price_slots, db_slots):
+        for slot, db_slot in zip(price_slots, db_slots, strict=False):
             # Map slot time to 15-min index (0-95)
             # Localize to Stockholm/configured TZ to match profile
             ts = slot["start_time"].astimezone(local_tz)
             idx = int((ts.hour * 60 + ts.minute) // 15) % 96
-            
+
             val_load = float(db_slot.get("load_forecast_kwh", 0.0))
             if val_load <= 0.001:
                 val_load = ha_profile[idx]
@@ -333,26 +334,26 @@ def _get_forecast_data_aurora(price_slots, config):
             load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
 
             pv_val = base_pv + pv_corr
-            
+
             # Fallback for Load if 0.0
             if (base_load + load_corr) <= 0.001:
                 # Calculate 15-min slot index (0-95)
                 # ts is already localized or UTC, let's ensure local time for index match
                 ts_local = ts.astimezone(local_tz)
                 idx = int((ts_local.hour * 60 + ts_local.minute) // 15) % 96
-                
+
                 # Lazy load HA profile if needed (optimization)
                 # But we likely already loaded it in _get_forecast_data_aurora if we are here?
                 # Actually this function is build_db_forecast... wait, no this is _get_forecast_data_aurora
                 # We need to make sure ha_profile is available here.
                 # It is not available in specific scope for "extended_records" loop below.
-                # Let's fetch it if not existent (or pass it in). 
+                # Let's fetch it if not existent (or pass it in).
                 # Ideally, we utilize the one fetched above if possible, but variable scope might differ.
                 # To be safe and clean, we'll try fetch again or use a safe method.
                 # Since this is "daily" aggregation, running fetching once is fine.
                 try:
                     # We might want to cache this call if it's expensive, but for now it's okay.
-                    # CHECK: ha_profile variable from above scope (lines 268) is NOT available here naturally 
+                    # CHECK: ha_profile variable from above scope (lines 268) is NOT available here naturally
                     # unless we are in the SAME function.
                     # We ARE in _get_forecast_data_aurora function scope.
                     # So 'ha_profile' defined at line 269 IS available!
@@ -360,9 +361,9 @@ def _get_forecast_data_aurora(price_slots, config):
                 except (UnboundLocalError, NameError):
                     # Just in case code structure changed or valid ha_profile logic was conditioned
                     # We will re-fetch or use 0 default to avoid crash
-                     try:
+                    try:
                         load_val = _get_load_profile_from_ha(config)[idx]
-                     except:
+                    except:
                         load_val = 0.0
             else:
                 load_val = base_load + load_corr
@@ -542,7 +543,7 @@ def get_initial_state(config_path="config.yaml"):
             - battery_kwh (float): Current battery energy in kWh
             - battery_cost_sek_per_kwh (float): Current average battery cost
     """
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
 
     # Use system.battery if available, otherwise fall back to battery
@@ -592,7 +593,7 @@ def get_all_input_data(config_path="config.yaml"):
     Orchestrate all input data fetching.
     """
     # Load config
-    with open(config_path, "r") as f:
+    with open(config_path) as f:
         config = yaml.safe_load(f)
 
     # --- AUTO-RUN ML INFERENCE IF AURORA IS ACTIVE ---
@@ -918,7 +919,7 @@ if __name__ == "__main__":
                 pv_forecast = forecast["pv_forecast_kwh"]
                 load_forecast = forecast["load_forecast_kwh"]
                 summary = (
-                    f"Slot {i+1}: {slot_time} - Import: {import_price:.3f} SEK/kWh, "
+                    f"Slot {i + 1}: {slot_time} - Import: {import_price:.3f} SEK/kWh, "
                     f"PV: {pv_forecast:.3f} kWh, "
                     f"Load: {load_forecast:.3f} kWh"
                 )

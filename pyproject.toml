@@ -58,6 +58,7 @@ line-ending = "auto"
 [tool.pyright]
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
+stubPath = "typings"
 
 # Include all Python source directories
 include = [

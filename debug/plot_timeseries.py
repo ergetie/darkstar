@@ -1,9 +1,8 @@
 import argparse
-import pandas as pd
-import matplotlib.pyplot as plt
+
 import matplotlib.dates as mdates
-import sys
-import os
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def plot_timeseries(mpc_csv, kepler_csv, output_path):
@@ -34,7 +33,7 @@ def plot_timeseries(mpc_csv, kepler_csv, output_path):
     kepler_df = kepler_df.sort_values(time_col)
 
     # Create Figure
-    fig, axes = plt.subplots(5, 1, figsize=(15, 20), sharex=True)
+    _fig, axes = plt.subplots(5, 1, figsize=(15, 20), sharex=True)
 
     # Plot 1: Prices
     ax = axes[0]

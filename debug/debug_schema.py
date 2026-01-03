@@ -1,5 +1,6 @@
-import sqlite3
 import os
+import sqlite3
+
 from learning import get_learning_engine
 
 engine = get_learning_engine()

@@ -1,6 +1,7 @@
-import sqlite3
-import pandas as pd
 import os
+import sqlite3
+
+import pandas as pd
 
 DB_PATH = "data/planner_learning.db"
 

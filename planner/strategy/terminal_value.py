@@ -7,7 +7,7 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 
 from __future__ import annotations
 
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pandas as pd
 
@@ -15,7 +15,7 @@ import pandas as pd
 def calculate_terminal_value(
     df: pd.DataFrame,
     risk_factor: float,
-) -> Tuple[float, Dict[str, Any]]:
+) -> tuple[float, dict[str, Any]]:
     """
     Calculate the value of energy remaining in the battery at the end of the horizon.
     Terminal Value = Average Price (D1) * Risk Factor (D2).
@@ -39,4 +39,3 @@ def calculate_terminal_value(
         "terminal_value_sek_kwh": round(terminal_value, 4),
     }
     return terminal_value, debug
-

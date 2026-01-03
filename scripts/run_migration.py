@@ -1,11 +1,12 @@
-import sys
-import os
 import logging
+import os
+import sys
 
 sys.path.append(os.getcwd())
 
-from backend.learning.store import LearningStore
 import pytz
+
+from backend.learning.store import LearningStore
 
 # Setup logging to see migration errors
 logging.basicConfig(level=logging.INFO)

@@ -8,7 +8,7 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pandas as pd
 import pytz
@@ -16,9 +16,9 @@ import pytz
 
 def dataframe_to_json_response(
     df: pd.DataFrame,
-    now_override: Optional[datetime] = None,
+    now_override: datetime | None = None,
     timezone_name: str = "Europe/Stockholm",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Convert a DataFrame to the JSON response format required by the frontend.
     Only includes current and future slots (past slots are filtered out).
@@ -33,7 +33,7 @@ def dataframe_to_json_response(
     """
     # Reset index in case start_time is stored as index
     df_copy = df.reset_index().copy()
-    
+
     # Handle case where index was named 'index' after reset
     if "index" in df_copy.columns and "start_time" not in df_copy.columns:
         # Check if the index values look like timestamps
@@ -43,7 +43,7 @@ def dataframe_to_json_response(
                 df_copy = df_copy.rename(columns={"index": "start_time"})
         except Exception:
             pass
-    
+
     drop_cols = [col for col in ("action", "classification") if col in df_copy.columns]
     if drop_cols:
         df_copy = df_copy.drop(columns=drop_cols, errors="ignore")
@@ -71,8 +71,8 @@ def dataframe_to_json_response(
     # Validate end_time exists
     if "end_time" not in df_copy.columns:
         raise ValueError(
-            f"Schedule DataFrame is missing required 'end_time' column. "
-            f"Check the Kepler solver output or try re-running the planner."
+            "Schedule DataFrame is missing required 'end_time' column. "
+            "Check the Kepler solver output or try re-running the planner."
         )
 
     end_series = pd.to_datetime(df_copy["end_time"], errors="coerce")
@@ -84,10 +84,7 @@ def dataframe_to_json_response(
 
     if now_override is not None:
         now = now_override
-        if now.tzinfo is None:
-            now = tz.localize(now)
-        else:
-            now = now.astimezone(tz)
+        now = tz.localize(now) if now.tzinfo is None else now.astimezone(tz)
     else:
         now = datetime.now(tz)
 
@@ -128,10 +125,7 @@ def dataframe_to_json_response(
                 grid_charge_kw > 0
                 or float(record.get("import_kwh") or record.get("grid_import_kw") or 0.0) > 0
             )
-            if is_importing:
-                reason = "cheap_grid_power"
-            else:
-                reason = "excess_pv"
+            reason = "cheap_grid_power" if is_importing else "excess_pv"
             priority = "high"
         elif water_kw > 0:
             reason = "water_heating"
@@ -146,7 +140,9 @@ def dataframe_to_json_response(
 
         # Rev K22: Calculate planned cash flow cost (Grid Bill only)
         import_kwh = float(record.get("kepler_import_kwh") or record.get("import_kwh") or 0.0)
-        export_kwh_actual = float(record.get("kepler_export_kwh") or record.get("export_kwh") or 0.0)
+        export_kwh_actual = float(
+            record.get("kepler_export_kwh") or record.get("export_kwh") or 0.0
+        )
         buy_price = float(record.get("import_price_sek_kwh") or 0.0)
         sell_price = float(record.get("export_price_sek_kwh") or 0.0)
         record["planned_cost_sek"] = (import_kwh * buy_price) - (export_kwh_actual * sell_price)

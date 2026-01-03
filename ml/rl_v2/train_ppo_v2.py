@@ -13,7 +13,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -24,7 +24,6 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from backend.learning import LearningEngine, get_learning_engine
-from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.ppo_env_v2 import AntaresRLEnvV2
 
 
@@ -143,10 +142,10 @@ def main() -> int:
     # Larger networks allow the GPU to do more work per batch, reducing overhead ratio.
     net_arch = dict(pi=[cfg.hidden_dim] * cfg.layer_count, vf=[cfg.hidden_dim] * cfg.layer_count)
 
-    print(f"[rl-v2-ppo] Starting training with:")
+    print("[rl-v2-ppo] Starting training with:")
     print(f"  Environments: {cfg.n_envs} ({'Parallel' if cfg.n_envs > 1 else 'Sequential'})")
     print(f"  Network:      {cfg.layer_count}x{cfg.hidden_dim} (MlpPolicy)")
-    print(f"  Device:       Auto (Will use GPU if available)")
+    print("  Device:       Auto (Will use GPU if available)")
 
     model = PPO(
         "MlpPolicy",
@@ -177,7 +176,7 @@ def main() -> int:
     print("[rl-v2-ppo] Saved PPO model to", model_path)
 
     hyper = asdict(cfg)
-    metrics: Dict[str, Any] = {"note": "RL v2 PPO lab run (env_v2 sequence state)."}
+    metrics: dict[str, Any] = {"note": "RL v2 PPO lab run (env_v2 sequence state)."}
 
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         conn.execute(

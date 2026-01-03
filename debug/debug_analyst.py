@@ -1,6 +1,7 @@
 import json
 import os
 import sys
+
 import yaml
 
 # Add project root to path
@@ -13,14 +14,14 @@ def test_analyst():
     try:
         from backend.strategy.analyst import EnergyAnalyst
 
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
 
         if "appliances" not in config:
             print("   ❌ FAILURE: 'appliances' section missing in config.yaml")
             return
 
-        with open("schedule.json", "r") as f:
+        with open("schedule.json") as f:
             schedule = json.load(f)
 
         analyst = EnergyAnalyst(schedule, config)

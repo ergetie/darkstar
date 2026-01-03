@@ -8,7 +8,6 @@ import logging
 from dataclasses import dataclass, field
 
 # from typing import Any, Dict, Optional
-
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -103,7 +102,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     Falls back to defaults if executor section is missing.
     """
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
     except FileNotFoundError:
         logger.warning("Config file not found at %s, using defaults", config_path)

@@ -2,9 +2,9 @@
 
 import json
 import ssl
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import websockets
 
@@ -14,8 +14,8 @@ from inputs import load_home_assistant_config
 def _ensure_iso(dt: datetime) -> str:
     """Return a UTC ISO timestamp for the provided datetime."""
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc).isoformat()
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC).isoformat()
 
 
 class HomeAssistantHistoryClient:
@@ -27,7 +27,7 @@ class HomeAssistantHistoryClient:
         base_url = (self._config.get("url") or "").rstrip("/")
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
-        self._ws_url: Optional[str] = None
+        self._ws_url: str | None = None
         self._use_ssl = False
         if base_url.startswith("https://"):
             self._ws_url = base_url.replace("https://", "wss://") + "/api/websocket"
@@ -47,7 +47,7 @@ class HomeAssistantHistoryClient:
         start_iso: str,
         end_iso: str,
         period: str,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         if not path.exists():
             return None
         try:
@@ -69,7 +69,7 @@ class HomeAssistantHistoryClient:
         start_iso: str,
         end_iso: str,
         period: str,
-        result: List[Dict[str, Any]],
+        result: list[dict[str, Any]],
     ) -> None:
         payload = {
             "entity_id": entity_id,
@@ -86,7 +86,7 @@ class HomeAssistantHistoryClient:
         start_time: datetime,
         end_time: datetime,
         period: str = "hour",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Fetch LTS statistics from Home Assistant for a single entity.
 

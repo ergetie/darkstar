@@ -12,19 +12,20 @@ Episodes are single historical days; the day list is loaded from
 data_quality_daily (clean/mask_battery) similar to AntaresRLEnv.
 """
 
+import sqlite3
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
-import sqlite3
 
 from backend.learning import LearningEngine, get_learning_engine
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.env_v2 import AntaresEnvV2
 
 
-def _load_candidate_days(engine: LearningEngine, *, min_days: int = 30) -> List[str]:
+def _load_candidate_days(engine: LearningEngine, *, min_days: int = 30) -> list[str]:
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         rows = conn.execute(
             """
@@ -45,7 +46,7 @@ class DayIterator:
     days: Sequence[str]
     index: int = 0
 
-    def next_day(self) -> Optional[str]:
+    def next_day(self) -> str | None:
         if not self.days:
             return None
         day = self.days[self.index]
@@ -62,7 +63,7 @@ class AntaresRLEnvV2(gym.Env):
         self.env = AntaresEnvV2(config_path=config_path, seq_len=seq_len)
         self.days = _load_candidate_days(self.engine)
         self._iterator = DayIterator(self.days)
-        self._current_day: Optional[str] = None
+        self._current_day: str | None = None
 
         spec = RlV2StateSpec(seq_len=seq_len)
         self.observation_space = gym.spaces.Box(
@@ -83,8 +84,8 @@ class AntaresRLEnvV2(gym.Env):
         return arr
 
     def reset(
-        self, *, seed: Optional[int] = None, options: Optional[Dict[str, Any]] = None
-    ) -> Tuple[np.ndarray, Dict[str, Any]]:
+        self, *, seed: int | None = None, options: dict[str, Any] | None = None
+    ) -> tuple[np.ndarray, dict[str, Any]]:
         super().reset(seed=seed)
         max_retries = len(self.days)
         attempts = 0
@@ -98,17 +99,17 @@ class AntaresRLEnvV2(gym.Env):
                 self._current_day = day
                 state = self.env.reset(day)
                 return self._sanitize_state(state), {"day": day}
-            except Exception as e:
+            except Exception:
                 # Warning: Skipping day due to error (likely missing data)
                 attempts += 1
 
         raise RuntimeError(f"Failed to find a valid simulation day after {max_retries} attempts.")
 
-    def step(self, action: np.ndarray) -> Tuple[np.ndarray, float, bool, bool, Dict[str, Any]]:
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
         action = np.asarray(action, dtype=float).flatten()
         if action.shape[0] < 3:
             raise ValueError("AntaresRLEnvV2 action must have at least 3 elements.")
-        action_dict: Dict[str, Any] = {
+        action_dict: dict[str, Any] = {
             "battery_charge_kw": float(max(0.0, action[0])),
             "battery_discharge_kw": float(max(0.0, action[1])),
             # Export still unused in env_v2 (derived from flows), keep placeholder.

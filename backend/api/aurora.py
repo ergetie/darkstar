@@ -4,19 +4,19 @@ import json
 import logging
 import os
 import sqlite3
-import pandas as pd
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
+from typing import Any
 
+import pandas as pd
 import pytz
 import requests
 from flask import Blueprint, jsonify, request
 
-from inputs import _load_yaml
 from backend.learning import get_learning_engine
+from backend.strategy.history import get_strategy_history
+from inputs import _load_yaml
 from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
-from backend.strategy.history import get_strategy_history
 
 logger = logging.getLogger("darkstar.aurora")
 
@@ -43,7 +43,7 @@ def _get_timezone() -> pytz.BaseTzInfo:
     return pytz.timezone(tz_name)
 
 
-def _get_engine_and_config() -> tuple[Any, Dict[str, Any]]:
+def _get_engine_and_config() -> tuple[Any, dict[str, Any]]:
     """
     Helper to get learning engine and config with safe fallbacks.
     """
@@ -61,7 +61,7 @@ def _get_engine_and_config() -> tuple[Any, Dict[str, Any]]:
     return engine, config
 
 
-def _compute_graduation_level(engine: Any) -> Dict[str, Any]:
+def _compute_graduation_level(engine: Any) -> dict[str, Any]:
     """
     Compute graduation level from learning_runs count.
     """
@@ -93,7 +93,7 @@ def _compute_graduation_level(engine: Any) -> Dict[str, Any]:
     }
 
 
-def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
+def _compute_risk_profile(config: dict[str, Any]) -> dict[str, Any]:
     """
     Derive human-readable risk persona from s_index configuration.
     """
@@ -124,7 +124,7 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
     raw_factor = None
     try:
         if os.path.exists("schedule.json"):
-            with open("schedule.json", "r") as f:
+            with open("schedule.json") as f:
                 schedule = json.load(f)
                 meta = schedule.get("meta", {})
                 s_index_meta = meta.get("s_index", {})
@@ -157,8 +157,8 @@ def _compute_risk_profile(config: Dict[str, Any]) -> Dict[str, Any]:
 def _fetch_weather_volatility(
     start_time: datetime,
     end_time: datetime,
-    config: Dict[str, Any],
-) -> Dict[str, float]:
+    config: dict[str, Any],
+) -> dict[str, float]:
     """
     Wrap get_weather_volatility with safe fallbacks.
     """
@@ -179,7 +179,7 @@ def _fetch_weather_volatility(
     }
 
 
-def _fetch_horizon_series(engine: Any, config: Dict[str, Any]) -> Dict[str, Any]:
+def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]:
     """
     Fetch aligned 48h horizon series of base, correction, and final forecasts.
     """
@@ -195,7 +195,7 @@ def _fetch_horizon_series(engine: Any, config: Dict[str, Any]) -> Dict[str, Any]
     forecasting_cfg = config.get("forecasting") or {}
     active_version = forecasting_cfg.get("active_forecast_version", "aurora")
 
-    slots: List[Dict[str, Any]] = []
+    slots: list[dict[str, Any]] = []
     try:
         records = get_forecast_slots(slot_start, horizon_end, active_version)
     except Exception as exc:  # pragma: no cover - defensive logging
@@ -204,10 +204,7 @@ def _fetch_horizon_series(engine: Any, config: Dict[str, Any]) -> Dict[str, Any]
 
     for rec in records:
         ts = rec.get("slot_start")
-        if hasattr(ts, "isoformat"):
-            ts_iso = ts.isoformat()
-        else:
-            ts_iso = str(ts)
+        ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
 
         # Planner stores base forecast with corrections already applied in the DB;
         # for this dashboard we consider:
@@ -252,7 +249,7 @@ def _fetch_horizon_series(engine: Any, config: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
-def _fetch_correction_history(engine: Any, config: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Return last 14 days of total correction volume per day.
     """
@@ -267,7 +264,7 @@ def _fetch_correction_history(engine: Any, config: Dict[str, Any]) -> List[Dict[
     forecasting_cfg = config.get("forecasting") or {}
     active_version = forecasting_cfg.get("active_forecast_version", "aurora")
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     try:
         with sqlite3.connect(db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
@@ -302,7 +299,7 @@ def _fetch_correction_history(engine: Any, config: Dict[str, Any]) -> List[Dict[
     return rows
 
 
-def _compute_metrics(engine: Any, days_back: int = 7) -> Dict[str, float | None]:
+def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]:
     """
     Compute simple MAE metrics for baseline vs AURORA over recent days.
     """
@@ -319,7 +316,7 @@ def _compute_metrics(engine: Any, days_back: int = 7) -> Dict[str, float | None]
     now = datetime.now(tz)
     start_time = now - timedelta(days=max(days_back, 1))
 
-    metrics: Dict[str, float | None] = {
+    metrics: dict[str, float | None] = {
         "mae_pv_aurora": None,
         "mae_pv_baseline": None,
         "mae_load_aurora": None,
@@ -480,7 +477,7 @@ def aurora_dashboard():
 
 
 def get_aurora_briefing(
-    dashboard: Dict[str, Any], config: Dict[str, Any], secrets: Dict[str, Any]
+    dashboard: dict[str, Any], config: dict[str, Any], secrets: dict[str, Any]
 ) -> str:
     """
     Generate a short Aurora status summary via OpenRouter.
@@ -580,7 +577,7 @@ def toggle_reflex():
         yaml.preserve_quotes = True
 
         config_path = "config.yaml"
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             data = yaml.load(f)
 
         learning = data.setdefault("learning", {})

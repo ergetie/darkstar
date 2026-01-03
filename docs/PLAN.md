@@ -299,9 +299,9 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - **File:** `backend/main.py`
 - **Problem:** Line 61 uses `@app.on_event("startup")` which is deprecated in FastAPI 0.93+ and will be removed in 1.0.
 - **Steps:**
-  - [ ] Open `backend/main.py`
-  - [ ] Add import at top: `from contextlib import asynccontextmanager`
-  - [ ] Create lifespan context manager before `create_app()`:
+  - [x] Open `backend/main.py`
+  - [x] Add import at top: `from contextlib import asynccontextmanager`
+  - [x] Create lifespan context manager before `create_app()`:
     ```python
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -315,8 +315,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
         # Shutdown
         logger.info("Darkstar ASGI Server Shutting Down...")
     ```
-  - [ ] Update FastAPI instantiation: `app = FastAPI(lifespan=lifespan, ...)`
-  - [ ] Remove the old `@app.on_event("startup")` decorated function
+  - [x] Update FastAPI instantiation: `app = FastAPI(lifespan=lifespan, ...)`
+  - [x] Remove the old `@app.on_event("startup")` decorated function
 - **Verification:** Start server and confirm startup message appears. Stop server and confirm shutdown message appears.
 
 ---
@@ -327,8 +327,9 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - **File:** `backend/api/routers/services.py`
 - **Problem:** Lines 270-272 return `"not_implemented"`. Dashboard water boost button does nothing.
 - **Steps:**
-  - [ ] Open `backend/api/routers/services.py`
-  - [ ] Replace `set_water_boost()` (lines 270-272) with:
+- **Steps:**
+  - [x] Open `backend/api/routers/services.py`
+  - [x] Replace `set_water_boost()` (lines 270-272) with:
     ```python
     @router_services.post("/api/water/boost")
     async def set_water_boost():
@@ -342,13 +343,13 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
             return {"status": "success", "message": "Water boost activated for 60 minutes"}
         raise HTTPException(501, "Quick action not supported by executor")
     ```
-  - [ ] Also implement `get_water_boost()` to return current boost status from executor
+  - [x] Also implement `get_water_boost()` to return current boost status from executor
 - **Verification:** Click water boost button in Dashboard and confirm water heater target temperature increases.
 
 ##### Task 5.2: Add DELETE /api/water/boost
 - **File:** `backend/api/routers/services.py`
 - **Steps:**
-  - [ ] Add endpoint to cancel water boost:
+  - [x] Add endpoint to cancel water boost:
     ```python
     @router_services.delete("/api/water/boost")
     async def cancel_water_boost():
@@ -367,14 +368,15 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - **File:** `AGENTS.md`
 - **Problem:** Line 28 lists `flask` as dependency. Line 162 references Flask API.
 - **Steps:**
-  - [ ] Open `AGENTS.md`
-  - [ ] Line 28: Replace `flask` with:
+- **Steps:**
+  - [x] Open `AGENTS.md`
+  - [x] Line 28: Replace `flask` with:
     ```
     - `fastapi` - Modern async API framework (ASGI)
     - `uvicorn` - ASGI server
     - `python-socketio` - Async WebSocket support
     ```
-  - [ ] Line 162: Update `Flask API` to `FastAPI API (Rev ARC1)`
+  - [x] Line 162: Update `Flask API` to `FastAPI API (Rev ARC1)`
 - **Verification:** Read AGENTS.md and confirm no Flask references remain in key sections.
 
 ---

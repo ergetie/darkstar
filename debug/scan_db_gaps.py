@@ -1,6 +1,7 @@
 import sqlite3
+from datetime import timedelta
+
 import pandas as pd
-from datetime import datetime, timedelta
 import pytz
 
 DB_PATH = "data/planner_learning.db"
@@ -27,7 +28,7 @@ def scan_gaps():
     missing = df[(df["load_kwh"] < 0.01) | (df["load_kwh"].isnull())]
 
     print(f"\nTotal Slots: {len(df)}")
-    print(f"Zero/Null/Low Load Slots: {len(missing)} ({len(missing)/len(df)*100:.2f}%)")
+    print(f"Zero/Null/Low Load Slots: {len(missing)} ({len(missing) / len(df) * 100:.2f}%)")
 
     if not missing.empty:
         print("\nTop Zero/Low-Load Periods:")
@@ -38,7 +39,7 @@ def scan_gaps():
             end = group["slot_start"].iloc[-1]
             count = len(group)
             if count > 4:  # Only show gaps > 1 hour
-                print(f"  {start} - {end} ({count} slots / {count*15/60:.1f} hours)")
+                print(f"  {start} - {end} ({count} slots / {count * 15 / 60:.1f} hours)")
 
     # Check for Time Gaps (Missing Rows)
     df["delta"] = df["slot_start"].diff()

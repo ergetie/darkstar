@@ -1,11 +1,10 @@
+import subprocess
+
+import yaml
 from fastapi import APIRouter
 
-from backend.core.websockets import ws_manager
-import subprocess
-import yaml
-import os
-
 router = APIRouter(tags=["system"])
+
 
 def _get_git_version() -> str:
     """Get version from git tags, falling back to darkstar/config.yaml."""
@@ -19,17 +18,18 @@ def _get_git_version() -> str:
         )
     except Exception:
         pass
-    
+
     # Fallback: read from darkstar/config.yaml (add-on version)
     try:
-        with open("darkstar/config.yaml", "r") as f:
+        with open("darkstar/config.yaml") as f:
             addon_config = yaml.safe_load(f)
         if addon_config and addon_config.get("version"):
             return addon_config["version"]
     except Exception:
         pass
-    
+
     return "dev"
+
 
 @router.get("/api/version")
 async def get_version():

@@ -10,13 +10,13 @@ import argparse
 import json
 import sqlite3
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from learning import LearningEngine, get_learning_engine
 from stable_baselines3 import PPO
 
-from learning import LearningEngine, get_learning_engine
 from ml.benchmark.milp_solver import solve_optimal_schedule
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.env_v2 import AntaresEnvV2
@@ -37,7 +37,7 @@ def _get_engine() -> LearningEngine:
     return engine
 
 
-def _load_latest_ppo_v2_run(engine: LearningEngine) -> Optional[PpoV2RunInfo]:
+def _load_latest_ppo_v2_run(engine: LearningEngine) -> PpoV2RunInfo | None:
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             row = conn.execute(
@@ -58,8 +58,8 @@ def _load_latest_ppo_v2_run(engine: LearningEngine) -> Optional[PpoV2RunInfo]:
     return PpoV2RunInfo(run_id=row[0], artifact_dir=row[1], seq_len=seq_len)
 
 
-def _load_eval_days(engine: LearningEngine, max_days: int) -> List[str]:
-    days: List[str] = []
+def _load_eval_days(engine: LearningEngine, max_days: int) -> list[str]:
+    days: list[str] = []
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             rows = conn.execute(
@@ -133,7 +133,7 @@ def _run_ppo_v2_cost(day: str, model: PPO, spec: RlV2StateSpec) -> tuple[float, 
     return -total_reward, soc_start, soc_end
 
 
-def _maybe_run_oracle(day: str) -> tuple[Optional[float], Optional[float], Optional[float]]:
+def _maybe_run_oracle(day: str) -> tuple[float | None, float | None, float | None]:
     try:
         df = solve_optimal_schedule(day)
     except Exception:
@@ -176,7 +176,7 @@ def main() -> int:
     print(f"  run_id:      {ppo_run.run_id}")
     print(f"  artifact_dir:{ppo_run.artifact_dir}")
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     for day in days:
         print(f"[rl-v2-ppo-cost] Day {day}: running MPC, PPO v2, Oracle...")
         mpc_cost, mpc_soc_start, mpc_soc_end = _run_mpc_cost(day)
@@ -239,8 +239,7 @@ def main() -> int:
     print(f"  MPC total:      {mpc_total:8.2f} SEK")
     print(f"  PPO v2 total:   {ppo_total:8.2f} SEK")
     print(
-        f"  ΔPPOv2-MPC:     {delta_total:8.2f} SEK "
-        f"({delta_total / mpc_total * 100:4.1f} % of MPC)"
+        f"  ΔPPOv2-MPC:     {delta_total:8.2f} SEK ({delta_total / mpc_total * 100:4.1f} % of MPC)"
     )
     if not oracle_sub.empty:
         oracle_total = float(oracle_sub.sum())

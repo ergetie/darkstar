@@ -92,7 +92,7 @@ def create_app() -> socketio.ASGIApp:
 
     # 4. Health Check - Using comprehensive HealthChecker
     @app.get("/api/health")
-    def health_check():
+    def health_check():  # type: ignore[reportUnusedFunction]
         """
         Return system health status.
         Uses sync function (not async) because HealthChecker uses blocking I/O.
@@ -146,4 +146,4 @@ def create_app() -> socketio.ASGIApp:
 
 # The entry point for uvicorn
 # Usage: uvicorn backend.main:app
-app = create_app()
+app: socketio.ASGIApp = create_app()

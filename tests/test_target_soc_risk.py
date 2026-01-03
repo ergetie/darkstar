@@ -8,12 +8,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pandas as pd
-import pytest
 import pytz
 
 from planner.strategy.s_index import (
-    calculate_target_soc_risk_factor,
     calculate_dynamic_target_soc,
+    calculate_target_soc_risk_factor,
 )
 
 
@@ -29,7 +28,7 @@ def build_test_df(
         target_date = today + timedelta(days=day_offset)
         for hour in range(24):
             for quarter in range(4):
-                ts = tz.localize(
+                tz.localize(
                     datetime(
                         target_date.year, target_date.month, target_date.day, hour, quarter * 15
                     )
@@ -72,7 +71,7 @@ def test_target_soc_risk_appetite_affects_result():
     results = {}
     for appetite in [1, 3, 5]:
         cfg = {**base_cfg, "risk_appetite": appetite}
-        factor, debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm")
+        factor, _debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm")
         results[appetite] = factor
 
     # Safety (1) should have highest factor (most buffer)
@@ -94,19 +93,19 @@ def test_target_soc_pv_deficit_increases_buffer():
 
     # High deficit: load >> PV
     df_deficit = build_test_df(load_kwh=30.0, pv_kwh=2.0)
-    factor_deficit, debug_deficit = calculate_target_soc_risk_factor(
+    factor_deficit, _debug_deficit = calculate_target_soc_risk_factor(
         df_deficit, base_cfg, "Europe/Stockholm"
     )
 
     # Low deficit: PV covers most of load
     df_surplus = build_test_df(load_kwh=30.0, pv_kwh=25.0)
-    factor_surplus, debug_surplus = calculate_target_soc_risk_factor(
+    factor_surplus, _debug_surplus = calculate_target_soc_risk_factor(
         df_surplus, base_cfg, "Europe/Stockholm"
     )
 
-    assert (
-        factor_deficit > factor_surplus
-    ), f"High deficit ({factor_deficit}) should have higher factor than low deficit ({factor_surplus})"
+    assert factor_deficit > factor_surplus, (
+        f"High deficit ({factor_deficit}) should have higher factor than low deficit ({factor_surplus})"
+    )
 
 
 def test_target_soc_gambler_can_go_below_baseline():
@@ -122,13 +121,13 @@ def test_target_soc_gambler_can_go_below_baseline():
 
     # PV surplus: more PV than load
     df = build_test_df(load_kwh=20.0, pv_kwh=30.0)
-    factor, debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm")
+    factor, _debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm")
 
     # With surplus and gambler mode, factor can drop below base_factor
     # The sigma adjustment should push it down
-    assert (
-        factor < cfg["base_factor"]
-    ), f"Gambler mode with surplus should allow factor ({factor}) < base ({cfg['base_factor']})"
+    assert factor < cfg["base_factor"], (
+        f"Gambler mode with surplus should allow factor ({factor}) < base ({cfg['base_factor']})"
+    )
 
 
 def test_target_soc_respects_min_factor():
@@ -144,11 +143,11 @@ def test_target_soc_respects_min_factor():
 
     # Extreme PV surplus
     df = build_test_df(load_kwh=10.0, pv_kwh=50.0)
-    factor, debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm")
+    factor, _debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm")
 
-    assert (
-        factor >= cfg["min_factor"]
-    ), f"Factor ({factor}) should respect min_factor ({cfg['min_factor']})"
+    assert factor >= cfg["min_factor"], (
+        f"Factor ({factor}) should respect min_factor ({cfg['min_factor']})"
+    )
 
 
 def test_target_soc_respects_max_factor():
@@ -171,16 +170,16 @@ def test_target_soc_respects_max_factor():
     def cold_temps(days, tz):
         return {1: -5.0, 2: -8.0}
 
-    factor, debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm", cold_temps)
+    factor, _debug = calculate_target_soc_risk_factor(df, cfg, "Europe/Stockholm", cold_temps)
 
-    assert (
-        factor <= cfg["max_factor"]
-    ), f"Factor ({factor}) should not exceed max_factor ({cfg['max_factor']})"
+    assert factor <= cfg["max_factor"], (
+        f"Factor ({factor}) should not exceed max_factor ({cfg['max_factor']})"
+    )
 
 
 def test_dynamic_target_soc_uses_risk_factor():
     """calculate_dynamic_target_soc should properly use the fixed base buffers (K16).
-    
+
     NEW K16 APPROACH:
     - Each risk level has a FIXED base buffer above min_soc
     - risk_factor (raw_factor) only contributes a weather adjustment (±8% max)
@@ -196,22 +195,21 @@ def test_dynamic_target_soc_uses_risk_factor():
 
     # With risk_factor=1.0 and risk_appetite=3:
     # target = min_soc(12) + base_buffer(10) + weather_adj(0) = 22%
-    target_pct, target_kwh, debug = calculate_dynamic_target_soc(
+    target_pct, _target_kwh, _debug = calculate_dynamic_target_soc(
         risk_factor=1.0, battery_config=battery_cfg, s_index_cfg=s_index_cfg, raw_factor=1.0
     )
-    
+
     # min_soc(12%) + base_buffer(10%) + weather(0%) = 22%
     expected_pct = 12.0 + 10.0  # = 22%
-    assert (
-        abs(target_pct - expected_pct) < 0.1
-    ), f"For risk_appetite=3, raw_factor=1.0: expected {expected_pct}%, got {target_pct}%"
+    assert abs(target_pct - expected_pct) < 0.1, (
+        f"For risk_appetite=3, raw_factor=1.0: expected {expected_pct}%, got {target_pct}%"
+    )
 
     # With raw_factor=1.2 (risky conditions): weather_adj = (1.2 - 1.0) * 40 = +8%
     target_pct_risky, _, _ = calculate_dynamic_target_soc(
         risk_factor=1.2, battery_config=battery_cfg, s_index_cfg=s_index_cfg, raw_factor=1.2
     )
     expected_risky = 12.0 + 10.0 + 8.0  # = 30%
-    assert (
-        abs(target_pct_risky - expected_risky) < 0.1
-    ), f"For raw_factor=1.2: expected {expected_risky}%, got {target_pct_risky}%"
-
+    assert abs(target_pct_risky - expected_risky) < 0.1, (
+        f"For raw_factor=1.2: expected {expected_risky}%, got {target_pct_risky}%"
+    )

@@ -1,6 +1,5 @@
-import sys
 import sqlite3
-import pandas as pd
+import sys
 from pathlib import Path
 
 # Add project root to path

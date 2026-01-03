@@ -2,12 +2,13 @@ import asyncio
 import json
 import logging
 import threading
-from typing import Dict
 
 import websockets
-from inputs import load_home_assistant_config, _load_yaml
+
+from inputs import _load_yaml, load_home_assistant_config
 
 logger = logging.getLogger("darkstar.ha_socket")
+
 
 class HAWebSocketClient:
     def __init__(self):
@@ -26,20 +27,27 @@ class HAWebSocketClient:
             self.url = base_url.replace("http", "ws") + "/api/websocket"
         self.token = self.config.get("token")
 
-    def _get_monitored_entities(self) -> Dict[str, str]:
+    def _get_monitored_entities(self) -> dict[str, str]:
         # Load config to map entity_id -> metric_key
         try:
             cfg = _load_yaml("config.yaml")
             sensors = cfg.get("input_sensors", {})
             # Map: entity_id -> key (e.g. 'sensor.inverter_battery' -> 'soc')
             mapping = {}
-            if "battery_soc" in sensors: mapping[sensors["battery_soc"]] = "soc"
-            if "pv_power" in sensors: mapping[sensors["pv_power"]] = "pv_kw"
-            if "load_power" in sensors: mapping[sensors["load_power"]] = "load_kw"
-            if "grid_power" in sensors: mapping[sensors["grid_power"]] = "grid_kw"
-            if "battery_power" in sensors: mapping[sensors["battery_power"]] = "battery_kw"
-            if "water_power" in sensors: mapping[sensors["water_power"]] = "water_kw"
-            if "vacation_mode" in sensors: mapping[sensors["vacation_mode"]] = "vacation_mode"
+            if "battery_soc" in sensors:
+                mapping[sensors["battery_soc"]] = "soc"
+            if "pv_power" in sensors:
+                mapping[sensors["pv_power"]] = "pv_kw"
+            if "load_power" in sensors:
+                mapping[sensors["load_power"]] = "load_kw"
+            if "grid_power" in sensors:
+                mapping[sensors["grid_power"]] = "grid_kw"
+            if "battery_power" in sensors:
+                mapping[sensors["battery_power"]] = "battery_kw"
+            if "water_power" in sensors:
+                mapping[sensors["water_power"]] = "water_kw"
+            if "vacation_mode" in sensors:
+                mapping[sensors["vacation_mode"]] = "vacation_mode"
             logger.info(f"HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}")
             return mapping
         except Exception as e:
@@ -52,14 +60,14 @@ class HAWebSocketClient:
                 # Increase max_size to 10MB to handle large HA get_states responses (Rev U3)
                 async with websockets.connect(self.url, max_size=10485760) as ws:
                     logger.info(f"Connected to HA WebSocket: {self.url}")
-                    
+
                     # Authenticate
-                    await ws.recv() # Expect "auth_required"
-                    
+                    await ws.recv()  # Expect "auth_required"
+
                     await ws.send(json.dumps({"type": "auth", "access_token": self.token}))
                     auth_response = await ws.recv()
                     auth_result = json.loads(auth_response)
-                    
+
                     if auth_result.get("type") != "auth_ok":
                         logger.error(f"HA Auth failed: {auth_result}")
                         return
@@ -69,25 +77,26 @@ class HAWebSocketClient:
                     # Subscribe to state_changed
                     sub_id = self.id_counter
                     self.id_counter += 1
-                    await ws.send(json.dumps({
-                        "id": sub_id,
-                        "type": "subscribe_events",
-                        "event_type": "state_changed"
-                    }))
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "id": sub_id,
+                                "type": "subscribe_events",
+                                "event_type": "state_changed",
+                            }
+                        )
+                    )
 
                     # Get initial states (Rev U2)
                     states_id = self.id_counter
                     self.id_counter += 1
-                    await ws.send(json.dumps({
-                        "id": states_id,
-                        "type": "get_states"
-                    }))
-                    
+                    await ws.send(json.dumps({"id": states_id, "type": "get_states"}))
+
                     # Listen loop
                     while self.running:
                         msg = await ws.recv()
                         data = json.loads(msg)
-                        
+
                         # Handle the get_states response
                         if data.get("id") == states_id and data.get("type") == "result":
                             results = data.get("result", [])
@@ -101,59 +110,73 @@ class HAWebSocketClient:
                             event = data.get("event", {})
                             entity_id = event.get("data", {}).get("entity_id")
                             new_state = event.get("data", {}).get("new_state", {})
-                            
+
                             if entity_id in self.monitored_entities:
                                 self._handle_state_change(entity_id, new_state)
-            
+
             except Exception as e:
                 logger.error(f"HA WebSocket error: {e}")
                 await asyncio.sleep(5)
 
     def _handle_state_change(self, entity_id, new_state):
-        if not new_state: return
+        if not new_state:
+            return
         key = self.monitored_entities[entity_id]
-        
+
         # Handle vacation_mode (binary sensor/input_boolean)
         if key == "vacation_mode":
             try:
                 state_val = new_state.get("state")
                 # Emit entity change event
                 from backend.events import emit_ha_entity_change
+
                 # Filter attributes to avoid massive payloads (Rev U12)
-                allowed_attrs = {"friendly_name", "unit_of_measurement", "device_class", "state_class"}
-                filtered_attrs = {k: v for k, v in new_state.get("attributes", {}).items() if k in allowed_attrs}
-                
+                allowed_attrs = {
+                    "friendly_name",
+                    "unit_of_measurement",
+                    "device_class",
+                    "state_class",
+                }
+                filtered_attrs = {
+                    k: v for k, v in new_state.get("attributes", {}).items() if k in allowed_attrs
+                }
+
                 emit_ha_entity_change(
-                    entity_id=entity_id,
-                    state=state_val,
-                    attributes=filtered_attrs
+                    entity_id=entity_id, state=state_val, attributes=filtered_attrs
                 )
             except Exception as e:
                 logger.error(f"Failed to emit vacation_mode change: {e}")
             return
-        
+
         # Handle numeric sensors (existing logic)
         try:
             state_val = new_state.get("state")
-            if state_val is None or str(state_val).lower() in ("unknown", "unavailable", "none", "null", ""):
+            if state_val is None or str(state_val).lower() in (
+                "unknown",
+                "unavailable",
+                "none",
+                "null",
+                "",
+            ):
                 return
-                
+
             value = float(state_val)
             # Normalize units if needed (kW vs W)
             unit = str(new_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
             if unit == "W":
                 value = value / 1000.0
-            
+
             # Emit
             payload = {key: value}
-            
+
             # Import here to avoid circular imports at module level
             from backend.events import emit_live_metrics
+
             # Only log at info if it's a significant change or periodically to avoid spam
             # For now, info is fine for debugging
-            logger.info(f"Emitting live_metrics: {payload}")
+            logger.debug(f"Emitting live_metrics: {payload}")
             emit_live_metrics(payload)
-            
+
         except (ValueError, TypeError):
             pass
 
@@ -161,7 +184,6 @@ class HAWebSocketClient:
         self.running = True
         # Use Socket.IO background task instead of threading.Thread for eventlet compatibility (Rev U23)
         # Use simple thread for background loop (Rev ARC1)
-        import threading
         # backend.extensions import removed
         threading.Thread(target=lambda: asyncio.run(self.connect()), daemon=True).start()
 
@@ -171,8 +193,10 @@ class HAWebSocketClient:
         self._load_config()
         self.monitored_entities = self._get_monitored_entities()
 
+
 # Global instance
 _ha_client = None
+
 
 def start_ha_socket_client():
     global _ha_client
@@ -180,10 +204,12 @@ def start_ha_socket_client():
         _ha_client = HAWebSocketClient()
         _ha_client.start()
 
+
 def reload_ha_socket_client():
     """Trigger a reload of the monitored entities in the running client."""
     if _ha_client:
         _ha_client.reload_monitored_entities()
+
 
 def get_ha_socket_status() -> dict:
     """Return diagnostic info about HA WebSocket connection."""

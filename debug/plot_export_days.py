@@ -1,9 +1,8 @@
 import argparse
-import pandas as pd
-import matplotlib.pyplot as plt
+
 import matplotlib.dates as mdates
-import sys
-import os
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def plot_export_days(mpc_csv, kepler_csv, output_path):
@@ -32,7 +31,7 @@ def plot_export_days(mpc_csv, kepler_csv, output_path):
     print(f"Plotting top export days: {top_days}")
 
     # Create Figure
-    fig, axes = plt.subplots(len(top_days), 1, figsize=(15, 5 * len(top_days)), sharex=False)
+    _fig, axes = plt.subplots(len(top_days), 1, figsize=(15, 5 * len(top_days)), sharex=False)
     if len(top_days) == 1:
         axes = [axes]
 
@@ -48,7 +47,7 @@ def plot_export_days(mpc_csv, kepler_csv, output_path):
         # Plot Price (Right Axis 1)
         ax2 = ax.twinx()
         if not day_mpc.empty and "import_price_sek_kwh" in day_mpc.columns:
-            (p1,) = ax2.plot(
+            (_p1,) = ax2.plot(
                 day_mpc[time_col],
                 day_mpc["import_price_sek_kwh"],
                 color="black",
@@ -64,7 +63,7 @@ def plot_export_days(mpc_csv, kepler_csv, output_path):
         ax3.spines["right"].set_position(("axes", 1.15))
 
         # Use Red for SoC to contrast with Green/Purple/Orange
-        (p2,) = ax3.plot(
+        (_p2,) = ax3.plot(
             day_kepler[time_col],
             day_kepler["projected_soc_percent"],
             color="red",

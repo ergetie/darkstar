@@ -1,9 +1,8 @@
-import sys
 import sqlite3
-import pandas as pd
-import numpy as np
-from datetime import datetime, date
+import sys
 from pathlib import Path
+
+import numpy as np
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -136,7 +135,7 @@ def main():
             ds_load = res_cons[1] or 0.0
             slots = res_cons[2]
 
-            print(f"   Slots Found: {slots} (Expected ~{7*24*4} = 672)")
+            print(f"   Slots Found: {slots} (Expected ~{7 * 24 * 4} = 672)")
 
             print(f"{'Metric':<15} | {'User (HA)':<15} | {'Darkstar':<15} | {'Diff':<10}")
             print("-" * 60)
@@ -174,7 +173,7 @@ def main():
             for i in range(min(10, len_user, len_ds)):
                 u = USER_PRICES_IMPORT_TODAY[i]
                 d = ds_prices[i]
-                print(f"   {i:<5} | {u:<10.4f} | {d:<10.4f} | {d-u:+.4f}")
+                print(f"   {i:<5} | {u:<10.4f} | {d:<10.4f} | {d - u:+.4f}")
 
             # Calculate MAE
             if len_ds == len_user:

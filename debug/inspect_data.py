@@ -1,9 +1,9 @@
-import sys
 import sqlite3
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
 import pandas as pd
-import pytz
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
@@ -32,7 +32,7 @@ def main():
             row = conn.execute(query, (start_time.isoformat(),)).fetchone()
             total_slots, soc_slots = row
 
-            print(f"\n📊 Recent Stats:")
+            print("\n📊 Recent Stats:")
             print(f"   Total Slots: {total_slots}")
             print(f"   Slots with SoC: {soc_slots}")
             print(f"   Missing SoC: {total_slots - soc_slots}")

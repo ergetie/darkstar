@@ -6,10 +6,11 @@ Functions for loading learning overlays and adjustments from the database.
 
 import json
 import sqlite3
-from typing import Any, Dict, Optional
+from typing import Any
+import contextlib
 
 
-def load_learning_overlays(learning_config: Dict[str, Any]) -> Dict[str, Any]:
+def load_learning_overlays(learning_config: dict[str, Any]) -> dict[str, Any]:
     """
     Load latest learning adjustments (PV/load bias and S-index base factor).
 
@@ -61,7 +62,7 @@ def load_learning_overlays(learning_config: Dict[str, Any]) -> Dict[str, Any]:
             return None
         return None
 
-    overlays: Dict[str, Any] = {}
+    overlays: dict[str, Any] = {}
     pv_adj = _parse_series(pv_adj_json)
     load_adj = _parse_series(load_adj_json)
     if pv_adj:
@@ -69,9 +70,7 @@ def load_learning_overlays(learning_config: Dict[str, Any]) -> Dict[str, Any]:
     if load_adj:
         overlays["load_adjustment_by_hour_kwh"] = load_adj
     if s_index_base is not None:
-        try:
+        with contextlib.suppress(TypeError, ValueError):
             overlays["s_index_base_factor"] = float(s_index_base)
-        except (TypeError, ValueError):
-            pass
 
     return overlays

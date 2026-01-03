@@ -1,13 +1,13 @@
-import yaml
-import requests
 import json
-from datetime import datetime
+
+import requests
+import yaml
 
 # Load secrets
 try:
-    with open("secrets.yaml", "r") as f:
+    with open("secrets.yaml") as f:
         secrets = yaml.safe_load(f)
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         config = yaml.safe_load(f)
 except Exception as e:
     print(f"Error loading config/secrets: {e}")

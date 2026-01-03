@@ -7,7 +7,6 @@ Migrated from backend/kepler/types.py for the new planner package.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
 
 
 @dataclass
@@ -23,14 +22,16 @@ class KeplerConfig:
     discharge_efficiency: float
     wear_cost_sek_per_kwh: float
     # Optional export limits (if any)
-    max_export_power_kw: Optional[float] = None
-    max_import_power_kw: Optional[float] = None
-    target_soc_kwh: Optional[float] = None  # Minimum SoC at end of horizon
-    target_soc_penalty_sek: float = 10.0  # Soft penalty for missing target (derived from risk_appetite)
+    max_export_power_kw: float | None = None
+    max_import_power_kw: float | None = None
+    target_soc_kwh: float | None = None  # Minimum SoC at end of horizon
+    target_soc_penalty_sek: float = (
+        10.0  # Soft penalty for missing target (derived from risk_appetite)
+    )
     terminal_value_sek_kwh: float = 0.0  # Value of energy left in battery
     ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes
     export_threshold_sek_per_kwh: float = 0.0  # Min spread to export
-    grid_import_limit_kw: Optional[float] = None  # Soft constraint
+    grid_import_limit_kw: float | None = None  # Soft constraint
     # Water heating as deferrable load (Rev K17/K18)
     water_heating_power_kw: float = 0.0  # 0 = disabled
     water_heating_min_kwh: float = 0.0  # Daily minimum
@@ -57,7 +58,7 @@ class KeplerInputSlot:
 class KeplerInput:
     """Complete input for a solver run."""
 
-    slots: List[KeplerInputSlot]
+    slots: list[KeplerInputSlot]
     initial_soc_kwh: float
 
 
@@ -83,7 +84,7 @@ class KeplerResultSlot:
 class KeplerResult:
     """Complete solver output."""
 
-    slots: List[KeplerResultSlot]
+    slots: list[KeplerResultSlot]
     total_cost_sek: float
     is_optimal: bool
     status_msg: str

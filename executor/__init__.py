@@ -13,7 +13,7 @@ Modules:
     history: Execution logging and history management
 """
 
-from .engine import ExecutorEngine
 from .config import ExecutorConfig, load_executor_config
+from .engine import ExecutorEngine
 
-__all__ = ["ExecutorEngine", "ExecutorConfig", "load_executor_config"]
+__all__ = ["ExecutorConfig", "ExecutorEngine", "load_executor_config"]

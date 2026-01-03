@@ -1,21 +1,20 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import Any
 
 import lightgbm as lgb
 import pandas as pd
-import pytz
 
 from backend.learning import LearningEngine, get_learning_engine
+from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 from ml.train import _build_time_features
 from ml.weather import get_weather_series
-from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
 
 
-def _load_models(models_dir: str = "ml/models") -> Dict[str, lgb.Booster]:
+def _load_models(models_dir: str = "ml/models") -> dict[str, lgb.Booster]:
     """Load trained LightGBM models for AURORA forward inference (Probabilistic)."""
-    models: Dict[str, lgb.Booster] = {}
+    models: dict[str, lgb.Booster] = {}
 
     # Quantiles to load
     quantiles = ["p10", "p50", "p90"]
@@ -216,7 +215,7 @@ def generate_forward_slots(
             )
 
     # --- STORE RESULTS ---
-    forecasts: List[Dict[str, Any]] = []
+    forecasts: list[dict[str, Any]] = []
     for idx, row in df.iterrows():
         item = {
             "slot_start": row["slot_start"].isoformat(),

@@ -1,7 +1,8 @@
-import sys
 import sqlite3
-import pandas as pd
+import sys
 from pathlib import Path
+
+import pandas as pd
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))

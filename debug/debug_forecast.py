@@ -1,11 +1,10 @@
-import pandas as pd
+from datetime import timedelta
+
 import lightgbm as lgb
-import joblib
-from pathlib import Path
+import pandas as pd
+
+from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 from ml.weather import get_weather_series
-from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
-from datetime import datetime, timedelta
-import pytz
 
 
 def debug_forecast(target_time_str):
@@ -113,7 +112,7 @@ def debug_forecast(target_time_str):
     hour = target_time.hour
     final_pv = pv_pred
     if hour < 4 or hour >= 22:
-        print(f"Night Clamp Active (22:00-04:00): Forcing PV to 0.0")
+        print("Night Clamp Active (22:00-04:00): Forcing PV to 0.0")
         final_pv = 0.0
     else:
         final_pv = max(pv_pred, 0.0)

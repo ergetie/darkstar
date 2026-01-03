@@ -1,12 +1,11 @@
 import logging
+from datetime import datetime, timedelta
+
+import pytz
 import requests
 import yaml
-import pytz
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any, Tuple
-import pandas as pd
+
 from backend.learning import get_learning_engine
-from backend.learning.store import LearningStore
 from backend.learning.mariadb_sync import MariaDBSync
 
 # Configure logging
@@ -30,26 +29,26 @@ class BackfillEngine:
         self.secrets = self._load_secrets()
         self.mariadb = MariaDBSync(self.store, self.secrets) if self.secrets else None
 
-    def _load_config(self, path: str) -> Dict:
+    def _load_config(self, path: str) -> dict:
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 return yaml.safe_load(f) or {}
         except FileNotFoundError:
             return {}
 
-    def _load_secrets(self) -> Dict:
+    def _load_secrets(self) -> dict:
         try:
-            with open("secrets.yaml", "r") as f:
+            with open("secrets.yaml") as f:
                 return yaml.safe_load(f) or {}
         except FileNotFoundError:
             return {}
 
-    def _load_ha_config(self) -> Dict:
+    def _load_ha_config(self) -> dict:
         """Load HA config from secrets.yaml"""
         secrets = self._load_secrets()
         return secrets.get("home_assistant", {})
 
-    def _make_ha_headers(self) -> Dict[str, str]:
+    def _make_ha_headers(self) -> dict[str, str]:
         token = self.ha_config.get("token")
         if not token:
             return {}
@@ -60,7 +59,7 @@ class BackfillEngine:
 
     def _fetch_history(
         self, entity_id: str, start_time: datetime, end_time: datetime
-    ) -> List[Tuple[datetime, float]]:
+    ) -> list[tuple[datetime, float]]:
         """Fetch history for a single entity from HA."""
         url = self.ha_config.get("url")
         if not url or not entity_id:
@@ -137,7 +136,7 @@ class BackfillEngine:
 
             # 2. Identify sensors to fetch
             raw_map = self.engine.learning_config.get("sensor_map", {})
-            cumulative_data: Dict[str, List[Tuple[datetime, float]]] = {}
+            cumulative_data: dict[str, list[tuple[datetime, float]]] = {}
 
             count = 0
             for entity_id, canonical in raw_map.items():

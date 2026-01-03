@@ -1,4 +1,3 @@
-import pytest
 from backend.strategy.engine import StrategyEngine
 
 

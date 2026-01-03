@@ -1,12 +1,13 @@
-import sys
+import logging
 import os
 import sqlite3
-import logging
+import sys
 
 sys.path.append(os.getcwd())
 
-from backend.learning.store import LearningStore
 import pytz
+
+from backend.learning.store import LearningStore
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -34,7 +35,7 @@ def migrate_prod():
     print("Triggering LearningStore init to run migration...")
     try:
         # Initialize store with correct path
-        store = LearningStore(DB_PATH, pytz.UTC)
+        LearningStore(DB_PATH, pytz.UTC)
         print("Store initialized.")
 
         # 3. Check Schema AFTER

@@ -178,7 +178,7 @@ class TestHAClientSendNotification:
 
     def test_send_notification_invalid_format(self):
         """send_notification returns False for invalid service format."""
-        with patch("executor.actions.requests.Session") as MockSession:
+        with patch("executor.actions.requests.Session"):
             client = HAClient("http://ha:8123", "token123")
             result = client.send_notification("invalid", "Title", "Msg")
 
@@ -300,7 +300,7 @@ class TestActionDispatcherExecute:
             "select.inverter_work_mode": "Zero Export To CT",
             "switch.inverter_battery_grid_charging": "off",
             "input_number.vvbtemp": "40",
-        }.get(e, None)
+        }.get(e)
         client.set_select_option.return_value = True
         client.set_switch.return_value = True
         client.set_number.return_value = True

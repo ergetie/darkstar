@@ -2,9 +2,10 @@
 """
 Test runner script for the Darkstar Planner test suite.
 """
+
+import os
 import subprocess
 import sys
-import os
 
 
 def run_pytest():

@@ -5,9 +5,11 @@ Convert between Planner DataFrame format and Kepler solver types.
 Migrated from backend/kepler/adapter.py during Rev K13 modularization.
 """
 
+from typing import Any
+
 import pandas as pd
-from typing import Dict, Any, Optional, List
-from .types import KeplerInput, KeplerInputSlot, KeplerConfig, KeplerResult
+
+from .types import KeplerConfig, KeplerInput, KeplerInputSlot, KeplerResult
 
 
 def planner_to_kepler_input(df: pd.DataFrame, initial_soc_kwh: float) -> KeplerInput:
@@ -57,28 +59,28 @@ def planner_to_kepler_input(df: pd.DataFrame, initial_soc_kwh: float) -> KeplerI
 
 def _comfort_level_to_penalty(comfort_level: int) -> float:
     """Map comfort level (1-5) to gap penalty (SEK/hour beyond threshold).
-    
+
     Level 1: Economy - comfort is nice-to-have
     Level 5: Maximum - almost hard constraint
     """
     COMFORT_PENALTY_MAP = {
-        1: 0.05,   # Economy
-        2: 0.20,   # Balanced
-        3: 0.50,   # Neutral
-        4: 1.00,   # Priority
-        5: 3.00,   # Maximum
+        1: 0.05,  # Economy
+        2: 0.20,  # Balanced
+        3: 0.50,  # Neutral
+        4: 1.00,  # Priority
+        5: 3.00,  # Maximum
     }
     return COMFORT_PENALTY_MAP.get(comfort_level, 0.50)
 
 
 def config_to_kepler_config(
-    planner_config: Dict[str, Any],
-    overrides: Optional[Dict[str, Any]] = None,
-    slots: Optional[List[Any]] = None,
+    planner_config: dict[str, Any],
+    overrides: dict[str, Any] | None = None,
+    slots: list[Any] | None = None,
 ) -> KeplerConfig:
     """
     Convert the main config dictionary to KeplerConfig.
-    
+
     Args:
         planner_config: Main configuration dictionary
         overrides: Optional runtime overrides
@@ -116,7 +118,7 @@ def config_to_kepler_config(
     # Must be in sweet spot:
     # - High enough that charging at cheap prices is profitable (terminal > charge_price)
     # - Low enough that discharging at expensive prices is profitable (terminal + wear < discharge_price)
-    
+
     terminal_value = 1.5  # Fallback default
 
     # Calculate terminal_value as midpoint between min and avg price
@@ -126,7 +128,7 @@ def config_to_kepler_config(
             if prices:
                 min_price = min(prices)
                 avg_price = sum(prices) / len(prices)
-                # Midpoint: balances charge profitability (needs terminal > min) 
+                # Midpoint: balances charge profitability (needs terminal > min)
                 # and discharge profitability (needs terminal + wear < avg)
                 terminal_value = (min_price + avg_price) / 2.0
         except Exception:
@@ -162,9 +164,7 @@ def config_to_kepler_config(
             else None
         ),
         # Water heating as deferrable load (Rev K17/K18)
-        water_heating_power_kw=float(
-            planner_config.get("water_heating", {}).get("power_kw", 0.0)
-        ),
+        water_heating_power_kw=float(planner_config.get("water_heating", {}).get("power_kw", 0.0)),
         water_heating_min_kwh=float(
             planner_config.get("water_heating", {}).get("min_kwh_per_day", 0.0)
         ),
@@ -206,10 +206,7 @@ def kepler_result_to_dataframe(
         if charge_kw > 0.01:
             action = "Charge"
         elif discharge_kw > 0.01:
-            if s.grid_export_kwh > 0.01:
-                action = "Export"
-            else:
-                action = "Discharge"
+            action = "Export" if s.grid_export_kwh > 0.01 else "Discharge"
 
         entry_soc_kwh = prev_soc_kwh
         entry_soc_percent = (entry_soc_kwh / capacity_kwh * 100.0) if capacity_kwh > 0 else 0.0
@@ -225,7 +222,8 @@ def kepler_result_to_dataframe(
                 "kepler_export_kwh": s.grid_export_kwh,
                 "kepler_soc_kwh": s.soc_kwh,
                 "kepler_cost_sek": s.cost_sek,
-                "planned_cost_sek": (s.grid_import_kwh * s.import_price_sek_kwh) - (s.grid_export_kwh * s.export_price_sek_kwh),
+                "planned_cost_sek": (s.grid_import_kwh * s.import_price_sek_kwh)
+                - (s.grid_export_kwh * s.export_price_sek_kwh),
                 "battery_charge_kw": charge_kw,
                 "battery_discharge_kw": discharge_kw,
                 "discharge_kw": discharge_kw,  # Alias for simulation.py compatibility

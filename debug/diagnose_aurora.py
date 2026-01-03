@@ -1,8 +1,8 @@
 import sqlite3
-import pandas as pd
-from datetime import datetime
+
 from learning import get_learning_engine
-from ml.corrector import _determine_graduation_level, _count_days_with_data
+
+from ml.corrector import _count_days_with_data, _determine_graduation_level
 
 engine = get_learning_engine()
 
@@ -58,7 +58,7 @@ try:
         )
 
         if rows and db_time_str != py_time_iso:
-            print(f"\n❌ MISMATCH DETECTED!")
+            print("\n❌ MISMATCH DETECTED!")
             print(f"DB Expects: '{db_time_str}'")
             print(f"Py Offers:  '{py_time_iso}'")
             print("The UPDATE clause is failing to find the row because strings don't match.")

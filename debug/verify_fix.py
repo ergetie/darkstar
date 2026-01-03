@@ -3,7 +3,7 @@ import json
 
 def verify_schedule():
     try:
-        with open("schedule.json", "r") as f:
+        with open("schedule.json") as f:
             data = json.load(f)
 
         schedule = data.get("schedule", [])

@@ -1,9 +1,9 @@
-import yaml
 import os
-import sys
+
+import yaml
 
 # Import internal mapping function to spy on the data
-from db_writer import write_schedule_to_db, _load_schedule, _map_row
+from db_writer import _load_schedule, _map_row, write_schedule_to_db
 
 
 def try_write():
@@ -14,7 +14,7 @@ def try_write():
         return
 
     try:
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
 
         # 1. Inspect the raw data first
@@ -40,7 +40,7 @@ def try_write():
 
         # 2. Try the actual write
         print("\n🚀 Sending to MariaDB...")
-        with open("secrets.yaml", "r") as f:
+        with open("secrets.yaml") as f:
             secrets = yaml.safe_load(f)
 
         count = write_schedule_to_db(
@@ -51,7 +51,7 @@ def try_write():
         )
         print(f"✅ Success! Wrote {count} rows.")
 
-    except Exception as e:
+    except Exception:
         print("\n❌ CRITICAL ERROR CAUGHT:")
         print("-" * 40)
         import traceback

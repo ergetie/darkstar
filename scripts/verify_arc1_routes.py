@@ -8,10 +8,9 @@ Usage: python scripts/verify_arc1_routes.py
 """
 
 import asyncio
-import json
 import sys
+
 import httpx
-from typing import List, Dict, Any, Tuple
 
 # All routes from the old Flask webapp.py (main branch)
 OLD_ROUTES = [
@@ -104,7 +103,10 @@ OLD_ROUTES = [
 
 BASE_URL = "http://localhost:5000"
 
-async def check_route(client: httpx.AsyncClient, method: str, path: str) -> Tuple[str, str, int, str]:
+
+async def check_route(
+    client: httpx.AsyncClient, method: str, path: str
+) -> tuple[str, str, int, str]:
     """Check if a route responds."""
     url = f"{BASE_URL}{path}"
     try:
@@ -118,10 +120,11 @@ async def check_route(client: httpx.AsyncClient, method: str, path: str) -> Tupl
             resp = await client.delete(url, timeout=5.0)
         else:
             return method, path, -1, f"Unknown method: {method}"
-        
+
         return method, path, resp.status_code, ""
     except Exception as e:
         return method, path, -1, str(e)
+
 
 async def main():
     print("=" * 60)
@@ -130,17 +133,17 @@ async def main():
     print(f"Base URL: {BASE_URL}")
     print(f"Total routes to check: {len(OLD_ROUTES)}")
     print("-" * 60)
-    
+
     async with httpx.AsyncClient() as client:
         tasks = [check_route(client, m, p) for m, p in OLD_ROUTES]
         results = await asyncio.gather(*tasks)
-    
+
     # Categorize results
     ok = []
     not_found = []
     server_error = []
     other = []
-    
+
     for method, path, status, error in results:
         if status == 200:
             ok.append((method, path))
@@ -150,19 +153,19 @@ async def main():
             server_error.append((method, path, status, error))
         else:
             other.append((method, path, status, error))
-    
+
     print(f"\n✅ OK (200): {len(ok)}")
     print(f"❌ NOT FOUND (404): {len(not_found)}")
     print(f"💥 SERVER ERROR (5xx): {len(server_error)}")
     print(f"⚠️ OTHER: {len(other)}")
-    
+
     if not_found:
         print("\n" + "=" * 60)
         print("MISSING ROUTES (404)")
         print("=" * 60)
         for method, path in not_found:
             print(f"  {method:6} {path}")
-    
+
     if server_error:
         print("\n" + "=" * 60)
         print("SERVER ERRORS (5xx)")
@@ -171,7 +174,7 @@ async def main():
             print(f"  {method:6} {path} -> {status}")
             if error:
                 print(f"         Error: {error[:100]}")
-    
+
     if other:
         print("\n" + "=" * 60)
         print("OTHER ISSUES")
@@ -180,19 +183,20 @@ async def main():
             print(f"  {method:6} {path} -> {status}")
             if error:
                 print(f"         Error: {error[:100]}")
-    
+
     print("\n" + "=" * 60)
     print("SUMMARY")
     print("=" * 60)
     total = len(OLD_ROUTES)
-    print(f"Routes working: {len(ok)}/{total} ({100*len(ok)/total:.1f}%)")
+    print(f"Routes working: {len(ok)}/{total} ({100 * len(ok) / total:.1f}%)")
     print(f"Routes missing: {len(not_found)}/{total}")
     print(f"Routes broken:  {len(server_error)}/{total}")
-    
+
     # Return exit code based on results
     if not_found or server_error:
         return 1
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(asyncio.run(main()))

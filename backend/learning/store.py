@@ -1,8 +1,8 @@
 import sqlite3
-import json
-import os
+from collections.abc import Iterable
 from datetime import datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
+
 import pandas as pd
 import pytz
 
@@ -179,22 +179,14 @@ class LearningStore:
 
             # Create indexes for performance
             cursor.execute(
-                (
-                    "CREATE INDEX IF NOT EXISTS idx_slot_observations_start "
-                    "ON slot_observations(slot_start)"
-                )
+                "CREATE INDEX IF NOT EXISTS idx_slot_observations_start "
+                "ON slot_observations(slot_start)"
             )
             cursor.execute(
-                (
-                    "CREATE INDEX IF NOT EXISTS idx_slot_forecasts_start "
-                    "ON slot_forecasts(slot_start)"
-                )
+                "CREATE INDEX IF NOT EXISTS idx_slot_forecasts_start ON slot_forecasts(slot_start)"
             )
             cursor.execute(
-                (
-                    "CREATE INDEX IF NOT EXISTS idx_learning_runs_started "
-                    "ON learning_runs(started_at)"
-                )
+                "CREATE INDEX IF NOT EXISTS idx_learning_runs_started ON learning_runs(started_at)"
             )
 
             # Parameter change history (per applied change)
@@ -308,7 +300,7 @@ class LearningStore:
 
             conn.commit()
 
-    def store_slot_prices(self, price_rows: Iterable[Dict[str, Any]]) -> None:
+    def store_slot_prices(self, price_rows: Iterable[dict[str, Any]]) -> None:
         """Store slot price data (import/export SEK per kWh)."""
         rows = list(price_rows or [])
         if not rows:
@@ -481,7 +473,7 @@ class LearningStore:
 
             conn.commit()
 
-    def store_forecasts(self, forecasts: List[Dict], forecast_version: str) -> None:
+    def store_forecasts(self, forecasts: list[dict], forecast_version: str) -> None:
         """Store forecast data"""
         if not forecasts:
             return
@@ -650,7 +642,7 @@ class LearningStore:
             )
             conn.commit()
 
-    def get_last_observation_time(self) -> Optional[datetime]:
+    def get_last_observation_time(self) -> datetime | None:
         """Get the timestamp of the last recorded observation."""
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
             cursor = conn.cursor()
@@ -670,8 +662,8 @@ class LearningStore:
         self,
         days_back: int = 30,
         threshold_percent: float = 5.0,
-        peak_hours: Tuple[int, int] = (16, 20),
-    ) -> List[Dict[str, Any]]:
+        peak_hours: tuple[int, int] = (16, 20),
+    ) -> list[dict[str, Any]]:
         """
         Query slot_observations for low-SoC events during peak hours.
 
@@ -716,7 +708,7 @@ class LearningStore:
                 )
             return events
 
-    def get_reflex_state(self, param_path: str) -> Optional[Dict[str, Any]]:
+    def get_reflex_state(self, param_path: str) -> dict[str, Any] | None:
         """
         Get the last update state for a parameter.
 
@@ -806,7 +798,7 @@ class LearningStore:
             df = pd.read_sql_query(query, conn, params=(cutoff_date,))
             return df
 
-    def get_arbitrage_stats(self, days_back: int = 30) -> Dict[str, Any]:
+    def get_arbitrage_stats(self, days_back: int = 30) -> dict[str, Any]:
         """
         Calculate arbitrage statistics for ROI analysis.
 
@@ -854,7 +846,7 @@ class LearningStore:
                 "net_profit": round(export_revenue - import_cost, 2),
             }
 
-    def get_capacity_estimate(self, days_back: int = 30) -> Optional[float]:
+    def get_capacity_estimate(self, days_back: int = 30) -> float | None:
         """
         Estimate effective battery capacity from discharge observations.
 

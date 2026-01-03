@@ -1,6 +1,6 @@
-import yaml
 import pymysql
-import sys
+import yaml
+
 from db_writer import _load_schedule, _map_row
 
 
@@ -9,9 +9,9 @@ def find_bad_row():
 
     try:
         # Load Config & Secrets
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
-        with open("secrets.yaml", "r") as f:
+        with open("secrets.yaml") as f:
             secrets = yaml.safe_load(f)
 
         # Connect

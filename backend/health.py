@@ -8,7 +8,7 @@ Validates HA connection, entity availability, config validity, and database conn
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import pytz
 import requests
@@ -25,9 +25,9 @@ class HealthIssue:
     severity: str  # "critical", "warning", "info"
     message: str  # User-friendly message
     guidance: str  # How to fix
-    entity_id: Optional[str] = None  # Specific entity involved (if applicable)
+    entity_id: str | None = None  # Specific entity involved (if applicable)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "category": self.category,
             "severity": self.severity,
@@ -42,14 +42,14 @@ class HealthStatus:
     """Overall system health status."""
 
     healthy: bool
-    issues: List[HealthIssue] = field(default_factory=list)
+    issues: list[HealthIssue] = field(default_factory=list)
     checked_at: str = ""
 
     def __post_init__(self):
         if not self.checked_at:
             self.checked_at = datetime.now(pytz.UTC).isoformat()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "healthy": self.healthy,
             "issues": [issue.to_dict() for issue in self.issues],
@@ -72,12 +72,12 @@ class HealthChecker:
 
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
-        self._config: Optional[Dict] = None
-        self._secrets: Optional[Dict] = None
+        self._config: dict | None = None
+        self._secrets: dict | None = None
 
     def check_all(self) -> HealthStatus:
         """Run all health checks and return combined status."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         # Load config first (needed for other checks)
         config_issues = self.check_config_validity()
@@ -99,13 +99,13 @@ class HealthChecker:
 
         return HealthStatus(healthy=healthy, issues=issues)
 
-    def check_config_validity(self) -> List[HealthIssue]:
+    def check_config_validity(self) -> list[HealthIssue]:
         """Validate config.yaml exists and has required structure."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         # Load config
         try:
-            with open(self.config_path, "r", encoding="utf-8") as f:
+            with open(self.config_path, encoding="utf-8") as f:
                 self._config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             issues.append(
@@ -130,7 +130,7 @@ class HealthChecker:
 
         # Load secrets
         try:
-            with open("secrets.yaml", "r", encoding="utf-8") as f:
+            with open("secrets.yaml", encoding="utf-8") as f:
                 self._secrets = yaml.safe_load(f) or {}
         except FileNotFoundError:
             issues.append(
@@ -156,9 +156,9 @@ class HealthChecker:
 
         return issues
 
-    def _validate_config_structure(self) -> List[HealthIssue]:
+    def _validate_config_structure(self) -> list[HealthIssue]:
         """Validate config has required sections and correct types."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._config:
             return issues
@@ -212,9 +212,9 @@ class HealthChecker:
 
         return issues
 
-    def check_ha_connection(self) -> List[HealthIssue]:
+    def check_ha_connection(self) -> list[HealthIssue]:
         """Check if Home Assistant is reachable."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._secrets:
             return issues  # Already reported in config check
@@ -282,9 +282,9 @@ class HealthChecker:
 
         return issues
 
-    def check_entities(self) -> List[HealthIssue]:
+    def check_entities(self) -> list[HealthIssue]:
         """Check if configured entities exist in Home Assistant."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._config or not self._secrets:
             return issues
@@ -297,7 +297,7 @@ class HealthChecker:
             return issues
 
         # Collect all entity IDs from config
-        entities_to_check: List[tuple] = []  # (entity_id, config_key)
+        entities_to_check: list[tuple] = []  # (entity_id, config_key)
 
         # Input sensors
         input_sensors = self._config.get("input_sensors", {})
@@ -310,7 +310,12 @@ class HealthChecker:
         if executor:
             # Inverter entities
             inverter = executor.get("inverter", {})
-            for key in ["work_mode_entity", "grid_charging_entity", "max_charging_current_entity", "max_discharging_current_entity"]:
+            for key in [
+                "work_mode_entity",
+                "grid_charging_entity",
+                "max_charging_current_entity",
+                "max_discharging_current_entity",
+            ]:
                 entity_id = inverter.get(key)
                 if entity_id:
                     entities_to_check.append((entity_id, f"executor.inverter.{key}"))
@@ -368,9 +373,9 @@ class HealthChecker:
 
         return issues
 
-    def check_database(self) -> List[HealthIssue]:
+    def check_database(self) -> list[HealthIssue]:
         """Check database connectivity."""
-        issues: List[HealthIssue] = []
+        issues: list[HealthIssue] = []
 
         if not self._secrets:
             return issues

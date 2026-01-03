@@ -1,17 +1,16 @@
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from dateutil import parser as dtp
 import pandas as pd
+import pymysql
 import pytz
+from dateutil import parser as dtp
 from pytz.exceptions import AmbiguousTimeError, NonExistentTimeError
 
-import pymysql
 
-
-def _connect_mysql(secrets: Dict[str, Any]):
+def _connect_mysql(secrets: dict[str, Any]):
     db = secrets.get("mariadb", {})
     return pymysql.connect(
         host=db.get("host", "127.0.0.1"),
@@ -25,15 +24,15 @@ def _connect_mysql(secrets: Dict[str, Any]):
     )
 
 
-def _load_schedule(path: str) -> List[Dict[str, Any]]:
-    with open(path, "r", encoding="utf-8") as f:
+def _load_schedule(path: str) -> list[dict[str, Any]]:
+    with open(path, encoding="utf-8") as f:
         payload = json.load(f)
     return payload.get("schedule", [])
 
 
 def _planner_version_from_meta(path: str, fallback: str) -> str:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         return payload.get("meta", {}).get("planner_version", fallback)
     except Exception:
@@ -67,16 +66,15 @@ def _normalise_start(value: Any, tz_name: str = "Europe/Stockholm") -> datetime:
 
 
 def _get_preserved_slots_from_db(
-    today_start: datetime, now: datetime, secrets: Dict[str, Any]
-) -> List[Dict[str, Any]]:
+    today_start: datetime, now: datetime, secrets: dict[str, Any]
+) -> list[dict[str, Any]]:
     """Get past slots from today that should be preserved from database (source of truth)."""
     if not secrets or not secrets.get("mariadb"):
         return []
 
     try:
-        with _connect_mysql(secrets) as conn:
-            with conn.cursor() as cur:
-                query = """
+        with _connect_mysql(secrets) as conn, conn.cursor() as cur:
+            query = """
                     SELECT slot_number, slot_start, charge_kw, export_kw, water_kw,
                            planned_load_kwh, planned_pv_kwh, soc_target, soc_projected,
                            planner_version
@@ -84,8 +82,8 @@ def _get_preserved_slots_from_db(
                     WHERE slot_start >= %s AND slot_start < %s
                     ORDER BY slot_number ASC
                 """
-                cur.execute(query, (today_start.replace(tzinfo=None), now.replace(tzinfo=None)))
-                rows = cur.fetchall()
+            cur.execute(query, (today_start.replace(tzinfo=None), now.replace(tzinfo=None)))
+            rows = cur.fetchall()
 
         # Convert to dict format matching schedule structure (same as webapp)
         preserved = []
@@ -125,13 +123,13 @@ def _get_preserved_slots_from_local(
     today_start: datetime,
     now: datetime,
     tz_name: str = "Europe/Stockholm",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get past slots from today that should be preserved from local schedule.json (fallback)."""
     try:
         if not os.path.exists("schedule.json"):
             return []
 
-        with open("schedule.json", "r", encoding="utf-8") as f:
+        with open("schedule.json", encoding="utf-8") as f:
             existing_data = json.load(f)
             existing_schedule = existing_data.get("schedule", [])
 
@@ -175,9 +173,9 @@ def _get_preserved_slots_from_local(
 def get_preserved_slots(
     today_start: datetime,
     now: datetime,
-    secrets: Optional[Dict[str, Any]] = None,
+    secrets: dict[str, Any] | None = None,
     tz_name: str = "Europe/Stockholm",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """
     Get past slots from today that should be preserved.
     Priority: SQLite (executor) -> MariaDB -> local schedule.json.
@@ -194,19 +192,19 @@ def get_preserved_slots(
     # Try executor's SQLite history first (Internal Executor mode)
     try:
         from executor.history import ExecutionHistory
-        
+
         # Use standard learning DB path
         db_path = os.path.join("data", "planner_learning.db")
         if os.path.exists(db_path):
             tz = pytz.timezone(tz_name)
             history = ExecutionHistory(db_path, timezone=tz_name)
-            
+
             # Ensure today_start and now have timezone info
             if today_start.tzinfo is None:
                 today_start = tz.localize(today_start)
             if now.tzinfo is None:
                 now = tz.localize(now)
-            
+
             sqlite_slots = history.get_todays_slots(today_start, now)
             if sqlite_slots:
                 print(f"[preservation] Loaded {len(sqlite_slots)} past slots from executor SQLite")
@@ -238,10 +236,10 @@ def get_preserved_slots(
 
 
 def _write_merged_schedule(
-    merged_rows: List[Dict[str, Any]],
+    merged_rows: list[dict[str, Any]],
     planner_version: str,
-    config: Dict[str, Any],
-    secrets: Dict[str, Any],
+    config: dict[str, Any],
+    secrets: dict[str, Any],
 ) -> int:
     """Write merged schedule without deleting past hours."""
 
@@ -249,58 +247,57 @@ def _write_merged_schedule(
     tz_name = config.get("timezone", "Europe/Stockholm")
     mapped = [_map_row(i, slot, tz_name=tz_name) for i, slot in enumerate(merged_rows)]
 
-    with _connect_mysql(secrets) as conn:
-        with conn.cursor() as cur:
-            # Delete only FUTURE slots, preserve past
-            now_naive = datetime.now(pytz.timezone(tz_name)).replace(tzinfo=None)
-            cur.execute("DELETE FROM current_schedule WHERE slot_start >= %s", (now_naive,))
+    with _connect_mysql(secrets) as conn, conn.cursor() as cur:
+        # Delete only FUTURE slots, preserve past
+        now_naive = datetime.now(pytz.timezone(tz_name)).replace(tzinfo=None)
+        cur.execute("DELETE FROM current_schedule WHERE slot_start >= %s", (now_naive,))
 
-            # Insert merged schedule
-            schedule_columns = [
-                "slot_number",
-                "slot_start",
-                "charge_kw",
-                "export_kw",
-                "water_kw",
-                "planned_load_kwh",
-                "planned_pv_kwh",
-                "soc_target",
-                "soc_projected",
-                "planned_cost_sek",
-                "planner_version",
-            ]
-            columns_str = ", ".join(schedule_columns)
-            values_str = ", ".join(["%s"] * len(schedule_columns))
-            insert_sql = "INSERT INTO current_schedule " f"({columns_str}) VALUES ({values_str})"
-            cur.executemany(insert_sql, [r + (pv,) for r in mapped])
+        # Insert merged schedule
+        schedule_columns = [
+            "slot_number",
+            "slot_start",
+            "charge_kw",
+            "export_kw",
+            "water_kw",
+            "planned_load_kwh",
+            "planned_pv_kwh",
+            "soc_target",
+            "soc_projected",
+            "planned_cost_sek",
+            "planner_version",
+        ]
+        columns_str = ", ".join(schedule_columns)
+        values_str = ", ".join(["%s"] * len(schedule_columns))
+        insert_sql = f"INSERT INTO current_schedule ({columns_str}) VALUES ({values_str})"
+        cur.executemany(insert_sql, [r + (pv,) for r in mapped])
 
-            # Also append to plan_history for audit trail
-            history_columns = [
-                "planned_at",
-                "slot_number",
-                "slot_start",
-                "charge_kw",
-                "export_kw",
-                "water_kw",
-                "planned_load_kwh",
-                "planned_pv_kwh",
-                "soc_target",
-                "soc_projected",
-                "planned_cost_sek",
-                "planner_version",
-            ]
-            history_cols_str = ", ".join(history_columns)
-            history_vals = ", ".join(["%s"] * (len(history_columns) - 1))
-            insert_history_sql = (
-                "INSERT INTO plan_history "
-                f"({history_cols_str}) VALUES (CURRENT_TIMESTAMP, {history_vals})"
-            )
-            cur.executemany(insert_history_sql, [r + (pv,) for r in mapped])
+        # Also append to plan_history for audit trail
+        history_columns = [
+            "planned_at",
+            "slot_number",
+            "slot_start",
+            "charge_kw",
+            "export_kw",
+            "water_kw",
+            "planned_load_kwh",
+            "planned_pv_kwh",
+            "soc_target",
+            "soc_projected",
+            "planned_cost_sek",
+            "planner_version",
+        ]
+        history_cols_str = ", ".join(history_columns)
+        history_vals = ", ".join(["%s"] * (len(history_columns) - 1))
+        insert_history_sql = (
+            "INSERT INTO plan_history "
+            f"({history_cols_str}) VALUES (CURRENT_TIMESTAMP, {history_vals})"
+        )
+        cur.executemany(insert_history_sql, [r + (pv,) for r in mapped])
 
     return len(mapped)
 
 
-def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm") -> Tuple:
+def _map_row(idx: int, slot: dict[str, Any], *, tz_name: str = "Europe/Stockholm") -> tuple:
     slot_number = slot.get("slot_number", idx + 1)
     slot_start_raw = slot.get("start_time") or slot.get("slot_datetime")
     slot_start = _normalise_start(slot_start_raw, tz_name)
@@ -315,7 +312,7 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
 
     soc_target = float(slot.get("soc_target_percent", slot.get("soc_target", 0.0)) or 0.0)
     soc_projected = float(slot.get("projected_soc_percent", slot.get("soc_projected", 0.0)) or 0.0)
-    
+
     # Rev K22: Planned cost
     planned_cost = float(slot.get("planned_cost_sek", 0.0) or 0.0)
 
@@ -342,7 +339,7 @@ def _map_row(idx: int, slot: Dict[str, Any], *, tz_name: str = "Europe/Stockholm
 
 
 def write_schedule_to_db_with_preservation(
-    schedule_path: str, planner_version: str, config: Dict[str, Any], secrets: Dict[str, Any]
+    schedule_path: str, planner_version: str, config: dict[str, Any], secrets: dict[str, Any]
 ) -> int:
     """Write schedule preserving past hours (slots < now) for today only."""
 
@@ -379,7 +376,7 @@ def write_schedule_to_db_with_preservation(
 
 
 def write_schedule_to_db(
-    schedule_path: str, planner_version: str, config: Dict[str, Any], secrets: Dict[str, Any]
+    schedule_path: str, planner_version: str, config: dict[str, Any], secrets: dict[str, Any]
 ) -> int:
     rows = _load_schedule(schedule_path)
     if not rows:
@@ -409,7 +406,7 @@ def write_schedule_to_db(
     ]
     values_str = ", ".join(["%s"] * len(current_columns))
     insert_current_sql = (
-        "INSERT INTO current_schedule " f"({', '.join(current_columns)}) VALUES ({values_str})"
+        f"INSERT INTO current_schedule ({', '.join(current_columns)}) VALUES ({values_str})"
     )
     history_columns = [
         "planned_at",
@@ -431,28 +428,27 @@ def write_schedule_to_db(
         f"({', '.join(history_columns)}) VALUES (CURRENT_TIMESTAMP, {history_values})"
     )
 
-    with _connect_mysql(secrets) as conn:
-        with conn.cursor() as cur:
-            # Replace current plan by clearing the table and inserting fresh rows
-            cur.execute("DELETE FROM current_schedule")
-            cur.executemany(
-                insert_current_sql,
-                [r + (pv,) for r in mapped],
-            )
-            # Append to plan_history
-            cur.executemany(
-                insert_sql,
-                [r + (pv,) for r in mapped],
-            )
+    with _connect_mysql(secrets) as conn, conn.cursor() as cur:
+        # Replace current plan by clearing the table and inserting fresh rows
+        cur.execute("DELETE FROM current_schedule")
+        cur.executemany(
+            insert_current_sql,
+            [r + (pv,) for r in mapped],
+        )
+        # Append to plan_history
+        cur.executemany(
+            insert_sql,
+            [r + (pv,) for r in mapped],
+        )
 
     return len(mapped)
 
 
 def write_antares_shadow_to_mariadb(
-    shadow_payload: Dict[str, Any],
+    shadow_payload: dict[str, Any],
     planner_version: str,
-    config: Dict[str, Any],
-    secrets: Dict[str, Any],
+    config: dict[str, Any],
+    secrets: dict[str, Any],
 ) -> int:
     """
     Persist a single Antares shadow schedule into MariaDB antares_plan_history.
@@ -484,20 +480,15 @@ def write_antares_shadow_to_mariadb(
     schedule = shadow_payload.get("schedule") or []
     metrics = shadow_payload.get("metrics") or {}
 
-    payload = {
-        "schedule": schedule,
-        "metrics": metrics,
-    }
 
     # JSON-encode schedule and metrics
     shadow_schedule_json = json.dumps(schedule, ensure_ascii=False)
     metrics_json = json.dumps(metrics, ensure_ascii=False)
 
-    with _connect_mysql(secrets) as conn:
-        with conn.cursor() as cur:
-            # Ensure antares_plan_history exists
-            cur.execute(
-                """
+    with _connect_mysql(secrets) as conn, conn.cursor() as cur:
+        # Ensure antares_plan_history exists
+        cur.execute(
+            """
                 CREATE TABLE IF NOT EXISTS antares_plan_history (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     system_id VARCHAR(64) NOT NULL,
@@ -510,10 +501,10 @@ def write_antares_shadow_to_mariadb(
                     metrics_json LONGTEXT
                 )
                 """
-            )
+        )
 
-            cur.execute(
-                """
+        cur.execute(
+            """
                 INSERT INTO antares_plan_history (
                     system_id,
                     plan_date,
@@ -524,15 +515,15 @@ def write_antares_shadow_to_mariadb(
                     metrics_json
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """,
-                (
-                    system_id,
-                    plan_date_str,
-                    episode_start_local,
-                    policy_run_id,
-                    planner_version,
-                    shadow_schedule_json,
-                    metrics_json,
-                ),
-            )
+            (
+                system_id,
+                plan_date_str,
+                episode_start_local,
+                policy_run_id,
+                planner_version,
+                shadow_schedule_json,
+                metrics_json,
+            ),
+        )
 
     return 1

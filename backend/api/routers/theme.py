@@ -1,19 +1,21 @@
-from fastapi import APIRouter, HTTPException, Body
-from typing import Optional, List, Dict
-from pydantic import BaseModel
-import yaml
-import os
 import json
 import logging
+import os
+
+import yaml
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 logger = logging.getLogger("darkstar.api.theme")
 router = APIRouter(tags=["theme"])
 
 THEME_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "themes")
 
+
 class ThemeSelectRequest(BaseModel):
     theme: str
-    accent_index: Optional[int] = None
+    accent_index: int | None = None
+
 
 # Helper functions (ported from webapp.py)
 def _parse_legacy_theme_format(text: str) -> dict:
@@ -52,12 +54,14 @@ def _parse_legacy_theme_format(text: str) -> dict:
     data["palette"] = palette
     return data
 
+
 def _normalise_theme(name: str, raw_data: dict) -> dict:
     if not isinstance(raw_data, dict):
         raise ValueError("Theme data must be a mapping")
     palette = raw_data.get("palette")
     if not isinstance(palette, (list, tuple)) or len(palette) != 16:
         raise ValueError("Palette must contain exactly 16 colours")
+
     def _clean_colour(value, key):
         if not isinstance(value, str):
             raise ValueError(f"{key} must be a string")
@@ -65,6 +69,7 @@ def _normalise_theme(name: str, raw_data: dict) -> dict:
         if not value.startswith("#"):
             raise ValueError(f"{key} must be a hex colour starting with #")
         return value
+
     return {
         "name": name,
         "foreground": _clean_colour(raw_data.get("foreground", "#ffffff"), "foreground"),
@@ -72,8 +77,9 @@ def _normalise_theme(name: str, raw_data: dict) -> dict:
         "palette": [_clean_colour(c, f"palette[{i}]") for i, c in enumerate(palette)],
     }
 
+
 def _load_theme_file(path: str) -> dict:
-    with open(path, "r") as handle:
+    with open(path) as handle:
         text = handle.read()
     filename = os.path.basename(path)
     try:
@@ -86,6 +92,7 @@ def _load_theme_file(path: str) -> dict:
     except Exception as exc:
         raise ValueError(f"Failed to parse theme '{filename}': {exc}") from exc
     return _normalise_theme(os.path.splitext(filename)[0] or filename, raw_data)
+
 
 def load_themes(theme_dir: str = THEME_DIR) -> dict:
     themes = {}
@@ -103,18 +110,20 @@ def load_themes(theme_dir: str = THEME_DIR) -> dict:
             continue
     return themes
 
+
 AVAILABLE_THEMES = {}
+
 
 @router.get("/api/themes")
 async def list_themes():
     """Return all available themes and the currently selected theme."""
     global AVAILABLE_THEMES
     AVAILABLE_THEMES = load_themes()
-    
+
     current_name = None
     accent_index = None
     try:
-        with open("config.yaml", "r") as handle:
+        with open("config.yaml") as handle:
             config = yaml.safe_load(handle) or {}
             ui = config.get("ui", {})
             current_name = ui.get("theme")
@@ -131,23 +140,25 @@ async def list_themes():
         "themes": list(AVAILABLE_THEMES.values()),
     }
 
+
 @router.post("/api/theme")
 async def select_theme(payload: ThemeSelectRequest):
     """Persist a selected theme to config.yaml."""
     global AVAILABLE_THEMES
-    AVAILABLE_THEMES = load_themes() # Reload to be sure
+    AVAILABLE_THEMES = load_themes()  # Reload to be sure
 
     if payload.theme not in AVAILABLE_THEMES:
         raise HTTPException(status_code=404, detail=f"Theme '{payload.theme}' not found")
-    
+
     if payload.accent_index is not None and not (0 <= payload.accent_index <= 15):
         raise HTTPException(status_code=400, detail="accent_index must be between 0 and 15")
 
     try:
         from ruamel.yaml import YAML
+
         yaml_handler = YAML()
         yaml_handler.preserve_quotes = True
-        with open("config.yaml", "r", encoding="utf-8") as handle:
+        with open("config.yaml", encoding="utf-8") as handle:
             config = yaml_handler.load(handle) or {}
     except FileNotFoundError:
         config = {}

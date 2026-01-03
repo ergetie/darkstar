@@ -1,5 +1,6 @@
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
+
 from backend.strategy.history import append_strategy_event
 
 logger = logging.getLogger("darkstar.strategy")
@@ -17,10 +18,10 @@ class StrategyEngine:
     (Weather, Vacation, Alarm, Prices, etc.).
     """
 
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: dict[str, Any]):
         self.config = config
 
-    def decide(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
+    def decide(self, input_data: dict[str, Any]) -> dict[str, Any]:
         """
         Analyze inputs and return a dictionary of config overrides.
 
@@ -32,7 +33,7 @@ class StrategyEngine:
             Dict[str, Any]: A deep dictionary of overrides matching config.yaml structure.
                 Example: {'water_heating': {'min_hours_per_day': 0}}
         """
-        overrides: Dict[str, Any] = {}
+        overrides: dict[str, Any] = {}
         context = input_data.get("context", {})
 
         # --- Rule: Vacation Mode ---
@@ -137,7 +138,7 @@ class StrategyEngine:
 
         return overrides
 
-    def _analyze_price_volatility(self, prices: list) -> Dict[str, float]:
+    def _analyze_price_volatility(self, prices: list) -> dict[str, float]:
         """
         Calculate price volatility metrics.
         Expects list of dicts with 'value' key (SEK/kWh).

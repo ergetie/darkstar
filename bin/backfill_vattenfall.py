@@ -1,17 +1,17 @@
-import sys
-import yaml
 import sqlite3
-import requests
-import json
-from datetime import date, timedelta, datetime
+import sys
+from datetime import datetime, timedelta
+
 import pytz
+import requests
+import yaml
 
 # Constants
 VATTENFALL_API = "https://www.vattenfall.se/api/price/spot/pricearea/{start}/{end}/{area}"
 
 
 def load_config():
-    with open("config.yaml", "r") as f:
+    with open("config.yaml") as f:
         return yaml.safe_load(f)
 
 

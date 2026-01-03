@@ -5,7 +5,7 @@ import math
 def check_health():
     print("🏥 Checking schedule.json health...")
     try:
-        with open("schedule.json", "r") as f:
+        with open("schedule.json") as f:
             # Load as raw string first to check for NaN literal which isn't standard JSON
             raw = f.read()
             if "NaN" in raw:
@@ -20,10 +20,9 @@ def check_health():
         bad_slots = 0
         for i, slot in enumerate(schedule):
             for key, val in slot.items():
-                if isinstance(val, float):
-                    if math.isnan(val) or math.isinf(val):
-                        print(f"❌ Slot {i} has bad value: {key} = {val}")
-                        bad_slots += 1
+                if isinstance(val, float) and (math.isnan(val) or math.isinf(val)):
+                    print(f"❌ Slot {i} has bad value: {key} = {val}")
+                    bad_slots += 1
 
         if bad_slots == 0:
             print("✅ All numbers look safe.")

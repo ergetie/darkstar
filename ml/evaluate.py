@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-import pytz
-import sqlite3
-
 from learning import LearningEngine, get_learning_engine
+
+from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
 from ml.train import _build_time_features, _load_slot_observations
 from ml.weather import get_weather_series
-from ml.context_features import get_vacation_mode_series, get_alarm_armed_series
-
 
 AURORA_VERSION = "aurora"
 BASELINE_VERSION = "baseline_7_day_avg"
@@ -69,7 +66,7 @@ def _load_model(path: Path) -> lgb.Booster | None:
 def _generate_baseline_forecasts(
     observations: pd.DataFrame,
     engine: LearningEngine,
-) -> List[Dict]:
+) -> list[dict]:
     """Simple baseline: 7-day average by hour-of-day for load and PV."""
     if observations.empty:
         return []
@@ -97,7 +94,7 @@ def _generate_baseline_forecasts(
         temp_c=("temp_c", "mean") if "temp_c" in history.columns else ("load_kwh", "mean"),
     )
 
-    forecasts: List[Dict] = []
+    forecasts: list[dict] = []
     for _, row in df.iterrows():
         hour = int(row["hour"])
         slot_start_dt = row["slot_start"].astimezone(engine.timezone)
@@ -123,12 +120,12 @@ def _generate_baseline_forecasts(
 
 
 def _predict_with_boosters(
-    boosters: Dict[str, lgb.Booster],
+    boosters: dict[str, lgb.Booster],
     features: pd.DataFrame,
     observations: pd.DataFrame,
     engine: LearningEngine,
     aurora_version: str,
-) -> List[Dict]:
+) -> list[dict]:
     """Generate AURORA forecasts given boosters and features."""
     if features.empty or observations.empty:
         return []
@@ -166,7 +163,7 @@ def _predict_with_boosters(
     if boosters.get("pv") is not None:
         pv_pred = boosters["pv"].predict(X)
 
-    forecasts: List[Dict] = []
+    forecasts: list[dict] = []
     for idx, row in observations.iterrows():
         slot_start = pd.to_datetime(row["slot_start"])
         if slot_start.tzinfo is None:
@@ -174,7 +171,7 @@ def _predict_with_boosters(
         else:
             slot_start = slot_start.astimezone(engine.timezone)
 
-        record: Dict = {
+        record: dict = {
             "slot_start": slot_start.isoformat(),
             "pv_forecast_kwh": 0.0,
             "load_forecast_kwh": 0.0,
@@ -196,7 +193,7 @@ def _calculate_mae(
     start_time: datetime,
     end_time: datetime,
     forecast_version: str,
-) -> Tuple[float | None, float | None]:
+) -> tuple[float | None, float | None]:
     """Calculate MAE for PV and load for a given forecast_version."""
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
         cursor = conn.cursor()
@@ -219,8 +216,8 @@ def _calculate_mae(
     if not rows:
         return None, None
 
-    pv_errors: List[float] = []
-    load_errors: List[float] = []
+    pv_errors: list[float] = []
+    load_errors: list[float] = []
 
     for pv, load, pv_f, load_f in rows:
         if pv is not None and pv_f is not None:
@@ -236,7 +233,7 @@ def _calculate_mae(
 def _print_segmented_mae(
     label: str,
     observations: pd.DataFrame,
-    forecasts: List[Dict],
+    forecasts: list[dict],
 ) -> None:
     """Print MAE segmented by simple context bands (weather/occupancy)."""
     if not forecasts or observations.empty:
@@ -410,7 +407,7 @@ def main() -> None:
     # Load trained models (as boosters)
     load_model_path = cfg.models_dir / cfg.load_model_name
     pv_model_path = cfg.models_dir / cfg.pv_model_name
-    boosters: Dict[str, lgb.Booster | None] = {
+    boosters: dict[str, lgb.Booster | None] = {
         "load": _load_model(load_model_path),
         "pv": _load_model(pv_model_path),
     }
@@ -437,8 +434,7 @@ def main() -> None:
     if aurora_forecasts:
         engine.store_forecasts(aurora_forecasts, cfg.aurora_version)
         print(
-            f"Stored {len(aurora_forecasts)} AURORA forecasts "
-            f"as version '{cfg.aurora_version}'.",
+            f"Stored {len(aurora_forecasts)} AURORA forecasts as version '{cfg.aurora_version}'.",
         )
     else:
         print("Warning: No AURORA forecasts generated.")

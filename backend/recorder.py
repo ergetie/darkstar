@@ -1,25 +1,28 @@
-import time
-import yaml
 import logging
-import os
-from datetime import datetime, timedelta, timezone
+import time
+from datetime import UTC, datetime, timedelta
+
 import pandas as pd
 import pytz
+import yaml
+
+from backend.learning.backfill import BackfillEngine
 
 # Local imports
 from backend.learning.store import LearningStore
 from inputs import get_home_assistant_sensor_float
-from backend.learning.backfill import BackfillEngine
 
-logging.basicConfig(level=logging.INFO, format='[%(levelname)s] %(message)s')
+logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 logger = logging.getLogger("recorder")
+
 
 def _load_config():
     try:
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         return {}
+
 
 def record_observation_from_current_state():
     """Capture current system state and store as an observation."""
@@ -27,25 +30,27 @@ def record_observation_from_current_state():
     db_path = config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
     tz_name = config.get("timezone", "Europe/Stockholm")
     tz = pytz.timezone(tz_name)
-    
+
     store = LearningStore(db_path, tz)
-    
+
     # Identify the just-finished slot (or current instant)
     now = datetime.now(tz)
     # Round down to nearest 15 min
     minute_block = (now.minute // 15) * 15
     slot_start = now.replace(minute=minute_block, second=0, microsecond=0)
     slot_end = slot_start + timedelta(minutes=15)
-    
+
     # Gather Data
     input_sensors = config.get("input_sensors", {})
-    
+
     # Helper to get sensor value and convert W to kW if needed
     def get_kw(key, default=0.0):
         entity = input_sensors.get(key)
-        if not entity: return default
+        if not entity:
+            return default
         val = get_home_assistant_sensor_float(entity)
-        if val is None: return default
+        if val is None:
+            return default
         # Assume sensors are in Watts if > 100? Or just assume Watts?
         # Usually HA power sensors are W.
         return val / 1000.0
@@ -55,7 +60,7 @@ def record_observation_from_current_state():
     load_kw = get_kw("load_power")
     import_kw = get_kw("grid_import_power")
     export_kw = get_kw("grid_export_power")
-    
+
     # Estimate Energy for the 15m slot (kWh = avg_kW * 0.25h)
     # This is a Rough Approximation if we don't have cumulative counters
     # ideally we would diff cumulative counters.
@@ -64,14 +69,11 @@ def record_observation_from_current_state():
     load_kwh = load_kw * 0.25
     import_kwh = import_kw * 0.25
     export_kwh = export_kw * 0.25
-    
+
     # Battery
     soc_entity = input_sensors.get("battery_soc")
-    if soc_entity:
-        soc_percent = get_home_assistant_sensor_float(soc_entity) or 0.0
-    else:
-        soc_percent = 0.0
-        
+    soc_percent = get_home_assistant_sensor_float(soc_entity) or 0.0 if soc_entity else 0.0
+
     # Construct Record
     record = {
         "slot_start": slot_start,
@@ -81,18 +83,21 @@ def record_observation_from_current_state():
         "import_kwh": import_kwh,
         "export_kwh": export_kwh,
         "soc_end_percent": soc_percent,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(UTC).isoformat(),
     }
-    
-    logger.info(f"Recording observation for {slot_start}: SOC={soc_percent}% PV={pv_kwh:.3f}kWh Load={load_kwh:.3f}kWh")
-    
+
+    logger.info(
+        f"Recording observation for {slot_start}: SOC={soc_percent}% PV={pv_kwh:.3f}kWh Load={load_kwh:.3f}kWh"
+    )
+
     # Store
     df = pd.DataFrame([record])
     store.store_slot_observations(df)
 
+
 def _sleep_until_next_quarter() -> None:
     """Sleep until the next 15-minute boundary (UTC-based)."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     minute_block = (now.minute // 15) * 15
     current_slot = now.replace(minute=minute_block, second=0, microsecond=0)
     next_slot = current_slot + timedelta(minutes=15)
@@ -104,6 +109,7 @@ def _run_analyst() -> None:
     """Run the Learning Analyst to update s_index_base_factor and bias adjustments."""
     try:
         from backend.learning.analyst import Analyst
+
         config = _load_config()
         print("[recorder] Running Analyst (Learning Loop)...")
         analyst = Analyst(config)

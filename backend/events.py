@@ -1,4 +1,5 @@
 import logging
+
 from backend.core.websockets import ws_manager
 
 logger = logging.getLogger("darkstar.events")
@@ -9,32 +10,44 @@ logger = logging.getLogger("darkstar.events")
 _LATEST_METRICS = {}
 _LATEST_STATUS = {}
 
+
 def emit_status_update(status_data: dict):
     """Broadcast executor status update (Thread-safe)."""
-    if not isinstance(status_data, dict): return
+    if not isinstance(status_data, dict):
+        return
     _LATEST_STATUS.update(status_data)
     # emit_sync handles the bridge to the async loop
     ws_manager.emit_sync("executor_status", status_data)
 
+
 def emit_live_metrics(live_data: dict):
     """Broadcast live metrics (Thread-safe)."""
-    if not isinstance(live_data, dict): return
+    if not isinstance(live_data, dict):
+        return
     _LATEST_METRICS.update(live_data)
     ws_manager.emit_sync("live_metrics", live_data)
+
 
 def emit_plan_updated():
     """Notify clients of plan update."""
     ws_manager.emit_sync("plan_updated", {"timestamp": "now"})
 
+
 def emit_ha_entity_change(entity_id: str, state: str, attributes: dict = None):
     """Broadcast HA entity change."""
-    filtered = {k: v for k, v in (attributes or {}).items() if k in ["unit_of_measurement", "icon", "friendly_name", "device_class"]}
+    filtered = {
+        k: v
+        for k, v in (attributes or {}).items()
+        if k in ["unit_of_measurement", "icon", "friendly_name", "device_class"]
+    }
     payload = {"entity_id": entity_id, "state": state, "attributes": filtered}
     ws_manager.emit_sync("ha_entity_change", payload)
+
 
 # Register Event Handlers
 # This code runs on import, so when 'backend.events' is imported by main or others,
 # the handlers are registered on the singleton SIO instance.
+
 
 @ws_manager.sio.on("connect")
 async def handle_connect(sid, environ):
@@ -44,6 +57,7 @@ async def handle_connect(sid, environ):
         await ws_manager.emit("live_metrics", _LATEST_METRICS, to=sid)
     if _LATEST_STATUS:
         await ws_manager.emit("executor_status", _LATEST_STATUS, to=sid)
+
 
 @ws_manager.sio.on("disconnect")
 async def handle_disconnect(sid):

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict
 
 import lightgbm as lgb
 import numpy as np
@@ -22,7 +21,7 @@ class AntaresPolicyV1:
     export_model: lgb.Booster | None
 
     @classmethod
-    def load_from_dir(cls, path: str | Path) -> "AntaresPolicyV1":
+    def load_from_dir(cls, path: str | Path) -> AntaresPolicyV1:
         base = Path(path)
         charge_path = base / "policy_batt_charge_kw.lgb"
         discharge_path = base / "policy_batt_discharge_kw.lgb"
@@ -38,7 +37,7 @@ class AntaresPolicyV1:
             export_model=export,
         )
 
-    def predict(self, state: np.ndarray) -> Dict[str, float]:
+    def predict(self, state: np.ndarray) -> dict[str, float]:
         """
         Predict per-slot control signals from a state vector.
 
@@ -47,7 +46,7 @@ class AntaresPolicyV1:
              projected_soc_percent, import_price_sek_kwh, export_price_sek_kwh]
         """
         x = np.asarray(state, dtype=float).reshape(1, -1)
-        result: Dict[str, float] = {}
+        result: dict[str, float] = {}
 
         if self.batt_charge_model is not None:
             result["battery_charge_kw"] = float(self.batt_charge_model.predict(x)[0])

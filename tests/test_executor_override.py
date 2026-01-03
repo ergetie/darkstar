@@ -5,8 +5,6 @@ Tests the override evaluation logic that determines when real-time
 conditions should override the scheduled plan.
 """
 
-import pytest
-
 from executor.override import (
     OverrideEvaluator,
     OverrideResult,

@@ -18,15 +18,14 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
-from ml.simulation.env import AntaresMPCEnv
 
+from ml.simulation.env import AntaresMPCEnv
 
 TARGET_NAMES = ["battery_charge_kw", "battery_discharge_kw", "export_kw"]
 
@@ -63,9 +62,9 @@ def _get_engine() -> LearningEngine:
     return engine
 
 
-def _load_training_days(engine: LearningEngine) -> List[str]:
+def _load_training_days(engine: LearningEngine) -> list[str]:
     """Use data_quality_daily to select clean/mask_battery days."""
-    days: List[str] = []
+    days: list[str] = []
     try:
         with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
             rows = conn.execute(
@@ -83,13 +82,13 @@ def _load_training_days(engine: LearningEngine) -> List[str]:
     return days
 
 
-def _collect_state_action_pairs(days: List[str]) -> pd.DataFrame:
+def _collect_state_action_pairs(days: list[str]) -> pd.DataFrame:
     env = AntaresMPCEnv(config_path="config.yaml")
-    records: List[Dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
 
     for day in days:
         try:
-            state = env.reset(day)
+            env.reset(day)
         except Exception:
             continue
 
@@ -101,7 +100,7 @@ def _collect_state_action_pairs(days: List[str]) -> pd.DataFrame:
             # Rebuild state using env's internal logic for consistency
             state_vec = env._build_state_vector(row)  # type: ignore[attr-defined]
 
-            actions: Dict[str, float] = {}
+            actions: dict[str, float] = {}
             charge_kw = float(row.get("battery_charge_kw") or row.get("charge_kw") or 0.0)
             discharge_kw = float(row.get("battery_discharge_kw") or 0.0)
             export_kw = float(row.get("export_kw") or 0.0)
@@ -133,10 +132,10 @@ def _train_regressor(
     X: pd.DataFrame,
     y: pd.Series,
     min_samples: int,
-) -> Tuple[lgb.LGBMRegressor | None, Dict[str, Any]]:
+) -> tuple[lgb.LGBMRegressor | None, dict[str, Any]]:
     if len(X) < min_samples:
         return None, {
-            "train_samples": int(len(X)),
+            "train_samples": len(X),
             "mae": None,
             "rmse": None,
         }
@@ -157,7 +156,7 @@ def _train_regressor(
     rmse = float(np.sqrt(np.mean(err**2)))
 
     return model, {
-        "train_samples": int(len(X)),
+        "train_samples": len(X),
         "mae": mae,
         "rmse": rmse,
     }
@@ -180,7 +179,7 @@ def _ensure_policy_runs_table(db_path: str) -> None:
 
 
 def _save_policy_models(
-    models: Dict[str, lgb.LGBMRegressor],
+    models: dict[str, lgb.LGBMRegressor],
     base_dir: Path,
     run_id: str,
 ) -> Path:
@@ -201,7 +200,7 @@ def _log_policy_run(
     engine: LearningEngine,
     run_id: str,
     models_dir: Path,
-    metrics: Dict[str, Any],
+    metrics: dict[str, Any],
 ) -> None:
     db_path = engine.db_path
     _ensure_policy_runs_table(db_path)
@@ -258,8 +257,8 @@ def main() -> int:
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
     X = df[feature_cols]
-    metrics: Dict[str, Any] = {}
-    models: Dict[str, lgb.LGBMRegressor] = {}
+    metrics: dict[str, Any] = {}
+    models: dict[str, lgb.LGBMRegressor] = {}
 
     for target in TARGET_NAMES:
         if target not in df.columns:

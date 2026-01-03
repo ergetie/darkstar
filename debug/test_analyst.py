@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Test analyst stores values correctly."""
-import yaml
-from backend.learning.analyst import Analyst
+
 import sqlite3
+
+import yaml
+
+from backend.learning.analyst import Analyst
 
 with open("config.yaml") as f:
     config = yaml.safe_load(f)

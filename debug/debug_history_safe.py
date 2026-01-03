@@ -1,9 +1,9 @@
-import sys
 import os
-import yaml
-import pytz
+import sys
 from datetime import datetime, timedelta
-import pandas as pd
+
+import pytz
+import yaml
 
 # Add project root to path
 sys.path.append(os.getcwd())
@@ -13,7 +13,7 @@ from backend.learning.store import LearningStore
 
 def get_db_path():
     try:
-        with open("config.yaml", "r") as f:
+        with open("config.yaml") as f:
             config = yaml.safe_load(f)
             # Try to find db path in config, default to data/learning.db
             return config.get("learning", {}).get("db_path", "data/learning.db")

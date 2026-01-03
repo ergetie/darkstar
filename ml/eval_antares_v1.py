@@ -7,18 +7,16 @@ Usage (from project root):
     PYTHONPATH=. python ml/eval_antares_v1.py
 """
 
-import json
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-
 from learning import LearningEngine, get_learning_engine
+
 from ml.api import get_antares_slots
 from ml.train_antares import TARGET_COLUMNS, _build_feature_frame
 
@@ -72,8 +70,8 @@ def _load_latest_run(db_path: str) -> RunInfo | None:
     )
 
 
-def _load_models(run: RunInfo) -> Dict[str, lgb.Booster]:
-    models: Dict[str, lgb.Booster] = {}
+def _load_models(run: RunInfo) -> dict[str, lgb.Booster]:
+    models: dict[str, lgb.Booster] = {}
     for target in TARGET_COLUMNS:
         path = run.artifact_dir / f"{target}.lgb"
         if not path.exists():
@@ -104,7 +102,7 @@ def _ascii_bar(ratio: float, width: int = 20) -> str:
     return "█" * filled + "·" * (width - filled)
 
 
-def evaluate_run(run: RunInfo) -> Tuple[Dict[str, Dict[str, float]], Dict[str, float]]:
+def evaluate_run(run: RunInfo) -> tuple[dict[str, dict[str, float]], dict[str, float]]:
     df = get_antares_slots(dataset_version=run.dataset_version)
     if df.empty:
         return {}, {}
@@ -114,7 +112,7 @@ def evaluate_run(run: RunInfo) -> Tuple[Dict[str, Dict[str, float]], Dict[str, f
     if val_df.empty:
         return {}, {}
 
-    metrics: Dict[str, Dict[str, float]] = {}
+    metrics: dict[str, dict[str, float]] = {}
 
     for target in TARGET_COLUMNS:
         if target not in data.columns:
@@ -149,7 +147,7 @@ def evaluate_run(run: RunInfo) -> Tuple[Dict[str, Dict[str, float]], Dict[str, f
             "mean_true": mean_true,
         }
 
-    cost_stats: Dict[str, float] = {}
+    cost_stats: dict[str, float] = {}
     if {"import_kwh", "export_kwh", "import_price_sek_kwh", "export_price_sek_kwh"}.issubset(
         val_df.columns
     ):

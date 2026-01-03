@@ -1,7 +1,6 @@
-import pandas as pd
 import json
 
-with open("schedule.json", "r") as f:
+with open("schedule.json") as f:
     data = json.load(f)
 
 print(f"{'Time':<20} | {'Price':<6} | {'Cheap?'}")

@@ -9,7 +9,7 @@ notification dispatch per action type.
 import logging
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import requests
 
@@ -26,8 +26,8 @@ class ActionResult:
     action_type: str
     success: bool
     message: str = ""
-    previous_value: Optional[Any] = None
-    new_value: Optional[Any] = None
+    previous_value: Any | None = None
+    new_value: Any | None = None
     skipped: bool = False  # True if action was skipped (already at target)
     duration_ms: int = 0
 
@@ -56,7 +56,7 @@ class HAClient:
             }
         )
 
-    def get_state(self, entity_id: str) -> Optional[Dict[str, Any]]:
+    def get_state(self, entity_id: str) -> dict[str, Any] | None:
         """Get the current state of an entity."""
         try:
             response = self._session.get(
@@ -69,7 +69,7 @@ class HAClient:
             logger.error("Failed to get state of %s: %s", entity_id, e)
             return None
 
-    def get_state_value(self, entity_id: str) -> Optional[str]:
+    def get_state_value(self, entity_id: str) -> str | None:
         """Get just the state value of an entity."""
         state = self.get_state(entity_id)
         if state:
@@ -80,8 +80,8 @@ class HAClient:
         self,
         domain: str,
         service: str,
-        entity_id: Optional[str] = None,
-        data: Optional[Dict[str, Any]] = None,
+        entity_id: str | None = None,
+        data: dict[str, Any] | None = None,
     ) -> bool:
         """
         Call a Home Assistant service.
@@ -100,8 +100,7 @@ class HAClient:
             payload["entity_id"] = entity_id
 
         logger.debug(
-            "HA call_service: %s.%s on %s with payload: %s",
-            domain, service, entity_id, payload
+            "HA call_service: %s.%s on %s with payload: %s", domain, service, entity_id, payload
         )
 
         try:
@@ -144,7 +143,7 @@ class HAClient:
         service: str,
         title: str,
         message: str,
-        data: Optional[Dict[str, Any]] = None,
+        data: dict[str, Any] | None = None,
     ) -> bool:
         """
         Send a notification via a notify service.
@@ -195,7 +194,7 @@ class ActionDispatcher:
         self.config = config
         self.shadow_mode = shadow_mode
 
-    def execute(self, decision: ControllerDecision) -> List[ActionResult]:
+    def execute(self, decision: ControllerDecision) -> list[ActionResult]:
         """
         Execute all actions from a controller decision.
 
@@ -205,7 +204,7 @@ class ActionDispatcher:
         Returns:
             List of ActionResult for each action attempted
         """
-        results: List[ActionResult] = []
+        results: list[ActionResult] = []
 
         # 1. Set work mode (Rev O1)
         if self.config.has_battery:

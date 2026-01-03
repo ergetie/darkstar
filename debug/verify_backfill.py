@@ -1,8 +1,7 @@
-import sys
 import sqlite3
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-import pytz
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent))
