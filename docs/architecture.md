@@ -365,4 +365,37 @@ The `SystemAlert` component displays:
 - **Red banner** for CRITICAL issues (blocks normal operation)
 - **Yellow banner** for WARNING issues (degraded but functional)
 
-Fetched on app load and every 60 seconds.
+
+Fetches on app load and every 60 seconds.
+
+---
+
+## 9. Backend API Architecture (Rev ARC1)
+
+The backend was migrated from Flask (WSGI) to FastAPI (ASGI) for native async support.
+
+### Package Structure
+```
+backend/
+├── main.py                 # ASGI app factory, Socket.IO wrapper
+├── core/
+│   └── websockets.py       # AsyncServer singleton, sync→async bridge
+├── api/
+│   └── routers/            # FastAPI APIRouters
+│       ├── system.py       # /api/version
+│       ├── config.py       # /api/config
+│       ├── schedule.py     # /api/schedule, /api/scheduler/status
+│       ├── executor.py     # /api/executor/*
+│       ├── forecast.py     # /api/aurora/*, /api/forecast/*
+│       ├── services.py     # /api/ha/*, /api/status, /api/energy/*
+│       ├── learning.py     # /api/learning/*
+│       ├── debug.py        # /api/debug/*, /api/history/*
+│       ├── legacy.py       # /api/run_planner, /api/initial_state
+│       └── theme.py        # /api/themes, /api/theme
+```
+
+### Key Patterns
+- **Executor Singleton**: Thread-safe access via `_get_executor()` with lock
+- **Sync→Async Bridge**: `ws_manager.emit_sync()` schedules coroutines from sync threads
+- **ASGI Wrapping**: Socket.IO ASGIApp wraps FastAPI for WebSocket support
+
