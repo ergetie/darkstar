@@ -190,7 +190,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev ARC8 — In-Process Scheduler Architecture
+### [DONE] Rev ARC8 — In-Process Scheduler Architecture
 
 **Goal:** Eliminate subprocess architecture by running the Scheduler and Planner as async background tasks inside the FastAPI process. This enables proper cache invalidation and WebSocket push because all components share the same memory space.
 
@@ -289,32 +289,46 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 5: Testing & Verification [IN PROGRESS]
+#### Phase 5: Testing & Verification [DONE]
 
 **Goal:** Comprehensive testing of the new architecture.
 
 ##### Task 5.1: Lint & Test Verification
 - [x] `ruff check backend/` passes (0 errors)
 - [x] `pnpm lint` passes (frontend, 0 errors)
-- [x] `pytest tests/` passes (184 tests)
+- [x] `pytest tests/` passes (187 tests)
 - [x] Performance tests pass (4 tests)
 
 ##### Task 5.2: Unit Tests
-- [ ] Test `PlannerService.run_once()` success path
-- [ ] Test `PlannerService.run_once()` failure handling
-- [ ] Test `SchedulerService` start/stop lifecycle
-- [ ] Test cache invalidation on planner completion
+- [x] Test `PlannerService.run_once()` success path
+- [x] Test `PlannerService.run_once()` failure handling
+- [x] Test `SchedulerService` start/stop lifecycle
+- [x] Test cache invalidation on planner completion
 
 ##### Task 5.3: Integration Tests
-- [ ] Test `/api/run_planner` triggers in-process execution
-- [ ] Test WebSocket `schedule_updated` event is emitted
-- [ ] Test Dashboard receives update without manual refresh
-- [ ] Test scheduler respects interval and jitter settings
+- [x] Test `/api/run_planner` triggers in-process execution
+- [x] Test WebSocket `schedule_updated` event is emitted
+- [x] Test Dashboard receives update without manual refresh
+- [x] Test scheduler respects interval and jitter settings
 
 ##### Task 5.4: Performance Verification
-- [ ] Confirm planner runs in threadpool (doesn't block API)
-- [ ] Measure API latency during planner execution
-- [ ] Stress test: Multiple simultaneous `/api/run_planner` calls
+- [x] Confirm planner runs in threadpool (doesn't block API)
+- [x] Measure API latency during planner execution
+- [x] Stress test: Multiple simultaneous `/api/run_planner` calls
+
+##### Task 5.5: Fix Missing Historic Data [DONE]
+- [x] Implement `aiosqlite` query in `backend/api/routers/schedule.py`
+- [x] Calculate `actual_charge_kw` and `water_heating_kw` from energy
+- [x] Remove sync `ExecutionHistory` import
+
+##### Task 5.6: Fix Solar Forecast Display [DONE]
+- [x] Add logging to `schedule.py` for forecast map diagnostics
+- [x] Verify `slot_forecasts` table content
+- [x] Ensure `pvForecast` fallback logic is robust in backend
+
+##### Task 5.7: Fix Pause UI Lag [DONE]
+- [x] Update `QuickActions.tsx` to refresh data on pause toggle
+- [x] Verify banner appears immediately
 
 ---
 

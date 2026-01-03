@@ -162,11 +162,14 @@ export default function QuickActions({ onDataRefresh, onPlanSourceChange, onVaca
                 setIsPaused(false)
                 setPausedMinutes(null)
                 setFeedback({ type: 'success', message: 'Executor resumed' })
+                onDataRefresh?.()
             } else {
                 await Api.executor.pause()
                 setIsPaused(true)
                 setFeedback({ type: 'success', message: 'Executor paused - idle mode' })
+                onDataRefresh?.()
             }
+
             setTimeout(() => setFeedback(null), 3000)
         } catch (err) {
             setFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Failed' })

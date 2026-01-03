@@ -1,8 +1,8 @@
 {
-  "timestamp": "2026-01-03T23:35:49.236512",
+  "timestamp": "2026-01-03T23:35:06.688010",
   "summary": {
-    "total_time_ms": 1251.68,
-    "parallel_time_ms": 690.66,
+    "total_time_ms": 1563.31,
+    "parallel_time_ms": 935.09,
     "endpoint_count": 11,
     "failed_count": 0,
     "slow_count": 2
@@ -10,7 +10,7 @@
   "endpoints": [
     {
       "endpoint": "/api/ha/average",
-      "response_time_ms": 690.66,
+      "response_time_ms": 935.09,
       "status_code": 200,
       "status": "WARN",
       "critical": false,
@@ -18,7 +18,7 @@
     },
     {
       "endpoint": "/api/schedule",
-      "response_time_ms": 211.64,
+      "response_time_ms": 264.33,
       "status_code": 200,
       "status": "WARN",
       "critical": true,
@@ -26,7 +26,15 @@
     },
     {
       "endpoint": "/api/aurora/dashboard",
-      "response_time_ms": 197.83,
+      "response_time_ms": 216.7,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/energy/today",
+      "response_time_ms": 38.86,
       "status_code": 200,
       "status": "OK",
       "critical": false,
@@ -34,23 +42,15 @@
     },
     {
       "endpoint": "/api/status",
-      "response_time_ms": 41.43,
+      "response_time_ms": 33.44,
       "status_code": 200,
       "status": "OK",
       "critical": true,
       "error": null
     },
     {
-      "endpoint": "/api/energy/today",
-      "response_time_ms": 32.09,
-      "status_code": 200,
-      "status": "OK",
-      "critical": false,
-      "error": null
-    },
-    {
       "endpoint": "/api/executor/status",
-      "response_time_ms": 23.32,
+      "response_time_ms": 18.65,
       "status_code": 200,
       "status": "OK",
       "critical": true,
@@ -58,15 +58,7 @@
     },
     {
       "endpoint": "/api/learning/status",
-      "response_time_ms": 16.06,
-      "status_code": 200,
-      "status": "OK",
-      "critical": false,
-      "error": null
-    },
-    {
-      "endpoint": "/api/ha/water_today",
-      "response_time_ms": 13.92,
+      "response_time_ms": 15.27,
       "status_code": 200,
       "status": "OK",
       "critical": false,
@@ -74,7 +66,15 @@
     },
     {
       "endpoint": "/api/schedule/today_with_history",
-      "response_time_ms": 13.31,
+      "response_time_ms": 14.68,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/ha/water_today",
+      "response_time_ms": 13.67,
       "status_code": 200,
       "status": "OK",
       "critical": false,
@@ -82,7 +82,7 @@
     },
     {
       "endpoint": "/api/config",
-      "response_time_ms": 9.73,
+      "response_time_ms": 10.88,
       "status_code": 200,
       "status": "OK",
       "critical": true,
@@ -90,7 +90,7 @@
     },
     {
       "endpoint": "/api/scheduler/status",
-      "response_time_ms": 1.64,
+      "response_time_ms": 1.68,
       "status_code": 200,
       "status": "OK",
       "critical": false,

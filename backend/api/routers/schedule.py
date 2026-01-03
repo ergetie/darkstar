@@ -175,26 +175,57 @@ async def schedule_today_with_history() -> dict[str, Any]:
         db_path_str = str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
         db_path = Path(db_path_str)
         if db_path.exists():
-            from executor.history import ExecutionHistory
+            async with aiosqlite.connect(str(db_path)) as conn:
+                conn.row_factory = aiosqlite.Row
 
-            hist = ExecutionHistory(str(db_path))
+                # Query window: Today start to Now
+                today_start = tz.localize(datetime.combine(today_local, datetime.min.time()))
+                now_dt = datetime.now(tz)
 
-            today_start = tz.localize(datetime.combine(today_local, datetime.min.time()))
-            now_dt = datetime.now(tz)
+                query = """
+                    SELECT
+                        slot_start, slot_end,
+                        batt_charge_kwh, soc_end_percent, water_kwh,
+                        import_kwh, export_kwh
+                    FROM slot_observations
+                    WHERE slot_start >= ? AND slot_start < ?
+                    ORDER BY slot_start ASC
+                """
+                async with conn.execute(query, (today_start.isoformat(), now_dt.isoformat())) as cursor:
+                    async for row in cursor:
+                        try:
+                            # Parse Timestamp
+                            s_start = datetime.fromisoformat(str(row["slot_start"]))
+                            s_end = datetime.fromisoformat(str(row["slot_end"]))
 
-            slots = hist.get_todays_slots(today_start, now_dt)
-            for slot in slots:
-                start_str = slot.get("start_time")
-                if not start_str:
-                    continue
-                start = datetime.fromisoformat(str(start_str))
-                local_start = start if start.tzinfo else tz.localize(start)
-                key = local_start.astimezone(tz).replace(tzinfo=None)
-                exec_map[key] = {
-                    "actual_charge_kw": slot.get("battery_charge_kw", 0),
-                    "actual_soc": slot.get("before_soc_percent"),
-                    "water_heating_kw": slot.get("water_heating_kw", 0),
-                }
+                            # Normalize key
+                            local_start = s_start if s_start.tzinfo else tz.localize(s_start)
+                            local_end = s_end if s_end.tzinfo else tz.localize(s_end)
+                            key = local_start.astimezone(tz).replace(tzinfo=None)
+
+                            # Calculate Duration (hours)
+                            duration_hours = (local_end - local_start).total_seconds() / 3600.0
+                            if duration_hours <= 0:
+                                duration_hours = 0.25  # Fallback 15 mins
+
+                            # Kw calculation: kWh / hours = kW
+                            # water_kwh -> water_heating_kw
+                            water_kw = float(row["water_kwh"] or 0.0) / duration_hours
+
+                            # batt_charge_kwh -> actual_charge_kw
+                            # Note: slot_observations separates charge/discharge. usage implies net or just charge?
+                            # schedule.json usually tracks 'battery_charge_kw'.
+                            charge_kwh = float(row["batt_charge_kwh"] or 0.0)
+                            charge_kw = charge_kwh / duration_hours
+
+                            exec_map[key] = {
+                                "actual_charge_kw": round(charge_kw, 3),
+                                "actual_soc": float(row["soc_end_percent"] or 0.0),
+                                "water_heating_kw": round(water_kw, 3),
+                            }
+                        except Exception:
+                            continue
+
     except Exception as e:
         logger.warning(f"Failed to load History: {e}")
 
@@ -224,6 +255,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
                             }
                         except Exception:
                             pass
+        logger.info(f"Loaded {len(forecast_map)} forecast slots for {today_local} (ver={active_version})")
     except Exception as e:
         logger.warning(f"Failed to load forecast map: {e}")
 
@@ -255,6 +287,9 @@ async def schedule_today_with_history() -> dict[str, Any]:
                 slot["pv_kwh"] = f["pv_forecast_kwh"]
             if "load_kwh" not in slot:
                 slot["load_kwh"] = f["load_forecast_kwh"]
+        elif not slot.get("pv_kwh") and not exec_map.get(key):
+             # Only warn if we have neither plan nor history nor forecast for a slot that exists
+             pass
 
         merged_slots.append(slot)
 
