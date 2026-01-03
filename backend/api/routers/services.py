@@ -2,7 +2,11 @@ from datetime import datetime, timedelta
 
 import pytz
 import requests
+import logging
+import traceback
 from fastapi import APIRouter, HTTPException
+
+logger = logging.getLogger("darkstar.api.services")
 
 # Reuse existing helpers from inputs.py to ensure consistency
 from inputs import (
@@ -294,13 +298,12 @@ async def get_water_boost():
     if not executor:
         return {"boost": False, "source": "no_executor"}
 
-    if hasattr(executor, 'get_quick_actions'):
-        actions = executor.get_quick_actions()
-        water_boost = actions.get("water_boost")
-        if water_boost:
+    if hasattr(executor, 'get_water_boost_status'):
+        status = executor.get_water_boost_status()
+        if status:
             return {
                 "boost": True,
-                "expires_at": water_boost.get("expires_at"),
+                "expires_at": status.get("expires_at"),
                 "source": "executor"
             }
     return {"boost": False, "source": "executor"}
@@ -309,24 +312,44 @@ async def get_water_boost():
 @router_services.post("/api/water/boost")
 async def set_water_boost():
     """Activate water heater boost via executor quick action."""
-    from backend.api.routers.executor import _get_executor
-    executor = _get_executor()
-    if not executor:
-        raise HTTPException(503, "Executor not available")
-    if hasattr(executor, 'set_quick_action'):
-        executor.set_quick_action("water_boost", duration_minutes=60, params={})
-        return {"status": "success", "message": "Water boost activated for 60 minutes"}
-    raise HTTPException(501, "Quick action not supported by executor")
+    try:
+        from backend.api.routers.executor import _get_executor
+        executor = _get_executor()
+        if not executor:
+            logger.error("Executor unavailable for water boost")
+            raise HTTPException(503, "Executor not available")
+        
+        if hasattr(executor, 'set_water_boost'):
+            result = executor.set_water_boost(duration_minutes=60)
+            if not result.get("success"):
+                logger.error(f"Failed to set water boost: {result.get('error')}")
+                raise HTTPException(500, f"Failed to set water boost: {result.get('error')}")
+            
+            logger.info("Water boost activated successfully")
+            return {"status": "success", "message": "Water boost activated for 60 minutes"}
+        
+        logger.error("Executor missing set_water_boost method")
+        raise HTTPException(501, "Water boost not supported by executor")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting water boost: {e}\n{traceback.format_exc()}")
+        raise HTTPException(500, f"Internal error setting water boost: {e}")
 
 
 @router_services.delete("/api/water/boost")
 async def cancel_water_boost():
     """Cancel active water boost."""
-    from backend.api.routers.executor import _get_executor
-    executor = _get_executor()
-    if executor and hasattr(executor, 'clear_quick_action'):
-        executor.clear_quick_action("water_boost")
-    return {"status": "success", "message": "Water boost cancelled"}
+    try:
+        from backend.api.routers.executor import _get_executor
+        executor = _get_executor()
+        if executor and hasattr(executor, 'clear_water_boost'):
+            executor.clear_water_boost()
+            logger.info("Water boost cancelled successfully")
+        return {"status": "success", "message": "Water boost cancelled"}
+    except Exception as e:
+        logger.error(f"Error cancelling water boost: {e}\n{traceback.format_exc()}")
+        raise HTTPException(500, f"Internal error cancelling water boost: {e}")
 
 
 @router_services.get("/api/energy/today")
