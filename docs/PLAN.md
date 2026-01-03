@@ -210,3 +210,509 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] `/api/ha-socket` status endpoint
 
 **Final Status:** Routes verified working via curl tests. Debug/Analyst routers deferred to future revision.
+
+---
+
+### [PLANNED] Rev ARC2 — Critical Bug Fixes (Post-ARC1 Audit)
+
+**Goal:** Fix 7 critical bugs identified in the systematic ARC1 code review. These are **blocking issues** that prevent marking ARC1 as production-ready.
+
+**Background:** A line-by-line review of all ARC1 router files identified severe bugs including duplicate data, secrets exposure, and broken features.
+
+---
+
+#### Phase 1: Data Integrity Fixes [DONE]
+
+##### Task 1.1: Fix Duplicate Append Bug (CRITICAL) ✅
+- **File:** `backend/api/routers/schedule.py`
+- **Problem:** Lines 238 AND 241 both call `merged_slots.append(slot)`. Every slot is returned **twice** in `/api/schedule/today_with_history`.
+- **Steps:**
+  - [x] Open `backend/api/routers/schedule.py`
+  - [x] Navigate to line 241
+  - [x] Delete the duplicate line: `merged_slots.append(slot)`
+  - [x] Verify line 238 remains as the only append
+- **Verification:** Call `/api/schedule/today_with_history` and confirm slot count matches expected (96 slots/day for 15-min resolution, not 192).
+
+##### Task 1.2: Fix `_get_executor()` Always Returns None ✅
+- **File:** `backend/api/routers/schedule.py`
+- **Problem:** Line 32 always returns `None`, making executor-dependent features broken.
+- **Steps:**
+  - [x] Open `backend/api/routers/schedule.py`
+  - [x] Replace the `_get_executor()` function (lines 25-32) with proper singleton pattern:
+    ```python
+    def _get_executor():
+        from backend.api.routers.executor import _get_executor as get_exec
+        return get_exec()
+    ```
+  - [x] Or import ExecutionHistory directly since we only need history access
+
+---
+
+#### Phase 2: Security Fixes [DONE]
+
+##### Task 2.1: Sanitize Secrets in Config API (CRITICAL) ✅
+- **File:** `backend/api/routers/config.py`
+- **Problem:** Lines 17-29 merge HA token and notification secrets into the response, exposing them to any frontend caller.
+- **Steps:**
+  - [x] Open `backend/api/routers/config.py`
+  - [x] Before returning `conf`, add sanitization:
+    ```python
+    # Sanitize secrets before returning
+    if "home_assistant" in conf:
+        conf["home_assistant"].pop("token", None)
+    if "notifications" in conf:
+        for key in ["api_key", "token", "password", "webhook_url"]:
+            conf.get("notifications", {}).pop(key, None)
+    ```
+  - [x] Ensure the sanitization happens AFTER merging secrets but BEFORE return
+- **Verification:** Call `GET /api/config` and confirm no `token` field appears in response.
+
+---
+
+#### Phase 3: Health Check Implementation
+
+##### Task 3.1: Replace Placeholder Health Check
+- **File:** `backend/main.py`
+- **Problem:** Lines 75-97 always return `healthy: True`. The comprehensive `HealthChecker` class in `backend/health.py` is unused.
+- **Steps:**
+  - [ ] Open `backend/main.py`
+  - [ ] Replace the placeholder health check function (lines 75-97) with:
+    ```python
+    @app.get("/api/health")
+    async def health_check():
+        from backend.health import get_health_status
+        status = get_health_status()
+        result = status.to_dict()
+        # Add backwards-compatible fields
+        result["status"] = "ok" if result["healthy"] else "unhealthy"
+        result["mode"] = "fastapi"
+        result["rev"] = "ARC1"
+        return result
+    ```
+- **Verification:** Temporarily break config.yaml syntax and confirm `/api/health` returns `healthy: false` with issues.
+
+---
+
+#### Phase 4: Modernize FastAPI Patterns
+
+##### Task 4.1: Replace Deprecated Startup Pattern
+- **File:** `backend/main.py`
+- **Problem:** Line 61 uses `@app.on_event("startup")` which is deprecated in FastAPI 0.93+ and will be removed in 1.0.
+- **Steps:**
+  - [ ] Open `backend/main.py`
+  - [ ] Add import at top: `from contextlib import asynccontextmanager`
+  - [ ] Create lifespan context manager before `create_app()`:
+    ```python
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        # Startup
+        logger.info("🚀 Darkstar ASGI Server Starting (Rev ARC1)...")
+        loop = asyncio.get_running_loop()
+        ws_manager.set_loop(loop)
+        from backend.ha_socket import start_ha_socket_client
+        start_ha_socket_client()
+        yield
+        # Shutdown
+        logger.info("Darkstar ASGI Server Shutting Down...")
+    ```
+  - [ ] Update FastAPI instantiation: `app = FastAPI(lifespan=lifespan, ...)`
+  - [ ] Remove the old `@app.on_event("startup")` decorated function
+- **Verification:** Start server and confirm startup message appears. Stop server and confirm shutdown message appears.
+
+---
+
+#### Phase 5: Feature Fixes
+
+##### Task 5.1: Implement Water Boost Endpoint
+- **File:** `backend/api/routers/services.py`
+- **Problem:** Lines 270-272 return `"not_implemented"`. Dashboard water boost button does nothing.
+- **Steps:**
+  - [ ] Open `backend/api/routers/services.py`
+  - [ ] Replace `set_water_boost()` (lines 270-272) with:
+    ```python
+    @router_services.post("/api/water/boost")
+    async def set_water_boost():
+        """Activate water heater boost via executor quick action."""
+        from backend.api.routers.executor import _get_executor
+        executor = _get_executor()
+        if not executor:
+            raise HTTPException(503, "Executor not available")
+        if hasattr(executor, 'set_quick_action'):
+            executor.set_quick_action("water_boost", duration_minutes=60, params={})
+            return {"status": "success", "message": "Water boost activated for 60 minutes"}
+        raise HTTPException(501, "Quick action not supported by executor")
+    ```
+  - [ ] Also implement `get_water_boost()` to return current boost status from executor
+- **Verification:** Click water boost button in Dashboard and confirm water heater target temperature increases.
+
+##### Task 5.2: Add DELETE /api/water/boost
+- **File:** `backend/api/routers/services.py`
+- **Steps:**
+  - [ ] Add endpoint to cancel water boost:
+    ```python
+    @router_services.delete("/api/water/boost")
+    async def cancel_water_boost():
+        from backend.api.routers.executor import _get_executor
+        executor = _get_executor()
+        if executor and hasattr(executor, 'clear_quick_action'):
+            executor.clear_quick_action("water_boost")
+        return {"status": "success", "message": "Water boost cancelled"}
+    ```
+
+---
+
+#### Phase 6: Documentation Updates
+
+##### Task 6.1: Update AGENTS.md Flask References
+- **File:** `AGENTS.md`
+- **Problem:** Line 28 lists `flask` as dependency. Line 162 references Flask API.
+- **Steps:**
+  - [ ] Open `AGENTS.md`
+  - [ ] Line 28: Replace `flask` with:
+    ```
+    - `fastapi` - Modern async API framework (ASGI)
+    - `uvicorn` - ASGI server
+    - `python-socketio` - Async WebSocket support
+    ```
+  - [ ] Line 162: Update `Flask API` to `FastAPI API (Rev ARC1)`
+- **Verification:** Read AGENTS.md and confirm no Flask references remain in key sections.
+
+---
+
+#### Verification Checklist
+
+- [ ] Run `python scripts/verify_arc1_routes.py` — all 67 routes return 200
+- [ ] Run `curl localhost:5000/api/config | grep token` — returns empty
+- [ ] Run `curl localhost:5000/api/health` with broken config — returns `healthy: false`
+- [ ] Run `curl localhost:5000/api/schedule/today_with_history | jq '.slots | length'` — returns ~96, not ~192
+- [ ] Run `pnpm lint` in frontend — no errors
+- [ ] Run `ruff check backend/` — no errors
+
+---
+
+### [PLANNED] Rev ARC3 — High Priority Improvements (Post-ARC1 Audit)
+
+**Goal:** Fix 8 high-priority issues identified in the ARC1 review. These are not blocking but significantly impact code quality and maintainability.
+
+---
+
+#### Phase 1: Logging Hygiene
+
+##### Task 1.1: Replace print() with logger
+- **File:** `backend/api/routers/services.py`
+- **Problem:** Lines 91, 130, 181, 491 use `print()` instead of proper logging.
+- **Steps:**
+  - [ ] Open `backend/api/routers/services.py`
+  - [ ] Add logger at top if not present: `logger = logging.getLogger("darkstar.api.services")`
+  - [ ] Replace all `print(f"Error...")` with `logger.warning(...)` or `logger.error(...)`
+  - [ ] Search for any remaining `print(` calls and convert them
+- **Verification:** `grep -n "print(" backend/api/routers/services.py` returns no matches.
+
+##### Task 1.2: Reduce HA Socket Log Verbosity
+- **File:** `backend/ha_socket.py`
+- **Problem:** Line 154 logs every metric at INFO level, creating noise.
+- **Steps:**
+  - [ ] Open `backend/ha_socket.py`
+  - [ ] Change line 154 from `logger.info(...)` to `logger.debug(...)`
+- **Verification:** Normal operation logs are cleaner; debug logging can be enabled with `LOG_LEVEL=DEBUG`.
+
+---
+
+#### Phase 2: Exception Handling
+
+##### Task 2.1: Fix Bare except Clauses
+- **File:** `backend/api/routers/forecast.py`
+- **Problem:** Lines 286, 301, 309 use bare `except:` which catches everything including KeyboardInterrupt.
+- **Steps:**
+  - [ ] Open `backend/api/routers/forecast.py`
+  - [ ] Line 286: Change `except:` to `except Exception:`
+  - [ ] Line 301: Change `except:` to `except Exception:`
+  - [ ] Line 309: Change `except:` to `except Exception:`
+  - [ ] Search for any other bare `except:` in the file
+- **Verification:** `grep -n "except:" backend/api/routers/forecast.py` returns only `except Exception:` or `except SomeError:`.
+
+##### Task 2.2: Audit All Routers for Bare Excepts
+- **Files:** All files in `backend/api/routers/`
+- **Steps:**
+  - [ ] Run: `grep -rn "except:" backend/api/routers/`
+  - [ ] For each bare except found, change to `except Exception:` at minimum
+  - [ ] Consider using more specific exceptions where appropriate
+
+---
+
+#### Phase 3: Documentation
+
+##### Task 3.1: Update architecture.md for FastAPI
+- **File:** `docs/architecture.md`
+- **Problem:** No mention of FastAPI migration or router structure.
+- **Steps:**
+  - [ ] Open `docs/architecture.md`
+  - [ ] Add new section after Section 8:
+    ```markdown
+    ## 9. Backend API Architecture (Rev ARC1)
+
+    The backend was migrated from Flask (WSGI) to FastAPI (ASGI) for native async support.
+
+    ### Package Structure
+    ```
+    backend/
+    ├── main.py                 # ASGI app factory, Socket.IO wrapper
+    ├── core/
+    │   └── websockets.py       # AsyncServer singleton, sync→async bridge
+    ├── api/
+    │   └── routers/            # FastAPI APIRouters
+    │       ├── system.py       # /api/version
+    │       ├── config.py       # /api/config
+    │       ├── schedule.py     # /api/schedule, /api/scheduler/status
+    │       ├── executor.py     # /api/executor/*
+    │       ├── forecast.py     # /api/aurora/*, /api/forecast/*
+    │       ├── services.py     # /api/ha/*, /api/status, /api/energy/*
+    │       ├── learning.py     # /api/learning/*
+    │       ├── debug.py        # /api/debug/*, /api/history/*
+    │       ├── legacy.py       # /api/run_planner, /api/initial_state
+    │       └── theme.py        # /api/themes, /api/theme
+    ```
+
+    ### Key Patterns
+    - **Executor Singleton**: Thread-safe access via `_get_executor()` with lock
+    - **Sync→Async Bridge**: `ws_manager.emit_sync()` schedules coroutines from sync threads
+    - **ASGI Wrapping**: Socket.IO ASGIApp wraps FastAPI for WebSocket support
+    ```
+- **Verification:** Read architecture.md Section 9 and confirm it describes current implementation.
+
+---
+
+#### Phase 4: Test Coverage
+
+##### Task 4.1: Create Basic API Route Tests
+- **File:** `tests/test_api_routes.py` (NEW)
+- **Problem:** Zero tests exist for the 67 API endpoints.
+- **Steps:**
+  - [ ] Create `tests/test_api_routes.py`
+  - [ ] Add basic tests:
+    ```python
+    import pytest
+    from fastapi.testclient import TestClient
+    
+    @pytest.fixture
+    def client():
+        from backend.main import create_app
+        app = create_app()
+        # Unwrap Socket.IO wrapper
+        fastapi_app = app.other_asgi_app if hasattr(app, 'other_asgi_app') else app
+        return TestClient(fastapi_app)
+    
+    def test_health_endpoint(client):
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        data = response.json()
+        assert "healthy" in data
+        assert "issues" in data
+    
+    def test_version_endpoint(client):
+        response = client.get("/api/version")
+        assert response.status_code == 200
+        assert "version" in response.json()
+    
+    def test_config_no_secrets(client):
+        response = client.get("/api/config")
+        assert response.status_code == 200
+        data = response.json()
+        # Verify no token exposed
+        if "home_assistant" in data:
+            assert "token" not in data["home_assistant"]
+    ```
+  - [ ] Add more tests for critical endpoints
+- **Verification:** `PYTHONPATH=. pytest tests/test_api_routes.py -v` passes.
+
+---
+
+#### Phase 5: Async Best Practices (Investigation)
+
+##### Task 5.1: Document Blocking Calls
+- **Problem:** Many `async def` handlers use blocking I/O (`requests.get`, `sqlite3.connect`).
+- **Steps:**
+  - [ ] Create `docs/TECH_DEBT.md` if not exists
+  - [ ] Document all blocking calls found:
+    - `services.py`: lines 44, 166, 480, 508 - `requests.get()`
+    - `forecast.py`: lines 51, 182, 208, 374, 420 - `sqlite3.connect()`
+    - `learning.py`: lines 43, 103, 147, 181 - `sqlite3.connect()`
+    - `debug.py`: lines 118, 146 - `sqlite3.connect()`
+    - `health.py`: lines 230, 334 - `requests.get()`
+  - [ ] Note: Converting to `def` (sync) is acceptable—FastAPI runs these in threadpool
+  - [ ] For future: Consider `httpx.AsyncClient` and `aiosqlite`
+
+---
+
+#### Verification Checklist
+
+- [ ] `grep -rn "print(" backend/api/routers/` — returns no matches
+- [ ] `grep -rn "except:" backend/api/routers/` — all have specific exception types
+- [ ] `PYTHONPATH=. pytest tests/test_api_routes.py` — passes
+- [ ] `docs/architecture.md` Section 9 exists and is accurate
+
+---
+
+### [PLANNED] Rev ARC4 — Polish & Best Practices (Post-ARC1 Audit)
+
+**Goal:** Address 10 medium-priority improvements for code quality, consistency, and developer experience.
+
+---
+
+#### Phase 1: Dependency Injection Patterns
+
+##### Task 1.1: Refactor Executor Access Pattern
+- **File:** `backend/api/routers/executor.py`
+- **Problem:** Heavy use of `hasattr()` to check for executor methods is fragile.
+- **Steps:**
+  - [ ] Define an interface/protocol for executor:
+    ```python
+    from typing import Protocol, Optional
+    
+    class ExecutorProtocol(Protocol):
+        def get_status(self) -> dict: ...
+        def set_quick_action(self, action: str, duration: int, params: dict) -> None: ...
+        def clear_quick_action(self, action: Optional[str] = None) -> None: ...
+        # ... other methods
+    ```
+  - [ ] Update executor.py to type-hint against this protocol
+  - [ ] Replace `hasattr()` checks with protocol compliance
+
+##### Task 1.2: Consider FastAPI Depends()
+- **Investigation:** Evaluate converting `_get_executor()` pattern to FastAPI dependency injection.
+- **Steps:**
+  - [ ] Research FastAPI `Depends()` pattern
+  - [ ] Prototype one endpoint using DI
+  - [ ] Document pros/cons for future migration
+
+---
+
+#### Phase 2: Request/Response Validation
+
+##### Task 2.1: Add Pydantic Response Models
+- **Files:** All routers
+- **Problem:** Most endpoints lack response model validation.
+- **Steps:**
+  - [ ] Create `backend/api/models/` directory
+  - [ ] Create response models for critical endpoints:
+    ```python
+    # backend/api/models/health.py
+    from pydantic import BaseModel
+    from typing import List, Optional
+    
+    class HealthIssue(BaseModel):
+        category: str
+        severity: str
+        message: str
+        guidance: str
+        entity_id: Optional[str] = None
+    
+    class HealthResponse(BaseModel):
+        healthy: bool
+        issues: List[HealthIssue]
+        checked_at: str
+        critical_count: int
+        warning_count: int
+    ```
+  - [ ] Apply to endpoints: `@router.get("/api/health", response_model=HealthResponse)`
+
+##### Task 2.2: Fix Empty BriefingRequest Model
+- **File:** `backend/api/routers/forecast.py`
+- **Problem:** Line 325-327 has empty `BriefingRequest` BaseModel.
+- **Steps:**
+  - [ ] Open `backend/api/routers/forecast.py`
+  - [ ] Either remove unused model or define proper fields
+  - [ ] If dynamic payload needed, use `Dict[str, Any]` parameter directly
+
+---
+
+#### Phase 3: Route Organization
+
+##### Task 3.1: Standardize Route Prefixes
+- **Problem:** Inconsistent prefix usage across routers.
+- **Steps:**
+  - [ ] Audit all routers:
+    | Router | Current Prefix | Recommended |
+    |--------|---------------|-------------|
+    | forecast.py | `/api/aurora` + none | Keep split (two audiences) |
+    | services.py | `/api/ha` + none | Document why split |
+    | learning.py | none (full paths) | Add `prefix="/api/learning"` |
+    | executor.py | none (full paths) | Add `prefix="/api/executor"` |
+  - [ ] Document rationale in code comments
+
+##### Task 3.2: Move `/api/status` to system.py
+- **Problem:** `/api/status` is in services.py but logically belongs with `/api/version` in system.py.
+- **Steps:**
+  - [ ] Move `get_system_status()` from services.py to system.py
+  - [ ] Update any imports
+- **Note:** This is a non-breaking change (route stays the same).
+
+---
+
+#### Phase 4: Code Organization
+
+##### Task 4.1: Clean Up Inline Imports in main.py
+- **File:** `backend/main.py`
+- **Problem:** Lines 52-58 have inline imports inside factory function.
+- **Steps:**
+  - [ ] Move imports to top of file where possible
+  - [ ] For circular import issues, document why inline import is necessary
+
+##### Task 4.2: Add Missing Logger Initialization
+- **Files:** Any router missing `logger = logging.getLogger(...)`
+- **Steps:**
+  - [ ] Audit each router file
+  - [ ] Ensure consistent logger naming: `logger = logging.getLogger("darkstar.api.<router_name>")`
+
+---
+
+#### Phase 5: DevOps Integration
+
+##### Task 5.1: Add Route Verifier to CI
+- **File:** `.github/workflows/` or equivalent
+- **Steps:**
+  - [ ] Add step to CI that runs `python scripts/verify_arc1_routes.py`
+  - [ ] Requires server to be running during CI (may need docker-compose)
+  - [ ] Alternative: Create offline route validation using FastAPI's OpenAPI schema
+
+##### Task 5.2: Complete Performance Validation
+- **Reference:** PLAN.md ARC1 unchecked item "Performance Validation"
+- **Steps:**
+  - [ ] Create benchmark script using `wrk` or `locust`
+  - [ ] Measure: requests/sec, p50/p99 latency
+  - [ ] Document baseline numbers
+  - [ ] Compare against Flask (if still available)
+
+---
+
+#### Phase 6: OpenAPI Improvements
+
+##### Task 6.1: Add OpenAPI Descriptions
+- **Files:** All routers
+- **Steps:**
+  - [ ] Add `summary` and `description` to all route decorators
+  - [ ] Add `tags` for logical grouping
+  - [ ] Example:
+    ```python
+    @router.get(
+        "/api/executor/status",
+        summary="Get Executor Status",
+        description="Returns current executor state including enabled status, shadow mode, and active quick actions.",
+        tags=["executor"]
+    )
+    ```
+
+##### Task 6.2: Add Example Responses
+- **Steps:**
+  - [ ] For key endpoints, add `responses` parameter with examples
+  - [ ] Helps with API documentation at `/docs`
+
+---
+
+#### Verification Checklist
+
+- [ ] No `hasattr()` in executor.py (or documented why necessary)
+- [ ] Response models defined for health, config, schedule endpoints
+- [ ] Logger properly initialized in all routers
+- [ ] `/docs` endpoint shows well-documented OpenAPI schema
+- [ ] CI runs route verification on each PR

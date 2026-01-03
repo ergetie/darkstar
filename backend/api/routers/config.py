@@ -28,6 +28,13 @@ async def get_config():
                 conf["notifications"] = {}
             conf["notifications"].update(notif_secrets)
 
+        # Sanitize secrets before returning
+        if "home_assistant" in conf:
+            conf["home_assistant"].pop("token", None)
+        if "notifications" in conf:
+            for key in ["api_key", "token", "password", "webhook_url"]:
+                conf.get("notifications", {}).pop(key, None)
+
         return conf
     except Exception as e:
         return {"error": str(e)}

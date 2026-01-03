@@ -1,35 +1,28 @@
-from fastapi import APIRouter
-import json
+from datetime import datetime, timedelta
+from typing import Optional, Any
+import pytz
 import logging
 import os
-from datetime import datetime, timedelta, timezone
-from typing import Dict, List, Optional, Any
-import pytz
-import yaml
+import json
+from fastapi import APIRouter
+
 
 # Local imports (using absolute paths relative to project root)
 from inputs import get_nordpool_data
-# We need to import helper functions or replicate them.
-# _load_yaml is simple enough to replicate or import if it was in inputs.
-from inputs import _load_yaml 
+from inputs import _load_yaml
+
 # executor/history needs access
 # We might need to adjust python path in dev-backend.sh if not matching
 # But usually PYTHONPATH=. handles it.
 
-from executor.engine import ExecutorEngine
-from executor.history import ExecutionHistory
-
 logger = logging.getLogger("darkstar.api.schedule")
 router = APIRouter(tags=["schedule"])
 
+
 def _get_executor() -> Optional[Any]:
-    """Helper to get executor instance. In FastAPI we might need a singleton Pattern or Dependency Injection."""
-    # For now, we will try to instantiate or get a global if we had one.
-    # But the Executor runs in a separate thread/process usually.
-    # In the new architecture, we have the Executor engine running in the background.
-    # We need a way to access its history.
-    # Ideally, ExecutionHistory reads from SQLite, so we can just instantiate a reader.
-    return None 
+    """Helper to get executor instance. Delegating to executor router singleton."""
+    from backend.api.routers.executor import _get_executor as get_exec
+    return get_exec() 
 
 @router.get("/api/scheduler/status")
 async def get_scheduler_status():
@@ -153,8 +146,6 @@ async def schedule_today_with_history():
                 # backend/executor/history.py
                 
                 # Direct SQL for speed and dependency avoidance
-                today_start_iso = tz.localize(datetime.combine(today_local, datetime.min.time())).isoformat()
-                now_iso = datetime.now(tz).isoformat()
                 
                 # We need "execution_log" table?
                 # Actually webapp.py used "executor.history.get_todays_slots"
@@ -169,16 +160,17 @@ async def schedule_today_with_history():
                 
                 slots = hist.get_todays_slots(today_start, now_dt)
                 for slot in slots:
-                     start_str = slot.get("start_time")
-                     if not start_str: continue
-                     start = datetime.fromisoformat(start_str)
-                     local_start = start if start.tzinfo else tz.localize(start)
-                     key = local_start.astimezone(tz).replace(tzinfo=None)
-                     exec_map[key] = {
-                         "actual_charge_kw": slot.get("battery_charge_kw", 0),
-                         "actual_soc": slot.get("before_soc_percent"),
-                         "water_heating_kw": slot.get("water_heating_kw", 0),
-                     }
+                    start_str = slot.get("start_time")
+                    if not start_str:
+                        continue
+                    start = datetime.fromisoformat(start_str)
+                    local_start = start if start.tzinfo else tz.localize(start)
+                    key = local_start.astimezone(tz).replace(tzinfo=None)
+                    exec_map[key] = {
+                        "actual_charge_kw": slot.get("battery_charge_kw", 0),
+                        "actual_soc": slot.get("before_soc_percent"),
+                        "water_heating_kw": slot.get("water_heating_kw", 0),
+                    }
     except Exception as e:
         logger.warning(f"Failed to load SQLite history: {e}")
 
@@ -201,7 +193,8 @@ async def schedule_today_with_history():
                             "pv_forecast_kwh": float(row["pv_forecast_kwh"] or 0),
                             "load_forecast_kwh": float(row["load_forecast_kwh"] or 0)
                         }
-                    except: pass
+                    except Exception:
+                        pass
     except Exception as e:
         logger.warning(f"Failed to load forecast map: {e}")
 
@@ -235,9 +228,6 @@ async def schedule_today_with_history():
             if "pv_kwh" not in slot: slot["pv_kwh"] = f["pv_forecast_kwh"]
             if "load_kwh" not in slot: slot["load_kwh"] = f["load_forecast_kwh"]
 
-        merged_slots.append(slot)
-        
-    # ... Merge logic ends ...
         merged_slots.append(slot)
         
     return _clean_nans({"date": today_local.isoformat(), "slots": merged_slots})
