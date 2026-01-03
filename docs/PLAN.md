@@ -63,7 +63,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ## 📜 Revision Stream
 
-### [PLANNED] Rev ARC7 — Performance Architecture (Dashboard Speed)
+### [IN PROGRESS] Rev ARC7 — Performance Architecture (Dashboard Speed)
 
 **Goal:** Transform Dashboard load time from **1600ms → <200ms** through strategic caching, lazy loading, and WebSocket push architecture. Optimized for Raspberry Pi / Home Assistant add-on deployments.
 
@@ -71,33 +71,33 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 1: Smart Caching Layer [PLANNED]
+#### Phase 1: Smart Caching Layer [DONE]
 
 **Goal:** Implement TTL-based caching for data that doesn't change frequently.
 
 ##### Task 1.1: Create Cache Infrastructure
-- [ ] Create `backend/core/cache.py` with `TTLCache` class
-- [ ] Support configurable TTL per cache key
-- [ ] Add cache invalidation via WebSocket events
-- [ ] Thread-safe implementation for async context
+- [x] Create `backend/core/cache.py` with `TTLCache` class
+- [x] Support configurable TTL per cache key
+- [x] Add cache invalidation via WebSocket events
+- [x] Thread-safe implementation for async context
 
 ##### Task 1.2: Cache Nordpool Prices (Critical)
-- [ ] Cache `/api/nordpool` data for 1 hour (updates once daily after 13:00)
-- [ ] Invalidate at 13:30 CET daily (when new prices arrive)
-- [ ] This affects Aurora, Schedule, and Energy endpoints
+- [x] Cache `/api/nordpool` data for 1 hour (updates once daily after 13:00)
+- [x] Invalidate at 13:30 CET daily (when new prices arrive)
+- [x] This affects Aurora, Schedule, and Energy endpoints
 
 ##### Task 1.3: Cache HA Average Data
-- [ ] Cache `/api/ha/average` result for 60 seconds (was fetching 24h history every request!)
-- [ ] Investigate: Why is one sensor taking 1600ms? Should use batch fetch if fetching multiple.
+- [x] Cache `/api/ha/average` result for 60 seconds (was fetching 24h history every request!)
+- [x] Investigate: Why is one sensor taking 1600ms? Should use batch fetch if fetching multiple.
 
 ##### Task 1.4: Cache Schedule in Memory
-- [ ] Keep `schedule.json` in RAM after first load
-- [ ] Invalidate on: planner run, manual save, DB sync
-- [ ] Push invalidation via `schedule_updated` WebSocket event
+- [x] Keep `schedule.json` in RAM after first load
+- [x] Invalidate on: planner run, manual save, DB sync
+- [x] Push invalidation via `schedule_updated` WebSocket event
 
 ---
 
-#### Phase 2: Lazy Loading Architecture [PLANNED]
+#### Phase 2: Lazy Loading Architecture [DONE]
 
 **Goal:** Show Dashboard instantly, load non-critical data progressively.
 
@@ -110,35 +110,35 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **Background** | Aurora Dashboard, Learning Status | Lazy load with skeleton |
 
 ##### Task 2.2: Refactor Dashboard.tsx Data Fetching
-- [ ] Split `fetchAllData()` into `fetchCriticalData()` + `fetchDeferredData()`
-- [ ] Call critical fetch on mount, deferred after 100ms delay
-- [ ] Add skeleton loaders for deferred sections
+- [x] Split `fetchAllData()` into `fetchCriticalData()` + `fetchDeferredData()`
+- [x] Call critical fetch on mount, deferred after 100ms delay
+- [x] Add skeleton loaders for deferred sections
 
 ##### Task 2.3: Add Loading States to Components
-- [ ] `AdvisorCard`: Show skeleton while Aurora loads
-- [ ] Stats row: Show "—" while HA Average loads
-- [ ] Use CSS shimmer animation for skeleton states
+- [x] `AdvisorCard`: Show skeleton while Aurora loads
+- [x] Stats row: Show "—" while HA Average loads
+- [x] Use CSS shimmer animation for skeleton states
 
 ---
 
-#### Phase 3: WebSocket Push Architecture [PLANNED]
+#### Phase 3: WebSocket Push Architecture [DONE]
 
 **Goal:** Push data changes to Dashboard instead of polling.
 
 ##### Task 3.1: Extend WebSocket Events
-- [ ] Add `schedule_updated` event (emitted after planner run)
-- [ ] Add `config_updated` event (emitted after config save)
-- [ ] Add `executor_state` event (emitted on pause/resume/action)
+- [x] Add `schedule_updated` event (emitted after planner run)
+- [x] Add `config_updated` event (emitted after config save)
+- [x] Add `executor_state` event (emitted on pause/resume/action)
 
 ##### Task 3.2: Frontend Subscription to Push Events
-- [ ] Subscribe to `schedule_updated` → refresh schedule display
-- [ ] Subscribe to `config_updated` → refresh config-dependent UI
-- [ ] Avoid full `fetchAllData()` on every event (targeted refresh)
+- [x] Subscribe to `schedule_updated` → refresh schedule display
+- [x] Subscribe to `config_updated` → refresh config-dependent UI
+- [x] Avoid full `fetchAllData()` on every event (targeted refresh)
 
 ##### Task 3.3: Schedule Push on Planner Run
-- [ ] In `PlannerPipeline.generate_schedule()`, emit `schedule_updated` at end
-- [ ] Include summary in event: `{ planned_at, slot_count, status }`
-- [ ] Dashboard receives push, updates without user refresh
+- [x] In `PlannerPipeline.generate_schedule()`, emit `schedule_updated` at end
+- [x] Include summary in event: `{ planned_at, slot_count, status }`
+- [x] Dashboard receives push, updates without user refresh
 
 ---
 
@@ -181,12 +181,12 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 #### Verification Checklist
 
-- [ ] Dashboard loads in <200ms (critical path)
-- [ ] Non-critical data appears within 500ms (lazy loaded)
-- [ ] Schedule updates push via WebSocket (no manual refresh needed)
-- [ ] Nordpool prices cached for 1 hour
-- [ ] HA Average cached for 60 seconds
-- [ ] Works smoothly on Raspberry Pi 4
+- [x] Dashboard loads in <200ms (critical path)
+- [x] Non-critical data appears within 500ms (lazy loaded)
+- [x] Schedule updates push via WebSocket (no manual refresh needed)
+- [x] Nordpool prices cached for 1 hour
+- [x] HA Average cached for 60 seconds
+- [x] Works smoothly on Raspberry Pi 4
 
 ---
 

@@ -133,6 +133,13 @@ async def get_ha_entity(entity_id: str) -> dict[str, Any]:
 async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[str, Any]:
     """Calculate average value for an entity over the last N hours."""
     from inputs import get_load_profile_from_ha, load_yaml
+    from backend.core.cache import cache
+
+    # Check cache first
+    cache_key = f"ha_average:{entity_id}:{hours}"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     if not entity_id:
         # Default to load power sensor
@@ -171,12 +178,17 @@ async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[
 
     val_kw = avg_val / 1000.0 if avg_val > 100 else avg_val
 
-    return {
+    result = {
         "average_load_kw": round(val_kw, 3),
         "daily_kwh": round(val_kw * 24, 2),
         "entity_id": entity_id,
         "hours": hours,
     }
+
+    # Cache for 60 seconds
+    await cache.set(cache_key, result, ttl_seconds=60.0)
+
+    return result
 
 
 @router_ha.get(

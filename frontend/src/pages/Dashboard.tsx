@@ -103,9 +103,19 @@ export default function Dashboard() {
         }))
     })
 
-    useSocket('plan_updated', () => {
-        console.log('📅 Plan updated! Refreshing data...')
-        fetchAllData()
+    useSocket('schedule_updated', (data: any) => {
+        console.log('📅 Schedule updated via push:', data)
+        // Targeted refresh - only fetch schedule, not everything
+        Api.schedule().then((data) => {
+            if (data.schedule) setLocalSchedule(data.schedule)
+            if (data.meta) {
+                setPlannerLocalMeta({
+                    planned_at: data.meta.planned_at as string | undefined,
+                    planner_version: data.meta.planner_version as string | undefined,
+                    s_index: data.meta.s_index as PlannerSIndex | undefined,
+                })
+            }
+        })
     })
 
     useSocket('executor_status', (data: any) => {
@@ -186,75 +196,44 @@ export default function Dashboard() {
                 setServerSchedule(schedule ?? [])
                 // Removed setServerScheduleError
             })
-            .finally(() => {})
+            .finally(() => { })
     }, [])
 
-    const fetchAllData = useCallback(async () => {
+    const fetchCriticalData = useCallback(async () => {
         setIsRefreshing(true)
         try {
-            // Parallel fetch all data
             const [
                 statusData,
                 configData,
-                haAverageData,
-                scheduleData, // learningStatusData unused
-                ,
-                schedulerStatusData,
-                todayStatsData,
-                waterData,
-                auroraData,
+                scheduleData,
                 executorStatusData,
-                historyData,
+                schedulerStatusData,
             ] = await Promise.allSettled([
                 Api.status(),
                 Api.config(),
-                Api.haAverage(),
                 Api.schedule(),
-                Api.learningStatus(),
-                Api.schedulerStatus(),
-                Api.energyToday(),
-                Api.haWaterToday(),
-                Api.aurora.dashboard(),
                 Api.executor.status(),
-                Api.scheduleTodayWithHistory(),
+                Api.schedulerStatus(),
             ])
 
-            // Extract SoC from status API (flat structure: soc_percent)
+            // Process critical data
             if (statusData.status === 'fulfilled') {
                 const data = statusData.value
-                if (data.soc_percent != null) {
-                    setSoc(data.soc_percent)
-                } else if (data.current_soc?.value != null) {
-                    setSoc(data.current_soc.value) // Fallback for legacy format
-                }
+                if (data.soc_percent != null) setSoc(data.soc_percent)
+                else if (data.current_soc?.value != null) setSoc(data.current_soc.value)
             }
 
-            // Calculate PV Forecast for today from Aurora horizon
-            let pvForecastTotal = 0
-            if (auroraData.status === 'fulfilled' && auroraData.value?.horizon?.slots) {
-                const now = new Date()
-                const todayStr = now.toISOString().split('T')[0]
-                pvForecastTotal = auroraData.value.horizon.slots
-                    .filter((s) => s.slot_start.startsWith(todayStr))
-                    .reduce((sum, s) => sum + (s.final?.pv_kwh || 0), 0)
-            }
-
-            // Process config data
             if (configData.status === 'fulfilled') {
                 const data = configData.value
-                // Read risk_appetite from s_index
+                // Risk appetite
                 const sIndex = (data as Record<string, unknown>).s_index as Record<string, unknown> | undefined
-                if (typeof sIndex?.risk_appetite === 'number') {
-                    setRiskAppetite(sIndex.risk_appetite)
-                }
-                // Battery config is at config.battery, not config.system.battery
-                if (data.battery?.capacity_kwh != null) {
-                    setBatteryCapacity(data.battery.capacity_kwh)
-                } else if (data.system?.battery?.capacity_kwh != null) {
-                    setBatteryCapacity(data.system.battery.capacity_kwh) // Fallback
-                }
+                if (typeof sIndex?.risk_appetite === 'number') setRiskAppetite(sIndex.risk_appetite)
 
-                // Automation / scheduler config
+                // Battery capacity
+                if (data.battery?.capacity_kwh != null) setBatteryCapacity(data.battery.capacity_kwh)
+                else if (data.system?.battery?.capacity_kwh != null) setBatteryCapacity(data.system.battery.capacity_kwh)
+
+                // Automation config
                 if (data.automation) {
                     setAutomationConfig({
                         enable_scheduler: data.automation.enable_scheduler,
@@ -262,45 +241,29 @@ export default function Dashboard() {
                         external_executor_mode: data.automation.external_executor_mode,
                         every_minutes: data.automation.schedule?.every_minutes ?? null,
                     })
-                } else {
-                    setAutomationConfig(null)
-                }
+                } else setAutomationConfig(null)
 
+                // Water/Vacation config
                 if (data.water_heating) {
-                    if (typeof data.water_heating.comfort_level === 'number') {
-                        setComfortLevel(data.water_heating.comfort_level)
-                    }
-                    if (typeof data.water_heating.vacation_mode?.enabled === 'boolean') {
-                        setVacationMode(data.water_heating.vacation_mode.enabled)
-                    }
+                    if (typeof data.water_heating.comfort_level === 'number') setComfortLevel(data.water_heating.comfort_level)
+                    if (typeof data.water_heating.vacation_mode?.enabled === 'boolean') setVacationMode(data.water_heating.vacation_mode.enabled)
                 }
 
                 if (data.input_sensors?.vacation_mode) {
                     setVacationEntityId(data.input_sensors.vacation_mode)
                     Api.haEntityState(data.input_sensors.vacation_mode)
-                        .then((entityData) => {
-                            setVacationModeHA(entityData.state === 'on')
-                        })
+                        .then((entityData) => setVacationModeHA(entityData.state === 'on'))
                         .catch(() => setVacationModeHA(false))
                 }
             } else {
-                console.error('Failed to load config:', configData.reason)
+                console.error('Failed to load critical config:', configData.reason)
             }
 
-            // Process HA average data
-            if (haAverageData.status === 'fulfilled') {
-                setAvgLoad({
-                    kw: haAverageData.value.average_load_kw ?? 0,
-                    dailyKwh: haAverageData.value.daily_kwh ?? 0,
-                })
-            }
-
-            // Process schedule data
+            // Schedule Data
             if (scheduleData.status === 'fulfilled' && scheduleData.value) {
                 const data = scheduleData.value
                 setLocalSchedule(data.schedule ?? [])
 
-                // Extract plannerMeta from schedule.meta for s-index display
                 if (data.meta) {
                     setPlannerLocalMeta({
                         planned_at: data.meta.planned_at as string | undefined,
@@ -326,15 +289,14 @@ export default function Dashboard() {
                 }
             }
 
-            // Process water data
-            if (waterData.status === 'fulfilled') {
-                setWaterToday({
-                    kwh: waterData.value.water_kwh_today ?? 0,
-                    source: waterData.value.source ?? 'unknown',
+            // Executor & Scheduler Status
+            if (executorStatusData.status === 'fulfilled') {
+                setExecutorStatus({
+                    shadow_mode: executorStatusData.value.shadow_mode ?? false,
+                    paused: executorStatusData.value.paused ?? null,
                 })
             }
 
-            // Process scheduler status
             if (schedulerStatusData.status === 'fulfilled') {
                 const data = schedulerStatusData.value
                 setSchedulerStatus({
@@ -344,30 +306,49 @@ export default function Dashboard() {
                 })
             }
 
-            // Process history
-            if (historyData.status === 'fulfilled') {
-                setHistorySlots(historyData.value.slots ?? [])
-                // Fallback for PV Forecast if Aurora missing
-                if (pvForecastTotal === 0 && historyData.value.slots) {
-                    const todayStart = new Date()
-                    todayStart.setHours(0, 0, 0, 0)
-                    historyData.value.slots.forEach((s) => {
-                        if (new Date(s.start_time) >= todayStart) {
-                            pvForecastTotal += s.pv_forecast_kwh ?? 0
-                        }
-                    })
-                }
-            }
+            setLastRefresh(new Date())
 
-            // Process executor status
-            if (executorStatusData.status === 'fulfilled') {
-                setExecutorStatus({
-                    shadow_mode: executorStatusData.value.shadow_mode ?? false,
-                    paused: executorStatusData.value.paused ?? null,
+        } catch (error) {
+            console.error('Error fetching critical data:', error)
+        } finally {
+            setIsRefreshing(false)
+        }
+    }, [])
+
+    const fetchDeferredData = useCallback(async () => {
+        try {
+            const [
+                haAverageData,
+                todayStatsData,
+                waterData,
+                auroraData,
+                historyData,
+                // inputData - formerly learningStatusData, effectively unused or handled elsewhere
+            ] = await Promise.allSettled([
+                Api.haAverage(), // Cached for 60s
+                Api.energyToday(),
+                Api.haWaterToday(),
+                Api.aurora.dashboard(),
+                Api.scheduleTodayWithHistory(),
+                Api.learningStatus(),
+            ])
+
+            if (haAverageData.status === 'fulfilled') {
+                setAvgLoad({
+                    kw: haAverageData.value.average_load_kw ?? 0,
+                    dailyKwh: haAverageData.value.daily_kwh ?? 0,
                 })
             }
 
-            // Process energy today
+            let pvForecastTotal = 0
+            if (auroraData.status === 'fulfilled' && auroraData.value?.horizon?.slots) {
+                const now = new Date()
+                const todayStr = now.toISOString().split('T')[0]
+                pvForecastTotal = auroraData.value.horizon.slots
+                    .filter((s) => s.slot_start.startsWith(todayStr))
+                    .reduce((sum, s) => sum + (s.final?.pv_kwh || 0), 0)
+            }
+
             if (todayStatsData.status === 'fulfilled') {
                 const data = todayStatsData.value
                 setTodayStats({
@@ -381,17 +362,41 @@ export default function Dashboard() {
                 })
             }
 
-            setLastRefresh(new Date())
+            if (waterData.status === 'fulfilled') {
+                setWaterToday({
+                    kwh: waterData.value.water_kwh_today ?? 0,
+                    source: waterData.value.source ?? 'unknown',
+                })
+            }
+
+            if (historyData.status === 'fulfilled') {
+                setHistorySlots(historyData.value.slots ?? [])
+                // Fallback PV Total logic
+                if (pvForecastTotal === 0 && historyData.value.slots) {
+                    const todayStart = new Date()
+                    todayStart.setHours(0, 0, 0, 0)
+                    historyData.value.slots.forEach((s) => {
+                        if (new Date(s.start_time) >= todayStart) {
+                            pvForecastTotal += s.pv_forecast_kwh ?? 0
+                        }
+                    })
+                    // Update todayStats again if needed or use state setter function
+                    setTodayStats(prev => prev ? ({ ...prev, pvForecast: pvForecastTotal > 0 ? parseFloat(pvForecastTotal.toFixed(1)) : (prev.pvForecast) }) : null)
+                }
+            }
+
         } catch (error) {
-            console.error('Error fetching dashboard data:', error)
+            console.error('Error fetching deferred data:', error)
         } finally {
-            setIsRefreshing(false)
-            // Nudge the overview chart to reload its schedule data so that
-            // planner runs / server-plan loads are reflected without manual
-            // day toggling.
             setChartRefreshToken((token) => token + 1)
         }
     }, [])
+
+    const fetchAllData = useCallback(async () => {
+        await fetchCriticalData()
+        // 100ms delay for deferred data
+        setTimeout(() => fetchDeferredData(), 100)
+    }, [fetchCriticalData, fetchDeferredData])
 
     // Keep displayed plannerMeta aligned with currentPlanSource and stored metadata.
     useEffect(() => {
@@ -625,6 +630,7 @@ export default function Dashboard() {
                     {/* Advisor with Power Flow toggle */}
                     <div className="flex-1 min-h-0">
                         <AdvisorCard
+                            isLoading={isRefreshing}
                             powerFlowData={{
                                 solar: {
                                     kw: livePower.pv_kw ?? 0,
@@ -701,11 +707,10 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2 w-2 rounded-full ${
-                                                automationConfig?.enable_scheduler
-                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
-                                                    : 'bg-line'
-                                            }`}
+                                            className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
+                                                ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
+                                                : 'bg-line'
+                                                }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -726,9 +731,8 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => fetchAllData()}
                                     disabled={isRefreshing}
-                                    className={`rounded-full p-1 transition ${
-                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
-                                    }`}
+                                    className={`rounded-full p-1 transition ${isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                        }`}
                                     title="Manual sync"
                                 >
                                     <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>

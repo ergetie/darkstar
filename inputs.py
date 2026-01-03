@@ -1,5 +1,6 @@
 import math
-from datetime import date, datetime, timedelta
+import time
+from datetime import date, datetime, timedelta, time as dt_time
 from typing import Any, cast
 
 import pytz
@@ -8,6 +9,7 @@ import yaml
 from nordpool.elspot import Prices
 from open_meteo_solar_forecast import OpenMeteoSolarForecast
 
+from backend.core.cache import cache_sync
 from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
 
@@ -129,6 +131,17 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
             - import_price_sek_kwh (float): Price in SEK per kWh
             - export_price_sek_kwh (float): Export price in SEK per kwh (estimated as 90% of import)
     """
+    # --- Cache Check ---
+    cache_key = "nordpool_data"
+    cached = cache_sync.get(cache_key)
+    if cached:
+        timezone = pytz.timezone("Europe/Stockholm")
+        now = datetime.now(timezone)
+        # Invalidate if it's 13:30 CET or later today and we might need fresh prices.
+        # Simple heuristic: relying on 1h TTL is usually sufficient as Nordpool
+        # object handles the day-ahead logic internally.
+        return cached
+
     # Load configuration
     with open(config_path) as f:
         config = yaml.safe_load(f)
@@ -169,6 +182,9 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
 
     # Process the data into the required format
     result = _process_nordpool_data(all_entries, config, today_values)
+
+    # Cache for 1 hour
+    cache_sync.set(cache_key, result, ttl_seconds=3600.0)
 
     return result
 

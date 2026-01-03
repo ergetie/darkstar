@@ -57,6 +57,14 @@ async def get_scheduler_status():
 )
 async def get_schedule() -> dict[str, Any]:
     """Return the current active schedule.json with price overlay."""
+    from backend.core.cache import cache
+
+    # Check cache first (5 min TTL)
+    cache_key = "schedule:current"
+    cached = await cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     try:
         schedule_path = Path("schedule.json")
         if schedule_path.exists():
@@ -110,7 +118,12 @@ async def get_schedule() -> dict[str, Any]:
         except Exception as exc:
             logger.warning("Price overlay unavailable: %s", exc)
 
-    return cast("dict[str, Any]", _clean_nans(data))
+    result = cast("dict[str, Any]", _clean_nans(data))
+    
+    # Cache result
+    await cache.set(cache_key, result, ttl_seconds=300.0)
+    
+    return result
 
 
 # ... Porting schedule_today_with_history ...

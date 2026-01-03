@@ -62,6 +62,20 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"WebSocketManager: Failed to schedule emit_sync('{event}'): {e}")
 
+    async def invalidate_and_push(self, cache_key: str, event: str, data: Any) -> None:
+        """Invalidate cache and push event to clients."""
+        from backend.core.cache import cache
+        
+        await cache.invalidate(cache_key)
+        await self.emit(event, data)
+    
+    def invalidate_and_push_sync(self, cache_key: str, event: str, data: Any) -> None:
+        """Sync version for thread contexts (Executor, Scheduler)."""
+        from backend.core.cache import cache_sync
+        
+        cache_sync.invalidate(cache_key)
+        self.emit_sync(event, data)
+
 
 # Global instance
 ws_manager = WebSocketManager()

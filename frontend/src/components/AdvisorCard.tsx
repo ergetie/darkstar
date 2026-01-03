@@ -12,9 +12,23 @@ import PowerFlowCard, { type PowerFlowData } from './PowerFlowCard'
 
 interface AdvisorCardProps {
     powerFlowData?: PowerFlowData
+    isLoading?: boolean
 }
 
-export default function AdvisorCard({ powerFlowData }: AdvisorCardProps) {
+function Skeleton() {
+    return (
+        <div className="animate-pulse space-y-4 p-2">
+            <div className="h-4 bg-surface2/50 rounded w-3/4" />
+            <div className="h-32 bg-surface2/30 rounded-lg" />
+            <div className="space-y-2">
+                <div className="h-3 bg-surface2/40 rounded w-full" />
+                <div className="h-3 bg-surface2/40 rounded w-5/6" />
+            </div>
+        </div>
+    )
+}
+
+export default function AdvisorCard({ powerFlowData, isLoading }: AdvisorCardProps) {
     const [view, setView] = useState<'advisor' | 'powerflow'>('advisor')
 
     // Default data when no live metrics available
@@ -35,18 +49,16 @@ export default function AdvisorCard({ powerFlowData }: AdvisorCardProps) {
                 <div className="flex items-center gap-1 p-0.5 rounded-lg bg-surface2/50 border border-line/30">
                     <button
                         onClick={() => setView('advisor')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
-                            view === 'advisor' ? 'bg-accent text-[#100f0e]' : 'text-muted hover:text-text'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${view === 'advisor' ? 'bg-accent text-[#100f0e]' : 'text-muted hover:text-text'
+                            }`}
                     >
                         <Sparkles className="h-3 w-3" />
                         <span>Advisor</span>
                     </button>
                     <button
                         onClick={() => setView('powerflow')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
-                            view === 'powerflow' ? 'bg-accent text-[#100f0e]' : 'text-muted hover:text-text'
-                        }`}
+                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${view === 'powerflow' ? 'bg-accent text-[#100f0e]' : 'text-muted hover:text-text'
+                            }`}
                     >
                         <Activity className="h-3 w-3" />
                         <span>Power Flow</span>
@@ -56,7 +68,9 @@ export default function AdvisorCard({ powerFlowData }: AdvisorCardProps) {
 
             {/* Content */}
             <div className="flex-1 min-h-0">
-                {view === 'advisor' ? (
+                {isLoading ? (
+                    <Skeleton />
+                ) : view === 'advisor' ? (
                     <SmartAdvisorContent />
                 ) : (
                     <div className="h-full flex items-center justify-center">

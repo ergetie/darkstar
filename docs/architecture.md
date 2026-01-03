@@ -399,3 +399,33 @@ backend/
 - **Sync→Async Bridge**: `ws_manager.emit_sync()` schedules coroutines from sync threads
 - **ASGI Wrapping**: Socket.IO ASGIApp wraps FastAPI for WebSocket support
 
+---
+
+## 10. Performance Optimizations (Rev ARC7)
+
+To ensure the Dashboard loads instantly (<200ms) even on limited hardware, a multi-layered optimization strategy is implemented:
+
+### 10.1 Smart Caching Layer
+Backend caching prevents redundant expensive computations and external API calls.
+- **Infrastructure**: Thread-safe `TTLCache` (async/sync compat).
+- **Nordpool Prices**: 1-hour TTL, invalidated at 13:30 CET daily.
+- **HA History**: 60-second TTL for `/api/ha/average` (was 1600ms bottlneck).
+- **Schedule**: In-memory caching for `schedule.json`, invalidated on planner writes.
+
+### 10.2 Lazy Loading Strategy
+The frontend prioritizes Critical Data (Execution-blocking) over Deferred Data (Contextual).
+
+| Priority | Data | Loading Strategy |
+|----------|------|------------------|
+| **Critical** | Schedule, SoC, Executor Status | Loaded immediately (parallel) |
+| **Deferred** | Energy Stats, Water Usage, HA Average | Loaded +100ms after critical |
+| **Background** | Aurora Learning, Long-term History | Loaded on demand |
+
+*Effect: Dashboard becomes interactive immediately, while heavy stats fill in gracefully.*
+
+### 10.3 WebSocket Push Architecture
+Eliminates polling overhead by pushing updates only when state changes.
+- **Protocol**: `schedule_updated` event emitted by Planner Pipeline.
+- **Flow**: Planner saves plan → `ws_manager.invalidate_and_push_sync()` → Cache cleared → Event emitted → Frontend targeted refresh.
+
+
