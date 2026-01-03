@@ -488,3 +488,11 @@ async def get_live() -> dict[str, Any]:
     if not executor:
         return {}
     return executor.get_live_metrics()
+
+
+async def get_executor_status_snapshot() -> dict[str, Any]:
+    """Internal helper to get status without dependency injection (for dashboard bundle)."""
+    executor = get_executor_instance()
+    if not executor:
+        return {}
+    return executor.get_status()

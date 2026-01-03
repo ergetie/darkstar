@@ -27,7 +27,7 @@ async def get_dashboard_bundle() -> dict[str, Any]:
         system.get_system_status(),
         config.get_config(),
         schedule.get_schedule(),
-        executor.get_executor_status(),
+        executor.get_executor_status_snapshot(),
         schedule.get_scheduler_status(),
     ]
 

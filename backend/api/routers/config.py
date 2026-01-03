@@ -5,7 +5,7 @@ from typing import Any, cast
 from fastapi import APIRouter, Body, HTTPException
 from ruamel.yaml import YAML
 
-from inputs import load_home_assistant_config, load_notification_secrets, load_yaml
+from inputs import load_home_assistant_config, load_notifications_config, load_yaml
 
 logger = logging.getLogger("darkstar.api.config")
 
@@ -31,7 +31,7 @@ async def get_config() -> dict[str, Any]:
             cast("dict[str, Any]", conf["home_assistant"]).update(ha_secrets)
 
         # Merge Notification secrets
-        notif_secrets = load_notification_secrets()
+        notif_secrets = load_notifications_config()
         if notif_secrets:
             if "notifications" not in conf:
                 conf["notifications"] = {}
