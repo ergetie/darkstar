@@ -190,7 +190,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev ARC8 — In-Process Scheduler Architecture
+### [IN PROGRESS] Rev ARC8 — In-Process Scheduler Architecture
 
 **Goal:** Eliminate subprocess architecture by running the Scheduler and Planner as async background tasks inside the FastAPI process. This enables proper cache invalidation and WebSocket push because all components share the same memory space.
 
@@ -198,124 +198,71 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 1: Async Planner Service [PLANNED]
+#### Phase 1: Async Planner Service [DONE]
 
 **Goal:** Create an async-compatible planner service that can run in-process without blocking the event loop.
 
 ##### Task 1.1: Create `backend/services/planner_service.py`
-- [ ] Create new module `backend/services/planner_service.py`
-- [ ] Implement `PlannerService` class with async interface
-- [ ] Wrap blocking planner code with `asyncio.to_thread()` for CPU-bound work
-- [ ] Add proper exception handling and logging
-- [ ] Return structured result object (success, error, metadata)
-
-```python
-class PlannerService:
-    async def run_once(self) -> PlannerResult:
-        """Run planner in threadpool, return result."""
-        return await asyncio.to_thread(self._run_sync)
-    
-    def _run_sync(self) -> PlannerResult:
-        """Blocking planner execution."""
-        # Load config, run PlannerPipeline, save schedule.json
-        ...
-```
+- [x] Create new module `backend/services/planner_service.py`
+- [x] Implement `PlannerService` class with async interface
+- [x] Wrap blocking planner code with `asyncio.to_thread()` for CPU-bound work
+- [x] Add `asyncio.Lock()` to prevent concurrent planner runs
+- [x] Return structured result object (success, error, metadata)
 
 ##### Task 1.2: Integrate Cache Invalidation
-- [ ] After successful plan, call `await cache.invalidate("schedule:current")`
-- [ ] Emit `schedule_updated` WebSocket event with metadata
-- [ ] All in same process = shared memory = guaranteed delivery
+- [x] After successful plan, call `await cache.invalidate("schedule:current")`
+- [x] Emit `schedule_updated` WebSocket event with metadata
+- [x] All in same process = shared memory = guaranteed delivery
 
 ##### Task 1.3: Error Handling & Recovery
-- [ ] Wrap planner execution in try/except
-- [ ] Log failures but don't crash the server
-- [ ] Return error status to caller
-- [ ] Emit `planner_error` WebSocket event for frontend notification
+- [x] Wrap planner execution in try/except
+- [x] Log failures but don't crash the server
+- [x] Return error status to caller
+- [x] Emit `planner_error` WebSocket event for frontend notification
 
 ---
 
-#### Phase 2: Background Scheduler Task [PLANNED]
+#### Phase 2: Background Scheduler Task [DONE]
 
 **Goal:** Replace the standalone `scheduler.py` loop with an async background task managed by FastAPI's lifespan.
 
 ##### Task 2.1: Create `backend/services/scheduler_service.py`
-- [ ] Create new module `backend/services/scheduler_service.py`
-- [ ] Implement `SchedulerService` class with async loop
-- [ ] Use `asyncio.sleep()` instead of blocking `time.sleep()`
-- [ ] Handle graceful shutdown via cancellation
-
-```python
-class SchedulerService:
-    def __init__(self):
-        self._task: asyncio.Task | None = None
-        self._running = False
-    
-    async def start(self):
-        """Start the scheduler background loop."""
-        self._running = True
-        self._task = asyncio.create_task(self._loop())
-    
-    async def stop(self):
-        """Gracefully stop the scheduler."""
-        self._running = False
-        if self._task:
-            self._task.cancel()
-            await asyncio.gather(self._task, return_exceptions=True)
-    
-    async def _loop(self):
-        while self._running:
-            await asyncio.sleep(30)
-            if self._should_run():
-                await self.planner_service.run_once()
-```
+- [x] Create new module `backend/services/scheduler_service.py`
+- [x] Implement `SchedulerService` class with async loop
+- [x] Use `asyncio.sleep()` instead of blocking `time.sleep()`
+- [x] Handle graceful shutdown via cancellation
 
 ##### Task 2.2: Integrate with FastAPI Lifespan
-- [ ] Modify `backend/main.py` lifespan to start scheduler on startup
-- [ ] Stop scheduler gracefully on shutdown
-- [ ] Maintain existing HA WebSocket connection startup
-
-```python
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    scheduler_service.start()
-    ws_manager.set_loop(asyncio.get_running_loop())
-    start_ha_socket_client()
-    
-    yield
-    
-    # Shutdown
-    await scheduler_service.stop()
-```
+- [x] Modify `backend/main.py` lifespan to start scheduler on startup
+- [x] Stop scheduler gracefully on shutdown
+- [x] Maintain existing HA WebSocket connection startup
 
 ##### Task 2.3: Migrate Scheduler Logic
-- [ ] Port interval calculation from `scheduler.py`
-- [ ] Port jitter logic
-- [ ] Port ML training trigger (04:00 daily)
-- [ ] Port Aurora Reflex daily job
-- [ ] Port smart retry logic on failure
+- [x] Port interval calculation from `scheduler.py`
+- [x] Port jitter logic
+- [ ] Port ML training trigger (04:00 daily) — *deferred to Phase 4*
+- [ ] Port Aurora Reflex daily job — *deferred to Phase 4*
+- [x] Port smart retry logic on failure
 
 ---
 
-#### Phase 3: API Endpoint Refactor [PLANNED]
+#### Phase 3: API Endpoint Refactor [DONE]
 
 **Goal:** Update `/api/run_planner` to use the in-process planner service instead of subprocess.
 
 ##### Task 3.1: Refactor `/api/run_planner`
-- [ ] Remove subprocess logic from `legacy.py`
-- [ ] Call `await planner_service.run_once()`
-- [ ] Return structured response with timing and status
-- [ ] Cache invalidation happens automatically via planner service
+- [x] Remove subprocess logic from `legacy.py`
+- [x] Call `await planner_service.run_once()`
+- [x] Return structured response with timing and status
+- [x] Cache invalidation happens automatically via planner service
 
 ##### Task 3.2: Add `/api/scheduler/trigger` Endpoint
-- [ ] New endpoint to manually trigger next scheduled run
-- [ ] Different from `run_planner` which bypasses scheduling
-- [ ] Useful for testing and admin operations
+- [ ] New endpoint to manually trigger next scheduled run — *deferred to Phase 4*
 
 ##### Task 3.3: Enhance `/api/scheduler/status`
-- [ ] Return live status from `scheduler_service` (not just file)
-- [ ] Include: running, last_run, next_run, current_task
-- [ ] Add `is_running` boolean for UI state
+- [x] Return live status from `scheduler_service` (not just file)
+- [x] Include: running, last_run, next_run, current_task
+- [x] Add `is_running` boolean for UI state
 
 ---
 
