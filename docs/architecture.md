@@ -370,7 +370,7 @@ Fetches on app load and every 60 seconds.
 
 ---
 
-## 9. Backend API Architecture (Rev ARC1)
+## 9. Backend API Architecture (Rev ARC3)
 
 The backend was migrated from Flask (WSGI) to FastAPI (ASGI) for native async support.
 
