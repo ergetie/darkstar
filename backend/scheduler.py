@@ -302,6 +302,21 @@ def run_ml_training_task() -> tuple[bool, str | None]:
 
 def main() -> int:
     import sys
+    import warnings
+
+    # DEPRECATED: Running scheduler.py directly is deprecated as of Rev ARC8.
+    # The scheduler now runs as an in-process async task inside the FastAPI server.
+    # Use `pnpm run dev` or `uvicorn backend.main:app` instead.
+    warnings.warn(
+        "DEPRECATED: Running scheduler.py directly is deprecated. "
+        "Use the FastAPI server instead (pnpm run dev).",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    print(
+        "[scheduler] WARNING: Standalone scheduler mode is DEPRECATED. "
+        "Please use the FastAPI server for in-process scheduling."
+    )
 
     if "--once" in sys.argv:
         print("[scheduler] Running in ONE-SHOT mode.")

@@ -425,7 +425,65 @@ The frontend prioritizes Critical Data (Execution-blocking) over Deferred Data (
 
 ### 10.3 WebSocket Push Architecture
 Eliminates polling overhead by pushing updates only when state changes.
-- **Protocol**: `schedule_updated` event emitted by Planner Pipeline.
-- **Flow**: Planner saves plan → `ws_manager.invalidate_and_push_sync()` → Cache cleared → Event emitted → Frontend targeted refresh.
+- **Protocol**: `schedule_updated` event emitted by `PlannerService`.
+- **Flow**: Planner completes → `await cache.invalidate()` → `await ws_manager.emit()` → Frontend targeted refresh.
 
+---
+
+## 11. In-Process Scheduler Architecture (Rev ARC8)
+
+The scheduler and planner now run as async background tasks inside the FastAPI process, enabling reliable cache invalidation and WebSocket push because all components share the same memory space.
+
+### Architecture Overview
+
+```mermaid
+flowchart TB
+    subgraph FastAPI Process
+        direction TB
+        API[FastAPI Routes]
+        PS[PlannerService]
+        SS[SchedulerService]
+        WS[WebSocketManager]
+        Cache[TTLCache]
+        
+        API -->|"POST /api/run_planner"| PS
+        SS -->|"Scheduled runs"| PS
+        PS -->|"invalidate()"| Cache
+        PS -->|"emit(schedule_updated)"| WS
+        WS -->|"Push to clients"| FE[Frontend]
+    end
+    
+    subgraph Background Tasks
+        SS
+    end
+```
+
+### Key Components
+
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `PlannerService` | `backend/services/planner_service.py` | Async wrapper for planner, handles cache + WebSocket |
+| `SchedulerService` | `backend/services/scheduler_service.py` | Background loop for scheduled planner runs |
+| Lifespan Manager | `backend/main.py` | Starts/stops scheduler on server lifecycle |
+
+### Benefits over Subprocess Architecture
+
+| Aspect | Old (Subprocess) | New (In-Process) |
+|--------|------------------|------------------|
+| Cache Invalidation | Required sync workarounds | Native async `await cache.invalidate()` |
+| WebSocket Events | Cross-process bridge needed | Direct `await ws_manager.emit()` |
+| Memory | Separate Python process | Shared memory, lower footprint |
+| Debugging | Multi-process complexity | Single process, easy tracing |
+
+### Startup Flow
+
+1. FastAPI lifespan starts
+2. `SchedulerService` spawns background task
+3. Background task runs interval loop with `asyncio.sleep()`
+4. On interval: calls `PlannerService.run_once()`
+5. On shutdown: `asyncio.CancelledError` gracefully stops loop
+
+### Deprecation Notice
+
+The standalone `scheduler.py` is now **deprecated** and shows a warning if run directly. All scheduling should go through the FastAPI server.
 

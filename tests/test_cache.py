@@ -3,9 +3,9 @@ import asyncio
 from backend.core.cache import TTLCache, TTLCacheSync
 
 def test_ttl_cache_async_wrapper():
-    asyncio.run(test_ttl_cache_async())
+    asyncio.run(_async_cache_tests())
 
-async def test_ttl_cache_async():
+async def _async_cache_tests():
     cache = TTLCache()
     
     # Test set and get

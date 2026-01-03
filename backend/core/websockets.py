@@ -69,30 +69,7 @@ class WebSocketManager:
         await cache.invalidate(cache_key)
         await self.emit(event, data)
 
-    def invalidate_and_push_sync(self, cache_key: str, event: str, data: Any) -> None:
-        """Sync version for thread contexts (Executor, Scheduler).
-
-        IMPORTANT: Invalidates BOTH sync and async caches to ensure consistency.
-        The async cache is used by FastAPI routes, so we must clear it too.
-        """
-        from backend.core.cache import cache, cache_sync
-
-        # Clear sync cache (immediate)
-        cache_sync.invalidate(cache_key)
-
-        # Also clear async cache by scheduling on event loop
-        if self.loop is not None and not self.loop.is_closed():
-            try:
-                asyncio.run_coroutine_threadsafe(
-                    cache.invalidate(cache_key),
-                    self.loop,
-                )
-            except Exception as e:
-                logger.warning(f"Failed to invalidate async cache for '{cache_key}': {e}")
-
-        # Emit the event
-        self.emit_sync(event, data)
-
 
 # Global instance
 ws_manager = WebSocketManager()
+
