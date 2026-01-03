@@ -295,7 +295,9 @@ const createChartData = (
                 type: 'bar',
                 label: 'Load (kW)',
                 data: values.load,
-                backgroundColor: 'rgba(0, 183, 181, 0.3)', // DS.house cyan at 30%
+                backgroundColor: 'rgba(0, 183, 181, 0.35)', // DS.house cyan at 35%
+                borderColor: DS.house,
+                glow: true,
                 borderWidth: 0,
                 borderRadius: 2,
                 yAxisID: 'y1',
@@ -303,12 +305,15 @@ const createChartData = (
                 categoryPercentage: 0.9,
                 grouped: false,
                 order: 0, // Render in front of gradient lines
-            },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
             {
                 type: 'bar',
                 label: 'Charge (kW)',
                 data: values.charge ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(241, 81, 50, 0.3)', // DS.bad - grid charge costs money
+                backgroundColor: 'rgba(241, 81, 50, 0.35)', // DS.bad - grid charge costs money
+                borderColor: DS.bad,
+                glow: true,
                 borderWidth: 0,
                 borderRadius: 2,
                 hidden: true,
@@ -317,12 +322,15 @@ const createChartData = (
                 categoryPercentage: 0.9,
                 grouped: false,
                 order: 0,
-            },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
             {
                 type: 'bar',
                 label: 'Discharge (kW)',
                 data: values.discharge ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(236, 72, 153, 0.3)', // DS.peak (pink) at 30%
+                backgroundColor: 'rgba(236, 72, 153, 0.35)', // DS.peak (pink) at 35%
+                borderColor: DS.peak,
+                glow: true,
                 borderWidth: 0,
                 borderRadius: 2,
                 hidden: true,
@@ -331,12 +339,15 @@ const createChartData = (
                 categoryPercentage: 0.9,
                 grouped: false,
                 order: 0,
-            },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
             {
                 type: 'bar',
                 label: 'Export (kWh)',
                 data: values.export ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(31, 178, 86, 0.3)', // DS.good - selling is positive!
+                backgroundColor: 'rgba(31, 178, 86, 0.4)', // DS.good - selling is positive!
+                borderColor: DS.good,
+                glow: true,
                 borderWidth: 0,
                 borderRadius: 2,
                 hidden: true,
@@ -345,12 +356,15 @@ const createChartData = (
                 categoryPercentage: 0.9,
                 grouped: false,
                 order: 0,
-            },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
             {
                 type: 'bar',
                 label: 'Water Heating (kW)',
                 data: values.water ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(78, 168, 222, 0.3)', // DS.water at 30%
+                backgroundColor: 'rgba(78, 168, 222, 0.35)', // DS.water at 35%
+                borderColor: DS.water,
+                glow: true,
                 borderWidth: 0,
                 borderRadius: 2,
                 hidden: true,
@@ -359,7 +373,8 @@ const createChartData = (
                 categoryPercentage: 0.9,
                 grouped: false,
                 order: 0,
-            },
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
             {
                 type: 'line',
                 label: 'SoC Target (%)',
@@ -599,12 +614,14 @@ const glowPlugin: Plugin = {
         const dataset = chart.data.datasets[args.index] as unknown as {
             glow?: boolean
             borderColor?: string
+            glowBlur?: number
         }
 
         if (dataset.glow) {
             ctx.save()
+            const isDark = document.documentElement.classList.contains('dark')
             ctx.shadowColor = dataset.borderColor as string
-            ctx.shadowBlur = 8 // Subtle glow (reduced from 15)
+            ctx.shadowBlur = dataset.glowBlur ?? (isDark ? 10 : 6) // Dynamic glow based on theme
             ctx.shadowOffsetX = 0
             ctx.shadowOffsetY = 0
         }

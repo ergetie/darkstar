@@ -346,4 +346,14 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 ---
 
 *All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*
+---
 
+### [DONE] Rev UI3 — Visual Polish: Dashboard Glow Effects
+
+**Goal:** Enhance the dashboard chart with a premium, state-of-the-art glow effect for bar datasets (Charging, Export, etc.) to align with high-end industrial design aesthetics.
+
+**Plan:**
+- [x] Implement `glowPlugin` extension in `ChartCard.tsx`
+- [x] Enable glow for `Charge`, `Load`, `Discharge`, `Export`, and `Water Heating` bar datasets
+- [x] Fine-tune colors and opacities for professional depth
+- [x] Verify with `pnpm lint` and production build
