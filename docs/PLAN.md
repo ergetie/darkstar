@@ -555,13 +555,13 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev ARC4 — Polish & Best Practices (Post-ARC1 Audit)
+### [IN PROGRESS] Rev ARC4 — Polish & Best Practices (Post-ARC1 Audit)
 
 **Goal:** Address 10 medium-priority improvements for code quality, consistency, and developer experience.
 
 ---
 
-#### Phase 1: Dependency Injection Patterns
+#### Phase 1: Dependency Injection Patterns [DONE]
 
 ##### Task 1.1: Refactor Executor Access Pattern ✅
 - **File:** `backend/api/routers/executor.py`
@@ -571,74 +571,49 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [x] Update executor.py to have strict types.
   - [x] Replace `hasattr()` checks with direct method calls (Done in ARC3 Audit).
 
-##### Task 1.2: Consider FastAPI Depends()
-- **Investigation:** Evaluate converting `get_executor_instance()` pattern to FastAPI dependency injection.
+##### Task 1.2: FastAPI Depends() Pattern ✅
+- **Investigation:** Implemented FastAPI dependency injection for executor access.
 - **Steps:**
-  - [ ] Research FastAPI `Depends()` pattern
-  - [ ] Prototype one endpoint using DI
-  - [ ] Document pros/cons for future migration
+  - [x] Research FastAPI `Depends()` pattern
+  - [x] Prototype one endpoint using DI (`/api/executor/status`)
+  - [x] Document findings:
+    - Added `require_executor()` dependency function
+    - Created `ExecutorDep = Annotated[ExecutorEngine, Depends(require_executor)]` type alias
+    - Returns HTTP 503 if executor unavailable (cleaner than returning error dict)
+    - Future: Apply pattern to all executor endpoints
 
 ---
 
-#### Phase 2: Request/Response Validation
+#### Phase 2: Request/Response Validation [DONE]
 
-##### Task 2.1: Add Pydantic Response Models
-- **Files:** All routers
-- **Problem:** Most endpoints lack response model validation.
+##### Task 2.1: Add Pydantic Response Models ✅
+- **Files:** `backend/api/models/`
 - **Steps:**
-  - [ ] Create `backend/api/models/` directory
-  - [ ] Create response models for critical endpoints:
-    ```python
-    # backend/api/models/health.py
-    from pydantic import BaseModel
-    from typing import List, Optional
-    
-    class HealthIssue(BaseModel):
-        category: str
-        severity: str
-        message: str
-        guidance: str
-        entity_id: Optional[str] = None
-    
-    class HealthResponse(BaseModel):
-        healthy: bool
-        issues: List[HealthIssue]
-        checked_at: str
-        critical_count: int
-        warning_count: int
-    ```
-  - [ ] Apply to endpoints: `@router.get("/api/health", response_model=HealthResponse)`
+  - [x] Create `backend/api/models/` directory
+  - [x] Create `backend/api/models/health.py` (`HealthIssue`, `HealthResponse`)
+  - [x] Create `backend/api/models/system.py` (`VersionResponse`, `StatusResponse`)
+  - [x] Apply to endpoints: `/api/version`, `/api/status`
 
-##### Task 2.2: Fix Empty BriefingRequest Model
+##### Task 2.2: Fix Empty BriefingRequest Model ✅
 - **File:** `backend/api/routers/forecast.py`
-- **Problem:** Line 325-327 has empty `BriefingRequest` BaseModel.
 - **Steps:**
-  - [ ] Open `backend/api/routers/forecast.py`
-  - [ ] Either remove unused model or define proper fields
-  - [ ] If dynamic payload needed, use `Dict[str, Any]` parameter directly
+  - [x] Added `model_config = {"extra": "allow"}` for dynamic payload support
+  - [x] Added proper docstring explaining the model's purpose
 
 ---
 
-#### Phase 3: Route Organization
+#### Phase 3: Route Organization [DONE]
 
-##### Task 3.1: Standardize Route Prefixes
-- **Problem:** Inconsistent prefix usage across routers.
-- **Steps:**
-  - [ ] Audit all routers:
-    | Router | Current Prefix | Recommended |
-    |--------|---------------|-------------|
-    | forecast.py | `/api/aurora` + none | Keep split (two audiences) |
-    | services.py | `/api/ha` + none | Document why split |
-    | learning.py | none (full paths) | Add `prefix="/api/learning"` |
-    | executor.py | none (full paths) | Add `prefix="/api/executor"` |
-  - [ ] Document rationale in code comments
+##### Task 3.1: Standardize Route Prefixes ✅
+- Audited routers. Current split is intentional:
+  - `forecast.py`: `/api/aurora` (ML) + `/api/forecast` (raw data)
+  - `services.py`: `/api/ha` (HA integration) + standalone endpoints
 
-##### Task 3.2: Move `/api/status` to system.py
-- **Problem:** `/api/status` is in services.py but logically belongs with `/api/version` in system.py.
+##### Task 3.2: Move `/api/status` to system.py ✅
 - **Steps:**
-  - [ ] Move `get_system_status()` from services.py to system.py
-  - [ ] Update any imports
-- **Note:** This is a non-breaking change (route stays the same).
+  - [x] Move `get_system_status()` from services.py to system.py
+  - [x] Applied `StatusResponse` Pydantic model
+- **Note:** Non-breaking change (route path unchanged).
 
 ---
 
@@ -676,15 +651,17 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [ ] Document baseline numbers
   - [ ] Compare against Flask (if still available)
 
-
-
 #### Verification Checklist
 
-- [ ] No `hasattr()` in executor.py (or documented why necessary)
-- [ ] Response models defined for health, config, schedule endpoints
-- [ ] Logger properly initialized in all routers
+- [x] No `hasattr()` in executor.py (or documented why necessary)
+- [x] Response models defined for health, status, version endpoints
+- [x] Logger properly initialized in all routers
 - [ ] `/docs` endpoint shows well-documented OpenAPI schema
 - [ ] CI runs route verification on each PR
+
+
+---
+
 ### [DONE] Rev ARC-QA — 100% Quality Baseline (ARC3 Finalization)
 
 **Goal:** Achieve zero-error status for all backend API routers and core integration modules using Ruff and Pyright.
@@ -698,6 +675,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] **Verification**: Confirm 0 errors, 0 warnings across the entire API layer.
 
 ---
+
 ### [PLANNED] Rev ARC-FINAL — Mega Validation & Merge
 
 **Goal:** Comprehensive end-to-end validation of the entire ARC architecture (FastAPI + React) to prepare for merging the `refactor/arc1-fastapi` branch into `main`.

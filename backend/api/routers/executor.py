@@ -1,9 +1,9 @@
 import logging
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from ruamel.yaml import YAML
 
@@ -14,11 +14,16 @@ logger = logging.getLogger("darkstar.api.executor")
 router = APIRouter(tags=["executor"])
 
 # --- Executor Singleton ---
-_executor_engine = None
+_executor_engine: "ExecutorEngine | None" = None
 _executor_lock = threading.Lock()
 
 
 def get_executor_instance() -> "ExecutorEngine | None":
+    """Get or create the singleton ExecutorEngine instance.
+
+    Thread-safe singleton pattern using double-checked locking.
+    Returns None if executor cannot be initialized (e.g., missing dependencies).
+    """
     global _executor_engine
     if _executor_engine is None:
         with _executor_lock:
@@ -35,6 +40,22 @@ def get_executor_instance() -> "ExecutorEngine | None":
                 except Exception as e:
                     logger.error("Failed to initialize executor: %s", e)
     return _executor_engine
+
+
+def require_executor() -> "ExecutorEngine":
+    """FastAPI dependency that requires an executor instance.
+
+    Use with Depends() for endpoints that require a working executor.
+    Raises HTTPException 503 if executor is unavailable.
+    """
+    executor = get_executor_instance()
+    if executor is None:
+        raise HTTPException(503, "Executor service unavailable")
+    return executor
+
+
+# Type alias for dependency injection
+ExecutorDep = Annotated["ExecutorEngine", Depends(require_executor)]
 
 
 # --- Models ---
@@ -63,12 +84,13 @@ class PauseRequest(BaseModel):
     summary="Get Executor Status",
     description="Returns the current operational status of the executor.",
 )
-async def get_status() -> dict[str, Any]:
-    """Return current executor status."""
-    executor = get_executor_instance()
-    if executor is None:
-        return {"status": "error", "message": "Executor not available"}
+async def get_status(executor: ExecutorDep) -> dict[str, Any]:
+    """Return current executor status.
+
+    Uses FastAPI Depends() for clean dependency injection (Rev ARC4).
+    """
     return executor.get_status()
+
 
 
 @router.post(

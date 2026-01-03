@@ -271,52 +271,9 @@ async def get_water_today() -> dict[str, Any]:
     return {"kwh": kwh, "cost": 0.0, "source": "home_assistant"}
 
 
+
 # --- Services Endpoints ---
-
-
-@router_services.get(
-    "/api/status",
-    summary="Get System Status",
-    description="Get instantaneous system status (SoC, Power Flow).",
-)
-async def get_system_status() -> dict[str, Any]:
-    """Get instantaneous system status (SoC, Power Flow)."""
-    # Load sensors
-    config = load_yaml("config.yaml")
-    sensors: dict[str, Any] = config.get("input_sensors", {})
-
-    def get_val(key: str, default: float = 0.0) -> float:
-        eid = sensors.get(key)
-        if not eid:
-            return default
-        return get_home_assistant_sensor_float(str(eid)) or default
-
-    soc = get_val("battery_soc")
-    pv_pow = get_val("pv_power")
-    load_pow = get_val("load_power")
-    batt_pow = get_val("battery_power")
-    grid_pow = get_val("grid_power")
-
-    # Check if we didn't get grid power but have import/export
-    if grid_pow == 0.0:
-        # Fallback or calculation if separate sensors exist?
-        pass
-
-    return {
-        "status": "online",
-        "mode": "fastapi",
-        "rev": "ARC1",
-        "soc_percent": round(soc, 1),
-        "pv_power_kw": round(
-            pv_pow / 1000.0, 3
-        ),  # Sensors usually in W or kW? Inputs.py assumes W??
-        # get_home_assistant_sensor_float returns raw value.
-        # Usually HA power sensors from inverters are Watts.
-        # Let's assume W and convert to kW for consistency with dashboard expectations.
-        "load_power_kw": round(load_pow / 1000.0, 3),
-        "battery_power_kw": round(batt_pow / 1000.0, 3),
-        "grid_power_kw": round(grid_pow / 1000.0, 3),
-    }
+# NOTE: /api/status has been moved to system.py (Rev ARC4)
 
 
 @router_services.get(

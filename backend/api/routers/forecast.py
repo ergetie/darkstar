@@ -439,8 +439,14 @@ async def aurora_dashboard() -> dict[str, Any]:
 
 
 class BriefingRequest(BaseModel):
-    # Dynamic dict payload
-    pass
+    """Request body for Aurora briefing endpoint.
+
+    This accepts a dynamic JSON payload representing the dashboard state.
+    The payload is passed directly to the LLM for summarization.
+    """
+
+    model_config = {"extra": "allow"}
+
 
 
 @router.post(
