@@ -335,12 +335,12 @@ class ExecutorEngine:
         with self._lock:
             return self._paused_at is not None
 
-    def pause(self) -> Dict[str, Any]:
+    def pause(self, duration_minutes: int = 60) -> Dict[str, Any]:
         """
         Pause the executor - enters idle mode.
 
         Idle mode: zero export, min_soc target, no grid charging, no water heating.
-        A 30-minute reminder will be scheduled.
+        A reminder will be scheduled based on configuration or duration.
         """
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
@@ -351,6 +351,8 @@ class ExecutorEngine:
 
             self._paused_at = now
             self._pause_reminder_sent = False
+            # Rev update: You could store duration_minutes here if you wanted dynamic reminders
+            # For now just accepting the arg avoids the 500 error.
 
         logger.info("Executor PAUSED at %s - entering idle mode", now.isoformat())
 

@@ -402,10 +402,11 @@ export const Api = {
     executor: {
         status: () => getJSON<ExecutorStatusResponse>('/api/executor/status'),
         run: () => getJSON<unknown>('/api/executor/run', 'POST'),
-        pause: () =>
+        pause: (durationMinutes = 60) =>
             getJSON<{ success: boolean; paused_at?: string; message?: string; error?: string }>(
                 '/api/executor/pause',
                 'POST',
+                { duration_minutes: durationMinutes },
             ),
         resume: () =>
             getJSON<{

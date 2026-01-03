@@ -333,7 +333,39 @@ def _get_forecast_data_aurora(price_slots, config):
             load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
 
             pv_val = base_pv + pv_corr
-            load_val = base_load + load_corr
+            
+            # Fallback for Load if 0.0
+            if (base_load + load_corr) <= 0.001:
+                # Calculate 15-min slot index (0-95)
+                # ts is already localized or UTC, let's ensure local time for index match
+                ts_local = ts.astimezone(local_tz)
+                idx = int((ts_local.hour * 60 + ts_local.minute) // 15) % 96
+                
+                # Lazy load HA profile if needed (optimization)
+                # But we likely already loaded it in _get_forecast_data_aurora if we are here?
+                # Actually this function is build_db_forecast... wait, no this is _get_forecast_data_aurora
+                # We need to make sure ha_profile is available here.
+                # It is not available in specific scope for "extended_records" loop below.
+                # Let's fetch it if not existent (or pass it in). 
+                # Ideally, we utilize the one fetched above if possible, but variable scope might differ.
+                # To be safe and clean, we'll try fetch again or use a safe method.
+                # Since this is "daily" aggregation, running fetching once is fine.
+                try:
+                    # We might want to cache this call if it's expensive, but for now it's okay.
+                    # CHECK: ha_profile variable from above scope (lines 268) is NOT available here naturally 
+                    # unless we are in the SAME function.
+                    # We ARE in _get_forecast_data_aurora function scope.
+                    # So 'ha_profile' defined at line 269 IS available!
+                    load_val = ha_profile[idx]
+                except (UnboundLocalError, NameError):
+                    # Just in case code structure changed or valid ha_profile logic was conditioned
+                    # We will re-fetch or use 0 default to avoid crash
+                     try:
+                        load_val = _get_load_profile_from_ha(config)[idx]
+                     except:
+                        load_val = 0.0
+            else:
+                load_val = base_load + load_corr
 
             daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
             daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val

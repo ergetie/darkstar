@@ -403,10 +403,38 @@ export default function Executor() {
     useEffect(() => {
         const loadInitialLive = async () => {
             try {
-                const liveRes = await executorApi.live()
-                setLive(liveRes)
-            } catch {
-                // ignore
+                const data: any = await executorApi.live()
+                // Transform raw data to UI format (same as socket handler)
+                const formatted: any = {}
+
+                if (data.soc !== undefined)
+                    formatted.soc = { value: `${Number(data.soc).toFixed(0)}%`, numeric: Number(data.soc), unit: '%' }
+
+                if (data.pv_kw !== undefined)
+                    formatted.pv_power = { value: `${Number(data.pv_kw).toFixed(1)} kW`, numeric: Number(data.pv_kw) * 1000, unit: 'W' }
+
+                if (data.load_kw !== undefined)
+                    formatted.load_power = { value: `${Number(data.load_kw).toFixed(1)} kW`, numeric: Number(data.load_kw) * 1000, unit: 'W' }
+
+                if (data.grid_import_kw !== undefined)
+                    formatted.grid_import = {
+                        value: `${Number(data.grid_import_kw).toFixed(2)} kW`,
+                        numeric: Number(data.grid_import_kw) * 1000,
+                        unit: 'W',
+                    }
+
+                if (data.grid_export_kw !== undefined)
+                    formatted.grid_export = {
+                        value: `${Number(data.grid_export_kw).toFixed(2)} kW`,
+                        numeric: Number(data.grid_export_kw) * 1000,
+                        unit: 'W',
+                    }
+
+                if (data.work_mode) formatted.work_mode = { value: data.work_mode }
+
+                setLive(formatted)
+            } catch (e) {
+                console.error("Failed to load initial live metrics", e)
             }
         }
         loadInitialLive()
@@ -542,10 +570,10 @@ export default function Executor() {
                         Executor Control Center
                         <span
                             className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${status?.enabled
-                                    ? status?.shadow_mode
-                                        ? 'bg-warn/20 border-warn/50 text-warn'
-                                        : 'bg-good/20 border-good/50 text-good'
-                                    : 'bg-neutral/20 border-neutral/50 text-neutral'
+                                ? status?.shadow_mode
+                                    ? 'bg-warn/20 border-warn/50 text-warn'
+                                    : 'bg-good/20 border-good/50 text-good'
+                                : 'bg-neutral/20 border-neutral/50 text-neutral'
                                 }`}
                         >
                             {status?.enabled ? (status?.shadow_mode ? 'Shadow' : 'Active') : 'Disabled'}
@@ -590,10 +618,10 @@ export default function Executor() {
                             <div className="text-[11px] text-muted flex items-center gap-2 mt-1">
                                 <span
                                     className={`h-1.5 w-1.5 rounded-full ${status?.last_run_status === 'success'
-                                            ? 'bg-good'
-                                            : status?.last_run_status === 'error'
-                                                ? 'bg-bad'
-                                                : 'bg-neutral'
+                                        ? 'bg-good'
+                                        : status?.last_run_status === 'error'
+                                            ? 'bg-bad'
+                                            : 'bg-neutral'
                                         }`}
                                 />
                                 {status?.last_run_status === 'success'
@@ -694,8 +722,8 @@ export default function Executor() {
                             onClick={handleManualRun}
                             disabled={running}
                             className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface hover:bg-surface2 border border-line/50 text-[11px] font-medium transition-all ${running
-                                    ? 'opacity-70 cursor-not-allowed text-muted'
-                                    : 'text-text hover:border-accent/50'
+                                ? 'opacity-70 cursor-not-allowed text-muted'
+                                : 'text-text hover:border-accent/50'
                                 }`}
                         >
                             {running ? (
@@ -832,8 +860,8 @@ export default function Executor() {
                                             }}
                                             disabled={status?.quick_action?.type === action.type}
                                             className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${status?.quick_action?.type === action.type
-                                                    ? 'bg-accent/20 border-accent/40 text-accent'
-                                                    : action.btnClass
+                                                ? 'bg-accent/20 border-accent/40 text-accent'
+                                                : action.btnClass
                                                 }`}
                                         >
                                             {mins}m
@@ -861,10 +889,10 @@ export default function Executor() {
                     {live?.work_mode && (
                         <span
                             className={`text-[10px] px-2 py-0.5 rounded-full border ${live.work_mode.value.includes('Export')
-                                    ? status?.shadow_mode
-                                        ? 'bg-warn/20 border-warn/30 text-warn'
-                                        : 'bg-good/20 border-good/30 text-good'
-                                    : 'bg-water/20 border-water/30 text-water'
+                                ? status?.shadow_mode
+                                    ? 'bg-warn/20 border-warn/30 text-warn'
+                                    : 'bg-good/20 border-good/30 text-good'
+                                : 'bg-water/20 border-water/30 text-water'
                                 }`}
                         >
                             {live.work_mode.value}
@@ -881,10 +909,10 @@ export default function Executor() {
                         <div className="relative z-10 flex items-center gap-3">
                             <Battery
                                 className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50
-                                        ? 'text-good'
-                                        : (live?.soc?.numeric ?? 0) > 20
-                                            ? 'text-warn'
-                                            : 'text-bad'
+                                    ? 'text-good'
+                                    : (live?.soc?.numeric ?? 0) > 20
+                                        ? 'text-warn'
+                                        : 'text-bad'
                                     }`}
                             />
                             <div>
@@ -1054,8 +1082,8 @@ export default function Executor() {
                                 <div
                                     key={record.id}
                                     className={`rounded-xl border transition-all ${record.success
-                                            ? 'bg-surface2/30 border-line/40 hover:border-line/60'
-                                            : 'bg-bad/10 border-bad/30 hover:border-bad/50'
+                                        ? 'bg-surface2/30 border-line/40 hover:border-line/60'
+                                        : 'bg-bad/10 border-bad/30 hover:border-bad/50'
                                         }`}
                                 >
                                     {/* Header Row - Always visible, clickable */}
@@ -1399,8 +1427,8 @@ export default function Executor() {
                                 onClick={handleTestNotification}
                                 disabled={testingNotification}
                                 className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${testingNotification
-                                        ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
-                                        : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
+                                    ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
+                                    : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
                                     }`}
                             >
                                 {testingNotification ? (

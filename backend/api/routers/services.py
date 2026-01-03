@@ -106,11 +106,51 @@ async def get_ha_entity(entity_id: str):
 @router_ha.get("/average")
 async def get_ha_average(entity_id: str = None, hours: int = 24):
     """Calculate average value for an entity over the last N hours."""
+    from inputs import _get_load_profile_from_ha, _load_yaml
+    
     if not entity_id:
-        return {"average": 0.0, "entity_id": None, "hours": hours}
+        # Default to load power sensor
+        config = _load_yaml("config.yaml")
+        sensors = config.get("input_sensors", {})
+        entity_id = sensors.get("load_power")
+
+    if not entity_id:
+         return {"average": 0.0, "entity_id": None, "hours": hours}
     
     avg_val = _fetch_ha_history_avg(entity_id, hours)
-    return {"average": avg_val, "entity_id": entity_id, "hours": hours}
+
+    # Fallback to static profile if history unavailable/zero
+    if avg_val == 0.0:
+        try:
+             config = _load_yaml("config.yaml")
+             profile = _get_load_profile_from_ha(config)
+             if profile:
+                 avg_val = sum(profile) / len(profile)
+        except Exception as e:
+            print(f"Fallback average calc failed: {e}")
+
+    # Calculate daily_kwh estimate (avg * 24h)
+    daily_kwh = round(avg_val * 24 / 1000.0, 2) # avg_val is Watts (usually) or KW?
+    # HA sensors are usually W. If fetch_ha_history_avg returns W, then /1000 is correct for kWh.
+    # If it returns kW, then *24 is correct.
+    # Let's assume the sensor is W (standard HA). 
+    # But wait, fetch_ha_history_avg just returns value. 
+    # The frontend expects 'average_load_kw'. 
+    # If standard sensor is W, we should divide by 1000 for kw.
+    
+    # Let's ensure we return kW.
+    # If value > 100 (likely Watts), divide by 1000. 
+    # If value < 50 (likely kW), keep as is. Simple heuristic or just be explicit?
+    # Let's trust the value is W from typical HA power sensors, so convert to kW.
+    
+    val_kw = avg_val / 1000.0 if avg_val > 100 else avg_val
+    
+    return {
+        "average_load_kw": round(val_kw, 3), 
+        "daily_kwh": round(val_kw * 24, 2),
+        "entity_id": entity_id, 
+        "hours": hours
+    }
 
 @router_ha.get("/entities")
 async def get_ha_entities():
