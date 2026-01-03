@@ -108,7 +108,7 @@ class TestExecutorEngineInit:
                 schedule_path="schedule.json",
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     engine = ExecutorEngine("config.yaml")
@@ -127,7 +127,7 @@ class TestLoadCurrentSlot:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     engine = ExecutorEngine("config.yaml")
@@ -210,7 +210,7 @@ class TestParseSlotPlan:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
@@ -268,7 +268,7 @@ class TestQuickActions:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
@@ -328,7 +328,7 @@ class TestGetStatus:
                 schedule_path=temp_schedule,
                 timezone="Europe/Stockholm",
             )
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {}
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
@@ -373,7 +373,7 @@ class TestRunOnce:
             )
             mock_config.return_value = config
 
-            with patch("executor.engine._load_yaml") as mock_yaml:
+            with patch("executor.engine.load_yaml") as mock_yaml:
                 mock_yaml.return_value = {"input_sensors": {}}
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     engine = ExecutorEngine("config.yaml")

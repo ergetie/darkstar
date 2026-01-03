@@ -11,12 +11,14 @@ import aiosqlite
 
 from fastapi import APIRouter, HTTPException, Query
 
+from typing import Any, cast, Optional
+
 logger = logging.getLogger("darkstar.api.learning")
 
 router = APIRouter(tags=["learning"])
 
 
-def _get_learning_engine():
+def _get_learning_engine() -> Any:
     """Get the learning engine instance."""
     from backend.learning import get_learning_engine
 
@@ -48,8 +50,9 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)):
     """Return learning engine run history."""
     try:
         engine = _get_learning_engine()
+        db_path = str(getattr(engine, "db_path", ""))
 
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(db_path) as conn:
             async with conn.execute(
                 """
                 SELECT id, started_at, status, result_metrics_json, params_json
@@ -89,15 +92,24 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)):
 async def learning_run():
     """Trigger learning orchestration manually."""
     try:
-        engine = _get_learning_engine()
-        from backend.learning import NightlyOrchestrator
+        from backend.learning.reflex import AuroraReflex
+        from ml.train import train_models
 
-        orchestrator = NightlyOrchestrator(engine)
-        result = orchestrator.run_nightly_job()
+        # Run Reflex
+        reflex = AuroraReflex()
+        reflex_report = reflex.run(dry_run=False)
 
-        return result
+        # Run Training (Sync, blocking for now)
+        # TODO: Offload to background task
+        train_models(days_back=90, min_samples=100)
+
+        return {
+            "status": "success",
+            "reflex_report": reflex_report,
+            "message": "Learning run completed (Reflex + Train)",
+        }
     except ImportError:
-        return {"status": "error", "message": "NightlyOrchestrator not available"}
+        return {"status": "error", "message": "Reflex or ML module not available"}
     except Exception as e:
         logger.exception("Failed to run learning")
         raise HTTPException(status_code=500, detail=str(e))
@@ -112,10 +124,11 @@ async def learning_loops():
     """Get status of individual learning loops."""
     try:
         engine = _get_learning_engine()
+        db_path = str(getattr(engine, "db_path", ""))
 
         # Get loop statuses from database
         loops_status = {}
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(db_path) as conn:
             # Check for learning_loops table
             async with conn.execute("""
                 SELECT name FROM sqlite_master 
@@ -157,8 +170,9 @@ async def learning_daily_metrics():
     """Get latest daily metrics from learning engine."""
     try:
         engine = _get_learning_engine()
+        db_path = str(getattr(engine, "db_path", ""))
 
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(db_path) as conn:
             # Check if table exists
             async with conn.execute("""
                 SELECT name FROM sqlite_master 
@@ -198,8 +212,9 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
     """Return recent learning configuration changes."""
     try:
         engine = _get_learning_engine()
+        db_path = str(getattr(engine, "db_path", ""))
 
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(db_path) as conn:
             # Check if table exists
             async with conn.execute("""
                 SELECT name FROM sqlite_master 

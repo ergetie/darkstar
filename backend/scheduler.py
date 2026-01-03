@@ -51,7 +51,7 @@ def _ensure_data_dir() -> None:
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _load_yaml(path: str) -> dict[str, Any]:
+def load_yaml(path: str) -> dict[str, Any]:
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -61,7 +61,7 @@ def _load_yaml(path: str) -> dict[str, Any]:
 
 
 def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
-    cfg = _load_yaml(config_path)
+    cfg = load_yaml(config_path)
     
     automation: dict[str, Any] = cfg.get("automation", {}) if isinstance(cfg.get("automation"), dict) else {}
         
@@ -115,7 +115,7 @@ def check_dependencies(cfg_or_dict: Any) -> bool:
     """Check availability of critical dependencies (HA) before retrying."""
 
     # We need the FULL config to get HA URL/Token, not just SchedulerConfig wrapper.
-    full_cfg = _load_yaml("config.yaml")
+    full_cfg = load_yaml("config.yaml")
 
     raw_ha = full_cfg.get("home_assistant", {})
     ha_cfg: dict[str, Any] = cast(dict[str, Any], raw_ha) if isinstance(raw_ha, dict) else {}

@@ -398,7 +398,7 @@ class ExecutionHistory:
             }
 
         # Sort by start_time and assign slot numbers, remove internal fields
-        preserved = []
+        preserved: list[dict[str, Any]] = []
         for i, slot_start in enumerate(sorted(slot_map.keys())):
             slot = slot_map[slot_start]
             slot["slot_number"] = i + 1

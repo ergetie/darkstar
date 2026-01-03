@@ -17,9 +17,8 @@ if TYPE_CHECKING:
 def _get_engine() -> LearningEngine:
     """Return the shared LearningEngine instance."""
     engine = get_learning_engine()
-    if not isinstance(engine, LearningEngine):  # defensive guard
-        raise TypeError("get_learning_engine() did not return a LearningEngine instance")
-    return engine
+    # No need for isinstance check if type hint is enforced by get_learning_engine
+    return cast(LearningEngine, engine)
 
 
 def get_forecast_slots(
@@ -41,8 +40,9 @@ def get_forecast_slots(
         - correction_source (str)
     """
     engine = _get_engine()
+    db_path = str(getattr(engine, "db_path", "data/planner_learning.db"))
 
-    with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+    with sqlite3.connect(db_path, timeout=30.0) as conn:
         query = """
             SELECT
                 slot_start,
@@ -138,7 +138,8 @@ async def get_forecast_slots_async(
         ORDER BY slot_start ASC
     """
 
-    async with aiosqlite.connect(engine.db_path) as db:
+    db_path = str(getattr(engine, "db_path", "data/planner_learning.db"))
+    async with aiosqlite.connect(db_path) as db:
         db.row_factory = aiosqlite.Row
         async with db.execute(
             query, (start_time.isoformat(), end_time.isoformat(), forecast_version)

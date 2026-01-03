@@ -3,7 +3,7 @@ from typing import Any
 
 from fastapi import APIRouter, Body, HTTPException
 
-from inputs import _load_yaml, load_home_assistant_config, load_notification_secrets
+from inputs import load_yaml, load_home_assistant_config, load_notification_secrets
 
 router = APIRouter(tags=["config"])
 
@@ -13,10 +13,10 @@ router = APIRouter(tags=["config"])
     summary="Get System Configuration",
     description="Returns sanitized configuration with secrets redacted.",
 )
-async def get_config():
+async def get_config() -> dict[str, Any]:
     """Get sanitized config."""
     try:
-        conf = _load_yaml("config.yaml") or {}
+        conf: dict[str, Any] = load_yaml("config.yaml") or {}
 
         # Merge Home Assistant secrets
         ha_secrets = load_home_assistant_config()
@@ -60,17 +60,8 @@ async def save_config(payload: dict[str, Any] = Body(...)):
 
         # We might want to merge payload into existing to preserve comments?
         # Or just dump. webapp.py usually did a load-update-dump cycle using ruamel.
-        with open("config.yaml", encoding="utf-8") as f:
-            data = yaml_handler.load(f) or {}
-
-        # Recursive update or specific sections?
-        # webapp.py usually replaced specific sections or the whole thing.
-        # Let's assume payload is the full config or specific keys?
-        # webapp.py implementation:
-        # data.update(payload) basically.
-
         # Deep merge helper
-        def deep_update(source, overrides):
+        def deep_update(source: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
             for key, value in overrides.items():
                 if isinstance(value, dict) and value:
                     returned = deep_update(source.get(key, {}), value)
@@ -79,7 +70,9 @@ async def save_config(payload: dict[str, Any] = Body(...)):
                     source[key] = overrides[key]
             return source
 
-        deep_update(data, payload)
+        with open("config.yaml", encoding="utf-8") as f:
+            data: dict[str, Any] = yaml_handler.load(f) or {}
+            deep_update(data, payload)
 
         with open("config.yaml", "w", encoding="utf-8") as f:
             yaml_handler.dump(data, f)

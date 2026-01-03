@@ -395,7 +395,7 @@ backend/
 ```
 
 ### Key Patterns
-- **Executor Singleton**: Thread-safe access via `_get_executor()` with lock
+- **Executor Singleton**: Thread-safe access via `get_executor_instance()` with lock
 - **Sync→Async Bridge**: `ws_manager.emit_sync()` schedules coroutines from sync threads
 - **ASGI Wrapping**: Socket.IO ASGIApp wraps FastAPI for WebSocket support
 

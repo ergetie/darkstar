@@ -11,7 +11,6 @@ from datetime import datetime
 from typing import Any
 
 import pytz
-import pytz
 import httpx
 import yaml
 
@@ -43,7 +42,7 @@ class HealthStatus:
     """Overall system health status."""
 
     healthy: bool
-    issues: list[HealthIssue] = field(default_factory=list)
+    issues: list[HealthIssue] = field(default_factory=list[HealthIssue])
     checked_at: str = ""
 
     def __post_init__(self):
@@ -73,8 +72,8 @@ class HealthChecker:
 
     def __init__(self, config_path: str = "config.yaml"):
         self.config_path = config_path
-        self._config: dict | None = None
-        self._secrets: dict | None = None
+        self._config: dict[str, Any] = {}
+        self._secrets: dict[str, Any] = {}
 
     async def check_all(self) -> HealthStatus:
         """Run all health checks and return combined status."""
@@ -253,15 +252,6 @@ class HealthChecker:
                     )
                 )
 
-        except httpx.RequestError as e:
-            issues.append(
-                HealthIssue(
-                    category="ha_connection",
-                    severity="critical",
-                    message=f"Cannot connect to Home Assistant: {e}",
-                    guidance=f"Check that Home Assistant is running and reachable at {url}",
-                )
-            )
         except httpx.TimeoutException:
             issues.append(
                 HealthIssue(
@@ -269,6 +259,15 @@ class HealthChecker:
                     severity="critical",
                     message="Home Assistant connection timed out",
                     guidance="Home Assistant is slow or unreachable. Check network connectivity.",
+                )
+            )
+        except httpx.RequestError as e:
+            issues.append(
+                HealthIssue(
+                    category="ha_connection",
+                    severity="critical",
+                    message=f"Cannot connect to Home Assistant: {e}",
+                    guidance=f"Check that Home Assistant is running and reachable at {url}",
                 )
             )
         except Exception as e:
@@ -298,7 +297,7 @@ class HealthChecker:
             return issues
 
         # Collect all entity IDs from config
-        entities_to_check: list[tuple] = []  # (entity_id, config_key)
+        entities_to_check: list[tuple[str, str]] = []  # (entity_id, config_key)
 
         # Input sensors
         input_sensors = self._config.get("input_sensors", {})
@@ -343,34 +342,33 @@ class HealthChecker:
                         headers=headers,
                     )
 
-                if response.status_code == 404:
-                    issues.append(
-                        HealthIssue(
-                            category="entity",
-                            severity="critical",
-                            message=f"Entity not found: {entity_id}",
-                            guidance=f"Check that '{entity_id}' exists in Home Assistant. Update {config_key} in config.yaml if renamed.",
-                            entity_id=entity_id,
-                        )
-                    )
-                elif response.status_code == 200:
-                    # Check for unavailable state
-                    state_data = response.json()
-                    state_value = state_data.get("state")
-                    if state_value == "unavailable":
+                    if response.status_code == 404:
                         issues.append(
                             HealthIssue(
                                 category="entity",
-                                severity="warning",
-                                message=f"Entity unavailable: {entity_id}",
-                                guidance=f"The entity '{entity_id}' exists but is currently unavailable. Check your device/integration.",
+                                severity="critical",
+                                message=f"Entity not found: {entity_id}",
+                                guidance=f"Check that '{entity_id}' exists in Home Assistant. Update {config_key} in config.yaml if renamed.",
                                 entity_id=entity_id,
                             )
                         )
-
-            except httpx.RequestError:
-                # Connection issues already reported in check_ha_connection
-                pass
+                    elif response.status_code == 200:
+                        # Check for unavailable state
+                        state_data = response.json()
+                        state_value = state_data.get("state")
+                        if state_value == "unavailable":
+                            issues.append(
+                                HealthIssue(
+                                    category="entity",
+                                    severity="warning",
+                                    message=f"Entity unavailable: {entity_id}",
+                                    guidance=f"The entity '{entity_id}' exists but is currently unavailable. Check your device/integration.",
+                                    entity_id=entity_id,
+                                )
+                            )
+                except httpx.RequestError:
+                    # Connection issues already reported in check_ha_connection
+                    pass
 
         return issues
 

@@ -5,7 +5,7 @@ import threading
 
 import websockets
 
-from inputs import _load_yaml, load_home_assistant_config
+from inputs import load_yaml, load_home_assistant_config
 
 logger = logging.getLogger("darkstar.ha_socket")
 
@@ -30,7 +30,7 @@ class HAWebSocketClient:
     def _get_monitored_entities(self) -> dict[str, str]:
         # Load config to map entity_id -> metric_key
         try:
-            cfg = _load_yaml("config.yaml")
+            cfg = load_yaml("config.yaml")
             sensors = cfg.get("input_sensors", {})
             # Map: entity_id -> key (e.g. 'sensor.inverter_battery' -> 'soc')
             mapping = {}

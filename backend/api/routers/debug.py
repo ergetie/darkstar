@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 import pytz
 import aiosqlite
 from fastapi import APIRouter, HTTPException, Query
+from backend.learning import get_learning_engine
 
 logger = logging.getLogger("darkstar.api.debug")
 
@@ -118,8 +119,9 @@ async def historic_soc(date: str = Query("today")):
 
         # Get learning engine and query historic SoC data
         engine = get_learning_engine()
+        db_path = str(getattr(engine, "db_path", ""))
 
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(db_path) as conn:
             query = """
                 SELECT slot_start, soc_end_percent, quality_flags
                 FROM slot_observations
@@ -169,7 +171,7 @@ async def get_performance_metrics(days: int = Query(7, ge=1, le=90)):
         return {"soc_series": [], "cost_series": []}
 
 
-from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, _load_yaml
+from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, load_yaml
 
 
 @router.get(
@@ -180,7 +182,7 @@ from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, _load_yam
 async def debug_load_profile():
     """Debug endpoint to test HA load profile fetching."""
     try:
-        conf = _load_yaml("config.yaml") or {}
+        conf = load_yaml("config.yaml") or {}
         try:
             profile = _get_load_profile_from_ha(conf)
             return {

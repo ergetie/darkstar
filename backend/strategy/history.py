@@ -35,7 +35,7 @@ def append_strategy_event(
         "details": details or {},
     }
 
-    history = []
+    history: list[dict[str, Any]] = []
     try:
         if os.path.exists(HISTORY_FILE):
             with open(HISTORY_FILE) as f:

@@ -4,14 +4,16 @@ from backend.core.websockets import ws_manager
 
 logger = logging.getLogger("darkstar.events")
 
+from typing import Any
+
 # Caches for latest state (Rev U7/U22)
 # We can use a simple dict if we assume the manager handles threading safety for us,
 # but keeping a local cache for 'connect' handling is good.
-_LATEST_METRICS = {}
-_LATEST_STATUS = {}
+_LATEST_METRICS: dict[str, Any] = {}
+_LATEST_STATUS: dict[str, Any] = {}
 
 
-def emit_status_update(status_data: dict):
+def emit_status_update(status_data: dict[str, Any]):
     """Broadcast executor status update (Thread-safe)."""
     if not isinstance(status_data, dict):
         return
@@ -20,7 +22,7 @@ def emit_status_update(status_data: dict):
     ws_manager.emit_sync("executor_status", status_data)
 
 
-def emit_live_metrics(live_data: dict):
+def emit_live_metrics(live_data: dict[str, Any]):
     """Broadcast live metrics (Thread-safe)."""
     if not isinstance(live_data, dict):
         return
@@ -33,14 +35,14 @@ def emit_plan_updated():
     ws_manager.emit_sync("plan_updated", {"timestamp": "now"})
 
 
-def emit_ha_entity_change(entity_id: str, state: str, attributes: dict = None):
+def emit_ha_entity_change(entity_id: str, state: str, attributes: dict[str, Any] | None = None):
     """Broadcast HA entity change."""
     filtered = {
         k: v
         for k, v in (attributes or {}).items()
         if k in ["unit_of_measurement", "icon", "friendly_name", "device_class"]
     }
-    payload = {"entity_id": entity_id, "state": state, "attributes": filtered}
+    payload: dict[str, Any] = {"entity_id": entity_id, "state": state, "attributes": filtered}
     ws_manager.emit_sync("ha_entity_change", payload)
 
 
@@ -50,7 +52,7 @@ def emit_ha_entity_change(entity_id: str, state: str, attributes: dict = None):
 
 
 @ws_manager.sio.on("connect")
-async def handle_connect(sid, environ):
+async def handle_connect(sid: str, environ: dict[str, Any]):
     logger.info(f"🔌 Client connected: {sid}")
     # Send cached state
     if _LATEST_METRICS:
@@ -60,5 +62,5 @@ async def handle_connect(sid, environ):
 
 
 @ws_manager.sio.on("disconnect")
-async def handle_disconnect(sid):
+async def handle_disconnect(sid: str):
     logger.info(f"Client disconnected: {sid}")

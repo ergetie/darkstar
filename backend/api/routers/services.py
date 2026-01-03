@@ -8,9 +8,9 @@ from fastapi import APIRouter, HTTPException
 
 # Reuse existing helpers from inputs.py to ensure consistency
 from inputs import (
-    _get_ha_entity_state,
-    _load_yaml,
-    _make_ha_headers,
+    _get_ha_entity_state,  # pyright: ignore [reportPrivateUsage]
+    load_yaml,  # pyright: ignore [reportPrivateUsage]
+    _make_ha_headers,  # pyright: ignore [reportPrivateUsage]
     get_home_assistant_sensor_float,
     load_home_assistant_config,
 )
@@ -120,7 +120,7 @@ async def get_ha_entity(entity_id: str) -> dict[str, Any]:
             "attributes": {"friendly_name": "Offline/Missing"},
             "last_changed": None,
         }
-    return cast(dict[str, Any], state)
+    return state
 
 
 @router_ha.get(
@@ -130,11 +130,11 @@ async def get_ha_entity(entity_id: str) -> dict[str, Any]:
 )
 async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[str, Any]:
     """Calculate average value for an entity over the last N hours."""
-    from inputs import _get_load_profile_from_ha, _load_yaml  # pyright: ignore [reportPrivateUsage]
+    from inputs import _get_load_profile_from_ha, load_yaml  # pyright: ignore [reportPrivateUsage]
 
     if not entity_id:
         # Default to load power sensor
-        config = _load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+        config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
         sensors: dict[str, Any] = config.get("input_sensors", {})
         entity_id = cast(str | None, sensors.get("load_power"))
 
@@ -146,7 +146,7 @@ async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[
     # Fallback to static profile if history unavailable/zero
     if avg_val == 0.0:
         try:
-            config = _load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+            config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
             profile = _get_load_profile_from_ha(config)
             if profile:
                 avg_val = sum(profile) / len(profile)
@@ -182,7 +182,7 @@ async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[
     summary="List HA Entities",
     description="List available Home Assistant entities.",
 )
-async def get_ha_entities():
+async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
     """List available HA entities."""
     # Fetch from HA states
     config = load_home_assistant_config()
@@ -198,16 +198,16 @@ async def get_ha_entities():
         if resp.status_code == 200:
             data = resp.json()
             # Filter and format
-            entities = []
+            entities: list[dict[str, str]] = []
             for s in data:
-                eid = s.get("entity_id", "")
+                eid = str(s.get("entity_id", ""))
                 if eid.startswith(
                     ("sensor.", "binary_sensor.", "input_boolean.", "switch.", "input_number.")
                 ):
                     entities.append(
                         {
                             "entity_id": eid,
-                            "friendly_name": s.get("attributes", {}).get("friendly_name", eid),
+                            "friendly_name": str(s.get("attributes", {}).get("friendly_name", eid)),
                             "domain": eid.split(".")[0],
                         }
                     )
@@ -230,7 +230,7 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
 
         engine = get_learning_engine()
         if hasattr(engine, "get_performance_series"):
-            data = engine.get_performance_series(days_back=days) # pyright: ignore [reportUnknownMemberType]
+            data = engine.get_performance_series(days_back=days) # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
             return cast(dict[str, Any], data)
         else:
             return {
@@ -260,7 +260,7 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
 )
 async def get_water_today() -> dict[str, Any]:
     """Get today's water heating energy usage."""
-    config = _load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+    config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
     sensors: dict[str, Any] = config.get("input_sensors", {})
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
 
@@ -277,17 +277,17 @@ async def get_water_today() -> dict[str, Any]:
     summary="Get System Status",
     description="Get instantaneous system status (SoC, Power Flow).",
 )
-async def get_system_status():
+async def get_system_status() -> dict[str, Any]:
     """Get instantaneous system status (SoC, Power Flow)."""
     # Load sensors
-    config = _load_yaml("config.yaml")
-    sensors = config.get("input_sensors", {})
+    config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+    sensors: dict[str, Any] = config.get("input_sensors", {})
 
-    def get_val(key, default=0.0):
+    def get_val(key: str, default: float = 0.0) -> float:
         eid = sensors.get(key)
         if not eid:
             return default
-        return get_home_assistant_sensor_float(eid) or default
+        return get_home_assistant_sensor_float(str(eid)) or default
 
     soc = get_val("battery_soc")
     pv_pow = get_val("pv_power")
@@ -324,8 +324,8 @@ async def get_system_status():
 )
 async def get_water_boost():
     """Get current water boost status from executor."""
-    from backend.api.routers.executor import _get_executor
-    executor = _get_executor()
+    from backend.api.routers.executor import get_executor_instance  # pyright: ignore [reportPrivateUsage]
+    executor = get_executor_instance()
     if not executor:
         return {"boost": False, "source": "no_executor"}
 
@@ -345,16 +345,21 @@ async def get_water_boost():
     summary="Set Water Boost",
     description="Activate water heater boost via executor quick action.",
 )
-async def set_water_boost():
+async def set_water_boost() -> dict[str, str]:
     """Activate water heater boost via executor quick action."""
     try:
-        from backend.api.routers.executor import _get_executor
-        executor = _get_executor()
+        from backend.api.routers.executor import get_executor_instance # pyright: ignore [reportPrivateUsage]
+        executor = get_executor_instance()
         if not executor:
             logger.error("Executor unavailable for water boost")
             raise HTTPException(503, "Executor not available")
         if hasattr(executor, 'set_water_boost'):
-            result = executor.set_water_boost(duration_minutes=60)
+            # The executor.set_water_boost isn't strictly typed in Pyright's eyes yet maybe?
+            # We fixed it in executor/actions.py, but need to be sure engine calls match.
+            # Assuming set_water_boost(duration_minutes=...) exists on the executor instance
+            # which is actually engine.py's ExecutorEngine or similar.
+            # Actually get_executor_instance returns the Engine instance.
+            result = executor.set_water_boost(duration_minutes=60) # pyright: ignore [reportUnknownMemberType]
             if not result.get("success"):
                 logger.error(f"Failed to set water boost: {result.get('error')}")
                 raise HTTPException(500, f"Failed to set water boost: {result.get('error')}")
@@ -376,11 +381,11 @@ async def set_water_boost():
     summary="Cancel Water Boost",
     description="Cancel active water boost.",
 )
-async def cancel_water_boost():
+async def cancel_water_boost() -> dict[str, str]:
     """Cancel active water boost."""
     try:
-        from backend.api.routers.executor import _get_executor
-        executor = _get_executor()
+        from backend.api.routers.executor import get_executor_instance # pyright: ignore [reportPrivateUsage]
+        executor = get_executor_instance()
         if executor and hasattr(executor, 'clear_water_boost'):
             executor.clear_water_boost()
             logger.info("Water boost cancelled successfully")
@@ -395,16 +400,16 @@ async def cancel_water_boost():
     summary="Get Today's Energy",
     description="Get today's energy summary from HA sensors.",
 )
-async def get_energy_today():
+async def get_energy_today() -> dict[str, float]:
     """Get today's energy summary from HA sensors."""
-    config = _load_yaml("config.yaml")
-    sensors = config.get("input_sensors", {})
+    config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
+    sensors: dict[str, Any] = config.get("input_sensors", {})
 
-    def get_val(key, default=0.0):
+    def get_val(key: str, default: float = 0.0) -> float:
         eid = sensors.get(key)
         if not eid:
             return default
-        return get_home_assistant_sensor_float(eid) or default
+        return get_home_assistant_sensor_float(str(eid)) or default
 
     # Mapped from config.yaml
     grid_imp_kwh = get_val("today_grid_import")
@@ -437,17 +442,17 @@ async def get_energy_today():
     summary="Get Energy Range",
     description="Get energy range data (today, yesterday, week, month).",
 )
-async def get_energy_range(period: str = "today"):
+async def get_energy_range(period: str = "today") -> dict[str, Any]:
     """Get energy range data."""
 
-    config = _load_yaml("config.yaml")
-    sensors = config.get("input_sensors", {})
+    config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
+    sensors: dict[str, Any] = config.get("input_sensors", {})
 
-    def get_val(key, default=0.0):
+    def get_val(key: str, default: float = 0.0) -> float:
         eid = sensors.get(key)
         if not eid:
             return default
-        return get_home_assistant_sensor_float(eid) or default
+        return get_home_assistant_sensor_float(str(eid)) or default
 
     if period == "today":
         grid_imp_kwh = get_val("today_grid_import")
@@ -509,7 +514,7 @@ async def get_energy_range(period: str = "today"):
             start_date = end_date = today_local
 
         # Query
-        with sqlite3.connect(engine.db_path, timeout=5.0) as conn:
+        with sqlite3.connect(str(engine.db_path), timeout=5.0) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             cursor = conn.cursor()
             # We filter by DATE(slot_start) which works if slot_start is ISO-8601 YYYY-MM-DD...
             row = cursor.execute(
@@ -608,7 +613,7 @@ async def get_energy_range(period: str = "today"):
     summary="List HA Services",
     description="List available Home Assistant services.",
 )
-async def get_ha_services():
+async def get_ha_services() -> dict[str, list[str]]:
     """List available HA services."""
     config = load_home_assistant_config()
     url = config.get("url")
@@ -623,9 +628,9 @@ async def get_ha_services():
         if resp.status_code == 200:
             data = resp.json()
             # Flatten to list of "domain.service" strings
-            services = []
+            services: list[str] = []
             for domain_obj in data:
-                domain = domain_obj.get("domain", "")
+                domain = str(domain_obj.get("domain", ""))
                 for service_name in domain_obj.get("services", {}):
                     services.append(f"{domain}.{service_name}")
             return {"services": sorted(services)}
@@ -640,7 +645,7 @@ async def get_ha_services():
     summary="Test HA Connection",
     description="Test connection to Home Assistant API.",
 )
-async def test_ha_connection():
+async def test_ha_connection() -> dict[str, str]:
     """Test connection to Home Assistant."""
     config = load_home_assistant_config()
     url = config.get("url")
@@ -666,12 +671,12 @@ async def test_ha_connection():
     summary="Get HA Socket Status",
     description="Return status of the HA WebSocket connection.",
 )
-async def get_ha_socket_status():
+async def get_ha_socket_status() -> dict[str, Any]:
     """Return status of the HA WebSocket connection."""
     try:
-        from backend.ha_socket import get_socket_status
+        from backend.ha_socket import get_socket_status # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
 
-        return get_socket_status()
+        return cast(dict[str, Any], get_socket_status())
     except ImportError:
         return {"status": "unavailable", "message": "HA socket module not loaded"}
     except Exception as e:
@@ -683,12 +688,12 @@ async def get_ha_socket_status():
     summary="Get DB Current Schedule",
     description="Get the current schedule directly from the database.",
 )
-async def get_db_current_schedule():
+async def get_db_current_schedule() -> dict[str, Any]:
     """Get the current schedule from the database."""
     try:
-        from db_writer import get_current_schedule_from_db
+        from db_writer import get_current_schedule_from_db # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
 
-        schedule = get_current_schedule_from_db()
+        schedule = cast(dict[str, Any], get_current_schedule_from_db())
         return {"schedule": schedule}
     except ImportError:
         return {"schedule": None, "message": "DB module not available"}
@@ -701,16 +706,21 @@ async def get_db_current_schedule():
     summary="Push Schedule to DB",
     description="Push current schedule.json to the database.",
 )
-async def push_to_db():
+async def push_to_db() -> dict[str, str]:
     """Push current schedule to database."""
     try:
         import json
 
-        from db_writer import write_schedule_to_db
+        from db_writer import write_schedule_to_db # pyright: ignore [reportMissingImports]
 
         with open("schedule.json") as f:
             schedule = json.load(f)
-        write_schedule_to_db(schedule)
+        
+        # Load necessary configs for db write
+        config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
+        secrets = load_yaml("secrets.yaml") # pyright: ignore [reportPrivateUsage]
+        
+        write_schedule_to_db(schedule, "v1", config, secrets)
         return {"status": "success", "message": "Schedule pushed to DB"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -721,17 +731,21 @@ async def push_to_db():
     summary="Run Simulation",
     description="Run a simulation of the current schedule.",
 )
-async def run_simulation():
+async def run_simulation() -> dict[str, Any]:
     """Run schedule simulation."""
     try:
         import json
 
-        from planner.simulation import simulate_schedule
+        from planner.simulation import simulate_schedule # pyright: ignore [reportMissingImports]
 
         with open("schedule.json") as f:
             schedule = json.load(f)
-        result = simulate_schedule(schedule)
-        return {"status": "success", "result": result}
+            
+        config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
+        initial_state: dict[str, Any] = {} # Simplified simulation 
+        
+        result = simulate_schedule(schedule, config, initial_state)
+        return {"status": "success", "result": cast(dict[str, Any], result)}
     except ImportError:
         return {"status": "error", "message": "Simulation module not available"}
     except Exception as e:

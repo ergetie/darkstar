@@ -164,7 +164,7 @@ class HAClient:
             return False
 
         domain, svc_name = parts
-        payload = {
+        payload: dict[str, Any] = {
             "title": title,
             "message": message,
         }
@@ -233,7 +233,7 @@ class ActionDispatcher:
 
         # 6. Set water heater target (Rev O1)
         if self.config.has_water_heater:
-            result = self._set_water_temp(decision.water_temp)
+            result = self.set_water_temp(decision.water_temp)
             results.append(result)
 
         return results
@@ -441,7 +441,7 @@ class ActionDispatcher:
             duration_ms=duration,
         )
 
-    def _set_water_temp(self, target: int) -> ActionResult:
+    def set_water_temp(self, target: int) -> ActionResult:
         """Set water heater target temperature."""
         start = time.time()
         entity = self.config.water_heater.target_entity

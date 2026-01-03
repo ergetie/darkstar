@@ -37,7 +37,7 @@ class OracleConfig:
     wear_cost_sek_per_kwh: float
 
 
-def _load_yaml(path: str) -> dict[str, Any]:
+def load_yaml(path: str) -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as fp:
             return yaml.safe_load(fp) or {}
@@ -48,7 +48,7 @@ def _load_yaml(path: str) -> dict[str, Any]:
 
 
 def _load_oracle_config(config_path: str, loader: SimulationDataLoader) -> OracleConfig:
-    cfg = _load_yaml(config_path)
+    cfg = load_yaml(config_path)
     system_cfg = cfg.get("system", {}) or {}
     battery_cfg = system_cfg.get("battery", {}) or {}
     learning_cfg = cfg.get("learning", {}) or {}

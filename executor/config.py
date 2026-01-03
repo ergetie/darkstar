@@ -95,6 +95,19 @@ class ExecutorConfig:
     has_water_heater: bool = True
 
 
+def load_yaml(path: str) -> dict[str, Any]:
+    """Load YAML file with strict typing."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            raw_data = yaml.safe_load(f)
+            return cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        logger.error("Failed to load YAML %s: %s", path, e)
+        return {}
+
+
 def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     """
     Load executor configuration from config.yaml.
@@ -104,7 +117,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     try:
         with open(config_path, encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
-            data: dict[str, Any] = raw_data if isinstance(raw_data, dict) else {}
+            data: dict[str, Any] = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
     except FileNotFoundError:
         logger.warning("Config file not found at %s, using defaults", config_path)
         return ExecutorConfig()

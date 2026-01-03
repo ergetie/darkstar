@@ -4,11 +4,13 @@ import sys
 from fastapi import APIRouter
 import contextlib
 
+from typing import Any
+
 router = APIRouter(tags=["legacy"])
 
 
 @router.post("/api/run_planner")
-async def run_planner():
+async def run_planner() -> dict[str, str]:
     """Manually trigger the planner via subprocess (non-blocking)."""
 
     try:
@@ -42,7 +44,7 @@ async def run_planner():
 
 
 @router.get("/api/initial_state")
-async def initial_state():
+async def initial_state() -> dict[str, Any]:
     """Bootstrap state for frontend."""
     # Simplified version
     return {"user": {"name": "User"}, "config": {}, "notifications": []}

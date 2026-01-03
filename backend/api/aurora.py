@@ -5,8 +5,9 @@ import logging
 import os
 import sqlite3
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 import pytz
 import requests
@@ -14,9 +15,9 @@ from flask import Blueprint, jsonify, request
 
 from backend.learning import get_learning_engine
 from backend.strategy.history import get_strategy_history
-from inputs import _load_yaml
+from inputs import load_yaml  # pyright: ignore [reportPrivateUsage]
 from ml.api import get_forecast_slots
-from ml.weather import get_weather_volatility
+from ml.weather import get_weather_volatility  # pyright: ignore [reportUnknownVariableType]
 
 logger = logging.getLogger("darkstar.aurora")
 
@@ -36,7 +37,7 @@ def _get_timezone() -> pytz.BaseTzInfo:
         pass
 
     try:
-        config = _load_yaml("config.yaml")
+        config = load_yaml("config.yaml")
         tz_name = config.get("timezone", "Europe/Stockholm")
     except Exception:
         tz_name = "Europe/Stockholm"
@@ -54,7 +55,7 @@ def _get_engine_and_config() -> tuple[Any, dict[str, Any]]:
         logger.warning("Failed to get learning engine: %s", exc)
 
     try:
-        config = _load_yaml("config.yaml")
+        config = load_yaml("config.yaml")
     except Exception:
         config = {}
 
@@ -97,7 +98,7 @@ def _compute_risk_profile(config: dict[str, Any]) -> dict[str, Any]:
     """
     Derive human-readable risk persona from s_index configuration.
     """
-    s_cfg = config.get("s_index") or {}
+    s_cfg: dict[str, Any] = config.get("s_index") or {}
     base_factor_raw = s_cfg.get("base_factor", 1.0)
     risk_appetite = int(s_cfg.get("risk_appetite", 3))
 
@@ -192,8 +193,8 @@ def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]
         slot_start += timedelta(minutes=15)
     horizon_end = slot_start + timedelta(hours=48)
 
-    forecasting_cfg = config.get("forecasting") or {}
-    active_version = forecasting_cfg.get("active_forecast_version", "aurora")
+    forecasting_cfg: dict[str, Any] = config.get("forecasting") or {}
+    active_version = str(forecasting_cfg.get("active_forecast_version", "aurora"))
 
     slots: list[dict[str, Any]] = []
     try:
@@ -204,7 +205,7 @@ def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]
 
     for rec in records:
         ts = rec.get("slot_start")
-        ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+        ts_iso = ts.isoformat() if  ts is not None and hasattr(ts, "isoformat") else str(ts)
 
         # Planner stores base forecast with corrections already applied in the DB;
         # for this dashboard we consider:
@@ -261,8 +262,8 @@ def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[
     now = datetime.now(tz)
     cutoff_date = (now - timedelta(days=14)).date().isoformat()
 
-    forecasting_cfg = config.get("forecasting") or {}
-    active_version = forecasting_cfg.get("active_forecast_version", "aurora")
+    forecasting_cfg: dict[str, Any] = config.get("forecasting") or {}
+    active_version = str(forecasting_cfg.get("active_forecast_version", "aurora"))
 
     rows: list[dict[str, Any]] = []
     try:
@@ -391,7 +392,7 @@ def aurora_dashboard():
             # Filter for last 24h relative to slot_start
             history_start_iso = (slot_start - timedelta(hours=24)).isoformat()
 
-            def process_history(df):
+            def process_history(df: pd.DataFrame) -> list[dict[str, Any]]:
                 if df.empty:
                     return []
                 # Filter rows where slot_start >= history_start_iso
@@ -401,11 +402,12 @@ def aurora_dashboard():
                 for col in ["p10", "p90", "forecast", "actual"]:
                     if col in filtered.columns:
                         filtered[col] = (
-                            filtered[col].astype(object).where(pd.notnull(filtered[col]), None)
+                            filtered[col].astype(object).where(pd.notnull(filtered[col]), np.nan)
                         )
 
-                return filtered[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict(
-                    "records"
+                return cast(
+                    list[dict[str, Any]],
+                    filtered[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict("records"),
                 )
 
             horizon["history_series"] = {
@@ -485,7 +487,7 @@ def get_aurora_briefing(
     This is intentionally self-contained so the Aurora tab can function even
     if other strategy modules are unavailable.
     """
-    advisor_cfg = config.get("advisor") or {}
+    advisor_cfg: dict[str, Any] = config.get("advisor") or {}
     if not advisor_cfg.get("enable_llm", False):
         return "Aurora briefing is disabled in config."
 
@@ -546,19 +548,21 @@ def aurora_briefing():
     if not request.is_json:
         return jsonify({"error": "Expected JSON body"}), 400
 
-    dashboard = request.get_json() or {}
+    dashboard: dict[str, Any] = request.get_json() or {}
 
     try:
-        config = _load_yaml("config.yaml")
+        config = load_yaml("config.yaml")
     except Exception:
         config = {}
 
     try:
-        secrets = _load_yaml("secrets.yaml")
+        secrets = load_yaml("secrets.yaml")
     except Exception:
         secrets = {}
 
-    text = get_aurora_briefing(dashboard, config, secrets)
+    text = get_aurora_briefing(
+        dashboard, config, secrets
+    )
     return jsonify({"briefing": text})
 
 
@@ -567,7 +571,7 @@ def toggle_reflex():
     """
     Toggle the Aurora Reflex (auto-tuning) feature.
     """
-    payload = request.get_json(silent=True) or {}
+    payload: dict[str, Any] = request.get_json(silent=True) or {}
     enabled = bool(payload.get("enabled", False))
 
     try:
@@ -578,13 +582,15 @@ def toggle_reflex():
 
         config_path = "config.yaml"
         with open(config_path, encoding="utf-8") as f:
-            data = yaml.load(f)
+            # ruamel.yaml load returns Any, confusing pyright. Explicitly cast or annotate.
+            loaded = yaml.load(f)  # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+            data: dict[str, Any] = cast(dict[str, Any], loaded) if isinstance(loaded, dict) else {}
 
         learning = data.setdefault("learning", {})
         learning["reflex_enabled"] = enabled
 
         with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(data, f)
+            yaml.dump(data, f)  # pyright: ignore [reportUnknownMemberType]
 
         return jsonify({"status": "success", "enabled": enabled})
 

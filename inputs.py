@@ -56,7 +56,7 @@ def _make_ha_headers(token: str) -> dict[str, str]:
     }
 
 
-def _load_yaml(path: str) -> dict[str, Any]:
+def load_yaml(path: str) -> dict[str, Any]:
     try:
         with open(path) as f:
             data = yaml.safe_load(f)

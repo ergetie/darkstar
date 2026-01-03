@@ -233,15 +233,15 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [x] Verify line 238 remains as the only append
 - **Verification:** Call `/api/schedule/today_with_history` and confirm slot count matches expected (96 slots/day for 15-min resolution, not 192).
 
-##### Task 1.2: Fix `_get_executor()` Always Returns None ✅
+##### Task 1.2: Fix `get_executor_instance()` Always Returns None ✅
 - **File:** `backend/api/routers/schedule.py`
 - **Problem:** Line 32 always returns `None`, making executor-dependent features broken.
 - **Steps:**
   - [x] Open `backend/api/routers/schedule.py`
-  - [x] Replace the `_get_executor()` function (lines 25-32) with proper singleton pattern:
+  - [x] Replace the `get_executor_instance()` function (lines 25-32) with proper singleton pattern:
     ```python
-    def _get_executor():
-        from backend.api.routers.executor import _get_executor as get_exec
+    def get_executor_instance():
+        from backend.api.routers.executor import get_executor_instance as get_exec
         return get_exec()
     ```
   - [x] Or import ExecutionHistory directly since we only need history access
@@ -334,8 +334,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     @router_services.post("/api/water/boost")
     async def set_water_boost():
         """Activate water heater boost via executor quick action."""
-        from backend.api.routers.executor import _get_executor
-        executor = _get_executor()
+        from backend.api.routers.executor import get_executor_instance
+        executor = get_executor_instance()
         if not executor:
             raise HTTPException(503, "Executor not available")
         if hasattr(executor, 'set_quick_action'):
@@ -353,8 +353,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     ```python
     @router_services.delete("/api/water/boost")
     async def cancel_water_boost():
-        from backend.api.routers.executor import _get_executor
-        executor = _get_executor()
+        from backend.api.routers.executor import get_executor_instance
+        executor = get_executor_instance()
         if executor and hasattr(executor, 'clear_quick_action'):
             executor.clear_quick_action("water_boost")
         return {"status": "success", "message": "Water boost cancelled"}
@@ -392,7 +392,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev ARC3 — High Priority Improvements (Post-ARC1 Audit)
+### [DONE] Rev ARC3 — High Priority Improvements (Post-ARC1 Audit)
 
 **Goal:** Fix 8 high-priority issues identified in the ARC1 review. These are not blocking but significantly impact code quality and maintainability.
 
@@ -476,7 +476,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     ```
 
     ### Key Patterns
-    - **Executor Singleton**: Thread-safe access via `_get_executor()` with lock
+    - **Executor Singleton**: Thread-safe access via `get_executor_instance()` with lock
     - **Sync→Async Bridge**: `ws_manager.emit_sync()` schedules coroutines from sync threads
     - **ASGI Wrapping**: Socket.IO ASGIApp wraps FastAPI for WebSocket support
     ```
@@ -513,12 +513,46 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
+
+#### Phase 6: OpenAPI Improvements [DONE]
+
+##### Task 6.1: Add OpenAPI Descriptions ✅
+- **Files:** All routers
+- **Steps:**
+  - [x] Add `summary` and `description` to all route decorators
+  - [x] Add `tags` for logical grouping
+
+##### Task 6.2: Add Example Responses [DONE]
+- **Steps:**
+  - [x] For key endpoints, add `responses` parameter with examples (Implicit in schema generation)
+
+---
+
+#### Phase 7: Async Migration (Tech Debt) [DONE]
+
+##### Task 7.1: Migrate External Calls to `httpx` ✅
+- **Files:** `backend/api/routers/services.py`, `backend/health.py`
+- **Goal:** Replace blocking `requests.get()` with `httpx.AsyncClient.get()`.
+- **Steps:**
+  - [x] Use `async with httpx.AsyncClient() as client:` pattern.
+  - [x] Ensure timeouts are preserved.
+
+##### Task 7.2: Migrate DB Calls to `aiosqlite` ✅
+- **Files:** `backend/api/routers/forecast.py`, `backend/api/routers/learning.py`, `backend/api/routers/debug.py`, `ml/api.py`
+- **Goal:** Replace blocking `sqlite3.connect()` with `aiosqlite.connect()`.
+- **Steps:**
+  - [x] Install `aiosqlite`.
+  - [x] Convert `get_forecast_slots` and other helpers to `async def`.
+  - [x] Await all DB cursors and fetches.
+
+---
+
 #### Verification Checklist
 
-- [ ] `grep -rn "print(" backend/api/routers/` — returns no matches
-- [ ] `grep -rn "except:" backend/api/routers/` — all have specific exception types
-- [ ] `PYTHONPATH=. pytest tests/test_api_routes.py` — passes
-- [ ] `docs/architecture.md` Section 9 exists and is accurate
+- [x] `grep -rn "print(" backend/api/routers/` — returns no matches
+- [x] `grep -rn "except:" backend/api/routers/` — all have specific exception types
+- [x] `PYTHONPATH=. pytest tests/test_api_routes.py` — passes
+- [x] `docs/architecture.md` Section 9 exists and is accurate
 
 ---
 
@@ -548,7 +582,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [ ] Replace `hasattr()` checks with protocol compliance
 
 ##### Task 1.2: Consider FastAPI Depends()
-- **Investigation:** Evaluate converting `_get_executor()` pattern to FastAPI dependency injection.
+- **Investigation:** Evaluate converting `get_executor_instance()` pattern to FastAPI dependency injection.
 - **Steps:**
   - [ ] Research FastAPI `Depends()` pattern
   - [ ] Prototype one endpoint using DI
@@ -652,42 +686,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [ ] Document baseline numbers
   - [ ] Compare against Flask (if still available)
 
----
 
----
-
-#### Phase 6: OpenAPI Improvements [DONE]
-
-##### Task 6.1: Add OpenAPI Descriptions ✅
-- **Files:** All routers
-- **Steps:**
-  - [x] Add `summary` and `description` to all route decorators
-  - [x] Add `tags` for logical grouping
-
-##### Task 6.2: Add Example Responses [DONE]
-- **Steps:**
-  - [x] For key endpoints, add `responses` parameter with examples (Implicit in schema generation)
-
----
-
-#### Phase 7: Async Migration (Tech Debt) [DONE]
-
-##### Task 7.1: Migrate External Calls to `httpx` ✅
-- **Files:** `backend/api/routers/services.py`, `backend/health.py`
-- **Goal:** Replace blocking `requests.get()` with `httpx.AsyncClient.get()`.
-- **Steps:**
-  - [x] Use `async with httpx.AsyncClient() as client:` pattern.
-  - [x] Ensure timeouts are preserved.
-
-##### Task 7.2: Migrate DB Calls to `aiosqlite` ✅
-- **Files:** `backend/api/routers/forecast.py`, `backend/api/routers/learning.py`, `backend/api/routers/debug.py`, `ml/api.py`
-- **Goal:** Replace blocking `sqlite3.connect()` with `aiosqlite.connect()`.
-- **Steps:**
-  - [x] Install `aiosqlite`.
-  - [x] Convert `get_forecast_slots` and other helpers to `async def`.
-  - [x] Await all DB cursors and fetches.
-
----
 
 #### Verification Checklist
 

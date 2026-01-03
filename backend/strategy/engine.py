@@ -51,7 +51,7 @@ class StrategyEngine:
                 {"vacation_mode": True},
             )
 
-        weather_volatility = context.get("weather_volatility") or {}
+        weather_volatility: dict[str, Any] = context.get("weather_volatility", {}) or {}
         cloud_vol = float(weather_volatility.get("cloud", 0.0) or 0.0)
         temp_vol = float(weather_volatility.get("temp", 0.0) or 0.0)
 
@@ -80,7 +80,7 @@ class StrategyEngine:
             )
 
         # --- Rule: Price Volatility (Kepler Tuning) ---
-        prices = input_data.get("prices", [])
+        prices: list[dict[str, Any]] = input_data.get("prices", [])
         if prices:
             volatility_data = self._analyze_price_volatility(prices)
             spread = volatility_data.get("spread", 0.0)
@@ -138,7 +138,7 @@ class StrategyEngine:
 
         return overrides
 
-    def _analyze_price_volatility(self, prices: list) -> dict[str, float]:
+    def _analyze_price_volatility(self, prices: list[dict[str, Any]]) -> dict[str, float]:
         """
         Calculate price volatility metrics.
         Expects list of dicts with 'value' key (SEK/kWh).
@@ -146,7 +146,7 @@ class StrategyEngine:
         if not prices:
             return {"spread": 0.0}
 
-        values = [p.get("value", 0.0) for p in prices]
+        values: list[float] = [float(p.get("value", 0.0)) for p in prices]
         if not values:
             return {"spread": 0.0}
 

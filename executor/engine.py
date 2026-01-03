@@ -23,10 +23,10 @@ import pytz
 
 # import yaml
 # Import existing HA config loader
-from inputs import _load_yaml, load_home_assistant_config
+from inputs import load_home_assistant_config
 
 from .actions import ActionDispatcher, ActionResult, HAClient
-from .config import load_executor_config
+from .config import load_executor_config, load_yaml
 from .controller import ControllerDecision, make_decision
 from .history import ExecutionHistory, ExecutionRecord
 from .override import (
@@ -74,7 +74,7 @@ class ExecutorEngine:
         self.config = load_executor_config(config_path)
 
         # Load main config for input_sensors section
-        self._full_config = _load_yaml(config_path)
+        self._full_config = load_yaml(config_path)
 
         # Initialize components
         self.history = ExecutionHistory(
@@ -453,6 +453,7 @@ class ExecutorEngine:
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
 
+        paused_at: datetime | None = None
         with self._lock:
             if self._paused_at is None or self._pause_reminder_sent:
                 return
@@ -463,30 +464,29 @@ class ExecutorEngine:
                 paused_at = self._paused_at
 
         # Send reminder notification (outside lock)
-        if self.dispatcher:
+        if self.dispatcher and paused_at:
             self._send_pause_reminder(paused_at)
 
     def _send_pause_reminder(self, paused_at: datetime) -> None:
         """Send pause reminder notification with resume action."""
+        if not self.dispatcher:
+            return
+
         try:
-            from backend.notify import send_notification
-
-            # Generate resume webhook URL
-            # TODO: Add proper token-based security
-
             message = (
                 f"⚠️ Executor has been paused for {self.config.pause_reminder_minutes} minutes. "
                 f"Paused since {paused_at.strftime('%H:%M')}."
             )
 
-            # Send with HA actionable notification
-            send_notification(
-                message=message,
+            # Send via ActionDispatcher
+            self.dispatcher.ha.send_notification(
+                service=self.config.notifications.service,
                 title="Darkstar Executor Paused",
-                notification_type="pause_reminder",
-                actions=[
-                    {"action": "RESUME_EXECUTOR", "title": "ACTIVATE"},
-                ],
+                message=message,
+                data={
+                    "notification_type": "pause_reminder",
+                    "actions": [{"action": "RESUME_EXECUTOR", "title": "ACTIVATE"}],
+                }
             )
             logger.info("Pause reminder notification sent")
         except Exception as e:
@@ -530,7 +530,7 @@ class ExecutorEngine:
         # Immediately apply the boost
         if self.ha_client and self.dispatcher:
             try:
-                self.dispatcher._set_water_temp(self.config.water_heater.temp_boost)
+                self.dispatcher.set_water_temp(self.config.water_heater.temp_boost)
             except Exception as e:
                 logger.error("Failed to apply water boost: %s", e)
 
@@ -552,7 +552,7 @@ class ExecutorEngine:
             # Set water temp back to normal
             if self.dispatcher:
                 try:
-                    self.dispatcher._set_water_temp(self.config.water_heater.temp_off)
+                    self.dispatcher.set_water_temp(self.config.water_heater.temp_off)
                 except Exception as e:
                     logger.error("Failed to reset water temp: %s", e)
 
@@ -709,7 +709,7 @@ class ExecutorEngine:
         logger.info("Executor tick started at %s", now_iso)
         self.status.last_run_at = now_iso
 
-        result = {
+        result: dict[str, Any] = {
             "success": True,
             "executed_at": now_iso,
             "slot_start": None,

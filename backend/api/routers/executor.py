@@ -1,6 +1,6 @@
 import logging
 import threading
-from typing import Any
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -13,7 +13,7 @@ _executor_engine = None
 _executor_lock = threading.Lock()
 
 
-def _get_executor():
+def get_executor_instance():
     global _executor_engine
     if _executor_engine is None:
         with _executor_lock:
@@ -62,7 +62,7 @@ class PauseRequest(BaseModel):
 )
 async def get_status():
     """Return current executor status."""
-    executor = _get_executor()
+    executor = get_executor_instance()
     if executor is None:
         return {"status": "error", "message": "Executor not available"}
     return executor.get_status()
@@ -95,7 +95,7 @@ async def toggle_executor(payload: ToggleRequest):
         yaml_handler.dump(config, f)
 
     # Reload executor
-    executor = _get_executor()
+    executor = get_executor_instance()
     if executor:
         executor.reload_config()
         if payload.enabled and executor.config.enabled:
@@ -117,7 +117,7 @@ async def toggle_executor(payload: ToggleRequest):
 )
 async def run_once():
     """Trigger a single loop run."""
-    executor = _get_executor()
+    executor = get_executor_instance()
     if executor:
         success = executor.run_once()
         return {"status": "success" if success else "error"}
@@ -130,7 +130,7 @@ async def run_once():
     description="Returns the status of any active quick action.",
 )
 async def get_quick_actions():
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         return {"quick_action": None}
     # Check if executor has an active quick action attribute
@@ -147,7 +147,7 @@ async def get_quick_actions():
     description="Activates a temporary override (quick action).",
 )
 async def set_quick_action(payload: QuickActionRequest):
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
 
@@ -165,7 +165,7 @@ async def set_quick_action(payload: QuickActionRequest):
     description="Cancels any active quick action.",
 )
 async def clear_quick_action(action: str | None = None):
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
     if hasattr(executor, "clear_quick_action"):
@@ -182,7 +182,7 @@ async def clear_quick_action(action: str | None = None):
     description="Pauses the executor for a specified duration.",
 )
 async def pause_executor(payload: PauseRequest):
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
     if hasattr(executor, "pause"):
@@ -206,7 +206,7 @@ async def pause_executor(payload: PauseRequest):
     description="Resumes the executor via GET request (e.g. for simple links).",
 )
 async def resume_executor():
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor unavailable")
     if hasattr(executor, "resume"):
@@ -225,7 +225,7 @@ async def get_history(
     slot_start: str | None = None,
     success_only: str | None = None,
 ):
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor or not hasattr(executor, "history") or executor.history is None:
         return {"records": [], "count": 0}
 
@@ -257,7 +257,7 @@ async def get_history(
     description="Returns execution statistics over a specified period.",
 )
 async def get_stats(days: int = 7):
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         return {}
     if hasattr(executor, "get_stats"):
@@ -274,7 +274,7 @@ async def get_stats(days: int = 7):
 )
 async def get_executor_config():
     """Return current executor configuration."""
-    executor = _get_executor()
+    executor = get_executor_instance()
     if executor is None:
         raise HTTPException(500, "Executor not available")
 
@@ -384,7 +384,7 @@ async def update_executor_config(request: Request):
             yaml_handler.dump(config, f)
 
         # Reload executor config
-        executor = _get_executor()
+        executor = get_executor_instance()
         if executor and hasattr(executor, "reload_config"):
             executor.reload_config()
 
@@ -402,7 +402,7 @@ async def update_executor_config(request: Request):
 )
 async def get_notifications():
     """Get notification settings."""
-    executor = _get_executor()
+    executor = get_executor_instance()
     if executor and hasattr(executor, "config") and hasattr(executor.config, "notifications"):
         cfg = executor.config.notifications
         return {
@@ -470,7 +470,7 @@ async def update_notifications(request: Request):
             yaml_handler.dump(config, f)
 
         # Reload executor config
-        executor = _get_executor()
+        executor = get_executor_instance()
         if executor and hasattr(executor, "reload_config"):
             executor.reload_config()
 
@@ -488,7 +488,7 @@ async def update_notifications(request: Request):
 )
 async def test_notifications():
     """Send a test notification."""
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         raise HTTPException(500, "Executor not available")
 
@@ -511,7 +511,7 @@ async def test_notifications():
     description="Returns real-time metrics from the executor.",
 )
 async def get_live():
-    executor = _get_executor()
+    executor = get_executor_instance()
     if not executor:
         return {}
     if hasattr(executor, "get_live_metrics"):

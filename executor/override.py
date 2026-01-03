@@ -42,7 +42,7 @@ class OverrideResult:
     override_type: OverrideType = OverrideType.NONE
     priority: float = 0.0
     reason: str = ""
-    actions: dict[str, Any] = None
+    actions: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.actions is None:

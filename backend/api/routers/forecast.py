@@ -1,9 +1,9 @@
 import json
 import logging
 import os
-import sqlite3
+
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast, Optional
 
 import pandas as pd
 import pytz
@@ -12,11 +12,12 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 import aiosqlite
-from backend.learning import get_learning_engine
+import numpy as np # pyright: ignore [reportMissingImports]
+from backend.learning import get_learning_engine, LearningEngine
 from backend.strategy.history import get_strategy_history
-from inputs import _load_yaml
-from ml.api import get_forecast_slots, get_forecast_slots_async
-from ml.weather import get_weather_volatility
+from inputs import load_yaml # pyright: ignore [reportPrivateUsage]
+from ml.api import get_forecast_slots_async
+from ml.weather import get_weather_volatility # pyright: ignore [reportUnknownVariableType]
 
 logger = logging.getLogger("darkstar.api.forecast")
 router = APIRouter(prefix="/api/aurora", tags=["aurora"])
@@ -33,33 +34,33 @@ def _get_timezone() -> pytz.BaseTzInfo:
     except Exception:
         pass
     try:
-        cfg = _load_yaml("config.yaml")
+        cfg = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
         return pytz.timezone(cfg.get("timezone", "Europe/Stockholm"))
     except Exception:
         return pytz.timezone("Europe/Stockholm")
 
 
-def _get_engine_and_config():
-    engine = None
+def _get_engine_and_config() -> tuple[Optional[LearningEngine], dict[str, Any]]:
+    engine: Optional[LearningEngine] = None
     try:
         engine = get_learning_engine()
     except Exception as exc:
         logger.warning("Failed to get learning engine: %s", exc)
     try:
-        config = _load_yaml("config.yaml")
+        config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
     except Exception:
         config = {}
     return engine, config
 
 
-async def _compute_graduation_level(engine: Any) -> dict[str, Any]:
+async def _compute_graduation_level(engine: Optional[LearningEngine]) -> dict[str, Any]:
     level_label = "infant"
     total_runs = 0
     db_path = getattr(engine, "db_path", None) if engine is not None else None
 
     if db_path and os.path.exists(db_path):
         try:
-            async with aiosqlite.connect(db_path) as conn:
+            async with aiosqlite.connect(str(db_path)) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
                 cursor = await conn.execute("SELECT COUNT(*) FROM learning_runs")
                 row = await cursor.fetchone()
                 if row:
@@ -78,9 +79,9 @@ async def _compute_graduation_level(engine: Any) -> dict[str, Any]:
 
 
 def _compute_risk_profile(config: dict[str, Any]) -> dict[str, Any]:
-    s_cfg = config.get("s_index") or {}
+    s_cfg: dict[str, Any] = config.get("s_index") or {}
     base_factor_raw = s_cfg.get("base_factor", 1.0)
-    risk_appetite = int(s_cfg.get("risk_appetite", 3))
+    risk_appetite = int(s_cfg.get("risk_appetite", 3)) # type: ignore
 
     try:
         base_factor = float(base_factor_raw)
@@ -142,8 +143,13 @@ def _fetch_weather_volatility(
     return {"cloud_volatility": cloud, "temp_volatility": temp, "overall": max(cloud, temp)}
 
 
-async def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]:
-    tz = getattr(engine, "timezone", _get_timezone())
+async def _fetch_horizon_series(
+    engine: Optional[LearningEngine], config: dict[str, Any]
+) -> dict[str, Any]:
+    if engine and hasattr(engine, "timezone"):
+        tz = engine.timezone
+    else:
+        tz = _get_timezone()
     now = datetime.now(tz)
     minutes = (now.minute // 15) * 15
     slot_start = now.replace(minute=minutes, second=0, microsecond=0)
@@ -151,8 +157,8 @@ async def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str
         slot_start += timedelta(minutes=15)
     horizon_end = slot_start + timedelta(hours=48)
 
-    forecasting_cfg = config.get("forecasting") or {}
-    active_version = forecasting_cfg.get("active_forecast_version", "aurora")
+    forecasting_cfg: dict[str, Any] = config.get("forecasting") or {}
+    active_version = str(forecasting_cfg.get("active_forecast_version", "aurora"))
 
     slots: list[dict[str, Any]] = []
     try:
@@ -163,7 +169,7 @@ async def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str
 
     for rec in records:
         ts = rec.get("slot_start")
-        ts_iso = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+        ts_iso = ts.isoformat() if ts is not None and hasattr(ts, "isoformat") else str(ts)
 
         pv_corr = float(rec.get("pv_correction_kwh", 0.0) or 0.0)
         load_corr = float(rec.get("load_correction_kwh", 0.0) or 0.0)
@@ -180,12 +186,12 @@ async def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str
                 "correction": {"pv_kwh": pv_corr, "load_kwh": load_corr},
                 "final": {"pv_kwh": final_pv, "load_kwh": final_load},
                 "probabilistic": {
-                    "pv_p10": float(rec.get("pv_p10")) if rec.get("pv_p10") is not None else None,
-                    "pv_p90": float(rec.get("pv_p90")) if rec.get("pv_p90") is not None else None,
-                    "load_p10": float(rec.get("load_p10"))
+                    "pv_p10": float(cast(Any, rec.get("pv_p10"))) if rec.get("pv_p10") is not None else None,
+                    "pv_p90": float(cast(Any, rec.get("pv_p90"))) if rec.get("pv_p90") is not None else None,
+                    "load_p10": float(cast(Any, rec.get("load_p10")))
                     if rec.get("load_p10") is not None
                     else None,
-                    "load_p90": float(rec.get("load_p90"))
+                    "load_p90": float(cast(Any, rec.get("load_p90")))
                     if rec.get("load_p90") is not None
                     else None,
                 },
@@ -200,19 +206,24 @@ async def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str
     }
 
 
-async def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
-    db_path = getattr(engine, "db_path", None)
+async def _fetch_correction_history(
+    engine: Optional[LearningEngine], config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    db_path = str(engine.db_path) if engine else None # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
     if not db_path or not os.path.exists(db_path):
         return []
 
-    tz = getattr(engine, "timezone", _get_timezone())
+    if engine and hasattr(engine, "timezone"):
+        tz = engine.timezone
+    else:
+        tz = _get_timezone()
     now = datetime.now(tz)
     cutoff_date = (now - timedelta(days=14)).date().isoformat()
     active_version = config.get("forecasting", {}).get("active_forecast_version", "aurora")
 
-    rows = []
+    rows: list[dict[str, Any]] = []
     try:
-        async with aiosqlite.connect(db_path) as conn:
+        async with aiosqlite.connect(str(db_path)) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             async with conn.execute(
                 """
                 SELECT DATE(slot_start) AS date, SUM(ABS(pv_correction_kwh)), SUM(ABS(load_correction_kwh))
@@ -238,9 +249,11 @@ async def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list
     return rows
 
 
-async def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]:
-    db_path = getattr(engine, "db_path", None) if engine else None
-    metrics = {
+async def _compute_metrics(
+    engine: Optional[LearningEngine], days_back: int = 7
+) -> dict[str, float | None]:
+    db_path = str(engine.db_path) if engine else None # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+    metrics: dict[str, Optional[float]] = {
         "mae_pv_aurora": None,
         "mae_pv_baseline": None,
         "mae_load_aurora": None,
@@ -254,7 +267,7 @@ async def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float |
     start_time = now - timedelta(days=max(days_back, 1))
 
     try:
-        async with aiosqlite.connect(db_path) as conn:
+        async with aiosqlite.connect(str(db_path)) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             async with conn.execute(
                 """
                 SELECT f.forecast_version, AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)), AVG(ABS(o.load_kwh - f.load_forecast_kwh))
@@ -284,7 +297,7 @@ async def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float |
 def get_aurora_briefing_text(
     dashboard: dict[str, Any], config: dict[str, Any], secrets: dict[str, Any]
 ) -> str:
-    advisor_cfg = config.get("advisor") or {}
+    advisor_cfg: dict[str, Any] = config.get("advisor") or {}
     if not advisor_cfg.get("enable_llm", False):
         return "Aurora briefing is disabled in config."
 
@@ -292,7 +305,7 @@ def get_aurora_briefing_text(
     if not api_key:
         return "OpenRouter API Key missing."
 
-    model = advisor_cfg.get("model", "google/gemini-flash-1.5")
+    model = str(advisor_cfg.get("model", "google/gemini-flash-1.5"))
     system_prompt = (
         "You are Aurora, an intelligent energy agent. Summarize status and risk in 2 sentences."
     )
@@ -328,7 +341,7 @@ def get_aurora_briefing_text(
     summary="Get Aurora Dashboard Data",
     description="Returns comprehensive data for the Aurora dashboard including identity, risk profile, weather volatility, and forecast horizon.",
 )
-async def aurora_dashboard():
+async def aurora_dashboard() -> dict[str, Any]:
     engine, config = _get_engine_and_config()
     tz = getattr(engine, "timezone", _get_timezone())
     graduation = await _compute_graduation_level(engine)
@@ -347,18 +360,18 @@ async def aurora_dashboard():
     # History Series (Rev A29)
     try:
         if engine is not None and hasattr(engine, "store"):
-            df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv")
-            df_load = engine.store.get_forecast_vs_actual(days_back=2, target="load")
+            df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv") # pyright: ignore [reportUnknownMemberType]
+            df_load = engine.store.get_forecast_vs_actual(days_back=2, target="load") # pyright: ignore [reportUnknownMemberType]
             hist_start = (slot_start - timedelta(hours=24)).isoformat()
 
-            def proc(df):
+            def proc(df: pd.DataFrame) -> list[dict[str, Any]]:
                 if df.empty:
                     return []
-                f = df[df["slot_start"] >= hist_start].copy()
+                f: pd.DataFrame = df[df["slot_start"] >= hist_start].copy() # type: ignore
                 for c in ["p10", "p90", "forecast", "actual"]:
                     if c in f.columns:
-                        f[c] = f[c].astype(object).where(pd.notnull(f[c]), None)
-                return f[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict("records")
+                        f[c] = f[c].astype(object).where(pd.notnull(f[c]), np.nan)
+                return cast(list[dict[str, Any]], f[["slot_start", "actual", "p10", "p90", "forecast"]].to_dict("records"))
 
             horizon["history_series"] = {"pv": proc(df_pv), "load": proc(df_load)}
     except Exception:
@@ -390,7 +403,7 @@ async def aurora_dashboard():
     metrics["forecast_bias"] = None
     try:
         if engine and hasattr(engine, "store"):
-            df = engine.store.get_forecast_vs_actual(days_back=14, target="pv")
+            df = engine.store.get_forecast_vs_actual(days_back=14, target="pv") # pyright: ignore [reportUnknownMemberType]
             if len(df) >= 50:
                 metrics["forecast_bias"] = round(df["error"].mean(), 3)
     except Exception:
@@ -421,7 +434,7 @@ class BriefingRequest(BaseModel):
     summary="Get Aurora Briefing",
     description="Generates a natural language summary of the current energy situation using an LLM.",
 )
-async def aurora_briefing(request: Request):
+async def aurora_briefing(request: Request) -> dict[str, str]:
     try:
         dashboard = await request.json()
     except Exception:
@@ -429,7 +442,7 @@ async def aurora_briefing(request: Request):
 
     _, config = _get_engine_and_config()
     try:
-        secrets = _load_yaml("secrets.yaml")
+        secrets = load_yaml("secrets.yaml")  # pyright: ignore [reportPrivateUsage]
     except Exception:
         secrets = {}
 
@@ -446,17 +459,18 @@ class ToggleReflexRequest(BaseModel):
     summary="Toggle Reflex Mode",
     description="Enables or disables the Aurora Reflex learning module.",
 )
-async def toggle_reflex(payload: ToggleReflexRequest):
+async def toggle_reflex(payload: ToggleReflexRequest) -> dict[str, Any]:
     try:
         from ruamel.yaml import YAML
 
         yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True
+        yaml_handler.preserve_quotes = True  # type: ignore
         with open("config.yaml", encoding="utf-8") as f:
-            data = yaml_handler.load(f)
+            loaded = yaml_handler.load(f) # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+            data: dict[str, Any] = cast(dict[str, Any], loaded) if isinstance(loaded, dict) else {}
         data.setdefault("learning", {})["reflex_enabled"] = payload.enabled
         with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(data, f)
+            yaml_handler.dump(data, f) # pyright: ignore [reportUnknownMemberType]
         return {"status": "success", "enabled": payload.enabled}
     except Exception as e:
         logger.error("Toggle reflex failed: %s", e)
@@ -472,14 +486,14 @@ forecast_router = APIRouter(tags=["forecast"])
     summary="Evaluate Forecast Accuracy",
     description="Returns Mean Absolute Error (MAE) metrics for baseline vs Aurora forecasts over recent days.",
 )
-async def forecast_eval(days: int = 7):
+async def forecast_eval(days: int = 7) -> dict[str, Any]:
     """Return simple MAE metrics for baseline vs AURORA forecasts over recent days."""
     try:
         engine = get_learning_engine()
         now = datetime.now(pytz.UTC)
         start_time = now - timedelta(days=max(days, 1))
 
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(str(engine.db_path)) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             async with conn.execute(
                 """
                 SELECT
@@ -498,7 +512,7 @@ async def forecast_eval(days: int = 7):
             ) as cursor:
                 rows = await cursor.fetchall()
 
-        versions = []
+        versions: list[dict[str, Any]] = []
         for row in rows:
             versions.append(
                 {
@@ -520,7 +534,7 @@ async def forecast_eval(days: int = 7):
     summary="Get Daily Forecast View",
     description="Returns actual vs forecast data for a specific day to visualize model performance.",
 )
-async def forecast_day(date: str | None = None):
+async def forecast_day(date: str | None = None) -> dict[str, Any]:
     """Return per-slot actual vs baseline/AURORA forecasts for a single day."""
     try:
         engine = get_learning_engine()
@@ -534,7 +548,7 @@ async def forecast_day(date: str | None = None):
         day_start = tz.localize(datetime(target_date.year, target_date.month, target_date.day))
         day_end = day_start + timedelta(days=1)
 
-        async with aiosqlite.connect(engine.db_path) as conn:
+        async with aiosqlite.connect(str(engine.db_path)) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             async with conn.execute(
                 """
                 SELECT slot_start, pv_kwh, load_kwh
@@ -558,22 +572,22 @@ async def forecast_day(date: str | None = None):
                 f_rows = await cursor.fetchall()
 
         # Build response
-        slots = {}
+        slots: dict[str, Any] = {}
         for row in obs_rows:
-            slot_start = row[0]
-            slots[slot_start] = {
-                "slot_start": slot_start,
+            slot_s = str(row[0])
+            slots[slot_s] = {
+                "slot_start": slot_s,
                 "actual_pv": row[1],
                 "actual_load": row[2],
             }
 
         for row in f_rows:
-            slot_start = row[0]
-            if slot_start not in slots:
-                slots[slot_start] = {"slot_start": slot_start}
-            version = row[3]
-            slots[slot_start][f"{version}_pv"] = row[1]
-            slots[slot_start][f"{version}_load"] = row[2]
+            slot_s = str(row[0])
+            if slot_s not in slots:
+                slots[slot_s] = {"slot_start": slot_s}
+            version = str(row[3])
+            slots[slot_s][f"{version}_pv"] = row[1]
+            slots[slot_s][f"{version}_load"] = row[2]
 
         return {"date": target_date.isoformat(), "slots": list(slots.values())}
     except Exception as e:
@@ -586,7 +600,7 @@ async def forecast_day(date: str | None = None):
     summary="Get Forecast Horizon",
     description="Returns raw forecast slots for the next N hours.",
 )
-async def forecast_horizon(hours: int = 48):
+async def forecast_horizon(hours: int = 48) -> dict[str, Any]:
     """Return ML forecast for the next N hours."""
     try:
         engine, config = _get_engine_and_config()

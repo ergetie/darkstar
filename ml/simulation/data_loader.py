@@ -55,7 +55,7 @@ class SimulationDataLoader:
     def __init__(
         self, config_path: str = "config.yaml", horizon_hours: int = DEFAULT_HORIZON_HOURS
     ):
-        config = self._load_yaml(config_path)
+        config = self.load_yaml(config_path)
         learning_cfg = config.get("learning", {}) or {}
         battery_cfg = config.get("system", {}).get("battery") or config.get("battery", {})
 
@@ -73,7 +73,7 @@ class SimulationDataLoader:
         self.ha_client = HomeAssistantHistoryClient()
 
     @staticmethod
-    def _load_yaml(path: str) -> dict[str, Any]:
+    def load_yaml(path: str) -> dict[str, Any]:
         try:
             with open(path, encoding="utf-8") as fp:
                 return yaml.safe_load(fp) or {}

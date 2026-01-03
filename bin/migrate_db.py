@@ -10,13 +10,13 @@ except ImportError:
 
 # Add root to path to import inputs
 sys.path.append(os.getcwd())
-from inputs import _load_yaml
+from inputs import load_yaml
 
 
 def migrate():
     print("Starting DB migration check...")
     try:
-        secrets = _load_yaml("secrets.yaml")
+        secrets = load_yaml("secrets.yaml")
     except Exception as e:
         print(f"Failed to load secrets: {e}")
         return
