@@ -6,8 +6,6 @@ import logging
 import traceback
 from fastapi import APIRouter, HTTPException
 
-logger = logging.getLogger("darkstar.api.services")
-
 # Reuse existing helpers from inputs.py to ensure consistency
 from inputs import (
     _get_ha_entity_state,
@@ -16,6 +14,8 @@ from inputs import (
     get_home_assistant_sensor_float,
     load_home_assistant_config,
 )
+
+logger = logging.getLogger("darkstar.api.services")
 
 router_ha = APIRouter(prefix="/api/ha", tags=["ha"])
 router_services = APIRouter(tags=["services"])
@@ -69,7 +69,7 @@ def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
         try:
             prev_val = float(states[0]["state"])
             prev_time = datetime.fromisoformat(states[0]["last_changed"])
-        except:
+        except Exception:
             pass
 
         for s in states:
@@ -85,7 +85,7 @@ def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
 
                 prev_time = curr_time
                 prev_val = val
-            except:
+            except Exception:
                 continue
 
         # Add remainder until now
@@ -100,7 +100,7 @@ def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
         return round(total_weighted_sum / total_duration_sec, 2)
 
     except Exception as e:
-        print(f"Error fetching HA history for {entity_id}: {e}")
+        logger.warning(f"Error fetching HA history for {entity_id}: {e}")
         return 0.0
 
 
@@ -141,10 +141,10 @@ async def get_ha_average(entity_id: str = None, hours: int = 24):
             if profile:
                 avg_val = sum(profile) / len(profile)
         except Exception as e:
-            print(f"Fallback average calc failed: {e}")
+            logger.warning(f"Fallback average calc failed: {e}")
 
     # Calculate daily_kwh estimate (avg * 24h)
-    daily_kwh = round(avg_val * 24 / 1000.0, 2)  # avg_val is Watts (usually) or KW?
+    # Note: avg_val is usually Watts.
     # HA sensors are usually W. If fetch_ha_history_avg returns W, then /1000 is correct for kWh.
     # If it returns kW, then *24 is correct.
     # Let's assume the sensor is W (standard HA).
@@ -198,7 +198,7 @@ async def get_ha_entities():
                     )
             return {"entities": entities}
     except Exception as e:
-        print(f"Error fetching HA entities: {e}")
+        logger.warning(f"Error fetching HA entities: {e}")
 
     return {"entities": []}
 
@@ -318,16 +318,15 @@ async def set_water_boost():
         if not executor:
             logger.error("Executor unavailable for water boost")
             raise HTTPException(503, "Executor not available")
-        
         if hasattr(executor, 'set_water_boost'):
             result = executor.set_water_boost(duration_minutes=60)
             if not result.get("success"):
                 logger.error(f"Failed to set water boost: {result.get('error')}")
                 raise HTTPException(500, f"Failed to set water boost: {result.get('error')}")
-            
+
             logger.info("Water boost activated successfully")
             return {"status": "success", "message": "Water boost activated for 60 minutes"}
-        
+
         logger.error("Executor missing set_water_boost method")
         raise HTTPException(501, "Water boost not supported by executor")
     except HTTPException:
@@ -468,7 +467,7 @@ async def get_energy_range(period: str = "today"):
             # We filter by DATE(slot_start) which works if slot_start is ISO-8601 YYYY-MM-DD...
             row = cursor.execute(
                 """
-                SELECT 
+                SELECT
                     SUM(COALESCE(import_kwh, 0)),
                     SUM(COALESCE(export_kwh, 0)),
                     SUM(COALESCE(batt_charge_kwh, 0)),
@@ -481,9 +480,11 @@ async def get_energy_range(period: str = "today"):
                     SUM(COALESCE(import_kwh, 0) * COALESCE(import_price_sek_kwh, 0)),
                     SUM(COALESCE(export_kwh, 0) * COALESCE(export_price_sek_kwh, 0)),
                     -- Grid Charge Cost (Import excess of load)
-                    SUM(MAX(0, COALESCE(import_kwh, 0) - COALESCE(load_kwh, 0)) * COALESCE(import_price_sek_kwh, 0)),
+                    SUM(MAX(0, COALESCE(import_kwh, 0) - COALESCE(load_kwh, 0))
+                        * COALESCE(import_price_sek_kwh, 0)),
                     -- Self Consumption Savings (Load covered by non-grid sources)
-                    SUM(MAX(0, COALESCE(load_kwh, 0) - COALESCE(import_kwh, 0)) * COALESCE(import_price_sek_kwh, 0)),
+                    SUM(MAX(0, COALESCE(load_kwh, 0) - COALESCE(import_kwh, 0))
+                        * COALESCE(import_price_sek_kwh, 0)),
                     -- Count
                     COUNT(*)
                 FROM slot_observations
@@ -573,11 +574,11 @@ async def get_ha_services():
             services = []
             for domain_obj in data:
                 domain = domain_obj.get("domain", "")
-                for service_name in domain_obj.get("services", {}).keys():
+                for service_name in domain_obj.get("services", {}):
                     services.append(f"{domain}.{service_name}")
             return {"services": sorted(services)}
     except Exception as e:
-        print(f"Error fetching HA services: {e}")
+        logger.warning(f"Error fetching HA services: {e}")
 
     return {"services": []}
 
