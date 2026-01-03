@@ -8,7 +8,11 @@ from inputs import _load_yaml, load_home_assistant_config, load_notification_sec
 router = APIRouter(tags=["config"])
 
 
-@router.get("/api/config")
+@router.get(
+    "/api/config",
+    summary="Get System Configuration",
+    description="Returns sanitized configuration with secrets redacted.",
+)
 async def get_config():
     """Get sanitized config."""
     try:
@@ -41,7 +45,11 @@ async def get_config():
         return {"error": str(e)}
 
 
-@router.post("/api/config/save")
+@router.post(
+    "/api/config/save",
+    summary="Save Configuration",
+    description="Updates config.yaml with new values.",
+)
 async def save_config(payload: dict[str, Any] = Body(...)):
     """Save config.yaml."""
     try:
@@ -81,7 +89,11 @@ async def save_config(payload: dict[str, Any] = Body(...)):
         raise HTTPException(500, str(e))
 
 
-@router.post("/api/config/reset")
+@router.post(
+    "/api/config/reset",
+    summary="Reset Configuration",
+    description="Resets config.yaml to defaults.",
+)
 async def reset_config():
     """Reset to default config."""
     if os.path.exists("config.default.yaml"):

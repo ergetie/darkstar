@@ -11,6 +11,7 @@ from collections import deque
 from datetime import UTC, datetime
 
 import pytz
+import aiosqlite
 from fastapi import APIRouter, HTTPException, Query
 
 logger = logging.getLogger("darkstar.api.debug")
@@ -54,7 +55,11 @@ if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
     root_logger.addHandler(_ring_buffer_handler)
 
 
-@router.get("/api/debug")
+@router.get(
+    "/api/debug",
+    summary="Get Planner Debug Data",
+    description="Return comprehensive planner debug data from schedule.json.",
+)
 async def debug_data():
     """Return comprehensive planner debug data from schedule.json."""
     try:
@@ -76,7 +81,11 @@ async def debug_data():
         raise HTTPException(404, "schedule.json not found. Run the planner first.")
 
 
-@router.get("/api/debug/logs")
+@router.get(
+    "/api/debug/logs",
+    summary="Get Server Logs",
+    description="Return recent server logs stored in the ring buffer handler.",
+)
 async def debug_logs():
     """Return recent server logs stored in the ring buffer handler."""
     try:
@@ -86,7 +95,11 @@ async def debug_logs():
         raise HTTPException(500, str(exc))
 
 
-@router.get("/api/history/soc")
+@router.get(
+    "/api/history/soc",
+    summary="Get Historic SoC",
+    description="Return historic SoC data for today from learning database.",
+)
 async def historic_soc(date: str = Query("today")):
     """Return historic SoC data for today from learning database."""
     try:
@@ -106,7 +119,7 @@ async def historic_soc(date: str = Query("today")):
         # Get learning engine and query historic SoC data
         engine = get_learning_engine()
 
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+        async with aiosqlite.connect(engine.db_path) as conn:
             query = """
                 SELECT slot_start, soc_end_percent, quality_flags
                 FROM slot_observations
@@ -114,7 +127,8 @@ async def historic_soc(date: str = Query("today")):
                   AND soc_end_percent IS NOT NULL
                 ORDER BY slot_start ASC
             """
-            rows = conn.execute(query, (target_date.isoformat(),)).fetchall()
+            async with conn.execute(query, (target_date.isoformat(),)) as cursor:
+                rows = await cursor.fetchall()
 
         if not rows:
             return {
@@ -137,7 +151,11 @@ async def historic_soc(date: str = Query("today")):
         raise HTTPException(500, f"Failed to fetch historical SoC data: {e!s}")
 
 
-@router.get("/api/performance/metrics")
+@router.get(
+    "/api/performance/metrics",
+    summary="Get Performance Metrics",
+    description="Get performance metrics for charts.",
+)
 async def get_performance_metrics(days: int = Query(7, ge=1, le=90)):
     """Get performance metrics for charts."""
     try:
@@ -154,7 +172,11 @@ async def get_performance_metrics(days: int = Query(7, ge=1, le=90)):
 from inputs import _get_dummy_load_profile, _get_load_profile_from_ha, _load_yaml
 
 
-@router.get("/api/debug/load_profile")
+@router.get(
+    "/api/debug/load_profile",
+    summary="Debug Load Profile",
+    description="Debug endpoint to test HA load profile fetching.",
+)
 async def debug_load_profile():
     """Debug endpoint to test HA load profile fetching."""
     try:

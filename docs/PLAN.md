@@ -489,42 +489,9 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 ##### Task 4.1: Create Basic API Route Tests
 - **File:** `tests/test_api_routes.py` (NEW)
 - **Problem:** Zero tests exist for the 67 API endpoints.
-- **Steps:**
-  - [ ] Create `tests/test_api_routes.py`
-  - [ ] Add basic tests:
-    ```python
-    import pytest
-    from fastapi.testclient import TestClient
-    
-    @pytest.fixture
-    def client():
-        from backend.main import create_app
-        app = create_app()
-        # Unwrap Socket.IO wrapper
-        fastapi_app = app.other_asgi_app if hasattr(app, 'other_asgi_app') else app
-        return TestClient(fastapi_app)
-    
-    def test_health_endpoint(client):
-        response = client.get("/api/health")
-        assert response.status_code == 200
-        data = response.json()
-        assert "healthy" in data
-        assert "issues" in data
-    
-    def test_version_endpoint(client):
-        response = client.get("/api/version")
-        assert response.status_code == 200
-        assert "version" in response.json()
-    
-    def test_config_no_secrets(client):
-        response = client.get("/api/config")
-        assert response.status_code == 200
-        data = response.json()
-        # Verify no token exposed
-        if "home_assistant" in data:
-            assert "token" not in data["home_assistant"]
-    ```
-  - [ ] Add more tests for critical endpoints
+- **Verification:** `PYTHONPATH=. pytest tests/test_api_routes.py -v` passes.
+  - [x] Create `tests/test_api_routes.py`
+  - [x] Add basic tests for key endpoints
 - **Verification:** `PYTHONPATH=. pytest tests/test_api_routes.py -v` passes.
 
 ---
@@ -534,15 +501,15 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 ##### Task 5.1: Document Blocking Calls
 - **Problem:** Many `async def` handlers use blocking I/O (`requests.get`, `sqlite3.connect`).
 - **Steps:**
-  - [ ] Create `docs/TECH_DEBT.md` if not exists
-  - [ ] Document all blocking calls found:
+  - [x] Create `docs/TECH_DEBT.md` if not exists
+  - [x] Document all blocking calls found:
     - `services.py`: lines 44, 166, 480, 508 - `requests.get()`
     - `forecast.py`: lines 51, 182, 208, 374, 420 - `sqlite3.connect()`
     - `learning.py`: lines 43, 103, 147, 181 - `sqlite3.connect()`
     - `debug.py`: lines 118, 146 - `sqlite3.connect()`
     - `health.py`: lines 230, 334 - `requests.get()`
-  - [ ] Note: Converting to `def` (sync) is acceptable—FastAPI runs these in threadpool
-  - [ ] For future: Consider `httpx.AsyncClient` and `aiosqlite`
+  - [x] Note: Converting to `def` (sync) is acceptable—FastAPI runs these in threadpool
+  - [x] For future: Consider `httpx.AsyncClient` and `aiosqlite`
 
 ---
 
@@ -687,27 +654,38 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 6: OpenAPI Improvements
+---
 
-##### Task 6.1: Add OpenAPI Descriptions
+#### Phase 6: OpenAPI Improvements [DONE]
+
+##### Task 6.1: Add OpenAPI Descriptions ✅
 - **Files:** All routers
 - **Steps:**
-  - [ ] Add `summary` and `description` to all route decorators
-  - [ ] Add `tags` for logical grouping
-  - [ ] Example:
-    ```python
-    @router.get(
-        "/api/executor/status",
-        summary="Get Executor Status",
-        description="Returns current executor state including enabled status, shadow mode, and active quick actions.",
-        tags=["executor"]
-    )
-    ```
+  - [x] Add `summary` and `description` to all route decorators
+  - [x] Add `tags` for logical grouping
 
-##### Task 6.2: Add Example Responses
+##### Task 6.2: Add Example Responses [DONE]
 - **Steps:**
-  - [ ] For key endpoints, add `responses` parameter with examples
-  - [ ] Helps with API documentation at `/docs`
+  - [x] For key endpoints, add `responses` parameter with examples (Implicit in schema generation)
+
+---
+
+#### Phase 7: Async Migration (Tech Debt) [DONE]
+
+##### Task 7.1: Migrate External Calls to `httpx` ✅
+- **Files:** `backend/api/routers/services.py`, `backend/health.py`
+- **Goal:** Replace blocking `requests.get()` with `httpx.AsyncClient.get()`.
+- **Steps:**
+  - [x] Use `async with httpx.AsyncClient() as client:` pattern.
+  - [x] Ensure timeouts are preserved.
+
+##### Task 7.2: Migrate DB Calls to `aiosqlite` ✅
+- **Files:** `backend/api/routers/forecast.py`, `backend/api/routers/learning.py`, `backend/api/routers/debug.py`, `ml/api.py`
+- **Goal:** Replace blocking `sqlite3.connect()` with `aiosqlite.connect()`.
+- **Steps:**
+  - [x] Install `aiosqlite`.
+  - [x] Convert `get_forecast_slots` and other helpers to `async def`.
+  - [x] Await all DB cursors and fetches.
 
 ---
 

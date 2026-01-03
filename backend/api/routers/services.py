@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytz
-import requests
+import httpx
 import logging
 import traceback
 from fastapi import APIRouter, HTTPException
@@ -14,6 +14,7 @@ from inputs import (
     get_home_assistant_sensor_float,
     load_home_assistant_config,
 )
+from typing import Any, cast
 
 logger = logging.getLogger("darkstar.api.services")
 
@@ -22,7 +23,7 @@ router_services = APIRouter(tags=["services"])
 
 
 # --- Helper ---
-def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
+async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     """Fetch history from HA and calculate time-weighted average."""
     if not entity_id:
         return 0.0
@@ -48,7 +49,8 @@ def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     }
 
     try:
-        resp = requests.get(api_url, headers=headers, params=params, timeout=10)
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(api_url, headers=headers, params=params)
         if resp.status_code != 200:
             return 0.0
 
@@ -104,8 +106,12 @@ def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
         return 0.0
 
 
-@router_ha.get("/entity/{entity_id}")
-async def get_ha_entity(entity_id: str):
+@router_ha.get(
+    "/entity/{entity_id}",
+    summary="Get HA Entity",
+    description="Returns the state of a specific Home Assistant entity.",
+)
+async def get_ha_entity(entity_id: str) -> dict[str, Any]:
     state = _get_ha_entity_state(entity_id)
     if not state:
         return {
@@ -114,29 +120,33 @@ async def get_ha_entity(entity_id: str):
             "attributes": {"friendly_name": "Offline/Missing"},
             "last_changed": None,
         }
-    return state
+    return cast(dict[str, Any], state)
 
 
-@router_ha.get("/average")
-async def get_ha_average(entity_id: str = None, hours: int = 24):
+@router_ha.get(
+    "/average",
+    summary="Get Entity Average",
+    description="Calculate average value for an entity over the last N hours.",
+)
+async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[str, Any]:
     """Calculate average value for an entity over the last N hours."""
-    from inputs import _get_load_profile_from_ha, _load_yaml
+    from inputs import _get_load_profile_from_ha, _load_yaml  # pyright: ignore [reportPrivateUsage]
 
     if not entity_id:
         # Default to load power sensor
-        config = _load_yaml("config.yaml")
-        sensors = config.get("input_sensors", {})
-        entity_id = sensors.get("load_power")
+        config = _load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+        sensors: dict[str, Any] = config.get("input_sensors", {})
+        entity_id = cast(str | None, sensors.get("load_power"))
 
     if not entity_id:
         return {"average": 0.0, "entity_id": None, "hours": hours}
 
-    avg_val = _fetch_ha_history_avg(entity_id, hours)
+    avg_val = await _fetch_ha_history_avg(entity_id, hours)
 
     # Fallback to static profile if history unavailable/zero
     if avg_val == 0.0:
         try:
-            config = _load_yaml("config.yaml")
+            config = _load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
             profile = _get_load_profile_from_ha(config)
             if profile:
                 avg_val = sum(profile) / len(profile)
@@ -167,7 +177,11 @@ async def get_ha_average(entity_id: str = None, hours: int = 24):
     }
 
 
-@router_ha.get("/entities")
+@router_ha.get(
+    "/entities",
+    summary="List HA Entities",
+    description="List available Home Assistant entities.",
+)
 async def get_ha_entities():
     """List available HA entities."""
     # Fetch from HA states
@@ -179,7 +193,8 @@ async def get_ha_entities():
 
     try:
         headers = _make_ha_headers(token)
-        resp = requests.get(f"{url.rstrip('/')}/api/states", headers=headers, timeout=5)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{url.rstrip('/')}/api/states", headers=headers)
         if resp.status_code == 200:
             data = resp.json()
             # Filter and format
@@ -203,16 +218,20 @@ async def get_ha_entities():
     return {"entities": []}
 
 
-@router_services.get("/api/performance/data")
-async def get_performance_data(days: int = 7):
+@router_services.get(
+    "/api/performance/data",
+    summary="Get Performance Data",
+    description="Get performance metrics for the Aurora card.",
+)
+async def get_performance_data(days: int = 7) -> dict[str, Any]:
     """Get performance metrics for Aurora card."""
     try:
         from backend.learning import get_learning_engine
 
         engine = get_learning_engine()
         if hasattr(engine, "get_performance_series"):
-            data = engine.get_performance_series(days_back=days)
-            return data
+            data = engine.get_performance_series(days_back=days) # pyright: ignore [reportUnknownMemberType]
+            return cast(dict[str, Any], data)
         else:
             return {
                 "soc_series": [],
@@ -234,14 +253,18 @@ async def get_performance_data(days: int = 7):
         }
 
 
-@router_ha.get("/water_today")
-async def get_water_today():
+@router_ha.get(
+    "/water_today",
+    summary="Get Water Heating Energy",
+    description="Get today's water heating energy usage.",
+)
+async def get_water_today() -> dict[str, Any]:
     """Get today's water heating energy usage."""
-    config = _load_yaml("config.yaml")
-    sensors = config.get("input_sensors", {})
+    config = _load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+    sensors: dict[str, Any] = config.get("input_sensors", {})
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
 
-    kwh = get_home_assistant_sensor_float(entity_id) or 0.0
+    kwh = get_home_assistant_sensor_float(str(entity_id)) or 0.0
     # Cost? Need price. Simplified: just returning kwh for now.
     return {"kwh": kwh, "cost": 0.0, "source": "home_assistant"}
 
@@ -249,7 +272,11 @@ async def get_water_today():
 # --- Services Endpoints ---
 
 
-@router_services.get("/api/status")
+@router_services.get(
+    "/api/status",
+    summary="Get System Status",
+    description="Get instantaneous system status (SoC, Power Flow).",
+)
 async def get_system_status():
     """Get instantaneous system status (SoC, Power Flow)."""
     # Load sensors
@@ -290,7 +317,11 @@ async def get_system_status():
     }
 
 
-@router_services.get("/api/water/boost")
+@router_services.get(
+    "/api/water/boost",
+    summary="Get Water Boost Status",
+    description="Get current water boost status from executor.",
+)
 async def get_water_boost():
     """Get current water boost status from executor."""
     from backend.api.routers.executor import _get_executor
@@ -309,7 +340,11 @@ async def get_water_boost():
     return {"boost": False, "source": "executor"}
 
 
-@router_services.post("/api/water/boost")
+@router_services.post(
+    "/api/water/boost",
+    summary="Set Water Boost",
+    description="Activate water heater boost via executor quick action.",
+)
 async def set_water_boost():
     """Activate water heater boost via executor quick action."""
     try:
@@ -333,10 +368,14 @@ async def set_water_boost():
         raise
     except Exception as e:
         logger.error(f"Error setting water boost: {e}\n{traceback.format_exc()}")
-        raise HTTPException(500, f"Internal error setting water boost: {e}")
+        raise HTTPException(500, f"Internal error setting water boost: {e}") from e
 
 
-@router_services.delete("/api/water/boost")
+@router_services.delete(
+    "/api/water/boost",
+    summary="Cancel Water Boost",
+    description="Cancel active water boost.",
+)
 async def cancel_water_boost():
     """Cancel active water boost."""
     try:
@@ -348,10 +387,14 @@ async def cancel_water_boost():
         return {"status": "success", "message": "Water boost cancelled"}
     except Exception as e:
         logger.error(f"Error cancelling water boost: {e}\n{traceback.format_exc()}")
-        raise HTTPException(500, f"Internal error cancelling water boost: {e}")
+        raise HTTPException(500, f"Internal error cancelling water boost: {e}") from e
 
 
-@router_services.get("/api/energy/today")
+@router_services.get(
+    "/api/energy/today",
+    summary="Get Today's Energy",
+    description="Get today's energy summary from HA sensors.",
+)
 async def get_energy_today():
     """Get today's energy summary from HA sensors."""
     config = _load_yaml("config.yaml")
@@ -389,7 +432,11 @@ async def get_energy_today():
     }
 
 
-@router_services.get("/api/energy/range")
+@router_services.get(
+    "/api/energy/range",
+    summary="Get Energy Range",
+    description="Get energy range data (today, yesterday, week, month).",
+)
 async def get_energy_range(period: str = "today"):
     """Get energy range data."""
 
@@ -556,7 +603,11 @@ async def get_energy_range(period: str = "today"):
 # --- Additional Missing Endpoints ---
 
 
-@router_ha.get("/services")
+@router_ha.get(
+    "/services",
+    summary="List HA Services",
+    description="List available Home Assistant services.",
+)
 async def get_ha_services():
     """List available HA services."""
     config = load_home_assistant_config()
@@ -567,7 +618,8 @@ async def get_ha_services():
 
     try:
         headers = _make_ha_headers(token)
-        resp = requests.get(f"{url.rstrip('/')}/api/services", headers=headers, timeout=5)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{url.rstrip('/')}/api/services", headers=headers)
         if resp.status_code == 200:
             data = resp.json()
             # Flatten to list of "domain.service" strings
@@ -583,7 +635,11 @@ async def get_ha_services():
     return {"services": []}
 
 
-@router_ha.post("/test")
+@router_ha.post(
+    "/test",
+    summary="Test HA Connection",
+    description="Test connection to Home Assistant API.",
+)
 async def test_ha_connection():
     """Test connection to Home Assistant."""
     config = load_home_assistant_config()
@@ -595,7 +651,8 @@ async def test_ha_connection():
 
     try:
         headers = _make_ha_headers(token)
-        resp = requests.get(f"{url.rstrip('/')}/api/", headers=headers, timeout=5)
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{url.rstrip('/')}/api/", headers=headers)
         if resp.status_code == 200:
             return {"status": "success", "message": "Connected to Home Assistant"}
         else:
@@ -604,7 +661,11 @@ async def test_ha_connection():
         return {"status": "error", "message": str(e)}
 
 
-@router_services.get("/api/ha-socket")
+@router_services.get(
+    "/api/ha-socket",
+    summary="Get HA Socket Status",
+    description="Return status of the HA WebSocket connection.",
+)
 async def get_ha_socket_status():
     """Return status of the HA WebSocket connection."""
     try:
@@ -617,7 +678,11 @@ async def get_ha_socket_status():
         return {"status": "error", "message": str(e)}
 
 
-@router_services.get("/api/db/current_schedule")
+@router_services.get(
+    "/api/db/current_schedule",
+    summary="Get DB Current Schedule",
+    description="Get the current schedule directly from the database.",
+)
 async def get_db_current_schedule():
     """Get the current schedule from the database."""
     try:
@@ -631,7 +696,11 @@ async def get_db_current_schedule():
         return {"schedule": None, "error": str(e)}
 
 
-@router_services.post("/api/db/push_current")
+@router_services.post(
+    "/api/db/push_current",
+    summary="Push Schedule to DB",
+    description="Push current schedule.json to the database.",
+)
 async def push_to_db():
     """Push current schedule to database."""
     try:
@@ -647,7 +716,11 @@ async def push_to_db():
         return {"status": "error", "message": str(e)}
 
 
-@router_services.post("/api/simulate")
+@router_services.post(
+    "/api/simulate",
+    summary="Run Simulation",
+    description="Run a simulation of the current schedule.",
+)
 async def run_simulation():
     """Run schedule simulation."""
     try:

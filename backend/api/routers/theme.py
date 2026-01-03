@@ -17,11 +17,13 @@ class ThemeSelectRequest(BaseModel):
     accent_index: int | None = None
 
 
+from typing import Any, cast
+
 # Helper functions (ported from webapp.py)
-def _parse_legacy_theme_format(text: str) -> dict:
+def _parse_legacy_theme_format(text: str) -> dict[str, Any]:
     """Parse simple key/value themes."""
-    palette = [None] * 16
-    data = {}
+    palette: list[str | None] = [None] * 16
+    data: dict[str, Any] = {}
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
@@ -55,14 +57,17 @@ def _parse_legacy_theme_format(text: str) -> dict:
     return data
 
 
-def _normalise_theme(name: str, raw_data: dict) -> dict:
-    if not isinstance(raw_data, dict):
-        raise ValueError("Theme data must be a mapping")
+def _normalise_theme(name: str, raw_data: dict[str, Any]) -> dict[str, Any]:
+    # if not isinstance(raw_data, dict):
+    #    raise ValueError("Theme data must be a mapping")
     palette = raw_data.get("palette")
-    if not isinstance(palette, (list, tuple)) or len(palette) != 16:
+    palette_list = cast(list[Any], palette)
+    if not isinstance(palette, (list, tuple)) or len(palette_list) != 16:
         raise ValueError("Palette must contain exactly 16 colours")
 
-    def _clean_colour(value, key):
+    proper_palette = palette_list
+
+    def _clean_colour(value: Any, key: str) -> str:
         if not isinstance(value, str):
             raise ValueError(f"{key} must be a string")
         value = value.strip()
@@ -74,11 +79,12 @@ def _normalise_theme(name: str, raw_data: dict) -> dict:
         "name": name,
         "foreground": _clean_colour(raw_data.get("foreground", "#ffffff"), "foreground"),
         "background": _clean_colour(raw_data.get("background", "#000000"), "background"),
-        "palette": [_clean_colour(c, f"palette[{i}]") for i, c in enumerate(palette)],
+        "background": _clean_colour(raw_data.get("background", "#000000"), "background"),
+        "palette": [_clean_colour(c, f"palette[{i}]") for i, c in enumerate(proper_palette)],
     }
 
 
-def _load_theme_file(path: str) -> dict:
+def _load_theme_file(path: str) -> dict[str, Any]:
     with open(path) as handle:
         text = handle.read()
     filename = os.path.basename(path)
@@ -94,8 +100,8 @@ def _load_theme_file(path: str) -> dict:
     return _normalise_theme(os.path.splitext(filename)[0] or filename, raw_data)
 
 
-def load_themes(theme_dir: str = THEME_DIR) -> dict:
-    themes = {}
+def load_themes(theme_dir: str = THEME_DIR) -> dict[str, Any]:
+    themes: dict[str, Any] = {}
     if not os.path.isdir(theme_dir):
         return themes
     for entry in sorted(os.listdir(theme_dir)):
@@ -111,23 +117,27 @@ def load_themes(theme_dir: str = THEME_DIR) -> dict:
     return themes
 
 
-AVAILABLE_THEMES = {}
+AVAILABLE_THEMES: dict[str, Any] = {}
 
 
-@router.get("/api/themes")
-async def list_themes():
+@router.get(
+    "/api/themes",
+    summary="List Themes",
+    description="Return all available themes and the currently selected theme.",
+)
+async def list_themes() -> dict[str, Any]:
     """Return all available themes and the currently selected theme."""
     global AVAILABLE_THEMES
-    AVAILABLE_THEMES = load_themes()
+    AVAILABLE_THEMES = load_themes()  # pyright: ignore [reportConstantRedefinition]
 
     current_name = None
     accent_index = None
     try:
         with open("config.yaml") as handle:
-            config = yaml.safe_load(handle) or {}
+            config: dict[str, Any] = yaml.safe_load(handle) or {}
             ui = config.get("ui", {})
-            current_name = ui.get("theme")
-            accent_index = ui.get("theme_accent_index")
+            current_name = str(ui.get("theme")) if ui.get("theme") else None
+            accent_index = int(ui.get("theme_accent_index", 0)) if ui.get("theme_accent_index") is not None else None
     except FileNotFoundError:
         pass
 
@@ -141,11 +151,15 @@ async def list_themes():
     }
 
 
-@router.post("/api/theme")
-async def select_theme(payload: ThemeSelectRequest):
+@router.post(
+    "/api/theme",
+    summary="Select Theme",
+    description="Persist a selected theme to config.yaml.",
+)
+async def select_theme(payload: ThemeSelectRequest) -> dict[str, Any]:
     """Persist a selected theme to config.yaml."""
     global AVAILABLE_THEMES
-    AVAILABLE_THEMES = load_themes()  # Reload to be sure
+    AVAILABLE_THEMES = load_themes()  # pyright: ignore [reportConstantRedefinition]
 
     if payload.theme not in AVAILABLE_THEMES:
         raise HTTPException(status_code=404, detail=f"Theme '{payload.theme}' not found")
@@ -157,10 +171,14 @@ async def select_theme(payload: ThemeSelectRequest):
         from ruamel.yaml import YAML
 
         yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True
+        yaml_handler.preserve_quotes = True  # type: ignore
         with open("config.yaml", encoding="utf-8") as handle:
-            config = yaml_handler.load(handle) or {}
+            loaded = yaml_handler.load(handle) # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+            config: dict[str, Any] = cast(dict[str, Any], loaded) if isinstance(loaded, dict) else {}
     except FileNotFoundError:
+        from ruamel.yaml import YAML
+        yaml_handler = YAML()
+        yaml_handler.preserve_quotes = True  # type: ignore
         config = {}
 
     ui_section = config.setdefault("ui", {})
@@ -169,7 +187,7 @@ async def select_theme(payload: ThemeSelectRequest):
         ui_section["theme_accent_index"] = payload.accent_index
 
     with open("config.yaml", "w", encoding="utf-8") as handle:
-        yaml_handler.dump(config, handle)
+        yaml_handler.dump(config, handle) # pyright: ignore [reportUnknownMemberType]
 
     return {
         "status": "success",

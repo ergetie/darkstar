@@ -31,7 +31,11 @@ def _get_git_version() -> str:
     return "dev"
 
 
-@router.get("/api/version")
+@router.get(
+    "/api/version",
+    summary="Get System Version",
+    description="Returns the current version, commit hash, and build date.",
+)
 async def get_version():
     """Return the current system version."""
     return {"version": _get_git_version()}

@@ -7,6 +7,7 @@ Provides endpoints for the learning engine (auto-tuning, forecast calibration).
 import json
 import logging
 import sqlite3
+import aiosqlite
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -22,7 +23,11 @@ def _get_learning_engine():
     return get_learning_engine()
 
 
-@router.get("/api/learning/status")
+@router.get(
+    "/api/learning/status",
+    summary="Get Learning Status",
+    description="Return learning engine status and metrics.",
+)
 async def learning_status():
     """Return learning engine status and metrics."""
     try:
@@ -34,34 +39,37 @@ async def learning_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/learning/history")
+@router.get(
+    "/api/learning/history",
+    summary="Get Learning History",
+    description="Return learning engine run history.",
+)
 async def learning_history(limit: int = Query(20, ge=1, le=100)):
     """Return learning engine run history."""
     try:
         engine = _get_learning_engine()
 
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
+        async with aiosqlite.connect(engine.db_path) as conn:
+            async with conn.execute(
                 """
-                SELECT id, run_date, status, metrics_json, config_changes_json
+                SELECT id, started_at, status, result_metrics_json, params_json
                 FROM learning_runs
-                ORDER BY run_date DESC
+                ORDER BY started_at DESC
                 LIMIT ?
             """,
                 (limit,),
-            )
+            ) as cursor:
 
-            runs = []
-            for row in cursor.fetchall():
-                run = {
-                    "id": row[0],
-                    "run_date": row[1],
-                    "status": row[2],
-                    "metrics": json.loads(row[3]) if row[3] else None,
-                    "config_changes": json.loads(row[4]) if row[4] else None,
-                }
-                runs.append(run)
+                runs = []
+                for row in await cursor.fetchall():
+                    run = {
+                        "id": row[0],
+                        "run_date": row[1],
+                        "status": row[2],
+                        "metrics": json.loads(row[3]) if row[3] else None,
+                        "config_changes": json.loads(row[4]) if row[4] else None,
+                    }
+                    runs.append(run)
 
         return {"runs": runs, "count": len(runs)}
     except sqlite3.OperationalError as e:
@@ -73,7 +81,11 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/learning/run")
+@router.post(
+    "/api/learning/run",
+    summary="Trigger Learning Run",
+    description="Trigger learning orchestration manually.",
+)
 async def learning_run():
     """Trigger learning orchestration manually."""
     try:
@@ -91,7 +103,11 @@ async def learning_run():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/learning/loops")
+@router.get(
+    "/api/learning/loops",
+    summary="Get Learning Loops",
+    description="Get status of individual learning loops.",
+)
 async def learning_loops():
     """Get status of individual learning loops."""
     try:
@@ -99,25 +115,23 @@ async def learning_loops():
 
         # Get loop statuses from database
         loops_status = {}
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-
+        async with aiosqlite.connect(engine.db_path) as conn:
             # Check for learning_loops table
-            cursor.execute("""
+            async with conn.execute("""
                 SELECT name FROM sqlite_master 
                 WHERE type='table' AND name='learning_loops'
-            """)
-            if cursor.fetchone():
-                cursor.execute("""
-                    SELECT loop_name, last_run, status, error_message
-                    FROM learning_loops
-                """)
-                for row in cursor.fetchall():
-                    loops_status[row[0]] = {
-                        "last_run": row[1],
-                        "status": row[2],
-                        "error": row[3],
-                    }
+            """) as cursor:
+                if await cursor.fetchone():
+                    async with conn.execute("""
+                        SELECT loop_name, last_run, status, error_message
+                        FROM learning_loops
+                    """) as loops_cursor:
+                        for row in await loops_cursor.fetchall():
+                            loops_status[row[0]] = {
+                                "last_run": row[1],
+                                "status": row[2],
+                                "error": row[3],
+                            }
 
         # Define known loops with their statuses
         known_loops = ["pv_forecast", "load_forecast", "s_index", "arbitrage"]
@@ -134,30 +148,32 @@ async def learning_loops():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/learning/daily_metrics")
+@router.get(
+    "/api/learning/daily_metrics",
+    summary="Get Daily Metrics",
+    description="Get latest daily metrics from learning engine.",
+)
 async def learning_daily_metrics():
     """Get latest daily metrics from learning engine."""
     try:
         engine = _get_learning_engine()
 
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-
+        async with aiosqlite.connect(engine.db_path) as conn:
             # Check if table exists
-            cursor.execute("""
+            async with conn.execute("""
                 SELECT name FROM sqlite_master 
                 WHERE type='table' AND name='daily_metrics'
-            """)
-            if not cursor.fetchone():
-                return {"message": "Daily metrics table not yet created"}
+            """) as cursor:
+                if not await cursor.fetchone():
+                    return {"message": "Daily metrics table not yet created"}
 
-            cursor.execute("""
+            async with conn.execute("""
                 SELECT date, pv_error_mean_abs_kwh, load_error_mean_abs_kwh, s_index_base_factor
                 FROM daily_metrics
                 ORDER BY date DESC
                 LIMIT 1
-            """)
-            row = cursor.fetchone()
+            """) as cursor:
+                row = await cursor.fetchone()
 
             if not row:
                 return {"message": "No daily metrics yet"}
@@ -173,24 +189,26 @@ async def learning_daily_metrics():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/api/learning/changes")
+@router.get(
+    "/api/learning/changes",
+    summary="Get Learning Changes",
+    description="Return recent learning configuration changes.",
+)
 async def learning_changes(limit: int = Query(10, ge=1, le=50)):
     """Return recent learning configuration changes."""
     try:
         engine = _get_learning_engine()
 
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-
+        async with aiosqlite.connect(engine.db_path) as conn:
             # Check if table exists
-            cursor.execute("""
+            async with conn.execute("""
                 SELECT name FROM sqlite_master 
                 WHERE type='table' AND name='config_versions'
-            """)
-            if not cursor.fetchone():
-                return {"changes": [], "message": "Config versions table not yet created"}
+            """) as cursor:
+                if not await cursor.fetchone():
+                    return {"changes": [], "message": "Config versions table not yet created"}
 
-            cursor.execute(
+            async with conn.execute(
                 """
                 SELECT id, created_at, reason, applied, metrics_json
                 FROM config_versions
@@ -198,18 +216,18 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
                 LIMIT ?
             """,
                 (limit,),
-            )
+            ) as cursor:
 
-            changes = []
-            for row in cursor.fetchall():
-                change = {
-                    "id": row[0],
-                    "created_at": row[1],
-                    "reason": row[2],
-                    "applied": bool(row[3]),
-                    "metrics": json.loads(row[4]) if row[4] else None,
-                }
-                changes.append(change)
+                changes = []
+                for row in await cursor.fetchall():
+                    change = {
+                        "id": row[0],
+                        "created_at": row[1],
+                        "reason": row[2],
+                        "applied": bool(row[3]),
+                        "metrics": json.loads(row[4]) if row[4] else None,
+                    }
+                    changes.append(change)
 
         return {"changes": changes}
     except Exception as e:
@@ -217,7 +235,11 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/api/learning/record_observation")
+@router.post(
+    "/api/learning/record_observation",
+    summary="Record Observation",
+    description="Trigger observation recording from current system state.",
+)
 async def record_observation():
     """Trigger observation recording from current system state."""
     try:

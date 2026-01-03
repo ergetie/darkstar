@@ -92,7 +92,7 @@ def create_app() -> socketio.ASGIApp:
 
     # 4. Health Check - Using comprehensive HealthChecker
     @app.get("/api/health")
-    def health_check():  # type: ignore[reportUnusedFunction]
+    async def health_check():  # type: ignore[reportUnusedFunction]
         """
         Return system health status.
         Uses sync function (not async) because HealthChecker uses blocking I/O.
@@ -101,7 +101,7 @@ def create_app() -> socketio.ASGIApp:
         try:
             from backend.health import get_health_status
 
-            status = get_health_status()
+            status = await get_health_status()
             result = status.to_dict()
         except Exception as e:
             # Fallback if health check itself fails

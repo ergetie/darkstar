@@ -11,10 +11,11 @@ import requests
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+import aiosqlite
 from backend.learning import get_learning_engine
 from backend.strategy.history import get_strategy_history
 from inputs import _load_yaml
-from ml.api import get_forecast_slots
+from ml.api import get_forecast_slots, get_forecast_slots_async
 from ml.weather import get_weather_volatility
 
 logger = logging.getLogger("darkstar.api.forecast")
@@ -51,20 +52,19 @@ def _get_engine_and_config():
     return engine, config
 
 
-def _compute_graduation_level(engine: Any) -> dict[str, Any]:
+async def _compute_graduation_level(engine: Any) -> dict[str, Any]:
     level_label = "infant"
     total_runs = 0
     db_path = getattr(engine, "db_path", None) if engine is not None else None
 
     if db_path and os.path.exists(db_path):
         try:
-            with sqlite3.connect(db_path, timeout=30.0) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT COUNT(*) FROM learning_runs")
-                row = cursor.fetchone()
+            async with aiosqlite.connect(db_path) as conn:
+                cursor = await conn.execute("SELECT COUNT(*) FROM learning_runs")
+                row = await cursor.fetchone()
                 if row:
                     total_runs = int(row[0] or 0)
-        except sqlite3.Error as exc:
+        except Exception as exc:
             logger.warning("Failed to count learning_runs: %s", exc)
 
     if total_runs < 14:
@@ -142,7 +142,7 @@ def _fetch_weather_volatility(
     return {"cloud_volatility": cloud, "temp_volatility": temp, "overall": max(cloud, temp)}
 
 
-def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]:
+async def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]:
     tz = getattr(engine, "timezone", _get_timezone())
     now = datetime.now(tz)
     minutes = (now.minute // 15) * 15
@@ -156,7 +156,7 @@ def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]
 
     slots: list[dict[str, Any]] = []
     try:
-        records = get_forecast_slots(slot_start, horizon_end, active_version)
+        records = await get_forecast_slots_async(slot_start, horizon_end, active_version)
     except Exception as exc:
         logger.warning("Failed to fetch forecast slots: %s", exc)
         records = []
@@ -200,7 +200,7 @@ def _fetch_horizon_series(engine: Any, config: dict[str, Any]) -> dict[str, Any]
     }
 
 
-def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
+async def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[str, Any]]:
     db_path = getattr(engine, "db_path", None)
     if not db_path or not os.path.exists(db_path):
         return []
@@ -212,9 +212,8 @@ def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[
 
     rows = []
     try:
-        with sqlite3.connect(db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
+        async with aiosqlite.connect(db_path) as conn:
+            async with conn.execute(
                 """
                 SELECT DATE(slot_start) AS date, SUM(ABS(pv_correction_kwh)), SUM(ABS(load_correction_kwh))
                 FROM slot_forecasts
@@ -222,24 +221,24 @@ def _fetch_correction_history(engine: Any, config: dict[str, Any]) -> list[dict[
                 GROUP BY DATE(slot_start) ORDER BY date ASC
             """,
                 (active_version, cutoff_date),
-            )
-            for date_str, pv_corr, load_corr in cursor.fetchall():
-                pv = float(pv_corr or 0.0)
-                load = float(load_corr or 0.0)
-                rows.append(
-                    {
-                        "date": date_str,
-                        "total_correction_kwh": pv + load,
-                        "pv_correction_kwh": pv,
-                        "load_correction_kwh": load,
-                    }
-                )
+            ) as cursor:
+                for date_str, pv_corr, load_corr in await cursor.fetchall():
+                    pv = float(pv_corr or 0.0)
+                    load = float(load_corr or 0.0)
+                    rows.append(
+                        {
+                            "date": date_str,
+                            "total_correction_kwh": pv + load,
+                            "pv_correction_kwh": pv,
+                            "load_correction_kwh": load,
+                        }
+                    )
     except Exception as exc:
         logger.warning("Failed to fetch correction history: %s", exc)
     return rows
 
 
-def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]:
+async def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]:
     db_path = getattr(engine, "db_path", None) if engine else None
     metrics = {
         "mae_pv_aurora": None,
@@ -255,8 +254,8 @@ def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]
     start_time = now - timedelta(days=max(days_back, 1))
 
     try:
-        with sqlite3.connect(db_path, timeout=30.0) as conn:
-            rows = conn.execute(
+        async with aiosqlite.connect(db_path) as conn:
+            async with conn.execute(
                 """
                 SELECT f.forecast_version, AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)), AVG(ABS(o.load_kwh - f.load_forecast_kwh))
                 FROM slot_observations o
@@ -267,7 +266,8 @@ def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]
                 GROUP BY f.forecast_version
             """,
                 (start_time.isoformat(), now.isoformat()),
-            ).fetchall()
+            ) as cursor:
+                rows = await cursor.fetchall()
 
         for version, mae_pv, mae_load in rows:
             if version == "aurora":
@@ -323,11 +323,15 @@ def get_aurora_briefing_text(
 # --- Routes ---
 
 
-@router.get("/dashboard")
+@router.get(
+    "/dashboard",
+    summary="Get Aurora Dashboard Data",
+    description="Returns comprehensive data for the Aurora dashboard including identity, risk profile, weather volatility, and forecast horizon.",
+)
 async def aurora_dashboard():
     engine, config = _get_engine_and_config()
     tz = getattr(engine, "timezone", _get_timezone())
-    graduation = _compute_graduation_level(engine)
+    graduation = await _compute_graduation_level(engine)
     risk_profile = _compute_risk_profile(config)
 
     now = datetime.now(tz)
@@ -338,7 +342,7 @@ async def aurora_dashboard():
     horizon_end = slot_start + timedelta(hours=48)
 
     weather_volatility = _fetch_weather_volatility(slot_start, horizon_end, config)
-    horizon = _fetch_horizon_series(engine, config)
+    horizon = await _fetch_horizon_series(engine, config)
 
     # History Series (Rev A29)
     try:
@@ -360,8 +364,8 @@ async def aurora_dashboard():
     except Exception:
         horizon["history_series"] = {"pv": [], "load": []}
 
-    history = _fetch_correction_history(engine, config)
-    metrics = _compute_metrics(engine)
+    history = await _fetch_correction_history(engine, config)
+    metrics = await _compute_metrics(engine)
     strategy_history = get_strategy_history(limit=50)
 
     # Max Price Spread
@@ -412,7 +416,11 @@ class BriefingRequest(BaseModel):
     pass
 
 
-@router.post("/briefing")
+@router.post(
+    "/briefing",
+    summary="Get Aurora Briefing",
+    description="Generates a natural language summary of the current energy situation using an LLM.",
+)
 async def aurora_briefing(request: Request):
     try:
         dashboard = await request.json()
@@ -433,7 +441,11 @@ class ToggleReflexRequest(BaseModel):
     enabled: bool
 
 
-@router.post("/config/toggle_reflex")
+@router.post(
+    "/config/toggle_reflex",
+    summary="Toggle Reflex Mode",
+    description="Enables or disables the Aurora Reflex learning module.",
+)
 async def toggle_reflex(payload: ToggleReflexRequest):
     try:
         from ruamel.yaml import YAML
@@ -455,7 +467,11 @@ async def toggle_reflex(payload: ToggleReflexRequest):
 forecast_router = APIRouter(tags=["forecast"])
 
 
-@forecast_router.get("/api/forecast/eval")
+@forecast_router.get(
+    "/api/forecast/eval",
+    summary="Evaluate Forecast Accuracy",
+    description="Returns Mean Absolute Error (MAE) metrics for baseline vs Aurora forecasts over recent days.",
+)
 async def forecast_eval(days: int = 7):
     """Return simple MAE metrics for baseline vs AURORA forecasts over recent days."""
     try:
@@ -463,9 +479,8 @@ async def forecast_eval(days: int = 7):
         now = datetime.now(pytz.UTC)
         start_time = now - timedelta(days=max(days, 1))
 
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            rows = cursor.execute(
+        async with aiosqlite.connect(engine.db_path) as conn:
+            async with conn.execute(
                 """
                 SELECT
                     f.forecast_version,
@@ -480,7 +495,8 @@ async def forecast_eval(days: int = 7):
                 GROUP BY f.forecast_version
             """,
                 (start_time.isoformat(), now.isoformat()),
-            ).fetchall()
+            ) as cursor:
+                rows = await cursor.fetchall()
 
         versions = []
         for row in rows:
@@ -499,7 +515,11 @@ async def forecast_eval(days: int = 7):
         raise HTTPException(500, str(e)) from e
 
 
-@forecast_router.get("/api/forecast/day")
+@forecast_router.get(
+    "/api/forecast/day",
+    summary="Get Daily Forecast View",
+    description="Returns actual vs forecast data for a specific day to visualize model performance.",
+)
 async def forecast_day(date: str | None = None):
     """Return per-slot actual vs baseline/AURORA forecasts for a single day."""
     try:
@@ -514,9 +534,8 @@ async def forecast_day(date: str | None = None):
         day_start = tz.localize(datetime(target_date.year, target_date.month, target_date.day))
         day_end = day_start + timedelta(days=1)
 
-        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            obs_rows = cursor.execute(
+        async with aiosqlite.connect(engine.db_path) as conn:
+            async with conn.execute(
                 """
                 SELECT slot_start, pv_kwh, load_kwh
                 FROM slot_observations
@@ -524,9 +543,10 @@ async def forecast_day(date: str | None = None):
                 ORDER BY slot_start ASC
             """,
                 (day_start.isoformat(), day_end.isoformat()),
-            ).fetchall()
+            ) as cursor:
+                obs_rows = await cursor.fetchall()
 
-            f_rows = cursor.execute(
+            async with conn.execute(
                 """
                 SELECT slot_start, pv_forecast_kwh, load_forecast_kwh, forecast_version
                 FROM slot_forecasts
@@ -534,7 +554,8 @@ async def forecast_day(date: str | None = None):
                   AND forecast_version IN ('baseline_7_day_avg', 'aurora')
             """,
                 (day_start.isoformat(), day_end.isoformat()),
-            ).fetchall()
+            ) as cursor:
+                f_rows = await cursor.fetchall()
 
         # Build response
         slots = {}
@@ -560,11 +581,24 @@ async def forecast_day(date: str | None = None):
         raise HTTPException(500, str(e)) from e
 
 
-@forecast_router.get("/api/forecast/horizon")
+@forecast_router.get(
+    "/api/forecast/horizon",
+    summary="Get Forecast Horizon",
+    description="Returns raw forecast slots for the next N hours.",
+)
 async def forecast_horizon(hours: int = 48):
     """Return ML forecast for the next N hours."""
     try:
-        slots = get_forecast_slots(horizon_hours=hours)
+        engine, config = _get_engine_and_config()
+        tz = getattr(engine, "timezone", _get_timezone()) if engine else _get_timezone()
+        now = datetime.now(tz)
+        minutes = (now.minute // 15) * 15
+        slot_start = now.replace(minute=minutes, second=0, microsecond=0)
+
+        horizon_end = slot_start + timedelta(hours=hours)
+        active_version = config.get("forecasting", {}).get("active_forecast_version", "aurora")
+
+        slots = await get_forecast_slots_async(slot_start, horizon_end, active_version)
         return {"horizon_hours": hours, "slots": slots}
     except Exception as e:
         logger.exception("Forecast horizon failed")

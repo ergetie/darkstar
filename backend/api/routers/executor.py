@@ -55,7 +55,11 @@ class PauseRequest(BaseModel):
 # --- Routes ---
 
 
-@router.get("/api/executor/status")
+@router.get(
+    "/api/executor/status",
+    summary="Get Executor Status",
+    description="Returns the current operational status of the executor.",
+)
 async def get_status():
     """Return current executor status."""
     executor = _get_executor()
@@ -64,7 +68,11 @@ async def get_status():
     return executor.get_status()
 
 
-@router.post("/api/executor/toggle")
+@router.post(
+    "/api/executor/toggle",
+    summary="Toggle Executor",
+    description="Enables or disables the executor loop.",
+)
 async def toggle_executor(payload: ToggleRequest):
     """Enable or disable the executor."""
     try:
@@ -102,7 +110,11 @@ async def toggle_executor(payload: ToggleRequest):
     }
 
 
-@router.post("/api/executor/run")
+@router.post(
+    "/api/executor/run",
+    summary="Trigger Executor Run",
+    description="Forcefully triggers a single execution loop iteration.",
+)
 async def run_once():
     """Trigger a single loop run."""
     executor = _get_executor()
@@ -112,7 +124,11 @@ async def run_once():
     return {"status": "error", "message": "Executor unavailable"}
 
 
-@router.get("/api/executor/quick-action")
+@router.get(
+    "/api/executor/quick-action",
+    summary="Get Quick Action Status",
+    description="Returns the status of any active quick action.",
+)
 async def get_quick_actions():
     executor = _get_executor()
     if not executor:
@@ -125,7 +141,11 @@ async def get_quick_actions():
     return {"quick_action": None}
 
 
-@router.post("/api/executor/quick-action")
+@router.post(
+    "/api/executor/quick-action",
+    summary="Set Quick Action",
+    description="Activates a temporary override (quick action).",
+)
 async def set_quick_action(payload: QuickActionRequest):
     executor = _get_executor()
     if not executor:
@@ -139,7 +159,11 @@ async def set_quick_action(payload: QuickActionRequest):
     return {"status": "success"}
 
 
-@router.delete("/api/executor/quick-action")
+@router.delete(
+    "/api/executor/quick-action",
+    summary="Clear Quick Action",
+    description="Cancels any active quick action.",
+)
 async def clear_quick_action(action: str | None = None):
     executor = _get_executor()
     if not executor:
@@ -152,7 +176,11 @@ async def clear_quick_action(action: str | None = None):
     return {"status": "success"}
 
 
-@router.post("/api/executor/pause")
+@router.post(
+    "/api/executor/pause",
+    summary="Pause Executor",
+    description="Pauses the executor for a specified duration.",
+)
 async def pause_executor(payload: PauseRequest):
     executor = _get_executor()
     if not executor:
@@ -167,8 +195,16 @@ async def pause_executor(payload: PauseRequest):
     return {"status": "error", "message": "Pause not supported"}
 
 
-@router.post("/api/executor/resume")
-@router.get("/api/executor/resume")  # Support GET for simple links if needed
+@router.post(
+    "/api/executor/resume",
+    summary="Resume Executor",
+    description="Resumes the executor from a paused state.",
+)
+@router.get(
+    "/api/executor/resume",
+    summary="Resume Executor (GET)",
+    description="Resumes the executor via GET request (e.g. for simple links).",
+)
 async def resume_executor():
     executor = _get_executor()
     if not executor:
@@ -178,7 +214,11 @@ async def resume_executor():
     return {"status": "success"}
 
 
-@router.get("/api/executor/history")
+@router.get(
+    "/api/executor/history",
+    summary="Get Execution History",
+    description="Returns historical execution logs.",
+)
 async def get_history(
     limit: int = 100,
     offset: int = 0,
@@ -211,7 +251,11 @@ async def get_history(
         return {"records": [], "count": 0, "error": str(e)}
 
 
-@router.get("/api/executor/stats")
+@router.get(
+    "/api/executor/stats",
+    summary="Get Execution Statistics",
+    description="Returns execution statistics over a specified period.",
+)
 async def get_stats(days: int = 7):
     executor = _get_executor()
     if not executor:
@@ -223,7 +267,11 @@ async def get_stats(days: int = 7):
     return {}
 
 
-@router.get("/api/executor/config")
+@router.get(
+    "/api/executor/config",
+    summary="Get Executor Config",
+    description="Returns the current executor configuration.",
+)
 async def get_executor_config():
     """Return current executor configuration."""
     executor = _get_executor()
@@ -290,7 +338,11 @@ async def get_executor_config():
     }
 
 
-@router.put("/api/executor/config")
+@router.put(
+    "/api/executor/config",
+    summary="Update Executor Config",
+    description="Updates the executor configuration.",
+)
 async def update_executor_config(request: Request):
     """Update executor entity configuration."""
     from ruamel.yaml import YAML
@@ -343,7 +395,11 @@ async def update_executor_config(request: Request):
         raise HTTPException(500, str(e))
 
 
-@router.get("/api/executor/notifications")
+@router.get(
+    "/api/executor/notifications",
+    summary="Get Notification Settings",
+    description="Returns current notification settings.",
+)
 async def get_notifications():
     """Get notification settings."""
     executor = _get_executor()
@@ -383,7 +439,11 @@ async def get_notifications():
         return {"service": None}
 
 
-@router.post("/api/executor/notifications")
+@router.post(
+    "/api/executor/notifications",
+    summary="Update Notification Settings",
+    description="Updates notification settings.",
+)
 async def update_notifications(request: Request):
     """Update notification settings."""
     from ruamel.yaml import YAML
@@ -421,7 +481,11 @@ async def update_notifications(request: Request):
         raise HTTPException(500, str(e))
 
 
-@router.post("/api/executor/notifications/test")
+@router.post(
+    "/api/executor/notifications/test",
+    summary="Test Notifications",
+    description="Sends a test notification to verify configuration.",
+)
 async def test_notifications():
     """Send a test notification."""
     executor = _get_executor()
@@ -441,7 +505,11 @@ async def test_notifications():
         raise HTTPException(500, str(e))
 
 
-@router.get("/api/executor/live")
+@router.get(
+    "/api/executor/live",
+    summary="Get Live Metrics",
+    description="Returns real-time metrics from the executor.",
+)
 async def get_live():
     executor = _get_executor()
     if not executor:

@@ -25,7 +25,11 @@ def _get_executor() -> Any | None:
     return get_exec()
 
 
-@router.get("/api/scheduler/status")
+@router.get(
+    "/api/scheduler/status",
+    summary="Get Scheduler Status",
+    description="Returns the current status of the background scheduler.",
+)
 async def get_scheduler_status():
     """Get scheduler status (is it running, last run, etc)."""
     try:
@@ -45,7 +49,11 @@ async def get_scheduler_status():
     }
 
 
-@router.get("/api/schedule")
+@router.get(
+    "/api/schedule",
+    summary="Get Active Schedule",
+    description="Returns the current active optimization schedule with price overlay.",
+)
 async def get_schedule():
     """Return the current active schedule.json with price overlay."""
     try:
@@ -100,7 +108,11 @@ async def get_schedule():
 # I will port it carefully.
 
 
-@router.get("/api/schedule/today_with_history")
+@router.get(
+    "/api/schedule/today_with_history",
+    summary="Get Today's Schedule & History",
+    description="Returns a merged view of the planned schedule and actual execution history for the current day.",
+)
 async def schedule_today_with_history():
     """Merged view of today's schedule and execution history."""
     try:

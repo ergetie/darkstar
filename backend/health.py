@@ -11,7 +11,8 @@ from datetime import datetime
 from typing import Any
 
 import pytz
-import requests
+import pytz
+import httpx
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class HealthChecker:
         self._config: dict | None = None
         self._secrets: dict | None = None
 
-    def check_all(self) -> HealthStatus:
+    async def check_all(self) -> HealthStatus:
         """Run all health checks and return combined status."""
         issues: list[HealthIssue] = []
 
@@ -85,11 +86,11 @@ class HealthChecker:
 
         # If config is valid, proceed with other checks
         if not any(i.category == "config" and i.severity == "critical" for i in issues):
-            issues.extend(self.check_ha_connection())
+            issues.extend(await self.check_ha_connection())
 
             # Only check entities if HA is connected
             if not any(i.category == "ha_connection" for i in issues):
-                issues.extend(self.check_entities())
+                issues.extend(await self.check_entities())
 
         issues.extend(self.check_database())
 
@@ -212,7 +213,7 @@ class HealthChecker:
 
         return issues
 
-    def check_ha_connection(self) -> list[HealthIssue]:
+    async def check_ha_connection(self) -> list[HealthIssue]:
         """Check if Home Assistant is reachable."""
         issues: list[HealthIssue] = []
 
@@ -227,11 +228,11 @@ class HealthChecker:
             return issues  # Already reported in config check
 
         try:
-            response = requests.get(
-                f"{url}/api/",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
-            )
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{url}/api/",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
 
             if response.status_code == 401:
                 issues.append(
@@ -252,16 +253,16 @@ class HealthChecker:
                     )
                 )
 
-        except requests.exceptions.ConnectionError:
+        except httpx.RequestError as e:
             issues.append(
                 HealthIssue(
                     category="ha_connection",
                     severity="critical",
-                    message="Cannot connect to Home Assistant",
+                    message=f"Cannot connect to Home Assistant: {e}",
                     guidance=f"Check that Home Assistant is running and reachable at {url}",
                 )
             )
-        except requests.exceptions.Timeout:
+        except httpx.TimeoutException:
             issues.append(
                 HealthIssue(
                     category="ha_connection",
@@ -282,7 +283,7 @@ class HealthChecker:
 
         return issues
 
-    def check_entities(self) -> list[HealthIssue]:
+    async def check_entities(self) -> list[HealthIssue]:
         """Check if configured entities exist in Home Assistant."""
         issues: list[HealthIssue] = []
 
@@ -334,13 +335,13 @@ class HealthChecker:
 
         # Check each entity
         headers = {"Authorization": f"Bearer {token}"}
-        for entity_id, config_key in entities_to_check:
-            try:
-                response = requests.get(
-                    f"{url}/api/states/{entity_id}",
-                    headers=headers,
-                    timeout=5,
-                )
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for entity_id, config_key in entities_to_check:
+                try:
+                    response = await client.get(
+                        f"{url}/api/states/{entity_id}",
+                        headers=headers,
+                    )
 
                 if response.status_code == 404:
                     issues.append(
@@ -367,7 +368,7 @@ class HealthChecker:
                             )
                         )
 
-            except requests.exceptions.RequestException:
+            except httpx.RequestError:
                 # Connection issues already reported in check_ha_connection
                 pass
 
@@ -422,7 +423,7 @@ class HealthChecker:
         return issues
 
 
-def get_health_status(config_path: str = "config.yaml") -> HealthStatus:
+async def get_health_status(config_path: str = "config.yaml") -> HealthStatus:
     """Convenience function to get current health status."""
     checker = HealthChecker(config_path)
-    return checker.check_all()
+    return await checker.check_all()
