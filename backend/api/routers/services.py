@@ -1,6 +1,8 @@
+import json
 import logging
 import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import httpx
@@ -134,7 +136,7 @@ async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[
 
     if not entity_id:
         # Default to load power sensor
-        config = load_yaml("config.yaml")  # pyright: ignore [reportPrivateUsage]
+        config = load_yaml("config.yaml")
         sensors: dict[str, Any] = config.get("input_sensors", {})
         entity_id = cast("str | None", sensors.get("load_power"))
 
@@ -324,9 +326,7 @@ async def get_system_status() -> dict[str, Any]:
 )
 async def get_water_boost():
     """Get current water boost status from executor."""
-    from backend.api.routers.executor import (
-        get_executor_instance,  # pyright: ignore [reportPrivateUsage]
-    )
+    from backend.api.routers.executor import get_executor_instance
     executor = get_executor_instance()
     if not executor:
         return {"boost": False, "source": "no_executor"}
@@ -351,7 +351,7 @@ async def set_water_boost() -> dict[str, str]:
     """Activate water heater boost via executor quick action."""
     try:
         from backend.api.routers.executor import (
-            get_executor_instance,  # pyright: ignore [reportPrivateUsage]
+            get_executor_instance,
         )
         executor = get_executor_instance()
         if not executor:
@@ -389,7 +389,7 @@ async def cancel_water_boost() -> dict[str, str]:
     """Cancel active water boost."""
     try:
         from backend.api.routers.executor import (
-            get_executor_instance,  # pyright: ignore [reportPrivateUsage]
+            get_executor_instance,
         )
         executor = get_executor_instance()
         if executor and hasattr(executor, 'clear_water_boost'):
@@ -408,7 +408,7 @@ async def cancel_water_boost() -> dict[str, str]:
 )
 async def get_energy_today() -> dict[str, float]:
     """Get today's energy summary from HA sensors."""
-    config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
+    config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
 
     def get_val(key: str, default: float = 0.0) -> float:
@@ -451,7 +451,7 @@ async def get_energy_today() -> dict[str, float]:
 async def get_energy_range(period: str = "today") -> dict[str, Any]:
     """Get energy range data."""
 
-    config = load_yaml("config.yaml") # pyright: ignore [reportPrivateUsage]
+    config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
 
     def get_val(key: str, default: float = 0.0) -> float:
@@ -719,11 +719,9 @@ async def get_db_current_schedule() -> dict[str, Any]:
 async def push_to_db() -> dict[str, str]:
     """Push current schedule to database."""
     try:
-        import json
-
         from db_writer import write_schedule_to_db  # pyright: ignore [reportMissingImports]
 
-        with open("schedule.json") as f:
+        with Path("schedule.json").open() as f:
             schedule = json.load(f)
 
         # Load necessary configs for db write
@@ -744,11 +742,9 @@ async def push_to_db() -> dict[str, str]:
 async def run_simulation() -> dict[str, Any]:
     """Run schedule simulation."""
     try:
-        import json
-
         from planner.simulation import simulate_schedule  # pyright: ignore [reportMissingImports]
 
-        with open("schedule.json") as f:
+        with Path("schedule.json").open() as f:
             schedule = json.load(f)
 
         config = load_yaml("config.yaml")

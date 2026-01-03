@@ -1,10 +1,9 @@
 import asyncio
+import contextlib
 import sys
+from typing import Any
 
 from fastapi import APIRouter
-import contextlib
-
-from typing import Any
 
 router = APIRouter(tags=["legacy"])
 

@@ -1,6 +1,7 @@
 import json
 import logging
-import os
+from pathlib import Path
+from typing import Any, cast
 
 import yaml
 from fastapi import APIRouter, HTTPException
@@ -9,15 +10,13 @@ from pydantic import BaseModel
 logger = logging.getLogger("darkstar.api.theme")
 router = APIRouter(tags=["theme"])
 
-THEME_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "themes")
+THEME_DIR = Path(__file__).resolve().parent.parent.parent / "themes"
 
 
 class ThemeSelectRequest(BaseModel):
     theme: str
     accent_index: int | None = None
 
-
-from typing import Any, cast
 
 # Helper functions (ported from webapp.py)
 def _parse_legacy_theme_format(text: str) -> dict[str, Any]:
@@ -61,7 +60,7 @@ def _normalise_theme(name: str, raw_data: dict[str, Any]) -> dict[str, Any]:
     # if not isinstance(raw_data, dict):
     #    raise ValueError("Theme data must be a mapping")
     palette = raw_data.get("palette")
-    palette_list = cast(list[Any], palette)
+    palette_list = cast("list[Any]", palette)
     if not isinstance(palette, (list, tuple)) or len(palette_list) != 16:
         raise ValueError("Palette must contain exactly 16 colours")
 
@@ -79,15 +78,13 @@ def _normalise_theme(name: str, raw_data: dict[str, Any]) -> dict[str, Any]:
         "name": name,
         "foreground": _clean_colour(raw_data.get("foreground", "#ffffff"), "foreground"),
         "background": _clean_colour(raw_data.get("background", "#000000"), "background"),
-        "background": _clean_colour(raw_data.get("background", "#000000"), "background"),
         "palette": [_clean_colour(c, f"palette[{i}]") for i, c in enumerate(proper_palette)],
     }
 
 
-def _load_theme_file(path: str) -> dict[str, Any]:
-    with open(path) as handle:
-        text = handle.read()
-    filename = os.path.basename(path)
+def _load_theme_file(path: Path) -> dict[str, Any]:
+    text = path.read_text(encoding="utf-8")
+    filename = path.name
     try:
         if filename.lower().endswith(".json"):
             raw_data = json.loads(text)
@@ -97,22 +94,21 @@ def _load_theme_file(path: str) -> dict[str, Any]:
             raw_data = _parse_legacy_theme_format(text)
     except Exception as exc:
         raise ValueError(f"Failed to parse theme '{filename}': {exc}") from exc
-    return _normalise_theme(os.path.splitext(filename)[0] or filename, raw_data)
+    return _normalise_theme(path.stem or filename, raw_data)
 
 
-def load_themes(theme_dir: str = THEME_DIR) -> dict[str, Any]:
+def load_themes(theme_dir: Path = THEME_DIR) -> dict[str, Any]:
     themes: dict[str, Any] = {}
-    if not os.path.isdir(theme_dir):
+    if not theme_dir.is_dir():
         return themes
-    for entry in sorted(os.listdir(theme_dir)):
-        path = os.path.join(theme_dir, entry)
-        if not os.path.isfile(path):
+    for path in sorted(theme_dir.iterdir()):
+        if not path.is_file():
             continue
         try:
             theme = _load_theme_file(path)
             themes[theme["name"]] = theme
         except Exception as exc:
-            logger.warning("Skipping theme '%s': %s", entry, exc)
+            logger.warning("Skipping theme '%s': %s", path.name, exc)
             continue
     return themes
 
@@ -132,14 +128,20 @@ async def list_themes() -> dict[str, Any]:
 
     current_name = None
     accent_index = None
-    try:
-        with open("config.yaml") as handle:
-            config: dict[str, Any] = yaml.safe_load(handle) or {}
-            ui = config.get("ui", {})
-            current_name = str(ui.get("theme")) if ui.get("theme") else None
-            accent_index = int(ui.get("theme_accent_index", 0)) if ui.get("theme_accent_index") is not None else None
-    except FileNotFoundError:
-        pass
+    config_path = Path("config.yaml")
+    if config_path.exists():
+        try:
+            with config_path.open() as handle:
+                config: dict[str, Any] = yaml.safe_load(handle) or {}
+                ui = config.get("ui", {})
+                current_name = str(ui.get("theme")) if ui.get("theme") else None
+                accent_index = (
+                    int(ui.get("theme_accent_index", 0))
+                    if ui.get("theme_accent_index") is not None
+                    else None
+                )
+        except Exception:
+            pass
 
     if current_name not in AVAILABLE_THEMES:
         current_name = next(iter(AVAILABLE_THEMES.keys()), None)
@@ -167,18 +169,23 @@ async def select_theme(payload: ThemeSelectRequest) -> dict[str, Any]:
     if payload.accent_index is not None and not (0 <= payload.accent_index <= 15):
         raise HTTPException(status_code=400, detail="accent_index must be between 0 and 15")
 
-    try:
-        from ruamel.yaml import YAML
+    from ruamel.yaml import YAML
 
-        yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True  # type: ignore
-        with open("config.yaml", encoding="utf-8") as handle:
-            loaded = yaml_handler.load(handle) # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
-            config: dict[str, Any] = cast(dict[str, Any], loaded) if isinstance(loaded, dict) else {}
-    except FileNotFoundError:
-        from ruamel.yaml import YAML
-        yaml_handler = YAML()
-        yaml_handler.preserve_quotes = True  # type: ignore
+    yaml_handler = YAML()
+    yaml_handler.preserve_quotes = True  # type: ignore
+    config_path = Path("config.yaml")
+
+    try:
+        if config_path.exists():
+            with config_path.open(encoding="utf-8") as handle:
+                loaded = yaml_handler.load(handle)  # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+                config: dict[str, Any] = (
+                    cast("dict[str, Any]", loaded) if isinstance(loaded, dict) else {}
+                )
+        else:
+            config = {}
+    except Exception as exc:
+        logger.error("Failed to load config.yaml for theme update: %s", exc)
         config = {}
 
     ui_section = config.setdefault("ui", {})
@@ -186,8 +193,8 @@ async def select_theme(payload: ThemeSelectRequest) -> dict[str, Any]:
     if payload.accent_index is not None:
         ui_section["theme_accent_index"] = payload.accent_index
 
-    with open("config.yaml", "w", encoding="utf-8") as handle:
-        yaml_handler.dump(config, handle) # pyright: ignore [reportUnknownMemberType]
+    with config_path.open("w", encoding="utf-8") as handle:
+        yaml_handler.dump(config, handle)  # pyright: ignore [reportUnknownMemberType]
 
     return {
         "status": "success",

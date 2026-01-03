@@ -686,3 +686,16 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [ ] Logger properly initialized in all routers
 - [ ] `/docs` endpoint shows well-documented OpenAPI schema
 - [ ] CI runs route verification on each PR
+### [DONE] Rev ARC-QA — 100% Quality Baseline (ARC3 Finalization)
+
+**Goal:** Achieve zero-error status for all backend API routers and core integration modules using Ruff and Pyright.
+
+**Plan:**
+- [x] **Router Refactoring**: Convert all routers to use `pathlib` for file operations.
+- [x] **Import Standardization**: Move all imports to file headers and remove redundant inline imports.
+- [x] **Legacy Cleanup**: Remove redundant Flask-based `backend/api/aurora.py`.
+- [x] **Type Safety**: Fix all Pyright "unknown member/argument type" errors in `forecast.py` and `websockets.py`.
+- [x] **Linting Cleanup**: Resolve all Ruff violations (PTH, B904, SIM, E402, I001) across the `backend/api/` directory.
+- [x] **Verification**: Confirm 0 errors, 0 warnings across the entire API layer.
+
+---

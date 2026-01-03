@@ -1,9 +1,14 @@
 import logging
 import threading
-from typing import Any, cast
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+from ruamel.yaml import YAML
+
+if TYPE_CHECKING:
+    from executor import ExecutorEngine
 
 logger = logging.getLogger("darkstar.api.executor")
 router = APIRouter(tags=["executor"])
@@ -12,11 +17,6 @@ router = APIRouter(tags=["executor"])
 _executor_engine = None
 _executor_lock = threading.Lock()
 
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from executor import ExecutorEngine
 
 def get_executor_instance() -> "ExecutorEngine | None":
     global _executor_engine
@@ -78,13 +78,13 @@ async def get_status() -> dict[str, Any]:
 )
 async def toggle_executor(payload: ToggleRequest) -> dict[str, Any]:
     """Enable or disable the executor."""
-    from ruamel.yaml import YAML
     yaml_handler = YAML()
     yaml_handler.preserve_quotes = True
 
+    config_path = Path("config.yaml")
     try:
-        with open("config.yaml", encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
+        with config_path.open(encoding="utf-8") as f:
+            config = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
     except Exception:
         config = {}
 
@@ -94,8 +94,8 @@ async def toggle_executor(payload: ToggleRequest) -> dict[str, Any]:
     if payload.shadow_mode is not None:
         executor_cfg["shadow_mode"] = payload.shadow_mode
 
-    with open("config.yaml", "w", encoding="utf-8") as f:
-        yaml_handler.dump(config, f) # type: ignore
+    with config_path.open("w", encoding="utf-8") as f:
+        yaml_handler.dump(config, f)  # type: ignore
 
     # Reload executor
     executor = get_executor_instance()
@@ -300,15 +300,15 @@ async def get_executor_config() -> dict[str, Any]:
 )
 async def update_executor_config(request: Request) -> dict[str, str]:
     """Update executor entity configuration."""
-    from ruamel.yaml import YAML
     yaml_handler = YAML()
     yaml_handler.preserve_quotes = True
 
     payload = await request.json()
+    config_path = Path("config.yaml")
 
     try:
-        with open("config.yaml", encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
+        with config_path.open(encoding="utf-8") as f:
+            config = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
 
         if "executor" not in config:
             config["executor"] = {}
@@ -334,8 +334,8 @@ async def update_executor_config(request: Request) -> dict[str, str]:
             for key, value in payload["water_heater"].items():
                 executor_cfg["water_heater"][key] = value
 
-        with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(config, f) # type: ignore
+        with config_path.open("w", encoding="utf-8") as f:
+            yaml_handler.dump(config, f)  # type: ignore
 
         # Reload executor config
         executor = get_executor_instance()
@@ -346,7 +346,7 @@ async def update_executor_config(request: Request) -> dict[str, str]:
 
     except Exception as e:
         logger.exception("Failed to update executor config")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 @router.get(
@@ -374,10 +374,10 @@ async def get_notifications() -> dict[str, Any]:
 
     # Fallback to config file
     try:
-        from ruamel.yaml import YAML
         yaml_handler = YAML()
-        with open("config.yaml", encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
+        config_path = Path("config.yaml")
+        with config_path.open(encoding="utf-8") as f:
+            config = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
 
         executor_cfg = cast("dict[str, Any]", config.get("executor", {}))
         notify_cfg = cast("dict[str, Any]", executor_cfg.get("notifications", {}))
@@ -400,15 +400,15 @@ async def get_notifications() -> dict[str, Any]:
 )
 async def update_notifications(request: Request) -> dict[str, str]:
     """Update notification settings."""
-    from ruamel.yaml import YAML
     yaml_handler = YAML()
     yaml_handler.preserve_quotes = True
 
     payload = await request.json()
+    config_path = Path("config.yaml")
 
     try:
-        with open("config.yaml", encoding="utf-8") as f:
-            config = cast("dict[str, Any]", yaml_handler.load(f)) # type: ignore
+        with config_path.open(encoding="utf-8") as f:
+            config = cast("dict[str, Any]", yaml_handler.load(f))  # type: ignore
 
         if "executor" not in config:
             config["executor"] = {}
@@ -421,8 +421,8 @@ async def update_notifications(request: Request) -> dict[str, str]:
         for key, value in payload.items():
             notify_cfg[key] = value
 
-        with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(config, f) # type: ignore
+        with config_path.open("w", encoding="utf-8") as f:
+            yaml_handler.dump(config, f)  # type: ignore
 
         # Reload executor config
         executor = get_executor_instance()
@@ -433,7 +433,7 @@ async def update_notifications(request: Request) -> dict[str, str]:
 
     except Exception as e:
         logger.exception("Failed to update notifications")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 @router.post(
@@ -454,7 +454,7 @@ async def test_notifications() -> dict[str, str]:
         else:
             return {"status": "error", "message": "Notification sending failed"}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 @router.get(

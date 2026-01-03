@@ -1,7 +1,8 @@
-import os
+from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Body, HTTPException
+from ruamel.yaml import YAML
 
 from inputs import load_home_assistant_config, load_notification_secrets, load_yaml
 
@@ -53,8 +54,6 @@ async def get_config() -> dict[str, Any]:
 async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
     """Save config.yaml."""
     try:
-        from ruamel.yaml import YAML
-
         yaml_handler = YAML()
         yaml_handler.preserve_quotes = True
 
@@ -65,24 +64,24 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
             for key, value in overrides.items():
                 if isinstance(value, dict) and value:
                     returned = deep_update(
-                        cast("dict[str, Any]", source.get(key, {})),
-                        cast("dict[str, Any]", value)
+                        cast("dict[str, Any]", source.get(key, {})), cast("dict[str, Any]", value)
                     )
                     source[key] = returned
                 else:
                     source[key] = overrides[key]
             return source
 
-        with open("config.yaml", encoding="utf-8") as f:
-            data = cast("dict[str, Any]", yaml_handler.load(f) or {}) # type: ignore
+        config_path = Path("config.yaml")
+        with config_path.open(encoding="utf-8") as f:
+            data = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
             deep_update(data, payload)
 
-        with open("config.yaml", "w", encoding="utf-8") as f:
-            yaml_handler.dump(data, f) # type: ignore
+        with config_path.open("w", encoding="utf-8") as f:
+            yaml_handler.dump(data, f)  # type: ignore
 
         return {"status": "success"}
     except Exception as e:
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 @router.post(
@@ -92,9 +91,10 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
 )
 async def reset_config() -> dict[str, str]:
     """Reset to default config."""
-    if os.path.exists("config.default.yaml"):
+    default_cfg = Path("config.default.yaml")
+    if default_cfg.exists():
         import shutil
 
-        shutil.copy("config.default.yaml", "config.yaml")
+        shutil.copy(str(default_cfg), "config.yaml")
         return {"status": "success"}
     return {"status": "error", "message": "Default config not found"}

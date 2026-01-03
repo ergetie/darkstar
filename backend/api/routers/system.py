@@ -21,7 +21,9 @@ def _get_git_version() -> str:
 
     # Fallback: read from darkstar/config.yaml (add-on version)
     try:
-        with open("darkstar/config.yaml") as f:
+        from pathlib import Path
+
+        with Path("darkstar/config.yaml").open() as f:
             addon_config = yaml.safe_load(f)
         if addon_config and addon_config.get("version"):
             return addon_config["version"]

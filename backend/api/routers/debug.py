@@ -8,11 +8,15 @@ import json
 import logging
 from collections import deque
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import aiosqlite
 import pytz
 from fastapi import APIRouter, HTTPException, Query
+
+from backend.learning import get_learning_engine
+from inputs import get_dummy_load_profile, get_load_profile_from_ha, load_yaml
 
 logger = logging.getLogger("darkstar.api.debug")
 
@@ -63,7 +67,8 @@ if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
 async def debug_data() -> dict[str, Any]:
     """Return comprehensive planner debug data from schedule.json."""
     try:
-        with open("schedule.json") as f:
+        schedule_path = Path("schedule.json")
+        with schedule_path.open() as f:
             data = json.load(f)
 
         debug_section = data.get("debug", {})
@@ -77,8 +82,10 @@ async def debug_data() -> dict[str, Any]:
 
         return debug_section
 
-    except FileNotFoundError:
-        raise HTTPException(404, "schedule.json not found. Run the planner first.")
+    except FileNotFoundError as e:
+        raise HTTPException(
+            404, "schedule.json not found. Run the planner first."
+        ) from e
 
 
 @router.get(
@@ -92,7 +99,7 @@ async def debug_logs() -> dict[str, Any]:
         return {"logs": _ring_buffer_handler.get_logs()}
     except Exception as exc:
         logger.exception("Failed to fetch debug logs")
-        raise HTTPException(500, str(exc))
+        raise HTTPException(500, str(exc)) from exc
 
 
 @router.get(
@@ -103,8 +110,6 @@ async def debug_logs() -> dict[str, Any]:
 async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
     """Return historic SoC data for today from learning database."""
     try:
-        from backend.learning import get_learning_engine
-
         tz = pytz.timezone("Europe/Stockholm")
 
         # Determine target date
@@ -113,8 +118,10 @@ async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
         else:
             try:
                 target_date = datetime.strptime(date, "%Y-%m-%d").date()
-            except ValueError:
-                raise HTTPException(400, 'Invalid date format. Use YYYY-MM-DD or "today"')
+            except ValueError as e:
+                raise HTTPException(
+                    400, 'Invalid date format. Use YYYY-MM-DD or "today"'
+                ) from e
 
         # Get learning engine and query historic SoC data
         engine = get_learning_engine()
@@ -149,7 +156,9 @@ async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
 
     except Exception as e:
         logger.exception("Failed to fetch historical SoC data")
-        raise HTTPException(500, f"Failed to fetch historical SoC data: {e!s}")
+        if isinstance(e, HTTPException):
+            raise
+        raise HTTPException(500, f"Failed to fetch historical SoC data: {e!s}") from e
 
 
 @router.get(
@@ -160,18 +169,12 @@ async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
 async def get_performance_metrics(days: int = Query(7, ge=1, le=90)) -> dict[str, Any]:
     """Get performance metrics for charts."""
     try:
-        from typing import cast
-
-        from backend.learning import get_learning_engine
         engine = get_learning_engine()
         data = cast("dict[str, Any]", engine.get_performance_series(days_back=days)) # type: ignore
         return data
     except Exception:
         logger.exception("Failed to get performance metrics")
         return {"soc_series": [], "cost_series": []}
-
-
-from inputs import get_dummy_load_profile, get_load_profile_from_ha, load_yaml
 
 
 @router.get(

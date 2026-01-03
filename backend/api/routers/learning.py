@@ -4,6 +4,7 @@ Learning API Router - Rev ARC1
 Provides endpoints for the learning engine (auto-tuning, forecast calibration).
 """
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -37,7 +38,7 @@ async def learning_status() -> dict[str, Any]:
         return cast("dict[str, Any]", status)
     except Exception as e:
         logger.exception("Failed to get learning status")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -76,13 +77,12 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)) -> dict[str, An
     except sqlite3.OperationalError as e:
         if "no such table" in str(e):
             return {"runs": [], "count": 0, "message": "Learning history table not yet created"}
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
     except Exception as e:
         logger.exception("Failed to get learning history")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-import asyncio
 
 
 @router.post(
@@ -117,7 +117,7 @@ async def learning_run() -> dict[str, Any]:
         return {"status": "error", "message": "Reflex or ML module not available"}
     except Exception as e:
         logger.exception("Failed to run learning")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get(
@@ -133,12 +133,9 @@ async def learning_loops() -> dict[str, Any]:
 
         # Get loop statuses from database
         loops_status = {}
-        async with aiosqlite.connect(db_path) as conn:
-            # Check for learning_loops table
-            async with conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='learning_loops'
-            """) as cursor:
+        async with aiosqlite.connect(db_path) as conn, conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='learning_loops'"
+        ) as cursor:
                 if await cursor.fetchone():
                     async with conn.execute("""
                         SELECT loop_name, last_run, status, error_message

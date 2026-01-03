@@ -4,6 +4,9 @@ __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
+.ruff_cache/
+typings/
+
 
 # Secrets and user config (DO NOT COMMIT)
 secrets.yaml
@@ -19,6 +22,8 @@ secrets.yaml
 # Logs
 *.log
 webapp*.log
+pyright_report*.txt
+
 
 # Node
 node_modules/
@@ -30,6 +35,10 @@ frontend/.vite/
 *.db
 *.db-journal
 data/planner_learning.db
+data/executor_history.db
+data/history.db
+planner_learning.db
+
 
 # Generated files
 schedule.json
@@ -39,6 +48,15 @@ data/*.backup*
 *.backup*.db
 temp_config_*.yaml
 temp_secrets.txt
+kepler_debug.lp
+config_check.json
+energy_check.json
+logs.json
+data/cache/
+/json
+/sys
+/yaml
+
 
 # OS
 .DS_Store
