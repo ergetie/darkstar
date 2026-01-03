@@ -36,10 +36,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 📋 Backlog
 
-### [Planner] Investigate Unexpected Export in Schedule
-**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
----
 
 ---
 
@@ -165,10 +162,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-### [Backend] Migrate Away from Eventlet
-**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
----
 
 ---
 
@@ -204,27 +198,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-### [Backend] Refactor webapp.py into Flask Blueprints
-**Moved to [PLAN.md](PLAN.md) (Rev ARC1 - Superseded by FastAPI Router Migration)**
 
-**Current State:** All API endpoints, themes, forecasts, health checks, executor logic, and database code are in one file, making it hard to maintain and test.
-
-**Proposed Structure:**
-```
-backend/api/
-├── __init__.py
-├── schedule.py      ← /api/schedule endpoints
-├── executor.py      ← /api/executor endpoints
-├── health.py        ← /api/health endpoint
-├── learning.py      ← /api/learning endpoints
-├── forecast.py      ← /api/forecast endpoints
-├── themes.py        ← /api/themes endpoints
-└── config.py        ← /api/config endpoints
-```
-
-**Notes:** `aurora.py` blueprint already exists as a good pattern to follow.
-
----
 
 ### [Backend] Add SQLite Connection Pooling
 
@@ -244,28 +218,9 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
 
 ---
 
-### [Ops] Update Docker HEALTHCHECK Endpoint
 
-**Goal:** Use the comprehensive `/api/health` endpoint instead of `/api/status`.
 
-**Current State:** Dockerfile uses:
-```dockerfile
-HEALTHCHECK ... CMD curl -f http://localhost:5000/api/status || exit 1
-```
 
-**Improvement:** `/api/health` performs comprehensive checks (config, HA connection, entities, database) so Docker can detect more issues.
-
-**Change:**
-```dockerfile
-HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy":true' || exit 1
-```
-
----
-
-### [Planner] Robustness: Schedule Persistence and Retry on Failure
-**Moved to [PLAN.md](PLAN.md) (Rev P1)**
-
----
 
 ---
 
@@ -354,10 +309,7 @@ HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy
 
 
 
-### [Planner] Investigate Charge vs PV Logic
-**Moved to [PLAN.md](PLAN.md) (Rev P1)**
 
----
 
 ---
 
