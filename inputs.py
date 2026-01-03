@@ -265,15 +265,30 @@ def _get_forecast_data_aurora(price_slots, config):
     # 1. Build slots strictly for the price horizon (0-48h)
     db_slots = build_db_forecast_for_slots(price_slots, config)
 
+    # 2. Fetch HA Load Baseline for fallback
+    try:
+        ha_profile = _get_load_profile_from_ha(config)
+    except Exception:
+        ha_profile = [0.0] * 96
+
     forecast_data: list[dict] = []
     if db_slots:
         print("Info: Using AURORA forecasts from learning DB (aurora).")
         for slot, db_slot in zip(price_slots, db_slots):
+            # Map slot time to 15-min index (0-95)
+            # Localize to Stockholm/configured TZ to match profile
+            ts = slot["start_time"].astimezone(local_tz)
+            idx = int((ts.hour * 60 + ts.minute) // 15) % 96
+            
+            val_load = float(db_slot.get("load_forecast_kwh", 0.0))
+            if val_load <= 0.001:
+                val_load = ha_profile[idx]
+
             forecast_data.append(
                 {
                     "start_time": slot["start_time"],
                     "pv_forecast_kwh": float(db_slot.get("pv_forecast_kwh", 0.0)),
-                    "load_forecast_kwh": float(db_slot.get("load_forecast_kwh", 0.0)),
+                    "load_forecast_kwh": val_load,
                     "pv_p10": db_slot.get("pv_p10"),
                     "pv_p90": db_slot.get("pv_p90"),
                     "load_p10": db_slot.get("load_p10"),

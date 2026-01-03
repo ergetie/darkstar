@@ -264,6 +264,15 @@ def run_ml_training_task() -> Tuple[bool, Optional[str]]:
 
 
 def main() -> int:
+    import sys
+    if "--once" in sys.argv:
+        print("[scheduler] Running in ONE-SHOT mode.")
+        ok, err = run_planner_once()
+        if not ok:
+            print(f"[scheduler] One-shot run failed: {err}")
+            return 1
+        print("[scheduler] One-shot run success.")
+        return 0
 
     cfg = load_scheduler_config()
     status = load_status()

@@ -362,3 +362,14 @@ HEALTHCHECK ... CMD curl -f http://localhost:5000/api/health | grep -q '"healthy
 ---
 
 
+---
+
+### [Security] SEC-001: Separation of Secrets and Config
+
+**Goal:** Prevent sensitive credentials (secrets.yaml) from being inadvertently saved into config.yaml via the Settings API.
+
+**Current State:** The backend merges secrets into the config for the frontend to display. If the user saves settings, the frontend sends back the full config (including secrets), and the backend writes it to `config.yaml`. This duplicates secrets and risks committing them to version control if config.yaml is not ignored (it typically is, but still bad practice).
+
+**Expected Behavior:** The backend should strip secrets from the payload before saving to `config.yaml`, OR the frontend should manage secrets via a dedicated API endpoint.
+
+---

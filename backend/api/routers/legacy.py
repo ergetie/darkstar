@@ -1,0 +1,49 @@
+from fastapi import APIRouter
+import subprocess
+import sys
+import asyncio
+
+router = APIRouter(tags=["legacy"])
+
+@router.post("/api/run_planner")
+async def run_planner():
+    """Manually trigger the planner via subprocess (non-blocking)."""
+    
+    try:
+        # Run synchronous/blocking so the UI waits for completion
+        # fast-api will run this in a threadpool if defined as def, but here it is async def
+        # so we await the subprocess directly.
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable, "backend/scheduler.py", "--once",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30.0)
+        except asyncio.TimeoutError:
+            try:
+                proc.kill()
+            except ProcessLookupError:
+                pass
+            print("Planner timed out after 30s")
+            return {"status": "error", "message": "Planner timed out after 30s"}
+        
+        if proc.returncode != 0:
+            err_msg = stderr.decode().strip()
+            print(f"Planner failed: {err_msg}")
+            return {"status": "error", "message": f"Planner failed: {err_msg}"}
+            
+        return {"status": "ok", "message": "Planner completed successfully"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+@router.get("/api/initial_state")
+async def initial_state():
+    """Bootstrap state for frontend."""
+    # Simplified version
+    return {
+        "user": {"name": "User"},
+        "config": {}, 
+        "notifications": []
+    }

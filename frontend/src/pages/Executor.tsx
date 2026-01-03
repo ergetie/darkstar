@@ -265,9 +265,8 @@ function Toggle({
             aria-checked={enabled}
             disabled={disabled}
             onClick={() => onChange(!enabled)}
-            className={`relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${sizeClasses} ${
-                enabled ? 'bg-accent' : 'bg-surface2'
-            } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+            className={`relative inline-flex items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${sizeClasses} ${enabled ? 'bg-accent' : 'bg-surface2'
+                } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
         >
             <span
                 className={`inline-block transform rounded-full bg-white transition-transform ${knobClasses} ${translateClasses}`}
@@ -325,7 +324,7 @@ export default function Executor() {
             ])
             setStatus(statusRes)
             setStats(statsRes)
-            setHistory(historyRes.records)
+            setHistory(historyRes.records ?? [])
             setError(null)
         } catch (e: any) {
             setError(e.message || 'Failed to load executor data')
@@ -542,13 +541,12 @@ export default function Executor() {
                     <h1 className="text-lg font-medium text-text flex items-center gap-2">
                         Executor Control Center
                         <span
-                            className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${
-                                status?.enabled
+                            className={`px-2 py-0.5 rounded-full border text-[10px] uppercase tracking-wider ${status?.enabled
                                     ? status?.shadow_mode
                                         ? 'bg-warn/20 border-warn/50 text-warn'
                                         : 'bg-good/20 border-good/50 text-good'
                                     : 'bg-neutral/20 border-neutral/50 text-neutral'
-                            }`}
+                                }`}
                         >
                             {status?.enabled ? (status?.shadow_mode ? 'Shadow' : 'Active') : 'Disabled'}
                         </span>
@@ -591,19 +589,18 @@ export default function Executor() {
                             </div>
                             <div className="text-[11px] text-muted flex items-center gap-2 mt-1">
                                 <span
-                                    className={`h-1.5 w-1.5 rounded-full ${
-                                        status?.last_run_status === 'success'
+                                    className={`h-1.5 w-1.5 rounded-full ${status?.last_run_status === 'success'
                                             ? 'bg-good'
                                             : status?.last_run_status === 'error'
-                                              ? 'bg-bad'
-                                              : 'bg-neutral'
-                                    }`}
+                                                ? 'bg-bad'
+                                                : 'bg-neutral'
+                                        }`}
                                 />
                                 {status?.last_run_status === 'success'
                                     ? 'Last run successful'
                                     : status?.last_run_status === 'error'
-                                      ? 'Last run failed'
-                                      : 'No runs yet'}
+                                        ? 'Last run failed'
+                                        : 'No runs yet'}
                             </div>
                         </div>
                     </div>
@@ -696,11 +693,10 @@ export default function Executor() {
                         <button
                             onClick={handleManualRun}
                             disabled={running}
-                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface hover:bg-surface2 border border-line/50 text-[11px] font-medium transition-all ${
-                                running
+                            className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-surface hover:bg-surface2 border border-line/50 text-[11px] font-medium transition-all ${running
                                     ? 'opacity-70 cursor-not-allowed text-muted'
                                     : 'text-text hover:border-accent/50'
-                            }`}
+                                }`}
                         >
                             {running ? (
                                 <>
@@ -835,11 +831,10 @@ export default function Executor() {
                                                 }
                                             }}
                                             disabled={status?.quick_action?.type === action.type}
-                                            className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${
-                                                status?.quick_action?.type === action.type
+                                            className={`flex-1 px-2 py-1.5 text-[10px] rounded-lg border transition-all ${status?.quick_action?.type === action.type
                                                     ? 'bg-accent/20 border-accent/40 text-accent'
                                                     : action.btnClass
-                                            }`}
+                                                }`}
                                         >
                                             {mins}m
                                         </button>
@@ -865,13 +860,12 @@ export default function Executor() {
                     </div>
                     {live?.work_mode && (
                         <span
-                            className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                                live.work_mode.value.includes('Export')
+                            className={`text-[10px] px-2 py-0.5 rounded-full border ${live.work_mode.value.includes('Export')
                                     ? status?.shadow_mode
                                         ? 'bg-warn/20 border-warn/30 text-warn'
                                         : 'bg-good/20 border-good/30 text-good'
                                     : 'bg-water/20 border-water/30 text-water'
-                            }`}
+                                }`}
                         >
                             {live.work_mode.value}
                         </span>
@@ -886,13 +880,12 @@ export default function Executor() {
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
                             <Battery
-                                className={`h-6 w-6 ${
-                                    (live?.soc?.numeric ?? 0) > 50
+                                className={`h-6 w-6 ${(live?.soc?.numeric ?? 0) > 50
                                         ? 'text-good'
                                         : (live?.soc?.numeric ?? 0) > 20
-                                          ? 'text-warn'
-                                          : 'text-bad'
-                                }`}
+                                            ? 'text-warn'
+                                            : 'text-bad'
+                                    }`}
                             />
                             <div>
                                 <div className="text-lg font-bold text-good">
@@ -910,9 +903,8 @@ export default function Executor() {
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
                             <Sun
-                                className={`h-6 w-6 ${
-                                    (live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
-                                }`}
+                                className={`h-6 w-6 ${(live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
+                                    }`}
                             />
                             <div>
                                 <div className="text-lg font-bold text-accent">
@@ -949,15 +941,13 @@ export default function Executor() {
                         </div>
                         <div className="relative z-10 flex items-center gap-3">
                             <ArrowDownToLine
-                                className={`h-6 w-6 ${
-                                    (live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
-                                }`}
+                                className={`h-6 w-6 ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
+                                    }`}
                             />
                             <div>
                                 <div
-                                    className={`text-lg font-bold ${
-                                        (live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
-                                    }`}
+                                    className={`text-lg font-bold ${(live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
+                                        }`}
                                 >
                                     {live?.grid_import?.numeric ? (live.grid_import.numeric / 1000).toFixed(2) : '—'} kW
                                 </div>
@@ -990,7 +980,7 @@ export default function Executor() {
                     <div className="flex items-center gap-2">
                         <History className="h-4 w-4 text-accent" />
                         <span className="text-xs font-medium text-text">Execution History</span>
-                        <span className="text-[10px] text-muted">({history.length} records)</span>
+                        <span className="text-[10px] text-muted">({history?.length ?? 0} records)</span>
                     </div>
                     <button
                         onClick={fetchAll}
@@ -1001,7 +991,7 @@ export default function Executor() {
                     </button>
                 </div>
 
-                {history.length === 0 ? (
+                {(history?.length ?? 0) === 0 ? (
                     <div className="text-center py-12 text-muted">
                         <Clock className="h-10 w-10 mx-auto opacity-20 mb-3" />
                         <p className="text-[11px]">No execution history yet.</p>
@@ -1063,11 +1053,10 @@ export default function Executor() {
                             return (
                                 <div
                                     key={record.id}
-                                    className={`rounded-xl border transition-all ${
-                                        record.success
+                                    className={`rounded-xl border transition-all ${record.success
                                             ? 'bg-surface2/30 border-line/40 hover:border-line/60'
                                             : 'bg-bad/10 border-bad/30 hover:border-bad/50'
-                                    }`}
+                                        }`}
                                 >
                                     {/* Header Row - Always visible, clickable */}
                                     <div
@@ -1240,7 +1229,7 @@ export default function Executor() {
                                                         <span
                                                             className={
                                                                 record.commanded_water_temp &&
-                                                                record.commanded_water_temp > 50
+                                                                    record.commanded_water_temp > 50
                                                                     ? 'text-warn'
                                                                     : 'text-muted/40'
                                                             }
@@ -1409,11 +1398,10 @@ export default function Executor() {
                             <button
                                 onClick={handleTestNotification}
                                 disabled={testingNotification}
-                                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${
-                                    testingNotification
+                                className={`w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-[11px] font-medium transition-all ${testingNotification
                                         ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
                                         : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
-                                }`}
+                                    }`}
                             >
                                 {testingNotification ? (
                                     <>

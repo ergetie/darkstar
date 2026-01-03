@@ -1,9 +1,22 @@
 export type PlannerSIndex = {
     effective_load_margin?: number
+    risk_factor?: number
+    factor?: number
+    adjusted_factor?: number
     [key: string]: unknown
 }
 
 export type StatusResponse = {
+    // New flat structure from Rev ARC1
+    soc_percent?: number
+    pv_power_kw?: number
+    load_power_kw?: number
+    battery_power_kw?: number
+    grid_power_kw?: number
+    status?: string
+    mode?: string
+    rev?: string
+    // Legacy structure (fallback)
     current_soc?: { value: number; timestamp: string; source?: string }
     local?: { planned_at?: string; planner_version?: string; s_index?: PlannerSIndex }
     db?: { planned_at?: string; planner_version?: string; s_index?: PlannerSIndex } | { error?: string }
@@ -32,9 +45,10 @@ export type ScheduleTodayWithHistoryResponse = {
     slots: import('./types').ScheduleSlot[]
     timezone?: string
 }
-
 export type ConfigResponse = {
     system?: { battery?: { capacity_kwh?: number } }
+    // Battery is also at root level in actual API response
+    battery?: { capacity_kwh?: number; min_soc_percent?: number; max_soc_percent?: number }
     automation?: {
         enable_scheduler?: boolean
         write_to_mariadb?: boolean

@@ -166,14 +166,20 @@ export default function EntitySelect({
                 </span>
                 <div className="flex items-center gap-1">
                     {value && !disabled && (
-                        <button
-                            type="button"
-                            onClick={handleClear}
-                            className="p-0.5 rounded hover:bg-line/60 text-muted hover:text-text"
+                        <span
+                            role="button"
                             tabIndex={-1}
+                            onClick={handleClear}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    handleClear(e as unknown as React.MouseEvent)
+                                }
+                            }}
+                            className="p-0.5 rounded hover:bg-line/60 text-muted hover:text-text cursor-pointer"
                         >
                             <X className="h-3.5 w-3.5" />
-                        </button>
+                        </span>
                     )}
                     <ChevronDown className={`h-4 w-4 text-muted transition-transform ${open ? 'rotate-180' : ''}`} />
                 </div>

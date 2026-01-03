@@ -197,6 +197,54 @@ class ExecutorEngine:
                 "version": EXECUTOR_VERSION,
             }
 
+    def get_stats(self, days: int = 7) -> Dict[str, Any]:
+        """Get execution statistics."""
+        return self.history.get_stats(days=days)
+
+    def get_live_metrics(self) -> Dict[str, Any]:
+        """
+        Get live system metrics for API.
+        
+        Returns a snapshot of current system power flows and state.
+        """
+        # Start with standard system state
+        state = self._gather_system_state()
+        
+        metrics = {
+            "soc": state.current_soc_percent,
+            "pv_kw": state.current_pv_kw,
+            "load_kw": state.current_load_kw,
+            "grid_import_kw": state.current_import_kw,
+            "grid_export_kw": state.current_export_kw,
+            "battery_kw": 0.0,
+            "water_kw": 0.0,
+            "timestamp": datetime.now(pytz.timezone(self.config.timezone)).isoformat()
+        }
+        
+        # Add extra sensors not in SystemState
+        if self.ha_client:
+            input_sensors = self._full_config.get("input_sensors", {})
+            
+            # Battery Power
+            batt_pwr_entity = input_sensors.get("battery_power")
+            if batt_pwr_entity:
+                val = self.ha_client.get_state_value(batt_pwr_entity)
+                if val and val not in ("unknown", "unavailable"):
+                    try:
+                        metrics["battery_kw"] = float(val) / 1000.0 # W to kW
+                    except ValueError: pass
+                    
+            # Water Heater Power
+            water_pwr_entity = input_sensors.get("water_power")
+            if water_pwr_entity:
+                val = self.ha_client.get_state_value(water_pwr_entity)
+                if val and val not in ("unknown", "unavailable"):
+                    try:
+                        metrics["water_kw"] = float(val) / 1000.0 # W to kW
+                    except ValueError: pass
+
+        return metrics
+
     def _get_quick_action_status(self) -> Optional[Dict[str, Any]]:
         """Get current quick action status with remaining time."""
         tz = pytz.timezone(self.config.timezone)

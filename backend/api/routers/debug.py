@@ -1,0 +1,181 @@
+"""
+Debug API Router - Rev ARC1
+
+Provides debug endpoints for logs, history, and diagnostics.
+"""
+
+import json
+import logging
+import sqlite3
+from collections import deque
+from datetime import datetime, timezone
+from typing import Optional
+
+import pytz
+from fastapi import APIRouter, HTTPException, Query
+
+logger = logging.getLogger("darkstar.api.debug")
+
+router = APIRouter(tags=["debug"])
+
+
+# --- Ring Buffer for Logs ---
+class RingBufferHandler(logging.Handler):
+    """In-memory ring buffer for log entries that the UI can poll."""
+
+    def __init__(self, maxlen: int = 1000):
+        super().__init__()
+        self._buffer = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            timestamp = datetime.fromtimestamp(record.created, tz=timezone.utc)
+        except Exception:
+            timestamp = datetime.now(timezone.utc)
+        entry = {
+            "timestamp": timestamp.isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": self.format(record),
+        }
+        self._buffer.append(entry)
+
+    def get_logs(self) -> list:
+        return list(self._buffer)
+
+
+# Global ring buffer handler
+_ring_buffer_handler = RingBufferHandler(maxlen=1000)
+_ring_buffer_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+_ring_buffer_handler.setFormatter(_ring_buffer_formatter)
+
+# Attach to root logger
+root_logger = logging.getLogger()
+if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
+    root_logger.addHandler(_ring_buffer_handler)
+
+
+@router.get("/api/debug")
+async def debug_data():
+    """Return comprehensive planner debug data from schedule.json."""
+    try:
+        with open("schedule.json", "r") as f:
+            data = json.load(f)
+
+        debug_section = data.get("debug", {})
+        if not debug_section:
+            return {
+                "error": (
+                    "No debug data available. "
+                    "Enable debug mode in config.yaml with enable_planner_debug: true"
+                )
+            }
+
+        return debug_section
+
+    except FileNotFoundError:
+        raise HTTPException(404, "schedule.json not found. Run the planner first.")
+
+
+@router.get("/api/debug/logs")
+async def debug_logs():
+    """Return recent server logs stored in the ring buffer handler."""
+    try:
+        return {"logs": _ring_buffer_handler.get_logs()}
+    except Exception as exc:
+        logger.exception("Failed to fetch debug logs")
+        raise HTTPException(500, str(exc))
+
+
+@router.get("/api/history/soc")
+async def historic_soc(date: str = Query("today")):
+    """Return historic SoC data for today from learning database."""
+    try:
+        from backend.learning import get_learning_engine
+        
+        tz = pytz.timezone("Europe/Stockholm")
+        
+        # Determine target date
+        if date == "today":
+            target_date = datetime.now(tz).date()
+        else:
+            try:
+                target_date = datetime.strptime(date, "%Y-%m-%d").date()
+            except ValueError:
+                raise HTTPException(400, 'Invalid date format. Use YYYY-MM-DD or "today"')
+
+        # Get learning engine and query historic SoC data
+        engine = get_learning_engine()
+
+        with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+            query = """
+                SELECT slot_start, soc_end_percent, quality_flags
+                FROM slot_observations
+                WHERE DATE(slot_start) = ?
+                  AND soc_end_percent IS NOT NULL
+                ORDER BY slot_start ASC
+            """
+            rows = conn.execute(query, (target_date.isoformat(),)).fetchall()
+
+        if not rows:
+            return {
+                "date": target_date.isoformat(),
+                "slots": [],
+                "message": "No historical SoC data available for this date",
+            }
+
+        # Convert to JSON format
+        slots = []
+        for row in rows:
+            slots.append({
+                "timestamp": row[0], 
+                "soc_percent": row[1], 
+                "quality_flags": row[2] or ""
+            })
+
+        return {"date": target_date.isoformat(), "slots": slots, "count": len(slots)}
+
+    except Exception as e:
+        logger.exception("Failed to fetch historical SoC data")
+        raise HTTPException(500, f"Failed to fetch historical SoC data: {str(e)}")
+
+
+@router.get("/api/performance/metrics")
+async def get_performance_metrics(days: int = Query(7, ge=1, le=90)):
+    """Get performance metrics for charts."""
+    try:
+        from backend.learning import get_learning_engine
+        engine = get_learning_engine()
+        data = engine.get_performance_series(days_back=days)
+        return data
+    except Exception as e:
+        logger.exception("Failed to get performance metrics")
+        return {"soc_series": [], "cost_series": []}
+
+
+from inputs import _load_yaml, _get_load_profile_from_ha, _get_dummy_load_profile
+
+@router.get("/api/debug/load_profile")
+async def debug_load_profile():
+    """Debug endpoint to test HA load profile fetching."""
+    try:
+        conf = _load_yaml("config.yaml") or {}
+        try:
+            profile = _get_load_profile_from_ha(conf)
+            return {
+                "source": "ha", 
+                "profile_sum": sum(profile), 
+                "profile": profile,
+                "message": "Successfully fetched from HA"
+            }
+        except Exception as e:
+            dummy = _get_dummy_load_profile(conf)
+            return {
+                "source": "dummy_fallback", 
+                "error": str(e), 
+                "profile_sum": sum(dummy), 
+                "profile": dummy,
+                "message": "Failed to fetch from HA, used dummy"
+            }
+    except Exception as e:
+        return {"error": f"Critical error: {str(e)}"}

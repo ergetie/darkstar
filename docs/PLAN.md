@@ -156,23 +156,57 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev ARC1 — Architecture Modernization (FastAPI)
+### [IN PROGRESS] Rev ARC1 — Architecture Modernization (FastAPI)
 
 **Goal:** Migrate from legacy Flask (WSGI) to **FastAPI (ASGI)** to achieve 100% production-grade, state-of-the-art asynchronous performance.
 
 **Plan:**
 
-* [ ] **Architecture Pivot: Flask -> FastAPI**
+* [x] **Architecture Pivot: Flask -> FastAPI**
     *   *Why:* Flask is synchronous (blocking). Legacy `eventlet` is abandoned. FastAPI is native async (non-blocking) and SOTA.
     *   *Modularization:* This revision explicitly fulfills the backlog goal of splitting the monolithic `webapp.py`. Instead of Flask Blueprints, we will use **FastAPI APIRouters** for a clean, modular structure.
     *   *Technical Strategy:*
         *   **Entry Point**: `backend/main.py` (ASGI app definition).
-        *   **Routing**: Split `webapp.py` into `backend/api/routers/{system,theme,forecast,schedule}.py`.
+        *   **Routing**: Split `webapp.py` into `backend/api/routers/{system,theme,forecast,schedule,executor,config,services,learning}.py`.
         *   **Bridge**: Use `backend/core/websockets.py` to bridge sync Executor events to async Socket.IO.
     *   *Tasks:*
-        *   **Refactor/Modularize**: Deconstruct `webapp.py` into `backend/api/routers/*.py`.
-        *   Convert endpoints to `async def`.
-        *   Replace `flask-socketio` with `python-socketio` (ASGI mode).
-        *   Update `Dockerfile` to run `uvicorn`.
+        *   [x] **Refactor/Modularize**: Deconstruct `webapp.py` into `backend/api/routers/*.py`.
+        *   [x] Convert endpoints to `async def`.
+        *   [x] Replace `flask-socketio` with `python-socketio` (ASGI mode).
+        *   [x] Update `Dockerfile` to run `uvicorn`.
 * [ ] **Performance Validation**
     *   Compare throughput and latency.
+
+---
+
+#### Route Verification & Debug (2026-01-02)
+
+**Initial Status:** 30/67 routes working (44.8%). See `scripts/verify_arc1_routes.py`.
+
+##### Phase 1: Critical Frontend Fixes [DONE]
+- [x] Fix nested `<button>` in `ServiceSelect.tsx` (hydration error)
+- [x] Fix `history is undefined` crash in `Executor.tsx`
+
+##### Phase 2: Learning Router [DONE]
+- [x] Create `backend/api/routers/learning.py` (7 endpoints)
+- [x] Mount router in `backend/main.py`
+
+##### Phase 3: Complete Executor Router [DONE]
+- [x] Add `/api/executor/config` GET/PUT
+- [x] Fix `/api/executor/quick-action` 500 error
+- [x] Fix `/api/executor/pause` 500 error
+- [x] Add `/api/executor/notifications` POST
+- [x] Add `/api/executor/notifications/test` POST
+
+##### Phase 4: Forecast Router Fixes [DONE]
+- [x] Add `/api/forecast/eval`
+- [x] Add `/api/forecast/day`
+- [x] Add `/api/forecast/horizon`
+
+##### Phase 5: Remaining Routes [DONE]
+- [x] `/api/db/current_schedule` and `/api/db/push_current`
+- [x] `/api/ha/services` and `/api/ha/test`
+- [x] `/api/simulate`
+- [x] `/api/ha-socket` status endpoint
+
+**Final Status:** Routes verified working via curl tests. Debug/Analyst routers deferred to future revision.
