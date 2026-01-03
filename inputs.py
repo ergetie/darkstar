@@ -12,11 +12,13 @@ from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
 
 
+
 def load_home_assistant_config() -> dict[str, Any]:
     """Read Home Assistant configuration from secrets.yaml."""
     try:
         with open("secrets.yaml") as file:
-            secrets = yaml.safe_load(file) or {}
+            data = yaml.safe_load(file)
+            secrets: dict[str, Any] = data if isinstance(data, dict) else {}
     except FileNotFoundError:
         return {}
     except Exception as exc:  # pragma: no cover - defensive logging
@@ -57,7 +59,8 @@ def _make_ha_headers(token: str) -> dict[str, str]:
 def _load_yaml(path: str) -> dict[str, Any]:
     try:
         with open(path) as f:
-            return yaml.safe_load(f) or {}
+            data = yaml.safe_load(f)
+            return data if isinstance(data, dict) else {}
     except FileNotFoundError:
         return {}
 
@@ -137,11 +140,11 @@ def get_nordpool_data(config_path="config.yaml"):
     resolution_minutes = nordpool_config.get("resolution_minutes", 60)
 
     # Initialize Nordpool Prices client with currency
-    prices_client = Prices(currency)
+    prices_client = Prices(currency=currency)
 
     # Fetch today's prices
     try:
-        today_data = prices_client.fetch(
+        today_data: dict[str, Any] = prices_client.fetch(
             end_date=date.today(), areas=[price_area], resolution=resolution_minutes
         )
     except Exception:
@@ -171,13 +174,15 @@ def get_nordpool_data(config_path="config.yaml"):
     return result
 
 
-def _process_nordpool_data(all_entries, config, today_values=None):
+def _process_nordpool_data(
+    all_entries: list[dict[str, Any]], config: dict[str, Any], today_values: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
     """
     Process raw Nordpool API data into the required format.
 
     Args:
-        all_entries (list): Combined list of raw price entries from today and tomorrow
-        config (dict): The full configuration dictionary
+        all_entries: Combined list of raw price entries from today and tomorrow
+        config: The full configuration dictionary, typed as dict[str, Any]
 
     Returns:
         list: Processed list of dictionaries with standardized format
@@ -238,7 +243,7 @@ def _process_nordpool_data(all_entries, config, today_values=None):
     return result
 
 
-def get_forecast_data(price_slots, config):
+def get_forecast_data(price_slots: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     """
     Generate PV and load forecasts based on price slots and configuration.
     Synchronous wrapper that handles both DB-backed (Aurora) and async fallbacks.

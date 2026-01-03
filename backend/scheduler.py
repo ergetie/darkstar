@@ -45,16 +45,17 @@ def _ensure_data_dir() -> None:
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+
 def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
-    cfg = load_yaml(config_path)
-    automation = cfg.get("automation", {}) or {}
+    cfg: dict[str, Any] = load_yaml(config_path)
+    automation: dict[str, Any] = cfg.get("automation", {}) or {}
     enabled = bool(automation.get("enable_scheduler", False))
-    schedule = automation.get("schedule", {}) or {}
+    schedule: dict[str, Any] = automation.get("schedule", {}) or {}
     raw_every = schedule.get("every_minutes")
     raw_jitter = schedule.get("jitter_minutes", 0)
 
     try:
-        every_minutes = int(raw_every)
+        every_minutes = int(raw_every)  # type: ignore
     except (TypeError, ValueError):
         every_minutes = 60
     if every_minutes < 15:
@@ -96,11 +97,14 @@ def check_dependencies(cfg_or_dict: Any) -> bool:
     except Exception:
         return False
 
-    ha_cfg = full_cfg.get("home_assistant", {}) or {}
+    ha_cfg: dict[str, Any] = full_cfg.get("home_assistant", {}) or {}
 
     # Try Supervisor first (Add-on mode), then Config (Docker mode)
-    ha_url = (os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core") or ha_cfg.get("url")
-    ha_token = os.environ.get("SUPERVISOR_TOKEN") or ha_cfg.get("token")
+    ha_url: str | None = os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core"
+    if not ha_url:
+        ha_url = str(ha_cfg.get("url")) if ha_cfg.get("url") else None
+        
+    ha_token: str | None = os.environ.get("SUPERVISOR_TOKEN") or (str(ha_cfg.get("token")) if ha_cfg.get("token") else None)
 
     if ha_url and ha_token:
         try:
@@ -132,7 +136,7 @@ def load_status() -> SchedulerStatus:
 
     try:
         with STATUS_PATH.open("r", encoding="utf-8") as f:
-            data = json.load(f) or {}
+            data: dict[str, Any] = json.load(f) or {}
     except Exception:
         cfg = load_scheduler_config()
         return SchedulerStatus(
@@ -145,13 +149,13 @@ def load_status() -> SchedulerStatus:
 
     return SchedulerStatus(
         enabled=bool(data.get("enabled", cfg.enabled)),
-        every_minutes=int(data.get("every_minutes", cfg.every_minutes)),
-        jitter_minutes=int(data.get("jitter_minutes", cfg.jitter_minutes)),
-        last_run_at=data.get("last_run_at"),
-        next_run_at=data.get("next_run_at"),
-        last_run_status=data.get("last_run_status"),
-        last_error=data.get("last_error"),
-        ml_training_last_run_at=data.get("ml_training_last_run_at"),
+        every_minutes=int(data.get("every_minutes", cfg.every_minutes) or 60),
+        jitter_minutes=int(data.get("jitter_minutes", cfg.jitter_minutes) or 0),
+        last_run_at=str(data.get("last_run_at")) if data.get("last_run_at") else None,
+        next_run_at=str(data.get("next_run_at")) if data.get("next_run_at") else None,
+        last_run_status=str(data.get("last_run_status")) if data.get("last_run_status") else None,
+        last_error=str(data.get("last_error")) if data.get("last_error") else None,
+        ml_training_last_run_at=str(data.get("ml_training_last_run_at")) if data.get("ml_training_last_run_at") else None,
     )
 
 

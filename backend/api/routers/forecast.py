@@ -259,7 +259,7 @@ def _compute_metrics(engine: Any, days_back: int = 7) -> dict[str, float | None]
             rows = conn.execute(
                 """
                 SELECT f.forecast_version, AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)), AVG(ABS(o.load_kwh - f.load_forecast_kwh))
-                FROM slot_observations o 
+                FROM slot_observations o
                 JOIN slot_forecasts f ON o.slot_start = f.slot_start
                 WHERE o.slot_start >= ? AND o.slot_start < ?
                   AND f.forecast_version IN ('baseline_7_day_avg', 'aurora')
@@ -417,7 +417,7 @@ async def aurora_briefing(request: Request):
     try:
         dashboard = await request.json()
     except Exception:
-        raise HTTPException(400, "Invalid JSON")
+        raise HTTPException(400, "Invalid JSON") from None
 
     _, config = _get_engine_and_config()
     try:
@@ -448,7 +448,7 @@ async def toggle_reflex(payload: ToggleReflexRequest):
         return {"status": "success", "enabled": payload.enabled}
     except Exception as e:
         logger.error("Toggle reflex failed: %s", e)
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 # --- Secondary router for /api/forecast/* endpoints ---
@@ -496,7 +496,7 @@ async def forecast_eval(days: int = 7):
         return {"versions": versions, "days_back": days}
     except Exception as e:
         logger.exception("Forecast eval failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 @forecast_router.get("/api/forecast/day")
@@ -557,7 +557,7 @@ async def forecast_day(date: str | None = None):
         return {"date": target_date.isoformat(), "slots": list(slots.values())}
     except Exception as e:
         logger.exception("Forecast day failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
 
 
 @forecast_router.get("/api/forecast/horizon")
@@ -568,4 +568,4 @@ async def forecast_horizon(hours: int = 48):
         return {"horizon_hours": hours, "slots": slots}
     except Exception as e:
         logger.exception("Forecast horizon failed")
-        raise HTTPException(500, str(e))
+        raise HTTPException(500, str(e)) from e
