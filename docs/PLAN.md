@@ -174,6 +174,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     *   Verified Frontend Build & Lint (0 errors).
     *   Verified Security (Secrets sanitized).
     *   **Fixed Critical Bug**: Resolved dynamic import crash in `CommandDomains.tsx`.
+    *   **Added**: Graceful error handling in `main.tsx` for module load failures.
 * [x] **ARC Revision Verification**
     *   Audited ARC1-ARC5 requirements (100% passed).
 * [x] **Production Readiness**
@@ -182,5 +183,6 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     *   Linting: Backend (Ruff) & Frontend (ESLint) 100% clean.
     *   OpenAPI: Validated 62 paths.
 * [x] **Merge Preparation**
-    *   Updated `CHANGELOG.md` with Phase 9.
+    *   Updated `CHANGELOG_PLAN.md` with Phase 9 (ARC1-ARC5).
     *   Version bump to v2.3.0.
+    *   Merged to `main` and tagged release.
