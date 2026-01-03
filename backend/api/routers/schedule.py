@@ -1,7 +1,8 @@
 import json
 import logging
-import os
+import math
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
 import pytz
@@ -21,6 +22,7 @@ router = APIRouter(tags=["schedule"])
 def get_executor_instance() -> Any | None:
     """Helper to get executor instance. Delegating to executor router singleton."""
     from backend.api.routers.executor import get_executor_instance as get_exec
+
     return get_exec()
 
 
@@ -32,9 +34,9 @@ def get_executor_instance() -> Any | None:
 async def get_scheduler_status():
     """Get scheduler status (is it running, last run, etc)."""
     try:
-        status_path = "data/scheduler_status.json"
-        if os.path.exists(status_path):
-            with open(status_path) as f:
+        status_path = Path("data/scheduler_status.json")
+        if status_path.exists():
+            with status_path.open() as f:
                 return json.load(f)
     except Exception as e:
         logger.warning(f"Failed to read scheduler status: {e}")
@@ -56,8 +58,9 @@ async def get_scheduler_status():
 async def get_schedule() -> dict[str, Any]:
     """Return the current active schedule.json with price overlay."""
     try:
-        if os.path.exists("schedule.json"):
-            with open("schedule.json") as f:
+        schedule_path = Path("schedule.json")
+        if schedule_path.exists():
+            with schedule_path.open() as f:
                 data = json.load(f)
         else:
             return {"schedule": [], "meta": {}}
@@ -123,6 +126,7 @@ async def get_schedule() -> dict[str, Any]:
 async def schedule_today_with_history() -> dict[str, Any]:
     """Merged view of today's schedule and execution history."""
     import aiosqlite
+
     try:
         config = load_yaml("config.yaml")
         tz_name = str(config.get("timezone", "Europe/Stockholm"))
@@ -136,8 +140,9 @@ async def schedule_today_with_history() -> dict[str, Any]:
     # 1. Load schedule.json
     schedule_map: dict[datetime, dict[str, Any]] = {}
     try:
-        if os.path.exists("schedule.json"):
-            with open("schedule.json") as f:
+        schedule_path = Path("schedule.json")
+        if schedule_path.exists():
+            with schedule_path.open() as f:
                 payload = json.load(f)
             for slot in payload.get("schedule", []):
                 start_str = slot.get("start_time")
@@ -157,10 +162,14 @@ async def schedule_today_with_history() -> dict[str, Any]:
     # 2. Load History (aiosqlite)
     exec_map: dict[datetime, dict[str, Any]] = {}
     try:
-        db_path = str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
-        if os.path.exists(db_path):
+        db_path_str = str(
+            config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+        )
+        db_path = Path(db_path_str)
+        if db_path.exists():
             from executor.history import ExecutionHistory
-            hist = ExecutionHistory(db_path)
+
+            hist = ExecutionHistory(str(db_path))
 
             today_start = tz.localize(datetime.combine(today_local, datetime.min.time()))
             now_dt = datetime.now(tz)
@@ -184,12 +193,17 @@ async def schedule_today_with_history() -> dict[str, Any]:
     # 3. Forecast Map (aiosqlite)
     forecast_map: dict[datetime, dict[str, float]] = {}
     try:
-        db_path = str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
+        db_path_str = str(
+            config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
+        )
+        db_path = Path(db_path_str)
         active_version = str(config.get("forecasting", {}).get("active_forecast_version", "aurora"))
-        if os.path.exists(db_path):
-            async with aiosqlite.connect(db_path) as conn:
+        if db_path.exists():
+            async with aiosqlite.connect(str(db_path)) as conn:
                 conn.row_factory = aiosqlite.Row
-                today_iso = tz.localize(datetime.combine(today_local, datetime.min.time())).isoformat()
+                today_iso = tz.localize(
+                    datetime.combine(today_local, datetime.min.time())
+                ).isoformat()
                 async with conn.execute(
                     "SELECT slot_start, pv_forecast_kwh, load_forecast_kwh FROM slot_forecasts WHERE slot_start >= ? AND forecast_version = ?",
                     (today_iso, active_version),
@@ -242,10 +256,48 @@ async def schedule_today_with_history() -> dict[str, Any]:
     return cast("dict[str, Any]", _clean_nans(result_data))
 
 
+@router.post(
+    "/api/schedule/save",
+    summary="Save Schedule Overrides",
+    description="Persist manual schedule overrides to schedule.json.",
+)
+async def save_schedule(request_body: dict[str, Any]) -> dict[str, str]:
+    """Save manual schedule overrides."""
+    try:
+        schedule_path = Path("schedule.json")
+
+        # Load existing schedule
+        if schedule_path.exists():
+            with schedule_path.open() as f:
+                existing = json.load(f)
+        else:
+            existing = {"schedule": [], "meta": {}}
+
+        # Merge overrides
+        overrides = request_body.get("overrides", [])
+        if overrides:
+            # Simple override logic: replace matching slots by start_time
+            override_map = {o.get("start_time"): o for o in overrides}
+            for slot in existing.get("schedule", []):
+                st = slot.get("start_time")
+                if st in override_map:
+                    slot.update(override_map[st])
+
+            existing["meta"]["last_manual_override"] = datetime.now().isoformat()
+
+        # Write back
+        with schedule_path.open("w") as f:
+            json.dump(existing, f, indent=2, default=str)
+
+        logger.info("Schedule saved with %d overrides", len(overrides))
+        return {"status": "success", "message": f"Saved {len(overrides)} overrides"}
+    except Exception as e:
+        logger.exception("Failed to save schedule")
+        return {"status": "error", "message": str(e)}
+
+
 def _clean_nans(obj: Any) -> Any:
     """Recursively replace NaN/Infinity with 0.0 for JSON safety."""
-    import math
-
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return 0.0

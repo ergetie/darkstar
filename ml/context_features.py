@@ -7,7 +7,7 @@ import pytz
 import requests
 import yaml
 
-from inputs import _make_ha_headers, load_home_assistant_config
+from inputs import make_ha_headers, load_home_assistant_config
 
 
 def _load_config(config_path: str = "config.yaml") -> dict:
@@ -41,7 +41,7 @@ def get_vacation_mode_series(
     if not url or not token:
         return pd.Series(dtype="float32")
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,
@@ -124,7 +124,7 @@ def get_alarm_armed_series(
     if not url or not token:
         return pd.Series(dtype="float32")
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,

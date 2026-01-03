@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import aiosqlite
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 

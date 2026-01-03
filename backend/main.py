@@ -1,8 +1,8 @@
 import asyncio
 import logging
-import os
 from contextlib import asynccontextmanager
 from datetime import UTC
+from pathlib import Path
 
 import socketio
 from fastapi import FastAPI
@@ -90,6 +90,11 @@ def create_app() -> socketio.ASGIApp:
 
     app.include_router(debug_router)
 
+    # Mount analyst router for /api/analyst/* endpoints
+    from backend.api.routers.analyst import router as analyst_router
+
+    app.include_router(analyst_router)
+
     # 4. Health Check - Using comprehensive HealthChecker
     @app.get("/api/health")
     async def health_check():  # type: ignore[reportUnusedFunction]
@@ -131,9 +136,9 @@ def create_app() -> socketio.ASGIApp:
     # 5. Mount Static Files (Frontend)
     # We expect 'backend/static' to contain the built React app (or symlinks in dev)
     # In 'pnpm run dev', Vite serves frontend, but for production or hybrid dev, we keep this.
-    static_dir = os.path.join(os.path.dirname(__file__), "static")
-    if os.path.exists(static_dir):
-        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
+    static_dir = Path(__file__).parent / "static"
+    if static_dir.exists():
+        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
     else:
         logger.warning(f"Static directory not found at {static_dir}. Frontend may not be served.")
 

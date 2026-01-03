@@ -7,7 +7,7 @@ import pytz
 import requests
 from learning import LearningEngine, get_learning_engine
 
-from inputs import _make_ha_headers, load_home_assistant_config
+from inputs import make_ha_headers, load_home_assistant_config
 
 
 def _parse_iso_timestamp(value: str) -> datetime | None:
@@ -47,7 +47,7 @@ def fetch_entity_history(
         )
         return []
 
-    headers = _make_ha_headers(token)
+    headers = make_ha_headers(token)
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,
