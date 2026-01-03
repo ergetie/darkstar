@@ -392,64 +392,64 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev ARC3 — High Priority Improvements (Post-ARC1 Audit)
+### [IN PROGRESS] Rev ARC3 — High Priority Improvements (Post-ARC1 Audit)
 
 **Goal:** Fix 8 high-priority issues identified in the ARC1 review. These are not blocking but significantly impact code quality and maintainability.
 
 ---
 
-#### Phase 1: Logging Hygiene
+#### Phase 1: Logging Hygiene [DONE]
 
-##### Task 1.1: Replace print() with logger
+##### Task 1.1: Replace print() with logger ✅
 - **File:** `backend/api/routers/services.py`
 - **Problem:** Lines 91, 130, 181, 491 use `print()` instead of proper logging.
 - **Steps:**
-  - [ ] Open `backend/api/routers/services.py`
-  - [ ] Add logger at top if not present: `logger = logging.getLogger("darkstar.api.services")`
-  - [ ] Replace all `print(f"Error...")` with `logger.warning(...)` or `logger.error(...)`
-  - [ ] Search for any remaining `print(` calls and convert them
+  - [x] Open `backend/api/routers/services.py`
+  - [x] Add logger at top if not present: `logger = logging.getLogger("darkstar.api.services")`
+  - [x] Replace all `print(f"Error...")` with `logger.warning(...)` or `logger.error(...)`
+  - [x] Search for any remaining `print(` calls and convert them
 - **Verification:** `grep -n "print(" backend/api/routers/services.py` returns no matches.
 
-##### Task 1.2: Reduce HA Socket Log Verbosity
+##### Task 1.2: Reduce HA Socket Log Verbosity ✅
 - **File:** `backend/ha_socket.py`
 - **Problem:** Line 154 logs every metric at INFO level, creating noise.
 - **Steps:**
-  - [ ] Open `backend/ha_socket.py`
-  - [ ] Change line 154 from `logger.info(...)` to `logger.debug(...)`
+  - [x] Open `backend/ha_socket.py`
+  - [x] Change line 154 from `logger.info(...)` to `logger.debug(...)`
 - **Verification:** Normal operation logs are cleaner; debug logging can be enabled with `LOG_LEVEL=DEBUG`.
 
 ---
 
-#### Phase 2: Exception Handling
+#### Phase 2: Exception Handling [DONE]
 
-##### Task 2.1: Fix Bare except Clauses
+##### Task 2.1: Fix Bare except Clauses ✅
 - **File:** `backend/api/routers/forecast.py`
 - **Problem:** Lines 286, 301, 309 use bare `except:` which catches everything including KeyboardInterrupt.
 - **Steps:**
-  - [ ] Open `backend/api/routers/forecast.py`
-  - [ ] Line 286: Change `except:` to `except Exception:`
-  - [ ] Line 301: Change `except:` to `except Exception:`
-  - [ ] Line 309: Change `except:` to `except Exception:`
-  - [ ] Search for any other bare `except:` in the file
+  - [x] Open `backend/api/routers/forecast.py`
+  - [x] Line 286: Change `except:` to `except Exception:`
+  - [x] Line 301: Change `except:` to `except Exception:`
+  - [x] Line 309: Change `except:` to `except Exception:`
+  - [x] Search for any other bare `except:` in the file
 - **Verification:** `grep -n "except:" backend/api/routers/forecast.py` returns only `except Exception:` or `except SomeError:`.
 
-##### Task 2.2: Audit All Routers for Bare Excepts
+##### Task 2.2: Audit All Routers for Bare Excepts ✅
 - **Files:** All files in `backend/api/routers/`
 - **Steps:**
-  - [ ] Run: `grep -rn "except:" backend/api/routers/`
-  - [ ] For each bare except found, change to `except Exception:` at minimum
-  - [ ] Consider using more specific exceptions where appropriate
+  - [x] Run: `grep -rn "except:" backend/api/routers/`
+  - [x] For each bare except found, change to `except Exception:` at minimum
+  - [x] Consider using more specific exceptions where appropriate
 
 ---
 
-#### Phase 3: Documentation
+#### Phase 3: Documentation [DONE]
 
-##### Task 3.1: Update architecture.md for FastAPI
+##### Task 3.1: Update architecture.md for FastAPI ✅
 - **File:** `docs/architecture.md`
 - **Problem:** No mention of FastAPI migration or router structure.
 - **Steps:**
-  - [ ] Open `docs/architecture.md`
-  - [ ] Add new section after Section 8:
+  - [x] Open `docs/architecture.md`
+  - [x] Add new section after Section 8:
     ```markdown
     ## 9. Backend API Architecture (Rev ARC1)
 

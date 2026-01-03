@@ -10,9 +10,11 @@ from typing import Any
 import pytz
 import requests
 
+import yaml
 from backend.learning.reflex import AuroraReflex
-from bin.run_planner import load_yaml, main as run_planner_main
+from bin.run_planner import main as run_planner_main
 from ml.train import train_models
+from typing import cast
 
 
 @dataclass
@@ -46,13 +48,30 @@ def _ensure_data_dir() -> None:
 
 
 
+    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+
+def _load_yaml(path: str) -> dict[str, Any]:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+            return cast(dict[str, Any], data) if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
 def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
-    cfg: dict[str, Any] = load_yaml(config_path)
-    automation: dict[str, Any] = cfg.get("automation", {}) or {}
+    cfg = _load_yaml(config_path)
+    
+    automation: dict[str, Any] = cfg.get("automation", {}) if isinstance(cfg.get("automation"), dict) else {}
+        
     enabled = bool(automation.get("enable_scheduler", False))
-    schedule: dict[str, Any] = automation.get("schedule", {}) or {}
-    raw_every = schedule.get("every_minutes")
-    raw_jitter = schedule.get("jitter_minutes", 0)
+    
+    raw_schedule = automation.get("schedule", {})
+    schedule: dict[str, Any] = cast(dict[str, Any], raw_schedule) if isinstance(raw_schedule, dict) else {}
+
+    raw_every: Any = schedule.get("every_minutes")
+    raw_jitter: Any = schedule.get("jitter_minutes", 0)
 
     try:
         every_minutes = int(raw_every)  # type: ignore
@@ -69,9 +88,13 @@ def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
         jitter_minutes = 0
 
     # ML Training Config
-    ml_cfg = automation.get("ml_training", {}) or {}
+    raw_ml_cfg = automation.get("ml_training", {})
+    ml_cfg: dict[str, Any] = cast(dict[str, Any], raw_ml_cfg) if isinstance(raw_ml_cfg, dict) else {}
+        
     ml_enabled = bool(ml_cfg.get("enabled", False))
-    ml_days = tuple(ml_cfg.get("run_days", []))
+    raw_days: Any = ml_cfg.get("run_days", [])
+    ml_days: tuple[int, ...] = tuple(cast(list[int], raw_days)) if isinstance(raw_days, list) else ()
+    
     ml_time = str(ml_cfg.get("run_time", "03:00"))
 
     # System Timezone
@@ -92,12 +115,10 @@ def check_dependencies(cfg_or_dict: Any) -> bool:
     """Check availability of critical dependencies (HA) before retrying."""
 
     # We need the FULL config to get HA URL/Token, not just SchedulerConfig wrapper.
-    try:
-        full_cfg = load_yaml("config.yaml")
-    except Exception:
-        return False
+    full_cfg = _load_yaml("config.yaml")
 
-    ha_cfg: dict[str, Any] = full_cfg.get("home_assistant", {}) or {}
+    raw_ha = full_cfg.get("home_assistant", {})
+    ha_cfg: dict[str, Any] = cast(dict[str, Any], raw_ha) if isinstance(raw_ha, dict) else {}
 
     # Try Supervisor first (Add-on mode), then Config (Docker mode)
     ha_url: str | None = os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core"
@@ -136,7 +157,8 @@ def load_status() -> SchedulerStatus:
 
     try:
         with STATUS_PATH.open("r", encoding="utf-8") as f:
-            data: dict[str, Any] = json.load(f) or {}
+            raw_data = json.load(f)
+            data: dict[str, Any] = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
     except Exception:
         cfg = load_scheduler_config()
         return SchedulerStatus(
@@ -234,7 +256,7 @@ def get_last_scheduled_time(
         target_hour, target_minute = map(int, run_time_str.split(":"))
 
         # Check the last 14 days (covering 2 weeks) to find the most recent slot
-        candidates = []
+        candidates: list[datetime] = []
         for days_back in range(15):
             d = now - timedelta(days=days_back)
             if d.weekday() in run_days:

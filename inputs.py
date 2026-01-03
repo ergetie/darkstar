@@ -1,6 +1,6 @@
 import math
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import pytz
 import requests
@@ -116,7 +116,7 @@ def get_home_assistant_bool(entity_id: str, *, timeout: int = 10) -> bool:
     return is_true
 
 
-def get_nordpool_data(config_path="config.yaml"):
+def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     """
     Fetch day-ahead electricity prices from Nordpool for the next 24-47 hours.
 
@@ -157,16 +157,16 @@ def get_nordpool_data(config_path="config.yaml"):
         tomorrow_data = {}
 
     # Combine data
-    today_values = []
+    today_values: list[dict[str, Any]] = []
     if today_data and today_data.get("areas") and today_data["areas"].get(price_area):
-        today_values = today_data["areas"][price_area].get("values", [])
+        today_values = cast(list[dict[str, Any]], today_data["areas"][price_area].get("values", []))
 
-    tomorrow_values = []
+    tomorrow_values: list[dict[str, Any]] = []
     if tomorrow_data and tomorrow_data.get("areas") and tomorrow_data["areas"].get(price_area):
-        tomorrow_values = tomorrow_data["areas"][price_area].get("values", [])
+        tomorrow_values = cast(list[dict[str, Any]], tomorrow_data["areas"][price_area].get("values", []))
 
     # Use only known market data (do not duplicate unknown future)
-    all_entries = today_values + tomorrow_values
+    all_entries: list[dict[str, Any]] = today_values + tomorrow_values
 
     # Process the data into the required format
     result = _process_nordpool_data(all_entries, config, today_values)
@@ -187,7 +187,7 @@ def _process_nordpool_data(
     Returns:
         list: Processed list of dictionaries with standardized format
     """
-    result = []
+    result: list[dict[str, Any]] = []
 
     # Load pricing configuration
     pricing_config = config.get("pricing", {})
@@ -248,8 +248,8 @@ def get_forecast_data(price_slots: list[dict[str, Any]], config: dict[str, Any])
     Generate PV and load forecasts based on price slots and configuration.
     Synchronous wrapper that handles both DB-backed (Aurora) and async fallbacks.
     """
-    forecasting_cfg = config.get("forecasting", {}) or {}
-    active_version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
+    forecasting_cfg = cast(dict[str, Any], config.get("forecasting", {}) or {})
+    active_version = str(forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg"))
 
     if active_version == "aurora":
         # Aurora logic is purely synchronous (DB-backed)
@@ -261,12 +261,15 @@ def get_forecast_data(price_slots: list[dict[str, Any]], config: dict[str, Any])
         return asyncio.run(_get_forecast_data_async(price_slots, config))
 
 
-def _get_forecast_data_aurora(price_slots, config):
+def _get_forecast_data_aurora(price_slots: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     """Synchronous logic for Aurora DB-backed forecasts."""
-    timezone_name = config.get("timezone", "Europe/Stockholm")
+    timezone_name = str(config.get("timezone", "Europe/Stockholm"))
     local_tz = pytz.timezone(timezone_name)
-    forecasting_cfg = config.get("forecasting", {}) or {}
-    active_version = forecasting_cfg.get("active_forecast_version", "aurora")
+    forecasting_cfg = config.get("forecasting", {})
+    if not isinstance(forecasting_cfg, dict):
+        forecasting_cfg = {}
+
+    active_version = str(forecasting_cfg.get("active_forecast_version", "aurora"))
 
     # 1. Build slots strictly for the price horizon (0-48h)
     db_slots = build_db_forecast_for_slots(price_slots, config)
@@ -276,8 +279,8 @@ def _get_forecast_data_aurora(price_slots, config):
         ha_profile = _get_load_profile_from_ha(config)
     except Exception:
         ha_profile = [0.0] * 96
-
-    forecast_data: list[dict] = []
+        
+    forecast_data: list[dict[str, Any]] = []
     if db_slots:
         print("Info: Using AURORA forecasts from learning DB (aurora).")
         for slot, db_slot in zip(price_slots, db_slots, strict=False):
@@ -397,28 +400,27 @@ def _get_forecast_data_aurora(price_slots, config):
         "slots": forecast_data,
         "daily_pv_forecast": daily_pv_forecast,
         "daily_load_forecast": daily_load_forecast,
-        "daily_probabilistic": {
-            "pv_p10": daily_pv_p10,
-            "pv_p50": daily_pv_forecast,
-            "pv_p90": daily_pv_p90,
-            "load_p10": daily_load_p10,
-            "load_p50": daily_load_forecast,
-            "load_p90": daily_load_p90,
-        },
     }
 
 
-async def _get_forecast_data_async(price_slots, config):
+async def _get_forecast_data_async(price_slots: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
     """
     Async logic for fallback Open-Meteo forecasts.
     """
-    system_config = config.get("system", {})
-    latitude = system_config.get("location", {}).get("latitude", 59.3)
-    longitude = system_config.get("location", {}).get("longitude", 18.1)
-    kwp = system_config.get("solar_array", {}).get("kwp", 5.0)
-    azimuth = system_config.get("solar_array", {}).get("azimuth", 180)
-    tilt = system_config.get("solar_array", {}).get("tilt", 30)
-    timezone = config.get("timezone", "Europe/Stockholm")
+    system_config: dict[str, Any] = config.get("system", {}) if isinstance(config.get("system"), dict) else {}
+
+    location: dict[str, Any] = system_config.get("location", {}) if isinstance(system_config.get("location"), dict) else {}
+
+    latitude = float(location.get("latitude", 59.3))
+    longitude = float(location.get("longitude", 18.1))
+
+    solar_array: dict[str, Any] = system_config.get("solar_array", {}) if isinstance(system_config.get("solar_array"), dict) else {}
+        
+    kwp = float(solar_array.get("kwp", 5.0))
+    azimuth = float(solar_array.get("azimuth", 180))
+    tilt = float(solar_array.get("tilt", 30))
+    
+    timezone = str(config.get("timezone", "Europe/Stockholm"))
     local_tz = pytz.timezone(timezone)
 
     # --- FALLBACK: Open-Meteo (Live API) ---
@@ -514,7 +516,7 @@ async def _get_forecast_data_async(price_slots, config):
             target_date = (first_date + timedelta(days=offset)).isoformat()
             daily_load_forecast.setdefault(target_date, daily_load_total)
 
-    forecast_data = []
+    forecast_data: list[dict[str, Any]] = []
     total_slots = len(price_slots)
     for idx in range(total_slots):
         pv_kwh = pv_kwh_forecast[idx] if idx < len(pv_kwh_forecast) else 0.0
@@ -535,7 +537,7 @@ async def _get_forecast_data_async(price_slots, config):
     }
 
 
-def get_initial_state(config_path="config.yaml"):
+def get_initial_state(config_path: str = "config.yaml") -> dict[str, Any]:
     """
     Get the initial battery state.
 
@@ -549,7 +551,8 @@ def get_initial_state(config_path="config.yaml"):
             - battery_cost_sek_per_kwh (float): Current average battery cost
     """
     with open(config_path) as f:
-        config = yaml.safe_load(f)
+        data = yaml.safe_load(f)
+        config: dict[str, Any] = data if isinstance(data, dict) else {}
 
     # Use system.battery if available, otherwise fall back to battery
     battery_config = config.get("system", {}).get("battery", config.get("battery", {}))
@@ -593,7 +596,7 @@ def get_initial_state(config_path="config.yaml"):
     }
 
 
-def get_all_input_data(config_path="config.yaml"):
+def get_all_input_data(config_path: str = "config.yaml") -> dict[str, Any]:
     """
     Orchestrate all input data fetching.
     """
@@ -652,39 +655,38 @@ def get_all_input_data(config_path="config.yaml"):
     }
 
 
-def get_db_forecast_slots(start: datetime, end: datetime, config: dict) -> list[dict]:
+def get_db_forecast_slots(start: datetime, end: datetime, config: dict[str, Any]) -> list[dict[str, Any]]:
     """
     Fetch forecast slots from the learning database via ml.api.
 
     This helper does not change planner behaviour by itself; it simply
     wraps get_forecast_slots using the configured active_forecast_version.
     """
-    forecasting_cfg = config.get("forecasting", {}) or {}
-    version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
+    forecasting_cfg = config.get("forecasting", {})
+    if not isinstance(forecasting_cfg, dict):
+        forecasting_cfg = {}
+
+    version = str(forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg"))
     return get_forecast_slots(start, end, version)
 
 
 def build_db_forecast_for_slots(
-    price_slots: list[dict],
-    config: dict,
-) -> list[dict]:
+    price_slots: list[dict[str, Any]], config: dict[str, Any]
+) -> list[dict[str, Any]]:
     """
-    Build planner-style PV/load forecasts for the given price_slots from slot_forecasts.
-
-    The returned list has the same length and ordering as price_slots, with
-    dictionaries of the form:
-        { "pv_forecast_kwh": float, "load_forecast_kwh": float }
-
-    This is a thin adapter around ml.api.get_forecast_slots and does not
-    change planner behaviour until it is used by get_forecast_data.
+    Fetch DB forecast records matching the exact time range of price_slots.
+    Returns a list of dicts aligned with price_slots (or empty list if no match).
     """
     if not price_slots:
         return []
 
-    forecasting_cfg = config.get("forecasting", {}) or {}
-    version = forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg")
+    forecasting_cfg = config.get("forecasting", {})
+    if not isinstance(forecasting_cfg, dict):
+        forecasting_cfg = {}
+        
+    version = str(forecasting_cfg.get("active_forecast_version", "baseline_7_day_avg"))
 
-    timezone = config.get("timezone", "Europe/Stockholm")
+    timezone = str(config.get("timezone", "Europe/Stockholm"))
     local_tz = pytz.timezone(timezone)
 
     # Determine horizon from price slots
@@ -698,14 +700,14 @@ def build_db_forecast_for_slots(
         return []
 
     # Index forecasts by localised slot_start for quick lookup
-    indexed: dict[datetime, dict] = {}
+    indexed: dict[datetime, dict[str, Any]] = {}
     for rec in records:
         ts = rec["slot_start"]
         if ts.tzinfo is None:
             ts = pytz.UTC.localize(ts)
         indexed[ts.astimezone(local_tz)] = rec
 
-    result: list[dict] = []
+    result: list[dict[str, Any]] = []
     for slot in price_slots:
         ts = slot["start_time"].astimezone(local_tz)
         rec = indexed.get(ts)
@@ -742,7 +744,7 @@ def build_db_forecast_for_slots(
     return result
 
 
-def _get_load_profile_from_ha(config: dict) -> list[float]:
+def _get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     """Fetch actual load profile from Home Assistant historical data.
 
     Notes on averaging logic:
@@ -755,10 +757,11 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
 
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
-    token = ha_config.get("token")
+    token = cast(str, ha_config.get("token", ""))
 
     # Read entity ID from config.yaml
-    input_sensors = config.get("input_sensors", {})
+    input_sensors: dict[str, Any] = config.get("input_sensors", {}) if isinstance(config.get("input_sensors"), dict) else {}
+
     entity_id = input_sensors.get("total_load_consumption", ha_config.get("consumption_entity_id"))
 
     if not all([url, token, entity_id]):
@@ -896,7 +899,7 @@ def _get_load_profile_from_ha(config: dict) -> list[float]:
         return _get_dummy_load_profile(config)
 
 
-def _get_dummy_load_profile(config: dict) -> list[float]:
+def _get_dummy_load_profile(config: dict[str, Any]) -> list[float]:
     """Create a dummy load profile (sine wave pattern)."""
     import math
 
@@ -911,14 +914,16 @@ if __name__ == "__main__":
         try:
             data = get_all_input_data(config_path="config.yaml")
             print(f"Price slots: {len(data['price_data'])}")
-            print(f"Forecast slots: {len(data['forecast_data'])}")
+            print(f"Forecast slots: {len(data.get('forecast_data', []))}")
             print("Initial state:", data["initial_state"])
             print()
 
             # Show first 5 slots
             for i in range(min(5, len(data["price_data"]))):
                 slot = data["price_data"][i]
-                forecast = data["forecast_data"][i]
+                # forecast_data is the list matching price_slots
+                forecast_slots = cast(list[dict[str, Any]], data.get("forecast_data", []))
+                forecast = forecast_slots[i] if i < len(forecast_slots) else {}
                 slot_time = slot["start_time"]
                 import_price = slot["import_price_sek_kwh"]
                 pv_forecast = forecast["pv_forecast_kwh"]
