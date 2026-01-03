@@ -221,6 +221,14 @@ interface ExtendedChartData extends ChartData {
     pricingConfig?: { vat: number; fees: number }
 }
 
+const hexToRgba = (hex: string, alpha: number) => {
+    if (!hex || !hex.startsWith('#')) return hex
+    const r = parseInt(hex.slice(1, 3), 16)
+    const g = parseInt(hex.slice(3, 5), 16)
+    const b = parseInt(hex.slice(5, 7), 16)
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
 const createChartData = (
     values: ChartValues,
     _themeColors: Record<string, string> = {}, // Deprecated - using Design System tokens directly
@@ -295,7 +303,7 @@ const createChartData = (
                 type: 'bar',
                 label: 'Load (kW)',
                 data: values.load,
-                backgroundColor: 'rgba(0, 183, 181, 0.35)', // DS.house cyan at 35%
+                backgroundColor: 'rgba(0, 183, 181, 0.25)', // DS.house cyan at 25%
                 borderColor: DS.house,
                 glow: true,
                 borderWidth: 0,
@@ -311,7 +319,7 @@ const createChartData = (
                 type: 'bar',
                 label: 'Charge (kW)',
                 data: values.charge ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(241, 81, 50, 0.35)', // DS.bad - grid charge costs money
+                backgroundColor: 'rgba(241, 81, 50, 0.25)', // DS.bad - grid charge costs money
                 borderColor: DS.bad,
                 glow: true,
                 borderWidth: 0,
@@ -328,7 +336,7 @@ const createChartData = (
                 type: 'bar',
                 label: 'Discharge (kW)',
                 data: values.discharge ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(236, 72, 153, 0.35)', // DS.peak (pink) at 35%
+                backgroundColor: 'rgba(236, 72, 153, 0.25)', // DS.peak (pink) at 25%
                 borderColor: DS.peak,
                 glow: true,
                 borderWidth: 0,
@@ -345,7 +353,7 @@ const createChartData = (
                 type: 'bar',
                 label: 'Export (kWh)',
                 data: values.export ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(31, 178, 86, 0.4)', // DS.good - selling is positive!
+                backgroundColor: 'rgba(31, 178, 86, 0.3)', // DS.good - selling is positive!
                 borderColor: DS.good,
                 glow: true,
                 borderWidth: 0,
@@ -362,7 +370,7 @@ const createChartData = (
                 type: 'bar',
                 label: 'Water Heating (kW)',
                 data: values.water ?? values.labels.map(() => null),
-                backgroundColor: 'rgba(78, 168, 222, 0.35)', // DS.water at 35%
+                backgroundColor: 'rgba(78, 168, 222, 0.25)', // DS.water at 25%
                 borderColor: DS.water,
                 glow: true,
                 borderWidth: 0,
@@ -620,8 +628,9 @@ const glowPlugin: Plugin = {
         if (dataset.glow) {
             ctx.save()
             const isDark = document.documentElement.classList.contains('dark')
-            ctx.shadowColor = dataset.borderColor as string
-            ctx.shadowBlur = dataset.glowBlur ?? (isDark ? 10 : 6) // Dynamic glow based on theme
+            // Softer glow: lower opacity, larger radius
+            ctx.shadowColor = hexToRgba(dataset.borderColor as string, isDark ? 0.4 : 0.25)
+            ctx.shadowBlur = dataset.glowBlur ?? (isDark ? 30 : 20)
             ctx.shadowOffsetX = 0
             ctx.shadowOffsetY = 0
         }
