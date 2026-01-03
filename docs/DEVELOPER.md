@@ -248,9 +248,13 @@ pnpm run dev  # OR run backend/scheduler separately
 
 ## Development Guidelines
 
-1.  **Linting**: Use `black` and `flake8`. (This will ensure your code is automatically formatted and linted before you commit.)
+1.  **Linting**: Use `ruff` for linting/formatting and `pyright` for type checking.
     ```bash
-    pre-commit run --all-files
+    ruff format .        # Format code (Black-compatible)
+    ruff check --fix .   # Lint and auto-fix issues
+    pyright .            # Type check (strict mode)
+    # Or run all at once:
+    ./lint.sh
     ```
 2.  **Testing**:
     ```bash

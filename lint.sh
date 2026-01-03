@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
+set -e
+
 source venv/bin/activate
-echo "Running black..."
-black .
-echo "Running flake8..."
-flake8 --jobs=1 .
-echo "🚀 All done!"
+
+echo "🔍 Running Ruff linter..."
+ruff check .
+
+echo "🎨 Running Ruff formatter..."
+ruff format --check .
+
+echo "📝 Running Pyright type checker..."
+pyright .
+
+echo "✅ All checks passed!"

@@ -1,15 +1,85 @@
-[tool.black]
+[tool.ruff]
+# Same line length as previous Black config
 line-length = 100
-target-version = ['py312']
-exclude = '''
-/(
-  \.git
-| \.venv
-| venv
-| __pycache__
-| static
-| templates
-| docs
-| reference
-)/
-'''
+target-version = "py312"
+
+# Exclude same directories as before
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "static",
+    "templates",
+    "docs",
+    "reference",
+    "backend/static",  # Built frontend assets
+]
+
+[tool.ruff.lint]
+# Enable comprehensive rule sets
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+    "TCH",    # flake8-type-checking
+    "PTH",    # flake8-use-pathlib
+    "RUF",    # Ruff-specific rules
+]
+
+# Rules to ignore (with justification)
+ignore = [
+    "E501",   # Line too long - handled by formatter
+    "B008",   # Function call in default argument (common FastAPI pattern)
+]
+
+# Allow autofix for all enabled rules
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.isort]
+# Import sorting compatible with previous conventions
+known-first-party = ["backend", "ml"]
+force-single-line = false
+combine-as-imports = true
+
+[tool.ruff.format]
+# Black-compatible formatting
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+
+# Include all Python source directories
+include = [
+    "backend",
+    "ml",
+    "bin",
+    "*.py",  # Root level Python files
+]
+
+# Exclude non-source directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "reference",
+]
+
+# Report settings for strict mode
+reportMissingImports = true
+reportMissingTypeStubs = "warning"
+reportUnusedImport = true
+reportUnusedVariable = true
+reportUnusedClass = true
+reportUnusedFunction = true
