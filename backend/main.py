@@ -35,9 +35,14 @@ logger = logging.getLogger("darkstar.main")
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events (FastAPI 0.93+)."""
     # Startup
-    logger.info("🚀 Darkstar ASGI Server Starting (Rev ARC1)...")
+    logger.info("🚀 Darkstar ASGI Server Starting (Rev ARC8)...")
     loop = asyncio.get_running_loop()
     ws_manager.set_loop(loop)
+
+    # Start background scheduler (Rev ARC8)
+    from backend.services.scheduler_service import scheduler_service
+
+    await scheduler_service.start()
 
     # Deferred import: ha_socket depends on ws_manager being fully initialized
     from backend.ha_socket import start_ha_socket_client
@@ -48,6 +53,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("👋 Darkstar ASGI Server Shutting Down...")
+    await scheduler_service.stop()
 
 
 def create_app() -> socketio.ASGIApp:
