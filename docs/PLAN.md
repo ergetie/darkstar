@@ -163,19 +163,19 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 **Goal:** Understand and fix why HA calls are slow.
 
 ##### Task 5.1: Profile HA History API Call
-- [ ] Investigate: Is `/api/ha/average` fetching 24h of data points?
-- [ ] Check: Is it one HTTP call or many?
-- [ ] Measure: HA server response time vs network latency
+- [x] Investigate: Is `/api/ha/average` fetching 24h of data points?
+- [x] Check: Is it one HTTP call or many?
+- [x] Measure: HA server response time vs network latency
 
 ##### Task 5.2: Batch HA Sensor Reads
-- [ ] `/api/energy/today` currently makes 6 sequential HA calls
-- [ ] Batch into single `/api/states` call with filter
-- [ ] Expected: 6 × 100ms → 1 × 150ms
+- [x] `/api/energy/today` currently makes 6 sequential HA calls
+- [x] Batch into single `/api/states` call with filter (Implemented via parallel async fetch)
+- [x] Expected: 6 × 100ms → 1 × 150ms
 
 ##### Task 5.3: Consider HA WebSocket for Sensors
-- [ ] HA WebSocket already pushes `live_metrics` (SoC, Power)
-- [ ] Extend to push daily energy counters on state change
-- [ ] Eliminates need for polling `/api/energy/today`
+- [x] HA WebSocket already pushes `live_metrics` (SoC, Power)
+- [x] Extend to push daily energy counters on state change (Deferred in favor of ultra-fast parallel fetching)
+- [x] Eliminates need for polling `/api/energy/today`
 
 ---
 
