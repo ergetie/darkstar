@@ -7,7 +7,7 @@ import pytz
 import requests
 import yaml
 
-from inputs import make_ha_headers, load_home_assistant_config
+from inputs import load_home_assistant_config, make_ha_headers
 
 
 def _load_config(config_path: str = "config.yaml") -> dict:

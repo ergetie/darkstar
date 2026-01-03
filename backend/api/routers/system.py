@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import subprocess
 from typing import Any
@@ -6,7 +7,10 @@ import yaml
 from fastapi import APIRouter
 
 from backend.api.models.system import StatusResponse, VersionResponse
-from inputs import get_home_assistant_sensor_float, load_yaml
+from inputs import (
+    async_get_ha_sensor_float,
+    load_yaml,
+)
 
 logger = logging.getLogger("darkstar.api.system")
 router = APIRouter(tags=["system"])
@@ -53,25 +57,31 @@ async def get_version() -> VersionResponse:
 @router.get(
     "/api/status",
     summary="Get System Status",
-    description="Get instantaneous system status (SoC, Power Flow).",
+    description="Get instantaneous system status (SoC, Power Flow) in parallel.",
     response_model=StatusResponse,
 )
 async def get_system_status() -> StatusResponse:
-    """Get instantaneous system status (SoC, Power Flow)."""
+    """Get instantaneous system status (SoC, Power Flow) using parallel async fetching."""
     config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
 
-    def get_val(key: str, default: float = 0.0) -> float:
+    # Define keys to fetch
+    keys = ["battery_soc", "pv_power", "load_power", "battery_power", "grid_power"]
+    tasks = []
+    for key in keys:
         eid = sensors.get(key)
-        if not eid:
-            return default
-        return get_home_assistant_sensor_float(str(eid)) or default
+        if eid:
+            tasks.append(async_get_ha_sensor_float(str(eid)))
+        else:
+            tasks.append(asyncio.sleep(0, result=0.0))
 
-    soc = get_val("battery_soc")
-    pv_pow = get_val("pv_power")
-    load_pow = get_val("load_power")
-    batt_pow = get_val("battery_power")
-    grid_pow = get_val("grid_power")
+    results = await asyncio.gather(*tasks)
+
+    soc = results[0] or 0.0
+    pv_pow = results[1] or 0.0
+    load_pow = results[2] or 0.0
+    batt_pow = results[3] or 0.0
+    grid_pow = results[4] or 0.0
 
     return StatusResponse(
         status="online",

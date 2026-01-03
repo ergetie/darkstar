@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -13,7 +14,6 @@ from backend.learning import LearningEngine, get_learning_engine
 from ml.context_features import get_vacation_mode_series
 from ml.train import _build_time_features
 from ml.weather import get_weather_series
-import contextlib
 
 
 @dataclass

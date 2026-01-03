@@ -5,6 +5,7 @@ Tests the analyzers which tune s_index.base_factor and forecasting.pv_confidence
 based on historical data.
 """
 
+import contextlib
 import os
 import sqlite3
 import tempfile
@@ -27,7 +28,6 @@ from backend.learning.reflex import (
     AuroraReflex,
 )
 from backend.learning.store import LearningStore
-import contextlib
 
 
 @pytest.fixture

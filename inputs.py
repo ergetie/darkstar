@@ -1,8 +1,9 @@
 import math
-import time
-from datetime import date, datetime, timedelta, time as dt_time
+from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any, cast
 
+import httpx
 import pytz
 import requests
 import yaml
@@ -13,11 +14,22 @@ from backend.core.cache import cache_sync
 from ml.api import get_forecast_slots
 from ml.weather import get_weather_volatility
 
+# --- Async Helper ---
+_ha_client: httpx.AsyncClient | None = None
+
+
+async def get_async_ha_client() -> httpx.AsyncClient:
+    """Get or create singleton httpx.AsyncClient for HA."""
+    global _ha_client
+    if _ha_client is None or _ha_client.is_closed:
+        _ha_client = httpx.AsyncClient(timeout=10.0)
+    return _ha_client
+
 
 def load_home_assistant_config() -> dict[str, Any]:
     """Read Home Assistant configuration from secrets.yaml."""
     try:
-        with open("secrets.yaml") as file:
+        with Path("secrets.yaml").open() as file:
             data = yaml.safe_load(file)
             secrets: dict[str, Any] = data if isinstance(data, dict) else {}
     except FileNotFoundError:
@@ -32,10 +44,10 @@ def load_home_assistant_config() -> dict[str, Any]:
     return ha_config
 
 
-def load_notification_secrets() -> dict[str, Any]:
+def load_notifications_config() -> dict[str, Any]:
     """Read notification secrets (e.g., Discord webhook) from secrets.yaml."""
     try:
-        with open("secrets.yaml") as file:
+        with Path("secrets.yaml").open() as file:
             secrets = yaml.safe_load(file) or {}
     except FileNotFoundError:
         return {}
@@ -59,11 +71,47 @@ def make_ha_headers(token: str) -> dict[str, str]:
 
 def load_yaml(path: str) -> dict[str, Any]:
     try:
-        with open(path) as f:
+        with Path(path).open() as f:
             data = yaml.safe_load(f)
             return data if isinstance(data, dict) else {}
     except FileNotFoundError:
         return {}
+
+
+async def async_get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
+    """Fetch a single entity state from Home Assistant asynchronously."""
+    ha_config = load_home_assistant_config()
+    url = ha_config.get("url")
+    token = ha_config.get("token")
+
+    if not url or not token or not entity_id:
+        return None
+
+    endpoint = f"{url.rstrip('/')}/api/states/{entity_id}"
+    try:
+        client = await get_async_ha_client()
+        response = await client.get(endpoint, headers=make_ha_headers(token))
+        response.raise_for_status()
+        return response.json()
+    except Exception as exc:
+        print(f"Warning: Failed to fetch Home Assistant entity '{entity_id}' (async): {exc}")
+        return None
+
+
+async def async_get_ha_sensor_float(entity_id: str) -> float | None:
+    """Return numeric state of HA sensor asynchronously."""
+    state = await async_get_ha_entity_state(entity_id)
+    if not state:
+        return None
+
+    raw_value = state.get("state")
+    if raw_value in (None, "unknown", "unavailable"):
+        return None
+
+    try:
+        return float(raw_value)
+    except (TypeError, ValueError):
+        return None
 
 
 def get_ha_entity_state(entity_id: str, *, timeout: int = 10) -> dict[str, Any] | None:
@@ -135,15 +183,13 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     cache_key = "nordpool_data"
     cached = cache_sync.get(cache_key)
     if cached:
-        timezone = pytz.timezone("Europe/Stockholm")
-        now = datetime.now(timezone)
         # Invalidate if it's 13:30 CET or later today and we might need fresh prices.
         # Simple heuristic: relying on 1h TTL is usually sufficient as Nordpool
         # object handles the day-ahead logic internally.
         return cached
 
     # Load configuration
-    with open(config_path) as f:
+    with Path(config_path).open() as f:
         config = yaml.safe_load(f)
 
     nordpool_config = config.get("nordpool", {})
@@ -565,7 +611,7 @@ def get_initial_state(config_path: str = "config.yaml") -> dict[str, Any]:
             - battery_kwh (float): Current battery energy in kWh
             - battery_cost_sek_per_kwh (float): Current average battery cost
     """
-    with open(config_path) as f:
+    with Path(config_path).open() as f:
         data = yaml.safe_load(f)
         config: dict[str, Any] = data if isinstance(data, dict) else {}
 
@@ -616,7 +662,7 @@ def get_all_input_data(config_path: str = "config.yaml") -> dict[str, Any]:
     Orchestrate all input data fetching.
     """
     # Load config
-    with open(config_path) as f:
+    with Path(config_path).open() as f:
         config = yaml.safe_load(f)
 
     # --- AUTO-RUN ML INFERENCE IF AURORA IS ACTIVE ---

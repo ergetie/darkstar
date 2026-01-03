@@ -137,11 +137,11 @@ async def main():
     async with httpx.AsyncClient() as client:
         # Limit concurrency to avoid overwhelming the server
         sem = asyncio.Semaphore(5)
-        
+
         async def bounded_check(m, p):
             async with sem:
                 return await check_route(client, m, p)
-                
+
         tasks = [bounded_check(m, p) for m, p in OLD_ROUTES]
         results = await asyncio.gather(*tasks)
 

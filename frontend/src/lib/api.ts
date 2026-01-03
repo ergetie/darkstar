@@ -314,6 +314,13 @@ export type HealthResponse = {
 
 export type AuroraDashboardResponse = import('./types').AuroraDashboardResponse
 export type AuroraPerformanceData = import('./types').AuroraPerformanceData
+export type DashboardBundleResponse = {
+    status: StatusResponse | null
+    config: ConfigResponse | null
+    schedule: ScheduleResponse | null
+    executor_status: ExecutorStatusResponse | null
+    scheduler_status: SchedulerStatusResponse | null
+}
 export type AuroraBriefingResponse = { briefing: string }
 
 async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
@@ -333,6 +340,7 @@ async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET
 }
 
 export const Api = {
+    dashboardBundle: () => getJSON<DashboardBundleResponse>('/api/dashboard/bundle'),
     schedule: () => getJSON<ScheduleResponse>('/api/schedule'),
     scheduleTodayWithHistory: () => getJSON<ScheduleTodayWithHistoryResponse>('/api/schedule/today_with_history'),
     status: () => getJSON<StatusResponse>('/api/status'),

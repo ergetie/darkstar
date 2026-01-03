@@ -7,7 +7,7 @@ import pytz
 import requests
 from learning import LearningEngine, get_learning_engine
 
-from inputs import make_ha_headers, load_home_assistant_config
+from inputs import load_home_assistant_config, make_ha_headers
 
 
 def _parse_iso_timestamp(value: str) -> datetime | None:

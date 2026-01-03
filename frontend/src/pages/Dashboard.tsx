@@ -211,24 +211,18 @@ export default function Dashboard() {
     const fetchCriticalData = useCallback(async () => {
         setIsRefreshing(true)
         try {
-            const [statusData, configData, scheduleData, executorStatusData, schedulerStatusData] =
-                await Promise.allSettled([
-                    Api.status(),
-                    Api.config(),
-                    Api.schedule(),
-                    Api.executor.status(),
-                    Api.schedulerStatus(),
-                ])
+            const bundle = await Api.dashboardBundle()
 
-            // Process critical data
-            if (statusData.status === 'fulfilled') {
-                const data = statusData.value
+            // Process critical data: Status
+            if (bundle.status) {
+                const data = bundle.status
                 if (data.soc_percent != null) setSoc(data.soc_percent)
                 else if (data.current_soc?.value != null) setSoc(data.current_soc.value)
             }
 
-            if (configData.status === 'fulfilled') {
-                const data = configData.value
+            // Process critical data: Config
+            if (bundle.config) {
+                const data = bundle.config
                 // Risk appetite
                 const sIndex = (data as Record<string, unknown>).s_index as Record<string, unknown> | undefined
                 if (typeof sIndex?.risk_appetite === 'number') setRiskAppetite(sIndex.risk_appetite)
@@ -263,12 +257,12 @@ export default function Dashboard() {
                         .catch(() => setVacationModeHA(false))
                 }
             } else {
-                console.error('Failed to load critical config:', configData.reason)
+                console.error('Failed to load critical config from bundle')
             }
 
             // Schedule Data
-            if (scheduleData.status === 'fulfilled' && scheduleData.value) {
-                const data = scheduleData.value
+            if (bundle.schedule) {
+                const data = bundle.schedule
                 setLocalSchedule(data.schedule ?? [])
 
                 if (data.meta) {
@@ -297,15 +291,15 @@ export default function Dashboard() {
             }
 
             // Executor & Scheduler Status
-            if (executorStatusData.status === 'fulfilled') {
+            if (bundle.executor_status) {
                 setExecutorStatus({
-                    shadow_mode: executorStatusData.value.shadow_mode ?? false,
-                    paused: executorStatusData.value.paused ?? null,
+                    shadow_mode: bundle.executor_status.shadow_mode ?? false,
+                    paused: bundle.executor_status.paused ?? null,
                 })
             }
 
-            if (schedulerStatusData.status === 'fulfilled') {
-                const data = schedulerStatusData.value
+            if (bundle.scheduler_status) {
+                const data = bundle.scheduler_status
                 setSchedulerStatus({
                     last_run_at: data.last_run_at ?? null,
                     last_run_status: data.last_run_status ?? null,
@@ -315,7 +309,7 @@ export default function Dashboard() {
 
             setLastRefresh(new Date())
         } catch (error) {
-            console.error('Error fetching critical data:', error)
+            console.error('Error fetching dashboard bundle:', error)
         } finally {
             setIsRefreshing(false)
         }

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 import asyncio
-import socketio
 import sys
+
+import socketio
 
 # Create async socket client
 sio = socketio.AsyncClient()
@@ -28,18 +29,18 @@ async def main():
     print("🔍 Starting WebSocket Verification...")
     try:
         await sio.connect('http://localhost:5000')
-        
+
         # Wait for event with timeout
         try:
             await asyncio.wait_for(received_event.wait(), timeout=10.0)
             print("✅ WebSocket verification passed.")
             await sio.disconnect()
             sys.exit(0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             print("❌ WebSocket Validation Timed Out (No live_metrics received)")
             await sio.disconnect()
             sys.exit(1)
-            
+
     except Exception as e:
         print(f"❌ WebSocket Client Error: {e}")
         sys.exit(1)

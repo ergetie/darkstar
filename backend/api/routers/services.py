@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import traceback
@@ -9,9 +10,10 @@ import httpx
 import pytz
 from fastapi import APIRouter, HTTPException
 
-# Reuse existing helpers from inputs.py to ensure consistency
 from inputs import (
-    get_ha_entity_state,
+    async_get_ha_entity_state,
+    async_get_ha_sensor_float,
+    get_async_ha_client,
     get_home_assistant_sensor_float,
     load_home_assistant_config,
     load_yaml,
@@ -51,8 +53,8 @@ async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(api_url, headers=headers, params=params)
+        client = await get_async_ha_client()
+        resp = await client.get(api_url, headers=headers, params=params)
         if resp.status_code != 200:
             return 0.0
 
@@ -114,7 +116,7 @@ async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     description="Returns the state of a specific Home Assistant entity.",
 )
 async def get_ha_entity(entity_id: str) -> dict[str, Any]:
-    state = get_ha_entity_state(entity_id)
+    state = await async_get_ha_entity_state(entity_id)
     if not state:
         return {
             "entity_id": entity_id,
@@ -278,8 +280,7 @@ async def get_water_today() -> dict[str, Any]:
     sensors: dict[str, Any] = config.get("input_sensors", {})
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
 
-    kwh = get_home_assistant_sensor_float(str(entity_id)) or 0.0
-    # Cost? Need price. Simplified: just returning kwh for now.
+    kwh = await async_get_ha_sensor_float(str(entity_id)) or 0.0
     return {"kwh": kwh, "cost": 0.0, "source": "home_assistant"}
 
 
@@ -371,39 +372,52 @@ async def cancel_water_boost() -> dict[str, str]:
 @router_services.get(
     "/api/energy/today",
     summary="Get Today's Energy",
-    description="Get today's energy summary from HA sensors.",
+    description="Get today's energy summary from HA sensors using parallel async fetching.",
 )
 async def get_energy_today() -> dict[str, float]:
-    """Get today's energy summary from HA sensors."""
+    """Get today's energy summary from HA sensors in parallel."""
     config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
 
-    def get_val(key: str, default: float = 0.0) -> float:
+    # Define keys we want to fetch
+    keys = [
+        "today_grid_import",
+        "today_grid_export",
+        "today_pv_production",
+        "today_load_consumption",
+        "today_battery_charge",
+        "today_net_cost",
+    ]
+
+    # Map keys to entity IDs
+    tasks = []
+    for key in keys:
         eid = sensors.get(key)
-        if not eid:
-            return default
-        return get_home_assistant_sensor_float(str(eid)) or default
+        if eid:
+            tasks.append(async_get_ha_sensor_float(str(eid)))
+        else:
+            tasks.append(asyncio.sleep(0, result=0.0))  # Placeholder for missing config
 
-    # Mapped from config.yaml
-    grid_imp_kwh = get_val("today_grid_import")
-    grid_exp_kwh = get_val("today_grid_export")
-    pv_kwh = get_val("today_pv_production")
-    load_kwh = get_val("today_load_consumption")
-    batt_chg_kwh = get_val("today_battery_charge")
+    # Fetch all in parallel!
+    results = await asyncio.gather(*tasks)
 
-    # Net cost
-    net_cost = get_val("today_net_cost")
+    # Map back to variables
+    grid_imp_kwh = results[0] or 0.0
+    grid_exp_kwh = results[1] or 0.0
+    pv_kwh = results[2] or 0.0
+    load_kwh = results[3] or 0.0
+    batt_chg_kwh = results[4] or 0.0
+    net_cost = results[5] or 0.0
 
     return {
         "solar": round(pv_kwh, 2),
         "grid_import": round(grid_imp_kwh, 2),
         "grid_export": round(grid_exp_kwh, 2),
         "consumption": round(load_kwh, 2),
-        # Snake case for frontend matching
         "grid_import_kwh": round(grid_imp_kwh, 2),
         "grid_export_kwh": round(grid_exp_kwh, 2),
         "battery_charge_kwh": round(batt_chg_kwh, 2),
-        "battery_cycles": 0,  # Not easily available as daily cycle count
+        "battery_cycles": 0,
         "pv_production_kwh": round(pv_kwh, 2),
         "load_consumption_kwh": round(load_kwh, 2),
         "net_cost_kr": round(net_cost, 2),

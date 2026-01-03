@@ -6,8 +6,8 @@ Loads and validates the executor configuration from config.yaml.
 
 import logging
 from dataclasses import dataclass, field
-
 from typing import Any, cast
+
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def load_yaml(path: str) -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
-            return cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+            return cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
     except FileNotFoundError:
         return {}
     except Exception as e:
@@ -117,7 +117,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     try:
         with open(config_path, encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
-            data: dict[str, Any] = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+            data: dict[str, Any] = cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
     except FileNotFoundError:
         logger.warning("Config file not found at %s, using defaults", config_path)
         return ExecutorConfig()

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import sqlite3
-import aiosqlite
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
+import aiosqlite
 import pandas as pd
 
 from backend.learning import LearningEngine, get_learning_engine
@@ -18,7 +18,7 @@ def _get_engine() -> LearningEngine:
     """Return the shared LearningEngine instance."""
     engine = get_learning_engine()
     # No need for isinstance check if type hint is enforced by get_learning_engine
-    return cast(LearningEngine, engine)
+    return cast("LearningEngine", engine)
 
 
 def get_forecast_slots(

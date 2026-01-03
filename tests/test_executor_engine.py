@@ -4,6 +4,7 @@ Tests for Executor Engine Integration
 Integration tests for the full ExecutorEngine with mocked HA client and schedule.json.
 """
 
+import contextlib
 import json
 import os
 import tempfile
@@ -22,7 +23,6 @@ from executor.config import (
     WaterHeaterConfig,
 )
 from executor.engine import ExecutorEngine, ExecutorStatus
-import contextlib
 
 
 @pytest.fixture

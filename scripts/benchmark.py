@@ -8,7 +8,6 @@ Usage: python scripts/benchmark.py [--url URL] [--requests N]
 
 import argparse
 import asyncio
-import statistics
 import time
 from typing import NamedTuple
 
@@ -57,7 +56,7 @@ async def benchmark_endpoint(
         batch_size = min(concurrency, num_requests - i)
         results = await asyncio.gather(*[make_request() for _ in range(batch_size)])
         latencies.extend([r for r in results if r is not None])
-    
+
     total_duration = time.perf_counter() - start_time
 
     if not latencies:

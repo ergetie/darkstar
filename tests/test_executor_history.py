@@ -4,6 +4,7 @@ Tests for Executor History (ExecutionHistory and ExecutionRecord)
 Tests the SQLite-based execution history storage.
 """
 
+import contextlib
 import os
 import sqlite3
 import tempfile
@@ -13,7 +14,6 @@ import pytest
 import pytz
 
 from executor.history import ExecutionHistory, ExecutionRecord
-import contextlib
 
 
 @pytest.fixture

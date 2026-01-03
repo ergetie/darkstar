@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 # Import routers
 from backend.api.routers import (
     config,
+    dashboard,
     executor,
     forecast,
     learning,
@@ -83,6 +84,7 @@ def create_app() -> socketio.ASGIApp:
 
 
     # 4. Mount Routers
+    app.include_router(dashboard.router)
     app.include_router(system.router)
     app.include_router(theme.router)
     app.include_router(schedule.router)

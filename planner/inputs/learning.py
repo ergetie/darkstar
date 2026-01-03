@@ -4,10 +4,10 @@ Learning Inputs
 Functions for loading learning overlays and adjustments from the database.
 """
 
+import contextlib
 import json
 import sqlite3
 from typing import Any
-import contextlib
 
 
 def load_learning_overlays(learning_config: dict[str, Any]) -> dict[str, Any]:

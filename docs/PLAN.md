@@ -142,23 +142,23 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 4: Dashboard Bundle API (Optional) [PLANNED]
+#### Phase 4: Dashboard Bundle API [DONE]
 
 **Goal:** Reduce 11 HTTP round-trips to 1 for critical data.
 
 ##### Task 4.1: Create `/api/dashboard/bundle` Endpoint
-- [ ] Returns: `{ status, config, schedule, executor_status, scheduler_status }`
-- [ ] Single server-side aggregation vs 5 separate calls
-- [ ] Reduces HTTP overhead especially on slow networks
+- [x] Returns: `{ status, config, schedule, executor_status, scheduler_status }`
+- [x] Single server-side aggregation vs 5 separate calls
+- [x] Reduces HTTP overhead especially on slow networks
 
 ##### Task 4.2: Update Frontend to Use Bundle
-- [ ] Replace 5 critical API calls with single bundle call
-- [ ] Keep deferred calls separate (they load async anyway)
-- [ ] Fallback to individual calls if bundle fails
+- [x] Replace 5 critical API calls with single bundle call
+- [x] Keep deferred calls separate (they load async anyway)
+- [x] Fallback to individual calls if bundle fails
 
 ---
 
-#### Phase 5: HA Integration Optimization [PLANNED]
+#### Phase 5: HA Integration Optimization [DONE]
 
 **Goal:** Understand and fix why HA calls are slow.
 

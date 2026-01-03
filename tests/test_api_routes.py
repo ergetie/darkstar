@@ -1,7 +1,8 @@
-import pytest
-from fastapi.testclient import TestClient
 import os
 import sys
+
+import pytest
+from fastapi.testclient import TestClient
 
 # Ensure backend can be imported
 sys.path.append(os.getcwd())
