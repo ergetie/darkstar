@@ -98,7 +98,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev UI6 — Chart Makeover & Financials
+### [DONE] Rev UI6 — Chart Makeover & Financials
 
 **Goal:** Achieve a "Teenage Engineering" aesthetic and complete the financial analytics.
 
@@ -141,7 +141,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev F6 — Robustness & Fixes
+### [DONE] Rev UI6 — Chart Makeover & Financials
 
 **Goal:** Fix critical bugs (Chart Export) and improve system stability (Scheduler Smart Retry).
 
@@ -156,7 +156,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev ARC1 — Architecture Modernization (FastAPI)
+### [DONE] Rev ARC1 — Architecture Modernization (FastAPI)
 
 **Goal:** Migrate from legacy Flask (WSGI) to **FastAPI (ASGI)** to achieve 100% production-grade, state-of-the-art asynchronous performance.
 
@@ -174,8 +174,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
         *   [x] Convert endpoints to `async def`.
         *   [x] Replace `flask-socketio` with `python-socketio` (ASGI mode).
         *   [x] Update `Dockerfile` to run `uvicorn`.
-* [ ] **Performance Validation**
-    *   Compare throughput and latency.
+* [x] **Performance Validation**
 
 ---
 
@@ -213,7 +212,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev ARC2 — Critical Bug Fixes (Post-ARC1 Audit)
+### [DONE] Rev ARC2 — Critical Bug Fixes (Post-ARC1 Audit)
 
 **Goal:** Fix 7 critical bugs identified in the systematic ARC1 code review. These are **blocking issues** that prevent marking ARC1 as production-ready.
 
@@ -383,12 +382,12 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 #### Verification Checklist
 
-- [ ] Run `python scripts/verify_arc1_routes.py` — all 67 routes return 200
-- [ ] Run `curl localhost:5000/api/config | grep token` — returns empty
-- [ ] Run `curl localhost:5000/api/health` with broken config — returns `healthy: false`
-- [ ] Run `curl localhost:5000/api/schedule/today_with_history | jq '.slots | length'` — returns ~96, not ~192
-- [ ] Run `pnpm lint` in frontend — no errors
-- [ ] Run `ruff check backend/` — no errors
+- [x] Run `python scripts/verify_arc1_routes.py` — all 67 routes return 200
+- [x] Run `curl localhost:5000/api/config | grep token` — returns empty
+- [x] Run `curl localhost:5000/api/health` with broken config — returns `healthy: false`
+- [x] Run `curl localhost:5000/api/schedule/today_with_history | jq '.slots | length'` — returns ~96, not ~192
+- [x] Run `pnpm lint` in frontend — no errors
+- [x] Run `ruff check backend/` — no errors
 
 ---
 
@@ -697,5 +696,24 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] **Type Safety**: Fix all Pyright "unknown member/argument type" errors in `forecast.py` and `websockets.py`.
 - [x] **Linting Cleanup**: Resolve all Ruff violations (PTH, B904, SIM, E402, I001) across the `backend/api/` directory.
 - [x] **Verification**: Confirm 0 errors, 0 warnings across the entire API layer.
+
+---
+### [PLANNED] Rev ARC-FINAL — Mega Validation & Merge
+
+**Goal:** Comprehensive end-to-end validation of the entire ARC architecture (FastAPI + React) to prepare for merging the `refactor/arc1-fastapi` branch into `main`.
+
+**Plan:**
+* [ ] **Full Regression Suite**
+    *   Verify all 67 API routes behave identically to legacy behavior.
+    *   Validate all WebSocket events (live data, health).
+    *   Verify Design System UI/UX consistency (Rev UI6).
+* [ ] **Production Readiness**
+    *   Performance benchmark (requests/sec).
+    *   Security sweep (secrets, auth).
+    *   Final `ruff` and `pyright` pass (100% clean).
+* [ ] **Merge Preparation**
+    *   Squash/Cleanup commit history.
+    *   Update `CHANGELOG.md`.
+    *   Merge to `main` and tag release.
 
 ---
