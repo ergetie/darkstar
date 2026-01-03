@@ -379,7 +379,7 @@ async def aurora_dashboard():
                 p["import_price_sek_kwh"] for p in prices
             )
             metrics["max_price_spread"] = round(spread, 4)
-    except:
+    except Exception:
         pass
 
     # Forecast Bias
@@ -389,7 +389,7 @@ async def aurora_dashboard():
             df = engine.store.get_forecast_vs_actual(days_back=14, target="pv")
             if len(df) >= 50:
                 metrics["forecast_bias"] = round(df["error"].mean(), 3)
-    except:
+    except Exception:
         pass
 
     return {
