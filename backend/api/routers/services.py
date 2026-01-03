@@ -1,113 +1,123 @@
-from fastapi import APIRouter, HTTPException
-import requests
-import os
 from datetime import datetime, timedelta
+
 import pytz
+import requests
+from fastapi import APIRouter, HTTPException
 
 # Reuse existing helpers from inputs.py to ensure consistency
 from inputs import (
-    _load_yaml, 
-    _get_ha_entity_state, 
+    _get_ha_entity_state,
+    _load_yaml,
+    _make_ha_headers,
     get_home_assistant_sensor_float,
-    load_home_assistant_config, 
-    _make_ha_headers
+    load_home_assistant_config,
 )
 
 router_ha = APIRouter(prefix="/api/ha", tags=["ha"])
 router_services = APIRouter(tags=["services"])
 
+
 # --- Helper ---
 def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
     """Fetch history from HA and calculate time-weighted average."""
-    if not entity_id: return 0.0
-    
+    if not entity_id:
+        return 0.0
+
     ha_config = load_home_assistant_config()
     url = ha_config.get("url")
     token = ha_config.get("token")
-    if not url or not token: return 0.0
-    
+    if not url or not token:
+        return 0.0
+
     headers = _make_ha_headers(token)
-    
+
     end_time = datetime.now(pytz.UTC)
     start_time = end_time - timedelta(hours=hours)
-    
+
     # HA History API
     api_url = f"{url.rstrip('/')}/api/history/period/{start_time.isoformat()}"
     params = {
         "filter_entity_id": entity_id,
         "end_time": end_time.isoformat(),
         "significant_changes_only": False,
-        "minimal_response": False
+        "minimal_response": False,
     }
-    
+
     try:
         resp = requests.get(api_url, headers=headers, params=params, timeout=10)
-        if resp.status_code != 200: return 0.0
-        
+        if resp.status_code != 200:
+            return 0.0
+
         data = resp.json()
-        if not data or not data[0]: return 0.0
-        
+        if not data or not data[0]:
+            return 0.0
+
         # Calculate Average
         states = data[0]
         total_weighted_sum = 0.0
         total_duration_sec = 0.0
-        
+
         prev_time = start_time
         prev_val = 0.0
-        
+
         # Initial value from first state? Or fetch state at start_time?
         # Simplified: Use first state's value as starting point
         try:
-             prev_val = float(states[0]["state"])
-             prev_time = datetime.fromisoformat(states[0]["last_changed"])
-        except: pass
+            prev_val = float(states[0]["state"])
+            prev_time = datetime.fromisoformat(states[0]["last_changed"])
+        except:
+            pass
 
         for s in states:
             try:
                 curr_time = datetime.fromisoformat(s["last_changed"])
                 val = float(s["state"])
-                
+
                 # Duration since last change
                 duration = (curr_time - prev_time).total_seconds()
                 if duration > 0:
                     total_weighted_sum += prev_val * duration
                     total_duration_sec += duration
-                    
+
                 prev_time = curr_time
                 prev_val = val
-            except: continue
-            
+            except:
+                continue
+
         # Add remainder until now
         duration = (end_time - prev_time).total_seconds()
         if duration > 0:
             total_weighted_sum += prev_val * duration
             total_duration_sec += duration
-            
-        if total_duration_sec == 0: return 0.0
-        
+
+        if total_duration_sec == 0:
+            return 0.0
+
         return round(total_weighted_sum / total_duration_sec, 2)
-        
+
     except Exception as e:
         print(f"Error fetching HA history for {entity_id}: {e}")
         return 0.0
+
 
 @router_ha.get("/entity/{entity_id}")
 async def get_ha_entity(entity_id: str):
     state = _get_ha_entity_state(entity_id)
     if not state:
         return {
-             "entity_id": entity_id,
-             "state": "unknown",
-             "attributes": {"friendly_name": "Offline/Missing"},
-             "last_changed": None
+            "entity_id": entity_id,
+            "state": "unknown",
+            "attributes": {"friendly_name": "Offline/Missing"},
+            "last_changed": None,
         }
     return state
+
 
 @router_ha.get("/average")
 async def get_ha_average(entity_id: str = None, hours: int = 24):
     """Calculate average value for an entity over the last N hours."""
     from inputs import _get_load_profile_from_ha, _load_yaml
-    
+
     if not entity_id:
         # Default to load power sensor
         config = _load_yaml("config.yaml")
@@ -115,42 +125,43 @@ async def get_ha_average(entity_id: str = None, hours: int = 24):
         entity_id = sensors.get("load_power")
 
     if not entity_id:
-         return {"average": 0.0, "entity_id": None, "hours": hours}
-    
+        return {"average": 0.0, "entity_id": None, "hours": hours}
+
     avg_val = _fetch_ha_history_avg(entity_id, hours)
 
     # Fallback to static profile if history unavailable/zero
     if avg_val == 0.0:
         try:
-             config = _load_yaml("config.yaml")
-             profile = _get_load_profile_from_ha(config)
-             if profile:
-                 avg_val = sum(profile) / len(profile)
+            config = _load_yaml("config.yaml")
+            profile = _get_load_profile_from_ha(config)
+            if profile:
+                avg_val = sum(profile) / len(profile)
         except Exception as e:
             print(f"Fallback average calc failed: {e}")
 
     # Calculate daily_kwh estimate (avg * 24h)
-    daily_kwh = round(avg_val * 24 / 1000.0, 2) # avg_val is Watts (usually) or KW?
+    daily_kwh = round(avg_val * 24 / 1000.0, 2)  # avg_val is Watts (usually) or KW?
     # HA sensors are usually W. If fetch_ha_history_avg returns W, then /1000 is correct for kWh.
     # If it returns kW, then *24 is correct.
-    # Let's assume the sensor is W (standard HA). 
-    # But wait, fetch_ha_history_avg just returns value. 
-    # The frontend expects 'average_load_kw'. 
+    # Let's assume the sensor is W (standard HA).
+    # But wait, fetch_ha_history_avg just returns value.
+    # The frontend expects 'average_load_kw'.
     # If standard sensor is W, we should divide by 1000 for kw.
-    
+
     # Let's ensure we return kW.
-    # If value > 100 (likely Watts), divide by 1000. 
+    # If value > 100 (likely Watts), divide by 1000.
     # If value < 50 (likely kW), keep as is. Simple heuristic or just be explicit?
     # Let's trust the value is W from typical HA power sensors, so convert to kW.
-    
+
     val_kw = avg_val / 1000.0 if avg_val > 100 else avg_val
-    
+
     return {
-        "average_load_kw": round(val_kw, 3), 
+        "average_load_kw": round(val_kw, 3),
         "daily_kwh": round(val_kw * 24, 2),
-        "entity_id": entity_id, 
-        "hours": hours
+        "entity_id": entity_id,
+        "hours": hours,
     }
+
 
 @router_ha.get("/entities")
 async def get_ha_entities():
@@ -159,8 +170,9 @@ async def get_ha_entities():
     config = load_home_assistant_config()
     url = config.get("url")
     token = config.get("token")
-    if not url or not token: return {"entities": []}
-    
+    if not url or not token:
+        return {"entities": []}
+
     try:
         headers = _make_ha_headers(token)
         resp = requests.get(f"{url.rstrip('/')}/api/states", headers=headers, timeout=5)
@@ -170,25 +182,31 @@ async def get_ha_entities():
             entities = []
             for s in data:
                 eid = s.get("entity_id", "")
-                if eid.startswith(("sensor.", "binary_sensor.", "input_boolean.", "switch.", "input_number.")):
-                     entities.append({
-                         "entity_id": eid,
-                         "friendly_name": s.get("attributes", {}).get("friendly_name", eid),
-                         "domain": eid.split(".")[0]
-                     })
+                if eid.startswith(
+                    ("sensor.", "binary_sensor.", "input_boolean.", "switch.", "input_number.")
+                ):
+                    entities.append(
+                        {
+                            "entity_id": eid,
+                            "friendly_name": s.get("attributes", {}).get("friendly_name", eid),
+                            "domain": eid.split(".")[0],
+                        }
+                    )
             return {"entities": entities}
     except Exception as e:
         print(f"Error fetching HA entities: {e}")
-        
+
     return {"entities": []}
+
 
 @router_services.get("/api/performance/data")
 async def get_performance_data(days: int = 7):
     """Get performance metrics for Aurora card."""
     try:
         from backend.learning import get_learning_engine
+
         engine = get_learning_engine()
-        if hasattr(engine, 'get_performance_series'):
+        if hasattr(engine, "get_performance_series"):
             data = engine.get_performance_series(days_back=days)
             return data
         else:
@@ -198,7 +216,7 @@ async def get_performance_data(days: int = 7):
                 "mae_pv_aurora": None,
                 "mae_pv_baseline": None,
                 "mae_load_aurora": None,
-                "mae_load_baseline": None
+                "mae_load_baseline": None,
             }
     except Exception as e:
         return {
@@ -208,8 +226,9 @@ async def get_performance_data(days: int = 7):
             "mae_pv_baseline": None,
             "mae_load_aurora": None,
             "mae_load_baseline": None,
-            "error": str(e)
+            "error": str(e),
         }
+
 
 @router_ha.get("/water_today")
 async def get_water_today():
@@ -217,7 +236,7 @@ async def get_water_today():
     config = _load_yaml("config.yaml")
     sensors = config.get("input_sensors", {})
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
-    
+
     kwh = get_home_assistant_sensor_float(entity_id) or 0.0
     # Cost? Need price. Simplified: just returning kwh for now.
     return {"kwh": kwh, "cost": 0.0, "source": "home_assistant"}
@@ -225,51 +244,89 @@ async def get_water_today():
 
 # --- Services Endpoints ---
 
+
 @router_services.get("/api/status")
 async def get_system_status():
     """Get instantaneous system status (SoC, Power Flow)."""
     # Load sensors
     config = _load_yaml("config.yaml")
     sensors = config.get("input_sensors", {})
-    
+
     def get_val(key, default=0.0):
         eid = sensors.get(key)
-        if not eid: return default
+        if not eid:
+            return default
         return get_home_assistant_sensor_float(eid) or default
-        
+
     soc = get_val("battery_soc")
     pv_pow = get_val("pv_power")
     load_pow = get_val("load_power")
     batt_pow = get_val("battery_power")
     grid_pow = get_val("grid_power")
-    
+
     # Check if we didn't get grid power but have import/export
     if grid_pow == 0.0:
         # Fallback or calculation if separate sensors exist?
         pass
 
     return {
-        "status": "online", 
-        "mode": "fastapi", 
+        "status": "online",
+        "mode": "fastapi",
         "rev": "ARC1",
         "soc_percent": round(soc, 1),
-        "pv_power_kw": round(pv_pow / 1000.0, 3),   # Sensors usually in W or kW? Inputs.py assumes W??
-        # get_home_assistant_sensor_float returns raw value. 
-        # Usually HA power sensors from inverters are Watts. 
+        "pv_power_kw": round(
+            pv_pow / 1000.0, 3
+        ),  # Sensors usually in W or kW? Inputs.py assumes W??
+        # get_home_assistant_sensor_float returns raw value.
+        # Usually HA power sensors from inverters are Watts.
         # Let's assume W and convert to kW for consistency with dashboard expectations.
         "load_power_kw": round(load_pow / 1000.0, 3),
         "battery_power_kw": round(batt_pow / 1000.0, 3),
-        "grid_power_kw": round(grid_pow / 1000.0, 3) 
+        "grid_power_kw": round(grid_pow / 1000.0, 3),
     }
+
 
 @router_services.get("/api/water/boost")
 async def get_water_boost():
-    # Placeholder - ideally read from executor state or a sensor
-    return {"boost": False}
+    """Get current water boost status from executor."""
+    from backend.api.routers.executor import _get_executor
+    executor = _get_executor()
+    if not executor:
+        return {"boost": False, "source": "no_executor"}
+
+    if hasattr(executor, 'get_quick_actions'):
+        actions = executor.get_quick_actions()
+        water_boost = actions.get("water_boost")
+        if water_boost:
+            return {
+                "boost": True,
+                "expires_at": water_boost.get("expires_at"),
+                "source": "executor"
+            }
+    return {"boost": False, "source": "executor"}
+
 
 @router_services.post("/api/water/boost")
 async def set_water_boost():
-    return {"status": "not_implemented"}
+    """Activate water heater boost via executor quick action."""
+    from backend.api.routers.executor import _get_executor
+    executor = _get_executor()
+    if not executor:
+        raise HTTPException(503, "Executor not available")
+    if hasattr(executor, 'set_quick_action'):
+        executor.set_quick_action("water_boost", duration_minutes=60, params={})
+        return {"status": "success", "message": "Water boost activated for 60 minutes"}
+    raise HTTPException(501, "Quick action not supported by executor")
+
+
+@router_services.delete("/api/water/boost")
+async def cancel_water_boost():
+    """Cancel active water boost."""
+    from backend.api.routers.executor import _get_executor
+    executor = _get_executor()
+    if executor and hasattr(executor, 'clear_quick_action'):
+        executor.clear_quick_action("water_boost")
+    return {"status": "success", "message": "Water boost cancelled"}
 
 
 @router_services.get("/api/energy/today")
@@ -277,10 +334,11 @@ async def get_energy_today():
     """Get today's energy summary from HA sensors."""
     config = _load_yaml("config.yaml")
     sensors = config.get("input_sensors", {})
-    
+
     def get_val(key, default=0.0):
         eid = sensors.get(key)
-        if not eid: return default
+        if not eid:
+            return default
         return get_home_assistant_sensor_float(eid) or default
 
     # Mapped from config.yaml
@@ -289,35 +347,37 @@ async def get_energy_today():
     pv_kwh = get_val("today_pv_production")
     load_kwh = get_val("today_load_consumption")
     batt_chg_kwh = get_val("today_battery_charge")
-    
+
     # Net cost
     net_cost = get_val("today_net_cost")
-    
+
     return {
         "solar": round(pv_kwh, 2),
         "grid_import": round(grid_imp_kwh, 2),
         "grid_export": round(grid_exp_kwh, 2),
         "consumption": round(load_kwh, 2),
-        
         # Snake case for frontend matching
         "grid_import_kwh": round(grid_imp_kwh, 2),
         "grid_export_kwh": round(grid_exp_kwh, 2),
         "battery_charge_kwh": round(batt_chg_kwh, 2),
-        "battery_cycles": 0, # Not easily available as daily cycle count
+        "battery_cycles": 0,  # Not easily available as daily cycle count
         "pv_production_kwh": round(pv_kwh, 2),
         "load_consumption_kwh": round(load_kwh, 2),
-        "net_cost_kr": round(net_cost, 2)
+        "net_cost_kr": round(net_cost, 2),
     }
+
 
 @router_services.get("/api/energy/range")
 async def get_energy_range(period: str = "today"):
     """Get energy range data."""
-    
+
     config = _load_yaml("config.yaml")
     sensors = config.get("input_sensors", {})
+
     def get_val(key, default=0.0):
         eid = sensors.get(key)
-        if not eid: return default
+        if not eid:
+            return default
         return get_home_assistant_sensor_float(eid) or default
 
     if period == "today":
@@ -326,10 +386,10 @@ async def get_energy_range(period: str = "today"):
         pv_kwh = get_val("today_pv_production")
         load_kwh = get_val("today_load_consumption")
         batt_chg_kwh = get_val("today_battery_charge")
-        batt_dis_kwh = get_val("today_battery_discharge") 
-        water_kwh = get_val("water_heater_consumption") 
+        batt_dis_kwh = get_val("today_battery_discharge")
+        water_kwh = get_val("water_heater_consumption")
         net_cost = get_val("today_net_cost")
-        
+
         return {
             "period": period,
             "start_date": datetime.now().date().isoformat(),
@@ -346,27 +406,29 @@ async def get_energy_range(period: str = "today"):
             "grid_charge_cost_sek": 0,
             "self_consumption_savings_sek": 0,
             "net_cost_sek": round(net_cost, 2),
-            "slot_count": 96
+            "slot_count": 96,
         }
-    
+
     # Historical periods from learning database
     try:
-        from backend.learning import get_learning_engine
         import sqlite3
+
         import pytz
-        
+
+        from backend.learning import get_learning_engine
+
         engine = get_learning_engine()
         tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
         now_local = datetime.now(tz)
         today_local = now_local.date()
-        
-        # Determine date range based on period (inclusive of start, exclusive of end usually, 
+
+        # Determine date range based on period (inclusive of start, exclusive of end usually,
         # but here we compare DATE(slot_start))
         if period == "yesterday":
             end_date = today_local - timedelta(days=1)
             start_date = end_date
         elif period == "week":
-            # Last 7 days including today? OR last 7 completed days? 
+            # Last 7 days including today? OR last 7 completed days?
             # Usually "Week" implies last 7 days.
             end_date = today_local
             start_date = today_local - timedelta(days=6)
@@ -376,12 +438,13 @@ async def get_energy_range(period: str = "today"):
         else:
             # Fallback
             start_date = end_date = today_local
-        
+
         # Query
         with sqlite3.connect(engine.db_path, timeout=5.0) as conn:
             cursor = conn.cursor()
             # We filter by DATE(slot_start) which works if slot_start is ISO-8601 YYYY-MM-DD...
-            row = cursor.execute("""
+            row = cursor.execute(
+                """
                 SELECT 
                     SUM(COALESCE(import_kwh, 0)),
                     SUM(COALESCE(export_kwh, 0)),
@@ -402,10 +465,12 @@ async def get_energy_range(period: str = "today"):
                     COUNT(*)
                 FROM slot_observations
                 WHERE DATE(slot_start) >= ? AND DATE(slot_start) <= ?
-            """, (start_date.isoformat(), end_date.isoformat())).fetchone()
-        
+            """,
+                (start_date.isoformat(), end_date.isoformat()),
+            ).fetchone()
+
         if not row:
-             raise ValueError("No data returned")
+            raise ValueError("No data returned")
 
         grid_imp_kwh = row[0] or 0.0
         grid_exp_kwh = row[1] or 0.0
@@ -414,14 +479,14 @@ async def get_energy_range(period: str = "today"):
         water_kwh = row[4] or 0.0
         pv_kwh = row[5] or 0.0
         load_kwh = row[6] or 0.0
-        
+
         import_cost = row[7] or 0.0
         export_rev = row[8] or 0.0
         grid_charge_cost = row[9] or 0.0
         self_cons_savings = row[10] or 0.0
-        
+
         net_cost = import_cost - export_rev
-        
+
         return {
             "period": period,
             "start_date": start_date.isoformat(),
@@ -438,7 +503,7 @@ async def get_energy_range(period: str = "today"):
             "grid_charge_cost_sek": round(grid_charge_cost, 2),
             "self_consumption_savings_sek": round(self_cons_savings, 2),
             "net_cost_sek": round(net_cost, 2),
-            "slot_count": row[11] or 0
+            "slot_count": row[11] or 0,
         }
     except Exception as e:
         # logger.warning(f"Failed to get historical energy data for {period}: {e}")
@@ -460,11 +525,12 @@ async def get_energy_range(period: str = "today"):
             "self_consumption_savings_sek": 0.0,
             "net_cost_sek": 0.0,
             "slot_count": 0,
-            "error": str(e)
+            "error": str(e),
         }
 
 
 # --- Additional Missing Endpoints ---
+
 
 @router_ha.get("/services")
 async def get_ha_services():
@@ -472,9 +538,9 @@ async def get_ha_services():
     config = load_home_assistant_config()
     url = config.get("url")
     token = config.get("token")
-    if not url or not token: 
+    if not url or not token:
         return {"services": []}
-    
+
     try:
         headers = _make_ha_headers(token)
         resp = requests.get(f"{url.rstrip('/')}/api/services", headers=headers, timeout=5)
@@ -489,7 +555,7 @@ async def get_ha_services():
             return {"services": sorted(services)}
     except Exception as e:
         print(f"Error fetching HA services: {e}")
-    
+
     return {"services": []}
 
 
@@ -499,10 +565,10 @@ async def test_ha_connection():
     config = load_home_assistant_config()
     url = config.get("url")
     token = config.get("token")
-    
+
     if not url or not token:
         return {"status": "error", "message": "HA not configured"}
-    
+
     try:
         headers = _make_ha_headers(token)
         resp = requests.get(f"{url.rstrip('/')}/api/", headers=headers, timeout=5)
@@ -519,6 +585,7 @@ async def get_ha_socket_status():
     """Return status of the HA WebSocket connection."""
     try:
         from backend.ha_socket import get_socket_status
+
         return get_socket_status()
     except ImportError:
         return {"status": "unavailable", "message": "HA socket module not loaded"}
@@ -531,6 +598,7 @@ async def get_db_current_schedule():
     """Get the current schedule from the database."""
     try:
         from db_writer import get_current_schedule_from_db
+
         schedule = get_current_schedule_from_db()
         return {"schedule": schedule}
     except ImportError:
@@ -543,9 +611,11 @@ async def get_db_current_schedule():
 async def push_to_db():
     """Push current schedule to database."""
     try:
-        from db_writer import write_schedule_to_db
         import json
-        with open("schedule.json", "r") as f:
+
+        from db_writer import write_schedule_to_db
+
+        with open("schedule.json") as f:
             schedule = json.load(f)
         write_schedule_to_db(schedule)
         return {"status": "success", "message": "Schedule pushed to DB"}
@@ -557,9 +627,11 @@ async def push_to_db():
 async def run_simulation():
     """Run schedule simulation."""
     try:
-        from planner.simulation import simulate_schedule
         import json
-        with open("schedule.json", "r") as f:
+
+        from planner.simulation import simulate_schedule
+
+        with open("schedule.json") as f:
             schedule = json.load(f)
         result = simulate_schedule(schedule)
         return {"status": "success", "result": result}
@@ -567,5 +639,3 @@ async def run_simulation():
         return {"status": "error", "message": "Simulation module not available"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
-
-
