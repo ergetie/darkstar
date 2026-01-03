@@ -1,6 +1,7 @@
 import logging
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import pytz
@@ -18,7 +19,7 @@ logger = logging.getLogger("recorder")
 
 def _load_config():
     try:
-        with open("config.yaml") as f:
+        with Path("config.yaml").open(encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         return {}

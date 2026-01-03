@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
 import socketio
@@ -9,7 +9,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-# Import events to register handlers
 # Import routers
 from backend.api.routers import (
     config,
@@ -22,6 +21,9 @@ from backend.api.routers import (
     system,
     theme,
 )
+from backend.api.routers.analyst import router as analyst_router
+from backend.api.routers.debug import router as debug_router
+from backend.api.routers.forecast import forecast_router
 from backend.core.websockets import ws_manager
 
 # Configure Logging
@@ -37,7 +39,7 @@ async def lifespan(app: FastAPI):
     loop = asyncio.get_running_loop()
     ws_manager.set_loop(loop)
 
-    # Start HA WebSocket Client (Background)
+    # Deferred import: ha_socket depends on ws_manager being fully initialized
     from backend.ha_socket import start_ha_socket_client
 
     start_ha_socket_client()
@@ -80,19 +82,9 @@ def create_app() -> socketio.ASGIApp:
     app.include_router(legacy.router)
     app.include_router(learning.router)
 
-    # Mount forecast_router for /api/forecast/* endpoints
-    from backend.api.routers.forecast import forecast_router
-
+    # Mount additional routers
     app.include_router(forecast_router)
-
-    # Mount debug router for /api/debug/* and /api/history/* endpoints
-    from backend.api.routers.debug import router as debug_router
-
     app.include_router(debug_router)
-
-    # Mount analyst router for /api/analyst/* endpoints
-    from backend.api.routers.analyst import router as analyst_router
-
     app.include_router(analyst_router)
 
     # 4. Health Check - Using comprehensive HealthChecker
@@ -104,13 +96,13 @@ def create_app() -> socketio.ASGIApp:
         FastAPI runs sync handlers in threadpool automatically.
         """
         try:
+            # Deferred import: health module has heavy dependencies (httpx, aiosqlite)
             from backend.health import get_health_status
 
             status = await get_health_status()
             result = status.to_dict()
         except Exception as e:
             # Fallback if health check itself fails
-            from datetime import datetime
 
             result = {
                 "healthy": False,

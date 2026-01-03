@@ -162,9 +162,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
     # 2. Load History (aiosqlite)
     exec_map: dict[datetime, dict[str, Any]] = {}
     try:
-        db_path_str = str(
-            config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
-        )
+        db_path_str = str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
         db_path = Path(db_path_str)
         if db_path.exists():
             from executor.history import ExecutionHistory
@@ -193,9 +191,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
     # 3. Forecast Map (aiosqlite)
     forecast_map: dict[datetime, dict[str, float]] = {}
     try:
-        db_path_str = str(
-            config.get("learning", {}).get("sqlite_path", "data/planner_learning.db")
-        )
+        db_path_str = str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
         db_path = Path(db_path_str)
         active_version = str(config.get("forecasting", {}).get("active_forecast_version", "aurora"))
         if db_path.exists():

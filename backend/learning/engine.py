@@ -33,11 +33,11 @@ class LearningEngine:
     def _load_config(self, config_path: str) -> dict:
         """Load configuration from YAML file"""
         try:
-            with open(config_path, encoding="utf-8") as f:
+            with Path(config_path).open(encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
             # Fallback to default config
-            with open("config.default.yaml", encoding="utf-8") as f:
+            with Path("config.default.yaml").open(encoding="utf-8") as f:
                 return yaml.safe_load(f)
 
     # Delegate storage methods to store
@@ -212,7 +212,7 @@ class LearningEngine:
             # 2. Plan Deviation (New for K6)
             # MAE of (Planned Charge - Actual Charge)
             plan_query = """
-                SELECT 
+                SELECT
                     AVG(ABS(o.batt_charge_kwh - p.planned_charge_kwh)) as mae_charge,
                     AVG(ABS(o.batt_discharge_kwh - p.planned_discharge_kwh)) as mae_discharge,
                     AVG(ABS(o.soc_end_percent - p.planned_soc_percent)) as mae_soc
@@ -231,7 +231,7 @@ class LearningEngine:
             # Realized Cost ~= (Import * Price) - (Export * Price)
             # Compare with Planned Cost.
             cost_query = """
-                SELECT 
+                SELECT
                     SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost,
                     SUM(p.planned_cost_sek) as planned_cost
                 FROM slot_observations o
@@ -279,7 +279,7 @@ class LearningEngine:
 
             # 1. SoC Series (15-min resolution)
             soc_query = """
-                SELECT 
+                SELECT
                     o.slot_start,
                     p.planned_soc_percent,
                     o.soc_end_percent
@@ -295,7 +295,7 @@ class LearningEngine:
 
             # 2. Cost Series (Daily resolution)
             cost_query = """
-                SELECT 
+                SELECT
                     DATE(o.slot_start) as day,
                     SUM(p.planned_cost_sek) as planned_cost,
                     SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost

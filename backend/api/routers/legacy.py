@@ -1,9 +1,12 @@
 import asyncio
 import contextlib
+import logging
 import sys
 from typing import Any
 
 from fastapi import APIRouter
+
+logger = logging.getLogger("darkstar.api.legacy")
 
 router = APIRouter(tags=["legacy"])
 
@@ -29,12 +32,12 @@ async def run_planner() -> dict[str, str]:
         except TimeoutError:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
-            print("Planner timed out after 30s")
+            logger.warning("Planner timed out after 30s")
             return {"status": "error", "message": "Planner timed out after 30s"}
 
         if proc.returncode != 0:
             err_msg = stderr.decode().strip()
-            print(f"Planner failed: {err_msg}")
+            logger.error(f"Planner failed: {err_msg}")
             return {"status": "error", "message": f"Planner failed: {err_msg}"}
 
         return {"status": "ok", "message": "Planner completed successfully"}

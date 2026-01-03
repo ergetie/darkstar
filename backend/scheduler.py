@@ -5,16 +5,15 @@ import time
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytz
 import requests
-
 import yaml
+
 from backend.learning.reflex import AuroraReflex
 from bin.run_planner import main as run_planner_main
 from ml.train import train_models
-from typing import cast
 
 
 @dataclass
@@ -47,28 +46,29 @@ def _ensure_data_dir() -> None:
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-
-    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
-
-
 def load_yaml(path: str) -> dict[str, Any]:
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        data_path = Path(path)
+        with data_path.open(encoding="utf-8") as f:
             data = yaml.safe_load(f)
-            return cast(dict[str, Any], data) if isinstance(data, dict) else {}
+            return cast("dict[str, Any]", data) if isinstance(data, dict) else {}
     except Exception:
         return {}
 
 
 def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
     cfg = load_yaml(config_path)
-    
-    automation: dict[str, Any] = cfg.get("automation", {}) if isinstance(cfg.get("automation"), dict) else {}
-        
+
+    automation: dict[str, Any] = (
+        cfg.get("automation", {}) if isinstance(cfg.get("automation"), dict) else {}
+    )
+
     enabled = bool(automation.get("enable_scheduler", False))
-    
+
     raw_schedule = automation.get("schedule", {})
-    schedule: dict[str, Any] = cast(dict[str, Any], raw_schedule) if isinstance(raw_schedule, dict) else {}
+    schedule: dict[str, Any] = (
+        cast("dict[str, Any]", raw_schedule) if isinstance(raw_schedule, dict) else {}
+    )
 
     raw_every: Any = schedule.get("every_minutes")
     raw_jitter: Any = schedule.get("jitter_minutes", 0)
@@ -89,12 +89,16 @@ def load_scheduler_config(config_path: str = "config.yaml") -> SchedulerConfig:
 
     # ML Training Config
     raw_ml_cfg = automation.get("ml_training", {})
-    ml_cfg: dict[str, Any] = cast(dict[str, Any], raw_ml_cfg) if isinstance(raw_ml_cfg, dict) else {}
-        
+    ml_cfg: dict[str, Any] = (
+        cast("dict[str, Any]", raw_ml_cfg) if isinstance(raw_ml_cfg, dict) else {}
+    )
+
     ml_enabled = bool(ml_cfg.get("enabled", False))
     raw_days: Any = ml_cfg.get("run_days", [])
-    ml_days: tuple[int, ...] = tuple(cast(list[int], raw_days)) if isinstance(raw_days, list) else ()
-    
+    ml_days: tuple[int, ...] = (
+        tuple(cast("list[int]", raw_days)) if isinstance(raw_days, list) else ()
+    )
+
     ml_time = str(ml_cfg.get("run_time", "03:00"))
 
     # System Timezone
@@ -118,14 +122,16 @@ def check_dependencies(cfg_or_dict: Any) -> bool:
     full_cfg = load_yaml("config.yaml")
 
     raw_ha = full_cfg.get("home_assistant", {})
-    ha_cfg: dict[str, Any] = cast(dict[str, Any], raw_ha) if isinstance(raw_ha, dict) else {}
+    ha_cfg: dict[str, Any] = cast("dict[str, Any]", raw_ha) if isinstance(raw_ha, dict) else {}
 
     # Try Supervisor first (Add-on mode), then Config (Docker mode)
     ha_url: str | None = os.environ.get("SUPERVISOR_TOKEN") and "http://supervisor/core"
     if not ha_url:
         ha_url = str(ha_cfg.get("url")) if ha_cfg.get("url") else None
-        
-    ha_token: str | None = os.environ.get("SUPERVISOR_TOKEN") or (str(ha_cfg.get("token")) if ha_cfg.get("token") else None)
+
+    ha_token: str | None = os.environ.get("SUPERVISOR_TOKEN") or (
+        str(ha_cfg.get("token")) if ha_cfg.get("token") else None
+    )
 
     if ha_url and ha_token:
         try:
@@ -158,7 +164,9 @@ def load_status() -> SchedulerStatus:
     try:
         with STATUS_PATH.open("r", encoding="utf-8") as f:
             raw_data = json.load(f)
-            data: dict[str, Any] = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else {}
+            data: dict[str, Any] = (
+                cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
+            )
     except Exception:
         cfg = load_scheduler_config()
         return SchedulerStatus(
@@ -177,7 +185,9 @@ def load_status() -> SchedulerStatus:
         next_run_at=str(data.get("next_run_at")) if data.get("next_run_at") else None,
         last_run_status=str(data.get("last_run_status")) if data.get("last_run_status") else None,
         last_error=str(data.get("last_error")) if data.get("last_error") else None,
-        ml_training_last_run_at=str(data.get("ml_training_last_run_at")) if data.get("ml_training_last_run_at") else None,
+        ml_training_last_run_at=str(data.get("ml_training_last_run_at"))
+        if data.get("ml_training_last_run_at")
+        else None,
     )
 
 

@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytz
 import requests
@@ -31,14 +32,14 @@ class BackfillEngine:
 
     def _load_config(self, path: str) -> dict:
         try:
-            with open(path) as f:
+            with Path(path).open(encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except FileNotFoundError:
             return {}
 
     def _load_secrets(self) -> dict:
         try:
-            with open("secrets.yaml") as f:
+            with Path("secrets.yaml").open(encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except FileNotFoundError:
             return {}

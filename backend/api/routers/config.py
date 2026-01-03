@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any, cast
 
@@ -5,6 +6,8 @@ from fastapi import APIRouter, Body, HTTPException
 from ruamel.yaml import YAML
 
 from inputs import load_home_assistant_config, load_notification_secrets, load_yaml
+
+logger = logging.getLogger("darkstar.api.config")
 
 router = APIRouter(tags=["config"])
 

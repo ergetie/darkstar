@@ -39,7 +39,7 @@ class WebSocketManager:
         """
         Emit an event from an async context (e.g. FastAPI route).
         """
-        await self.sio.emit(event, data, to=to) # pyright: ignore [reportUnknownMemberType]
+        await self.sio.emit(event, data, to=to)  # pyright: ignore [reportUnknownMemberType]
 
     def emit_sync(self, event: str, data: Any, to: str | None = None):
         """
@@ -56,7 +56,8 @@ class WebSocketManager:
 
         try:
             asyncio.run_coroutine_threadsafe(
-                self.sio.emit(event, data, to=to), self.loop # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+                self.sio.emit(event, data, to=to),
+                self.loop,  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             )
         except Exception as e:
             logger.error(f"WebSocketManager: Failed to schedule emit_sync('{event}'): {e}")

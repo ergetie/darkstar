@@ -48,7 +48,7 @@ def emit_ha_entity_change(entity_id: str, state: str, attributes: dict[str, Any]
 # the handlers are registered on the singleton SIO instance.
 
 
-@ws_manager.sio.on("connect") # pyright: ignore [reportUnknownMemberType, reportUntypedFunctionDecorator]
+@ws_manager.sio.on("connect")  # pyright: ignore [reportUnknownMemberType, reportUntypedFunctionDecorator]
 async def handle_connect(sid: str, environ: dict[str, Any]):
     logger.info(f"🔌 Client connected: {sid}")
     # Send cached state
@@ -58,6 +58,6 @@ async def handle_connect(sid: str, environ: dict[str, Any]):
         await ws_manager.emit("executor_status", _LATEST_STATUS, to=sid)
 
 
-@ws_manager.sio.on("disconnect") # pyright: ignore [reportUnknownMemberType, reportUntypedFunctionDecorator]
+@ws_manager.sio.on("disconnect")  # pyright: ignore [reportUnknownMemberType, reportUntypedFunctionDecorator]
 async def handle_disconnect(sid: str):
     logger.info(f"Client disconnected: {sid}")

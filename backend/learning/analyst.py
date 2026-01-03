@@ -139,7 +139,7 @@ class Analyst:
             with sqlite3.connect(self.store.db_path) as conn:
                 conn.execute(
                     """
-                    INSERT OR REPLACE INTO learning_daily_metrics 
+                    INSERT OR REPLACE INTO learning_daily_metrics
                     (date, pv_adjustment_by_hour_kwh, load_adjustment_by_hour_kwh, s_index_base_factor, updated_at)
                     VALUES (?, ?, ?, ?, ?)
                     """,
@@ -185,8 +185,8 @@ class Analyst:
             with sqlite3.connect(self.store.db_path) as conn:
                 cursor = conn.execute(
                     """
-                    SELECT s_index_base_factor FROM learning_daily_metrics 
-                    WHERE s_index_base_factor IS NOT NULL 
+                    SELECT s_index_base_factor FROM learning_daily_metrics
+                    WHERE s_index_base_factor IS NOT NULL
                     ORDER BY date DESC LIMIT 1
                     """
                 )

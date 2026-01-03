@@ -27,36 +27,44 @@ def _get_strategy_advice() -> dict[str, Any]:
         advice_items = []
 
         if risk_appetite <= 2:
-            advice_items.append({
-                "category": "risk",
-                "message": "Conservative risk profile active. Battery will maintain higher reserves.",
-                "priority": "info",
-            })
+            advice_items.append(
+                {
+                    "category": "risk",
+                    "message": "Conservative risk profile active. Battery will maintain higher reserves.",
+                    "priority": "info",
+                }
+            )
         elif risk_appetite >= 4:
-            advice_items.append({
-                "category": "risk",
-                "message": "Aggressive risk profile active. Consider lowering if forecast accuracy is poor.",
-                "priority": "warning",
-            })
+            advice_items.append(
+                {
+                    "category": "risk",
+                    "message": "Aggressive risk profile active. Consider lowering if forecast accuracy is poor.",
+                    "priority": "warning",
+                }
+            )
 
         # Check for vacation mode
         learning_cfg = config.get("learning", {})
         if learning_cfg.get("vacation_mode_enabled", False):
-            advice_items.append({
-                "category": "mode",
-                "message": "Vacation mode is active. Water heating is in anti-legionella mode.",
-                "priority": "info",
-            })
+            advice_items.append(
+                {
+                    "category": "mode",
+                    "message": "Vacation mode is active. Water heating is in anti-legionella mode.",
+                    "priority": "info",
+                }
+            )
 
         # Battery wear cost check
         battery_econ = config.get("battery_economics", {})
         cycle_cost = battery_econ.get("battery_cycle_cost_kwh", 0.05)
         if cycle_cost > 0.15:
-            advice_items.append({
-                "category": "battery",
-                "message": f"High battery cycle cost ({cycle_cost} SEK/kWh). Arbitrage may be limited.",
-                "priority": "warning",
-            })
+            advice_items.append(
+                {
+                    "category": "battery",
+                    "message": f"High battery cycle cost ({cycle_cost} SEK/kWh). Arbitrage may be limited.",
+                    "priority": "warning",
+                }
+            )
 
         return {
             "advice": advice_items,

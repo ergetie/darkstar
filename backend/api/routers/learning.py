@@ -52,16 +52,18 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)) -> dict[str, An
         engine = _get_learning_engine()
         db_path = str(getattr(engine, "db_path", ""))
 
-        async with aiosqlite.connect(db_path) as conn, conn.execute(
-            """
+        async with (
+            aiosqlite.connect(db_path) as conn,
+            conn.execute(
+                """
                 SELECT id, started_at, status, result_metrics_json, params_json
                 FROM learning_runs
                 ORDER BY started_at DESC
                 LIMIT ?
             """,
-            (limit,),
-        ) as cursor:
-
+                (limit,),
+            ) as cursor,
+        ):
             runs: list[dict[str, Any]] = []
             for row in await cursor.fetchall():
                 run = {
@@ -81,8 +83,6 @@ async def learning_history(limit: int = Query(20, ge=1, le=100)) -> dict[str, An
     except Exception as e:
         logger.exception("Failed to get learning history")
         raise HTTPException(status_code=500, detail=str(e)) from e
-
-
 
 
 @router.post(
@@ -133,20 +133,23 @@ async def learning_loops() -> dict[str, Any]:
 
         # Get loop statuses from database
         loops_status = {}
-        async with aiosqlite.connect(db_path) as conn, conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='learning_loops'"
-        ) as cursor:
-                if await cursor.fetchone():
-                    async with conn.execute("""
+        async with (
+            aiosqlite.connect(db_path) as conn,
+            conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='learning_loops'"
+            ) as cursor,
+        ):
+            if await cursor.fetchone():
+                async with conn.execute("""
                         SELECT loop_name, last_run, status, error_message
                         FROM learning_loops
                     """) as loops_cursor:
-                        for row in await loops_cursor.fetchall():
-                            loops_status[row[0]] = {
-                                "last_run": row[1],
-                                "status": row[2],
-                                "error": row[3],
-                            }
+                    for row in await loops_cursor.fetchall():
+                        loops_status[row[0]] = {
+                            "last_run": row[1],
+                            "status": row[2],
+                            "error": row[3],
+                        }
 
         # Define known loops with their statuses
         known_loops = ["pv_forecast", "load_forecast", "s_index", "arbitrage"]
@@ -234,7 +237,6 @@ async def learning_changes(limit: int = Query(10, ge=1, le=50)) -> dict[str, Any
             """,
                 (limit,),
             ) as cursor:
-
                 changes: list[dict[str, Any]] = []
                 for row in await cursor.fetchall():
                     change = {

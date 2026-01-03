@@ -83,4 +83,3 @@ async def get_system_status() -> StatusResponse:
         battery_power_kw=round(batt_pow / 1000.0, 3),
         grid_power_kw=round(grid_pow / 1000.0, 3),
     )
-

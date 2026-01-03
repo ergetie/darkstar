@@ -60,9 +60,7 @@ async def _compute_graduation_level(engine: LearningEngine | None) -> dict[str, 
 
     if db_path and db_path.exists():
         try:
-            async with aiosqlite.connect(
-                str(db_path)
-            ) as conn:  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+            async with aiosqlite.connect(str(db_path)) as conn:  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
                 cursor = await conn.execute("SELECT COUNT(*) FROM learning_runs")
                 row = await cursor.fetchone()
                 if row:
@@ -149,9 +147,7 @@ def _fetch_weather_volatility(
 async def _fetch_horizon_series(
     engine: LearningEngine | None, config: dict[str, Any]
 ) -> dict[str, Any]:
-    tz = (
-        engine.timezone if engine and hasattr(engine, "timezone") else _get_timezone()
-    )
+    tz = engine.timezone if engine and hasattr(engine, "timezone") else _get_timezone()
     now = datetime.now(tz)
     minutes = (now.minute // 15) * 15
     slot_start = now.replace(minute=minutes, second=0, microsecond=0)
@@ -220,24 +216,25 @@ async def _fetch_correction_history(
     if not db_path or not db_path.exists():
         return []
 
-    tz = (
-        engine.timezone if engine and hasattr(engine, "timezone") else _get_timezone()
-    )
+    tz = engine.timezone if engine and hasattr(engine, "timezone") else _get_timezone()
     now = datetime.now(tz)
     cutoff_date = (now - timedelta(days=14)).date().isoformat()
     active_version = config.get("forecasting", {}).get("active_forecast_version", "aurora")
 
     rows: list[dict[str, Any]] = []
     try:
-        async with aiosqlite.connect(str(db_path)) as conn, conn.execute(  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
-            """
+        async with (
+            aiosqlite.connect(str(db_path)) as conn,
+            conn.execute(  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+                """
                 SELECT DATE(slot_start) AS date, SUM(ABS(pv_correction_kwh)), SUM(ABS(load_correction_kwh))
                 FROM slot_forecasts
                 WHERE forecast_version = ? AND DATE(slot_start) >= ?
                 GROUP BY DATE(slot_start) ORDER BY date ASC
             """,
-            (active_version, cutoff_date),
-        ) as cursor:
+                (active_version, cutoff_date),
+            ) as cursor,
+        ):
             for date_str, pv_corr, load_corr in await cursor.fetchall():
                 pv = float(pv_corr or 0.0)
                 load = float(load_corr or 0.0)
@@ -273,8 +270,10 @@ async def _compute_metrics(
     start_time = now - timedelta(days=max(days_back, 1))
 
     try:
-        async with aiosqlite.connect(str(db_path)) as conn, conn.execute(  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
-            """
+        async with (
+            aiosqlite.connect(str(db_path)) as conn,
+            conn.execute(  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+                """
                 SELECT f.forecast_version, AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)), AVG(ABS(o.load_kwh - f.load_forecast_kwh))
                 FROM slot_observations o
                 JOIN slot_forecasts f ON o.slot_start = f.slot_start
@@ -283,8 +282,9 @@ async def _compute_metrics(
                   AND o.pv_kwh IS NOT NULL AND f.pv_forecast_kwh IS NOT NULL
                 GROUP BY f.forecast_version
             """,
-            (start_time.isoformat(), now.isoformat()),
-        ) as cursor:
+                (start_time.isoformat(), now.isoformat()),
+            ) as cursor,
+        ):
             rows = await cursor.fetchall()
 
         for version, mae_pv, mae_load in rows:
@@ -365,12 +365,8 @@ async def aurora_dashboard() -> dict[str, Any]:
     # History Series (Rev A29)
     try:
         if engine is not None and hasattr(engine, "store"):
-            df_pv = engine.store.get_forecast_vs_actual(
-                days_back=2, target="pv"
-            )  # pyright: ignore [reportUnknownMemberType]
-            df_load = engine.store.get_forecast_vs_actual(
-                days_back=2, target="load"
-            )  # pyright: ignore [reportUnknownMemberType]
+            df_pv = engine.store.get_forecast_vs_actual(days_back=2, target="pv")  # pyright: ignore [reportUnknownMemberType]
+            df_load = engine.store.get_forecast_vs_actual(days_back=2, target="load")  # pyright: ignore [reportUnknownMemberType]
             hist_start = (slot_start - timedelta(hours=24)).isoformat()
 
             def proc(df: pd.DataFrame) -> list[dict[str, Any]]:
@@ -415,9 +411,7 @@ async def aurora_dashboard() -> dict[str, Any]:
     metrics["forecast_bias"] = None
     try:
         if engine and hasattr(engine, "store"):
-            df = engine.store.get_forecast_vs_actual(
-                days_back=14, target="pv"
-            )  # pyright: ignore [reportUnknownMemberType]
+            df = engine.store.get_forecast_vs_actual(days_back=14, target="pv")  # pyright: ignore [reportUnknownMemberType]
             if len(df) >= 50:
                 metrics["forecast_bias"] = round(df["error"].mean(), 3)
     except Exception:
@@ -446,7 +440,6 @@ class BriefingRequest(BaseModel):
     """
 
     model_config = {"extra": "allow"}
-
 
 
 @router.post(
@@ -516,8 +509,10 @@ async def forecast_eval(days: int = 7) -> dict[str, Any]:
         now = datetime.now(pytz.UTC)
         start_time = now - timedelta(days=max(days, 1))
 
-        async with aiosqlite.connect(str(engine.db_path)) as conn, conn.execute(  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
-            """
+        async with (
+            aiosqlite.connect(str(engine.db_path)) as conn,
+            conn.execute(  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+                """
                 SELECT
                     f.forecast_version,
                     AVG(ABS(o.pv_kwh - f.pv_forecast_kwh)) as mae_pv,
@@ -530,8 +525,9 @@ async def forecast_eval(days: int = 7) -> dict[str, Any]:
                   AND f.forecast_version IN ('baseline_7_day_avg', 'aurora')
                 GROUP BY f.forecast_version
             """,
-            (start_time.isoformat(), now.isoformat()),
-        ) as cursor:
+                (start_time.isoformat(), now.isoformat()),
+            ) as cursor,
+        ):
             rows = await cursor.fetchall()
 
         versions: list[dict[str, Any]] = []

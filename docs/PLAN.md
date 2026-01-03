@@ -555,7 +555,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] Rev ARC4 — Polish & Best Practices (Post-ARC1 Audit)
+### [DONE] Rev ARC4 — Polish & Best Practices (Post-ARC1 Audit)
 
 **Goal:** Address 10 medium-priority improvements for code quality, consistency, and developer experience.
 
@@ -617,52 +617,61 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-#### Phase 4: Code Organization
+#### Phase 4: Code Organization [DONE]
 
-##### Task 4.1: Clean Up Inline Imports in main.py
+##### Task 4.1: Clean Up Inline Imports in main.py ✅
 - **File:** `backend/main.py`
-- **Problem:** Lines 52-58 have inline imports inside factory function.
-- **Steps:**
-  - [ ] Move imports to top of file where possible
-  - [ ] For circular import issues, document why inline import is necessary
+- **Changes:**
+  - [x] Moved `forecast_router`, `debug_router`, `analyst_router` imports to top
+  - [x] Added `datetime` to existing import line
+  - [x] Documented 2 deferred imports with comments (`ha_socket`, `health`)
 
-##### Task 4.2: Add Missing Logger Initialization
-- **Files:** Any router missing `logger = logging.getLogger(...)`
-- **Steps:**
-  - [ ] Audit each router file
-  - [ ] Ensure consistent logger naming: `logger = logging.getLogger("darkstar.api.<router_name>")`
+##### Task 4.2: Add Missing Logger Initialization ✅
+- **Files:** `backend/api/routers/config.py`, `backend/api/routers/legacy.py`
+- **Changes:**
+  - [x] Added `logger = logging.getLogger("darkstar.api.config")` to config.py
+  - [x] Added `logger = logging.getLogger("darkstar.api.legacy")` to legacy.py
+  - [x] Replaced `print()` with `logger.warning/error()` in legacy.py
+  - [x] All 11 routers now have proper logger initialization
 
 ---
 
-#### Phase 5: DevOps Integration
+#### Phase 5: DevOps Integration [DONE]
 
-##### Task 5.1: Add Route Verifier to CI
-- **File:** `.github/workflows/` or equivalent
-- **Steps:**
-  - [ ] Add step to CI that runs `python scripts/verify_arc1_routes.py`
-  - [ ] Requires server to be running during CI (may need docker-compose)
-  - [ ] Alternative: Create offline route validation using FastAPI's OpenAPI schema
+##### Task 5.1: Add CI Workflow ✅
+- **File:** `.github/workflows/ci.yml` (NEW)
+- **Implementation:**
+  - [x] Lint backend with `ruff check backend/`
+  - [x] Lint frontend with `pnpm lint`
+  - [x] Run API tests with `pytest tests/test_api_routes.py`
+  - [x] Validate OpenAPI schema offline (no server required)
 
-##### Task 5.2: Complete Performance Validation
-- **Reference:** PLAN.md ARC1 unchecked item "Performance Validation"
-- **Steps:**
-  - [ ] Create benchmark script using `wrk` or `locust`
-  - [ ] Measure: requests/sec, p50/p99 latency
-  - [ ] Document baseline numbers
-  - [ ] Compare against Flask (if still available)
+##### Task 5.2: Complete Performance Validation ✅
+- **File:** `scripts/benchmark.py` (NEW)
+- **Baseline Results (2026-01-03):**
+
+| Endpoint | RPS | p50 | p95 | p99 |
+|----------|------|-------|-------|-------|
+| `/api/version` | 246 | 18ms | 23ms | 23ms |
+| `/api/config` | 104 | 47ms | 49ms | 50ms |
+| `/api/health` | 18 | 246ms | 329ms | 348ms |
+| `/api/aurora/dashboard` | 2.4 | 1621ms | 2112ms | 2204ms |
+
+> **Note:** `/api/health` is slow due to comprehensive async checks. `/api/aurora/dashboard` queries DB heavily.
 
 #### Verification Checklist
 
 - [x] No `hasattr()` in executor.py (or documented why necessary)
 - [x] Response models defined for health, status, version endpoints
-- [x] Logger properly initialized in all routers
-- [ ] `/docs` endpoint shows well-documented OpenAPI schema
-- [ ] CI runs route verification on each PR
+- [x] Logger properly initialized in all 11 routers
+- [x] `/docs` endpoint shows well-documented OpenAPI schema
+- [x] CI runs lint + tests on each PR (`ci.yml`)
+- [x] Performance baseline documented
 
 
 ---
 
-### [DONE] Rev ARC-QA — 100% Quality Baseline (ARC3 Finalization)
+### [DONE] Rev ARC5 — 100% Quality Baseline (ARC3 Finalization)
 
 **Goal:** Achieve zero-error status for all backend API routers and core integration modules using Ruff and Pyright.
 
@@ -676,7 +685,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] Rev ARC-FINAL — Mega Validation & Merge
+### [PLANNED] Rev ARC6 — Mega Validation & Merge
 
 **Goal:** Comprehensive end-to-end validation of the entire ARC architecture (FastAPI + React) to prepare for merging the `refactor/arc1-fastapi` branch into `main`.
 

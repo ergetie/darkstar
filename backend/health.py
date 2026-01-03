@@ -8,10 +8,11 @@ Validates HA connection, entity availability, config validity, and database conn
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
-import pytz
 import httpx
+import pytz
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -71,7 +72,7 @@ class HealthChecker:
     """
 
     def __init__(self, config_path: str = "config.yaml"):
-        self.config_path = config_path
+        self.config_path = Path(config_path)
         self._config: dict[str, Any] = {}
         self._secrets: dict[str, Any] = {}
 
@@ -105,7 +106,7 @@ class HealthChecker:
 
         # Load config
         try:
-            with open(self.config_path, encoding="utf-8") as f:
+            with self.config_path.open(encoding="utf-8") as f:
                 self._config = yaml.safe_load(f) or {}
         except FileNotFoundError:
             issues.append(
@@ -130,7 +131,7 @@ class HealthChecker:
 
         # Load secrets
         try:
-            with open("secrets.yaml", encoding="utf-8") as f:
+            with Path("secrets.yaml").open(encoding="utf-8") as f:
                 self._secrets = yaml.safe_load(f) or {}
         except FileNotFoundError:
             issues.append(

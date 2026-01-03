@@ -65,7 +65,7 @@ export default function Dashboard() {
 
     // --- Missing State Variables Restored ---
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
-    const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null)
+    // const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null) // Unused
     const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
     const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
     const [batteryCapacity, setBatteryCapacity] = useState<number>(0)
@@ -186,7 +186,7 @@ export default function Dashboard() {
                 setServerSchedule(schedule ?? [])
                 // Removed setServerScheduleError
             })
-            .finally(() => { })
+            .finally(() => {})
     }, [])
 
     const fetchAllData = useCallback(async () => {
@@ -197,8 +197,8 @@ export default function Dashboard() {
                 statusData,
                 configData,
                 haAverageData,
-                scheduleData,
-                learningStatusData,
+                scheduleData, // learningStatusData unused
+                ,
                 schedulerStatusData,
                 todayStatsData,
                 waterData,
@@ -397,12 +397,12 @@ export default function Dashboard() {
     useEffect(() => {
         let nextMeta: PlannerMeta = null
         if (currentPlanSource === 'server') {
-            nextMeta = plannerDbMeta
+            nextMeta = null // plannerDbMeta was unused/always null
         } else {
             nextMeta = plannerLocalMeta
         }
         setPlannerMeta(nextMeta)
-    }, [currentPlanSource, plannerLocalMeta, plannerDbMeta])
+    }, [currentPlanSource, plannerLocalMeta])
 
     // Initial data fetch
     useEffect(() => {
@@ -511,7 +511,7 @@ export default function Dashboard() {
     const planBadge = `${freshnessText}${nextActionText}`
 
     // Derive last/next planner runs for automation card
-    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.planned_at || plannerDbMeta?.planned_at
+    const lastRunIso = schedulerStatus?.last_run_at || plannerLocalMeta?.planned_at
     const lastRunDate = lastRunIso ? new Date(lastRunIso) : null
     const everyMinutes =
         automationConfig?.every_minutes && automationConfig.every_minutes > 0 ? automationConfig.every_minutes : null
@@ -701,10 +701,11 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
-                                                ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
-                                                : 'bg-line'
-                                                }`}
+                                            className={`inline-flex h-2 w-2 rounded-full ${
+                                                automationConfig?.enable_scheduler
+                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
+                                                    : 'bg-line'
+                                            }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -725,8 +726,9 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => fetchAllData()}
                                     disabled={isRefreshing}
-                                    className={`rounded-full p-1 transition ${isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
-                                        }`}
+                                    className={`rounded-full p-1 transition ${
+                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                    }`}
                                     title="Manual sync"
                                 >
                                     <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>

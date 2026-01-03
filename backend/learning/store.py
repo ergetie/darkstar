@@ -88,7 +88,7 @@ class LearningStore:
             )
 
             # Migration: ensure correction columns exist on older databases
-            for column_name, ddl in (
+            for _column_name, ddl in (
                 (
                     "pv_correction_kwh",
                     "ALTER TABLE slot_forecasts ADD COLUMN pv_correction_kwh REAL DEFAULT 0.0",
@@ -615,8 +615,8 @@ class LearningStore:
         episode_id: str,
         inputs_json: str,
         schedule_json: str,
-        context_json: str = None,
-        config_overrides_json: str = None,
+        context_json: str | None = None,
+        config_overrides_json: str | None = None,
     ) -> None:
         """Store a training episode for RL."""
         with sqlite3.connect(self.db_path, timeout=30.0) as conn:
@@ -683,7 +683,7 @@ class LearningStore:
             start_hour, end_hour = peak_hours
 
             query = """
-                SELECT 
+                SELECT
                     DATE(slot_start) as date,
                     slot_start,
                     soc_end_percent
@@ -780,7 +780,7 @@ class LearningStore:
                 p90_col = "f.load_p90"
 
             query = f"""
-                SELECT 
+                SELECT
                     o.slot_start,
                     {forecast_col} as forecast,
                     {actual_col} as actual,
@@ -820,7 +820,7 @@ class LearningStore:
             )
 
             query = """
-                SELECT 
+                SELECT
                     SUM(export_kwh * export_price_sek_kwh) as export_revenue,
                     SUM(import_kwh * import_price_sek_kwh) as import_cost,
                     SUM(batt_charge_kwh) as total_charge,
@@ -866,7 +866,7 @@ class LearningStore:
 
             # Look for slots with significant discharge
             query = """
-                SELECT 
+                SELECT
                     soc_start_percent,
                     soc_end_percent,
                     batt_discharge_kwh

@@ -83,9 +83,7 @@ async def debug_data() -> dict[str, Any]:
         return debug_section
 
     except FileNotFoundError as e:
-        raise HTTPException(
-            404, "schedule.json not found. Run the planner first."
-        ) from e
+        raise HTTPException(404, "schedule.json not found. Run the planner first.") from e
 
 
 @router.get(
@@ -119,9 +117,7 @@ async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
             try:
                 target_date = datetime.strptime(date, "%Y-%m-%d").date()
             except ValueError as e:
-                raise HTTPException(
-                    400, 'Invalid date format. Use YYYY-MM-DD or "today"'
-                ) from e
+                raise HTTPException(400, 'Invalid date format. Use YYYY-MM-DD or "today"') from e
 
         # Get learning engine and query historic SoC data
         engine = get_learning_engine()
@@ -170,7 +166,7 @@ async def get_performance_metrics(days: int = Query(7, ge=1, le=90)) -> dict[str
     """Get performance metrics for charts."""
     try:
         engine = get_learning_engine()
-        data = cast("dict[str, Any]", engine.get_performance_series(days_back=days)) # type: ignore
+        data = cast("dict[str, Any]", engine.get_performance_series(days_back=days))  # type: ignore
         return data
     except Exception:
         logger.exception("Failed to get performance metrics")

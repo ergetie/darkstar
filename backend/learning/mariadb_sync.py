@@ -46,7 +46,7 @@ class MariaDBSync:
             with self._connect() as conn, conn.cursor() as cur:
                 # Fetch plans
                 query = """
-                        SELECT 
+                        SELECT
                             slot_start,
                             charge_kw,
                             export_kw,
@@ -185,7 +185,7 @@ class MariaDBSync:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 query = """
-                        SELECT 
+                        SELECT
                             slot_start,
                             planned_charge_kw,
                             planned_export_kw,
@@ -275,7 +275,7 @@ class MariaDBSync:
         try:
             with self._connect() as conn, conn.cursor() as cur:
                 query = """
-                        SELECT 
+                        SELECT
                             slot_start,
                             actual_soc,
                             actual_load_kwh,

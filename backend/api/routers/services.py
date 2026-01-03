@@ -232,7 +232,7 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
 
         engine = get_learning_engine()
         if hasattr(engine, "get_performance_series"):
-            data = engine.get_performance_series(days_back=days) # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
+            data = engine.get_performance_series(days_back=days)  # pyright: ignore [reportUnknownMemberType, reportUnknownVariableType]
             return cast("dict[str, Any]", data)
         else:
             return {
@@ -271,7 +271,6 @@ async def get_water_today() -> dict[str, Any]:
     return {"kwh": kwh, "cost": 0.0, "source": "home_assistant"}
 
 
-
 # --- Services Endpoints ---
 # NOTE: /api/status has been moved to system.py (Rev ARC4)
 
@@ -284,18 +283,15 @@ async def get_water_today() -> dict[str, Any]:
 async def get_water_boost():
     """Get current water boost status from executor."""
     from backend.api.routers.executor import get_executor_instance
+
     executor = get_executor_instance()
     if not executor:
         return {"boost": False, "source": "no_executor"}
 
-    if hasattr(executor, 'get_water_boost_status'):
+    if hasattr(executor, "get_water_boost_status"):
         status = executor.get_water_boost_status()
         if status:
-            return {
-                "boost": True,
-                "expires_at": status.get("expires_at"),
-                "source": "executor"
-            }
+            return {"boost": True, "expires_at": status.get("expires_at"), "source": "executor"}
     return {"boost": False, "source": "executor"}
 
 
@@ -310,17 +306,18 @@ async def set_water_boost() -> dict[str, str]:
         from backend.api.routers.executor import (
             get_executor_instance,
         )
+
         executor = get_executor_instance()
         if not executor:
             logger.error("Executor unavailable for water boost")
             raise HTTPException(503, "Executor not available")
-        if hasattr(executor, 'set_water_boost'):
+        if hasattr(executor, "set_water_boost"):
             # The executor.set_water_boost isn't strictly typed in Pyright's eyes yet maybe?
             # We fixed it in executor/actions.py, but need to be sure engine calls match.
             # Assuming set_water_boost(duration_minutes=...) exists on the executor instance
             # which is actually engine.py's ExecutorEngine or similar.
             # Actually get_executor_instance returns the Engine instance.
-            result = executor.set_water_boost(duration_minutes=60) # pyright: ignore [reportUnknownMemberType]
+            result = executor.set_water_boost(duration_minutes=60)  # pyright: ignore [reportUnknownMemberType]
             if not result.get("success"):
                 logger.error(f"Failed to set water boost: {result.get('error')}")
                 raise HTTPException(500, f"Failed to set water boost: {result.get('error')}")
@@ -348,8 +345,9 @@ async def cancel_water_boost() -> dict[str, str]:
         from backend.api.routers.executor import (
             get_executor_instance,
         )
+
         executor = get_executor_instance()
-        if executor and hasattr(executor, 'clear_water_boost'):
+        if executor and hasattr(executor, "clear_water_boost"):
             executor.clear_water_boost()
             logger.info("Water boost cancelled successfully")
         return {"status": "success", "message": "Water boost cancelled"}
@@ -477,7 +475,7 @@ async def get_energy_range(period: str = "today") -> dict[str, Any]:
             start_date = end_date = today_local
 
         # Query
-        with sqlite3.connect(str(engine.db_path), timeout=5.0) as conn: # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
+        with sqlite3.connect(str(engine.db_path), timeout=5.0) as conn:  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
             cursor = conn.cursor()
             # We filter by DATE(slot_start) which works if slot_start is ISO-8601 YYYY-MM-DD...
             row = cursor.execute(
@@ -705,7 +703,7 @@ async def run_simulation() -> dict[str, Any]:
             schedule = json.load(f)
 
         config = load_yaml("config.yaml")
-        initial_state: dict[str, Any] = {} # Simplified simulation
+        initial_state: dict[str, Any] = {}  # Simplified simulation
 
         result = simulate_schedule(schedule, config, initial_state)
         return {"status": "success", "result": cast("dict[str, Any]", result)}

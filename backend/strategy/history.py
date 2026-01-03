@@ -1,18 +1,18 @@
 import json
 import logging
-import os
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("darkstar.strategy.history")
 
-HISTORY_FILE = os.path.join("data", "strategy_history.json")
+HISTORY_FILE = Path("data/strategy_history.json")
 MAX_HISTORY_ENTRIES = 100
 
 
 def _ensure_data_dir():
-    if not os.path.exists("data"):
-        os.makedirs("data")
+    if not HISTORY_FILE.parent.exists():
+        HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def append_strategy_event(
@@ -37,8 +37,8 @@ def append_strategy_event(
 
     history: list[dict[str, Any]] = []
     try:
-        if os.path.exists(HISTORY_FILE):
-            with open(HISTORY_FILE) as f:
+        if HISTORY_FILE.exists():
+            with HISTORY_FILE.open(encoding="utf-8") as f:
                 history = json.load(f)
     except Exception as e:
         logger.warning(f"Failed to read strategy history: {e}")
@@ -52,7 +52,7 @@ def append_strategy_event(
         history = history[:MAX_HISTORY_ENTRIES]
 
     try:
-        with open(HISTORY_FILE, "w") as f:
+        with HISTORY_FILE.open("w", encoding="utf-8") as f:
             json.dump(history, f, indent=2)
     except Exception as e:
         logger.error(f"Failed to write strategy history: {e}")
@@ -63,9 +63,9 @@ def get_strategy_history(limit: int = 50) -> list[dict[str, Any]]:
     Retrieve the latest strategy history entries.
     """
     try:
-        if not os.path.exists(HISTORY_FILE):
+        if not HISTORY_FILE.exists():
             return []
-        with open(HISTORY_FILE) as f:
+        with HISTORY_FILE.open(encoding="utf-8") as f:
             history = json.load(f)
         return history[:limit]
     except Exception as e:

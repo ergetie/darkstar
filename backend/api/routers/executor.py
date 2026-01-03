@@ -92,7 +92,6 @@ async def get_status(executor: ExecutorDep) -> dict[str, Any]:
     return executor.get_status()
 
 
-
 @router.post(
     "/api/executor/toggle",
     summary="Toggle Executor",

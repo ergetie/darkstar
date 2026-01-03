@@ -1,5 +1,6 @@
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from ruamel.yaml import YAML
@@ -57,7 +58,7 @@ class AuroraReflex:
     """
 
     def __init__(self, config_path: str = "config.yaml"):
-        self.config_path = config_path
+        self.config_path = Path(config_path)
         self.learning_engine = LearningEngine(config_path)
         self.store = self.learning_engine.store
         self.yaml = YAML()
@@ -65,7 +66,7 @@ class AuroraReflex:
         self.timezone = self.learning_engine.timezone
 
         # Load current config
-        with open(config_path, encoding="utf-8") as f:
+        with self.config_path.open(encoding="utf-8") as f:
             self.config = self.yaml.load(f)
 
     def run(self, dry_run: bool = False) -> list[str]:
@@ -438,7 +439,7 @@ class AuroraReflex:
         updates: dict of "path.to.key" -> new_value
         """
         # Reload config to ensure we have the latest comment structure
-        with open(self.config_path, encoding="utf-8") as f:
+        with self.config_path.open(encoding="utf-8") as f:
             data = self.yaml.load(f)
 
         changes_made = []
@@ -477,7 +478,7 @@ class AuroraReflex:
 
         if not dry_run:
             # Write config
-            with open(self.config_path, "w", encoding="utf-8") as f:
+            with self.config_path.open("w", encoding="utf-8") as f:
                 self.yaml.dump(data, f)
             logger.info("Config saved.")
 

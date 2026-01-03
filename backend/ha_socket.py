@@ -5,7 +5,7 @@ import threading
 
 import websockets
 
-from inputs import load_yaml, load_home_assistant_config
+from inputs import load_home_assistant_config, load_yaml
 
 logger = logging.getLogger("darkstar.ha_socket")
 

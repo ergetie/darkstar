@@ -1,8 +1,7 @@
 import logging
-
-import pandas as pd
 from typing import Any, cast
 
+import pandas as pd
 
 logger = logging.getLogger("darkstar.analyst")
 
@@ -60,7 +59,7 @@ class EnergyAnalyst:
         for key, app in self.appliances.items():
             if not isinstance(app, dict):
                 continue
-            app_dict = cast(dict[str, Any], app)
+            app_dict = cast("dict[str, Any]", app)
             duration = float(str(app_dict.get("duration_hours", 1.0)))
             label = str(app_dict.get("label", key))
 
