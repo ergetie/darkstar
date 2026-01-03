@@ -70,7 +70,13 @@ def create_app() -> socketio.ASGIApp:
         allow_headers=["*"],
     )
 
-    # 3. Mount Routers
+    # 3. Timing Middleware for Performance Monitoring (Rev PERF1)
+    from backend.middleware.timing import TimingMiddleware
+
+    app.add_middleware(TimingMiddleware)
+
+
+    # 4. Mount Routers
     app.include_router(system.router)
     app.include_router(theme.router)
     app.include_router(schedule.router)
