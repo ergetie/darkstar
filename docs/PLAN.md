@@ -356,4 +356,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] Implement `glowPlugin` extension in `ChartCard.tsx`
 - [x] Enable glow for `Charge`, `Load`, `Discharge`, `Export`, and `Water Heating` bar datasets
 - [x] Fine-tune colors and opacities for professional depth
-- [x] Verify with `pnpm lint` and production build
+### [DONE] Rev F7 — Dependency Fixes
+**Goal:** Fix missing dependencies causing server crash on deployment.
+- [x] Add `httpx` to requirements.txt (needed for `inputs.py`)
+- [x] Add `aiosqlite` to requirements.txt (needed for `ml/api.py`)
+
