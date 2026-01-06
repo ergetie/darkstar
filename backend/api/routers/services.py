@@ -281,7 +281,7 @@ async def get_water_today() -> dict[str, Any]:
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
 
     kwh = await async_get_ha_sensor_float(str(entity_id)) or 0.0
-    return {"kwh": kwh, "cost": 0.0, "source": "home_assistant"}
+    return {"water_kwh_today": kwh, "cost": 0.0, "source": "home_assistant"}
 
 
 # --- Services Endpoints ---
