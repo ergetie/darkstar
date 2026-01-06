@@ -308,6 +308,46 @@ The executor uses a 4-level temperature system for water heater control:
 
 See `config.yaml` under `executor:` section for all configurable entities and parameters.
 
+### Executor Lifecycle
+
+The executor automatically starts when the application launches, eliminating the need for manual activation.
+
+**Startup Flow:**
+1. FastAPI lifespan event starts
+2. Scheduler service starts (`SchedulerService`)
+3. **Executor initializes** via `get_executor_instance()`
+4. If `config.executor.enabled: true`, executor thread starts automatically
+5. HA Socket client connects
+6. Application fully operational
+
+**Shutdown Flow:**
+1. FastAPI receives shutdown signal
+2. **Executor stops gracefully** via `executor.stop()`
+3. Scheduler service stops
+4. All threads terminated cleanly
+
+**Timing Loop:**
+- Runs on configurable interval (default: 300 seconds / 5 minutes)
+- Aligns to interval boundaries (e.g., :00, :05, :10 for 5-min intervals)
+- No fixed delays between executions - recalculates next run time dynamically
+- Prevents drift through boundary alignment algorithm
+- Double-execution protection with 30-second buffer
+
+**Health Monitoring:**
+The executor is integrated into the system health check (`/api/health`):
+- **Critical Issue**: Executor enabled in config but not running
+- **Warning Issue**: Last execution failed with error
+- Monitors thread liveness and execution status
+- Provides actionable guidance for issues
+
+**Configuration:**
+```yaml
+executor:
+  enabled: true          # Auto-starts on application launch
+  interval_seconds: 300  # Execution interval (5 minutes)
+  shadow_mode: false     # If true, logs actions but doesn't execute
+```
+
 ---
 
 ## 8. Health Check System (Rev F4)

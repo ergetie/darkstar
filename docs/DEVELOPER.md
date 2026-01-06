@@ -169,8 +169,10 @@ Darkstar is a monorepo containing the Python backend, React frontend, and ML pip
 
 ## Deployment & Ops
 
-### 1. In-App Scheduler + Recorder
-Darkstar v2 includes an internal scheduler and a dedicated recorder.
+### 1. In-App Scheduler + Recorder + Executor
+Darkstar v2 includes an internal scheduler, recorder, and native executor that all start automatically.
+
+**Scheduler:**
 *   Enable planner automation in `config.yaml`:
     ```yaml
     automation:
@@ -179,13 +181,30 @@ Darkstar v2 includes an internal scheduler and a dedicated recorder.
         every_minutes: 60
         jitter_minutes: 0
     ```
-*   The scheduler runs the planner periodically: `python -m backend.scheduler`.
-*   The recorder logs live energy observations every 15 minutes: `python -m backend.recorder`.
+*   Runs the planner periodically to regenerate schedules
+
+**Executor:**
+*   Enable executor in `config.yaml`:
+    ```yaml
+    executor:
+      enabled: true           # Auto-starts on application launch
+      interval_seconds: 300   # Runs every 5 minutes
+    ```
+*   **Auto-starts when application launches** if `enabled: true`
+*   Executes planned actions (battery control, water heating)
+*   No manual UI interaction required after restart
+
+**Recorder:**
+*   Logs live energy observations every 15 minutes
+*   Feeds Aurora ML training data
+
+**Development Mode:**
 *   In development, `pnpm run dev` starts:
-    *   Frontend dev server
-    *   Flask backend
-    *   `backend.scheduler` (planner loop)
-    *   `backend.recorder` (15-minute observation loop)
+    *   Frontend dev server (Vite)
+    *   Backend API server (FastAPI)
+    *   Scheduler (background task)
+    *   Executor (background thread)
+    *   Recorder (15-minute observation loop)
 
 ### 2. Production Server (Git Flow)
 We recommend running Darkstar on a Proxmox LXC or dedicated Pi.
