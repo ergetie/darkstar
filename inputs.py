@@ -1,5 +1,5 @@
 import math
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -200,34 +200,35 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     # Initialize Nordpool Prices client with currency
     prices_client = Prices(currency=currency)
 
-    # Fetch today's prices
+    # Get timezone for proper date handling
+    local_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
+    now = datetime.now(local_tz)
+    today = now.date()
+    tomorrow = (now + timedelta(days=1)).date()
+
+    # Fetch prices for today AND tomorrow explicitly
+    # This ensures we get ALL hours, not just past ones
+    all_values: list[dict[str, Any]] = []
+
     try:
-        today_data: dict[str, Any] = prices_client.fetch(
-            end_date=date.today(), areas=[price_area], resolution=resolution_minutes
+        # Fetch from today onwards (includes all of today + tomorrow)
+        data = prices_client.fetch(
+            end_date=tomorrow,  # Fetch through end of tomorrow
+            areas=[price_area],
+            resolution=resolution_minutes
         )
-    except Exception:
-        today_data = {}
+        if data and data.get("areas") and data["areas"].get(price_area):
+            all_values = cast("list[dict[str, Any]]", data["areas"][price_area].get("values", []))
+            print(f"[nordpool] Fetched {len(all_values)} price slots from Nordpool API")
+    except Exception as e:
+        print(f"[nordpool] ERROR: Failed to fetch prices: {e}")
+        return []
 
-    # Fetch tomorrow's prices safely
-    try:
-        tomorrow_data = prices_client.fetch(areas=[price_area], resolution=resolution_minutes)
-    except Exception:
-        tomorrow_data = {}
-
-    # Combine data
-    today_values: list[dict[str, Any]] = []
-    if today_data and today_data.get("areas") and today_data["areas"].get(price_area):
-        today_values = cast("list[dict[str, Any]]", today_data["areas"][price_area].get("values", []))
-
-    tomorrow_values: list[dict[str, Any]] = []
-    if tomorrow_data and tomorrow_data.get("areas") and tomorrow_data["areas"].get(price_area):
-        tomorrow_values = cast("list[dict[str, Any]]", tomorrow_data["areas"][price_area].get("values", []))
-
-    # Use only known market data (do not duplicate unknown future)
-    all_entries: list[dict[str, Any]] = today_values + tomorrow_values
+    # Use all fetched entries
+    all_entries: list[dict[str, Any]] = all_values
 
     # Process the data into the required format
-    result = _process_nordpool_data(all_entries, config, today_values)
+    result = _process_nordpool_data(all_entries, config, None)
 
     # Cache for 1 hour
     cache_sync.set(cache_key, result, ttl_seconds=3600.0)
