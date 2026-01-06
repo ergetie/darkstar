@@ -657,7 +657,7 @@ class ExecutorEngine:
                     "Waiting %.1fs until next run at %s", wait_seconds, next_run.isoformat()
                 )
                 if self._stop_event.wait(wait_seconds):
-                    break  # Stop event was set
+                    break  # Stop event was set during wait
                 # Re-check current time after waiting
                 now = datetime.now(tz)
 
@@ -671,26 +671,34 @@ class ExecutorEngine:
                         last_run = tz.localize(last_run)
                     # Skip if we ran within the last interval minus a buffer
                     min_interval = self.config.interval_seconds - 30  # 30s buffer
-                    if (now - last_run).total_seconds() < min_interval:
+                    seconds_since_last = (now - last_run).total_seconds()
+                    if seconds_since_last < min_interval:
                         logger.debug(
-                            "Skipping - already ran %.0fs ago", (now - last_run).total_seconds()
+                            "Skipping - already ran %.0fs ago (min interval: %ds)",
+                            seconds_since_last,
+                            min_interval,
                         )
-                        self._stop_event.wait(30)
-                        continue
+                        # Don't tight-loop - wait until next boundary
+                        continue  # Will recalculate next_run on next iteration
                 except Exception as e:
                     logger.debug("Could not parse last_run_at: %s", e)
 
             # Execute tick
             try:
-                logger.info("Executing scheduled tick...")
+                tick_start = datetime.now(tz)
+                logger.info("Executing scheduled tick at %s", tick_start.isoformat())
                 self._tick()
+                tick_duration = (datetime.now(tz) - tick_start).total_seconds()
+                logger.debug("Tick completed in %.2fs", tick_duration)
             except Exception as e:
                 logger.exception("Executor tick failed: %s", e)
                 self.status.last_run_status = "error"
                 self.status.last_error = str(e)
 
-            # Wait a bit before next iteration
-            self._stop_event.wait(5)
+            # No fixed sleep - next iteration will calculate proper wait time
+            # This eliminates drift and ensures alignment to interval boundaries
+
+        logger.info("Executor background loop stopped")
 
     def _compute_next_run(self, now: datetime) -> datetime:
         """Compute the next execution time based on interval."""
