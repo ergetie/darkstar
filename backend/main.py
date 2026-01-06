@@ -170,12 +170,25 @@ def create_app() -> socketio.ASGIApp:
         result["rev"] = "ARC1"
         return result
 
-    # 5. Mount Static Files (Frontend)
-    # We expect 'backend/static' to contain the built React app (or symlinks in dev)
-    # In 'pnpm run dev', Vite serves frontend, but for production or hybrid dev, we keep this.
+    # 5. Mount Static Files (Frontend) with SPA fallback
+    # For production: serves built React app with client-side routing support
     static_dir = Path(__file__).parent / "static"
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="static")
+        from fastapi.responses import FileResponse
+
+        # Mount static assets (JS, CSS, etc.)
+        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+
+        # Catch-all route for SPA: serve index.html for all non-API routes
+        @app.get("/{full_path:path}")
+        async def serve_spa(full_path: str):  # type: ignore[reportUnusedFunction]
+            """Serve index.html for all routes (SPA fallback)."""
+            # If requesting a specific file that exists, serve it
+            file_path = static_dir / full_path
+            if file_path.is_file():
+                return FileResponse(file_path)
+            # Otherwise serve index.html (React Router handles the route)
+            return FileResponse(static_dir / "index.html")
     else:
         logger.warning(f"Static directory not found at {static_dir}. Frontend may not be served.")
 
