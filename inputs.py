@@ -203,7 +203,6 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     # Get timezone for proper date handling
     local_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
     now = datetime.now(local_tz)
-    today = now.date()
     tomorrow = (now + timedelta(days=1)).date()
 
     # Fetch prices for today AND tomorrow explicitly
