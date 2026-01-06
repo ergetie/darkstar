@@ -17,7 +17,7 @@ advisor:
 
 # System Parameters
 system:
-  system_id: dev
+  system_id: prod
   
   # System Profile Toggles (what hardware do you have?)
   has_solar: true         # Enable PV forecasting & solar-related features

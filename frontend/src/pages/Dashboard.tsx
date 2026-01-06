@@ -356,7 +356,7 @@ export default function Dashboard() {
                     gridExport: data.grid_export_kwh ?? null,
                     batteryCycles: data.battery_cycles ?? null,
                     pvProduction: data.pv_production_kwh ?? null,
-                    pvForecast: pvForecastTotal > 0 ? parseFloat(pvForecastTotal.toFixed(1)) : null,
+                    pvForecast: pvForecastTotal >= 0 ? parseFloat(pvForecastTotal.toFixed(1)) : null,
                     loadConsumption: data.load_consumption_kwh ?? null,
                     netCost: data.net_cost_kr ?? null,
                 })
@@ -371,25 +371,28 @@ export default function Dashboard() {
 
             if (historyData.status === 'fulfilled') {
                 setHistorySlots(historyData.value.slots ?? [])
-                // Fallback PV Total logic
-                if (pvForecastTotal === 0 && historyData.value.slots) {
+                // Fallback PV Total logic - sum the WHOLE day from history
+                if (historyData.value.slots) {
                     const todayStart = new Date()
                     todayStart.setHours(0, 0, 0, 0)
+                    let dailyTotal = 0
                     historyData.value.slots.forEach((s) => {
-                        if (new Date(s.start_time) >= todayStart) {
-                            pvForecastTotal += s.pv_forecast_kwh ?? 0
+                        const sTime = new Date(s.start_time)
+                        if (sTime >= todayStart) {
+                            dailyTotal += s.pv_forecast_kwh ?? 0
                         }
                     })
-                    // Update todayStats again if needed or use state setter function
-                    setTodayStats((prev) =>
-                        prev
-                            ? {
-                                  ...prev,
-                                  pvForecast:
-                                      pvForecastTotal > 0 ? parseFloat(pvForecastTotal.toFixed(1)) : prev.pvForecast,
-                              }
-                            : null,
-                    )
+
+                    if (dailyTotal > 0 || pvForecastTotal === 0) {
+                        setTodayStats((prev) =>
+                            prev
+                                ? {
+                                      ...prev,
+                                      pvForecast: parseFloat(dailyTotal.toFixed(1)),
+                                  }
+                                : null,
+                        )
+                    }
                 }
             }
         } catch (error) {

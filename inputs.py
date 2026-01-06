@@ -233,21 +233,11 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
 
     # Combine today and tomorrow
     all_values = today_values + tomorrow_values
-
-    # CRITICAL: Filter to keep ONLY future slots (>= now) or the current hour
-    # We use a 1-hour buffer to ensure we always have the current running hour
-    cutoff = now.replace(minute=0, second=0, microsecond=0)
-    future_entries: list[dict[str, Any]] = []
-
-    for entry in all_values:
-        slot_start = entry["start"].astimezone(local_tz)
-        if slot_start >= cutoff:
-            future_entries.append(entry)
-
-    print(f"[nordpool] Fetched {len(future_entries)} future price slots (from {len(all_values)} total raw slots)")
+    
+    print(f"[nordpool] Fetched {len(all_values)} total price slots (today + tomorrow)")
 
     # Process the data into the required format
-    result = _process_nordpool_data(future_entries, config, None)
+    result = _process_nordpool_data(all_values, config, None)
 
     # Cache for 1 hour
     cache_sync.set(cache_key, result, ttl_seconds=3600.0)
