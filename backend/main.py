@@ -24,6 +24,7 @@ from backend.api.routers import (
 )
 from backend.api.routers.analyst import router as analyst_router
 from backend.api.routers.debug import router as debug_router
+from backend.api.routers.executor import get_executor_instance
 from backend.api.routers.forecast import forecast_router
 from backend.core.websockets import ws_manager
 
@@ -45,6 +46,27 @@ async def lifespan(app: FastAPI):
 
     await scheduler_service.start()
 
+    # Start executor (if enabled in config)
+    executor_instance = None
+    try:
+        executor_instance = get_executor_instance()
+        if executor_instance:
+            if executor_instance.config.enabled:
+                executor_instance.start()
+                logger.info(
+                    "✅ Executor started (interval: %ds, shadow_mode: %s)",
+                    executor_instance.config.interval_seconds,
+                    executor_instance.config.shadow_mode,
+                )
+            else:
+                logger.info("⏸️  Executor initialized but disabled in config")
+        else:
+            logger.warning("⚠️  Executor could not be initialized (check logs)")
+    except Exception as e:
+        logger.error("❌ Failed to initialize executor: %s", e, exc_info=True)
+        # Don't crash the app if executor fails - other services can still run
+        executor_instance = None
+
     # Deferred import: ha_socket depends on ws_manager being fully initialized
     from backend.ha_socket import start_ha_socket_client
 
@@ -54,6 +76,15 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     logger.info("👋 Darkstar ASGI Server Shutting Down...")
+
+    # Stop executor
+    if executor_instance:
+        try:
+            executor_instance.stop()
+            logger.info("✅ Executor stopped")
+        except Exception as e:
+            logger.error("Failed to stop executor: %s", e, exc_info=True)
+
     await scheduler_service.stop()
 
 
