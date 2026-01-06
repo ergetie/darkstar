@@ -94,6 +94,9 @@ class HealthChecker:
 
         issues.extend(self.check_database())
 
+        # Check executor health
+        issues.extend(self.check_executor())
+
         # Determine overall health
         has_critical = any(i.severity == "critical" for i in issues)
         healthy = not has_critical
@@ -418,6 +421,41 @@ class HealthChecker:
                     guidance="Check your database credentials in secrets.yaml. Historical data features will be limited.",
                 )
             )
+
+        return issues
+
+    def check_executor(self) -> list[HealthIssue]:
+        """Check executor health status."""
+        issues: list[HealthIssue] = []
+
+        try:
+            from backend.api.routers.executor import get_executor_health
+
+            executor_health = get_executor_health()
+
+            if not executor_health["is_healthy"]:
+                if executor_health["should_be_running"] and not executor_health["is_running"]:
+                    issues.append(
+                        HealthIssue(
+                            category="executor",
+                            severity="critical",
+                            message="Executor should be running but is not active",
+                            guidance="The executor is enabled in config but not running. Check executor logs or restart the service.",
+                        )
+                    )
+                elif executor_health["has_error"]:
+                    error_msg = executor_health.get("error", "Unknown error")
+                    issues.append(
+                        HealthIssue(
+                            category="executor",
+                            severity="warning",
+                            message=f"Executor last run failed: {error_msg}",
+                            guidance="Check executor logs for details. The error may be transient or indicate a configuration issue.",
+                        )
+                    )
+        except Exception as e:
+            logger.debug("Could not check executor health: %s", e)
+            # Don't add an issue - executor health check is optional
 
         return issues
 

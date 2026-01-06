@@ -496,3 +496,39 @@ async def get_executor_status_snapshot() -> dict[str, Any]:
     if not executor:
         return {}
     return executor.get_status()
+
+
+def get_executor_health() -> dict[str, Any]:
+    """
+    Get executor health status for health check endpoint.
+
+    Returns:
+        Dictionary with health status, including:
+        - is_running: Whether executor thread is alive
+        - is_enabled: Whether executor is enabled in config
+        - last_run: When executor last ran
+        - has_error: Whether last run had an error
+    """
+    executor = get_executor_instance()
+    if not executor:
+        return {
+            "is_running": False,
+            "is_enabled": False,
+            "has_error": True,
+            "error": "Executor failed to initialize",
+        }
+
+    is_alive = executor._thread and executor._thread.is_alive()
+    should_be_running = executor.config.enabled and not executor.is_paused()
+
+    return {
+        "is_running": is_alive,
+        "is_enabled": executor.config.enabled,
+        "should_be_running": should_be_running,
+        "last_run_at": executor.status.last_run_at,
+        "last_run_status": executor.status.last_run_status,
+        "has_error": executor.status.last_run_status == "error",
+        "error": executor.status.last_error if executor.status.last_run_status == "error" else None,
+        "is_healthy": is_alive == should_be_running and executor.status.last_run_status != "error",
+    }
+
