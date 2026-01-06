@@ -283,6 +283,8 @@ async def schedule_today_with_history() -> dict[str, Any]:
         # Attach forecast
         if key in forecast_map:
             f = forecast_map[key]
+            slot["pv_forecast_kwh"] = f["pv_forecast_kwh"]
+            slot["load_forecast_kwh"] = f["load_forecast_kwh"]
             if "pv_kwh" not in slot:
                 slot["pv_kwh"] = f["pv_forecast_kwh"]
             if "load_kwh" not in slot:
