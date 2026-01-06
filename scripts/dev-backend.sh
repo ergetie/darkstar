@@ -2,7 +2,6 @@
 # scripts/dev-backend.sh
 # Development runner for Backend (FastAPI + Uvicorn)
 
-echo "[BACKEND] Starting Darkstar (Rev ARC1)..."
 
 
 # Free port 5000 if already in use (prevents Address already in use)

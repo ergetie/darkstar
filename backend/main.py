@@ -37,7 +37,7 @@ logger = logging.getLogger("darkstar.main")
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events (FastAPI 0.93+)."""
     # Startup
-    logger.info("🚀 Darkstar ASGI Server Starting (Rev ARC8)...")
+    logger.info("🚀 Darkstar ASGI Server Starting...")
     loop = asyncio.get_running_loop()
     ws_manager.set_loop(loop)
 
@@ -95,7 +95,7 @@ def create_app() -> socketio.ASGIApp:
     app = FastAPI(
         title="Darkstar Energy Manager",
         version="2.0.0",
-        description="Next-Gen AI Energy Manager (Rev ARC1)",
+        description="Next-Gen AI Energy Manager",
         lifespan=lifespan,
     )
 
