@@ -179,18 +179,44 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
             - import_price_sek_kwh (float): Price in SEK per kWh
             - export_price_sek_kwh (float): Export price in SEK per kwh (estimated as 90% of import)
     """
-    # --- Cache Check ---
+    # --- Smart Cache Check ---
+    # Prices are immutable once published. We invalidate only when:
+    # 1. Cache is from yesterday (midnight rollover)
+    # 2. After 13:00 CET and cache doesn't have tomorrow's prices
     cache_key = "nordpool_data"
     cached = cache_sync.get(cache_key)
-    if cached:
-        # Invalidate if it's 13:30 CET or later today and we might need fresh prices.
-        # Simple heuristic: relying on 1h TTL is usually sufficient as Nordpool
-        # object handles the day-ahead logic internally.
-        return cached
 
-    # Load configuration
+    # Load config early to get timezone for cache validation
     with Path(config_path).open() as f:
         config = yaml.safe_load(f)
+    local_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
+    now = datetime.now(local_tz)
+    today = now.date()
+
+    if cached and len(cached) > 0:
+        # Check if cache is still valid
+        first_slot = cached[0]["start_time"]
+        first_slot_date = first_slot.date() if hasattr(first_slot, "date") else today
+        has_tomorrow = any(
+            s["start_time"].date() > today
+            for s in cached
+            if hasattr(s["start_time"], "date")
+        )
+
+        # Invalidate if cache is from yesterday
+        if first_slot_date < today:
+            print("[nordpool] Cache invalidated: contains yesterday's data")
+            cached = None
+        # After 13:00, we expect tomorrow's prices to be available
+        elif now.hour >= 13 and not has_tomorrow:
+            print("[nordpool] Cache invalidated: after 13:00 but missing tomorrow")
+            cached = None
+        else:
+            print(f"[nordpool] Using cached data ({len(cached)} slots)")
+            return cached
+
+
+    # Config already loaded above for cache validation
 
     nordpool_config = config.get("nordpool", {})
     price_area = nordpool_config.get("price_area", "SE4")
@@ -233,7 +259,7 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
 
     # Combine today and tomorrow
     all_values = today_values + tomorrow_values
-    
+
     print(f"[nordpool] Fetched {len(all_values)} total price slots (today + tomorrow)")
 
     # Process the data into the required format

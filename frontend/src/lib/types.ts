@@ -17,6 +17,7 @@ export type ScheduleSlot = {
     // Execution history overlays (for today_with_history)
     is_executed?: boolean
     soc_actual_percent?: number
+    actual_soc?: number // Backend key for SOC actual
     actual_charge_kw?: number
     actual_export_kw?: number
     actual_load_kwh?: number

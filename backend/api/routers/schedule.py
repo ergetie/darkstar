@@ -186,7 +186,8 @@ async def schedule_today_with_history() -> dict[str, Any]:
                     SELECT
                         slot_start, slot_end,
                         batt_charge_kwh, soc_end_percent, water_kwh,
-                        import_kwh, export_kwh
+                        import_kwh, export_kwh,
+                        import_price_sek_kwh
                     FROM slot_observations
                     WHERE slot_start >= ? AND slot_start < ?
                     ORDER BY slot_start ASC
@@ -222,6 +223,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
                                 "actual_charge_kw": round(charge_kw, 3),
                                 "actual_soc": float(row["soc_end_percent"] or 0.0),
                                 "water_heating_kw": round(water_kw, 3),
+                                "import_price_sek_kwh": float(row["import_price_sek_kwh"] or 0.0),
                             }
                         except Exception:
                             continue
@@ -279,6 +281,9 @@ async def schedule_today_with_history() -> dict[str, Any]:
             h = exec_map[key]
             slot["actual_charge_kw"] = h.get("actual_charge_kw")
             slot["actual_soc"] = h.get("actual_soc")
+            # Add historical price from DB if not already present
+            if "import_price_sek_kwh" not in slot:
+                slot["import_price_sek_kwh"] = h.get("import_price_sek_kwh")
 
         # Attach forecast
         if key in forecast_map:

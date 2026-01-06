@@ -1033,7 +1033,7 @@ function buildLiveData(
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
-                socActual.push(slot.soc_actual_percent != null ? slot.soc_actual_percent : null)
+                socActual.push(slot.actual_soc != null ? slot.actual_soc : null)
             } else {
                 price.push(null)
                 pv.push(null)
@@ -1178,7 +1178,7 @@ function buildLiveData(
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
-                socActual.push(slot.soc_actual_percent != null ? slot.soc_actual_percent : null)
+                socActual.push(slot.actual_soc != null ? slot.actual_soc : null)
             } else {
                 price.push(null)
                 pv.push(null)
@@ -1243,7 +1243,7 @@ function buildLiveData(
     const water = ordered.map((slot) => slot.water_heating_kw ?? null)
     const socTarget = ordered.map((slot) => slot.soc_target_percent ?? null)
     const socProjected = ordered.map((slot) => slot.projected_soc_percent ?? null)
-    const socActual = ordered.map((slot) => slot.soc_actual_percent ?? null)
+    const socActual = ordered.map((slot) => slot.actual_soc ?? null)
 
     const labels = ordered.map((slot) => formatHour(slot.start_time))
 
