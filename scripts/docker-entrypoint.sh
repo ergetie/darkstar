@@ -3,7 +3,7 @@ set -e
 
 # ==============================================================================
 # Darkstar Production Entrypoint
-# Manages: Flask API, Scheduler, Recorder
+# Manages: FastAPI Server (with in-process scheduler), Recorder, Executor
 # ==============================================================================
 
 export PYTHONPATH="${PYTHONPATH:-.}:/app"
@@ -14,23 +14,16 @@ log() {
 }
 
 # PID tracking
-FLASK_PID=""
-SCHEDULER_PID=""
+API_PID=""
 RECORDER_PID=""
 
 cleanup() {
     log "Received shutdown signal, stopping services..."
     
-    # Stop Flask first (graceful)
-    if [ -n "$FLASK_PID" ] && kill -0 "$FLASK_PID" 2>/dev/null; then
-        log "Stopping Flask API..."
-        kill -TERM "$FLASK_PID" 2>/dev/null || true
-    fi
-    
-    # Stop scheduler
-    if [ -n "$SCHEDULER_PID" ] && kill -0 "$SCHEDULER_PID" 2>/dev/null; then
-        log "Stopping Scheduler..."
-        kill -TERM "$SCHEDULER_PID" 2>/dev/null || true
+    # Stop FastAPI server (graceful shutdown handles scheduler + executor)
+    if [ -n "$API_PID" ] && kill -0 "$API_PID" 2>/dev/null; then
+        log "Stopping FastAPI Server..."
+        kill -TERM "$API_PID" 2>/dev/null || true
     fi
     
     # Stop recorder
@@ -87,12 +80,6 @@ if [ ! -f "/app/schedule.json" ] || [ -d "/app/schedule.json" ]; then
     log "Created empty schedule.json (planner will populate it)"
 fi
 
-# Start Scheduler (background)
-log "Starting Scheduler (hourly planner runs)..."
-python -m backend.scheduler 2>&1 | while read line; do echo "[SCHEDULER] $line"; done &
-SCHEDULER_PID=$!
-log "Scheduler started (PID: $SCHEDULER_PID)"
-
 # Start Recorder (background)
 log "Starting Recorder (15-min observation logging)..."
 python -m backend.recorder 2>&1 | while read line; do echo "[RECORDER] $line"; done &
@@ -102,11 +89,13 @@ log "Recorder started (PID: $RECORDER_PID)"
 # Brief pause to let background services initialize
 sleep 2
 
-# Start Darkstar API with FastAPI/Uvicorn (Rev ARC1)
+# Start Darkstar FastAPI Server (includes in-process scheduler + executor)
 log "Starting Darkstar ASGI Server (Uvicorn) on port 5000..."
+log "  - Scheduler: Auto-starts if config.automation.enable_scheduler=true"
+log "  - Executor: Auto-starts if config.executor.enabled=true"
 uvicorn backend.main:app --host 0.0.0.0 --port 5000 --log-level info &
-FLASK_PID=$!
-log "Darkstar started (PID: $FLASK_PID)"
+API_PID=$!
+log "Darkstar started (PID: $API_PID)"
 
 log "=========================================="
 log "  All services running. Ready."
@@ -114,19 +103,11 @@ log "=========================================="
 
 # Monitor processes - exit if any critical process dies
 while true; do
-    # Check Flask (critical)
-    if ! kill -0 "$FLASK_PID" 2>/dev/null; then
-        log "ERROR: Flask API exited unexpectedly!"
+    # Check FastAPI Server (critical - includes scheduler + executor)
+    if ! kill -0 "$API_PID" 2>/dev/null; then
+        log "ERROR: FastAPI Server exited unexpectedly!"
         cleanup
         exit 1
-    fi
-    
-    # Check Scheduler (important but not critical)
-    if ! kill -0 "$SCHEDULER_PID" 2>/dev/null; then
-        log "WARNING: Scheduler exited. Restarting..."
-        python -m backend.scheduler 2>&1 | while read line; do echo "[SCHEDULER] $line"; done &
-        SCHEDULER_PID=$!
-        log "Scheduler restarted (PID: $SCHEDULER_PID)"
     fi
     
     # Check Recorder (important but not critical)
