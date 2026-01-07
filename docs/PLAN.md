@@ -76,21 +76,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - *Requirement:* When saving the dashboard settings, the system MUST NOT merge any keys from `secrets.yaml` into the writable `config.yaml`.
 - [x] **Legal Foundation**: Create root `LICENSE` file containing the AGPL-3.0 license text (syncing with the mentions in README).
 
-#### Phase 2: Professional Documentation [PLANNED]
+#### Phase 2: Professional Documentation [DONE]
 **Goal:** Provide a "wow" first impression and clear technical guidance for new users.
-- [ ] **README Visual Overhaul**: 
-  - Add high-visibility "BETA" banner at the top.
-  - Add GitHub Action status badges and License badge.
-  - Implement a "My Home Assistant" Add-on button linking to `https://my.home-assistant.io/redirect/supervisor_add_repo/?repository_url=...`.
-  - Remove "Design System" technical section (lines 141-150).
-- [ ] **Create Setup Guide (`docs/SETUP_GUIDE.md`)**:
-  - Detailed flow for Home Assistant Long-Lived Access Token creation.
-  - Spreadsheet-style mapping of required sensors (Battery SoC, Grid Power, etc.).
-  - Calibration guide for battery efficiency and charge/discharge limits.
-- [ ] **Create Operations Guide (`docs/OPERATIONS.md`)**:
-  - Guide on backing up `data/planner_learning.db` (The ML brain).
-  - Instructions for identifying issues in `darkstar.log`.
-  - How to perform a manual "Emergency Stop" vs "Pause".
 - [ ] **Architecture Doc Sync**: Global find-and-replace for "Flask" -> "FastAPI" and "eventlet" -> "Uvicorn" in all `.md` files to prevent confusing external developers.
 
 #### Phase 3: Infrastructure & Service Alignment [PLANNED]

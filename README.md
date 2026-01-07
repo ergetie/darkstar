@@ -1,6 +1,14 @@
 # Darkstar Energy Manager
 
+> [!WARNING]
+> **PUBLIC BETA**: Darkstar is currently in Public Beta. This software controls high-power electrical equipment. Always maintain human supervision and ensure your Home Assistant safety cut-offs are configured.
+
 **AI-powered home battery optimization for solar homes.**
+
+[![GitHub Release](https://img.shields.io/github/v/release/ergetie/darkstar?label=beta&color=orange)](https://github.com/ergetie/darkstar/releases)
+[![CI Status](https://github.com/ergetie/darkstar/actions/workflows/ci.yml/badge.svg)](https://github.com/ergetie/darkstar/actions/workflows/ci.yml)
+[![Build Status](https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml/badge.svg)](https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml)
+[![Open your Home Assistant instance and show the add-on store with a specific repository allowed.](https://my.home-assistant.io/badgelink.svg)](https://my.home-assistant.io/redirect/supervisor_add_repo/?repository_url=https%3A%2F%2Fgithub.com%2Fergetie%2Fdarkstar)
 
 Darkstar is a local, privacy-first energy management system that optimizes your home battery, solar production, and electricity costs using machine learning and mathematical optimization.
 
@@ -138,15 +146,7 @@ The web UI provides:
 - **Forecasting** — Compare ML predictions vs. actuals
 - **Manual Planning** — Override or extend the automated schedule
 - **Settings** — Tune parameters without editing YAML files
-- **Design System** — `/design-system` route shows all UI components
 
-## 🎨 Design System
-
-Darkstar includes a production-grade design system for consistent UI:
-
-- **Live Preview**: Visit `/design-system` to see all components
-- **AI Guidelines**: See `docs/design-system/AI_GUIDELINES.md` for styling rules
-- **SSOT**: All tokens defined in `frontend/src/index.css`
 
 ## 📊 How It Works
 

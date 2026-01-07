@@ -49,14 +49,14 @@ For complete requirements, see `requirements.txt`.
     *   *See the Configuration section below for details.*
 
 4.  **Run Development Environment:**
-    Starts the Flask backend (port 5000) and React frontend (port 5173).
+    Starts the FastAPI backend (port 5000) and React frontend (port 5173).
     ```bash
     pnpm run dev
     ```
     Access the UI at **http://localhost:5173**.
 
     > [!IMPORTANT]
-    > **WebSockets & Concurrency**: The backend must run via `python backend/run.py` (which `pnpm run dev` does automatically) to enable the `eventlet` WebSocket server. Standard `flask run` is NOT compatible with our production WebSocket features.
+    > **WebSockets & Concurrency**: The backend must run via `python backend/run.py` (which `pnpm run dev` does automatically) to enable the Uvicorn-based async server. Direct `uvicorn` invocation for development is also supported.
 
 ---
 
@@ -141,15 +141,15 @@ Darkstar is a monorepo containing the Python backend, React frontend, and ML pip
 
 ```
 /
-├── backend/            # Flask API, Scheduler, and Strategy Logic
+├── backend/            # FastAPI API, Scheduler, and Strategy Logic
 │   ├── strategy/       # Context rules & Analyst logic
 │   ├── scheduler.py    # Internal automation runner
-│   └── webapp.py       # Main API entrypoint
+│   └── main.py         # FastAPI application entrypoint
 ├── executor/           # Native Executor (replaces n8n workflow)
 │   ├── engine.py       # 5-minute tick loop
 │   ├── controller.py   # Action determination
 │   ├── override.py     # Real-time override logic
-│   └── actions.py      # HA service dispatcher
+│   └── actions.py       # HA service dispatcher
 ├── frontend/           # React + Vite Application
 │   ├── src/pages/      # Dashboard, Planning, Lab, Forecasting, Executor, Settings
 │   └── ...
