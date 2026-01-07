@@ -40,46 +40,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-## 🔴 High Priority
-
-### [Docs] Update Flask→FastAPI References (REVIEW-2026-01-04)
-
-**Goal:** Update all documentation references from old Flask+eventlet architecture to current FastAPI+uvicorn implementation.
-
-**Current State:** Documentation mentions Flask, `eventlet`, `webapp.py`, and old subprocess scheduler in several places.
-
-**Locations to Update:**
-- `AGENTS.md` Line 52: References Flask (should be FastAPI)
-- `AGENTS.md` Line 59: Mentions `python backend/run.py` and `eventlet` (should be `uvicorn backend.main:app`)
-- `AGENTS.md` Line 144: References `webapp.py` (should be `main.py`)
-- `DEVELOPER.md` Lines 52-59: Describes Flask backend with eventlet WebSocket server
-- `DEVELOPER.md` Lines 144-147: References old backend structure (`backend/webapp.py`)
-- `DEVELOPER.md`: Mentions scheduler.py as separate process (now in-process via ARC8)
-
-**Impact:** Confusing for new developers, may lead to setup errors.
-
-**Effort:** 15-30 minutes (find/replace + verification)
-
 ---
-
-### [Security] SEC-001: Separation of Secrets and Config (REVIEW-2026-01-04)
-
-**Goal:** Prevent sensitive credentials (secrets.yaml) from being inadvertently saved into config.yaml via the Settings API.
-
-**Current State:** The backend merges secrets into the config for the frontend to display. If the user saves settings, the frontend sends back the full config (including secrets), and the backend writes it to `config.yaml`. This duplicates secrets and risks committing them to version control if config.yaml is not ignored (it typically is, but still bad practice).
-
-**Expected Behavior:** The backend should strip secrets from the payload before saving to `config.yaml`, OR the frontend should manage secrets via a dedicated API endpoint.
-
-**Security Impact:** Medium severity - secrets could leak to version control if `.gitignore` misconfigured.
-
-**Implementation Options:**
-1. **Strip on Save**: Modify `POST /api/config/save` to strip secrets from payload before writing
-2. **Dedicated Endpoint**: Create `POST /api/secrets` endpoint for secret management
-3. **Hybrid**: Read-only secrets in config endpoint, separate write endpoint for secrets
-
-**Location:** `backend/api/routers/config.py`
-
-**Effort:** 1-2 hours (design decision + implementation + testing)
 
 ---
 
@@ -224,32 +185,6 @@ pip list --outdated
 
 ---
 
-### [Docs] Add API Documentation Link (REVIEW-2026-01-04)
-
-**Goal:** Make it easy for users/developers to discover the auto-generated FastAPI API documentation.
-
-**Current State:** FastAPI generates OpenAPI docs at `/docs` and `/redoc` but this isn't documented in README.
-
-**Implementation:**
-Add to `README.md` under "Dashboard" section:
-```markdown
-## 📱 Dashboard & API
-
-Access the web UI at **http://localhost:5000**
-
-**API Documentation:**
-- OpenAPI Interactive Docs: http://localhost:5000/docs (Swagger UI)
-- ReDoc Documentation: http://localhost:5000/redoc (Alternative UI)
-- OpenAPI Schema: http://localhost:5000/openapi.json
-```
-
-**Also Update:** `docs/DEVELOPER.md` with API documentation section explaining:
-- How to use /docs for testing endpoints
-- Authentication (if applicable)
-- WebSocket endpoints (not in OpenAPI, document separately)
-
-**Effort:** 5-10 minutes
-
 ---
 
 ### [Frontend] Accessibility Audit (REVIEW-2026-01-04)
@@ -296,91 +231,7 @@ Access the web UI at **http://localhost:5000**
 
 ---
 
-### [Docker] Add Health Check (REVIEW-2026-01-04)
-
-**Goal:** Enable container orchestration tools (Docker Swarm, Kubernetes) to detect if the container is healthy.
-
-**Current State:** No HEALTHCHECK directive in Dockerfile.
-
-**Implementation:**
-Add to `Dockerfile`:
-```dockerfile
-# After EXPOSE 5000
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:5000/api/health || exit 1
-```
-
-**Also Update:** `docker-compose.yml` if present:
-```yaml
-services:
-  darkstar:
-    # ... existing config ...
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-```
-
-**Note:** Ensure `curl` is available in the Docker image (or use `wget` or Python `requests` alternative).
-
-**Effort:** 30 minutes (add + test)
-
 ---
-
-### [Docs] Add Backup/Restore Guide (REVIEW-2026-01-04)
-
-**Goal:** Provide users with clear instructions for backing up critical data and restoring after failures.
-
-**Current State:** No documented backup strategy for `planner_learning.db`.
-
-**Critical Data to Backup:**
-- `planner_learning.db` - Historical forecasts, execution logs, learned parameters
-- `schedule.json` - Current schedule (regenerated, but useful for debugging)
-- `config.yaml` - User configuration
-- `secrets.yaml` - Credentials
-- ML models in `ml/models/` - Trained LightGBM models
-
-**Backup Strategy:**
-
-1. **Manual Backup:**
-   ```bash
-   # Create backup directory
-   mkdir -p ~/darkstar-backups/$(date +%Y%m%d)
-   
-   # Backup database
-   cp /opt/darkstar/planner_learning.db ~/darkstar-backups/$(date +%Y%m%d)/
-   
-   # Backup config (optional if tracked in git)
-   cp /opt/darkstar/config.yaml ~/darkstar-backups/$(date +%Y%m%d)/
-   cp /opt/darkstar/secrets.yaml ~/darkstar-backups/$(date +%Y%m%d)/
-   
-   # Backup ML models
-   cp -r /opt/darkstar/ml/models/ ~/darkstar-backups/$(date +%Y%m%d)/
-   ```
-
-2. **Automated Backup (Cron):**
-   ```bash
-   # Add to crontab (daily at 3 AM)
-   0 3 * * * /opt/darkstar/scripts/backup.sh
-   ```
-
-3. **Restore:**
-   ```bash
-   # Stop Darkstar
-   systemctl stop darkstar
-   
-   # Restore database
-   cp ~/darkstar-backups/20260104/planner_learning.db /opt/darkstar/
-   
-   # Restart
-   systemctl start darkstar
-   ```
-
-**Documentation Location:** Create `docs/OPERATIONS.md` with backup/restore, monitoring, and troubleshooting.
-
-**Effort:** 1 hour (write docs + create backup script)
 
 ---
 
@@ -507,32 +358,6 @@ services:
 **Effort:** 3-4 hours (implement versioning + update recorder + add API)
 
 ---
-
-### [Ops] MariaDB Sunset (REVIEW-2026-01-04)
-
-**Goal:** Remove MariaDB dependency and make SQLite the only database.
-
-**Current State:** System works with SQLite only. MariaDB is optional but adds complexity.
-
-**Tasks:**
-- Audit which features still use MariaDB
-- Migrate any required data/features to SQLite
-- Remove MariaDB connection code (`backend/learning/mariadb_sync.py`)
-- Remove MariaDB from `requirements.txt` (`pymysql`)
-- Update documentation (remove MariaDB setup instructions)
-
-**Locations:**
-- `backend/learning/mariadb_sync.py` - Optional sync service
-- `docs/DEVELOPER.md` Line 21 - Lists MariaDB as required (should say "Optional")
-
-**Benefits:**
-- Simpler deployment
-- Fewer dependencies
-- One less thing to configure
-
-**Effort:** 4 hours (audit + migrate/remove + test + docs)
-
-**Source:** Existing backlog item + confirmed by REVIEW-2026-01-04
 
 ---
 
@@ -692,49 +517,6 @@ logging.root.addHandler(handler)
 
 ---
 
-### [UI] Contextual Help System (REVIEW-2026-01-04)
-
-**Goal:** Add info buttons and hover tooltips throughout the UI to improve onboarding.
-
-**Features:**
-- Small (i) icons next to complex settings
-- Hover for quick explanation
-- Click for detailed help modal
-
-**Implementation:**
-
-1. **Create Tooltip Component:**
-   ```tsx
-   // frontend/src/components/HelpTooltip.tsx
-   interface Props {
-     title: string;
-     content: string;
-     learnMoreUrl?: string;
-   }
-   ```
-
-2. **Add to Settings Fields:**
-   ```tsx
-   <label>
-     S-Index Risk Appetite
-     <HelpTooltip 
-       title="Risk Appetite"
-       content="Controls how conservative the planner is. 1=Safety first, 5=Maximize profit."
-       learnMoreUrl="/docs/architecture#s-index"
-     />
-   </label>
-   ```
-
-3. **Style:**
-   - Small (i) icon, subtle color
-   - Tooltip appears on hover
-   - Click opens modal with detailed explanation
-   - Link to docs for deep dive
-
-**Effort:** 6 hours (create component + add to ~20 settings)
-
-**Source:** Existing backlog item + prioritized by REVIEW-2026-01-04
-
 ---
 
 ### [Backend] Add SQLite Connection Pooling (REVIEW-2026-01-04)
@@ -783,106 +565,11 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
 
 ---
 
-### [Docs] Version Bump Process Checklist (REVIEW-2026-01-04)
-
-**Goal:** Ensure consistent releases with a documented checklist.
-
-**Current State:** Version bump process documented in `AGENTS.md` and `DEVELOPER.md` but no formal checklist.
-
-**Implementation:**
-Add to `docs/DEVELOPER.md` under "Releases" section:
-
-```markdown
-### Release Checklist
-
-- [ ] Update version in `darkstar/config.yaml` (add-on manifest)
-- [ ] Update version in `darkstar/run.sh` (startup banner)
-- [ ] Update version in `frontend/package.json`
-- [ ] Update `CHANGELOG.md` with release notes
-- [ ] Commit: `git commit -m "chore: bump version to vX.Y.Z"`
-- [ ] Tag: `git tag vX.Y.Z`
-- [ ] Push: `git push origin main && git push origin vX.Y.Z`
-- [ ] Verify CI/CD build succeeds (check GitHub Actions)
-- [ ] Test Docker image: `docker pull ghcr.io/ergetie/darkstar:X.Y.Z`
-- [ ] Test HA Add-on update
-- [ ] Create GitHub release with changelog
-```
-
-**Effort:** 30 minutes (write checklist)
+---
 
 ---
 
-### [Backend] Remove Deprecated scheduler.py (MEGA-AUDIT-2026-01-04)
-
-**Goal:** Remove the deprecated standalone scheduler file to prevent confusion and accidental usage.
-
-**Current State:** 
-- `backend/scheduler.py` is marked DEPRECATED in Rev ARC8
-- Scheduler now runs in-process via `backend/services/scheduler_service.py`
-- Old file still exists in repository
-
-**Context:** 
-Per ARC8 Phase 4, the standalone scheduler was replaced with an in-process async background task. The old file was kept for backward compatibility but should now be removed.
-
-**Options:**
-1. **Delete entirely** - Cleanest approach if truly deprecated
-2. **Move to archive/** - Preserve for reference
-3. **Keep with prominent warning** - If some users still depend on it
-
-**Recommendation:** Move to `archive/backend_scheduler_deprecated.py` with a README explaining the migration.
-
-**Files to Update:**
-- Remove or move `backend/scheduler.py`
-- Check if any scripts reference it (e.g., systemd services, Docker CMD)
-- Update docs if they reference the old scheduler
-
-**Effort:** 30 minutes
-
 ---
-
-### [Backend] Audit backend/run.py Usage (REVIEW-2026-01-04)
-
-**Goal:** Determine if `backend/run.py` is still needed or if it's redundant with `backend/main.py`.
-
-**Current State:**
-- `backend/run.py` exists as a Uvicorn wrapper
-- `backend/main.py` is the standard ASGI entry point
-- Unclear which is canonical
-
-**Investigation Required:**
-1. Check how production deployment uses it (Docker CMD, systemd)
-2. Check if `pnpm run dev` scripts reference it
-3. Determine if it adds value over `uvicorn backend.main:app`
-
-**Outcomes:**
-- **If needed:** Document its purpose clearly in comments
-- **If redundant:** Remove it and update any references
-- **If convenience wrapper:** Rename to `backend/uvicorn_wrapper.py` for clarity
-
-**Effort:** 30 minutes (audit + decision + cleanup)
-
----
-
-### [Code Quality] Fix Duplicate Code in learning/engine.py (MEGA-AUDIT-2026-01-04)
-
-**Goal:** Remove code duplication in `backend/learning/engine.py` around line 250.
-
-**Current State:** MEGA_AUDIT identified "tiny duplication of `return metrics`" near line 250.
-
-**Context:** Low priority code quality cleanup during refactoring.
-
-**Investigation:**
-```bash
-# Find the duplication
-grep -n "return metrics" backend/learning/engine.py
-```
-
-**Fix Strategy:**
-- Extract common logic into helper function if pattern repeats
-- Or simplify control flow to have single return point
-- Preserve functionality while reducing duplication
-
-**Effort:** 15 minutes
 
 ---
 
@@ -916,21 +603,6 @@ grep -n "return metrics" backend/learning/engine.py
 
 ---
 
-### [Docs] First-Time Setup Guide
-
-**Goal:** Create a comprehensive setup guide in `README.md` for new users.
-
-**Scope:**
-- Post-installation steps (after Docker/HA Add-on is running)
-- Configure HA connection
-- Set up sensors
-- Configure battery/solar/water heater parameters
-- Verify system is working
-
-**Notes:** Should cover both standalone Docker and HA Add-on paths.
-
-**Source:** Existing backlog item
-
 ---
 
 ### [UI] Chart Improvements (Polish)
@@ -963,17 +635,6 @@ grep -n "return metrics" backend/learning/engine.py
 **Source:** Existing backlog item
 
 ---
-
-### [Settings] Advanced Config Audit
-
-**Goal:** Identify missing config keys that are not yet exposed in the UI and move advanced keys to the "Advanced" tab.
-
-**Tasks:**
-- Audit `config.yaml` for keys missing in `Settings.tsx`
-- Identify keys in "System" or "Parameters" tabs that belong in "Advanced"
-- Implement changes in `Settings.tsx`
-
-**Source:** Existing backlog item
 
 ---
 
@@ -1094,14 +755,7 @@ grep -n "return metrics" backend/learning/engine.py
 
 ---
 
-### [UI] Contextual Help System
-
-**Goal:** Add info buttons and hover tooltips throughout the UI.
-
-**Features:**
-- Small (i) icons next to complex settings
-- Hover for quick explanation
-- Click for detailed help modal
+---
 
 ---
 
