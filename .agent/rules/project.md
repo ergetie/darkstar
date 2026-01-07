@@ -40,3 +40,9 @@ You are NOT done with a task until:
 2. Linting passes (Frontend \+ Backend).  
 3. Tests pass.  
 4. Changes are committed.
+
+## **5\. Documentation Lifecycle Rules**
+
+* **PLAN.md:** Newest items are at the **BOTTOM**.  
+* **CHANGELOG\_PLAN.md:** Newest items are at the **TOP**.  
+* **Moving Data:** When archiving, you MUST respect this inversion.

@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "sqlite-db": {
+            "command": "uvx",
+            "args": [
+                "mcp-server-sqlite",
+                "--db-path",
+                "./data/planner_learning.db"
+            ]
+        }
+    }
+}

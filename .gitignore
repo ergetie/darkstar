@@ -14,7 +14,6 @@ secrets.yaml
 !darkstar/config.yaml
 
 # IDE / Editor
-.vscode/
 .idea/
 *.kate-swp
 *.swp
