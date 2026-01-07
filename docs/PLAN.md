@@ -133,4 +133,8 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - Verify successful container image push to GHCR.
 - [x] **GitHub Release Creation**: 
   - Generate a formal GitHub Release `v2.4.0-beta`.
-
+- [x] **HA Ingress Fix (v2.4.1-beta)**: 
+  - Fixed SPA base path issue where API calls went to wrong URL under HA Ingress.
+  - Added dynamic `<base href>` injection in `backend/main.py` using `X-Ingress-Path` header.
+  - Updated `frontend/src/lib/socket.ts` to use `document.baseURI` for WebSocket path.
+  - Released and verified `v2.4.1-beta` — dashboard loads correctly via HA Ingress.
