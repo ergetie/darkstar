@@ -18,7 +18,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | **DS** | Design System | DS1 |
 | **F** | Fixes/Bugfixes | F1-F6 |
 | **DX** | Developer Experience | DX1 |
-| **ARC** | Architecture | ARC1 |
+| **ARC** | Architecture | ARC1-ARC* |
 
 ---
 
@@ -356,8 +356,45 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] Implement `glowPlugin` extension in `ChartCard.tsx`
 - [x] Enable glow for `Charge`, `Load`, `Discharge`, `Export`, and `Water Heating` bar datasets
 - [x] Fine-tune colors and opacities for professional depth
+
 ### [DONE] Rev F7 — Dependency Fixes
 **Goal:** Fix missing dependencies causing server crash on deployment.
 - [x] Add `httpx` to requirements.txt (needed for `inputs.py`)
 - [x] Add `aiosqlite` to requirements.txt (needed for `ml/api.py`)
+
+---
+
+### [DONE] Rev F8 — Nordpool Poisoned Cache Fix
+**Goal:** Fix regression where today's prices were missing from the schedule.
+- [x] Invalidate cache if it starts in the future (compared to current time)
+- [x] Optimize fetching logic to avoid before-13:00 tomorrow calls
+- [x] Verify fix with reproduction script
+
+---
+
+### [PLANNED] REV // PUB01 — Public Beta Release
+
+**Goal:** Transition Darkstar to a production-grade public beta release by scrubbing sensitive data, aligning HA Add-on infrastructure with FastAPI, and enhancing documentation for external users.
+
+#### Phase 1: Security & Hygiene [PLANNED]
+- [ ] **Scrub Git History**: Remove sensitive strings (`Japandi1`, tokens) via `git filter-repo`.
+- [ ] **API Security**: Prevent `secrets.yaml` leakage into `config.yaml` during UI saves.
+- [ ] **Legal**: Add `LICENSE` (AGPL-3.0).
+- [ ] **Repo Support**: Add GitHub issue and PR templates.
+
+#### Phase 2: Documentation Overhaul [PLANNED]
+- [ ] **README**: Add Beta Warning, remove Design System, add HA repo button.
+- [ ] **Setup Guide**: Create `docs/SETUP_GUIDE.md` for sensor/system mapping.
+- [ ] **Ops Guide**: Create `docs/OPERATIONS.md` for backup/restore procedures.
+- [ ] **Dev Guide**: Replace all Flask references with FastAPI in `DEVELOPER.md`.
+
+#### Phase 3: Infrastructure & Cleanup [PLANNED]
+- [ ] **HA Add-on**: Fix `run.sh` to use `uvicorn` instead of `flask`.
+- [ ] **Health Checks**: Add `HEALTHCHECK` to `Dockerfile` and `docker-compose.yml`.
+- [ ] **Cleanup**: Remove deprecated `backend/scheduler.py` and redundant `backend/run.py`.
+
+#### Phase 4: Release & Versioning [PLANNED]
+- [ ] **Sync Version**: Update all instances to `v3.0.0-beta.1`.
+- [ ] **CI/CD**: Add status badges and verify multi-arch builds.
+- [ ] **GitHub Release**: Create formal release `v3.0.0-beta.1` with notes.
 

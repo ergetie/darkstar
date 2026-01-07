@@ -180,9 +180,10 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
             - export_price_sek_kwh (float): Export price in SEK per kwh (estimated as 90% of import)
     """
     # --- Smart Cache Check ---
-    # Prices are immutable once published. We invalidate only when:
+    # Prices are immutable once published. We invalidate if:
     # 1. Cache is from yesterday (midnight rollover)
-    # 2. After 13:00 CET and cache doesn't have tomorrow's prices
+    # 2. Cache starts in the future (Today is missing)
+    # 3. After 13:00 CET and cache doesn't have tomorrow's prices
     cache_key = "nordpool_data"
     cached = cache_sync.get(cache_key)
 
@@ -207,14 +208,22 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
         if first_slot_date < today:
             print("[nordpool] Cache invalidated: contains yesterday's data")
             cached = None
+        # Invalidate if cache starts in the future (Today must be in cache!)
+        elif first_slot > now and now.hour < 23: # Allow for late night rollover edge cases
+             # If first_slot is more than 1 hour away from current 15m slot, it's poisoned
+             current_slot_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+             if first_slot > current_slot_start:
+                 print(f"[nordpool] Cache invalidated: poisoned (starts at {first_slot}, now is {now})")
+                 cached = None
+
         # After 13:00, we expect tomorrow's prices to be available
-        elif now.hour >= 13 and not has_tomorrow:
+        if cached and now.hour >= 13 and not has_tomorrow:
             print("[nordpool] Cache invalidated: after 13:00 but missing tomorrow")
             cached = None
-        else:
+
+        if cached:
             print(f"[nordpool] Using cached data ({len(cached)} slots)")
             return cached
-
 
     # Config already loaded above for cache validation
 
@@ -226,15 +235,11 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     # Initialize Nordpool Prices client with currency
     prices_client = Prices(currency=currency)
 
-    # Get timezone for proper date handling
-    local_tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
-    now = datetime.now(local_tz)
-
     # Fetch prices for today AND tomorrow explicitly
     # This ensures we get ALL hours, not just past ones
     today_values: list[dict[str, Any]] = []
     try:
-        # Fetch TODAY's 24 hours
+        # Fetch TODAY's slots
         data_today = prices_client.fetch(
             end_date=now.date(),
             areas=[price_area],
@@ -242,28 +247,35 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
         )
         if data_today and data_today.get("areas") and data_today["areas"].get(price_area):
             today_values = cast("list[dict[str, Any]]", data_today["areas"][price_area].get("values", []))
+
+        if not today_values:
+             print(f"[nordpool] Warning: Fetched today ({now.date()}) but got 0 slots")
     except Exception as e:
         print(f"[nordpool] Warning: Could not fetch today's prices: {e}")
 
     tomorrow_values: list[dict[str, Any]] = []
-    try:
-        # Fetch TOMORROW's 24 hours (default behavior or explicit next day)
-        data_tomorrow = prices_client.fetch(
-            areas=[price_area],
-            resolution=resolution_minutes
-        )
-        if data_tomorrow and data_tomorrow.get("areas") and data_tomorrow["areas"].get(price_area):
-            tomorrow_values = cast("list[dict[str, Any]]", data_tomorrow["areas"][price_area].get("values", []))
-    except Exception as e:
-        print(f"[nordpool] Warning: Could not fetch tomorrow's prices: {e}")
+    # Only try to fetch tomorrow if it's after 13:00 (when they are usually published)
+    if now.hour >= 13:
+        try:
+            # Fetch TOMORROW's slots (latest usually returns tomorrow if available)
+            data_tomorrow = prices_client.fetch(
+                areas=[price_area],
+                resolution=resolution_minutes
+            )
+            if data_tomorrow and data_tomorrow.get("areas") and data_tomorrow["areas"].get(price_area):
+                all_raw = cast("list[dict[str, Any]]", data_tomorrow["areas"][price_area].get("values", []))
+                # Filter to only include slots after today
+                tomorrow_values = [v for v in all_raw if v["start"].date() > today]
+        except Exception as e:
+            print(f"[nordpool] Warning: Could not fetch tomorrow's prices: {e}")
 
     # Combine today and tomorrow
     all_values = today_values + tomorrow_values
 
-    print(f"[nordpool] Fetched {len(all_values)} total price slots (today + tomorrow)")
+    print(f"[nordpool] Fetched {len(all_values)} total price slots (today: {len(today_values)}, tomorrow: {len(tomorrow_values)})")
 
     # Process the data into the required format
-    result = _process_nordpool_data(all_values, config, None)
+    result = _process_nordpool_data(all_values, config, today_values)
 
     # Cache for 1 hour
     cache_sync.set(cache_key, result, ttl_seconds=3600.0)
