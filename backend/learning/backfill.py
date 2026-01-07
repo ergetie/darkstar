@@ -7,7 +7,6 @@ import requests
 import yaml
 
 from backend.learning import get_learning_engine
-from backend.learning import get_learning_engine
 
 # Configure logging
 logger = logging.getLogger(__name__)

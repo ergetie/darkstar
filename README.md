@@ -1,16 +1,38 @@
-# Darkstar Energy Manager
+<div align="center">
+    <a href="https://github.com/ergetie/darkstar">
+        <img width="150" height="150" src="darkstar/logo.png">
+    </a>
+    <br>
+
+```
+█▀▄ ▄▀█ █▀█ █▄▀ █▀ ▀█▀ ▄▀█ █▀█
+█▄▀ █▀█ █▀▄ █░█ ▄█ ░█░ █▀█ █▀▄
+```
+
+   <div style="display: flex;">
+        <a href="https://github.com/ergetie/darkstar/actions/workflows/ci.yml">
+            <img src="https://github.com/ergetie/darkstar/actions/workflows/ci.yml/badge.svg">
+        </a>
+        <a href="https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml">
+            <img src="https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml/badge.svg">
+        </a>
+        <a href="https://github.com/ergetie/darkstar/releases">
+            <img src="https://img.shields.io/github/v/release/ergetie/darkstar?label=beta&color=orange">
+        </a>
+        <a href="https://github.com/ergetie/darkstar/stargazers">
+            <img src="https://img.shields.io/github/stars/ergetie/darkstar.svg">
+        </a>
+    </div>
+    <h3>Local AI-powered home battery optimization for solar homes</h3>
+</div>
 
 > [!WARNING]
 > **PUBLIC BETA**: Darkstar is currently in Public Beta. This software controls high-power electrical equipment. Always maintain human supervision and ensure your Home Assistant safety cut-offs are configured.
 
-**AI-powered home battery optimization for solar homes.**
+> [!CAUTION]
+> If you're using a Raspberry Pi, ensure you have at least a **Raspberry Pi 4** (RPi 5 recommended). Running on a Raspberry Pi 3 may cause instability due to its limited resources.
 
-[![GitHub Release](https://img.shields.io/github/v/release/ergetie/darkstar?label=beta&color=orange)](https://github.com/ergetie/darkstar/releases)
-[![CI Status](https://github.com/ergetie/darkstar/actions/workflows/ci.yml/badge.svg)](https://github.com/ergetie/darkstar/actions/workflows/ci.yml)
-[![Build Status](https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml/badge.svg)](https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml)
-[![Open your Home Assistant instance and show the add-on store with a specific repository allowed.](https://my.home-assistant.io/badgelink.svg)](https://my.home-assistant.io/redirect/supervisor_add_repo/?repository_url=https%3A%2F%2Fgithub.com%2Fergetie%2Fdarkstar)
-
-Darkstar is a local, privacy-first energy management system that optimizes your home battery, solar production, and electricity costs using machine learning and mathematical optimization.
+Darkstar is a local, privacy-first energy management system that optimizes your home battery, solar production, and electricity costs using machine learning (LightGBM) and mathematical optimization (MILP).
 
 ![Dashboard Preview](docs/images/dashboard-preview.png)
 
@@ -23,12 +45,15 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 - **Self-Learning** — Parameters auto-tune to your home over time
 - **Vacation Mode** — Safe anti-legionella water heating while away
 
+## Installation
+
 ### Option 1: Home Assistant Add-on (Recommended)
 
-1. Add the Darkstar repository to your HA Add-on store.
-2. Install & **Start** "Darkstar Energy Manager".
-3. Darkstar will **automatically detect** your Home Assistant connection. No manual token required!
-4. Open the Web UI via the Home Assistant sidebar to complete mapping your sensors.
+1. Go to **[Settings → Add-ons → Add-on store](https://my.home-assistant.io/redirect/supervisor_store/)**, click **⋮ → Repositories**, fill in</br> `https://github.com/ergetie/darkstar` and click **Add → Close** or click the **Add repository** button below.  
+   [![Open your Home Assistant instance and show the add add-on repository dialog with a specific repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fergetie%2Fdarkstar)
+2. Click on **Darkstar Energy Manager** and press **Install**.
+3. Start the add-on - Darkstar will **automatically detect** your Home Assistant connection. No manual token required!
+4. Click **OPEN WEB UI** and navigate to **Settings** in the sidebar to map your sensors.
 
 ### Option 2: Docker Compose
 
@@ -80,7 +105,7 @@ notifications:
 
 ### Water Heater (Optional)
 
-If you have a smart water heater, Darkstar can optimize its heating schedule:
+If you have a smart water heater, Darkstar can optimize its heating schedule. It controls the water heater thermostat temperature with set levels:
 
 ```yaml
 # In config.yaml under executor:
