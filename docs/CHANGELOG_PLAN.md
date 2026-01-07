@@ -4,9 +4,132 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ---
 
-## Era 9: Architectural Evolution & Refined UI
+## ERA // 9: Architectural Evolution & Refined UI
 
 This era marked the transition to a production-grade FastAPI backend and a major UI overhaul with a custom Design System and advanced financial analytics.
+
+### [DONE] Rev F8 — Nordpool Poisoned Cache Fix
+**Goal:** Fix regression where today's prices were missing from the schedule.
+- [x] Invalidate cache if it starts in the future (compared to current time)
+- [x] Optimize fetching logic to avoid before-13:00 tomorrow calls
+- [x] Verify fix with reproduction script
+
+---
+
+### [DONE] Rev F7 — Dependency Fixes
+**Goal:** Fix missing dependencies causing server crash on deployment.
+- [x] Add `httpx` to requirements.txt (needed for `inputs.py`)
+- [x] Add `aiosqlite` to requirements.txt (needed for `ml/api.py`)
+
+---
+
+### [DONE] Rev UI3 — Visual Polish: Dashboard Glow Effects
+
+**Goal:** Enhance the dashboard chart with a premium, state-of-the-art glow effect for bar datasets (Charging, Export, etc.) to align with high-end industrial design aesthetics.
+
+**Plan:**
+- [x] Implement `glowPlugin` extension in `ChartCard.tsx`
+- [x] Enable glow for `Charge`, `Load`, `Discharge`, `Export`, and `Water Heating` bar datasets
+- [x] Fine-tune colors and opacities for professional depth
+
+---
+
+### [DONE] Rev ARC8 — In-Process Scheduler Architecture
+
+**Goal:** Eliminate subprocess architecture by running the Scheduler and Planner as async background tasks inside the FastAPI process. This enables proper cache invalidation and WebSocket push because all components share the same memory space.
+
+**Background:** The current architecture runs the planner via `subprocess.exec("backend/scheduler.py --once")`. This creates a separate Python process that cannot share the FastAPI process's cache or WebSocket connections. The result: cache invalidation and WebSocket events fail silently.
+
+**Phase 1: Async Planner Service [DONE]**
+- [x] Create new module `backend/services/planner_service.py`
+- [x] Implement `PlannerService` class with async interface
+- [x] Wrap blocking planner code with `asyncio.to_thread()` for CPU-bound work
+- [x] Add `asyncio.Lock()` to prevent concurrent planner runs
+- [x] Return structured result object (success, error, metadata)
+- [x] After successful plan, call `await cache.invalidate("schedule:current")`
+- [x] Emit `schedule_updated` WebSocket event with metadata
+- [x] Wrap planner execution in try/except and log failures
+
+**Phase 2: Background Scheduler Task [DONE]**
+- [x] Create new module `backend/services/scheduler_service.py`
+- [x] Implement `SchedulerService` class with async loop
+- [x] Use `asyncio.sleep()` instead of blocking `time.sleep()`
+- [x] Handle graceful shutdown via cancellation
+- [x] Modify `backend/main.py` lifespan to start/stop scheduler
+- [x] Port interval calculation, jitter logic, and smart retry from `scheduler.py`
+
+**Phase 3: API Endpoint Refactor [DONE]**
+- [x] Remove subprocess logic from `legacy.py`
+- [x] Call `await planner_service.run_once()`
+- [x] Return structured response with timing and status
+- [x] Enhance `/api/scheduler/status` to return live status (running, last_run, next_run)
+
+**Phase 4: Cleanup & Deprecation [DONE]**
+- [x] Mark `scheduler.py` as deprecated
+- [x] Remove `invalidate_and_push_sync()` complexity
+- [x] Simplify `websockets.py` to async-only interface
+- [x] Update `docs/architecture.md` with new scheduler architecture
+- [x] Add architecture diagram showing in-process flow
+
+**Phase 5: Testing & Verification [DONE]**
+- [x] `ruff check` and `pnpm lint` pass
+- [x] `pytest tests/` and performance tests pass
+- [x] Unit/Integration tests for `PlannerService` and `SchedulerService`
+- [x] Implement `aiosqlite` query for historic data
+- [x] Fix Solar Forecast display and Pause UI lag
+
+**Verification Checklist**
+- [x] Planner runs in-process (not subprocess)
+- [x] Cache invalidation works immediately after planner
+- [x] WebSocket `schedule_updated` reaches frontend
+- [x] Dashboard chart updates without manual refresh
+- [x] Scheduler loop runs as FastAPI background task
+- [x] Graceful shutdown stops scheduler cleanly
+- [x] API remains responsive during planner execution
+
+---
+
+### [DONE] Rev ARC7 — Performance Architecture (Dashboard Speed)
+
+**Goal:** Transform Dashboard load time from **1600ms → <200ms** through strategic caching, lazy loading, and WebSocket push architecture. Optimized for Raspberry Pi / Home Assistant add-on deployments.
+
+**Background:** Performance profiling identified `/api/ha/average` (1635ms) as the main bottleneck, with `/api/aurora/dashboard` (461ms) and `/api/schedule` (330ms) as secondary concerns. The Dashboard makes 11 parallel API calls on load.
+
+**Phase 1: Smart Caching Layer [DONE]**
+- [x] Create `backend/core/cache.py` with `TTLCache` class
+- [x] Support configurable TTL per cache key
+- [x] Add cache invalidation via WebSocket events
+- [x] Thread-safe implementation for async context
+- [x] Cache Nordpool Prices and HA Average Data
+- [x] Cache Schedule in Memory
+
+**Phase 2: Lazy Loading Architecture [DONE]**
+- [x] Categorize Dashboard Data by Priority (Critical, Important, Deferred, Background)
+- [x] Split `fetchAllData()` into `fetchCriticalData()` + `fetchDeferredData()`
+- [x] Add skeleton loaders for deferred sections
+
+**Phase 3: WebSocket Push Architecture [DONE]**
+- [x] Add `schedule_updated`, `config_updated`, and `executor_state` events
+- [x] Frontend subscription to push events (targeted refresh)
+- [x] In `PlannerPipeline.generate_schedule()`, emit `schedule_updated` at end
+
+**Phase 4: Dashboard Bundle API [DONE]**
+- [x] Create `/api/dashboard/bundle` endpoint returning aggregated data
+- [x] Update Frontend to replace 5 critical API calls with single bundle call
+
+**Phase 5: HA Integration Optimization [DONE]**
+- [x] Profile and batch HA sensor reads (parallel async fetch)
+- [x] Expected: 6 × 100ms → 1 × 150ms
+
+**Verification Checklist**
+- [x] Dashboard loads in <200ms (critical path)
+- [x] Non-critical data appears within 500ms (lazy loaded)
+- [x] Schedule updates push via WebSocket (no manual refresh needed)
+- [x] Nordpool prices cached for 1 hour
+- [x] HA Average cached for 60 seconds
+- [x] Works smoothly on Raspberry Pi 4
+
+---
 
 ### [DONE] Rev ARC6 — Mega Validation & Merge
 
@@ -653,7 +776,7 @@ This era marked the transition to a production-grade FastAPI backend and a major
 
 
 
-## Era 8: Experience & Engineering (UI/DX/DS)
+## ERA // 8: Experience & Engineering (UI/DX/DS)
 
 This phase focused on professionalizing the frontend with a new Design System (DS1), improved Developer Experience (DX), and a complete refactor of the Settings and Dashboard.
 

@@ -61,340 +61,41 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-## 📜 Revision Stream
-
-### [IN PROGRESS] Rev ARC7 — Performance Architecture (Dashboard Speed)
-
-**Goal:** Transform Dashboard load time from **1600ms → <200ms** through strategic caching, lazy loading, and WebSocket push architecture. Optimized for Raspberry Pi / Home Assistant add-on deployments.
-
-**Background:** Performance profiling identified `/api/ha/average` (1635ms) as the main bottleneck, with `/api/aurora/dashboard` (461ms) and `/api/schedule` (330ms) as secondary concerns. The Dashboard makes 11 parallel API calls on load.
-
----
-
-#### Phase 1: Smart Caching Layer [DONE]
-
-**Goal:** Implement TTL-based caching for data that doesn't change frequently.
-
-##### Task 1.1: Create Cache Infrastructure
-- [x] Create `backend/core/cache.py` with `TTLCache` class
-- [x] Support configurable TTL per cache key
-- [x] Add cache invalidation via WebSocket events
-- [x] Thread-safe implementation for async context
-
-##### Task 1.2: Cache Nordpool Prices (Critical)
-- [x] Cache `/api/nordpool` data for 1 hour (updates once daily after 13:00)
-- [x] Invalidate at 13:30 CET daily (when new prices arrive)
-- [x] This affects Aurora, Schedule, and Energy endpoints
-
-##### Task 1.3: Cache HA Average Data
-- [x] Cache `/api/ha/average` result for 60 seconds (was fetching 24h history every request!)
-- [x] Investigate: Why is one sensor taking 1600ms? Should use batch fetch if fetching multiple.
-
-##### Task 1.4: Cache Schedule in Memory
-- [x] Keep `schedule.json` in RAM after first load
-- [x] Invalidate on: planner run, manual save, DB sync
-- [x] Push invalidation via `schedule_updated` WebSocket event
-
----
-
-#### Phase 2: Lazy Loading Architecture [DONE]
-
-**Goal:** Show Dashboard instantly, load non-critical data progressively.
-
-##### Task 2.1: Categorize Dashboard Data by Priority
-| Priority | Data | Strategy |
-|----------|------|----------|
-| **Critical** | Schedule, SoC, Executor Status | Load immediately |
-| **Important** | Config, Scheduler Status | Load immediately |
-| **Deferred** | HA Average, Energy Today, Water Today | Lazy load after render |
-| **Background** | Aurora Dashboard, Learning Status | Lazy load with skeleton |
-
-##### Task 2.2: Refactor Dashboard.tsx Data Fetching
-- [x] Split `fetchAllData()` into `fetchCriticalData()` + `fetchDeferredData()`
-- [x] Call critical fetch on mount, deferred after 100ms delay
-- [x] Add skeleton loaders for deferred sections
-
-##### Task 2.3: Add Loading States to Components
-- [x] `AdvisorCard`: Show skeleton while Aurora loads
-- [x] Stats row: Show "—" while HA Average loads
-- [x] Use CSS shimmer animation for skeleton states
-
----
-
-#### Phase 3: WebSocket Push Architecture [DONE]
-
-**Goal:** Push data changes to Dashboard instead of polling.
-
-##### Task 3.1: Extend WebSocket Events
-- [x] Add `schedule_updated` event (emitted after planner run)
-- [x] Add `config_updated` event (emitted after config save)
-- [x] Add `executor_state` event (emitted on pause/resume/action)
-
-##### Task 3.2: Frontend Subscription to Push Events
-- [x] Subscribe to `schedule_updated` → refresh schedule display
-- [x] Subscribe to `config_updated` → refresh config-dependent UI
-- [x] Avoid full `fetchAllData()` on every event (targeted refresh)
-
-##### Task 3.3: Schedule Push on Planner Run
-- [x] In `PlannerPipeline.generate_schedule()`, emit `schedule_updated` at end
-- [x] Include summary in event: `{ planned_at, slot_count, status }`
-- [x] Dashboard receives push, updates without user refresh
-
----
-
-#### Phase 4: Dashboard Bundle API [DONE]
-
-**Goal:** Reduce 11 HTTP round-trips to 1 for critical data.
-
-##### Task 4.1: Create `/api/dashboard/bundle` Endpoint
-- [x] Returns: `{ status, config, schedule, executor_status, scheduler_status }`
-- [x] Single server-side aggregation vs 5 separate calls
-- [x] Reduces HTTP overhead especially on slow networks
-
-##### Task 4.2: Update Frontend to Use Bundle
-- [x] Replace 5 critical API calls with single bundle call
-- [x] Keep deferred calls separate (they load async anyway)
-- [x] Fallback to individual calls if bundle fails
-
----
-
-#### Phase 5: HA Integration Optimization [DONE]
-
-**Goal:** Understand and fix why HA calls are slow.
-
-##### Task 5.1: Profile HA History API Call
-- [x] Investigate: Is `/api/ha/average` fetching 24h of data points?
-- [x] Check: Is it one HTTP call or many?
-- [x] Measure: HA server response time vs network latency
-
-##### Task 5.2: Batch HA Sensor Reads
-- [x] `/api/energy/today` currently makes 6 sequential HA calls
-- [x] Batch into single `/api/states` call with filter (Implemented via parallel async fetch)
-- [x] Expected: 6 × 100ms → 1 × 150ms
-
-##### Task 5.3: Consider HA WebSocket for Sensors
-- [x] HA WebSocket already pushes `live_metrics` (SoC, Power)
-- [x] Extend to push daily energy counters on state change (Deferred in favor of ultra-fast parallel fetching)
-- [x] Eliminates need for polling `/api/energy/today`
-
----
-
-#### Verification Checklist
-
-- [x] Dashboard loads in <200ms (critical path)
-- [x] Non-critical data appears within 500ms (lazy loaded)
-- [x] Schedule updates push via WebSocket (no manual refresh needed)
-- [x] Nordpool prices cached for 1 hour
-- [x] HA Average cached for 60 seconds
-- [x] Works smoothly on Raspberry Pi 4
-
----
-
-### [DONE] Rev ARC8 — In-Process Scheduler Architecture
-
-**Goal:** Eliminate subprocess architecture by running the Scheduler and Planner as async background tasks inside the FastAPI process. This enables proper cache invalidation and WebSocket push because all components share the same memory space.
-
-**Background:** The current architecture runs the planner via `subprocess.exec("backend/scheduler.py --once")`. This creates a separate Python process that cannot share the FastAPI process's cache or WebSocket connections. The result: cache invalidation and WebSocket events fail silently.
-
----
-
-#### Phase 1: Async Planner Service [DONE]
-
-**Goal:** Create an async-compatible planner service that can run in-process without blocking the event loop.
-
-##### Task 1.1: Create `backend/services/planner_service.py`
-- [x] Create new module `backend/services/planner_service.py`
-- [x] Implement `PlannerService` class with async interface
-- [x] Wrap blocking planner code with `asyncio.to_thread()` for CPU-bound work
-- [x] Add `asyncio.Lock()` to prevent concurrent planner runs
-- [x] Return structured result object (success, error, metadata)
-
-##### Task 1.2: Integrate Cache Invalidation
-- [x] After successful plan, call `await cache.invalidate("schedule:current")`
-- [x] Emit `schedule_updated` WebSocket event with metadata
-- [x] All in same process = shared memory = guaranteed delivery
-
-##### Task 1.3: Error Handling & Recovery
-- [x] Wrap planner execution in try/except
-- [x] Log failures but don't crash the server
-- [x] Return error status to caller
-- [x] Emit `planner_error` WebSocket event for frontend notification
-
----
-
-#### Phase 2: Background Scheduler Task [DONE]
-
-**Goal:** Replace the standalone `scheduler.py` loop with an async background task managed by FastAPI's lifespan.
-
-##### Task 2.1: Create `backend/services/scheduler_service.py`
-- [x] Create new module `backend/services/scheduler_service.py`
-- [x] Implement `SchedulerService` class with async loop
-- [x] Use `asyncio.sleep()` instead of blocking `time.sleep()`
-- [x] Handle graceful shutdown via cancellation
-
-##### Task 2.2: Integrate with FastAPI Lifespan
-- [x] Modify `backend/main.py` lifespan to start scheduler on startup
-- [x] Stop scheduler gracefully on shutdown
-- [x] Maintain existing HA WebSocket connection startup
-
-##### Task 2.3: Migrate Scheduler Logic
-- [x] Port interval calculation from `scheduler.py`
-- [x] Port jitter logic
-- [ ] Port ML training trigger (04:00 daily) — *deferred to Phase 4*
-- [ ] Port Aurora Reflex daily job — *deferred to Phase 4*
-- [x] Port smart retry logic on failure
-
----
-
-#### Phase 3: API Endpoint Refactor [DONE]
-
-**Goal:** Update `/api/run_planner` to use the in-process planner service instead of subprocess.
-
-##### Task 3.1: Refactor `/api/run_planner`
-- [x] Remove subprocess logic from `legacy.py`
-- [x] Call `await planner_service.run_once()`
-- [x] Return structured response with timing and status
-- [x] Cache invalidation happens automatically via planner service
-
-##### Task 3.2: Add `/api/scheduler/trigger` Endpoint
-- [ ] New endpoint to manually trigger next scheduled run — *deferred to Phase 4*
-
-##### Task 3.3: Enhance `/api/scheduler/status`
-- [x] Return live status from `scheduler_service` (not just file)
-- [x] Include: running, last_run, next_run, current_task
-- [x] Add `is_running` boolean for UI state
-
----
-
-#### Phase 4: Cleanup & Deprecation [DONE]
-
-**Goal:** Remove legacy subprocess code and ensure clean architecture.
-
-##### Task 4.1: Deprecate Standalone Scheduler Mode
-- [x] Keep `scheduler.py` for backwards compatibility but mark deprecated
-- [x] Add deprecation warning if run directly
-- [x] Update `Dockerfile` to not start separate scheduler process — *N/A: already correct*
-- [x] Update `docker-compose.yml` if applicable — *N/A: already correct*
-
-##### Task 4.2: Remove Subprocess WebSocket Workarounds
-- [x] Remove `invalidate_and_push_sync()` complexity (no longer needed)
-- [x] ~~Remove `cache_sync`~~ — **Kept**: still needed by `inputs.py` for Nordpool caching
-- [x] Simplify `websockets.py` to async-only interface (kept `emit_sync` for Executor thread)
-
-##### Task 4.3: Update Documentation
-- [x] Update `docs/architecture.md` with new scheduler architecture
-- [x] Update `AGENTS.md` if scheduler instructions changed — *N/A: no changes needed*
-- [x] Add architecture diagram showing in-process flow
-
-
----
-
-#### Phase 5: Testing & Verification [DONE]
-
-**Goal:** Comprehensive testing of the new architecture.
-
-##### Task 5.1: Lint & Test Verification
-- [x] `ruff check backend/` passes (0 errors)
-- [x] `pnpm lint` passes (frontend, 0 errors)
-- [x] `pytest tests/` passes (187 tests)
-- [x] Performance tests pass (4 tests)
-
-##### Task 5.2: Unit Tests
-- [x] Test `PlannerService.run_once()` success path
-- [x] Test `PlannerService.run_once()` failure handling
-- [x] Test `SchedulerService` start/stop lifecycle
-- [x] Test cache invalidation on planner completion
-
-##### Task 5.3: Integration Tests
-- [x] Test `/api/run_planner` triggers in-process execution
-- [x] Test WebSocket `schedule_updated` event is emitted
-- [x] Test Dashboard receives update without manual refresh
-- [x] Test scheduler respects interval and jitter settings
-
-##### Task 5.4: Performance Verification
-- [x] Confirm planner runs in threadpool (doesn't block API)
-- [x] Measure API latency during planner execution
-- [x] Stress test: Multiple simultaneous `/api/run_planner` calls
-
-##### Task 5.5: Fix Missing Historic Data [DONE]
-- [x] Implement `aiosqlite` query in `backend/api/routers/schedule.py`
-- [x] Calculate `actual_charge_kw` and `water_heating_kw` from energy
-- [x] Remove sync `ExecutionHistory` import
-
-##### Task 5.6: Fix Solar Forecast Display [DONE]
-- [x] Add logging to `schedule.py` for forecast map diagnostics
-- [x] Verify `slot_forecasts` table content
-- [x] Ensure `pvForecast` fallback logic is robust in backend
-
-##### Task 5.7: Fix Pause UI Lag [DONE]
-- [x] Update `QuickActions.tsx` to refresh data on pause toggle
-- [x] Verify banner appears immediately
-
----
-
-#### Verification Checklist
-
-- [x] Planner runs in-process (not subprocess)
-- [x] Cache invalidation works immediately after planner
-- [x] WebSocket `schedule_updated` reaches frontend
-- [x] Dashboard chart updates without manual refresh
-- [x] Scheduler loop runs as FastAPI background task
-- [x] Graceful shutdown stops scheduler cleanly
-- [x] API remains responsive during planner execution
-- [/] All existing planner features work (ML training, Reflex, retry) — *deferred to later phase*
-
----
-
-*All completed revisions have been moved to [CHANGELOG_PLAN.md](CHANGELOG_PLAN.md).*
----
-
-### [DONE] Rev UI3 — Visual Polish: Dashboard Glow Effects
-
-**Goal:** Enhance the dashboard chart with a premium, state-of-the-art glow effect for bar datasets (Charging, Export, etc.) to align with high-end industrial design aesthetics.
-
-**Plan:**
-- [x] Implement `glowPlugin` extension in `ChartCard.tsx`
-- [x] Enable glow for `Charge`, `Load`, `Discharge`, `Export`, and `Water Heating` bar datasets
-- [x] Fine-tune colors and opacities for professional depth
-
-### [DONE] Rev F7 — Dependency Fixes
-**Goal:** Fix missing dependencies causing server crash on deployment.
-- [x] Add `httpx` to requirements.txt (needed for `inputs.py`)
-- [x] Add `aiosqlite` to requirements.txt (needed for `ml/api.py`)
-
----
-
-### [DONE] Rev F8 — Nordpool Poisoned Cache Fix
-**Goal:** Fix regression where today's prices were missing from the schedule.
-- [x] Invalidate cache if it starts in the future (compared to current time)
-- [x] Optimize fetching logic to avoid before-13:00 tomorrow calls
-- [x] Verify fix with reproduction script
 
 ---
 
 ### [PLANNED] REV // PUB01 — Public Beta Release
 
-**Goal:** Transition Darkstar to a production-grade public beta release by scrubbing sensitive data, aligning HA Add-on infrastructure with FastAPI, and enhancing documentation for external users.
+**Goal:** Transition Darkstar to a production-grade public beta release. This includes scrubbing sensitive data from history, hardening API security, aligning Home Assistant Add-on infrastructure with FastAPI, and creating a professional onboarding experience for external users.
 
 #### Phase 1: Security & Hygiene [PLANNED]
-- [ ] **Scrub Git History**: Remove sensitive strings (`Japandi1`, tokens) via `git filter-repo`.
-- [ ] **API Security**: Prevent `secrets.yaml` leakage into `config.yaml` during UI saves.
-- [ ] **Legal**: Add `LICENSE` (AGPL-3.0).
-- [ ] **Repo Support**: Add GitHub issue and PR templates.
+- [ ] **Scrub Git History**: Use `git filter-repo` to remove sensitive strings (`Japandi1`, JWT tokens, OpenRouter keys) from all commits/blobs.
+- [ ] **Verify History**: Run `git log --all -S "Japandi1"` and verify no results remain.
+- [ ] **API Hardening**: Modify `backend/api/routers/config.py` to ensure `secrets.yaml` keys are NEVER accidentally merged or saved into `config.yaml` during UI settings updates.
+- [ ] **Legal**: Create root `LICENSE` file (AGPL-3.0).
+- [ ] **Support Templates**: Add `.github/ISSUE_TEMPLATE/` (bug_report.md, feature_request.md) and `.github/PULL_REQUEST_TEMPLATE.md`.
 
-#### Phase 2: Documentation Overhaul [PLANNED]
-- [ ] **README**: Add Beta Warning, remove Design System, add HA repo button.
-- [ ] **Setup Guide**: Create `docs/SETUP_GUIDE.md` for sensor/system mapping.
-- [ ] **Ops Guide**: Create `docs/OPERATIONS.md` for backup/restore procedures.
-- [ ] **Dev Guide**: Replace all Flask references with FastAPI in `DEVELOPER.md`.
+#### Phase 2: Documentation & Onboarding [PLANNED]
+- [ ] **README Banner**: Add high-visibility "BETA: Human supervision required" warning at the top of README.
+- [ ] **README Removal**: Delete "Design System" sections and internal developer-only mentions.
+- [ ] **README Add-on Button**: Add "My Home Assistant" Add-on button for one-click repository installation.
+- [ ] **README Badges**: Add dynamic badges for GitHub Actions Build status and License.
+- [ ] **Setup Guide**: Create `docs/SETUP_GUIDE.md` walking through HA Entity Mapping, Battery Specs, and Initial Calibration.
+- [ ] **Operations Guide**: Create `docs/OPERATIONS.md` documenting Backup/Restore procedures for `planner_learning.db` and how to read critical logs.
+- [ ] **Architecture Sync**: Search and replace all legacy "Flask" or "eventlet" references with "FastAPI" and "Uvicorn" in `DEVELOPER.md` and `AGENTS.md`.
 
-#### Phase 3: Infrastructure & Cleanup [PLANNED]
-- [ ] **HA Add-on**: Fix `run.sh` to use `uvicorn` instead of `flask`.
-- [ ] **Health Checks**: Add `HEALTHCHECK` to `Dockerfile` and `docker-compose.yml`.
-- [ ] **Cleanup**: Remove deprecated `backend/scheduler.py` and redundant `backend/run.py`.
+#### Phase 3: Infrastructure & Backend Polish [PLANNED]
+- [ ] **HA Add-on Runner**: Update `darkstar/run.sh` to use `uvicorn backend.main:app` instead of legacy `flask run`.
+- [ ] **Run Script Audit**: Update `darkstar/run.sh` PID management to correctly monitor the FastAPI background task.
+- [ ] **Container Health**: Add `HEALTHCHECK` directive to root `Dockerfile` using `curl -f http://localhost:5000/api/health`.
+- [ ] **Compose Sync**: Align `docker-compose.yml` healthcheck test command with the new FastAPI health endpoint.
+- [ ] **Deprecation Cleanup**: Delete `backend/scheduler.py` (replaced by in-process service in ARC8).
+- [ ] **Entrypoint Audit**: Audit `backend/run.py`; remove if redundant with `uvicorn` CLI.
+- [ ] **Settings UI Sync**: Verify `grid.import_limit_kw` and `price_smoothing` keys are exposed and editable in the `Settings.tsx` interface.
 
-#### Phase 4: Release & Versioning [PLANNED]
-- [ ] **Sync Version**: Update all instances to `v3.0.0-beta.1`.
-- [ ] **CI/CD**: Add status badges and verify multi-arch builds.
-- [ ] **GitHub Release**: Create formal release `v3.0.0-beta.1` with notes.
+#### Phase 4: Release Orchestration [PLANNED]
+- [ ] **Unified Versioning**: Set version to `3.0.0-beta.1` across `package.json`, `darkstar/config.yaml`, `darkstar/run.sh`, and `entrypoint.sh`.
+- [ ] **Coverage Tracking**: Install `pytest-cov` and configure `pyproject.toml` to report backend test coverage.
+- [ ] **CI/CD Verification**: Manually trigger `build-addon.yml` and verify `amd64` and `aarch64` images publish successfully to GHCR.
+- [ ] **Formal Release**: Create GitHub Release `v3.0.0-beta.1` with a summary of the FastAPI/Kepler leap.
 
