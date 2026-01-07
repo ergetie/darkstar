@@ -56,7 +56,17 @@ docker compose up -d
 
 ### "Solver failed to find optimal solution"
 - This usually happens when the battery constraints are impossible (e.g., `min_soc` > `max_soc`).
-- Check `config.yaml` for logical errors in the `battery:` section.
+- Check your settings for logical errors in the battery section.
+
+---
+
+## ⚡ Controls and Overrides
+
+While Darkstar is fully automated, you can manually intervene via the **Dashboard**:
+
+- **Pause/Resume**: Stop the executor from sending commands to your inverter.
+- **Water Boost**: Manually trigger high-temperature water heating.
+- **Manual Charge/Export**: Force a specific battery action for a set duration.
 
 ---
 

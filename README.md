@@ -23,41 +23,19 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 - **Self-Learning** — Parameters auto-tune to your home over time
 - **Vacation Mode** — Safe anti-legionella water heating while away
 
-## 🚀 Quick Start
+### Option 1: Home Assistant Add-on (Recommended)
 
-### Option 1: Docker (Recommended)
+1. Add the Darkstar repository to your HA Add-on store.
+2. Install & **Start** "Darkstar Energy Manager".
+3. Darkstar will **automatically detect** your Home Assistant connection. No manual token required!
+4. Open the Web UI via the Home Assistant sidebar to complete mapping your sensors.
 
-```bash
-# Clone the repository
-git clone https://github.com/ergetie/darkstar.git
-cd darkstar
+### Option 2: Docker Compose
 
-# Copy configuration templates
-cp config.default.yaml config.yaml
-cp secrets.example.yaml secrets.yaml
-
-# Edit secrets.yaml with your Home Assistant credentials
-# Then start with Docker Compose
-docker-compose up -d
-```
-
-To update:
-```bash
-cd /opt/darkstar
-git pull
-docker compose build
-docker compose down && docker compose up -d
-docker compose logs -f
-```
-
-Access the UI at **http://localhost:5000**
-
-### Option 2: Home Assistant Add-on
-
-1. Add the Darkstar repository to your HA Add-on store
-2. Install "Darkstar Energy Manager"
-3. Configure your HA token in the add-on settings
-4. Start the add-on
+1. Copy `config.default.yaml` to `config.yaml` and `secrets.example.yaml` to `secrets.yaml`.
+2. Edit `secrets.yaml` with your Home Assistant credentials.
+3. Start with `docker-compose up -d`.
+4. Access the UI at **http://localhost:5000**.
 
 ## ⚙️ Configuration
 

@@ -1,94 +1,58 @@
 # Darkstar Setup Guide
 
-Welcome to the Darkstar Public Beta! This guide will walk you through the initial configuration to get your energy management system running optimally.
+Welcome to the Darkstar Public Beta! This guide will walk you through setting up your energy management system using the Dashboard UI.
 
-## 📋 Prerequisites
+## � Step 1: Deployment & First Boot
 
-Before starting, ensure you have:
-1.  **Home Assistant** up and running.
-2.  **Long-Lived Access Token** from Home Assistant (Profile -> Security -> Long-lived access tokens).
-3.  **Solar/Battery/Inverter Data** available in Home Assistant.
-4.  (Optional) **OpenRouter API Key** for the AI Advisor features.
+### Option 1: Home Assistant Add-on (Recommended)
+1.  **Add Repository**: Click the "Add Repository" button in the README or manually add `https://github.com/ergetie/darkstar` to your HA Add-on store.
+2.  **Install & Start**: Install "Darkstar Energy Manager" and click **Start**.
+3.  **Auto-Config**: Darkstar will **automatically detect** your Home Assistant connection and create its own authentication token. No manual YAML editing is required for the connection!
+4.  **Open Dashboard**: Click "Open Web UI" or use the Home Assistant sidebar link.
 
----
-
-## 🛠️ Step 1: Configuration (`config.yaml`)
-
-The `config.yaml` file defines your physical hardware and connection points.
-
-### 1.1 System Location
-Set your coordinates and timezone. This is critical for accurate solar forecasting.
-```yaml
-timezone: "Europe/Stockholm"
-system:
-  location:
-    latitude: 59.3293
-    longitude: 18.0686
-```
-
-### 1.2 Battery Specs
-Define your battery capacity and safe operating limits.
-```yaml
-battery:
-  capacity_kwh: 10.0      # Total usable capacity
-  min_soc_percent: 15     # Minimum floor (don't discharge below this)
-  max_soc_percent: 95     # Default charge ceiling
-  max_charge_power_kw: 5.0
-```
-
-### 1.3 Home Assistant Sensors
-Map your HA entity IDs so Darkstar can read your real-time data.
-> [!TIP]
-> You can find these IDs in Home Assistant under **Settings -> Devices & Services -> Entities**.
-
-```yaml
-input_sensors:
-  battery_soc: sensor.your_battery_soc
-  pv_power: sensor.your_pv_production_power
-  load_power: sensor.your_home_load_power
-```
+### Option 2: Docker Compose (Standalone)
+1.  On your host machine, ensure you have a `config.yaml` and `secrets.yaml`. (Copying the `.default` and `.example` templates is the easiest way to start).
+2.  In `secrets.yaml`, you **must** provide your Home Assistant `url` and `token`.
+3.  Run `docker-compose up -d`.
+4.  Access the UI at `http://<your-ip>:5000`.
 
 ---
 
-## 🔑 Step 2: Secrets (`secrets.yaml`)
+## 🛠️ Step 2: Configuration (via Settings UI)
 
-For security, sensitive data is stored in `secrets.yaml`. This file is ignored by git.
+Once Darkstar is running, navigate to the **Settings** tab in the Dashboard. Most parameters can be tuned directly in the UI.
 
-1.  Copy `secrets.example.yaml` to `secrets.yaml`.
-2.  Fill in your Home Assistant URL and Token:
-```yaml
-home_assistant:
-  url: "http://192.168.1.100:8123"
-  token: "your-long-token-here"
-```
+### 2.1 System Location
+Verify your **Timezone** and **Coordinates**. 
+> [!IMPORTANT]
+> Accurate Latitude and Longitude are required for solar production forecasting.
 
----
+### 2.2 Entity Mapping
+Find the **Input Sensors** section. Paste your Home Assistant entity IDs into the corresponding fields. You can find these IDs in HA under **Settings -> Devices & Services -> Entities**.
+- **Battery SoC**: Percentage sensor (e.g., `sensor.battery_soc`)
+- **PV Power**: Current solar production power (W or kW).
+- **Load Power**: Your home's total real-time consumption.
 
-## 🚀 Step 3: Deployment
-
-### Home Assistant Add-on
-If using the Add-on:
-1.  Click the "Add Repository" button in the README or manually add `https://github.com/ergetie/darkstar`.
-2.  Install and Start.
-3.  The Add-on will automatically use the `config.yaml` and `secrets.yaml` you create in the `/config/darkstar` folder (or via the UI).
-
-### Docker Compose
-```bash
-docker-compose up -d
-```
+### 2.3 Battery Parameters
+Define your battery's physical limits so the planner stays within safe bounds:
+- **Capacity (kWh)**: The total usable energy storage of your battery bank.
+- **Min SoC**: The safe floor (e.g., 15%) that the planner will never discharge below.
+- **Max Charge/Discharge (kW)**: The power limits for your inverter.
 
 ---
 
-## ✅ Step 4: Verification
+## ✅ Step 3: Verification
 
-1.  Open the Dashboard (**http://localhost:5000** or via the HA sidebar).
-2.  Check the **Status** card. It should show "Healthy" and display your current battery SoC.
-3.  View the **Schedule** tab. After a few minutes, you should see the first generated 48-hour plan.
+1.  Navigate to the **Dashboard** home page.
+2.  Check the **Status** card. It should show:
+    - **Healthy**: Successful connection to Home Assistant.
+    - **Current SoC**: Should match your real battery level.
+3.  View the **Schedule** tab. Within 10 minutes, the first generated 48-hour plan should appear, showing the optimized slots for the next two days.
 
 ---
 
-## 🆘 Need Help?
-If the planner isn't generating a schedule:
-- Check logs for "Failed to fetch Home Assistant entity" errors.
+## 🆘 Troubleshooting
+If you don't see a schedule:
 - Ensure your `timezone` matches your Home Assistant system timezone.
-- Verify that your sensors provide numeric values (check the HA States developer tool).
+- Verify that your sensors provide numeric values in the Home Assistant **Developer Tools -> States** page.
+- Check the **Logs** tab in the Dashboard for specific error messages (e.g., "Solver failed to find optimal solution").
