@@ -62,6 +62,38 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
 
         # We might want to merge payload into existing to preserve comments?
         # Or just dump. webapp.py usually did a load-update-dump cycle using ruamel.
+        # EXCLUSION FILTER: Ensure secrets from secrets.yaml never leak into config.yaml
+        # These keys should only live in secrets.yaml
+        SECRET_KEYS = {
+            "home_assistant": {"token", "url"},
+            "notifications": {"api_key", "token", "password", "webhook_url", "discord_webhook_url"},
+            "mariadb": None,  # Exclude entire block
+            "openrouter_api_key": None,
+        }
+
+        def filter_secrets(overrides: dict[str, Any], exclusions: dict[str, Any] | None) -> None:
+            """Recursively remove keys that are marked as secrets from the payload."""
+            if exclusions is None:
+                return
+
+            for key in list(overrides.keys()):
+                if key in exclusions:
+                    excl_val = exclusions[key]
+                    if excl_val is None:
+                        logger.warning(f"Security: Stripped sensitive block '{key}' from config save.")
+                        overrides.pop(key)
+                    elif isinstance(overrides[key], dict):
+                        if isinstance(excl_val, set):
+                            for subkey in list(overrides[key].keys()):
+                                if subkey in excl_val:
+                                    logger.warning(f"Security: Stripped sensitive sub-key '{key}.{subkey}' from config save.")
+                                    overrides[key].pop(subkey)
+                        elif isinstance(excl_val, dict):
+                            filter_secrets(overrides[key], excl_val)
+
+                        if not overrides[key]:
+                            overrides.pop(key)
+
         # Deep merge helper
         def deep_update(source: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
             for key, value in overrides.items():
@@ -77,6 +109,10 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
         config_path = Path("config.yaml")
         with config_path.open(encoding="utf-8") as f:
             data = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
+
+            # Filter the incoming payload before merging
+            filter_secrets(payload, SECRET_KEYS)
+
             deep_update(data, payload)
 
         with config_path.open("w", encoding="utf-8") as f:

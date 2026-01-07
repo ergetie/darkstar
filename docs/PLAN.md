@@ -61,41 +61,64 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
+## REVISION STREAM:
+
 
 ---
 
 ### [PLANNED] REV // PUB01 — Public Beta Release
 
-**Goal:** Transition Darkstar to a production-grade public beta release. This includes scrubbing sensitive data from history, hardening API security, aligning Home Assistant Add-on infrastructure with FastAPI, and creating a professional onboarding experience for external users.
+**Goal:** Transition Darkstar to a production-grade public beta release. This involves scrubbing the specific MariaDB password from history, hardening API security against secret leakage, aligning Home Assistant Add-on infrastructure with FastAPI, and creating comprehensive onboarding documentation.
 
-#### Phase 1: Security & Hygiene [PLANNED]
-- [ ] **Scrub Git History**: Use `git filter-repo` to remove sensitive strings (`Japandi1`, JWT tokens, OpenRouter keys) from all commits/blobs.
-- [ ] **Verify History**: Run `git log --all -S "Japandi1"` and verify no results remain.
-- [ ] **API Hardening**: Modify `backend/api/routers/config.py` to ensure `secrets.yaml` keys are NEVER accidentally merged or saved into `config.yaml` during UI settings updates.
-- [ ] **Legal**: Create root `LICENSE` file (AGPL-3.0).
-- [ ] **Support Templates**: Add `.github/ISSUE_TEMPLATE/` (bug_report.md, feature_request.md) and `.github/PULL_REQUEST_TEMPLATE.md`.
+#### Phase 1: Security & Hygiene [DONE]
+**Goal:** Ensure future configuration saves are secure and establish legal footing.
+- [x] **API Security Hardening**: Update `backend/api/routers/config.py` (and relevant service layers) to implement a strict exclusion filter. 
+  - *Requirement:* When saving the dashboard settings, the system MUST NOT merge any keys from `secrets.yaml` into the writable `config.yaml`.
+- [x] **Legal Foundation**: Create root `LICENSE` file containing the AGPL-3.0 license text (syncing with the mentions in README).
 
-#### Phase 2: Documentation & Onboarding [PLANNED]
-- [ ] **README Banner**: Add high-visibility "BETA: Human supervision required" warning at the top of README.
-- [ ] **README Removal**: Delete "Design System" sections and internal developer-only mentions.
-- [ ] **README Add-on Button**: Add "My Home Assistant" Add-on button for one-click repository installation.
-- [ ] **README Badges**: Add dynamic badges for GitHub Actions Build status and License.
-- [ ] **Setup Guide**: Create `docs/SETUP_GUIDE.md` walking through HA Entity Mapping, Battery Specs, and Initial Calibration.
-- [ ] **Operations Guide**: Create `docs/OPERATIONS.md` documenting Backup/Restore procedures for `planner_learning.db` and how to read critical logs.
-- [ ] **Architecture Sync**: Search and replace all legacy "Flask" or "eventlet" references with "FastAPI" and "Uvicorn" in `DEVELOPER.md` and `AGENTS.md`.
+#### Phase 2: Professional Documentation [PLANNED]
+**Goal:** Provide a "wow" first impression and clear technical guidance for new users.
+- [ ] **README Visual Overhaul**: 
+  - Add high-visibility "BETA" banner at the top.
+  - Add GitHub Action status badges and License badge.
+  - Implement a "My Home Assistant" Add-on button linking to `https://my.home-assistant.io/redirect/supervisor_add_repo/?repository_url=...`.
+  - Remove "Design System" technical section (lines 141-150).
+- [ ] **Create Setup Guide (`docs/SETUP_GUIDE.md`)**:
+  - Detailed flow for Home Assistant Long-Lived Access Token creation.
+  - Spreadsheet-style mapping of required sensors (Battery SoC, Grid Power, etc.).
+  - Calibration guide for battery efficiency and charge/discharge limits.
+- [ ] **Create Operations Guide (`docs/OPERATIONS.md`)**:
+  - Guide on backing up `data/planner_learning.db` (The ML brain).
+  - Instructions for identifying issues in `darkstar.log`.
+  - How to perform a manual "Emergency Stop" vs "Pause".
+- [ ] **Architecture Doc Sync**: Global find-and-replace for "Flask" -> "FastAPI" and "eventlet" -> "Uvicorn" in all `.md` files to prevent confusing external developers.
 
-#### Phase 3: Infrastructure & Backend Polish [PLANNED]
-- [ ] **HA Add-on Runner**: Update `darkstar/run.sh` to use `uvicorn backend.main:app` instead of legacy `flask run`.
-- [ ] **Run Script Audit**: Update `darkstar/run.sh` PID management to correctly monitor the FastAPI background task.
-- [ ] **Container Health**: Add `HEALTHCHECK` directive to root `Dockerfile` using `curl -f http://localhost:5000/api/health`.
-- [ ] **Compose Sync**: Align `docker-compose.yml` healthcheck test command with the new FastAPI health endpoint.
-- [ ] **Deprecation Cleanup**: Delete `backend/scheduler.py` (replaced by in-process service in ARC8).
-- [ ] **Entrypoint Audit**: Audit `backend/run.py`; remove if redundant with `uvicorn` CLI.
-- [ ] **Settings UI Sync**: Verify `grid.import_limit_kw` and `price_smoothing` keys are exposed and editable in the `Settings.tsx` interface.
+#### Phase 3: Infrastructure & Service Alignment [PLANNED]
+**Goal:** Finalize the migration from legacy Flask architecture to the new async FastAPI core in the production environment.
+- [ ] **Add-on Runner Migration**: Refactor `darkstar/run.sh`.
+  - *Task:* Change the legacy `exec python3 -m flask run` command to `exec uvicorn backend.main:app --host 0.0.0.0 --port 5000`.
+  - *Task:* Ensure environment variables passed from the HA Supervisor are correctly picked up by Uvicorn.
+- [ ] **Container Health Monitoring**: 
+  - Add `HEALTHCHECK` directive to root `Dockerfile`.
+  - *Command:* `curl -f http://localhost:5000/api/health || exit 1`.
+  - Sync `docker-compose.yml` healthcheck test to match.
+- [ ] **Legacy Code Removal**:
+  - Delete `backend/scheduler.py` (Legacy standalone script, superseded by `SchedulerService`).
+  - Audit `backend/run.py` (Local entry point); replace usage with standard `uvicorn` commands in dev scripts.
+- [ ] **Settings UI Verification**: 
+  - Verify `price_smoothing_factor` and `grid_peak_penalty` are correctly rendered in the Settings Tab UI.
 
-#### Phase 4: Release Orchestration [PLANNED]
-- [ ] **Unified Versioning**: Set version to `3.0.0-beta.1` across `package.json`, `darkstar/config.yaml`, `darkstar/run.sh`, and `entrypoint.sh`.
-- [ ] **Coverage Tracking**: Install `pytest-cov` and configure `pyproject.toml` to report backend test coverage.
-- [ ] **CI/CD Verification**: Manually trigger `build-addon.yml` and verify `amd64` and `aarch64` images publish successfully to GHCR.
-- [ ] **Formal Release**: Create GitHub Release `v3.0.0-beta.1` with a summary of the FastAPI/Kepler leap.
+#### Phase 4: Versioning & CI/CD Validation [PLANNED]
+**Goal:** Orchestrate the final build and release.
+- [ ] **Atomic Version Bump**: Set version `3.0.0-beta.1` in:
+  - `frontend/package.json`
+  - `darkstar/config.yaml` (Add-on manifest)
+  - `scripts/docker-entrypoint.sh` (Banner text)
+  - `darkstar/run.sh` (Banner text)
+- [ ] **Multi-Arch Build Verification**: 
+  - Manually trigger `.github/workflows/build-addon.yml`.
+  - Verify successful container image push to GHCR for both `linux/amd64` and `linux/arm64`.
+- [ ] **GitHub Release Creation**: 
+  - Generate a formal GitHub Release `v3.0.0-beta.1`.
+  - Write release notes focusing on the "Kepler" MILP engine and "FastAPI" performance gains.
 
