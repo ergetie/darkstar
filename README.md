@@ -2,12 +2,6 @@
     <a href="https://github.com/ergetie/darkstar">
         <img width="150" height="150" src="darkstar/logo.png">
     </a>
-    <br>
-
-```
-█▀▄ ▄▀█ █▀█ █▄▀ █▀ ▀█▀ ▄▀█ █▀█
-█▄▀ █▀█ █▀▄ █░█ ▄█ ░█░ █▀█ █▀▄
-```
 
    <div style="display: flex;">
         <a href="https://github.com/ergetie/darkstar/actions/workflows/ci.yml">
@@ -17,26 +11,23 @@
             <img src="https://github.com/ergetie/darkstar/actions/workflows/build-addon.yml/badge.svg">
         </a>
         <a href="https://github.com/ergetie/darkstar/releases">
-            <img src="https://img.shields.io/github/v/release/ergetie/darkstar?label=beta&color=orange">
-        </a>
-        <a href="https://github.com/ergetie/darkstar/stargazers">
-            <img src="https://img.shields.io/github/stars/ergetie/darkstar.svg">
+            <img src="https://img.shields.io/github/v/release/ergetie/darkstar?label=beta&color=cyan">
         </a>
     </div>
     <h3>Local AI-powered home battery optimization for solar homes</h3>
 </div>
 
 > [!WARNING]
-> **PUBLIC BETA**: Darkstar is currently in Public Beta. This software controls high-power electrical equipment. Always maintain human supervision and ensure your Home Assistant safety cut-offs are configured.
+> **PUBLIC BETA**: Darkstar is currently in Public Beta. This software controls high-power electrical equipment. Always maintain human supervision and ensure your Home Assistant safety cut-offs are configured. Use at your own risk!
 
 > [!CAUTION]
-> If you're using a Raspberry Pi, ensure you have at least a **Raspberry Pi 4** (RPi 5 recommended). Running on a Raspberry Pi 3 may cause instability due to its limited resources.
+> If you're using a Raspberry Pi, ensure you have at least a **Raspberry Pi 4** (RPi 5 recommended).
 
 Darkstar is a local, privacy-first energy management system that optimizes your home battery, solar production, and electricity costs using machine learning (LightGBM) and mathematical optimization (MILP).
 
 ![Dashboard Preview](docs/images/dashboard-preview.png)
 
-## ✨ Features
+## Features
 
 - **Smart Optimization** — Minimizes electricity costs over a 48-hour rolling horizon
 - **ML Forecasting** — Learns your home's load and PV production patterns
