@@ -49,7 +49,7 @@ COPY executor/ ./executor/
 COPY bin/ ./bin/
 COPY ml/*.py ./ml/
 COPY ml/models/*.lgb ./ml/models/
-COPY inputs.py db_writer.py ./
+COPY inputs.py ./
 
 # Copy configuration templates
 COPY config.default.yaml ./
@@ -61,7 +61,6 @@ RUN chmod +x /run.sh
 
 # Environment
 
-ENV PYTHONUNBUFFERED=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
