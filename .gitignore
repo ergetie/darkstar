@@ -72,3 +72,9 @@ pytz
 *.n8n.json
 Helios*.json
 calculate_metrics_n8n.js
+
+# IDE / Local dev (personal preferences)
+.agent/
+.gemini/
+.idx/
+.vscode/

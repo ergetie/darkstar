@@ -42,9 +42,32 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
----
-
 ## 🟡 Medium Priority
+
+### [Refactor] Move inputs.py to Proper Module
+
+**Goal:** Move `inputs.py` from project root to a proper module location (e.g., `planner/inputs.py` or `core/inputs.py`) for cleaner project structure.
+
+**Current State:** 
+- `inputs.py` is a 42KB file in project root
+- 29 files import from it across `backend/`, `bin/`, `tests/`, `ml/`
+- Contains config loading, HA sensor fetching, Nordpool API, and data utilities
+
+**Impact:**
+- All 29 importing files need path updates
+- Relative imports in tests and scripts need adjustment
+- Python path considerations for different entry points
+
+**Implementation:**
+1. Create `core/` module with `__init__.py`
+2. Move `inputs.py` → `core/inputs.py`
+3. Update all imports: `from inputs import` → `from core.inputs import`
+4. Update any relative path references
+5. Verify all entry points work (`uvicorn`, `bin/run_planner.py`, tests)
+
+**Effort:** 3-4 hours (careful refactor + testing all entry points)
+
+---
 
 ### [Testing] Add Coverage Tracking (REVIEW-2026-01-04)
 
