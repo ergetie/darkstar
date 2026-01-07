@@ -31,6 +31,9 @@ jobs:
             platform: linux/amd64
           - arch: aarch64
             platform: linux/arm64
+        # Skip ARM builds for beta releases (QEMU is too slow)
+        exclude:
+          - arch: ${{ contains(github.ref, 'beta') && 'aarch64' || 'none' }}
 
     steps:
       - name: Checkout
