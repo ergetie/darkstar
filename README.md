@@ -2,7 +2,8 @@
     <a href="https://github.com/ergetie/darkstar">
         <img width="150" height="150" src="darkstar/logo.png">
     </a>
-
+    <br>
+    <br>
    <div style="display: flex;">
         <a href="https://github.com/ergetie/darkstar/actions/workflows/ci.yml">
             <img src="https://github.com/ergetie/darkstar/actions/workflows/ci.yml/badge.svg">

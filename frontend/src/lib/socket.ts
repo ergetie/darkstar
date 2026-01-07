@@ -5,13 +5,10 @@ let socket: Socket | null = null
 
 export const getSocket = () => {
     if (!socket) {
-        // Dynamically calculate the correct path for HA Ingress compatibility (Rev U21)
-        // If we're at /some/subpath/page, we want /some/subpath/socket.io
-        let pathname = window.location.pathname
-        if (!pathname.endsWith('/')) {
-            pathname = pathname.substring(0, pathname.lastIndexOf('/') + 1)
-        }
-        const socketPath = (pathname + 'socket.io').replace(/\/\//g, '/')
+        // Use document.baseURI which respects <base href> tag for HA Ingress (Rev U21)
+        // This ensures socket.io connects to the correct path when running under HA Ingress
+        const baseUrl = new URL(document.baseURI)
+        const socketPath = (baseUrl.pathname + 'socket.io').replace(/\/\//g, '/')
 
         console.log(`🔌 WebSocket initializing at path: ${socketPath}`)
 

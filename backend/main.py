@@ -5,8 +5,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import socketio
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 # Import routers
@@ -86,6 +87,19 @@ async def lifespan(app: FastAPI):
             logger.error("Failed to stop executor: %s", e, exc_info=True)
 
     await scheduler_service.stop()
+
+
+def get_base_path(request: Request) -> str:
+    """Get the base path for frontend assets.
+
+    When running under HA Ingress, the X-Ingress-Path header contains
+    the path prefix. Otherwise, use root path.
+    """
+    ingress_path = request.headers.get("X-Ingress-Path", "")
+    if ingress_path:
+        # Ensure trailing slash for base href
+        return ingress_path if ingress_path.endswith("/") else ingress_path + "/"
+    return "/"
 
 
 def create_app() -> socketio.ASGIApp:
@@ -179,16 +193,40 @@ def create_app() -> socketio.ASGIApp:
         # Mount static assets (JS, CSS, etc.)
         app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
 
+        # Cache the index.html template content
+        _index_html_cache: str | None = None
+
+        def get_index_html() -> str:
+            """Read and cache index.html content."""
+            nonlocal _index_html_cache
+            if _index_html_cache is None:
+                _index_html_cache = (static_dir / "index.html").read_text()
+            return _index_html_cache
+
         # Catch-all route for SPA: serve index.html for all non-API routes
         @app.get("/{full_path:path}")
-        async def serve_spa(full_path: str):  # type: ignore[reportUnusedFunction]
-            """Serve index.html for all routes (SPA fallback)."""
-            # If requesting a specific file that exists, serve it
+        async def serve_spa(full_path: str, request: Request):  # type: ignore[reportUnusedFunction]
+            """Serve index.html for all routes (SPA fallback).
+
+            For HA Ingress support, dynamically injects <base href> tag
+            based on X-Ingress-Path header.
+            """
+            # If requesting a specific file that exists, serve it directly
             file_path = static_dir / full_path
             if file_path.is_file():
                 return FileResponse(file_path)
-            # Otherwise serve index.html (React Router handles the route)
-            return FileResponse(static_dir / "index.html")
+
+            # For SPA routes, inject dynamic base href for HA Ingress support
+            base_path = get_base_path(request)
+            html_content = get_index_html()
+
+            # Insert <base href> after opening <head> tag
+            modified_html = html_content.replace(
+                "<head>",
+                f'<head>\n  <base href="{base_path}" />',
+                1,  # Only replace first occurrence
+            )
+            return HTMLResponse(content=modified_html, media_type="text/html")
     else:
         logger.warning(f"Static directory not found at {static_dir}. Frontend may not be served.")
 
