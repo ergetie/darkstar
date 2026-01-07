@@ -163,7 +163,7 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
   - **Updating any files in the `docs/` directory.**
 
 ## Project Structure
-- `backend/` - FastAPI API (Rev ARC1), Strategy Engine (`backend/strategy/`), and internal Scheduler (`backend/scheduler.py`).
+- `backend/` - FastAPI API, Strategy Engine (`backend/strategy/`), and internal `SchedulerService`.
 - `frontend/` - React + Vite UI application.
 - `ml/` - Aurora Machine Learning pipeline (`train.py`, `forward.py`).
 - `inputs.py` - Data fetching (Home Assistant, Nordpool).

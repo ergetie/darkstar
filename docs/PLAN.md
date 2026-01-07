@@ -66,7 +66,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] REV // PUB01 — Public Beta Release
+### [DONE] REV // PUB01 — Public Beta Release
 
 **Goal:** Transition Darkstar to a production-grade public beta release. This involves scrubbing the specific MariaDB password from history, hardening API security against secret leakage, aligning Home Assistant Add-on infrastructure with FastAPI, and creating comprehensive onboarding documentation.
 
@@ -76,36 +76,61 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - *Requirement:* When saving the dashboard settings, the system MUST NOT merge any keys from `secrets.yaml` into the writable `config.yaml`.
 - [x] **Legal Foundation**: Create root `LICENSE` file containing the AGPL-3.0 license text (syncing with the mentions in README).
 
+
 #### Phase 2: Professional Documentation [DONE]
 **Goal:** Provide a "wow" first impression and clear technical guidance for new users.
-- [ ] **Architecture Doc Sync**: Global find-and-replace for "Flask" -> "FastAPI" and "eventlet" -> "Uvicorn" in all `.md` files to prevent confusing external developers.
+- [x] **README Enhancement**: 
+  - Add high-visibility "PUBLIC BETA" banner.
+  - Add GitHub Action status badges and AGPL-3.0 License badge.
+  - Add "My Home Assistant" Add-on button.
+  - Remove "Design System" internal section.
+- [x] **QuickStart Refresh**: Update `README.md` to focus on the UI-centric Settings workflow.
+- [x] **Setup Guide [NEW]**: Created `docs/SETUP_GUIDE.md` focusing on UI mapping and Add-on auto-discovery.
+- [x] **Operations Guide [NEW]**: Created `docs/OPERATIONS.md` covering Dashboard controls, backups, and logs.
+- [x] **Architecture Doc Sync**: Global find-and-replace for "Flask" -> "FastAPI" and "eventlet" -> "Uvicorn" in all `.md` files.
 
-#### Phase 3: Infrastructure & Service Alignment [PLANNED]
-**Goal:** Finalize the migration from legacy Flask architecture to the new async FastAPI core in the production environment.
-- [ ] **Add-on Runner Migration**: Refactor `darkstar/run.sh`.
-  - *Task:* Change the legacy `exec python3 -m flask run` command to `exec uvicorn backend.main:app --host 0.0.0.0 --port 5000`.
-  - *Task:* Ensure environment variables passed from the HA Supervisor are correctly picked up by Uvicorn.
-- [ ] **Container Health Monitoring**: 
-  - Add `HEALTHCHECK` directive to root `Dockerfile`.
-  - *Command:* `curl -f http://localhost:5000/api/health || exit 1`.
-  - Sync `docker-compose.yml` healthcheck test to match.
-- [ ] **Legacy Code Removal**:
-  - Delete `backend/scheduler.py` (Legacy standalone script, superseded by `SchedulerService`).
-  - Audit `backend/run.py` (Local entry point); replace usage with standard `uvicorn` commands in dev scripts.
-- [ ] **Settings UI Verification**: 
-  - Verify `price_smoothing_factor` and `grid_peak_penalty` are correctly rendered in the Settings Tab UI.
+#### Phase 3: Infrastructure & Service Alignment [DONE]
+**Goal:** Finalize the migration from legacy Flask architecture to the new async FastAPI core.
+- [x] **Add-on Runner Migration**: Refactor `darkstar/run.sh`.
+  - *Task:* Change the legacy `flask run` command to `uvicorn backend.main:app`.
+  - *Task:* Ensure environment variables passed from the HA Supervisor are correctly used.
+- [x] **Container Health Monitoring**: 
+  - Add `HEALTHCHECK` directive to root `Dockerfile`. (Already in place)
+  - Sync `docker-compose.yml` healthcheck.
+- [x] **Legacy Code Removal**:
+  - Delete `backend/scheduler.py` (Superseded by internal SchedulerService).
+  - Audit and potentially remove `backend/run.py`.
 
-#### Phase 4: Versioning & CI/CD Validation [PLANNED]
+#### Phase 3a: MariaDB Sunset [DONE]
+**Goal:** Remove legacy MariaDB support and cleanup outdated project references.
+- [x] Delete `backend/learning/mariadb_sync.py` and sync scripts in `bin/` and `debug/`.
+- [x] Strip MariaDB logic from `db_writer.py` and `health.py`.
+- [x] Remove "DB Sync" elements from Dashboard.
+- [x] Simplify `api.ts` types.
+
+#### Phase 3b: Backend Hygiene [DONE]
+**Goal:** Audit and remove redundant backend components.
+- [x] Audit and remove redundant `backend/run.py`.
+- [x] Deduplicate logic in `learning/engine.py`.
+
+#### Phase 3c: Documentation & Config Refinement [DONE]
+**Goal:** Update documentation and finalize configuration.
+- [x] Global scrub of Flask/Gunicorn references.
+- [x] Standardize versioning guide and API documentation links.
+- [x] Final configuration audit.
+- [x] Refresh `AGENTS.md` and `DEVELOPER.md` to remove legacy Flask/eventlet/scheduler/MariaDB mentions.
+
+#### Phase 4: Versioning & CI/CD Validation [DONE]
 **Goal:** Orchestrate the final build and release.
-- [ ] **Atomic Version Bump**: Set version `3.0.0-beta.1` in:
+- [x] **Atomic Version Bump**: Set version `2.4.0-beta` in:
   - `frontend/package.json`
-  - `darkstar/config.yaml` (Add-on manifest)
-  - `scripts/docker-entrypoint.sh` (Banner text)
-  - `darkstar/run.sh` (Banner text)
-- [ ] **Multi-Arch Build Verification**: 
+  - `darkstar/config.yaml`
+  - `scripts/docker-entrypoint.sh`
+  - `darkstar/run.sh`
+- [x] **CI Fix**: Resolve `pytz` dependency issue in GitHub Actions pipeline.
+- [x] **Multi-Arch Build Verification**: 
   - Manually trigger `.github/workflows/build-addon.yml`.
-  - Verify successful container image push to GHCR for both `linux/amd64` and `linux/arm64`.
-- [ ] **GitHub Release Creation**: 
-  - Generate a formal GitHub Release `v3.0.0-beta.1`.
-  - Write release notes focusing on the "Kepler" MILP engine and "FastAPI" performance gains.
+  - Verify successful container image push to GHCR.
+- [x] **GitHub Release Creation**: 
+  - Generate a formal GitHub Release `v2.4.0-beta`.
 

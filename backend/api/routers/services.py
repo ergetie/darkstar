@@ -672,47 +672,6 @@ async def get_ha_socket_status() -> dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
-@router_services.get(
-    "/api/db/current_schedule",
-    summary="Get DB Current Schedule",
-    description="Get the current schedule directly from the database.",
-)
-async def get_db_current_schedule() -> dict[str, Any]:
-    """Get the current schedule from the database."""
-    try:
-        from db_writer import (
-            get_current_schedule_from_db,  # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
-        )
-
-        schedule = cast("dict[str, Any]", get_current_schedule_from_db())
-        return {"schedule": schedule}
-    except ImportError:
-        return {"schedule": None, "message": "DB module not available"}
-    except Exception as e:
-        return {"schedule": None, "error": str(e)}
-
-
-@router_services.post(
-    "/api/db/push_current",
-    summary="Push Schedule to DB",
-    description="Push current schedule.json to the database.",
-)
-async def push_to_db() -> dict[str, str]:
-    """Push current schedule to database."""
-    try:
-        from db_writer import write_schedule_to_db  # pyright: ignore [reportMissingImports]
-
-        with Path("schedule.json").open() as f:
-            schedule = json.load(f)
-
-        # Load necessary configs for db write
-        config = load_yaml("config.yaml")
-        secrets = load_yaml("secrets.yaml")
-
-        write_schedule_to_db(schedule, "v1", config, secrets)
-        return {"status": "success", "message": "Schedule pushed to DB"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
 
 
 @router_services.post(

@@ -54,7 +54,7 @@ COPY executor/ ./executor/
 COPY bin/ ./bin/
 COPY ml/*.py ./ml/
 COPY ml/models/*.lgb ./ml/models/
-COPY inputs.py db_writer.py ./
+COPY inputs.py ./
 COPY scripts/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
@@ -62,7 +62,7 @@ RUN chmod +x /entrypoint.sh
 COPY config.default.yaml ./config.default.yaml
 COPY secrets.example.yaml ./secrets.example.yaml
 
-# Copy built frontend from stage 1 (Vite outputs to backend/static, Flask serves from there)
+# Copy built frontend from stage 1 (Vite outputs to backend/static, FastAPI serves from there)
 COPY --from=frontend-builder /app/backend/static ./backend/static
 
 # Copy Vite's index.html to templates folder (it has the correct asset hashes)
@@ -84,5 +84,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Expose port
 EXPOSE 5000
 
-# Start all services (scheduler, recorder, Flask)
+# Start all services (scheduler, recorder, FastAPI)
 CMD ["/entrypoint.sh"]

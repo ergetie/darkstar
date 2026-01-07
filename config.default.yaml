@@ -117,8 +117,6 @@ debug:
 # Automation (Background Scheduler)
 automation:
   enable_scheduler: true               # Enable automatic schedule regeneration
-  write_to_mariadb: false              # Write telemetry to MariaDB (requires secrets.yaml)
-  external_executor_mode: false        # Use external executor instead of built-in
   schedule:
     every_minutes: 60                  # How often to regenerate schedule
     jitter_minutes: 0                  # Random delay to avoid thundering herd

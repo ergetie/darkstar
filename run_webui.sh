@@ -12,16 +12,6 @@ source venv/bin/activate
 echo "🚀 Starting Darkstar Web UI..."
 echo "   Press Ctrl+C to stop."
 
-# Start Flask app (React frontend + backend APIs)
-
-export FLASK_ENV=development
-
-# Free port 5000 if already in use
-if lsof -i:5000 >/dev/null 2>&1; then
-  echo "⚠️  Port 5000 already in use — liberation in progress..."
-  PID=$(lsof -ti:5000)
-  kill "$PID" 2>/dev/null
-  sleep 1
-fi
-
-flask run --reload --host 0.0.0.0 --port 5000
+# Start FastAPI app (React frontend + backend APIs)
+export PORT=${PORT:-5000}
+uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --log-level info

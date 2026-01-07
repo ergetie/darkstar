@@ -16,5 +16,5 @@ fi
 export PYTHONPATH=.
 
 # Run with hot reload
-# uvicorn is called via python backend/run.py or directly
-python backend/run.py
+export PORT=${PORT:-5000}
+uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --log-level info

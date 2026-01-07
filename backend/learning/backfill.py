@@ -7,7 +7,7 @@ import requests
 import yaml
 
 from backend.learning import get_learning_engine
-from backend.learning.mariadb_sync import MariaDBSync
+from backend.learning import get_learning_engine
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -26,9 +26,8 @@ class BackfillEngine:
         self.ha_config = self._load_ha_config()
         self.timezone = pytz.timezone(self.config.get("timezone", "Europe/Stockholm"))
 
-        # Load secrets for MariaDB
+        # Load secrets for backfill fallback (HA)
         self.secrets = self._load_secrets()
-        self.mariadb = MariaDBSync(self.store, self.secrets) if self.secrets else None
 
     def _load_config(self, path: str) -> dict:
         try:
@@ -102,15 +101,7 @@ class BackfillEngine:
         """Run the backfill process."""
         logger.info("Starting backfill process...")
 
-        # 1. Sync from MariaDB (Primary Source)
-        if self.mariadb:
-            days_back = 30
-            logger.info(f"Syncing from MariaDB (last {days_back} days)...")
-            self.mariadb.sync_plans(days_back=days_back)
-            self.mariadb.sync_plans_from_execution(days_back=days_back)
-            self.mariadb.sync_observations(days_back=days_back)
-
-        # 2. Sync from Home Assistant (Fallback/Augment)
+        # 1. Sync from Home Assistant (Primary Source)
         try:
             # Check last observation time
             last_obs = self.store.get_last_observation_time()

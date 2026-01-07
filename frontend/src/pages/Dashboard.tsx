@@ -8,7 +8,6 @@ import { Api, type PlannerSIndex } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import AdvisorCard from '../components/AdvisorCard'
-import { ArrowDownToLine, ArrowUpFromLine } from 'lucide-react'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
 import { useToast } from '../lib/useToast'
@@ -37,8 +36,6 @@ export default function Dashboard() {
 
     const [automationConfig, setAutomationConfig] = useState<{
         enable_scheduler?: boolean
-        write_to_mariadb?: boolean
-        external_executor_mode?: boolean
         every_minutes?: number | null
     } | null>(null)
     const [automationSaving, setAutomationSaving] = useState(false)
@@ -66,9 +63,7 @@ export default function Dashboard() {
 
     // --- Missing State Variables Restored ---
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
-    // const [plannerDbMeta, setPlannerDbMeta] = useState<PlannerMeta>(null) // Unused
     const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
-    const [currentPlanSource, setCurrentPlanSource] = useState<'local' | 'server'>('local')
     const [batteryCapacity, setBatteryCapacity] = useState<number>(0)
     const [avgLoad, setAvgLoad] = useState<{ kw: number; dailyKwh: number } | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number>(0)
@@ -78,7 +73,6 @@ export default function Dashboard() {
     const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)
     const [vacationEntityId, setVacationEntityId] = useState<string>('')
     const [riskAppetite, setRiskAppetite] = useState<number>(1.0)
-    const [serverSchedule, setServerSchedule] = useState<ScheduleSlot[]>([])
 
     // Live power metrics for PowerFlowCard
     const [livePower, setLivePower] = useState<{
@@ -161,53 +155,6 @@ export default function Dashboard() {
         return () => window.removeEventListener('config-updated', handleConfigUpdate)
     }, [])
 
-    const handlePlanSourceChange = useCallback((source: 'local' | 'server') => {
-        setCurrentPlanSource(source)
-    }, [])
-
-    const handleServerScheduleLoaded = useCallback((schedule: ScheduleSlot[]) => {
-        if (!schedule || schedule.length === 0) {
-            setServerSchedule([])
-            return
-        }
-
-        Api.scheduleTodayWithHistory()
-            .then((res) => {
-                const historySlots = res.slots ?? []
-                const byStart = new Map<string, ScheduleSlot>()
-                historySlots.forEach((slot: ScheduleSlot) => {
-                    if (slot.start_time) {
-                        byStart.set(String(slot.start_time), slot)
-                    }
-                })
-
-                const merged: ScheduleSlot[] = schedule.map((slot) => {
-                    const key = slot.start_time
-                    const hist = key ? byStart.get(String(key)) : undefined
-                    if (!hist) return slot
-
-                    const mergedSlot: ScheduleSlot = { ...slot }
-
-                    if (hist.soc_actual_percent != null) {
-                        mergedSlot.soc_actual_percent = hist.soc_actual_percent
-                    }
-                    if (hist.is_executed === true) {
-                        mergedSlot.is_executed = true
-                    }
-
-                    return mergedSlot
-                })
-
-                setServerSchedule(merged)
-            })
-            .catch((err) => {
-                console.error('Failed to merge history into server schedule:', err)
-                setServerSchedule(schedule ?? [])
-                // Removed setServerScheduleError
-            })
-            .finally(() => {})
-    }, [])
-
     const fetchCriticalData = useCallback(async () => {
         setIsRefreshing(true)
         try {
@@ -236,8 +183,6 @@ export default function Dashboard() {
                 if (data.automation) {
                     setAutomationConfig({
                         enable_scheduler: data.automation.enable_scheduler,
-                        write_to_mariadb: data.automation.write_to_mariadb,
-                        external_executor_mode: data.automation.external_executor_mode,
                         every_minutes: data.automation.schedule?.every_minutes ?? null,
                     })
                 } else setAutomationConfig(null)
@@ -408,16 +353,10 @@ export default function Dashboard() {
         setTimeout(() => fetchDeferredData(), 100)
     }, [fetchCriticalData, fetchDeferredData])
 
-    // Keep displayed plannerMeta aligned with currentPlanSource and stored metadata.
+    // Keep displayed plannerMeta aligned with stored metadata.
     useEffect(() => {
-        let nextMeta: PlannerMeta = null
-        if (currentPlanSource === 'server') {
-            nextMeta = null // plannerDbMeta was unused/always null
-        } else {
-            nextMeta = plannerLocalMeta
-        }
-        setPlannerMeta(nextMeta)
-    }, [currentPlanSource, plannerLocalMeta])
+        setPlannerMeta(plannerLocalMeta)
+    }, [plannerLocalMeta])
 
     // Initial data fetch
     useEffect(() => {
@@ -433,8 +372,6 @@ export default function Dashboard() {
             await Api.configSave({ automation: { enable_scheduler: next } })
             setAutomationConfig((prev) => ({
                 enable_scheduler: next,
-                write_to_mariadb: prev?.write_to_mariadb,
-                external_executor_mode: prev?.external_executor_mode,
                 every_minutes: prev?.every_minutes ?? null,
             }))
         } catch (err) {
@@ -444,45 +381,9 @@ export default function Dashboard() {
         }
     }
 
-    const [dbSyncLoading, setDbSyncLoading] = useState(false)
-    const [dbSyncFeedback, setDbSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-
-    const handleLoadFromDb = async () => {
-        setDbSyncLoading(true)
-        setDbSyncFeedback(null)
-        try {
-            const schedule = await Api.loadServerPlan()
-            handleServerScheduleLoaded(schedule.schedule ?? [])
-            handlePlanSourceChange('server')
-            setDbSyncFeedback({ type: 'success', message: 'Plan loaded from DB' })
-        } catch (err) {
-            setDbSyncFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Load failed' })
-        } finally {
-            setDbSyncLoading(false)
-            setTimeout(() => setDbSyncFeedback(null), 3000)
-        }
-    }
-
-    const handlePushToDb = async () => {
-        setDbSyncLoading(true)
-        setDbSyncFeedback(null)
-        try {
-            await Api.pushToDb()
-            setDbSyncFeedback({ type: 'success', message: 'Plan pushed to DB' })
-            fetchAllData()
-        } catch (err) {
-            setDbSyncFeedback({ type: 'error', message: err instanceof Error ? err.message : 'Push failed' })
-        } finally {
-            setDbSyncLoading(false)
-            setTimeout(() => setDbSyncFeedback(null), 3000)
-        }
-    }
-
     // Build slotsOverride for the chart (and badge)
     let slotsOverride: ScheduleSlot[] | undefined
-    if (currentPlanSource === 'server' && serverSchedule && serverSchedule.length > 0) {
-        slotsOverride = serverSchedule
-    } else if (currentPlanSource === 'local' && localSchedule && localSchedule.length > 0) {
+    if (localSchedule && localSchedule.length > 0) {
         const todayAndTomorrow = localSchedule.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
         if (historySlots && historySlots.length > 0) {
             const tomorrowSlots = todayAndTomorrow.filter((slot) => isTomorrow(slot.start_time))
@@ -494,7 +395,7 @@ export default function Dashboard() {
 
     // Badge Logic
     const now = new Date()
-    let freshnessText = currentPlanSource === 'server' ? 'Server Plan' : 'Local Plan'
+    let freshnessText = 'Local Plan'
     if (plannerMeta?.planned_at) {
         const planned = new Date(plannerMeta.planned_at)
         const timeStr = planned.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -621,7 +522,7 @@ export default function Dashboard() {
             {/* Row 1: Schedule Overview (24h / 48h) */}
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 <ChartCard
-                    useHistoryForToday={currentPlanSource === 'local'}
+                    useHistoryForToday={true}
                     refreshToken={chartRefreshToken}
                     slotsOverride={slotsOverride}
                     range="48h"
@@ -706,8 +607,6 @@ export default function Dashboard() {
                         <Card className="flex-1 p-4 md:p-5">
                             <QuickActions
                                 onDataRefresh={fetchAllData}
-                                onPlanSourceChange={handlePlanSourceChange}
-                                onServerScheduleLoaded={handleServerScheduleLoaded}
                                 onVacationModeChange={(enabled) => setVacationMode(enabled)}
                             />
                         </Card>
@@ -764,51 +663,12 @@ export default function Dashboard() {
                                         {automationConfig?.enable_scheduler ? formatLocalIso(nextRunDate) : '—'}
                                     </span>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span>DB sync:</span>
-                                    <span>{automationConfig?.write_to_mariadb ? 'enabled' : 'disabled'}</span>
-                                </div>
                                 <div className="flex justify-between pt-1 border-t border-line/30 mt-1">
                                     <span>Dashboard Sync:</span>
                                     <span>{lastRefresh ? lastRefresh.toLocaleTimeString() : '—'}</span>
                                 </div>
                             </div>
                         </Card>
-
-                        {automationConfig?.external_executor_mode && (
-                            <Card className="flex-1 p-4 md:p-5 flex flex-col">
-                                <div className="flex items-baseline justify-between mb-3">
-                                    <div className="text-sm text-muted">DB Sync</div>
-                                    <div
-                                        className={`text-[10px] ${dbSyncFeedback?.type === 'success' ? 'text-good' : 'text-bad'}`}
-                                    >
-                                        {dbSyncFeedback?.message}
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3 mt-auto">
-                                    <button
-                                        type="button"
-                                        onClick={handleLoadFromDb}
-                                        disabled={dbSyncLoading}
-                                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold bg-surface2 border border-line/60 text-muted hover:border-accent hover:text-accent transition disabled:opacity-50"
-                                        title="Pull plan from MariaDB current_schedule table"
-                                    >
-                                        <ArrowDownToLine className="h-4 w-4" />
-                                        <span>Load from DB</span>
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handlePushToDb}
-                                        disabled={dbSyncLoading}
-                                        className="flex items-center justify-center gap-2 rounded-xl px-3 py-2 text-[11px] font-semibold bg-surface2 border border-line/60 text-muted hover:border-accent hover:text-accent transition disabled:opacity-50"
-                                        title="Push local schedule.json to MariaDB"
-                                    >
-                                        <ArrowUpFromLine className="h-4 w-4" />
-                                        <span>Push to DB</span>
-                                    </button>
-                                </div>
-                            </Card>
-                        )}
                     </div>
                 </motion.div>
             </div>

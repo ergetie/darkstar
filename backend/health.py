@@ -2,7 +2,7 @@
 Health Check System
 
 Centralized health monitoring for Darkstar.
-Validates HA connection, entity availability, config validity, and database connectivity.
+Validates HA connection, entity availability, config validity, and planner metrics via SQLite.
 """
 
 import logging
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class HealthIssue:
     """A single health issue with guidance."""
 
-    category: str  # "ha_connection", "entity", "config", "database", "planner", "executor"
+    category: str  # "ha_connection", "entity", "config", "planner", "executor"
     severity: str  # "critical", "warning", "info"
     message: str  # User-friendly message
     guidance: str  # How to fix
@@ -68,7 +68,6 @@ class HealthChecker:
     - Home Assistant connection
     - Configured entity availability
     - Config file validity
-    - Database connectivity
     """
 
     def __init__(self, config_path: str = "config.yaml"):
@@ -92,7 +91,6 @@ class HealthChecker:
             if not any(i.category == "ha_connection" for i in issues):
                 issues.extend(await self.check_entities())
 
-        issues.extend(self.check_database())
 
         # Check executor health
         issues.extend(self.check_executor())
@@ -376,53 +374,6 @@ class HealthChecker:
 
         return issues
 
-    def check_database(self) -> list[HealthIssue]:
-        """Check database connectivity."""
-        issues: list[HealthIssue] = []
-
-        if not self._secrets:
-            return issues
-
-        db_config = self._secrets.get("mariadb", {})
-        if not db_config:
-            # Database is optional, just note it
-            issues.append(
-                HealthIssue(
-                    category="database",
-                    severity="info",
-                    message="No database configured",
-                    guidance="Database is optional. Add mariadb section to secrets.yaml to enable historical data.",
-                )
-            )
-            return issues
-
-        try:
-            import pymysql
-
-            connection = pymysql.connect(
-                host=db_config.get("host", "localhost"),
-                port=db_config.get("port", 3306),
-                user=db_config.get("user", ""),
-                password=db_config.get("password", ""),
-                database=db_config.get("database", ""),
-                connect_timeout=5,
-            )
-            connection.close()
-
-        except ImportError:
-            # pymysql not installed, skip db check
-            pass
-        except Exception as e:
-            issues.append(
-                HealthIssue(
-                    category="database",
-                    severity="warning",
-                    message=f"Database connection failed: {e}",
-                    guidance="Check your database credentials in secrets.yaml. Historical data features will be limited.",
-                )
-            )
-
-        return issues
 
     def check_executor(self) -> list[HealthIssue]:
         """Check executor health status."""

@@ -134,6 +134,14 @@ The web UI provides:
 4. **Execution** — Native executor controls your inverter in real-time
 
 The system re-optimizes every hour to adapt to changing prices and conditions.
+ 
+---
+ 
+## 📚 API Documentation
+ 
+Darkstar provides a fully documented REST API. Once running, you can access the interactive Swagger documentation at:
+- **http://localhost:5000/docs**
+ 
 
 ## 📄 License
 

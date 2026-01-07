@@ -53,8 +53,6 @@
   "debug.enable_planner_debug": "Enable verbose planner logging",
   "debug.sample_size": "Sample size for debug output charts",
   "automation.enable_scheduler": "Enable automatic schedule regeneration",
-  "automation.write_to_mariadb": "Write telemetry to MariaDB (requires secrets.yaml)",
-  "automation.external_executor_mode": "Use external executor instead of built-in",
   "automation.schedule.every_minutes": "How often to regenerate schedule",
   "automation.schedule.jitter_minutes": "Random delay to avoid thundering herd",
   "automation.ml_training.enabled": "Enable automatic ML model retraining",

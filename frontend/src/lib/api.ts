@@ -19,7 +19,6 @@ export type StatusResponse = {
     // Legacy structure (fallback)
     current_soc?: { value: number; timestamp: string; source?: string }
     local?: { planned_at?: string; planner_version?: string; s_index?: PlannerSIndex }
-    db?: { planned_at?: string; planner_version?: string; s_index?: PlannerSIndex } | { error?: string }
 }
 
 export type HorizonResponse = {
@@ -51,7 +50,6 @@ export type ConfigResponse = {
     battery?: { capacity_kwh?: number; min_soc_percent?: number; max_soc_percent?: number }
     automation?: {
         enable_scheduler?: boolean
-        write_to_mariadb?: boolean
         external_executor_mode?: boolean
         schedule?: { every_minutes?: number }
     }
@@ -370,8 +368,6 @@ export const Api = {
     learningLoops: () => getJSON<LearningLoopsResponse>('/api/learning/loops'),
     theme: () => getJSON<ThemeResponse>('/api/themes'),
     runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
-    loadServerPlan: () => getJSON<ScheduleResponse>('/api/db/current_schedule'),
-    pushToDb: () => getJSON<{ status: string; rows?: number }>('/api/db/push_current', 'POST'),
     resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
     simulate: async (payload: unknown): Promise<ScheduleResponse> => {
         const response = await fetch('api/simulate', {

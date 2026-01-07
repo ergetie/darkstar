@@ -61,7 +61,7 @@ RUN chmod +x /run.sh
 
 # Environment
 
-ENV FLASK_ENV=production
+ENV PYTHONUNBUFFERED=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 

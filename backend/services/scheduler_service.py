@@ -2,7 +2,7 @@
 Async Scheduler Service
 
 Background task that runs the planner on a configurable interval.
-Replaces the standalone scheduler.py subprocess.
+Replaces the legacy standalone scheduler script.
 """
 
 import asyncio

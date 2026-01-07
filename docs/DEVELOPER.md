@@ -15,10 +15,6 @@ Darkstar operates on a rolling 48-hour horizon to minimize energy costs and maxi
 
 ## Quick Start
 
-### Prerequisites
-*   **Python 3.12+** (see `.python-version`)
-*   **Node.js 18+**
-*   **MariaDB** (External persistence)
 *   **Home Assistant** (Source of truth for sensors)
 
 For complete requirements, see `requirements.txt`.
@@ -119,9 +115,7 @@ System parameters are defined in `config.yaml`. Credentials live in `secrets.yam
     *   **Export Controls**: `export_percentile_threshold` (peak-only export), `export_profit_margin_sek`, `export_future_price_guard`, `future_price_guard_buffer_sek`, and `protective_soc_strategy` (`gap_based` vs `fixed_protective_soc_percent`).
     *   **S-Index**: `mode` (`probabilistic` or `dynamic`), `s_index_horizon_days` (1-7 days), `risk_appetite` (1-5 scale), `base_factor`, `max_factor`. Uses extended Aurora probabilistic forecasts (p10/p50/p90) for D+1 to D+4, even when Nordpool prices only cover today/tomorrow.
 
-### `secrets.yaml` (Credentials)
 *   **Home Assistant**: `url` and `token`.
-*   **Database**: MariaDB host/user/pass.
 *   **LLM**: API keys for "The Advisor" (e.g., OpenRouter).
 
 ---
@@ -143,7 +137,6 @@ Darkstar is a monorepo containing the Python backend, React frontend, and ML pip
 /
 ├── backend/            # FastAPI API, Scheduler, and Strategy Logic
 │   ├── strategy/       # Context rules & Analyst logic
-│   ├── scheduler.py    # Internal automation runner
 │   └── main.py         # FastAPI application entrypoint
 ├── executor/           # Native Executor (replaces n8n workflow)
 │   ├── engine.py       # 5-minute tick loop
@@ -259,7 +252,7 @@ pnpm run dev  # OR run backend/scheduler separately
 ```
 
 ### 4. Verifying Plans
-*   **Dashboard**: Shows the "Local Plan" (what the planner just thought) vs "Server Plan" (what is actually in the DB).
+*   **Dashboard**: Shows the "Local Plan" (what the planner just thought).
 *   **Forecasting Tab**: Compare Aurora predictions vs. Actuals to trust the ML.
 *   **The Lab**: Run "What-If" simulations on historical data to test config changes safely.
 

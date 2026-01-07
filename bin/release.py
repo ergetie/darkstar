@@ -90,7 +90,7 @@ def main():
     print("On the server (LXC):")
     print("  cd /opt/darkstar && git fetch --all && git reset --hard origin/main")
     print("  source venv/bin/activate && pip install -r requirements.txt")
-    print("  FLASK_APP=webapp flask run --host 0.0.0.0 --port 8000")
+    print("  uvicorn backend.main:app --host 0.0.0.0 --port 5000")
 
 
 if __name__ == "__main__":

@@ -451,7 +451,7 @@ class PlannerPipeline:
             logger.error(
                 "Planner generated invalid schedule (empty or missing columns). Aborting save to prevent data loss."
             )
-            # This will bubble up to scheduler.py as an error, triggering the smart retry loop
+            # This will bubble up to SchedulerService as an error, triggering the smart retry loop
             raise ValueError("Planner generated invalid schedule (safety guard)")
 
         if save_to_file:

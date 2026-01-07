@@ -67,7 +67,6 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
         SECRET_KEYS = {
             "home_assistant": {"token", "url"},
             "notifications": {"api_key", "token", "password", "webhook_url", "discord_webhook_url"},
-            "mariadb": None,  # Exclude entire block
             "openrouter_api_key": None,
         }
 

@@ -525,5 +525,5 @@ flowchart TB
 
 ### Deprecation Notice
 
-The standalone `scheduler.py` is now **deprecated** and shows a warning if run directly. All scheduling should go through the FastAPI server.
+Scheduling is handled in-process via the `SchedulerService` within the FastAPI server.
 

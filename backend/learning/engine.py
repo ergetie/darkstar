@@ -247,8 +247,6 @@ class LearningEngine:
 
             return metrics
 
-            return metrics
-
     def get_status(self) -> dict[str, Any]:
         """Get current status of the learning engine."""
         last_obs = self.store.get_last_observation_time()
