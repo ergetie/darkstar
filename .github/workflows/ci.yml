@@ -82,7 +82,7 @@ jobs:
           python-version: '3.12'
           
       - name: Install dependencies
-        run: pip install fastapi uvicorn pydantic ruamel.yaml httpx aiosqlite python-socketio
+        run: pip install fastapi uvicorn pydantic ruamel.yaml httpx aiosqlite python-socketio pytz
           
       - name: Export and validate OpenAPI schema
         run: |

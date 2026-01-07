@@ -1,6 +1,6 @@
 {
   "name": "darkstar-monorepo",
-  "version": "2.0.0",
+  "version": "2.3.0-beta",
   "private": true,
   "scripts": {
     "dev": "concurrently -k -n FRONTEND,BACKEND \"pnpm:dev:frontend\" \"pnpm:dev:backend\"",

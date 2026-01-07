@@ -41,7 +41,7 @@ cleanup() {
 trap cleanup SIGTERM SIGINT SIGHUP
 
 log "=========================================="
-log "  Darkstar Energy Manager v2.0.0"
+log "  Darkstar Energy Manager v2.3.0-beta"
 log "=========================================="
 
 # Check for required config files

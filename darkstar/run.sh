@@ -154,7 +154,7 @@ mkdir -p /share/darkstar
 ln -sf /share/darkstar /app/data
 
 log "=========================================="
-log "  Darkstar Energy Manager v2.2.0"
+log "  Darkstar Energy Manager v2.3.0-beta"
 log "=========================================="
 log "  Timezone: $TIMEZONE"
 log "  Log Level: $LOG_LEVEL"
@@ -170,5 +170,5 @@ fi
 log "  Web UI: http://localhost:5000"
 log "=========================================="
 
-# Start Flask
-exec python3 -m flask run --host=0.0.0.0 --port=5000
+# Start FastAPI via Uvicorn
+exec uvicorn backend.main:app --host 0.0.0.0 --port 5000 --log-level "$LOG_LEVEL"
