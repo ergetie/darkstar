@@ -178,19 +178,14 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
                 }
             } catch (err: unknown) {
                 console.error('Save failed', err)
-                // REV LCL01: Parse 400 errors from config validation
+                // REV LCL01: Show actual error message from config validation
                 const errMsg = err instanceof Error ? err.message : 'Unknown error'
-                if (errMsg.includes('400')) {
-                    setStatusMessage('Configuration has critical errors. Check your settings.')
-                    toast({
-                        message: 'Configuration Error',
-                        description: 'One or more settings have invalid values.',
-                        variant: 'error',
-                    })
-                } else {
-                    setStatusMessage('Save failed: ' + errMsg)
-                    toast({ message: 'Save failed', variant: 'error' })
-                }
+                setStatusMessage(errMsg)
+                toast({
+                    message: 'Save failed',
+                    description: errMsg,
+                    variant: 'error',
+                })
             } finally {
                 setSaving(false)
             }

@@ -141,18 +141,20 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] REV // LCL01 — Legacy Heuristic Cleanup & Config Validation
+### [IN PROGRESS] REV // LCL01 — Legacy Heuristic Cleanup & Config Validation
 
 **Goal:** Remove all legacy heuristic planner code (pre-Kepler). Kepler MILP becomes the sole scheduling engine. Add comprehensive config validation to catch misconfigurations at startup with clear user-facing errors (banners + toasts).
 
 > **Breaking Change:** Users with misconfigured `water_heating.power_kw = 0` while `has_water_heater = true` will receive a warning, prompting them to fix their config.
 
-#### Phase 1: Backend Config Validation [PLANNED]
+#### Phase 1: Backend Config Validation [DONE ✓]
 **Goal:** Add validation rules for `has_*` toggle consistency. Warn (not error) when configuration is inconsistent but non-system-breaking.
 
-**Files to Modify:**
-- `planner/pipeline.py` - Expand `_validate_config()` to check `has_*` toggles
-- `backend/health.py` - Add same validation to `_validate_config_structure()` for `/api/health`
+**Files Modified:**
+- `planner/pipeline.py` - Expanded `_validate_config()` to check `has_*` toggles
+- `backend/health.py` - Added validation to `_validate_config_structure()` for `/api/health`
+- `backend/api/routers/config.py` - Added validation on `/api/config/save`
+- `tests/test_config_validation.py` - 7 unit tests
 
 **Validation Rules:**
 | Toggle | Required Config | Severity | Rationale |
@@ -162,38 +164,38 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 | `has_solar: true` | `system.solar_array.kwp > 0` | **WARNING** | PV forecasts will be zero |
 
 **Implementation:**
-- [ ] In `planner/pipeline.py` `_validate_config()`:
-  - [ ] Check `has_water_heater` → `water_heating.power_kw > 0` (WARNING via logger)
-  - [ ] Check `has_battery` → `battery.capacity_kwh > 0` (ERROR raise ValueError)
-  - [ ] Check `has_solar` → `system.solar_array.kwp > 0` (WARNING via logger)
-- [ ] In `backend/health.py` `_validate_config_structure()`:
-  - [ ] Add same checks as HealthIssues with appropriate severity
-- [ ] Create `tests/test_config_validation.py`:
-  - [ ] Test water heater misconfiguration returns warning
-  - [ ] Test battery misconfiguration raises error
-  - [ ] Test solar misconfiguration returns warning
-  - [ ] Test valid config passes
+- [x] In `planner/pipeline.py` `_validate_config()`:
+  - [x] Check `has_water_heater` → `water_heating.power_kw > 0` (WARNING via logger)
+  - [x] Check `has_battery` → `battery.capacity_kwh > 0` (ERROR raise ValueError)
+  - [x] Check `has_solar` → `system.solar_array.kwp > 0` (WARNING via logger)
+- [x] In `backend/health.py` `_validate_config_structure()`:
+  - [x] Add same checks as HealthIssues with appropriate severity
+- [x] In `backend/api/routers/config.py` `save_config()`:
+  - [x] Validate config before saving, reject errors with 400, return warnings
+- [x] Create `tests/test_config_validation.py`:
+  - [x] Test water heater misconfiguration returns warning
+  - [x] Test battery misconfiguration raises error
+  - [x] Test solar misconfiguration returns warning
+  - [x] Test valid config passes
 
-#### Phase 2: Frontend Health Integration [PLANNED]
+#### Phase 2: Frontend Health Integration [DONE ✓]
 **Goal:** Display health issues from `/api/health` in the Dashboard using `SystemAlert.tsx` banner. Add persistent toast for critical errors.
 
-**Files to Modify:**
+**Files Modified:**
 - `frontend/src/pages/Dashboard.tsx` - Fetch health on mount, render SystemAlert
-- `frontend/src/components/ui/Toast.tsx` - Add "persistent" option (no auto-dismiss)
+- `frontend/src/lib/api.ts` - Custom configSave with 400 error parsing
+- `frontend/src/pages/settings/hooks/useSettingsForm.ts` - Warning toasts on config save
 
 **Implementation:**
-- [ ] In `Dashboard.tsx`:
-  - [ ] Add `useState` for `healthStatus`
-  - [ ] Fetch `/api/health` on component mount via `useEffect`
-  - [ ] Render `<SystemAlert health={healthStatus} />` at top of Dashboard content
-- [ ] In `Toast.tsx`:
-  - [ ] Add `persistent?: boolean` to Toast props
-  - [ ] Skip `setTimeout` auto-dismiss when `persistent = true`
-- [ ] In `Dashboard.tsx`:
-  - [ ] If health has critical issues, show persistent toast on load
-- [ ] Test UI:
-  - [ ] Verify banner appears for config warnings
-  - [ ] Verify persistent toast for critical issues
+- [x] In `Dashboard.tsx`:
+  - [x] Add `useState` for `healthStatus`
+  - [x] Fetch `/api/health` on component mount via `useEffect`
+  - [x] Render `<SystemAlert health={healthStatus} />` at top of Dashboard content
+- [x] In `api.ts`:
+  - [x] Custom `configSave` that parses 400 error response body for actual error message
+- [x] In `useSettingsForm.ts`:
+  - [x] Show warning toasts when config save returns warnings
+  - [x] Show error toast with actual validation error message on 400
 
 #### Phase 3: Legacy Code Removal [PLANNED]
 **Goal:** Remove all legacy heuristic scheduling code. Kepler MILP is the sole planner.

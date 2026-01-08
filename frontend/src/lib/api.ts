@@ -352,7 +352,29 @@ export const Api = {
     version: () => getJSON<{ version: string }>('/api/version'),
     horizon: () => getJSON<HorizonResponse>('/api/forecast/horizon'),
     config: () => getJSON<ConfigResponse>('/api/config'),
-    configSave: (payload: Record<string, unknown>) => getJSON<ConfigSaveResponse>('/api/config/save', 'POST', payload),
+    // REV LCL01: Custom configSave that handles 400 validation errors
+    configSave: async (payload: Record<string, unknown>): Promise<ConfigSaveResponse> => {
+        const r = await fetch('api/config/save', {
+            method: 'POST',
+            headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+        })
+        const data = await r.json()
+        if (!r.ok) {
+            // For 400 errors, include the error details in the thrown error
+            if (r.status === 400 && data.detail) {
+                const detail = data.detail
+                const errors = detail.errors || []
+                const firstError = errors[0]
+                if (firstError) {
+                    throw new Error(firstError.message + ': ' + firstError.guidance)
+                }
+                throw new Error(detail.message || 'Configuration error')
+            }
+            throw new Error(`/api/config/save -> ${r.status}`)
+        }
+        return data as ConfigSaveResponse
+    },
     configReset: () => getJSON<{ status: string }>('/api/config/reset', 'POST'),
     setTheme: (payload: { theme: string; accent_index?: number | null }) =>
         getJSON<ThemeSetResponse>('/api/theme', 'POST', payload),
