@@ -264,3 +264,39 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] **Integration Test**: Verify HA entity writing logic for the new export power entity.
 - [x] **Manual UI Validation**: Confirm settings are correctly saved and loaded in the UI (Verified via lint + types).
 - [x] **Log Audit**: Ensure executor logs clearly indicate why specific current/power commands are sent.
+
+---
+
+### [DONE] REV // F8 — Frequency Tuning & Write Protection
+
+**Goal:** Expose executor and planner frequency settings in the UI for better real-time adaptation. Add write threshold for power entities to prevent EEPROM wear from excessive writes.
+
+> [!NOTE]
+> **Why This Matters:** Faster executor cycles (1 minute vs 5 minutes) provide better real-time tracking of export/load changes. Faster planner cycles (30 min vs 60 min) adapt to SoC divergence more quickly. However, both need write protection to avoid wearing out inverter EEPROM.
+
+#### Phase 1: Write Protection [DONE]
+**Goal:** Add write threshold for power-based entities to prevent excessive EEPROM writes.
+- [x] **Add Write Threshold Config**: Add `write_threshold_w: 100.0` to `executor/config.py` `ControllerConfig`.
+- [x] **Implement in Actions**: Update `_set_max_export_power()` in `executor/actions.py` to skip writes if change < threshold.
+- [x] **Add to Config**: Add `executor.controller.write_threshold_w: 100` to `config.default.yaml`.
+
+#### Phase 2: Frequency Configuration & Defaults [DONE]
+**Goal:** Update defaults and ensure both intervals are properly configurable.
+- [x] **Executor Interval**: Change default from 300s to 60s in `config.default.yaml`.
+- [x] **Planner Interval**: Change default from 60min to 30min in `config.default.yaml`.
+- [x] **Verify Config Loading**: Ensure both settings load correctly in `executor/config.py` and `automation` module.
+
+#### Phase 3: UI Integration [DONE]
+**Goal:** Expose frequency settings in UI with dropdown menus.
+- [x] **Frontend Types**: Add to `frontend/src/pages/settings/types.ts` in "Experimental Features" section:
+  - `executor.interval_seconds` - Dropdown: [5, 10, 15, 20, 30, 60, 150, 300, 600]
+  - `automation.schedule.every_minutes` - Dropdown: [15, 30, 60, 90]
+- [x] **Help Documentation**: Update `config-help.json` with clear descriptions about trade-offs.
+- [x] **UI Validation**: Ensure dropdowns display correctly and save properly.
+
+#### Phase 4: Verification [DONE]
+**Goal:** Ensure the changes work correctly and don't introduce regressions.
+- [x] **Unit Tests**: Add tests for write threshold logic in `tests/test_executor_actions.py`.
+- [x] **Performance Test**: Run with 60s executor + 30min planner and verify no performance issues.
+- [x] **EEPROM Protection**: Verify writes are actually skipped when below threshold.
+- [x] **UI Validation**: Confirm settings persist correctly and UI displays current values.

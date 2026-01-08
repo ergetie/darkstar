@@ -712,11 +712,35 @@ export const advancedSections: SettingsSection[] = [
         description: 'Toggle advanced and experimental modes.',
         fields: [
             {
+                key: 'executor.interval_seconds',
+                label: 'Executor Interval',
+                helper: 'How often the executor runs to update inverter settings. Lower = faster response, higher = less resource usage.',
+                path: ['executor', 'interval_seconds'],
+                type: 'select',
+                options: [
+                    { label: '5 seconds', value: 5 },
+                    { label: '10 seconds', value: 10 },
+                    { label: '15 seconds', value: 15 },
+                    { label: '20 seconds', value: 20 },
+                    { label: '30 seconds', value: 30 },
+                    { label: '1 minute', value: 60 },
+                    { label: '2.5 minutes', value: 150 },
+                    { label: '5 minutes', value: 300 },
+                    { label: '10 minutes', value: 600 },
+                ],
+            },
+            {
                 key: 'automation.schedule.every_minutes',
-                label: 'Schedule Interval (min)',
-                helper: 'How often to regenerate the optimal schedule.',
+                label: 'Planner Interval',
+                helper: 'How often to regenerate the optimal schedule. Lower = faster SoC adaptation, higher = less CPU usage.',
                 path: ['automation', 'schedule', 'every_minutes'],
-                type: 'number',
+                type: 'select',
+                options: [
+                    { label: '15 minutes', value: 15 },
+                    { label: '30 minutes', value: 30 },
+                    { label: '60 minutes', value: 60 },
+                    { label: '90 minutes', value: 90 },
+                ],
             },
             {
                 key: 'automation.schedule.jitter_minutes',

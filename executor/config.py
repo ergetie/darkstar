@@ -66,6 +66,7 @@ class ControllerConfig:
     max_discharge_a: float = 185.0
     round_step_a: float = 5.0
     write_threshold_a: float = 5.0
+    write_threshold_w: float = 100.0
     inverter_ac_limit_kw: float = 8.8
     charge_efficiency: float = 0.92
 

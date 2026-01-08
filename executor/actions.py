@@ -518,6 +518,26 @@ class ActionDispatcher:
                 skipped=True,
             )
 
+        # Check current value and apply write threshold to prevent EEPROM wear
+        current = self.ha.get_state_value(entity)
+        try:
+            current_val = float(current) if current else None
+        except (ValueError, TypeError):
+            current_val = None
+
+        if current_val is not None:
+            change = abs(watts - current_val)
+            if change < self.config.controller.write_threshold_w:
+                return ActionResult(
+                    action_type="max_export_power",
+                    success=True,
+                    message=f"Change {change:.0f}W < threshold {self.config.controller.write_threshold_w:.0f}W, skipping",
+                    previous_value=current_val,
+                    new_value=watts,
+                    skipped=True,
+                    duration_ms=int((time.time() - start) * 1000),
+                )
+
         if self.shadow_mode:
             logger.info("[SHADOW] Would set max_export_power to %s W", watts)
             return ActionResult(
@@ -538,6 +558,7 @@ class ActionDispatcher:
             action_type="max_export_power",
             success=success,
             message=f"Set to {watts} W" if success else "Failed to set export power",
+            previous_value=current_val,
             new_value=watts,
             duration_ms=duration,
         )

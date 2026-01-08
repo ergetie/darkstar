@@ -27,7 +27,7 @@ system:
   grid:
     max_power_kw: 8                    # HARD limit: max grid import (cannot be exceeded)
   inverter:
-    max_power_kw: 10.0                 # Maximum inverter AC power output
+    max_power_kw: 8.0                 # Maximum inverter AC power output
   location:
     latitude: 55.493221                # Decimal degrees, positive north (for PV forecasting)
     longitude: 13.111221               # Decimal degrees, positive east (for PV forecasting)
@@ -111,7 +111,7 @@ debug:
 automation:
   enable_scheduler: true               # Enable automatic schedule regeneration
   schedule:
-    every_minutes: 60                  # How often to regenerate schedule
+    every_minutes: 30                  # How often to regenerate schedule
     jitter_minutes: 0                  # Random delay to avoid thundering herd
   ml_training:
     enabled: true                      # Enable automatic ML model retraining
@@ -207,7 +207,7 @@ input_sensors:
 executor:
   enabled: true                                  # Enable executor control loop
   shadow_mode: true                              # Log actions but don't execute (for testing)
-  interval_seconds: 300                          # How often to run (default: 5 minutes)
+  interval_seconds: 60                           # How often to run (default: 1 minute)
   pause_reminder_minutes: 30                     # Notify if paused longer than this
   history_retention_days: 30                     # Keep execution history for N days
   
@@ -224,7 +224,7 @@ executor:
     grid_charging_entity: switch.inverter_battery_grid_charging     # Enable/disable grid charging
     max_charging_current_entity: number.inverter_battery_max_charging_current     # Max charge current (A)
     max_discharging_current_entity: number.inverter_battery_max_discharging_current  # Max discharge current (A)
-    grid_max_export_power_entity: number.inverter_grid_max_export_power           # Max grid export power (Watts)
+    grid_max_export_power_entity: number.inverter_export_surplus_power           # Max grid export power (Watts)
 
   # Controller Parameters (electrical conversion constants)
   controller:
@@ -238,6 +238,7 @@ executor:
     min_charge_a: 10.0                 # Minimum meaningful charge current (A)
     round_step_a: 5.0                  # Round current commands to nearest X amps
     write_threshold_a: 5.0             # Only write if change exceeds X amps
+    write_threshold_w: 100.0           # Only write power if change exceeds X watts (EEPROM protection)
 
   # Water Heater Control
   # The executor controls your water heater by setting a target temperature.
