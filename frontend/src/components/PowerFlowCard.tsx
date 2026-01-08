@@ -190,10 +190,10 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
 
         return {
             solar: { x: offX(100), y: offY(40) },
-            house: { x: offX(200), y: offY(120) },
+            house: { x: offX(200), y: offY(140) },
             battery: { x: offX(200), y: offY(240) },
             grid: { x: offX(100), y: offY(240) },
-            water: { x: offX(300), y: offY(120) },
+            water: { x: offX(300), y: offY(140) },
         }
     }, [scale, compact])
 
