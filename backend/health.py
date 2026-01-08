@@ -165,19 +165,6 @@ class HealthChecker:
         if not self._config:
             return issues
 
-        # Check battery config
-        battery = self._config.get("system", {}).get("battery", {})
-        if battery:
-            capacity = battery.get("capacity_kwh")
-            if capacity is not None and not isinstance(capacity, (int, float)):
-                issues.append(
-                    HealthIssue(
-                        category="config",
-                        severity="critical",
-                        message=f"Invalid battery capacity: '{capacity}' is not a number",
-                        guidance="Set system.battery.capacity_kwh to a numeric value (e.g., 27.0)",
-                    )
-                )
 
         # Check input_sensors section exists
         if not self._config.get("input_sensors"):
