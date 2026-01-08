@@ -117,7 +117,7 @@ export default function Sidebar() {
                         />
 
                         <span
-                            className="text-[10px] text-muted/30 font-mono select-none tracking-widest whitespace-nowrap opacity-50 hover:opacity-100 transition"
+                            className="text-[10px] text-muted/60 font-mono select-none tracking-widest whitespace-nowrap opacity-80 hover:opacity-100 transition"
                             style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)' }}
                         >
                             darkstar v{version}

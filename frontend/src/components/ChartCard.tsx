@@ -554,7 +554,7 @@ const dotGridPlugin: Plugin = {
         const yDotSpacing = 30 // Visual spacing in pixels for Y axis
 
         ctx.save()
-        ctx.fillStyle = 'rgba(100, 116, 139, 0.25)' // --color-grid at 25% opacity
+        ctx.fillStyle = 'rgba(100, 116, 139, 0.4)' // --color-grid at 40% opacity (increased for visibility)
 
         const totalLabels = chart.data.labels?.length || 0
         if (totalLabels < 2) {

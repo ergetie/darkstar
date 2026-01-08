@@ -17,30 +17,44 @@ router = APIRouter(tags=["system"])
 
 
 def _get_git_version() -> str:
-    """Get version from git tags, falling back to darkstar/config.yaml."""
+    """Get version from environment, git tags, or config.yaml."""
+    import os
+    from pathlib import Path
+
+    def clean_v(s: str) -> str:
+        s = s.strip()
+        if s.lower().startswith("v"):
+            return s[1:]
+        return s
+
+    # 1. Check environment variable (set by Docker/CI)
+    env_version = os.getenv("DARKSTAR_VERSION")
+    if env_version:
+        return clean_v(env_version)
+
+    # 2. Try Git - ONLY get the tag name
     try:
-        return (
+        git_ver = (
             subprocess.check_output(
-                ["git", "describe", "--tags", "--always", "--dirty"], stderr=subprocess.DEVNULL
+                ["git", "describe", "--tags", "--abbrev=0"], stderr=subprocess.DEVNULL
             )
             .decode()
             .strip()
         )
+        return clean_v(git_ver)
     except Exception:
         pass
 
-    # Fallback: read from darkstar/config.yaml (add-on version)
+    # 3. Fallback: read from darkstar/config.yaml (add-on version)
     try:
-        from pathlib import Path
-
         with Path("darkstar/config.yaml").open() as f:
             addon_config = yaml.safe_load(f)
         if addon_config and addon_config.get("version"):
-            return addon_config["version"]
+            return clean_v(addon_config["version"])
     except Exception:
         pass
 
-    return "dev"
+    return "2.4.1-beta"  # Hardcoded last resort fallback
 
 
 @router.get(

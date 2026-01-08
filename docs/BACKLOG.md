@@ -41,6 +41,17 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ---
+---
+
+## 🔴 High Priority
+
+### [UI] Advisor Overhaul
+
+**Goal:** Redesign and improve the Advisor feature to provide more actionable and reliable energy insights.
+
+**Notes:** Current version is disabled/hidden as it needs a complete overhaul. Should integrate better with Kepler schedules and Aurora forecasts.
+
+---
 
 ## 🟡 Medium Priority
 
@@ -293,18 +304,6 @@ pip list --outdated
 - Reduced merge conflicts
 
 **Effort:** 2 hours (refactor + update imports + test)
-
----
-
-### [Planner] Implement Strategic Charging (Floor Price)
-
-**Goal:** When electricity price drops below a threshold, charge battery opportunistically.
-
-**Current State:** `strategic_charging.price_threshold_sek` is in config but NOT used in code. Only `target_soc_percent` is used (as SoC target for cheap window expansion).
-
-**Expected Behavior:** If price < threshold, charge to target_soc_percent regardless of other logic.
-
-**Source:** Existing backlog item + REVIEW-2026-01-04 (unused config key)
 
 ---
 

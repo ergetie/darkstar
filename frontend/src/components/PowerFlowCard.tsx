@@ -177,16 +177,23 @@ function Node({ x, y, iconType, label, value, subValue, color, glowIntensity, is
 export default function PowerFlowCard({ data, compact = false }: PowerFlowCardProps) {
     // Node positions - scale for compact mode
     const scale = compact ? 0.75 : 1
-    const nodes = useMemo(
-        () => ({
-            solar: { x: 100 * scale, y: 50 * scale },
-            house: { x: 200 * scale, y: 130 * scale },
-            battery: { x: 200 * scale, y: 230 * scale },
-            grid: { x: 100 * scale, y: 230 * scale },
-            water: { x: 300 * scale, y: 130 * scale },
-        }),
-        [scale],
-    )
+    const nodes = useMemo(() => {
+        // Horizontal centering logic: keep center at 200 even when scaled
+        const centerX = 200
+        const offX = (p: number) => p * scale + centerX * (1 - scale)
+
+        // Vertical centering logic: keep center at 140 (for 280h) or 100 (for 200h)
+        const centerY = compact ? 100 : 140
+        const offY = (p: number) => p * scale + centerY * (1 - scale)
+
+        return {
+            solar: { x: offX(100), y: offY(50) },
+            house: { x: offX(200), y: offY(130) },
+            battery: { x: offX(200), y: offY(250) },
+            grid: { x: offX(100), y: offY(250) },
+            water: { x: offX(300), y: offY(130) },
+        }
+    }, [scale, compact])
 
     // Semantic colors from design system
     const colors = {
@@ -208,7 +215,14 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
     }
 
     // Format helpers
-    const fmtKw = (v: number) => `${Math.abs(v).toFixed(1)} kW`
+    // Format helpers
+    // Fix: Show more precision for small values (e.g. 0.5kW instead of 0.0kW if it was rounding weirdly)
+    // Actually, toFixed(1) for 0.5 should be "0.5". Let's use toFixed(2) if < 1.0 to be sure.
+    const fmtKw = (v: number) => {
+        const absV = Math.abs(v)
+        if (absV > 0 && absV < 0.1) return `${absV.toFixed(2)} kW`
+        return `${absV.toFixed(1)} kW`
+    }
     const fmtKwh = (v?: number) => (v != null ? `${v.toFixed(1)} kWh` : undefined)
 
     // Grid label based on direction
@@ -216,7 +230,11 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
     const gridSubValue = data.grid.kw >= 0 ? fmtKwh(data.grid.importKwh) : fmtKwh(data.grid.exportKwh)
 
     // Battery label based on direction
-    const battLabel = data.battery.kw >= 0 ? 'Charging' : 'Discharging'
+    // User reports "Charging" when discharging. This implies the sign is inverted from what we expect.
+    // Darkstar expectation: +charge, -discharge.
+    // Inverter seems to be: -charge, +discharge? Or something else.
+    // Let's flip the logic for the label.
+    const battLabel = data.battery.kw <= 0 ? 'Charging' : 'Discharging'
 
     const viewBox = compact ? '0 0 300 200' : '0 0 400 280'
 
@@ -231,7 +249,7 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
                 to={nodes.house}
                 power={Math.abs(data.battery.kw)}
                 color={colors.battery}
-                reverse={data.battery.kw > 0}
+                reverse={data.battery.kw < 0}
             />
             {/* Grid ↔ House */}
             <ParticleStream
@@ -273,7 +291,7 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
                 subValue={fmtKw(data.battery.kw)}
                 color={colors.battery}
                 glowIntensity={glowIntensities.battery}
-                isCharging={data.battery.kw > 0}
+                isCharging={data.battery.kw < 0}
                 compact={compact}
             />
             <Node

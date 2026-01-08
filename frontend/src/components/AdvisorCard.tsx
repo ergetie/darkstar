@@ -5,7 +5,6 @@
  */
 
 import { useState } from 'react'
-import { Sparkles, Activity } from 'lucide-react'
 import Card from './Card'
 import SmartAdvisor from './SmartAdvisor'
 import PowerFlowCard, { type PowerFlowData } from './PowerFlowCard'
@@ -29,7 +28,7 @@ function Skeleton() {
 }
 
 export default function AdvisorCard({ powerFlowData, isLoading }: AdvisorCardProps) {
-    const [view, setView] = useState<'advisor' | 'powerflow'>('advisor')
+    const [view] = useState<'advisor' | 'powerflow'>('powerflow')
 
     // Default data when no live metrics available
     const defaultData: PowerFlowData = {
@@ -44,29 +43,7 @@ export default function AdvisorCard({ powerFlowData, isLoading }: AdvisorCardPro
 
     return (
         <Card className="h-full p-4 md:p-5 flex flex-col">
-            {/* Header with toggle */}
-            <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-1 p-0.5 rounded-lg bg-surface2/50 border border-line/30">
-                    <button
-                        onClick={() => setView('advisor')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
-                            view === 'advisor' ? 'bg-accent text-[#100f0e]' : 'text-muted hover:text-text'
-                        }`}
-                    >
-                        <Sparkles className="h-3 w-3" />
-                        <span>Advisor</span>
-                    </button>
-                    <button
-                        onClick={() => setView('powerflow')}
-                        className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-medium transition ${
-                            view === 'powerflow' ? 'bg-accent text-[#100f0e]' : 'text-muted hover:text-text'
-                        }`}
-                    >
-                        <Activity className="h-3 w-3" />
-                        <span>Power Flow</span>
-                    </button>
-                </div>
-            </div>
+            {/* Header removed to save space */}
 
             {/* Content */}
             <div className="flex-1 min-h-0">
