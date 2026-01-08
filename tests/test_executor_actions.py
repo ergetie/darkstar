@@ -287,6 +287,16 @@ class TestActionDispatcherShadowMode:
         assert "[SHADOW]" in result.message
         mock_ha_client.set_number.assert_not_called()
 
+    def test_shadow_mode_max_export_power(self, mock_ha_client, executor_config):
+        """Shadow mode logs max export power changes."""
+        dispatcher = ActionDispatcher(mock_ha_client, executor_config, shadow_mode=True)
+        result = dispatcher._set_max_export_power(5000.0)
+
+        assert result.success is True
+        assert "[SHADOW]" in result.message
+        assert result.new_value == 5000.0
+        mock_ha_client.set_number.assert_not_called()
+
 
 class TestActionDispatcherExecute:
     """Test ActionDispatcher.execute full flow."""
@@ -336,15 +346,16 @@ class TestActionDispatcherExecute:
 
         results = dispatcher.execute(decision)
 
-        # Should have: work_mode, grid_charging, discharge_current, soc_target, water_temp
+        # Should have: work_mode, grid_charging, discharge_current, soc_target, water_temp, max_export_power
         # (no charge_current because write_charge_current=False)
-        assert len(results) == 5
+        assert len(results) == 6
         action_types = [r.action_type for r in results]
         assert "work_mode" in action_types
         assert "grid_charging" in action_types
         assert "discharge_current" in action_types
         assert "soc_target" in action_types
         assert "water_temp" in action_types
+        assert "max_export_power" in action_types
 
     def test_execute_only_writes_current_when_flagged(self, mock_ha_client, executor_config):
         """Charge/discharge current only written when flags are True."""
@@ -365,3 +376,4 @@ class TestActionDispatcherExecute:
         action_types = [r.action_type for r in results]
         assert "charge_current" not in action_types
         assert "discharge_current" not in action_types
+        assert "max_export_power" in action_types  # Still called as it doesn't have a write flag yet
