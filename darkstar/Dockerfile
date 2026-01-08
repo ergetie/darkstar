@@ -2,32 +2,25 @@
 # Built for multi-arch (amd64, arm64)
 # Build context is repo root
 
-FROM python:3.12-alpine
-
-# Enable community repository for GLPK
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/v3.21/community" >> /etc/apk/repositories
+FROM python:3.12-slim
 
 # Install system dependencies
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    py3-numpy \
-    py3-pandas \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Node.js and npm for frontend build
     nodejs \
     npm \
+    # Utilities
     curl \
     jq \
     bash \
-    # GLPK solver for PuLP (Kepler optimizer) - from community repo
-    glpk \
-    # Build dependencies for lightgbm
+    # GLPK solver for PuLP (Kepler optimizer)
+    glpk-utils \
+    libglpk-dev \
+    # Build dependencies for any packages that need compilation
     gcc \
     g++ \
-    musl-dev \
-    python3-dev \
-    cmake \
     make \
-    libgomp
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -40,7 +33,7 @@ RUN cd frontend && pnpm build
 
 # Install Python dependencies
 COPY requirements.txt ./
-RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY backend/ ./backend/
@@ -65,3 +58,4 @@ ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
 CMD ["/run.sh"]
+
