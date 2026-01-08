@@ -4,13 +4,14 @@ import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
 import { motion } from 'framer-motion'
-import { Api, type PlannerSIndex } from '../lib/api'
+import { Api, type PlannerSIndex, type HealthResponse } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import AdvisorCard from '../components/AdvisorCard'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
 import { useSocket } from '../lib/hooks'
 import { useToast } from '../lib/useToast'
+import { SystemAlert } from '../components/SystemAlert'
 
 type PlannerMeta = {
     planned_at?: string
@@ -82,6 +83,9 @@ export default function Dashboard() {
         grid_kw?: number
         water_kw?: number
     }>({})
+
+    // REV LCL01: Health status for config validation banners
+    const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null)
 
     const { toast } = useToast()
 
@@ -268,15 +272,20 @@ export default function Dashboard() {
                 waterData,
                 auroraData,
                 historyData,
-                // inputData - formerly learningStatusData, effectively unused or handled elsewhere
+                healthData, // REV LCL01: Fetch health for config validation banners
             ] = await Promise.allSettled([
                 Api.haAverage(), // Cached for 60s
                 Api.energyToday(),
                 Api.haWaterToday(),
                 Api.aurora.dashboard(),
                 Api.scheduleTodayWithHistory(),
-                Api.learningStatus(),
+                Api.health(), // REV LCL01
             ])
+
+            // REV LCL01: Update health status for banners
+            if (healthData.status === 'fulfilled') {
+                setHealthStatus(healthData.value)
+            }
 
             if (haAverageData.status === 'fulfilled') {
                 setAvgLoad({
@@ -444,6 +453,9 @@ export default function Dashboard() {
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-6 sm:px-6 lg:pt-10 space-y-6">
             {/* Header Removed as per user request */}
+
+            {/* REV LCL01: Config Validation Health Banners */}
+            <SystemAlert health={healthStatus} />
 
             {/* Critical Error Banner */}
             {lastError && (

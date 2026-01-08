@@ -78,7 +78,13 @@ export type ConfigResponse = {
     [key: string]: unknown
 }
 export type ConfigSaveError = { field?: string; message: string }
-export type ConfigSaveResponse = { status?: string; errors?: ConfigSaveError[] }
+// REV LCL01: Backend now returns warnings on config save
+export type ConfigSaveWarning = { severity: string; message: string; guidance: string }
+export type ConfigSaveResponse = {
+    status?: string
+    errors?: ConfigSaveError[]
+    warnings?: ConfigSaveWarning[]
+}
 
 export type HaAverageResponse = {
     average_load_kw?: number

@@ -153,7 +153,18 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
             try {
                 const result = await Api.configSave(patch as Record<string, unknown>)
                 if (result.status === 'success') {
-                    toast({ message: 'Settings saved successfully', variant: 'success' })
+                    // REV LCL01: Show warnings if any exist
+                    if (result.warnings && result.warnings.length > 0) {
+                        result.warnings.forEach((w) => {
+                            toast({
+                                message: w.message,
+                                description: w.guidance,
+                                variant: 'warning',
+                            })
+                        })
+                    } else {
+                        toast({ message: 'Settings saved successfully', variant: 'success' })
+                    }
                     await reload()
                     return true
                 } else {
@@ -167,8 +178,19 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
                 }
             } catch (err: unknown) {
                 console.error('Save failed', err)
-                setStatusMessage('Save failed: ' + (err instanceof Error ? err.message : 'Unknown error'))
-                toast({ message: 'Save failed', variant: 'error' })
+                // REV LCL01: Parse 400 errors from config validation
+                const errMsg = err instanceof Error ? err.message : 'Unknown error'
+                if (errMsg.includes('400')) {
+                    setStatusMessage('Configuration has critical errors. Check your settings.')
+                    toast({
+                        message: 'Configuration Error',
+                        description: 'One or more settings have invalid values.',
+                        variant: 'error',
+                    })
+                } else {
+                    setStatusMessage('Save failed: ' + errMsg)
+                    toast({ message: 'Save failed', variant: 'error' })
+                }
             } finally {
                 setSaving(false)
             }

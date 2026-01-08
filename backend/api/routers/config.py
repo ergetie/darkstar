@@ -54,7 +54,7 @@ async def get_config() -> dict[str, Any]:
     summary="Save Configuration",
     description="Updates config.yaml with new values.",
 )
-async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
+async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     """Save config.yaml."""
     try:
         yaml_handler = YAML()
