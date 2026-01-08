@@ -6,9 +6,13 @@ Welcome to the Darkstar Public Beta! This guide will walk you through setting up
 
 ### Option 1: Home Assistant Add-on (Recommended)
 1.  **Add Repository**: Click the "Add Repository" button in the README or manually add `https://github.com/ergetie/darkstar` to your HA Add-on store.
-2.  **Install & Start**: Install "Darkstar Energy Manager" and click **Start**.
-3.  **Auto-Config**: Darkstar will **automatically detect** your Home Assistant connection and create its own authentication token. No manual YAML editing is required for the connection!
-4.  **Open Dashboard**: Click "Open Web UI" or use the Home Assistant sidebar link.
+2.  **Install**: Install "Darkstar Energy Manager".
+3.  **Configure Add-on Settings**: Before starting, go to the add-on's **Configuration** tab and set:
+    - **timezone**: Your IANA timezone (e.g., `Europe/Stockholm`, `America/New_York`).
+    - **log_level**: Set to `info` for normal use, or `debug` for troubleshooting.
+4.  **Start**: Click **Start**.
+5.  **Auto-Config**: Darkstar will **automatically detect** your Home Assistant connection and create its own authentication token. No manual YAML editing is required for the connection!
+6.  **Open Dashboard**: Click "Open Web UI" or use the Home Assistant sidebar link. All other settings (entities, battery, solar, etc.) are configured via the Darkstar web UI.
 
 ### Option 2: Docker Compose (Standalone)
 1.  On your host machine, ensure you have a `config.yaml` and `secrets.yaml`. (Copying the `.default` and `.example` templates is the easiest way to start).
