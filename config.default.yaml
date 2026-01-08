@@ -48,7 +48,6 @@ battery:
 battery_economics:
   battery_cycle_cost_kwh: 0.2      # Degradation cost applied per kWh cycled through the battery
 
-
 # Charging Strategy (when to charge from grid)
 charging_strategy:
   charge_threshold_percentile: 15      # Bottom X% of daily prices are considered 'cheap'

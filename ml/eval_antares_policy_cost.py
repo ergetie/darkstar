@@ -1,11 +1,8 @@
+"""
+Evaluation: Compare Antares Policy against MILP Optimal for cost.
+"""
+
 from __future__ import annotations
-
-"""
-Evaluate Antares v1 policy in terms of full-day cost vs MPC and Oracle (Rev 73).
-
-Usage (from project root):
-    PYTHONPATH=. python ml/eval_antares_policy_cost.py --days 10
-"""
 
 import argparse
 import sqlite3
@@ -114,7 +111,7 @@ def _ascii_bar(delta: float, scale: float = 20.0) -> str:
     width = 20
     norm = max(-scale, min(scale, delta))
     ratio = (norm + scale) / (2 * scale)
-    filled = int(round(ratio * width))
+    filled = round(ratio * width)
     return "█" * filled + "·" * (width - filled)
 
 

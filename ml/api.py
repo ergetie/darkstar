@@ -1,7 +1,10 @@
+"""
+API router for Aurora-based forecasting and Antares model parameters.
+"""
+
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
 
 import aiosqlite
@@ -11,6 +14,8 @@ from backend.learning import LearningEngine, get_learning_engine
 
 # Lazy import for experimental simulation module (not included in production Docker)
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from ml.simulation.dataset import AntaresSlotRecord
 
 

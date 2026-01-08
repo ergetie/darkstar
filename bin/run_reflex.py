@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import argparse
-import os
 import sys
+from pathlib import Path
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 from backend.learning.reflex import AuroraReflex
 

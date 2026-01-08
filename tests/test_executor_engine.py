@@ -6,9 +6,9 @@ Integration tests for the full ExecutorEngine with mocked HA client and schedule
 
 import contextlib
 import json
-import os
 import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -34,7 +34,7 @@ def temp_schedule():
     yield schedule_path
 
     with contextlib.suppress(OSError):
-        os.unlink(schedule_path)
+        Path(schedule_path).unlink()
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def temp_db():
     yield db_path
 
     with contextlib.suppress(OSError):
-        os.unlink(db_path)
+        Path(db_path).unlink()
 
 
 def make_schedule(slots: list, timezone: str = "Europe/Stockholm") -> dict:
@@ -147,7 +147,7 @@ class TestLoadCurrentSlot:
 
     def test_empty_schedule_returns_none(self, engine, temp_schedule):
         """Empty schedule returns None."""
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump({"schedule": []}, f)
 
         tz = pytz.timezone("Europe/Stockholm")
@@ -169,7 +169,7 @@ class TestLoadCurrentSlot:
                 make_slot(slot_start, charge_kw=5.0, soc_target=80),
             ]
         )
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump(schedule, f)
 
         slot, start_iso = engine._load_current_slot(now)
@@ -191,7 +191,7 @@ class TestLoadCurrentSlot:
                 make_slot(old_slot, charge_kw=5.0),
             ]
         )
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump(schedule, f)
 
         slot, _ = engine._load_current_slot(now)
@@ -397,7 +397,7 @@ class TestRunOnce:
     def test_run_once_returns_result(self, engine, temp_schedule):
         """run_once returns a result dict."""
         # Create empty schedule
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump({"schedule": []}, f)
 
         result = engine.run_once()
@@ -411,7 +411,7 @@ class TestRunOnce:
         """run_once skips when automation toggle is off."""
         engine.ha_client.get_state_value.return_value = "off"
 
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump({"schedule": []}, f)
 
         result = engine.run_once()
@@ -431,7 +431,7 @@ class TestRunOnce:
                 make_slot(slot_start, charge_kw=5.0, soc_target=80),
             ]
         )
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump(schedule, f)
 
         result = engine.run_once()
@@ -441,7 +441,7 @@ class TestRunOnce:
 
     def test_run_once_logs_to_history(self, engine, temp_schedule):
         """run_once logs execution to history."""
-        with open(temp_schedule, "w", encoding="utf-8") as f:
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
             json.dump({"schedule": []}, f)
 
         engine.run_once()

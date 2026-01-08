@@ -1,3 +1,7 @@
+"""
+Main entry point for calculating forecasted states for the next window (Aurora).
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta

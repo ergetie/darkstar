@@ -6,6 +6,7 @@ Rev K19: Anti-legionella cycle tracking.
 import os
 import tempfile
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -21,7 +22,7 @@ def temp_db():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     yield path
-    os.unlink(path)
+    Path(path).unlink()
 
 
 def test_load_returns_none_when_no_record(temp_db):

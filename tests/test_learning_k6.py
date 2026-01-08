@@ -19,7 +19,7 @@ def learning_engine(tmp_path):
 
     # Create a dummy config
     config_path = tmp_path / "config.yaml"
-    with open(config_path, "w") as f:
+    with config_path.open("w", encoding="utf-8") as f:
         f.write(f"learning:\n  sqlite_path: {db_path}\ntimezone: Europe/Stockholm\n")
 
     engine = LearningEngine(str(config_path))

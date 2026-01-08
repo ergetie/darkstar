@@ -1,3 +1,7 @@
+"""
+Training script for Aurora (LightGBM-based demand/PV forecasting).
+"""
+
 from __future__ import annotations
 
 import argparse

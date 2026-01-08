@@ -4,6 +4,10 @@ import sqlite3
 import ssl
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
+
+# Add project root to path
+sys.path.append(str(Path.cwd()))
 
 import pytz
 import yaml
@@ -16,12 +20,16 @@ except ImportError:
 
 
 def load_config():
-    with open("config.yaml") as f:
+    # Assuming config.yaml is in the current working directory or script directory
+    # The instruction provided `Path(config_path)` but `config_path` was not defined.
+    # Using Path("config.yaml") directly as it was `open("config.yaml")` previously.
+    with Path("config.yaml").open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
 def load_secrets():
-    with open("secrets.yaml") as f:
+    # Assuming secrets.yaml is in the current working directory or script directory
+    with Path("secrets.yaml").open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 

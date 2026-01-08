@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Gym-style RL wrapper around AntaresMPCEnv (Rev 76).
 
@@ -11,16 +9,20 @@ It iterates over a list of historical days (clean/mask_battery) and
 delegates per-slot dynamics and rewards to AntaresMPCEnv.
 """
 
+from __future__ import annotations
+
 import sqlite3
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
 from backend.learning import LearningEngine, get_learning_engine
 from ml.simulation.env import AntaresMPCEnv
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _load_candidate_days(engine: LearningEngine, *, min_days: int = 30) -> list[str]:
@@ -206,8 +208,7 @@ class AntaresRLEnv:
 
                     # Expensive hours: mild penalty for sitting on energy when SoC is high
                     # and very little discharge is used.
-                    if high_thr is not None and price > high_thr and soc_pct > 60.0:
-                        if discharge_kw < 0.25:
+                    if high_thr is not None and price > high_thr and soc_pct > 60.0 and discharge_kw < 0.25:
                             reward -= 0.1
             except Exception:
                 # Never let shaping break the environment.

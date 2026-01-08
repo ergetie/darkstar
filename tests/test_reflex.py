@@ -6,10 +6,10 @@ based on historical data.
 """
 
 import contextlib
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -43,7 +43,7 @@ def temp_db():
 
     # Cleanup
     with contextlib.suppress(OSError):
-        os.unlink(db_path)
+        Path(db_path).unlink()
 
 
 @pytest.fixture
@@ -591,8 +591,8 @@ class TestArbitrageStats:
         with sqlite3.connect(db_path) as conn:
             conn.execute(
                 """
-                INSERT INTO slot_observations 
-                    (slot_start, slot_end, export_kwh, import_kwh, 
+                INSERT INTO slot_observations
+                    (slot_start, slot_end, export_kwh, import_kwh,
                      export_price_sek_kwh, import_price_sek_kwh,
                      batt_charge_kwh, batt_discharge_kwh)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -635,8 +635,8 @@ class TestAnalyzeROI:
 
         conn.execute(
             """
-            INSERT INTO slot_observations 
-                (slot_start, slot_end, export_kwh, import_kwh, 
+            INSERT INTO slot_observations
+                (slot_start, slot_end, export_kwh, import_kwh,
                  export_price_sek_kwh, import_price_sek_kwh,
                  batt_charge_kwh, batt_discharge_kwh)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -726,7 +726,7 @@ class TestCapacityEstimate:
                 slot_time = (now - timedelta(hours=i)).replace(minute=0, second=0, microsecond=0)
                 conn.execute(
                     """
-                    INSERT INTO slot_observations 
+                    INSERT INTO slot_observations
                         (slot_start, slot_end, soc_start_percent, soc_end_percent, batt_discharge_kwh)
                     VALUES (?, ?, ?, ?, ?)
                     """,
@@ -782,7 +782,7 @@ class TestAnalyzeCapacity:
                 # 3.4 kWh per 10% = 34 kWh capacity
                 conn.execute(
                     """
-                    INSERT INTO slot_observations 
+                    INSERT INTO slot_observations
                         (slot_start, slot_end, soc_start_percent, soc_end_percent, batt_discharge_kwh)
                     VALUES (?, ?, ?, ?, ?)
                     """,

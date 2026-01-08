@@ -1,12 +1,8 @@
+"""
+Evaluation: Basic Antares Policy performance on held-out days.
+"""
+
 from __future__ import annotations
-
-"""
-Evaluate the Antares v1 policy against MPC actions in AntaresMPCEnv.
-
-This helper reloads the latest antares_policy_runs entry, runs the policy
-over a sample of days, and compares its predicted actions to the MPC
-schedule actions (MAE/RMSE per target).
-"""
 
 import sqlite3
 from dataclasses import dataclass
@@ -76,7 +72,7 @@ def _load_eval_days(engine: LearningEngine, max_days: int = 20) -> list[str]:
 
 def _ascii_bar(ratio: float, width: int = 20) -> str:
     ratio = max(0.0, min(1.0, ratio))
-    filled = int(round(ratio * width))
+    filled = round(ratio * width)
     return "█" * filled + "·" * (width - filled)
 
 

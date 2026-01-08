@@ -1,6 +1,11 @@
+"""
+Feature engineering for Darkstar/Aurora forecasting (Rev 76).
+"""
+
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pandas as pd
 import pytz
@@ -11,7 +16,7 @@ from inputs import load_home_assistant_config, make_ha_headers
 
 
 def _load_config(config_path: str = "config.yaml") -> dict:
-    with open(config_path, encoding="utf-8") as f:
+    with Path(config_path).open(encoding="utf-8") as f:
         return yaml.safe_load(f) or {}
 
 

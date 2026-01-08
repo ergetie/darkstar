@@ -152,6 +152,7 @@ class PlannerPipeline:
         has_solar = system_cfg.get("has_solar", True)
         has_battery = system_cfg.get("has_battery", True)
         has_water_heater = system_cfg.get("has_water_heater", True)
+        water_cfg = active_config.get("water_heating", {})
 
         logger.info(
             "System profile: solar=%s, battery=%s, water=%s",

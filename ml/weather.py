@@ -1,6 +1,11 @@
+"""
+Weather data fetching and processing for Aurora.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pandas as pd
 import pytz
@@ -10,7 +15,7 @@ import yaml
 
 def _load_config(config_path: str = "config.yaml") -> dict:
     """Load configuration from YAML file."""
-    with open(config_path, encoding="utf-8") as handle:
+    with Path(config_path).open(encoding="utf-8") as handle:
         return yaml.safe_load(handle) or {}
 
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 Gym-style adapter for AntaresEnvV2 (RL v2 lab).
 
@@ -12,10 +10,11 @@ Episodes are single historical days; the day list is loaded from
 data_quality_daily (clean/mask_battery) similar to AntaresRLEnv.
 """
 
+from __future__ import annotations
+
 import sqlite3
-from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import gymnasium as gym
 import numpy as np
@@ -23,6 +22,9 @@ import numpy as np
 from backend.learning import LearningEngine, get_learning_engine
 from ml.rl_v2.contract import RlV2StateSpec
 from ml.rl_v2.env_v2 import AntaresEnvV2
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 
 def _load_candidate_days(engine: LearningEngine, *, min_days: int = 30) -> list[str]:
@@ -55,7 +57,7 @@ class DayIterator:
 
 
 class AntaresRLEnvV2(gym.Env):
-    metadata = {"render_modes": []}
+    metadata: ClassVar[dict[str, list[str]]] = {"render_modes": []}
 
     def __init__(self, config_path: str = "config.yaml", seq_len: int = 48) -> None:
         super().__init__()

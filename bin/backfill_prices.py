@@ -1,9 +1,9 @@
 import argparse
-import os
 import sys
 from datetime import date, timedelta
+from pathlib import Path
 
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 import pytz
 import yaml
@@ -12,7 +12,7 @@ from nordpool.elspot import Prices
 
 
 def load_config(path="config.yaml"):
-    with open(path) as f:
+    with Path(path).open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 

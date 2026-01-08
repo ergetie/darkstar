@@ -1,11 +1,8 @@
+"""
+Evaluation: Compare Oracle-BC against MILP Optimal for cost.
+"""
+
 from __future__ import annotations
-
-"""
-Evaluate Oracle-guided Antares BC policy vs MPC cost (Rev 82).
-
-Usage:
-    PYTHONPATH=. ./venv/bin/python ml/eval_antares_oracle_bc_cost.py --days 10
-"""
 
 import argparse
 import sqlite3

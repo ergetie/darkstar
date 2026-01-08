@@ -1,11 +1,8 @@
+"""
+Evaluation: Antares V1 policy benchmarking.
+"""
+
 from __future__ import annotations
-
-"""
-Antares v1 imitation model evaluation helper (Rev 69).
-
-Usage (from project root):
-    PYTHONPATH=. python ml/eval_antares_v1.py
-"""
 
 import sqlite3
 from dataclasses import dataclass
@@ -98,7 +95,7 @@ def _filter_validation_window(
 
 def _ascii_bar(ratio: float, width: int = 20) -> str:
     ratio = max(0.0, min(1.0, ratio))
-    filled = int(round(ratio * width))
+    filled = round(ratio * width)
     return "█" * filled + "·" * (width - filled)
 
 

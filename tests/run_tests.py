@@ -3,16 +3,16 @@
 Test runner script for the Darkstar Planner test suite.
 """
 
-import os
 import subprocess
 import sys
+from pathlib import Path
 
 
 def run_pytest():
     """Run pytest on the test suite."""
-    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_dir = Path(__file__).parent.resolve()
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", test_dir, "-v", "--tb=short"],
+        [sys.executable, "-m", "pytest", str(test_dir), "-v", "--tb=short"],
         capture_output=True,
         text=True,
     )
@@ -28,9 +28,9 @@ def run_pytest():
 
 def run_specific_test(test_file):
     """Run a specific test file."""
-    test_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), test_file)
+    test_path = Path(__file__).parent.resolve() / test_file
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", test_path, "-v", "--tb=short"],
+        [sys.executable, "-m", "pytest", str(test_path), "-v", "--tb=short"],
         capture_output=True,
         text=True,
     )

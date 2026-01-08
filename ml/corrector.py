@@ -1,3 +1,7 @@
+"""
+Post-processing and correction logic for Aurora/Antares forecasts.
+"""
+
 from __future__ import annotations
 
 import contextlib
@@ -352,7 +356,7 @@ def predict_corrections(
             )
         return corrections, "stats"
 
-    # Level 2: Graduate – ML error model with stats fallback.
+    # Level 2: Graduate - ML error model with stats fallback.
     models = _load_error_models(models_dir=models_dir)
     if not models:
         # If ML models are missing, fall back to Level 1 semantics.

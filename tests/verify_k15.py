@@ -1,12 +1,12 @@
-import os
 import sqlite3
 import sys
 from datetime import datetime
+from pathlib import Path
 
 import yaml
 
 # Add project root to path
-sys.path.insert(0, os.getcwd())
+sys.path.insert(0, str(Path.cwd()))
 
 from backend.learning import get_learning_engine
 from inputs import get_all_input_data
@@ -53,7 +53,7 @@ def verify_planner_pipeline():
         input_data = get_all_input_data("config.yaml")
 
         # Load config
-        with open("config.yaml") as f:
+        with Path("config.yaml").open(encoding="utf-8") as f:
             config = yaml.safe_load(f)
 
         print(f"Config S-Index Mode: {config.get('s_index', {}).get('mode')}")

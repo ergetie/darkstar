@@ -1,15 +1,11 @@
+"""
+Train an Antares policy via behaviour cloning from historical MPC data (Rev 82).
+
+Usage:
+    PYTHONPATH=. ./venv/bin/python ml/train_antares_policy.py --days 30
+"""
+
 from __future__ import annotations
-
-"""
-Train a first Antares v1 policy that imitates MPC actions in AntaresMPCEnv.
-
-This is a lightweight, offline-only policy:
-  - Uses AntaresMPCEnv to roll out MPC schedules over many days.
-  - Collects (state, action) pairs per slot where action is derived from
-    the MPC schedule (battery_charge_kw, battery_discharge_kw, export_kwh).
-  - Trains one LightGBM regressor per control signal.
-  - Saves models under ml/models/antares_policy_v1/ and logs runs in SQLite.
-"""
 
 import argparse
 import json

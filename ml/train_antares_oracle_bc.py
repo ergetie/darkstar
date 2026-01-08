@@ -1,11 +1,11 @@
-from __future__ import annotations
-
 """
 Train an Oracle-guided Antares policy via behaviour cloning (Rev 82).
 
 Usage:
     PYTHONPATH=. ./venv/bin/python ml/train_antares_oracle_bc.py --days 60
 """
+
+from __future__ import annotations
 
 import argparse
 import json
@@ -309,6 +309,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    import json
-
     raise SystemExit(main())

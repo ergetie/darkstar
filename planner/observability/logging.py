@@ -5,16 +5,16 @@ Handles persistence of debug payloads and other observability metrics.
 """
 
 import json
-import os
 import sqlite3
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 
 def ensure_learning_schema(db_path: str) -> None:
     """Create sqlite tables when learning is enabled."""
     # Ensure directory exists
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     with sqlite3.connect(db_path) as conn:
         conn.execute(

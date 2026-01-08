@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """
 MILP-based Oracle for Antares (Rev 71).
 
@@ -8,9 +6,12 @@ daily schedule under perfect hindsight (historical load/PV/prices) and
 simple battery constraints.
 """
 
+from __future__ import annotations
+
 import sqlite3
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -39,7 +40,7 @@ class OracleConfig:
 
 def load_yaml(path: str) -> dict[str, Any]:
     try:
-        with open(path, encoding="utf-8") as fp:
+        with Path(path).open(encoding="utf-8") as fp:
             return yaml.safe_load(fp) or {}
     except FileNotFoundError:
         return {}

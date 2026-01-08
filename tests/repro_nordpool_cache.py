@@ -1,14 +1,16 @@
-import sys
-import os
 import datetime
-import pytz
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-# Ensure we can import from the root
-sys.path.append(os.getcwd())
+import pytz
 
-from inputs import get_nordpool_data
+# Ensure we can import from the root
+sys.path.append(str(Path.cwd()))
+
 from backend.core.cache import cache_sync
+from inputs import get_nordpool_data
+
 
 def test_poisoned_cache_invalidation():
     # Setup
@@ -16,7 +18,7 @@ def test_poisoned_cache_invalidation():
     now = datetime.datetime.now(local_tz).replace(hour=14, minute=0, second=0, microsecond=0)
     today = now.date()
     tomorrow = today + datetime.timedelta(days=1)
-    
+
     # Poisoned cache: starts tomorrow
     poisoned_data = [
         {
@@ -26,9 +28,9 @@ def test_poisoned_cache_invalidation():
             "export_price_sek_kwh": 0.9
         }
     ]
-    
+
     cache_sync.set("nordpool_data", poisoned_data, ttl_seconds=3600)
-    
+
     # Mock config
     mock_config = {
         "timezone": "Europe/Stockholm",
@@ -43,15 +45,15 @@ def test_poisoned_cache_invalidation():
             "energy_tax_sek": 0.4
         }
     }
-    
+
     with patch("inputs.yaml.safe_load", return_value=mock_config), \
          patch("inputs.Path.open", MagicMock()), \
          patch("inputs.datetime") as mock_datetime, \
          patch("inputs.Prices") as mock_prices:
-        
+
         mock_datetime.now.return_value = now
         mock_datetime.combine = datetime.datetime.combine # Restore combine
-        
+
         # Mock Nordpool fetch to return something
         mock_client = MagicMock()
         mock_prices.return_value = mock_client
@@ -64,12 +66,12 @@ def test_poisoned_cache_invalidation():
                 }
             }
         }
-        
+
         print(f"Running test at {now} with poisoned cache starting at {poisoned_data[0]['start_time']}")
-        
+
         # Call the function
         result = get_nordpool_data("dummy_config.yaml")
-        
+
         # Verify
         assert result[0]["start_time"].date() == today, f"Should have fetched today's data, but first slot is {result[0]['start_time']}"
         print("Success: Cache was invalidated and today's data was fetched!")

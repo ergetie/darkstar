@@ -45,10 +45,8 @@ def simulate_schedule(
 
     for idx, row in df.iterrows():
         # Determine slot duration
-        if "end_time" in row:
-            duration_h = (row["end_time"] - idx).total_seconds() / 3600.0
-        else:
-            duration_h = 0.25  # Default 15 min
+        duration_h = (row["end_time"] - idx).total_seconds() / 3600.0 if "end_time" in row else 0.25
+        # Default 15 min
 
         charge_kw = float(row.get("charge_kw", 0.0))
         discharge_kw = float(row.get("discharge_kw", 0.0))

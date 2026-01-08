@@ -1,14 +1,15 @@
 import asyncio
-import os
 import sqlite3
 import sys
 from datetime import timedelta
+from pathlib import Path
 
 import pandas as pd
 import pytz
+import yaml
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 from ml.simulation.data_loader import SimulationDataLoader
 
@@ -22,12 +23,15 @@ class ForecastBackfiller:
         self.client = self.loader.ha_client
         self.db_path = self.loader.db_path
 
+    def load_config(self, path="config.yaml"):
+        with Path(path).open(encoding="utf-8") as f:
+            return yaml.safe_load(f)
+
     def find_gaps(self):
         print(f"Scanning {self.db_path} for gaps...")
         with sqlite3.connect(self.db_path) as conn:
             query = "SELECT slot_start, load_kwh, pv_kwh FROM slot_observations ORDER BY slot_start"
             df = pd.read_sql_query(query, conn)
-
         if df.empty:
             return []
 
@@ -111,7 +115,7 @@ class ForecastBackfiller:
                 if exists:
                     cursor.execute(
                         """
-                        UPDATE slot_observations 
+                        UPDATE slot_observations
                         SET load_kwh = ?, pv_kwh = ?
                         WHERE slot_start = ?
                     """,

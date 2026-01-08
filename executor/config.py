@@ -6,6 +6,7 @@ Loads and validates the executor configuration from config.yaml.
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, cast
 
 import yaml
@@ -98,7 +99,7 @@ class ExecutorConfig:
 def load_yaml(path: str) -> dict[str, Any]:
     """Load YAML file with strict typing."""
     try:
-        with open(path, encoding="utf-8") as f:
+        with Path(path).open(encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
             return cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
     except FileNotFoundError:
@@ -115,7 +116,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     Falls back to defaults if executor section is missing.
     """
     try:
-        with open(config_path, encoding="utf-8") as f:
+        with Path(config_path).open(encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
             data: dict[str, Any] = cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
     except FileNotFoundError:

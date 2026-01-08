@@ -1,11 +1,8 @@
+"""
+Evaluation: Compare Antares RL vs MILP Optimal for cost.
+"""
+
 from __future__ import annotations
-
-"""
-Evaluate Antares RL policy vs MPC cost (Rev 76).
-
-Usage (from project root):
-    PYTHONPATH=. python ml/eval_antares_rl_cost.py --days 10
-"""
 
 import argparse
 import sqlite3

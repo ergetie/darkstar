@@ -1,6 +1,7 @@
 import sqlite3
 import sys
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytz
 import requests
@@ -10,8 +11,8 @@ import yaml
 VATTENFALL_API = "https://www.vattenfall.se/api/price/spot/pricearea/{start}/{end}/{area}"
 
 
-def load_config():
-    with open("config.yaml") as f:
+def load_config(path="config.yaml"):
+    with Path(path).open(encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 

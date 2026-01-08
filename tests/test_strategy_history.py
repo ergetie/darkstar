@@ -1,6 +1,6 @@
-import os
 import shutil
 import unittest
+from pathlib import Path
 
 from backend.strategy.history import HISTORY_FILE, append_strategy_event, get_strategy_history
 
@@ -13,10 +13,10 @@ class TestStrategyHistory(unittest.TestCase):
 
     def tearDown(self):
         # Restore backup
-        if os.path.exists(str(HISTORY_FILE) + ".bak"):
+        if Path(str(HISTORY_FILE) + ".bak").exists():
             shutil.move(str(HISTORY_FILE) + ".bak", HISTORY_FILE)
-        elif os.path.exists(HISTORY_FILE):
-            os.remove(HISTORY_FILE)
+        elif HISTORY_FILE.exists():
+            HISTORY_FILE.unlink()
 
     def test_append_and_retrieve(self):
         append_strategy_event("TEST_EVENT", "This is a test", {"foo": "bar"})

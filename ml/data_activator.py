@@ -1,3 +1,7 @@
+"""
+Logic for activating training/evaluation data for Aurora/Antares.
+"""
+
 from __future__ import annotations
 
 import argparse

@@ -348,7 +348,7 @@ class ExecutionHistory:
         now_iso = now.isoformat()
 
         query = """
-            SELECT 
+            SELECT
                 slot_start,
                 planned_charge_kw,
                 planned_discharge_kw,

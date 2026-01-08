@@ -1,9 +1,10 @@
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 # Add project root to sys.path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(str(Path(__file__).parent.parent.resolve()))
 
 import yaml
 
@@ -13,7 +14,7 @@ from planner.pipeline import generate_schedule
 
 def load_yaml(path):
     try:
-        with open(path, encoding="utf-8") as f:
+        with Path(path).open(encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except FileNotFoundError:
         return {}
@@ -89,6 +90,7 @@ def main():
     if enable_shadow:
         try:
             from db_writer import write_antares_shadow_to_mariadb
+
             from ml.policy.shadow_runner import run_shadow_for_schedule
 
             policy_type = str(antares_cfg.get("shadow_policy_type", "lightgbm")).lower()

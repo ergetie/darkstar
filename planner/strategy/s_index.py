@@ -7,12 +7,14 @@ Extracted from planner_legacy.py during Rev K13 modularization.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pytz
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
 def calculate_dynamic_s_index(
@@ -194,7 +196,7 @@ def calculate_probabilistic_s_index(
     except (ValueError, TypeError):
         day_offsets = [1, 2, 3, 4]
 
-    normalized_days: list[int] = sorted(set(int(d) for d in day_offsets if int(d) > 0))
+    normalized_days: list[int] = sorted({int(d) for d in day_offsets if int(d) > 0})
     if not normalized_days:
         return None, {"mode": "probabilistic", "reason": "no_valid_days"}
 
@@ -322,9 +324,9 @@ def calculate_target_soc_risk_factor(
            - Negative = surplus (can reduce buffer if gambler mode)
 
         2. Apply risk_appetite via sigma scaling:
-           - Safety (1): +1.28σ → higher buffer
-           - Neutral (3): 0σ → baseline
-           - Gambler (5): -0.67σ → lower buffer (can go below baseline)
+           - Safety (1): +1.28 sigma → higher buffer
+           - Neutral (3): 0 sigma → baseline
+           - Gambler (5): -0.67 sigma → lower buffer (can go below baseline)
 
         3. Combine: raw_factor = base + pv_deficit_contribution + temp_contribution
            - Apply sigma scaling to allow gambler mode to reduce below base
@@ -344,11 +346,11 @@ def calculate_target_soc_risk_factor(
 
     # Sigma mapping (same as probabilistic s-index for consistency)
     RISK_SIGMA_MAP = {
-        1: 1.28,  # Safety: +1.28σ
-        2: 0.67,  # Conservative: +0.67σ
-        3: 0.00,  # Neutral: 0σ
-        4: -0.25,  # Aggressive: -0.25σ
-        5: -0.67,  # Gambler: -0.67σ
+        1: 1.28,  # Safety: +1.28 sigma
+        2: 0.67,  # Conservative: +0.67 sigma
+        3: 0.00,  # Neutral: 0 sigma
+        4: -0.25,  # Aggressive: -0.25 sigma
+        5: -0.67,  # Gambler: -0.67 sigma
     }
     target_sigma = RISK_SIGMA_MAP.get(risk_appetite, 0.0)
 

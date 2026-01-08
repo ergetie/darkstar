@@ -15,7 +15,7 @@ OUTPUT_FILE = Path(__file__).parent.parent / "frontend" / "src" / "config-help.j
 def extract_config_help():
     print("Extracting help text from config.default.yaml...")
 
-    with open(CONFIG_FILE) as f:
+    with Path(CONFIG_FILE).open(encoding="utf-8") as f:
         lines = f.readlines()
 
     help_map = {}
@@ -55,7 +55,7 @@ def extract_config_help():
 
     # Write output
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(OUTPUT_FILE, "w") as f:
+    with Path(OUTPUT_FILE).open("w", encoding="utf-8") as f:
         json.dump(help_map, f, indent=2)
 
     print(f"✓ Extracted {len(help_map)} help entries to {OUTPUT_FILE}")

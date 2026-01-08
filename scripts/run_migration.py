@@ -1,8 +1,9 @@
 import logging
-import os
+import sqlite3
 import sys
+from pathlib import Path
 
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 import pytz
 
@@ -13,7 +14,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 DB_PATH = "data/learning.db"
-if not os.path.exists(DB_PATH):
+if not Path(DB_PATH).exists():
     print(f"Warning: {DB_PATH} not found, trying test.db")
     DB_PATH = "test.db"
 

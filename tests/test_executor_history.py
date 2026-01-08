@@ -5,10 +5,10 @@ Tests the SQLite-based execution history storage.
 """
 
 import contextlib
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 import pytz
@@ -26,7 +26,7 @@ def temp_db():
 
     # Cleanup
     with contextlib.suppress(OSError):
-        os.unlink(db_path)
+        Path(db_path).unlink()
 
 
 @pytest.fixture

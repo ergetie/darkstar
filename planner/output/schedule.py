@@ -8,9 +8,9 @@ Handles saving the final schedule to JSON, including:
 """
 
 import json
-import os
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -84,8 +84,8 @@ def save_schedule_to_json(
         # Load secrets for database access
         secrets_path = "secrets.yaml"
         secrets = {}
-        if os.path.exists(secrets_path):
-            with open(secrets_path) as f:
+        if Path(secrets_path).exists():
+            with Path(secrets_path).open(encoding="utf-8") as f:
                 secrets = yaml.safe_load(f) or {}
 
         # Get current time in local timezone
@@ -153,5 +153,5 @@ def save_schedule_to_json(
                 return obj.isoformat()
             return super().default(obj)
 
-    with open(output_path, "w") as f:
+    with Path(output_path).open("w", encoding="utf-8") as f:
         json.dump(output, f, indent=2, cls=DateTimeEncoder)

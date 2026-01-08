@@ -1,3 +1,7 @@
+"""
+Training script for Antares (MPC simulation-based learning).
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -366,10 +370,9 @@ def main() -> int:
     artifact_dir = _save_models(models, cfg.models_dir, run_id)
 
     baseline_cost_stats: dict[str, Any] = {}
-    if not val_df.empty:
-        if {"import_kwh", "export_kwh", "import_price_sek_kwh", "export_price_sek_kwh"}.issubset(
-            val_df.columns
-        ):
+    if not val_df.empty and {"import_kwh", "export_kwh", "import_price_sek_kwh", "export_price_sek_kwh"}.issubset(
+        val_df.columns
+    ):
             import_cost = val_df["import_kwh"].astype(float) * val_df[
                 "import_price_sek_kwh"
             ].astype(float)

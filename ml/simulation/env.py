@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -43,7 +44,7 @@ class AntaresMPCEnv:
         self.timezone = pytz.timezone(self.loader.timezone_name)
 
         # Load config for PlannerPipeline
-        with open(config_path) as f:
+        with Path(config_path).open(encoding="utf-8") as f:
             self._config = yaml.safe_load(f) or {}
         self.pipeline = PlannerPipeline(self._config)
 

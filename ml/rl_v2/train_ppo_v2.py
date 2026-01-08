@@ -13,9 +13,8 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import gymnasium as gym
 import numpy as np
 import torch
 from stable_baselines3 import PPO
@@ -25,6 +24,9 @@ from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
 
 from backend.learning import LearningEngine, get_learning_engine
 from ml.rl_v2.ppo_env_v2 import AntaresRLEnvV2
+
+if TYPE_CHECKING:
+    import gymnasium as gym
 
 
 @dataclass
@@ -140,7 +142,7 @@ def main() -> int:
 
     # Custom Network Architecture
     # Larger networks allow the GPU to do more work per batch, reducing overhead ratio.
-    net_arch = dict(pi=[cfg.hidden_dim] * cfg.layer_count, vf=[cfg.hidden_dim] * cfg.layer_count)
+    net_arch = {"pi": [cfg.hidden_dim] * cfg.layer_count, "vf": [cfg.hidden_dim] * cfg.layer_count}
 
     print("[rl-v2-ppo] Starting training with:")
     print(f"  Environments: {cfg.n_envs} ({'Parallel' if cfg.n_envs > 1 else 'Sequential'})")

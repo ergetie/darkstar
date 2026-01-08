@@ -1,3 +1,7 @@
+"""
+General evaluation framework for Aurora models.
+"""
+
 from __future__ import annotations
 
 import argparse

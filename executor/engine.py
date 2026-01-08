@@ -10,13 +10,14 @@ The main executor loop that orchestrates:
 6. Logging execution history
 """
 
+import contextlib
 import json
 import logging
-import os
 import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytz
@@ -115,7 +116,7 @@ class ExecutorEngine:
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
         # Use the same database as the learning engine
-        return os.path.join("data", "planner_learning.db")
+        return str(Path("data") / "planner_learning.db")
 
     def init_ha_client(self) -> bool:
         """Initialize the Home Assistant client."""
@@ -228,20 +229,16 @@ class ExecutorEngine:
             if batt_pwr_entity:
                 val = self.ha_client.get_state_value(batt_pwr_entity)
                 if val and val not in ("unknown", "unavailable"):
-                    try:
+                    with contextlib.suppress(ValueError):
                         metrics["battery_kw"] = float(val) / 1000.0  # W to kW
-                    except ValueError:
-                        pass
 
             # Water Heater Power
             water_pwr_entity = input_sensors.get("water_power")
             if water_pwr_entity:
                 val = self.ha_client.get_state_value(water_pwr_entity)
                 if val and val not in ("unknown", "unavailable"):
-                    try:
+                    with contextlib.suppress(ValueError):
                         metrics["water_kw"] = float(val) / 1000.0  # W to kW
-                    except ValueError:
-                        pass
 
         return metrics
 
@@ -962,12 +959,12 @@ class ExecutorEngine:
         Returns (SlotPlan, slot_start_iso) or (None, None) if not found.
         """
         schedule_path = self.config.schedule_path
-        if not os.path.exists(schedule_path):
+        if not Path(schedule_path).exists():
             logger.warning("Schedule file not found: %s", schedule_path)
             return None, None
 
         try:
-            with open(schedule_path, encoding="utf-8") as f:
+            with Path(schedule_path).open(encoding="utf-8") as f:
                 payload = json.load(f)
             schedule = payload.get("schedule", [])
         except Exception as e:

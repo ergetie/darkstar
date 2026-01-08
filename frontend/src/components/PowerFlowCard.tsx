@@ -113,7 +113,7 @@ interface NodeProps {
 function Node({ x, y, iconType, label, value, subValue, color, glowIntensity, isCharging, compact }: NodeProps) {
     const baseRadius = compact ? 28 : 35
     const glowRadius = baseRadius + 18 * glowIntensity
-    const iconSize = compact ? 18 : 22
+    const iconSize = compact ? 18 : 25
 
     const IconComponent = {
         solar: Sun,
@@ -183,17 +183,20 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
         const baseCenterY = 140 // Y center of [40, 240]
 
         const targetCenterX = compact ? 150 : 200 // SVG viewBox width / 2
-        const targetCenterY = compact ? 100 : 140 // SVG viewBox height / 2
+        // Center the *visual mass* (nodes + labels), not just the nodes.
+        // Content is bottom-heavy: ~35px top radius vs ~73px bottom radius+text.
+        // Shift center UP by ~19px (regular) and ~13px (compact).
+        const targetCenterY = compact ? 117 : 161
 
         const offX = (p: number) => (p - baseCenterX) * scale + targetCenterX
         const offY = (p: number) => (p - baseCenterY) * scale + targetCenterY
 
         return {
-            solar: { x: offX(100), y: offY(40) },
-            house: { x: offX(200), y: offY(140) },
-            battery: { x: offX(200), y: offY(240) },
+            solar: { x: offX(100), y: offY(50) },
+            house: { x: offX(200), y: offY(142.5) }, // Slight push down to center perfectly between 25 and 260
+            battery: { x: offX(300), y: offY(240) },
             grid: { x: offX(100), y: offY(240) },
-            water: { x: offX(300), y: offY(140) },
+            water: { x: offX(300), y: offY(50) },
         }
     }, [scale, compact])
 
@@ -238,7 +241,7 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
     // Let's flip the logic for the label.
     const battLabel = data.battery.kw <= 0 ? 'Charging' : 'Discharging'
 
-    const viewBox = compact ? '0 0 300 200' : '0 0 400 280'
+    const viewBox = compact ? '0 0 300 260' : '0 0 400 360'
 
     return (
         <svg viewBox={viewBox} className="w-full h-full">

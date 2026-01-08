@@ -1,14 +1,11 @@
+"""
+Train an Antares policy via PPO reinforcement learning (Rev 82).
+
+Usage:
+    PYTHONPATH=. ./venv/bin/python ml/train_antares_rl.py --days 30
+"""
+
 from __future__ import annotations
-
-"""
-Train Antares RL Agent v1 (Rev 76).
-
-This script trains a PPO-based RL agent on top of AntaresMPCEnv using the
-AntaresRLEnv adapter and logs runs into antares_rl_runs.
-
-Usage (from project root, after installing RL deps):
-    PYTHONPATH=. python ml/train_antares_rl.py --timesteps 200_000
-"""
 
 import argparse
 import json
@@ -17,6 +14,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 
@@ -82,7 +80,7 @@ def _make_vec_env(config_path: str = "config.yaml"):
     import gymnasium as gym
 
     class _GymAdapter(gym.Env):
-        metadata = {"render.modes": []}
+        metadata: ClassVar[dict[str, list[str]]] = {"render.modes": []}
 
         def __init__(self):
             super().__init__()

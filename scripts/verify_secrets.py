@@ -14,9 +14,8 @@ def verify_secrets():
         leaked = []
 
         # Check HA token
-        if "home_assistant" in data:
-            if "token" in data["home_assistant"]:
-                leaked.append("home_assistant.token")
+        if "home_assistant" in data and "token" in data["home_assistant"]:
+            leaked.append("home_assistant.token")
 
         # Check Notifications
         if "notifications" in data:

@@ -4,6 +4,7 @@ import asyncio
 import math
 import sqlite3
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -75,7 +76,7 @@ class SimulationDataLoader:
     @staticmethod
     def load_yaml(path: str) -> dict[str, Any]:
         try:
-            with open(path, encoding="utf-8") as fp:
+            with Path(path).open(encoding="utf-8") as fp:
                 return yaml.safe_load(fp) or {}
         except FileNotFoundError:
             return {}
@@ -171,7 +172,7 @@ class SimulationDataLoader:
                 row["slot_start"],
                 row["slot_end"],
                 base,
-                tuple(),
+                (),
             )
             records.extend(segments)
         return sorted(records, key=lambda item: item["start_time"])

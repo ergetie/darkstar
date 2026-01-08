@@ -21,7 +21,7 @@ def benchmark_gpu():
     env = make_vec_env("Pendulum-v1", n_envs=args.n_envs, vec_env_cls=SubprocVecEnv)
 
     # Huge network to force GPU usage
-    net_arch = dict(pi=[args.hidden_dim, args.hidden_dim], vf=[args.hidden_dim, args.hidden_dim])
+    net_arch = {"pi": [args.hidden_dim, args.hidden_dim], "vf": [args.hidden_dim, args.hidden_dim]}
 
     model = PPO(
         "MlpPolicy",

@@ -1,3 +1,7 @@
+"""
+End-to-end pipeline for Aurora training and inference.
+"""
+
 from __future__ import annotations
 
 from datetime import datetime

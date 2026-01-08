@@ -3,10 +3,10 @@
 import argparse
 import copy
 import math
-import os
 import sqlite3
 import tempfile
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import learning
 import pandas as pd
@@ -23,7 +23,7 @@ def _parse_date(value: str) -> datetime:
     except ValueError:
         raise argparse.ArgumentTypeError(
             "Dates must be ISO formatted (YYYY-MM-DD or YYYY-MM-DDTHH:MM)."
-        )
+        ) from None
 
 
 def _build_sim_config(base_config: dict) -> dict:
@@ -34,10 +34,8 @@ def _build_sim_config(base_config: dict) -> dict:
 
 
 def _write_temp_config(sim_config: dict) -> str:
-    handle = tempfile.NamedTemporaryFile(delete=False, suffix=".yaml", mode="w", encoding="utf-8")
-    yaml.safe_dump(sim_config, handle)
-    handle.flush()
-    handle.close()
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".yaml", mode="w", encoding="utf-8") as handle:
+        yaml.safe_dump(sim_config, handle)
     return handle.name
 
 
@@ -63,7 +61,7 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        with open("config.yaml", encoding="utf-8") as fp:
+        with Path("config.yaml").open(encoding="utf-8") as fp:
             base_config = yaml.safe_load(fp) or {}
     except FileNotFoundError:
         print("config.yaml not found. Please run from project root.")
@@ -252,8 +250,8 @@ def main() -> int:
 
     finally:
         learning._learning_engine = previous_engine
-        if os.path.exists(temp_config_path):
-            os.remove(temp_config_path)
+        if Path(temp_config_path).exists():
+            Path(temp_config_path).unlink()
 
     return 0
 

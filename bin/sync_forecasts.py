@@ -1,11 +1,11 @@
-import os
 import sqlite3
 import sys
+from pathlib import Path
 
 import pandas as pd
 
 # Add project root to path
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 DB_PATH = "data/planner_learning.db"
 
@@ -19,9 +19,9 @@ def sync_forecasts():
         # Note: slot_forecasts has 'forecast_version' column. We should target 'aurora'.
 
         query = """
-            SELECT 
-                f.slot_start, 
-                f.load_forecast_kwh as f_load, 
+            SELECT
+                f.slot_start,
+                f.load_forecast_kwh as f_load,
                 o.load_kwh as o_load,
                 f.pv_forecast_kwh as f_pv,
                 o.pv_kwh as o_pv

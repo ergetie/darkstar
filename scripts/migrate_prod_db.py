@@ -1,9 +1,9 @@
 import logging
-import os
 import sqlite3
 import sys
+from pathlib import Path
 
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 import pytz
 
@@ -17,7 +17,7 @@ DB_PATH = "data/planner_learning.db"
 
 
 def migrate_prod():
-    if not os.path.exists(DB_PATH):
+    if not Path(DB_PATH).exists():
         print(f"CRITICAL: {DB_PATH} does not exist!")
         return
 

@@ -1,11 +1,10 @@
-import os
 import sys
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-# Ensure backend can be imported
-sys.path.append(os.getcwd())
+sys.path.append(str(Path.cwd()))
 
 @pytest.fixture
 def client():

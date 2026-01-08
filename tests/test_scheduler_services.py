@@ -58,7 +58,7 @@ async def _test_scheduler_lifecycle_async():
     assert not scheduler.status.enabled
 
     # Test starting (mocks loop to prevent infinite run)
-    with patch.object(SchedulerService, "_loop") as mock_loop:
+    with patch.object(SchedulerService, "_loop"):
         await scheduler.start()
         assert scheduler.status.running
         assert scheduler._task is not None
