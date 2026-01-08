@@ -224,6 +224,7 @@ executor:
     grid_charging_entity: switch.inverter_battery_grid_charging     # Enable/disable grid charging
     max_charging_current_entity: number.inverter_battery_max_charging_current     # Max charge current (A)
     max_discharging_current_entity: number.inverter_battery_max_discharging_current  # Max discharge current (A)
+    grid_max_export_power_entity: number.inverter_grid_max_export_power           # Max grid export power (Watts)
 
   # Controller Parameters (electrical conversion constants)
   controller:
@@ -232,7 +233,8 @@ executor:
     worst_case_voltage_v: 46.0         # Minimum voltage for conservative calculations
     inverter_ac_limit_kw: 8.8          # Max AC power output of inverter
     charge_efficiency: 0.92            # Charging efficiency (0-1)
-    max_charge_a: 190.0                # Maximum charging current (A)
+    max_charge_a: 185.0                # Maximum charging current (A)
+    max_discharge_a: 185.0             # Maximum discharging current (A)
     min_charge_a: 10.0                 # Minimum meaningful charge current (A)
     round_step_a: 5.0                  # Round current commands to nearest X amps
     write_threshold_a: 5.0             # Only write if change exceeds X amps

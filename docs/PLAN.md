@@ -252,11 +252,11 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] **Export Power Entity Support**: Add Support for `number.inverter_grid_max_export_power` (or similar) in HA. This will be used to limit actual grid export power while leaving the battery free to cover load spikes.
 - [x] **Current Limit Standardization**: Replace hardcoded 190A with configurable `max_charge_a` and `max_discharge_a` in `executor/config.py`.
 
-#### Phase 2: Configuration & Onboarding [PLANNED]
+#### Phase 2: Configuration & Onboarding [DONE]
 **Goal:** Expose new control entities and current limits to the user via configuration.
-- [ ] **Config Schema Update**: Add `max_charge_a`, `max_discharge_a`, and `max_export_power_entity` to `config.default.yaml`.
-- [ ] **UI Settings Integration**: Add these new fields to the "Battery Specifications" and "HA Entities" tabs in the Settings UI (mapping in `frontend/src/pages/settings/types.ts`).
-- [ ] **Help Documentation**: Update `frontend/src/config-help.json` with clear descriptions for the new settings.
+- [x] **Config Schema Update**: Add `max_charge_a`, `max_discharge_a`, and `max_export_power_entity` to `config.default.yaml`.
+- [x] **UI Settings Integration**: Add these new fields to the "Battery Specifications" and "HA Entities" tabs in the Settings UI (mapping in `frontend/src/pages/settings/types.ts`).
+- [x] **Help Documentation**: Update `frontend/src/config-help.json` with clear descriptions for the new settings.
 
 #### Phase 3: Verification & Polish [PLANNED]
 **Goal:** Ensure 100% production-grade stability and performance.
