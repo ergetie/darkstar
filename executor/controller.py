@@ -37,6 +37,7 @@ class ControllerDecision:
 
     # Water heater
     water_temp: int
+    export_power_w: float = 0.0  # Planned grid export power in Watts (Bug Fix #1)
 
     # Flags
     write_charge_current: bool = False  # Only write if significant change
@@ -119,6 +120,7 @@ class Controller:
             grid_charging=grid_charging,
             charge_current_a=charge_current,
             discharge_current_a=discharge_current,
+            export_power_w=0.0,
             soc_target=soc_target,
             water_temp=water_temp,
             write_charge_current=write_charge,
@@ -140,6 +142,9 @@ class Controller:
         charge_current, write_charge = self._calculate_charge_current(slot, state)
         discharge_current, write_discharge = self._calculate_discharge_current(slot, state)
 
+        # Planned grid export power (kW to W)
+        export_power_w = slot.export_kw * 1000.0
+
         # SoC target from plan
         soc_target = slot.soc_target
 
@@ -153,6 +158,7 @@ class Controller:
             grid_charging=grid_charging,
             charge_current_a=charge_current,
             discharge_current_a=discharge_current,
+            export_power_w=export_power_w,
             soc_target=soc_target,
             water_temp=water_temp,
             write_charge_current=write_charge,
@@ -207,29 +213,14 @@ class Controller:
         Calculate the discharge current to command.
 
         Logic:
-        - If actively exporting to grid, limit discharge to planned export rate
-        - Otherwise, set to MAXIMUM to allow battery to supply any load spikes
-          (stoves, kettles, etc.) without pulling from grid
+        - We ALWAYS set this to MAXIMUM (max_discharge_a) to allow the battery to
+          supply any local load spikes (stoves, kettles, etc.) without pulling from grid.
+        - The actual grid export rate is controlled via a separate 'max_export_power' entity.
+        - This is a critical fix for Bug #1: letting the battery provide full current
+          even during export slots ensures local load is covered first.
         """
-        # If doing controlled export, limit discharge current to export rate
-        if slot.export_kw > 0:
-            # kW to Amps for controlled export
-            raw_current = (slot.export_kw * 1000) / self.config.worst_case_voltage_v
-
-            # Round to step size
-            rounded = round(raw_current / self.config.round_step_a) * self.config.round_step_a
-
-            # Clamp to limits
-            clamped = max(self.config.min_charge_a, min(self.config.max_charge_a, rounded))
-
-            logger.debug("Export mode: limiting discharge to %.0fA", clamped)
-            return clamped, True
-
-        # Not exporting - set discharge to MAXIMUM so battery can supply any load
-        # This is critical for handling load spikes (stoves, kettles, etc.)
-        # Without max discharge, high loads will pull from grid!
-        logger.debug("Normal mode: setting discharge to max %.0fA", self.config.max_charge_a)
-        return self.config.max_charge_a, True
+        logger.debug("Setting discharge to max %.0fA for full load coverage", self.config.max_discharge_a)
+        return self.config.max_discharge_a, True
 
     def _determine_water_temp(self, slot: SlotPlan) -> int:
         """Determine water heater target temperature from slot plan."""

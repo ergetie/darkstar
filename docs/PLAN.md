@@ -239,3 +239,28 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 **Documentation:**
 - [x] Update this REV status to `[DONE]`
 - [x] Commit with: `feat(planner): remove legacy heuristics, add config validation`
+
+---
+
+### [PLANNED] REV // F7 — Export & Battery Control Hardening
+
+**Goal:** Resolve critical bugs in controlled export slots where local load isn't compensated, and fix battery current limit toggling issue by exposing settings in the UI.
+
+#### Phase 1: Controller & Executor Logic [DONE]
+**Goal:** Harden the battery control logic to allow for local load compensation during controlled export and standardize current limit handling.
+- [x] **Export Logic Refactoring**: Modify `executor/controller.py` to set battery discharge to `max_discharge_a` even in export slots, allowing the battery to cover both export and local load.
+- [x] **Export Power Entity Support**: Add Support for `number.inverter_grid_max_export_power` (or similar) in HA. This will be used to limit actual grid export power while leaving the battery free to cover load spikes.
+- [x] **Current Limit Standardization**: Replace hardcoded 190A with configurable `max_charge_a` and `max_discharge_a` in `executor/config.py`.
+
+#### Phase 2: Configuration & Onboarding [PLANNED]
+**Goal:** Expose new control entities and current limits to the user via configuration.
+- [ ] **Config Schema Update**: Add `max_charge_a`, `max_discharge_a`, and `max_export_power_entity` to `config.default.yaml`.
+- [ ] **UI Settings Integration**: Add these new fields to the "Battery Specifications" and "HA Entities" tabs in the Settings UI (mapping in `frontend/src/pages/settings/types.ts`).
+- [ ] **Help Documentation**: Update `frontend/src/config-help.json` with clear descriptions for the new settings.
+
+#### Phase 3: Verification & Polish [PLANNED]
+**Goal:** Ensure 100% production-grade stability and performance.
+- [ ] **Unit Tests**: Update `tests/test_executor_controller.py` to verify load compensation during export.
+- [ ] **Integration Test**: Verify HA entity writing logic for the new export power entity.
+- [ ] **Manual UI Validation**: Confirm settings are correctly saved and loaded in the UI.
+- [ ] **Log Audit**: Ensure executor logs clearly indicate why specific current/power commands are sent.

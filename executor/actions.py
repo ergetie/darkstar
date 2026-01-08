@@ -236,6 +236,11 @@ class ActionDispatcher:
             result = self.set_water_temp(decision.water_temp)
             results.append(result)
 
+        # 7. Set max export power (Bug fix #1)
+        if self.config.has_battery:
+            result = self._set_max_export_power(decision.export_power_w)
+            results.append(result)
+
         return results
 
     def _set_work_mode(self, target_mode: str) -> ActionResult:
@@ -497,6 +502,43 @@ class ActionDispatcher:
             ),
             previous_value=current_val,
             new_value=target,
+            duration_ms=duration,
+        )
+
+    def _set_max_export_power(self, watts: float) -> ActionResult:
+        """Set max grid export power (Bug Fix #1)."""
+        start = time.time()
+        entity = self.config.inverter.grid_max_export_power_entity
+
+        if not entity or entity == "none":
+            return ActionResult(
+                action_type="max_export_power",
+                success=True,
+                message="Export power entity not configured, skipping",
+                skipped=True,
+            )
+
+        if self.shadow_mode:
+            logger.info("[SHADOW] Would set max_export_power to %s W", watts)
+            return ActionResult(
+                action_type="max_export_power",
+                success=True,
+                message=f"[SHADOW] Would set to {watts} W",
+                new_value=watts,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
+        success = self.ha.set_number(entity, watts)
+        duration = int((time.time() - start) * 1000)
+
+        logger.info("Set max_export_power: %.0f W on %s (success=%s)", watts, entity, success)
+
+        return ActionResult(
+            action_type="max_export_power",
+            success=success,
+            message=f"Set to {watts} W" if success else "Failed to set export power",
+            new_value=watts,
             duration_ms=duration,
         )
 

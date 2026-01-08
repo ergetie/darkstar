@@ -55,8 +55,26 @@ class TestControllerConfig:
         assert config.battery_capacity_kwh == 27.0
         assert config.system_voltage_v == 48.0
         assert config.min_charge_a == 10.0
-        assert config.max_charge_a == 190.0
+        assert config.max_charge_a == 185.0
+        assert config.max_discharge_a == 185.0
         assert config.round_step_a == 5.0
+
+    def test_custom_values(self):
+        """ControllerConfig can be initialized with custom values."""
+        config = ControllerConfig(
+            battery_capacity_kwh=30.0,
+            system_voltage_v=50.0,
+            min_charge_a=5.0,
+            max_charge_a=200.0,
+            max_discharge_a=200.0,
+            round_step_a=10.0,
+        )
+        assert config.battery_capacity_kwh == 30.0
+        assert config.system_voltage_v == 50.0
+        assert config.min_charge_a == 5.0
+        assert config.max_charge_a == 200.0
+        assert config.max_discharge_a == 200.0
+        assert config.round_step_a == 10.0
 
 
 class TestControllerFollowPlan:
@@ -203,7 +221,7 @@ class TestControllerApplyOverride:
 
         decision = controller.decide(slot, state, override)
 
-        assert decision.discharge_current_a == controller.config.max_charge_a
+        assert decision.discharge_current_a == controller.config.max_discharge_a
         assert decision.write_discharge_current is True
 
     def test_no_override_follows_plan(self, controller):
@@ -239,7 +257,7 @@ class TestCalculateChargeCurrent:
             worst_case_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
-            max_charge_a=190.0,
+            max_charge_a=185.0,
         )
         controller = Controller(config)
         # 5 kW at 46V = 5000/46 ≈ 108.7A → rounds to 110A
@@ -256,7 +274,7 @@ class TestCalculateChargeCurrent:
             worst_case_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
-            max_charge_a=190.0,
+            max_charge_a=185.0,
         )
         controller = Controller(config)
         # Very small charge → would be below min
@@ -273,7 +291,7 @@ class TestCalculateChargeCurrent:
             worst_case_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
-            max_charge_a=190.0,
+            max_charge_a=185.0,
         )
         controller = Controller(config)
         # Very high charge → would exceed max
@@ -294,7 +312,8 @@ class TestCalculateDischargeCurrent:
             worst_case_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
-            max_charge_a=190.0,
+            max_charge_a=185.0,
+            max_discharge_a=185.0,
         )
         controller = Controller(config)
         # 3 kW export at 46V ≈ 65A → rounds to 65A
@@ -303,19 +322,21 @@ class TestCalculateDischargeCurrent:
 
         current, should_write = controller._calculate_discharge_current(slot, state)
 
-        assert current == 65.0
+        # Bug fix #1: Even when exporting, we set discharge to MAX
+        # so local load spikes are handled by battery.
+        assert current == 185.0
         assert should_write is True
 
     def test_no_export_sets_max_discharge(self):
         """When not exporting, discharge is set to max for load handling."""
-        config = ControllerConfig(max_charge_a=190.0)
+        config = ControllerConfig(max_discharge_a=185.0)
         controller = Controller(config)
         slot = SlotPlan(export_kw=0.0)
         state = SystemState()
 
         current, should_write = controller._calculate_discharge_current(slot, state)
 
-        assert current == config.max_charge_a  # Max for load spikes
+        assert current == 185.0  # Max for load spikes
         assert should_write is True
 
 

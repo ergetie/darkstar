@@ -24,6 +24,7 @@ class InverterConfig:
     grid_charging_entity: str = "switch.inverter_battery_grid_charging"
     max_charging_current_entity: str = "number.inverter_battery_max_charging_current"
     max_discharging_current_entity: str = "number.inverter_battery_max_discharging_current"
+    grid_max_export_power_entity: str = "number.inverter_grid_max_export_power"
 
 
 @dataclass
@@ -61,7 +62,8 @@ class ControllerConfig:
     system_voltage_v: float = 48.0
     worst_case_voltage_v: float = 46.0
     min_charge_a: float = 10.0
-    max_charge_a: float = 190.0
+    max_charge_a: float = 185.0
+    max_discharge_a: float = 185.0
     round_step_a: float = 5.0
     write_threshold_a: float = 5.0
     inverter_ac_limit_kw: float = 8.8
@@ -157,6 +159,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         max_discharging_current_entity=str(inverter_data.get(
             "max_discharging_current_entity", InverterConfig.max_discharging_current_entity
         )),
+        grid_max_export_power_entity=str(inverter_data.get(
+            "grid_max_export_power_entity", InverterConfig.grid_max_export_power_entity
+        )),
     )
 
     water_data: dict[str, Any] = executor_data.get("water_heater", {}) if isinstance(executor_data.get("water_heater"), dict) else {}
@@ -203,6 +208,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ),
         min_charge_a=float(str(ctrl_data.get("min_charge_a", ControllerConfig.min_charge_a))),
         max_charge_a=float(str(ctrl_data.get("max_charge_a", ControllerConfig.max_charge_a))),
+        max_discharge_a=float(str(ctrl_data.get("max_discharge_a", ControllerConfig.max_discharge_a))),
         round_step_a=float(str(ctrl_data.get("round_step_a", ControllerConfig.round_step_a))),
         write_threshold_a=float(
             str(ctrl_data.get("write_threshold_a", ControllerConfig.write_threshold_a))
