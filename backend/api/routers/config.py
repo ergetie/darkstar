@@ -114,12 +114,91 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, str]:
 
             deep_update(data, payload)
 
+        # REV LCL01: Validate config before saving and collect warnings/errors
+        validation_issues = _validate_config_for_save(data)
+        errors = [i for i in validation_issues if i["severity"] == "error"]
+        warnings = [i for i in validation_issues if i["severity"] == "warning"]
+
+        # If there are critical errors, reject the save
+        if errors:
+            raise HTTPException(
+                400,
+                detail={
+                    "message": "Configuration has critical errors",
+                    "errors": errors,
+                    "warnings": warnings,
+                },
+            )
+
+        # Save the config (even if warnings exist)
         with config_path.open("w", encoding="utf-8") as f:
             yaml_handler.dump(data, f)  # type: ignore
 
+        # Return success with any warnings
+        if warnings:
+            return {"status": "success", "warnings": warnings}  # type: ignore[return-value]
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(500, str(e)) from e
+
+
+def _validate_config_for_save(config: dict[str, Any]) -> list[dict[str, str]]:
+    """Validate config and return list of issues.
+
+    REV LCL01: Run on every config save to catch misconfigurations immediately.
+    Returns list of {"severity": "error"|"warning", "message": str, "guidance": str}
+    """
+    issues: list[dict[str, str]] = []
+    system_cfg = config.get("system", {})
+    water_cfg = config.get("water_heating", {})
+    battery_cfg = config.get("battery", {})
+
+    # Battery: ERROR if enabled but no capacity (breaks MILP solver)
+    if system_cfg.get("has_battery", True):
+        try:
+            capacity = float(battery_cfg.get("capacity_kwh", 0) or 0)
+        except (ValueError, TypeError):
+            capacity = 0.0
+        if capacity <= 0:
+            issues.append({
+                "severity": "error",
+                "message": "Battery enabled but capacity not configured",
+                "guidance": "Set battery.capacity_kwh to your battery's capacity, "
+                "or set system.has_battery to false.",
+            })
+
+    # Water heater: WARNING (feature disabled, system still works)
+    if system_cfg.get("has_water_heater", True):
+        try:
+            power_kw = float(water_cfg.get("power_kw", 0) or 0)
+        except (ValueError, TypeError):
+            power_kw = 0.0
+        if power_kw <= 0:
+            issues.append({
+                "severity": "warning",
+                "message": "Water heater enabled but power not configured",
+                "guidance": "Set water_heating.power_kw to your heater's power (e.g., 3.0), "
+                "or set system.has_water_heater to false.",
+            })
+
+    # Solar: WARNING (PV forecasts will be zero)
+    if system_cfg.get("has_solar", True):
+        solar_cfg = system_cfg.get("solar_array", {})
+        try:
+            kwp = float(solar_cfg.get("kwp", 0) or 0)
+        except (ValueError, TypeError):
+            kwp = 0.0
+        if kwp <= 0:
+            issues.append({
+                "severity": "warning",
+                "message": "Solar enabled but panel size not configured",
+                "guidance": "Set system.solar_array.kwp to your PV capacity, "
+                "or set system.has_solar to false.",
+            })
+
+    return issues
 
 
 @router.post(

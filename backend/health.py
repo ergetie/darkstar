@@ -212,6 +212,66 @@ class HealthChecker:
                     )
                 )
 
+        # REV LCL01: Validate system profile toggle consistency
+        system_cfg = self._config.get("system", {})
+        water_cfg = self._config.get("water_heating", {})
+        battery_cfg = self._config.get("battery", {})
+
+        # Battery misconfiguration = critical (breaks MILP solver)
+        if system_cfg.get("has_battery", True):
+            capacity = battery_cfg.get("capacity_kwh", 0)
+            try:
+                capacity = float(capacity) if capacity else 0.0
+            except (ValueError, TypeError):
+                capacity = 0.0
+            if capacity <= 0:
+                issues.append(
+                    HealthIssue(
+                        category="config",
+                        severity="critical",
+                        message="Battery enabled but capacity not configured",
+                        guidance="Set battery.capacity_kwh to your battery's capacity (e.g., 27.0), "
+                        "or set system.has_battery to false.",
+                    )
+                )
+
+        # Water heater misconfiguration = warning (feature disabled, not broken)
+        if system_cfg.get("has_water_heater", True):
+            power_kw = water_cfg.get("power_kw", 0)
+            try:
+                power_kw = float(power_kw) if power_kw else 0.0
+            except (ValueError, TypeError):
+                power_kw = 0.0
+            if power_kw <= 0:
+                issues.append(
+                    HealthIssue(
+                        category="config",
+                        severity="warning",
+                        message="Water heater enabled but power not configured",
+                        guidance="Set water_heating.power_kw to your heater's power (e.g., 3.0), "
+                        "or set system.has_water_heater to false.",
+                    )
+                )
+
+        # Solar misconfiguration = warning (PV forecasts will be zero)
+        if system_cfg.get("has_solar", True):
+            solar_cfg = system_cfg.get("solar_array", {})
+            kwp = solar_cfg.get("kwp", 0)
+            try:
+                kwp = float(kwp) if kwp else 0.0
+            except (ValueError, TypeError):
+                kwp = 0.0
+            if kwp <= 0:
+                issues.append(
+                    HealthIssue(
+                        category="config",
+                        severity="warning",
+                        message="Solar enabled but panel size not configured",
+                        guidance="Set system.solar_array.kwp to your PV capacity (e.g., 10.0), "
+                        "or set system.has_solar to false.",
+                    )
+                )
+
         return issues
 
     async def check_ha_connection(self) -> list[HealthIssue]:

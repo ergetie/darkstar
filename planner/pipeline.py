@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import copy
 import logging
-from datetime import datetime
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 import pytz
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 from backend.learning.store import LearningStore
 from planner.inputs.data_prep import apply_safety_margins, prepare_df
@@ -66,6 +69,41 @@ class PlannerPipeline:
         for section in required_sections:
             if section not in self.config:
                 raise ValueError(f"Missing required config section: {section}")
+
+        # Validate system profile toggle consistency (REV LCL01)
+        system_cfg = self.config.get("system", {})
+        water_cfg = self.config.get("water_heating", {})
+        battery_cfg = self.config.get("battery", {})
+
+        # Battery: ERROR if enabled but no capacity (breaks MILP solver)
+        if system_cfg.get("has_battery", True):
+            capacity = float(battery_cfg.get("capacity_kwh", 0.0))
+            if capacity <= 0:
+                raise ValueError(
+                    "Config error: system.has_battery is true but "
+                    "battery.capacity_kwh is not set (or is 0). "
+                    "Set battery.capacity_kwh or set system.has_battery to false."
+                )
+
+        # Water heater: WARNING only (doesn't break system, just disables feature)
+        if system_cfg.get("has_water_heater", True):
+            power_kw = float(water_cfg.get("power_kw", 0.0))
+            if power_kw <= 0:
+                logger.warning(
+                    "Config warning: has_water_heater=true but water_heating.power_kw=0. "
+                    "Water heating optimization is disabled."
+                )
+
+        # Solar: WARNING only (doesn't break system, just zeros PV forecasts)
+        if system_cfg.get("has_solar", True):
+            solar_cfg = system_cfg.get("solar_array", {})
+            kwp = float(solar_cfg.get("kwp", 0.0))
+            if kwp <= 0:
+                logger.warning(
+                    "Config warning: has_solar=true but solar_array.kwp=0. "
+                    "PV forecasts will be zero."
+                )
+
 
     def _apply_overrides(self, config: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
         """Apply configuration overrides recursively."""
@@ -526,7 +564,7 @@ def generate_schedule(
     if config is None:
         import yaml
 
-        with open("config.yaml") as f:
+        with Path("config.yaml").open() as f:
             config = yaml.safe_load(f)
 
     pipeline = PlannerPipeline(config)
