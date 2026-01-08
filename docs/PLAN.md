@@ -138,3 +138,102 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - Added dynamic `<base href>` injection in `backend/main.py` using `X-Ingress-Path` header.
   - Updated `frontend/src/lib/socket.ts` to use `document.baseURI` for WebSocket path.
   - Released and verified `v2.4.1-beta` — dashboard loads correctly via HA Ingress.
+
+---
+
+### [PLANNED] REV // LCL01 — Legacy Heuristic Cleanup & Config Validation
+
+**Goal:** Remove all legacy heuristic planner code (pre-Kepler). Kepler MILP becomes the sole scheduling engine. Add comprehensive config validation to catch misconfigurations at startup with clear user-facing errors (banners + toasts).
+
+> **Breaking Change:** Users with misconfigured `water_heating.power_kw = 0` while `has_water_heater = true` will receive a warning, prompting them to fix their config.
+
+#### Phase 1: Backend Config Validation [PLANNED]
+**Goal:** Add validation rules for `has_*` toggle consistency. Warn (not error) when configuration is inconsistent but non-system-breaking.
+
+**Files to Modify:**
+- `planner/pipeline.py` - Expand `_validate_config()` to check `has_*` toggles
+- `backend/health.py` - Add same validation to `_validate_config_structure()` for `/api/health`
+
+**Validation Rules:**
+| Toggle | Required Config | Severity | Rationale |
+|--------|-----------------|----------|-----------|
+| `has_water_heater: true` | `water_heating.power_kw > 0` | **WARNING** | Water scheduling silently disabled |
+| `has_battery: true` | `battery.capacity_kwh > 0` | **ERROR** | Breaks MILP solver |
+| `has_solar: true` | `system.solar_array.kwp > 0` | **WARNING** | PV forecasts will be zero |
+
+**Implementation:**
+- [ ] In `planner/pipeline.py` `_validate_config()`:
+  - [ ] Check `has_water_heater` → `water_heating.power_kw > 0` (WARNING via logger)
+  - [ ] Check `has_battery` → `battery.capacity_kwh > 0` (ERROR raise ValueError)
+  - [ ] Check `has_solar` → `system.solar_array.kwp > 0` (WARNING via logger)
+- [ ] In `backend/health.py` `_validate_config_structure()`:
+  - [ ] Add same checks as HealthIssues with appropriate severity
+- [ ] Create `tests/test_config_validation.py`:
+  - [ ] Test water heater misconfiguration returns warning
+  - [ ] Test battery misconfiguration raises error
+  - [ ] Test solar misconfiguration returns warning
+  - [ ] Test valid config passes
+
+#### Phase 2: Frontend Health Integration [PLANNED]
+**Goal:** Display health issues from `/api/health` in the Dashboard using `SystemAlert.tsx` banner. Add persistent toast for critical errors.
+
+**Files to Modify:**
+- `frontend/src/pages/Dashboard.tsx` - Fetch health on mount, render SystemAlert
+- `frontend/src/components/ui/Toast.tsx` - Add "persistent" option (no auto-dismiss)
+
+**Implementation:**
+- [ ] In `Dashboard.tsx`:
+  - [ ] Add `useState` for `healthStatus`
+  - [ ] Fetch `/api/health` on component mount via `useEffect`
+  - [ ] Render `<SystemAlert health={healthStatus} />` at top of Dashboard content
+- [ ] In `Toast.tsx`:
+  - [ ] Add `persistent?: boolean` to Toast props
+  - [ ] Skip `setTimeout` auto-dismiss when `persistent = true`
+- [ ] In `Dashboard.tsx`:
+  - [ ] If health has critical issues, show persistent toast on load
+- [ ] Test UI:
+  - [ ] Verify banner appears for config warnings
+  - [ ] Verify persistent toast for critical issues
+
+#### Phase 3: Legacy Code Removal [PLANNED]
+**Goal:** Remove all legacy heuristic scheduling code. Kepler MILP is the sole planner.
+
+**Files to DELETE:**
+- [ ] `planner/scheduling/water_heating.py` (534 LOC) - Heuristic water scheduler
+- [ ] `planner/scheduling/__init__.py` - Empty module init
+- [ ] `planner/strategy/windows.py` (122 LOC) - Cheap window identifier
+- [ ] `backend/kepler/adapter.py` - Compatibility shim
+- [ ] `backend/kepler/solver.py` - Compatibility shim
+- [ ] `backend/kepler/types.py` - Compatibility shim
+- [ ] `backend/kepler/__init__.py` - Shim init
+
+**Files to MODIFY:**
+- [ ] `planner/pipeline.py`:
+  - [ ] Remove import: `from planner.scheduling.water_heating import schedule_water_heating`
+  - [ ] Remove import: `from planner.strategy.windows import identify_windows`
+  - [ ] Remove fallback block at lines 246-261 (window identification + heuristic call)
+- [ ] `tests/test_kepler_solver.py`:
+  - [ ] Change: `from backend.kepler.solver import KeplerSolver`
+  - [ ] To: `from planner.solver.kepler import KeplerSolver`
+  - [ ] Change: `from backend.kepler.types import ...`
+  - [ ] To: `from planner.solver.types import ...`
+- [ ] `tests/test_kepler_k5.py`:
+  - [ ] Same import updates as above
+
+#### Phase 4: Verification [PLANNED]
+**Goal:** Verify all changes work correctly and no regressions.
+
+**Automated Tests:**
+- [ ] Run backend tests: `PYTHONPATH=. python -m pytest tests/ -q`
+- [ ] Run frontend lint: `cd frontend && pnpm lint`
+
+**Manual Verification:**
+- [ ] Test with valid production config → Planner runs successfully
+- [ ] Test with `water_heating.power_kw: 0` → Warning in logs + banner in UI
+- [ ] Test with `battery.capacity_kwh: 0` → Error at startup
+- [ ] Test Dashboard shows SystemAlert banner for warnings
+- [ ] Verify all legacy files are deleted (no orphan imports)
+
+**Documentation:**
+- [ ] Update this REV status to `[DONE]`
+- [ ] Commit with: `feat(planner): remove legacy heuristics, add config validation`

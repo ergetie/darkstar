@@ -57,12 +57,6 @@ charging_strategy:
   block_consolidation_tolerance_sek: 0.05  # Price tolerance for merging adjacent charge blocks
   consolidation_max_gap_slots: 0       # Max gap (in 15-min slots) to bridge when consolidating
 
-# Strategic Charging (NOT FULLY IMPLEMENTED - see backlog)
-# When prices drop below threshold, charge battery up to target regardless of other logic
-strategic_charging:
-  price_threshold_sek: 0.85        # [NOT IMPLEMENTED] Floor price for opportunistic charging
-  target_soc_percent: 80           # SoC target for cheap window expansion (used in windows.py)
-
 # Water Heating
 water_heating:
   power_kw: 3.0                    # Power consumption of the water heater
