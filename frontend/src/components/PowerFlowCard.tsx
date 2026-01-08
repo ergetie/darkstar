@@ -178,20 +178,22 @@ export default function PowerFlowCard({ data, compact = false }: PowerFlowCardPr
     // Node positions - scale for compact mode
     const scale = compact ? 0.75 : 1
     const nodes = useMemo(() => {
-        // Horizontal centering logic: keep center at 200 even when scaled
-        const centerX = 200
-        const offX = (p: number) => p * scale + centerX * (1 - scale)
+        // Robust centering logic: keep the group centered in the SVG viewBox
+        const baseCenterX = 200
+        const baseCenterY = 140 // Y center of [40, 240]
 
-        // Vertical centering logic: keep center at 140 (for 280h) or 100 (for 200h)
-        const centerY = compact ? 100 : 140
-        const offY = (p: number) => p * scale + centerY * (1 - scale)
+        const targetCenterX = compact ? 150 : 200 // SVG viewBox width / 2
+        const targetCenterY = compact ? 100 : 140 // SVG viewBox height / 2
+
+        const offX = (p: number) => (p - baseCenterX) * scale + targetCenterX
+        const offY = (p: number) => (p - baseCenterY) * scale + targetCenterY
 
         return {
-            solar: { x: offX(100), y: offY(50) },
-            house: { x: offX(200), y: offY(130) },
-            battery: { x: offX(200), y: offY(250) },
-            grid: { x: offX(100), y: offY(250) },
-            water: { x: offX(300), y: offY(130) },
+            solar: { x: offX(100), y: offY(40) },
+            house: { x: offX(200), y: offY(120) },
+            battery: { x: offX(200), y: offY(240) },
+            grid: { x: offX(100), y: offY(240) },
+            water: { x: offX(300), y: offY(120) },
         }
     }, [scale, compact])
 
