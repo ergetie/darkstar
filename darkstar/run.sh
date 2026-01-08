@@ -154,7 +154,7 @@ mkdir -p /share/darkstar
 ln -sf /share/darkstar /app/data
 
 log "=========================================="
-log "  Darkstar Energy Manager v2.4.2-beta"
+log "  Darkstar Energy Manager v2.4.3-beta"
 log "=========================================="
 log "  Timezone: $TIMEZONE"
 log "  Log Level: $LOG_LEVEL"
