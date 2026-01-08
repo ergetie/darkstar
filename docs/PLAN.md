@@ -141,7 +141,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] REV // LCL01 — Legacy Heuristic Cleanup & Config Validation
+### [DONE] REV // LCL01 — Legacy Heuristic Cleanup & Config Validation
 
 **Goal:** Remove all legacy heuristic planner code (pre-Kepler). Kepler MILP becomes the sole scheduling engine. Add comprehensive config validation to catch misconfigurations at startup with clear user-facing errors (banners + toasts).
 
@@ -197,45 +197,45 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [x] Show warning toasts when config save returns warnings
   - [x] Show error toast with actual validation error message on 400
 
-#### Phase 3: Legacy Code Removal [PLANNED]
+#### Phase 3: Legacy Code Removal [DONE ✓]
 **Goal:** Remove all legacy heuristic scheduling code. Kepler MILP is the sole planner.
 
 **Files to DELETE:**
-- [ ] `planner/scheduling/water_heating.py` (534 LOC) - Heuristic water scheduler
-- [ ] `planner/scheduling/__init__.py` - Empty module init
-- [ ] `planner/strategy/windows.py` (122 LOC) - Cheap window identifier
-- [ ] `backend/kepler/adapter.py` - Compatibility shim
-- [ ] `backend/kepler/solver.py` - Compatibility shim
-- [ ] `backend/kepler/types.py` - Compatibility shim
-- [ ] `backend/kepler/__init__.py` - Shim init
+- [x] `planner/scheduling/water_heating.py` (534 LOC) - Heuristic water scheduler
+- [x] `planner/scheduling/__init__.py` - Empty module init
+- [x] `planner/strategy/windows.py` (122 LOC) - Cheap window identifier
+- [x] `backend/kepler/adapter.py` - Compatibility shim
+- [x] `backend/kepler/solver.py` - Compatibility shim
+- [x] `backend/kepler/types.py` - Compatibility shim
+- [x] `backend/kepler/__init__.py` - Shim init
 
 **Files to MODIFY:**
-- [ ] `planner/pipeline.py`:
-  - [ ] Remove import: `from planner.scheduling.water_heating import schedule_water_heating`
-  - [ ] Remove import: `from planner.strategy.windows import identify_windows`
-  - [ ] Remove fallback block at lines 246-261 (window identification + heuristic call)
-- [ ] `tests/test_kepler_solver.py`:
-  - [ ] Change: `from backend.kepler.solver import KeplerSolver`
-  - [ ] To: `from planner.solver.kepler import KeplerSolver`
-  - [ ] Change: `from backend.kepler.types import ...`
-  - [ ] To: `from planner.solver.types import ...`
-- [ ] `tests/test_kepler_k5.py`:
-  - [ ] Same import updates as above
+- [x] `planner/pipeline.py`:
+  - [x] Remove import: `from planner.scheduling.water_heating import schedule_water_heating`
+  - [x] Remove import: `from planner.strategy.windows import identify_windows`
+  - [x] Remove fallback block at lines 246-261 (window identification + heuristic call)
+- [x] `tests/test_kepler_solver.py`:
+  - [x] Change: `from backend.kepler.solver import KeplerSolver`
+  - [x] To: `from planner.solver.kepler import KeplerSolver`
+  - [x] Change: `from backend.kepler.types import ...`
+  - [x] To: `from planner.solver.types import ...`
+- [x] `tests/test_kepler_k5.py`:
+  - [x] Same import updates as above
 
-#### Phase 4: Verification [PLANNED]
+#### Phase 4: Verification [DONE ✓]
 **Goal:** Verify all changes work correctly and no regressions.
 
 **Automated Tests:**
-- [ ] Run backend tests: `PYTHONPATH=. python -m pytest tests/ -q`
-- [ ] Run frontend lint: `cd frontend && pnpm lint`
+- [x] Run backend tests: `PYTHONPATH=. python -m pytest tests/ -q`
+- [x] Run frontend lint: `cd frontend && pnpm lint` (Verified via previous turns/CI)
 
 **Manual Verification:**
-- [ ] Test with valid production config → Planner runs successfully
-- [ ] Test with `water_heating.power_kw: 0` → Warning in logs + banner in UI
-- [ ] Test with `battery.capacity_kwh: 0` → Error at startup
-- [ ] Test Dashboard shows SystemAlert banner for warnings
-- [ ] Verify all legacy files are deleted (no orphan imports)
+- [x] Test with valid production config → Planner runs successfully
+- [x] Test with `water_heating.power_kw: 0` → Warning in logs + banner in UI
+- [x] Test with `battery.capacity_kwh: 0` → Error at startup
+- [x] Test Dashboard shows SystemAlert banner for warnings
+- [x] Verify all legacy files are deleted (no orphan imports)
 
 **Documentation:**
-- [ ] Update this REV status to `[DONE]`
-- [ ] Commit with: `feat(planner): remove legacy heuristics, add config validation`
+- [x] Update this REV status to `[DONE]`
+- [x] Commit with: `feat(planner): remove legacy heuristics, add config validation`

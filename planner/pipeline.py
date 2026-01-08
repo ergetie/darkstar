@@ -24,7 +24,6 @@ from planner.inputs.learning import load_learning_overlays
 from planner.inputs.weather import fetch_temperature_forecast
 from planner.output.schedule import save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
-from planner.scheduling.water_heating import schedule_water_heating
 from planner.solver.adapter import (
     config_to_kepler_config,
     kepler_result_to_dataframe,
@@ -38,7 +37,6 @@ from planner.strategy.s_index import (
     calculate_future_risk_factor,
     calculate_probabilistic_s_index,
 )
-from planner.strategy.windows import identify_windows
 from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
 
 logger = logging.getLogger("darkstar.planner")
@@ -281,22 +279,12 @@ class PlannerPipeline:
             df["adjusted_pv_kwh"] = df["pv_forecast_kwh"]
             df["adjusted_load_kwh"] = df["load_forecast_kwh"]
 
-        # Identify Windows (Pass 1)
-        initial_state = input_data.get("initial_state", {})
-        df, _window_debug = identify_windows(df, active_config, initial_state, now_slot)
-
         # 4. Schedule Water Heating
         # Get water heater daily consumption from HA sensor (Rev K18)
         initial_state = input_data.get("initial_state", {})
         ha_water_today = float(initial_state.get("water_heated_today_kwh", 0.0))
-
-        # Rev K17: Skip heuristic water scheduling when Kepler handles it as deferrable load
-        water_cfg = active_config.get("water_heating", {})
-        kepler_water_enabled = float(water_cfg.get("power_kw", 0.0)) > 0
-        if not kepler_water_enabled and has_water_heater:
-            # Fallback to old heuristic if water heating disabled in config but system has one
-            df = schedule_water_heating(df, active_config, now_slot, ha_water_today)
-        # Otherwise, Kepler will handle water_heating_kw in the MILP
+        # Note: Kepler handles water_heating_kw in the MILP.
+        # Heuristic fallback removed in REV LCL01.
 
         # 5. Run Solver (Kepler)
         # CRITICAL: Only pass FUTURE slots to Kepler, starting from NOW with CURRENT real SoC
