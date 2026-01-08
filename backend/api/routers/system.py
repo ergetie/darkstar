@@ -54,7 +54,7 @@ def _get_git_version() -> str:
     except Exception:
         pass
 
-    return "2.4.1-beta"  # Hardcoded last resort fallback
+    return "2.4.2-beta"  # Hardcoded last resort fallback
 
 
 @router.get(
