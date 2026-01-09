@@ -1,25 +1,26 @@
-import React, { useState, useEffect } from 'react'
-import { Api, ThemeInfo } from '../../lib/api'
+import React from 'react'
+// Api and ThemeInfo commented out - Accent Theme card is hidden
+// import { Api, ThemeInfo } from '../../lib/api'
 import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { uiFieldList, uiSections } from './types'
 
 export const UITab: React.FC = () => {
-    const { config, form, fieldErrors, loading, saving, statusMessage, handleChange, save } =
-        useSettingsForm(uiFieldList)
+    const { form, fieldErrors, loading, saving, statusMessage, handleChange, save } = useSettingsForm(uiFieldList)
 
-    const [themes, setThemes] = useState<ThemeInfo[]>([])
+    // Themes state commented out - Accent Theme card is hidden
+    // const [themes, setThemes] = useState<ThemeInfo[]>([])
 
-    useEffect(() => {
-        Api.theme().then((res) => setThemes(res.themes))
-    }, [])
+    // useEffect(() => {
+    //     Api.theme().then((res) => setThemes(res.themes))
+    // }, [])
 
     if (loading) {
         return <Card className="p-6 text-sm text-muted">Loading UI configuration…</Card>
     }
 
-    const currentThemeIdx = config?.ui?.theme_accent_index ?? 0
+    // const currentThemeIdx = config?.ui?.theme_accent_index ?? 0
     const overlayDefaults = form['dashboard.overlay_defaults']
         ? (JSON.parse(form['dashboard.overlay_defaults']) as Record<string, boolean>)
         : {}
@@ -96,10 +97,11 @@ export const UITab: React.FC = () => {
                                     <button
                                         key={key}
                                         onClick={() => toggleOverlay(key)}
-                                        className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition ${overlayDefaults[key]
+                                        className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition ${
+                                            overlayDefaults[key]
                                                 ? 'bg-accent/20 text-accent border border-accent/30'
                                                 : 'bg-surface2 text-muted border border-line/50 hover:border-line'
-                                            }`}
+                                        }`}
                                     >
                                         {key}
                                     </button>
@@ -120,12 +122,13 @@ export const UITab: React.FC = () => {
                 </button>
                 {statusMessage && (
                     <div
-                        className={`rounded-lg p-3 text-sm ${statusMessage.startsWith('Please fix') ||
-                                statusMessage.startsWith('Save failed') ||
-                                statusMessage.startsWith('Failed to load')
+                        className={`rounded-lg p-3 text-sm ${
+                            statusMessage.startsWith('Please fix') ||
+                            statusMessage.startsWith('Save failed') ||
+                            statusMessage.startsWith('Failed to load')
                                 ? 'bg-bad/10 border border-bad/30 text-bad'
                                 : 'bg-good/10 border border-good/30 text-good'
-                            }`}
+                        }`}
                     >
                         {statusMessage}
                     </div>

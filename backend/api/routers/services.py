@@ -431,6 +431,11 @@ async def get_energy_today() -> dict[str, float]:
 )
 async def get_energy_range(period: str = "today") -> dict[str, Any]:
     """Get energy range data."""
+    import sqlite3
+
+    import pytz
+
+    from backend.learning import get_learning_engine
 
     config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
@@ -441,56 +446,20 @@ async def get_energy_range(period: str = "today") -> dict[str, Any]:
             return default
         return get_home_assistant_sensor_float(str(eid)) or default
 
-    if period == "today":
-        grid_imp_kwh = get_val("today_grid_import")
-        grid_exp_kwh = get_val("today_grid_export")
-        pv_kwh = get_val("today_pv_production")
-        load_kwh = get_val("today_load_consumption")
-        batt_chg_kwh = get_val("today_battery_charge")
-        batt_dis_kwh = get_val("today_battery_discharge")
-        water_kwh = get_val("water_heater_consumption")
-        net_cost = get_val("today_net_cost")
-
-        return {
-            "period": period,
-            "start_date": datetime.now().date().isoformat(),
-            "end_date": datetime.now().date().isoformat(),
-            "grid_import_kwh": round(grid_imp_kwh, 2),
-            "grid_export_kwh": round(grid_exp_kwh, 2),
-            "battery_charge_kwh": round(batt_chg_kwh, 2),
-            "battery_discharge_kwh": round(batt_dis_kwh, 2),
-            "water_heating_kwh": round(water_kwh, 2),
-            "pv_production_kwh": round(pv_kwh, 2),
-            "load_consumption_kwh": round(load_kwh, 2),
-            "import_cost_sek": 0.0,
-            "export_revenue_sek": 0,
-            "grid_charge_cost_sek": 0,
-            "self_consumption_savings_sek": 0,
-            "net_cost_sek": round(net_cost, 2),
-            "slot_count": 96,
-        }
-
-    # Historical periods from learning database
+    # All periods now query the database for financial metrics
     try:
-        import sqlite3
-
-        import pytz
-
-        from backend.learning import get_learning_engine
-
         engine = get_learning_engine()
         tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
         now_local = datetime.now(tz)
         today_local = now_local.date()
 
-        # Determine date range based on period (inclusive of start, exclusive of end usually,
-        # but here we compare DATE(slot_start))
-        if period == "yesterday":
+        # Determine date range based on period
+        if period == "today":
+            start_date = end_date = today_local
+        elif period == "yesterday":
             end_date = today_local - timedelta(days=1)
             start_date = end_date
         elif period == "week":
-            # Last 7 days including today? OR last 7 completed days?
-            # Usually "Week" implies last 7 days.
             end_date = today_local
             start_date = today_local - timedelta(days=6)
         elif period == "month":
@@ -549,6 +518,26 @@ async def get_energy_range(period: str = "today") -> dict[str, Any]:
         self_cons_savings = row[10] or 0.0
 
         net_cost = import_cost - export_rev
+
+        # For "today", overlay real-time HA sensor values for energy totals
+        # This ensures dashboard shows up-to-date energy values even if DB lags
+        if period == "today":
+            ha_grid_imp = get_val("today_grid_import")
+            ha_grid_exp = get_val("today_grid_export")
+            ha_pv = get_val("today_pv_production")
+            ha_load = get_val("today_load_consumption")
+            ha_batt_chg = get_val("today_battery_charge")
+            ha_batt_dis = get_val("today_battery_discharge")
+            ha_water = get_val("water_heater_consumption")
+
+            # Use HA values if they're larger (more current) than DB values
+            grid_imp_kwh = max(grid_imp_kwh, ha_grid_imp)
+            grid_exp_kwh = max(grid_exp_kwh, ha_grid_exp)
+            pv_kwh = max(pv_kwh, ha_pv)
+            load_kwh = max(load_kwh, ha_load)
+            batt_chg_kwh = max(batt_chg_kwh, ha_batt_chg)
+            batt_dis_kwh = max(batt_dis_kwh, ha_batt_dis)
+            water_kwh = max(water_kwh, ha_water)
 
         return {
             "period": period,
