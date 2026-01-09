@@ -31,7 +31,8 @@ export const UITab: React.FC = () => {
 
     return (
         <div className="space-y-4">
-            <Card className="p-6">
+            {/* Accent Theme Card - Hidden as per user request */}
+            {/* <Card className="p-6">
                 <div className="flex items-baseline justify-between gap-2">
                     <div>
                         <div className="text-sm font-semibold">Accent Theme</div>
@@ -63,7 +64,7 @@ export const UITab: React.FC = () => {
                         </button>
                     ))}
                 </div>
-            </Card>
+            </Card> */}
 
             {uiSections.map((section) => (
                 <Card key={section.title} className="p-6">
@@ -95,11 +96,10 @@ export const UITab: React.FC = () => {
                                     <button
                                         key={key}
                                         onClick={() => toggleOverlay(key)}
-                                        className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition ${
-                                            overlayDefaults[key]
+                                        className={`rounded-lg px-2.5 py-1.5 text-[10px] font-bold uppercase tracking-wider transition ${overlayDefaults[key]
                                                 ? 'bg-accent/20 text-accent border border-accent/30'
                                                 : 'bg-surface2 text-muted border border-line/50 hover:border-line'
-                                        }`}
+                                            }`}
                                     >
                                         {key}
                                     </button>
@@ -120,13 +120,12 @@ export const UITab: React.FC = () => {
                 </button>
                 {statusMessage && (
                     <div
-                        className={`rounded-lg p-3 text-sm ${
-                            statusMessage.startsWith('Please fix') ||
-                            statusMessage.startsWith('Save failed') ||
-                            statusMessage.startsWith('Failed to load')
+                        className={`rounded-lg p-3 text-sm ${statusMessage.startsWith('Please fix') ||
+                                statusMessage.startsWith('Save failed') ||
+                                statusMessage.startsWith('Failed to load')
                                 ? 'bg-bad/10 border border-bad/30 text-bad'
                                 : 'bg-good/10 border border-good/30 text-good'
-                        }`}
+                            }`}
                     >
                         {statusMessage}
                     </div>
