@@ -80,38 +80,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-### [Testing] Add Coverage Tracking (REVIEW-2026-01-04)
-
-**Goal:** Track test coverage metrics to identify untested code paths and set coverage goals.
-
-**Current State:** 
-- Test suite exists with 187 tests across 31 files
-- No coverage tracking configured
-- Coverage metrics not reported in CI/CD
-
-**Implementation:**
-- ✅ Add `pytest-cov>=4.1.0` to `requirements-dev.txt` (DONE)
-- Add coverage configuration to `pyproject.toml`:
-  ```toml
-  [tool.coverage.run]
-  source = ["backend", "ml", "planner", "executor"]
-  omit = ["*/tests/*", "*/debug/*", "*/__pycache__/*"]
-  
-  [tool.coverage.report]
-  exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
-  ```
-- Run with: `pytest --cov=backend --cov=ml --cov=planner --cov-report=html --cov-report=term`
-- Set coverage goal: **Target 80%+ overall coverage**
-
-**Benefits:**
-- Identify untested edge cases
-- Prevent coverage regression
-- Confidence in refactoring
-
-**Effort:** 1 hour (setup) + ongoing (write missing tests)
-
----
-
 ### [Testing] Add CI/CD Automation (REVIEW-2026-01-04)
 
 **Goal:** Automate linting, testing, and build verification on every push/PR to catch regressions before merge.
@@ -385,25 +353,6 @@ pip list --outdated
 
 ## 🟢 Low Priority
 
-### [Docs] Add KEPLER_VISION.md (REVIEW-2026-01-04)
-
-**Goal:** Create the long-term vision document for the Kepler MILP solver roadmap.
-
-**Current State:** 
-- Referenced in `GEMINI.md` as Single Source of Truth for "Long-term roadmap and design philosophy"
-- File does not exist
-
-**Content to Include:**
-- Evolution from heuristic MPC to MILP
-- Design philosophy (declarative optimization vs imperative logic)
-- Future solver enhancements (e.g., multi-objective optimization, quadratic costs)
-- Integration with Aurora ML (forecast uncertainty in constraints)
-- Advanced features (EV charging, heat pump scheduling, dynamic tariffs)
-
-**Effort:** 2 hours (write vision doc)
-
----
-
 ### [Docs] Add Migration Guide (v1→v2) (REVIEW-2026-01-04)
 
 **Goal:** Help existing Darkstar v1 users migrate to v2 (Kepler architecture).
@@ -499,45 +448,6 @@ logging.root.addHandler(handler)
 - Add contextual fields (request_id, user_id, etc.)
 
 **Effort:** 2 hours (implement + test)
-
----
-
-### [CI/CD] Add Dependabot/Snyk (REVIEW-2026-01-04)
-
-**Goal:** Automated security vulnerability alerts for dependencies.
-
-**Current State:** No automated security scanning.
-
-**Implementation:**
-
-1. **Dependabot (GitHub Native):**
-   Create `.github/dependabot.yml`:
-   ```yaml
-   version: 2
-   updates:
-     - package-ecosystem: "pip"
-       directory: "/"
-       schedule:
-         interval: "weekly"
-     - package-ecosystem: "npm"
-       directory: "/frontend"
-       schedule:
-         interval: "weekly"
-   ```
-
-2. **Snyk (Alternative):**
-   - Sign up at snyk.io
-   - Connect GitHub repo
-   - Automatic PR scanning + alerts
-
-**Benefits:**
-- Security vulnerability alerts
-- Automated dependency updates
-- CVE tracking
-
-**Effort:** 1 hour (setup GitHub integration)
-
----
 
 ---
 
@@ -774,10 +684,6 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
 **Notes:** Lab tab is currently hidden. Needs complete redesign before reactivation.
 
 **Source:** Existing backlog item + expanded by REVIEW-2026-01-04
-
----
-
----
 
 ---
 
