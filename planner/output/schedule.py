@@ -14,22 +14,10 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-import pytz
-import yaml
 
 from planner.observability.logging import record_debug_payload
 from planner.output.debug import generate_debug_payload
 from planner.output.formatter import dataframe_to_json_response
-
-# Try to import db_writer from root
-try:
-    from db_writer import get_preserved_slots
-except ImportError:
-    # Fallback if running from a context where root is not in path
-    # This might happen during tests if not set up correctly
-    def get_preserved_slots(*args, **kwargs):
-        print("[planner] Warning: db_writer not found, cannot preserve past slots")
-        return []
 
 
 def get_git_version() -> str:
@@ -78,51 +66,16 @@ def save_schedule_to_json(
     for record in new_future_records:
         record["is_historical"] = False
 
-    # Preserve past slots from database (source of truth) with local fallback
-    existing_past_slots = []
-    try:
-        # Load secrets for database access
-        secrets_path = "secrets.yaml"
-        secrets = {}
-        if Path(secrets_path).exists():
-            with Path(secrets_path).open(encoding="utf-8") as f:
-                secrets = yaml.safe_load(f) or {}
-
-        # Get current time in local timezone
-        tz_name = config.get("timezone", "Europe/Stockholm")
-        tz = pytz.timezone(tz_name)
-        now = datetime.now(tz)
-
-        # Use now_slot as the cutoff for preservation if available
-        # This ensures we don't preserve the current slot if we just re-planned it
-        preservation_cutoff = now
-        if now_slot is not None:
-            # Convert pandas Timestamp to python datetime
-            preservation_cutoff = now_slot.to_pydatetime()
-
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        existing_past_slots = get_preserved_slots(
-            today_start, preservation_cutoff, secrets, tz_name=tz_name
-        )
-
-    except Exception as e:
-        print(f"[planner] Warning: Could not preserve past slots: {e}")
-
-    # Fix slot number conflicts: ensure future slots continue from max historical slot number
-    max_historical_slot = 0
-    if existing_past_slots:
-        max_historical_slot = max(slot.get("slot_number", 0) for slot in existing_past_slots)
-
-    # Reassign slot numbers for future records to continue from historical max
+    # Simple slot numbering (legacy MariaDB preservation removed in REV LCL01)
     for i, record in enumerate(new_future_records):
-        record["slot_number"] = max_historical_slot + i + 1
+        record["slot_number"] = i + 1
 
-    # Merge: preserved past + new future pulls, ensuring no duplicates
-    merged_schedule = existing_past_slots + new_future_records
+    # Final schedule is just the new future records
+    merged_schedule = new_future_records
 
     # Update forecast meta with provided data
     final_forecast_meta = forecast_meta.copy()
+
 
     version = get_git_version()
 

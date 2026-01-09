@@ -244,6 +244,8 @@ class PlannerPipeline:
                 df,
                 s_index_cfg,
                 timezone_name,
+                daily_pv_forecast=input_data.get("daily_pv_forecast"),
+                daily_load_forecast=input_data.get("daily_load_forecast"),
                 fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(
                     days, t, active_config
                 ),

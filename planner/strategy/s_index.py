@@ -304,6 +304,8 @@ def calculate_target_soc_risk_factor(
     df: pd.DataFrame,
     s_index_cfg: dict[str, Any],
     timezone_name: str,
+    daily_pv_forecast: dict[str, float] | None = None,
+    daily_load_forecast: dict[str, float] | None = None,
     fetch_temperature_fn: Callable[[list[int], Any], dict[int, float]] | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """
@@ -330,6 +332,14 @@ def calculate_target_soc_risk_factor(
 
         3. Combine: raw_factor = base + pv_deficit_contribution + temp_contribution
            - Apply sigma scaling to allow gambler mode to reduce below base
+
+    Args:
+        df: DataFrame with price slots (may only cover today)
+        s_index_cfg: S-Index configuration dict
+        timezone_name: Timezone for date calculations
+        daily_pv_forecast: Daily PV totals by date key (ISO format) for extended horizon
+        daily_load_forecast: Daily load totals by date key (ISO format) for extended horizon
+        fetch_temperature_fn: Optional callback to fetch temperature forecasts
 
     Returns:
         Tuple of (risk_factor, debug_data)
@@ -373,27 +383,44 @@ def calculate_target_soc_risk_factor(
     d2_deficit = None
     total_load = 0.0
     total_pv = 0.0
+    data_source = "none"
 
     for offset, target_date, weight in [(1, d1_date, 0.7), (2, d2_date, 0.3)]:
+        date_key = target_date.isoformat()
         mask = local_dates == target_date
+
+        # Try slot-level data from df first
         if mask.any():
             load_sum = float(df.loc[mask, "load_forecast_kwh"].sum())
             pv_sum = float(df.loc[mask, "pv_forecast_kwh"].sum())
-            total_load += load_sum
-            total_pv += pv_sum
+            data_source = "slots"
+        # Fall back to daily aggregates from Aurora extended horizon
+        elif daily_load_forecast and daily_pv_forecast:
+            load_sum = float(daily_load_forecast.get(date_key, 0.0))
+            pv_sum = float(daily_pv_forecast.get(date_key, 0.0))
+            if load_sum > 0 or pv_sum > 0:
+                data_source = "daily"
+            else:
+                continue
+        else:
+            continue
 
-            if load_sum > 0:
-                # Deficit ratio: positive = need more energy than PV provides
-                # Negative = PV surplus
-                deficit = (load_sum - pv_sum) / load_sum
-                deficit = max(-1.0, min(1.0, deficit))  # Clamp to [-1, 1]
+        total_load += load_sum
+        total_pv += pv_sum
 
-                if offset == 1:
-                    d1_deficit = deficit
-                else:
-                    d2_deficit = deficit
+        if load_sum > 0:
+            # Deficit ratio: positive = need more energy than PV provides
+            # Negative = PV surplus
+            deficit = (load_sum - pv_sum) / load_sum
+            deficit = max(-1.0, min(1.0, deficit))  # Clamp to [-1, 1]
 
-                pv_deficit_ratio += weight * deficit
+            if offset == 1:
+                d1_deficit = deficit
+            else:
+                d2_deficit = deficit
+
+            pv_deficit_ratio += weight * deficit
+
 
     # Temperature adjustment (same as before, but only additive)
     temps_map: dict[int, float] = {}
@@ -514,6 +541,8 @@ def calculate_future_risk_factor(
     df: pd.DataFrame,
     s_index_cfg: dict[str, Any],
     timezone_name: str,
+    daily_pv_forecast: dict[str, float] | None = None,
+    daily_load_forecast: dict[str, float] | None = None,
     fetch_temperature_fn: Callable[[list[int], Any], dict[int, float]] | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """
@@ -522,7 +551,14 @@ def calculate_future_risk_factor(
     This function is kept for backwards compatibility but now delegates
     to the new function that properly incorporates risk_appetite and PV deficit.
     """
-    return calculate_target_soc_risk_factor(df, s_index_cfg, timezone_name, fetch_temperature_fn)
+    return calculate_target_soc_risk_factor(
+        df,
+        s_index_cfg,
+        timezone_name,
+        daily_pv_forecast=daily_pv_forecast,
+        daily_load_forecast=daily_load_forecast,
+        fetch_temperature_fn=fetch_temperature_fn,
+    )
 
 
 def calculate_dynamic_target_soc(

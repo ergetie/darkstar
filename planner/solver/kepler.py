@@ -65,9 +65,12 @@ class KeplerSolver:
 
         # Slack variables
         soc_violation = pulp.LpVariable.dicts("soc_violation_kwh", range(T + 1), lowBound=0.0)
-        target_violation = pulp.LpVariable(
-            "target_violation_kwh", lowBound=0.0
-        )  # End-of-horizon target
+        target_under_violation = pulp.LpVariable(
+            "target_under_violation_kwh", lowBound=0.0
+        )  # Penalty for being BELOW target at end of horizon
+        target_over_violation = pulp.LpVariable(
+            "target_over_violation_kwh", lowBound=0.0
+        )  # Penalty for being ABOVE target at end of horizon
         import_breach = pulp.LpVariable.dicts("import_breach_kwh", range(T), lowBound=0.0)
         ramp_up = pulp.LpVariable.dicts("ramp_up_kwh", range(T), lowBound=0.0)
         ramp_down = pulp.LpVariable.dicts("ramp_down_kwh", range(T), lowBound=0.0)
@@ -174,10 +177,14 @@ class KeplerSolver:
         prob += soc[T] >= min_soc_kwh - soc_violation[T]
         prob += soc[T] <= max_soc_kwh
 
-        # Terminal SoC Target (soft constraint - can violate if economics favor it)
+        # Terminal SoC Target (BIDIRECTIONAL soft constraint)
+        # Penalize both being UNDER target (risk) AND OVER target (missed discharge opportunity)
         target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
         if config.target_soc_kwh is not None:
-            prob += soc[T] >= target_soc_kwh - target_violation
+            # Under target: soc[T] >= target - under_violation
+            prob += soc[T] >= target_soc_kwh - target_under_violation
+            # Over target: soc[T] <= target + over_violation
+            prob += soc[T] <= target_soc_kwh + target_over_violation
 
         # Water Heating Constraints (Rev K17/K18/K21)
         gap_violation_penalty = 0.0
@@ -261,12 +268,15 @@ class KeplerSolver:
         # Set Objective
         # - min_soc violation: HARD penalty (1000 SEK/kWh)
         # - target violation: SOFT penalty (from config, derived from risk_appetite)
+        #   * UNDER target: Risk penalty (configurable)
+        #   * OVER target: Opportunity cost penalty (same as under)
         # - gap violation: SOFT comfort penalty (Rev K18)
         prob += (
             pulp.lpSum(total_cost)
             - terminal_value
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
-            + target_soc_penalty * target_violation
+            + target_soc_penalty * target_under_violation
+            + target_soc_penalty * target_over_violation
             + gap_violation_penalty
             + spacing_violation_penalty
         )
