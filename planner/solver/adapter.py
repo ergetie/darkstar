@@ -175,11 +175,16 @@ def config_to_kepler_config(
         water_comfort_penalty_sek=_comfort_level_to_penalty(
             int(planner_config.get("water_heating", {}).get("comfort_level", 3))
         ),
+        # Rev WH1: Disable spacing constraints when top-ups are disabled
         water_min_spacing_hours=float(
             planner_config.get("water_heating", {}).get("min_spacing_hours", 5.0)
+            if planner_config.get("water_heating", {}).get("enable_top_ups", True)
+            else 0.0
         ),
         water_spacing_penalty_sek=float(
             planner_config.get("water_heating", {}).get("spacing_penalty_sek", 0.20)
+            if planner_config.get("water_heating", {}).get("enable_top_ups", True)
+            else 0.0
         ),
     )
 

@@ -70,6 +70,7 @@ water_heating:
   comfort_level: 3                   # 1-5 (Economy→Maximum) - controls gap penalty
   min_spacing_hours: 5.0             # Min gap between starts to avoid efficiency loss
   spacing_penalty_sek: 0.20          # Soft penalty for frequent starts
+  enable_top_ups: true               # Enable spaced top-up heating blocks (vs bulk heating only)
 
   # Vacation Mode (anti-legionella)
   vacation_mode:

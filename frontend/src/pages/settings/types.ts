@@ -564,6 +564,13 @@ export const parameterSections: SettingsSection[] = [
                 helper: 'Penalty applied when heating sessions are too close.',
             },
             {
+                key: 'water_heating.enable_top_ups',
+                label: 'Enable spaced top-ups',
+                path: ['water_heating', 'enable_top_ups'],
+                type: 'boolean',
+                helper: 'Enable small top-up heating blocks to maintain temperature. Disable for bulk heating only.',
+            },
+            {
                 key: 'water_heating.schedule_future_only',
                 label: 'Schedule future only',
                 path: ['water_heating', 'schedule_future_only'],
