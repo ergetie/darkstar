@@ -42,7 +42,10 @@ export function SystemAlert({ health, onDismiss }: SystemAlertProps) {
         <div className="space-y-2">
             {/* Critical Errors - same style as shadow mode banner */}
             {criticalIssues.map((issue, idx) => (
-                <div key={`critical-${idx}`} className="banner banner-error px-4 py-3 flex items-center justify-between">
+                <div
+                    key={`critical-${idx}`}
+                    className="banner banner-error px-4 py-3 flex items-center justify-between"
+                >
                     <div className="flex items-center gap-2">
                         <span>⚠️</span>
                         <span className="font-medium">{issue.message}</span>

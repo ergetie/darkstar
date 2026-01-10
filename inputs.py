@@ -211,9 +211,14 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
         # Invalidate if cache starts in the future (Today must be in cache!)
         elif first_slot > now and now.hour < 23: # Allow for late night rollover edge cases
              # If first_slot is more than 1 hour away from current 15m slot, it's poisoned
-             current_slot_start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
+             current_slot_start = now.replace(
+                 minute=(now.minute // 15) * 15, second=0, microsecond=0
+             )
              if first_slot > current_slot_start:
-                 print(f"[nordpool] Cache invalidated: poisoned (starts at {first_slot}, now is {now})")
+                 print(
+                     f"[nordpool] Cache invalidated: poisoned "
+                     f"(starts at {first_slot}, now is {now})"
+                 )
                  cached = None
 
         # After 13:00, we expect tomorrow's prices to be available
@@ -246,7 +251,8 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
             resolution=resolution_minutes
         )
         if data_today and data_today.get("areas") and data_today["areas"].get(price_area):
-            today_values = cast("list[dict[str, Any]]", data_today["areas"][price_area].get("values", []))
+            area_data = data_today["areas"][price_area]
+            today_values = cast("list[dict[str, Any]]", area_data.get("values", []))
 
         if not today_values:
              print(f"[nordpool] Warning: Fetched today ({now.date()}) but got 0 slots")
@@ -262,8 +268,10 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
                 areas=[price_area],
                 resolution=resolution_minutes
             )
-            if data_tomorrow and data_tomorrow.get("areas") and data_tomorrow["areas"].get(price_area):
-                all_raw = cast("list[dict[str, Any]]", data_tomorrow["areas"][price_area].get("values", []))
+            tomorrow_areas = data_tomorrow.get("areas", {}) if data_tomorrow else {}
+            if tomorrow_areas.get(price_area):
+                area_vals = tomorrow_areas[price_area].get("values", [])
+                all_raw = cast("list[dict[str, Any]]", area_vals)
                 # Filter to only include slots after today
                 tomorrow_values = [v for v in all_raw if v["start"].date() > today]
         except Exception as e:
@@ -272,7 +280,10 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     # Combine today and tomorrow
     all_values = today_values + tomorrow_values
 
-    print(f"[nordpool] Fetched {len(all_values)} total price slots (today: {len(today_values)}, tomorrow: {len(tomorrow_values)})")
+    print(
+        f"[nordpool] Fetched {len(all_values)} total price slots "
+        f"(today: {len(today_values)}, tomorrow: {len(tomorrow_values)})"
+    )
 
     # Process the data into the required format
     result = _process_nordpool_data(all_values, config, today_values)
@@ -284,7 +295,9 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
 
 
 def _process_nordpool_data(
-    all_entries: list[dict[str, Any]], config: dict[str, Any], today_values: list[dict[str, Any]] | None = None
+    all_entries: list[dict[str, Any]],
+    config: dict[str, Any],
+    today_values: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Process raw Nordpool API data into the required format.
@@ -370,7 +383,9 @@ def get_forecast_data(price_slots: list[dict[str, Any]], config: dict[str, Any])
         return asyncio.run(_get_forecast_data_async(price_slots, config))
 
 
-def _get_forecast_data_aurora(price_slots: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+def _get_forecast_data_aurora(
+    price_slots: list[dict[str, Any]], config: dict[str, Any]
+) -> dict[str, Any]:
     """Synchronous logic for Aurora DB-backed forecasts."""
     timezone_name = str(config.get("timezone", "Europe/Stockholm"))
     local_tz = pytz.timezone(timezone_name)
@@ -461,16 +476,16 @@ def _get_forecast_data_aurora(price_slots: list[dict[str, Any]], config: dict[st
 
                 # Lazy load HA profile if needed (optimization)
                 # But we likely already loaded it in _get_forecast_data_aurora if we are here?
-                # Actually this function is build_db_forecast... wait, no this is _get_forecast_data_aurora
+                # Actually this is _get_forecast_data_aurora
                 # We need to make sure ha_profile is available here.
                 # It is not available in specific scope for "extended_records" loop below.
                 # Let's fetch it if not existent (or pass it in).
-                # Ideally, we utilize the one fetched above if possible, but variable scope might differ.
+                # Ideally use the one fetched above if possible.
                 # To be safe and clean, we'll try fetch again or use a safe method.
                 # Since this is "daily" aggregation, running fetching once is fine.
                 try:
                     # We might want to cache this call if it's expensive, but for now it's okay.
-                    # CHECK: ha_profile variable from above scope (lines 268) is NOT available here naturally
+                    # ha_profile from above scope is available here
                     # unless we are in the SAME function.
                     # We ARE in _get_forecast_data_aurora function scope.
                     # So 'ha_profile' defined at line 269 IS available!
@@ -512,18 +527,23 @@ def _get_forecast_data_aurora(price_slots: list[dict[str, Any]], config: dict[st
     }
 
 
-async def _get_forecast_data_async(price_slots: list[dict[str, Any]], config: dict[str, Any]) -> dict[str, Any]:
+async def _get_forecast_data_async(
+    price_slots: list[dict[str, Any]], config: dict[str, Any]
+) -> dict[str, Any]:
     """
     Async logic for fallback Open-Meteo forecasts.
     """
-    system_config: dict[str, Any] = config.get("system", {}) if isinstance(config.get("system"), dict) else {}
+    sys_cfg = config.get("system", {})
+    system_config: dict[str, Any] = sys_cfg if isinstance(sys_cfg, dict) else {}
 
-    location: dict[str, Any] = system_config.get("location", {}) if isinstance(system_config.get("location"), dict) else {}
+    loc_cfg = system_config.get("location", {})
+    location: dict[str, Any] = loc_cfg if isinstance(loc_cfg, dict) else {}
 
     latitude = float(location.get("latitude", 59.3))
     longitude = float(location.get("longitude", 18.1))
 
-    solar_array: dict[str, Any] = system_config.get("solar_array", {}) if isinstance(system_config.get("solar_array"), dict) else {}
+    solar_cfg = system_config.get("solar_array", {})
+    solar_array: dict[str, Any] = solar_cfg if isinstance(solar_cfg, dict) else {}
 
     kwp = float(solar_array.get("kwp", 5.0))
     azimuth = float(solar_array.get("azimuth", 180))
@@ -696,9 +716,11 @@ def get_initial_state(config_path: str = "config.yaml") -> dict[str, Any]:
     water_heated_today_kwh = 0.0
 
     if has_water_heater:
-        water_heater_entity = input_sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
-        if water_heater_entity:
-            ha_water = get_home_assistant_sensor_float(water_heater_entity)
+        water_entity = input_sensors.get(
+            "water_heater_consumption", "sensor.vvb_energy_daily"
+        )
+        if water_entity:
+            ha_water = get_home_assistant_sensor_float(water_entity)
             if ha_water is not None:
                 water_heated_today_kwh = ha_water
 
@@ -769,7 +791,9 @@ def get_all_input_data(config_path: str = "config.yaml") -> dict[str, Any]:
     }
 
 
-def get_db_forecast_slots(start: datetime, end: datetime, config: dict[str, Any]) -> list[dict[str, Any]]:
+def get_db_forecast_slots(
+    start: datetime, end: datetime, config: dict[str, Any]
+) -> list[dict[str, Any]]:
     """
     Fetch forecast slots from the learning database via ml.api.
 
@@ -874,7 +898,8 @@ def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     token = cast("str", ha_config.get("token", ""))
 
     # Read entity ID from config.yaml
-    input_sensors: dict[str, Any] = config.get("input_sensors", {}) if isinstance(config.get("input_sensors"), dict) else {}
+    sensors_cfg = config.get("input_sensors", {})
+    input_sensors: dict[str, Any] = sensors_cfg if isinstance(sensors_cfg, dict) else {}
 
     entity_id = input_sensors.get("total_load_consumption", ha_config.get("consumption_entity_id"))
 
