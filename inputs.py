@@ -929,13 +929,13 @@ def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
         data = response.json()
         if not data or not data[0]:
-            print("Warning: No data received from Home Assistant")
+            print(f"Warning: No data received from Home Assistant for {entity_id}")
             return get_dummy_load_profile(config)
 
         # Process state changes into energy deltas
         states = data[0]
         if len(states) < 2:
-            print("Warning: Insufficient data points from Home Assistant")
+            print(f"Warning: Insufficient data points from Home Assistant for {entity_id}")
             return get_dummy_load_profile(config)
 
         # Convert to local timezone for processing
@@ -950,11 +950,16 @@ def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
         for state in states:
             try:
+                # Skip unavailable/unknown/null states silently
+                state_val = state.get("state", "")
+                if state_val in ("unavailable", "unknown", "null", "", None):
+                    continue
+
                 current_time = datetime.fromisoformat(state["last_changed"])
                 if current_time.tzinfo is None:
                     current_time = current_time.replace(tzinfo=pytz.UTC)
                 current_time = current_time.astimezone(local_tz)
-                current_value = float(state["state"])
+                current_value = float(state_val)
 
                 if prev_state is not None and prev_time is not None:
                     # Calculate energy delta (ensure positive)
@@ -1000,7 +1005,7 @@ def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 prev_time = current_time
 
             except (ValueError, TypeError, KeyError) as e:
-                print(f"Warning: Skipping invalid state data: {e}")
+                print(f"Warning: Skipping invalid state data for {entity_id}: {e}")
                 continue
 
         # Create average daily profile from the 7 days of data (divide by 7 days)
@@ -1016,7 +1021,7 @@ def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         # Validate and clean the profile
         total_daily = sum(daily_profile)
         if total_daily <= 0:
-            print("Warning: No valid energy consumption data found")
+            print(f"Warning: No valid energy consumption data found for {entity_id}")
             return get_dummy_load_profile(config)
 
         print(f"Successfully loaded HA data: {total_daily:.2f} kWh/day average")
@@ -1031,10 +1036,10 @@ def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         return daily_profile
 
     except requests.RequestException as e:
-        print(f"Warning: Failed to fetch data from Home Assistant: {e}")
+        print(f"Warning: Failed to fetch data from Home Assistant for {entity_id}: {e}")
         return get_dummy_load_profile(config)
     except Exception as e:
-        print(f"Warning: Error processing Home Assistant data: {e}")
+        print(f"Warning: Error processing Home Assistant data for {entity_id}: {e}")
         return get_dummy_load_profile(config)
 
 

@@ -31,15 +31,6 @@ def get_version_string():
         return os.environ.get("DARKSTAR_VERSION", "dev")
 
 
-def write_to_mariadb(schedule_path, config_path="config.yaml", secrets_path="secrets.yaml"):
-    from db_writer import write_schedule_to_db_with_preservation
-
-    config = load_yaml(config_path)
-    secrets = load_yaml(secrets_path)
-    planner_version = get_version_string()
-    return write_schedule_to_db_with_preservation(schedule_path, planner_version, config, secrets)
-
-
 def main():
     config = load_yaml("config.yaml")
     automation = config.get("automation", {})
@@ -72,55 +63,10 @@ def main():
 
     # Run Planner Pipeline
     # This will generate and save schedule.json
-    df = generate_schedule(input_data, config=config, mode="full", save_to_file=True)
+    generate_schedule(input_data, config=config, mode="full", save_to_file=True)
 
     schedule_path = "schedule.json"
     print(f"[planner] Wrote schedule to {schedule_path}")
-
-    # Optional DB write
-    if automation.get("write_to_mariadb", False):
-        inserted = write_to_mariadb(schedule_path)
-        print(f"[planner] Wrote {inserted} rows to MariaDB current_schedule/plan_history")
-    else:
-        print("[planner] Skipped DB write (automation.write_to_mariadb is false)")
-
-    # Optional Antares shadow-mode plan (Phase 4)
-    antares_cfg = config.get("antares", {}) or {}
-    enable_shadow = bool(antares_cfg.get("enable_shadow_mode", False))
-    if enable_shadow:
-        try:
-            from db_writer import write_antares_shadow_to_mariadb
-
-            from ml.policy.shadow_runner import run_shadow_for_schedule
-
-            policy_type = str(antares_cfg.get("shadow_policy_type", "lightgbm")).lower()
-            if policy_type not in {"lightgbm", "rl"}:
-                policy_type = "lightgbm"
-
-            shadow_payload = run_shadow_for_schedule(df, policy_type=policy_type)
-            if shadow_payload is None:
-                print("[planner] Antares shadow mode enabled but no policy; skipping shadow write")
-            else:
-                secrets = load_yaml("secrets.yaml")
-                planner_version = get_version_string()
-                rows = write_antares_shadow_to_mariadb(
-                    shadow_payload,
-                    planner_version,
-                    config,
-                    secrets,
-                )
-                if rows > 0:
-                    print(
-                        "[planner] Wrote Antares shadow plan to MariaDB "
-                        f"antares_plan_history (plan_date={shadow_payload.get('plan_date')})"
-                    )
-                else:
-                    print(
-                        "[planner] Antares shadow mode enabled but MariaDB write was skipped "
-                        "(missing or incomplete secrets)"
-                    )
-        except Exception as exc:
-            print(f"[planner] Warning: Failed to generate/write Antares shadow plan: {exc}")
 
     return 0
 
