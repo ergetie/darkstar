@@ -185,7 +185,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
                 query = """
                     SELECT
                         slot_start, slot_end,
-                        batt_charge_kwh, soc_end_percent, water_kwh,
+                        batt_charge_kwh, batt_discharge_kwh, soc_end_percent, water_kwh,
                         import_kwh, export_kwh,
                         import_price_sek_kwh
                     FROM slot_observations
@@ -214,13 +214,20 @@ async def schedule_today_with_history() -> dict[str, Any]:
                             water_kw = float(row["water_kwh"] or 0.0) / duration_hours
 
                             # batt_charge_kwh -> actual_charge_kw
-                            # Note: slot_observations separates charge/discharge. usage implies net or just charge?
-                            # schedule.json usually tracks 'battery_charge_kw'.
                             charge_kwh = float(row["batt_charge_kwh"] or 0.0)
                             charge_kw = charge_kwh / duration_hours
 
+                            # batt_discharge_kwh -> actual_discharge_kw (for export/discharge slots)
+                            discharge_kwh = float(row["batt_discharge_kwh"] or 0.0)
+                            discharge_kw = discharge_kwh / duration_hours
+
+                            # export_kwh for display
+                            export_kwh = float(row["export_kwh"] or 0.0)
+
                             exec_map[key] = {
                                 "actual_charge_kw": round(charge_kw, 3),
+                                "actual_discharge_kw": round(discharge_kw, 3),
+                                "actual_export_kwh": round(export_kwh, 3),
                                 "actual_soc": float(row["soc_end_percent"] or 0.0),
                                 "water_heating_kw": round(water_kw, 3),
                                 "import_price_sek_kwh": float(row["import_price_sek_kwh"] or 0.0),
@@ -280,7 +287,10 @@ async def schedule_today_with_history() -> dict[str, Any]:
         if key in exec_map:
             h = exec_map[key]
             slot["actual_charge_kw"] = h.get("actual_charge_kw")
+            slot["actual_discharge_kw"] = h.get("actual_discharge_kw")
+            slot["actual_export_kwh"] = h.get("actual_export_kwh")
             slot["actual_soc"] = h.get("actual_soc")
+            slot["water_heating_kw"] = h.get("water_heating_kw", slot.get("water_heating_kw"))
             # Add historical price from DB if not already present
             if "import_price_sek_kwh" not in slot:
                 slot["import_price_sek_kwh"] = h.get("import_price_sek_kwh")

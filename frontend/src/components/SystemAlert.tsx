@@ -39,52 +39,38 @@ export function SystemAlert({ health, onDismiss }: SystemAlertProps) {
     const warningIssues = health.issues.filter((i) => i.severity === 'warning')
 
     return (
-        <div className="system-alert-container">
-            {criticalIssues.length > 0 && (
-                <div className="system-alert system-alert--critical">
-                    <div className="system-alert__icon">⚠️</div>
-                    <div className="system-alert__content">
-                        <div className="system-alert__title">
-                            System Error{criticalIssues.length > 1 ? 's' : ''} Detected
-                        </div>
-                        <ul className="system-alert__list">
-                            {criticalIssues.map((issue, idx) => (
-                                <li key={idx} className="system-alert__item">
-                                    <strong>{issue.message}</strong>
-                                    {issue.entity_id && <code className="system-alert__entity">{issue.entity_id}</code>}
-                                    <div className="system-alert__guidance">{issue.guidance}</div>
-                                </li>
-                            ))}
-                        </ul>
+        <div className="space-y-2">
+            {/* Critical Errors - same style as shadow mode banner */}
+            {criticalIssues.map((issue, idx) => (
+                <div key={`critical-${idx}`} className="banner banner-error px-4 py-3 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <span>⚠️</span>
+                        <span className="font-medium">{issue.message}</span>
+                        {issue.entity_id && (
+                            <code className="text-[10px] bg-white/20 px-1.5 py-0.5 rounded">{issue.entity_id}</code>
+                        )}
+                        <span className="opacity-70 text-xs">— {issue.guidance}</span>
                     </div>
                     {onDismiss && (
                         <button
-                            className="system-alert__dismiss"
                             onClick={onDismiss}
-                            title="Dismiss (will reappear on next check)"
+                            className="opacity-60 hover:opacity-100 text-xs px-2 py-1"
+                            title="Dismiss"
                         >
-                            ×
+                            ✕
                         </button>
                     )}
                 </div>
-            )}
+            ))}
 
-            {warningIssues.length > 0 && (
-                <div className="system-alert system-alert--warning">
-                    <div className="system-alert__icon">⚡</div>
-                    <div className="system-alert__content">
-                        <div className="system-alert__title">Warning{warningIssues.length > 1 ? 's' : ''}</div>
-                        <ul className="system-alert__list">
-                            {warningIssues.map((issue, idx) => (
-                                <li key={idx} className="system-alert__item">
-                                    <strong>{issue.message}</strong>
-                                    <div className="system-alert__guidance">{issue.guidance}</div>
-                                </li>
-                            ))}
-                        </ul>
-                    </div>
+            {/* Warnings - same style as vacation mode banner */}
+            {warningIssues.map((issue, idx) => (
+                <div key={`warning-${idx}`} className="banner banner-warning px-4 py-3">
+                    <span>⚡</span>
+                    <span className="font-medium">{issue.message}</span>
+                    <span className="opacity-70 text-xs ml-2">— {issue.guidance}</span>
                 </div>
-            )}
+            ))}
         </div>
     )
 }

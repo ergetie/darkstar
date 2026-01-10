@@ -17,7 +17,7 @@ router = APIRouter(tags=["system"])
 
 
 def _get_git_version() -> str:
-    """Get version from environment, git tags, or config.yaml."""
+    """Get version from environment, VERSION file, git tags, or config.yaml."""
     import os
     from pathlib import Path
 
@@ -32,20 +32,34 @@ def _get_git_version() -> str:
     if env_version:
         return clean_v(env_version)
 
-    # 2. Try Git - ONLY get the tag name
+    # 2. Read from VERSION file (works reliably in Docker - no git required)
     try:
+        version_file = Path("VERSION")
+        if version_file.exists():
+            return clean_v(version_file.read_text())
+    except Exception:
+        pass
+
+    # 3. Try Git - for development/LXC environments
+    #    Use __file__ to determine project root, ensuring correct cwd
+    try:
+        # Get project root from this file's location: backend/api/routers/system.py -> ../../../
+        project_root = Path(__file__).resolve().parent.parent.parent.parent
         git_ver = (
             subprocess.check_output(
-                ["git", "describe", "--tags", "--abbrev=0"], stderr=subprocess.DEVNULL
+                ["git", "describe", "--tags", "--abbrev=0"],
+                stderr=subprocess.DEVNULL,
+                cwd=str(project_root),  # Run git from project root
             )
             .decode()
             .strip()
         )
-        return clean_v(git_ver)
+        if git_ver:
+            return clean_v(git_ver)
     except Exception:
         pass
 
-    # 3. Fallback: read from darkstar/config.yaml (add-on version)
+    # 4. Fallback: read from darkstar/config.yaml (add-on version)
     try:
         with Path("darkstar/config.yaml").open() as f:
             addon_config = yaml.safe_load(f)
@@ -54,7 +68,7 @@ def _get_git_version() -> str:
     except Exception:
         pass
 
-    return "2.4.2-beta"  # Hardcoded last resort fallback
+    return "unknown"  # Should never reach here if VERSION file exists
 
 
 @router.get(

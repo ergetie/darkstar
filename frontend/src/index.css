@@ -708,13 +708,25 @@ body::before {
     }
 
     .system-alert--critical {
-        background: linear-gradient(135deg, #ff4444 0%, #cc0000 100%);
+        background: rgb(241, 81, 50);
         color: white;
     }
 
+    .dark .system-alert--critical {
+        background: rgba(241, 81, 50, 0.2);
+        border: 1px solid rgba(241, 81, 50, 0.5);
+        color: rgb(241, 81, 50);
+    }
+
     .system-alert--warning {
-        background: linear-gradient(135deg, #ffaa00 0%, #ff8800 100%);
+        background: rgb(245, 158, 11);
         color: #1a1a1a;
+    }
+
+    .dark .system-alert--warning {
+        background: rgba(245, 158, 11, 0.2);
+        border: 1px solid rgba(245, 158, 11, 0.5);
+        color: rgb(245, 158, 11);
     }
 
     .system-alert__icon {

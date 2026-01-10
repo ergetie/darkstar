@@ -277,6 +277,14 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
 async def get_water_today() -> dict[str, Any]:
     """Get today's water heating energy usage."""
     config = load_yaml("config.yaml")
+
+    # Check if water heater feature is enabled
+    system_config: dict[str, Any] = config.get("system", {})
+    has_water_heater = system_config.get("has_water_heater", False)
+
+    if not has_water_heater:
+        return {"water_kwh_today": 0.0, "cost": 0.0, "source": "disabled"}
+
     sensors: dict[str, Any] = config.get("input_sensors", {})
     entity_id = sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
 

@@ -47,6 +47,7 @@ COPY inputs.py ./
 # Copy configuration templates
 COPY config.default.yaml ./
 COPY secrets.example.yaml ./
+COPY VERSION ./
 
 # Copy HA Add-on entrypoint (note: path from repo root context)
 COPY darkstar/run.sh /run.sh
