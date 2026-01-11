@@ -168,13 +168,21 @@ def config_to_kepler_config(
         water_heating_min_kwh=float(
             planner_config.get("water_heating", {}).get("min_kwh_per_day", 0.0)
         ),
+        # PRODUCTION FIX B1: Disable BOTH gap penalty AND spacing when enable_top_ups=false
+        # Gap penalty (water_heating_max_gap_hours) causes comfort-driven top-ups
+        # Spacing penalty (water_min_spacing_hours) prevents efficiency-driven top-ups  
+        # BOTH must be disabled to prevent top-ups entirely
         water_heating_max_gap_hours=float(
             planner_config.get("water_heating", {}).get("max_hours_between_heating", 8.0)
+            if planner_config.get("water_heating", {}).get("enable_top_ups", True)
+            else 0.0  # ← FIX: Was not conditional before!
         ),
         water_heated_today_kwh=0.0,  # Set in pipeline from HA sensor
         water_comfort_penalty_sek=_comfort_level_to_penalty(
             int(planner_config.get("water_heating", {}).get("comfort_level", 3))
-        ),
+        )
+        if planner_config.get("water_heating", {}).get("enable_top_ups", True)
+        else 0.0,  # ← FIX: Also disable comfort penalty
         # Rev WH1: Disable spacing constraints when top-ups are disabled
         water_min_spacing_hours=float(
             planner_config.get("water_heating", {}).get("min_spacing_hours", 5.0)
@@ -187,6 +195,16 @@ def config_to_kepler_config(
             else 0.0
         ),
     )
+    
+    # DEBUG B1: Log what enable_top_ups actually is
+    enable_top_ups_value = planner_config.get("water_heating", {}).get("enable_top_ups", True)
+    print(f"[B1 DEBUG] enable_top_ups from config: {enable_top_ups_value} (type: {type(enable_top_ups_value).__name__})")
+    print(f"[B1 DEBUG] water_heating_max_gap_hours: {kepler_cfg.water_heating_max_gap_hours}")
+    print(f"[B1 DEBUG] water_comfort_penalty_sek: {kepler_cfg.water_comfort_penalty_sek}")
+    print(f"[B1 DEBUG] water_min_spacing_hours: {kepler_cfg.water_min_spacing_hours}")
+    print(f"[B1 DEBUG] water_spacing_penalty_sek: {kepler_cfg.water_spacing_penalty_sek}")
+    
+    return kepler_cfg
 
 
 def kepler_result_to_dataframe(
