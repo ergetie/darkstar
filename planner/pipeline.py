@@ -181,7 +181,15 @@ class PlannerPipeline:
 
         # Prepare DataFrame (merge prices + forecasts)
         timezone_name = active_config.get("timezone", "Europe/Stockholm")
-# ... (existing content omitted) ...
+        df = prepare_df(input_data, timezone_name)
+
+        # Rev O1: Zero out PV if no solar panels
+        if not has_solar:
+            logger.info("No solar panels - zeroing PV forecasts")
+            df["pv_forecast_kwh"] = 0.0
+            if "adjusted_pv_kwh" in df.columns:
+                df["adjusted_pv_kwh"] = 0.0
+
         # Determine 'now' slot
         tz = pytz.timezone(timezone_name)
         if now_override:
@@ -221,8 +229,125 @@ class PlannerPipeline:
             except Exception as e:
                 logger.warning("Rev WH2: Failed to determine forced water slots: %s", e)
 
-# ... (existing strategy logic omitted) ...
+        # 3. Strategy (S-Index & Safety Margins)
+        s_index_debug = {}
+        effective_load_margin = 1.0
+        target_soc_kwh = 0.0
 
+        if mode == "full":
+            # Calculate S-Index / Load Inflation
+            # Note: Legacy uses static/base factor for load inflation (D1 safety)
+            # and dynamic risk factor for target SoC (D2 strategy)
+
+            s_index_cfg = active_config.get("s_index", {})
+            base_factor = float(s_index_cfg.get("base_factor", 1.05))
+
+            # Apply learned base factor
+            if "s_index_base_factor" in learning_overlays:
+                base_factor = float(learning_overlays["s_index_base_factor"])
+                # Update cfg copy so functions see the learned value
+                s_index_cfg = s_index_cfg.copy()
+                s_index_cfg["base_factor"] = base_factor
+
+            # Mode Check: Probabilistic vs Dynamic
+            if s_index_cfg.get("mode") == "probabilistic":
+                factor, s_debug = calculate_probabilistic_s_index(
+                    df,
+                    s_index_cfg,
+                    float(s_index_cfg.get("max_factor", 1.5)),
+                    timezone_name,
+                    daily_probabilistic=input_data.get("daily_probabilistic"),
+                )
+                if factor is not None:
+                    effective_load_margin = factor
+                else:
+                    logger.warning("Probabilistic S-Index failed (using base_factor): %s", s_debug)
+                    effective_load_margin = base_factor
+
+                s_index_debug.update(s_debug or {})
+            else:
+                # Legacy Dynamic Calculation
+                factor, s_debug, _ = calculate_dynamic_s_index(
+                    df,
+                    s_index_cfg,
+                    float(s_index_cfg.get("max_factor", 1.5)),
+                    timezone_name,
+                    fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(
+                        days, t, active_config
+                    ),
+                )
+                effective_load_margin = factor if factor is not None else base_factor
+
+                s_index_debug.update(s_debug or {})
+
+            # Calculate Future Risk (D2) for Target SoC
+            risk_factor, risk_debug = calculate_future_risk_factor(
+                df,
+                s_index_cfg,
+                timezone_name,
+                daily_pv_forecast=input_data.get("daily_pv_forecast"),
+                daily_load_forecast=input_data.get("daily_load_forecast"),
+                fetch_temperature_fn=lambda days, t: fetch_temperature_forecast(
+                    days, t, active_config
+                ),
+            )
+
+            # Calculate Dynamic Target SoC
+            # Pass raw_factor for weather adjustment (independent of risk level)
+            raw_factor_for_weather = risk_debug.get(
+                "raw_factor_with_weather", risk_debug.get("raw_factor", 1.0)
+            )
+            target_soc_pct, target_soc_kwh, soc_debug = calculate_dynamic_target_soc(
+                risk_factor,
+                active_config.get("battery", {}),
+                s_index_cfg,
+                raw_factor=raw_factor_for_weather,
+            )
+
+            # Extract raw factor from s_debug (handle both naming conventions)
+            raw_factor = s_debug.get("raw_factor", s_debug.get("factor_unclamped"))
+
+            s_index_debug = {
+                "mode": "decoupled",
+                "base_factor": base_factor,
+                "effective_load_margin": effective_load_margin,
+                "raw_factor": raw_factor,
+                "future_risk": risk_debug,
+                "target_soc": soc_debug,
+            }
+
+            # Apply Safety Margins (PV confidence, Load inflation, Overlays)
+            df = apply_safety_margins(df, active_config, learning_overlays, effective_load_margin)
+        else:
+            # Baseline mode: No safety margins, raw forecasts
+            df["adjusted_pv_kwh"] = df["pv_forecast_kwh"]
+            df["adjusted_load_kwh"] = df["load_forecast_kwh"]
+
+        # 4. Schedule Water Heating
+        # Get water heater daily consumption from HA sensor (Rev K18)
+        initial_state = input_data.get("initial_state", {})
+        ha_water_today = float(initial_state.get("water_heated_today_kwh", 0.0))
+        # Note: Kepler handles water_heating_kw in the MILP.
+        # Heuristic fallback removed in REV LCL01.
+
+        # 5. Run Solver (Kepler)
+        # CRITICAL: Only pass FUTURE slots to Kepler, starting from NOW with CURRENT real SoC
+        # This ensures replanning during the day uses actual battery state, not midnight projection
+        initial_state = input_data.get("initial_state", {})
+
+        # Get current real SoC from Home Assistant
+        initial_soc_kwh = float(
+            initial_state.get("battery_kwh", initial_state.get("battery_soc_kwh", 0.0))
+        )
+        if initial_soc_kwh == 0.0 and "battery_soc_percent" in initial_state:
+            cap = float(active_config.get("battery", {}).get("capacity_kwh", 0.0))
+            initial_soc_kwh = (float(initial_state["battery_soc_percent"]) / 100.0) * cap
+
+        logger.info("Pipeline initial_soc_kwh: %.3f (real SoC from HA)", initial_soc_kwh)
+
+        # Filter to FUTURE slots only (>= now_slot)
+        # Kepler should optimize from NOW, not from midnight
+        future_df = df[df.index >= now_slot].copy()
         if future_df.empty:
             logger.warning("No future slots available for Kepler! Using full DataFrame.")
             future_df = df.copy()
