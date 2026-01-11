@@ -77,6 +77,7 @@ def config_to_kepler_config(
     planner_config: dict[str, Any],
     overrides: dict[str, Any] | None = None,
     slots: list[Any] | None = None,
+    force_water_on_slots: list[int] | None = None,
 ) -> KeplerConfig:
     """
     Convert the main config dictionary to KeplerConfig.
