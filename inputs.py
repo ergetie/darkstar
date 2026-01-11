@@ -85,6 +85,7 @@ async def async_get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
     token = ha_config.get("token")
 
     if not url or not token or not entity_id:
+        print(f"[async_get_ha_entity_state] Missing config: url={bool(url)}, token={bool(token)}, entity={entity_id}")
         return None
 
     endpoint = f"{url.rstrip('/')}/api/states/{entity_id}"
@@ -92,7 +93,10 @@ async def async_get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
         client = await get_async_ha_client()
         response = await client.get(endpoint, headers=make_ha_headers(token))
         response.raise_for_status()
-        return response.json()
+        data = response.json()
+        state_value = data.get("state")
+        print(f"[async_get_ha_entity_state] {entity_id} → state={state_value}")
+        return data
     except Exception as exc:
         print(f"Warning: Failed to fetch Home Assistant entity '{entity_id}' (async): {exc}")
         return None

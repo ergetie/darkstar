@@ -459,7 +459,7 @@ const createChartData = (
     // Add no-data message if needed
     if (values.hasNoData) {
         // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ;(baseData as ExtendedChartData).plugins = {
+        ; (baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -838,21 +838,19 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === 'day'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                    }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === '48h'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                    }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -889,11 +887,10 @@ export default function ChartCard({
                                 e.preventDefault()
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${
-                                overlays[key as keyof typeof overlays]
+                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
                                     ? 'bg-accent text-canvas border-accent'
                                     : 'border-line/60 text-muted hover:border-accent'
-                            }`}
+                                }`}
                         >
                             {label}
                         </button>
@@ -1161,20 +1158,19 @@ function buildLiveData(
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
+                // B2 FIX: Always show planned actions, prefer actual_* values when available
+                // This ensures full history is visible even when is_executed slots are cleaned up
                 const isExec = slot.is_executed === true
 
                 price.push(slot.import_price_sek_kwh ?? null)
-                pv.push(isExec && slot.actual_pv_kwh != null ? slot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null))
-                load.push(
-                    isExec && slot.actual_load_kwh != null ? slot.actual_load_kwh : (slot.load_forecast_kwh ?? null),
-                )
-                charge.push(
-                    isExec && slot.actual_charge_kw != null
-                        ? slot.actual_charge_kw
-                        : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
-                )
+                // For pv/load: prefer actual if available, fallback to forecast
+                pv.push(slot.actual_pv_kwh ?? slot.pv_forecast_kwh ?? null)
+                load.push(slot.actual_load_kwh ?? slot.load_forecast_kwh ?? null)
+                // For charge: prefer actual if available, fallback to planned
+                charge.push(slot.actual_charge_kw ?? slot.battery_charge_kw ?? slot.charge_kw ?? null)
+                // Discharge and water: always show planned (actual_discharge/actual_water not tracked)
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-                exp.push(isExec && slot.actual_export_kw != null ? slot.actual_export_kw : (slot.export_kwh ?? null))
+                exp.push(slot.actual_export_kw ?? slot.export_kwh ?? null)
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)

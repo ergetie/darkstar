@@ -59,6 +59,7 @@ COPY scripts/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Copy default configuration (users mount their own config.yaml)
+COPY VERSION ./VERSION
 COPY config.default.yaml ./config.default.yaml
 COPY secrets.example.yaml ./secrets.example.yaml
 
