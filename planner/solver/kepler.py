@@ -6,9 +6,9 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 """
 
 from collections import defaultdict
+from datetime import timedelta  # Rev WH2
 
 import pulp
-
 from .types import KeplerConfig, KeplerInput, KeplerResult, KeplerResultSlot
 
 
@@ -112,6 +112,12 @@ class KeplerSolver:
                 else:
                     prob += water_start[t] >= water_heat[t] - water_heat[t - 1]
 
+            # Rev WH2: Force specific slots ON (Mid-block locking)
+            if water_enabled and config.force_water_on_slots:
+                for t_idx in config.force_water_on_slots:
+                    if 0 <= t_idx < T:
+                        prob += water_heat[t_idx] == 1
+
             # Battery Dynamics Constraint
             prob += soc[t + 1] == soc[t] + charge[t] * config.charge_efficiency - discharge[t] / (
                 config.discharge_efficiency if config.discharge_efficiency > 0 else 1.0
@@ -195,10 +201,17 @@ class KeplerSolver:
 
             # Constraint 1: Per-day min_kwh requirements
             # Group slots by date to apply daily minimum constraints
+            # Rev WH2: Smart Deferral - extend buckets into next morning
             slots_by_day = defaultdict(list)
+            defer_hours = config.defer_up_to_hours
+            
             for t in range(T):
-                slot_date = slots[t].start_time.date()
-                slots_by_day[slot_date].append(t)
+                dt = slots[t].start_time
+                bucket_date = dt.date()
+                if defer_hours > 0 and dt.hour < defer_hours:
+                    bucket_date = bucket_date - timedelta(days=1)
+
+                slots_by_day[bucket_date].append(t)
 
             # Sort days to identify "today" (first day in horizon)
             sorted_days = sorted(slots_by_day.keys())
@@ -279,6 +292,11 @@ class KeplerSolver:
             + target_soc_penalty * target_over_violation
             + gap_violation_penalty
             + spacing_violation_penalty
+            + (
+                pulp.lpSum(water_start[t] for t in range(T)) * config.water_block_start_penalty_sek
+                if water_enabled and config.water_block_start_penalty_sek > 0
+                else 0.0
+            )  # Rev WH2: Block start penalty
         )
 
         # Solve using GLPK (available in Alpine) or CBC as fallback

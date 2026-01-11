@@ -40,6 +40,15 @@ class KeplerConfig:
     water_comfort_penalty_sek: float = 0.50  # Penalty per hour beyond gap threshold
     water_min_spacing_hours: float = 5.0  # Rev K21: Min gap between starts to avoid efficiency loss
     water_spacing_penalty_sek: float = 0.20  # Rev K21: Soft penalty for frequent starts
+    # Rev WH2: Mid-block locking (force ON for specific slots)
+    force_water_on_slots: list[int] | None = None  # Slots indices that MUST be ON
+    
+    # Rev WH2: Block start penalty
+    water_block_start_penalty_sek: float = 0.0  # Penalty for starting a new block
+    
+    # Rev WH2: Smart deferral
+    defer_up_to_hours: float = 0.0  # Allow heating until N hours into next day
+
 
 
 @dataclass
