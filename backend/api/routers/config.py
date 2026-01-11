@@ -93,14 +93,21 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                         if not overrides[key]:
                             overrides.pop(key)
 
-        # Deep merge helper
+        # Deep merge helper - FIXED to preserve YAML structure
         def deep_update(source: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+            """Recursively merge overrides into source, preserving structure."""
             for key, value in overrides.items():
                 if isinstance(value, dict) and value:
-                    returned = deep_update(
-                        cast("dict[str, Any]", source.get(key, {})), cast("dict[str, Any]", value)
-                    )
-                    source[key] = returned
+                    # Ensure parent key exists as dict before merging
+                    if key not in source:
+                        source[key] = {}
+                    elif not isinstance(source[key], dict):
+                        # If source[key] exists but isn't a dict, replace it
+                        logger.warning(f"Config key '{key}' exists but isn't a dict - replacing")
+                        source[key] = {}
+                    
+                    # Recursively merge the nested dict
+                    deep_update(source[key], value)
                 else:
                     source[key] = overrides[key]
             return source
