@@ -376,4 +376,6 @@ class TestActionDispatcherExecute:
         action_types = [r.action_type for r in results]
         assert "charge_current" not in action_types
         assert "discharge_current" not in action_types
-        assert "max_export_power" in action_types  # Still called as it doesn't have a write flag yet
+        assert (
+            "max_export_power" in action_types
+        )  # Still called as it doesn't have a write flag yet

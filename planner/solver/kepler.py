@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import timedelta  # Rev WH2
 
 import pulp
+
 from .types import KeplerConfig, KeplerInput, KeplerResult, KeplerResultSlot
 
 
@@ -186,11 +187,25 @@ class KeplerSolver:
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
         # Penalize both being UNDER target (risk) AND OVER target (missed discharge opportunity)
         target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
+        
+        # Terminal SoC Target (BIDIRECTIONAL soft constraint)
+        # Penalize both being UNDER target (risk) AND OVER target (missed discharge opportunity)
+        target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
+
         if config.target_soc_kwh is not None:
             # Under target: soc[T] >= target - under_violation
             prob += soc[T] >= target_soc_kwh - target_under_violation
             # Over target: soc[T] <= target + over_violation
             prob += soc[T] <= target_soc_kwh + target_over_violation
+            
+            # Penalize UNDER target (important)
+            total_cost.append(target_soc_penalty * target_under_violation)
+            # Penalize OVER target (only if target is > 0 to avoid dumping to 0)
+            if target_soc_kwh > 0:
+                total_cost.append(target_soc_penalty * target_over_violation)
+        else:
+            # If no target, we don't care where we end up (within min_soc limits)
+            pass
 
         # Water Heating Constraints (Rev K17/K18/K21)
         gap_violation_penalty = 0.0
@@ -204,7 +219,7 @@ class KeplerSolver:
             # Rev WH2: Smart Deferral - extend buckets into next morning
             slots_by_day = defaultdict(list)
             defer_hours = config.defer_up_to_hours
-            
+
             for t in range(T):
                 dt = slots[t].start_time
                 bucket_date = dt.date()
@@ -276,7 +291,7 @@ class KeplerSolver:
                 )
 
         # Terminal Value
-        terminal_value = soc[T] * config.terminal_value_sek_kwh
+        terminal_value = soc[T] * config.terminal_value_sek_kwh if config.terminal_value_sek_kwh != 0 else 0.0
 
         # Set Objective
         # - min_soc violation: HARD penalty (1000 SEK/kWh)
@@ -288,8 +303,6 @@ class KeplerSolver:
             pulp.lpSum(total_cost)
             - terminal_value
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
-            + target_soc_penalty * target_under_violation
-            + target_soc_penalty * target_over_violation
             + gap_violation_penalty
             + spacing_violation_penalty
             + (
@@ -340,6 +353,8 @@ class KeplerSolver:
                 cost = (i_val * s.import_price_sek_kwh) - (e_val * s.export_price_sek_kwh) + wear
                 final_total_cost += cost
 
+                t_credit = (soc_val * config.terminal_value_sek_kwh) / (T + 1) if T >= 0 else 0.0
+                
                 result_slots.append(
                     KeplerResultSlot(
                         start_time=s.start_time,
@@ -353,6 +368,7 @@ class KeplerSolver:
                         import_price_sek_kwh=s.import_price_sek_kwh,
                         export_price_sek_kwh=s.export_price_sek_kwh,
                         water_heat_kw=w_kw,
+                        terminal_credit_sek=t_credit,
                         is_optimal=True,
                     )
                 )

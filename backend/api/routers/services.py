@@ -669,8 +669,6 @@ async def get_ha_socket_status() -> dict[str, Any]:
         return {"status": "error", "message": str(e)}
 
 
-
-
 @router_services.post(
     "/api/simulate",
     summary="Run Simulation",

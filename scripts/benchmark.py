@@ -16,6 +16,7 @@ import httpx
 
 class BenchmarkResult(NamedTuple):
     """Results for a single endpoint benchmark."""
+
     endpoint: str
     total_requests: int
     successful: int
@@ -113,10 +114,10 @@ async def main():
     args = parser.parse_args()
 
     endpoints = [
-        "/api/health",           # Lightweight (health check)
-        "/api/version",          # Lightweight (git describe)
-        "/api/config",           # Medium (YAML + secrets merge)
-        "/api/aurora/dashboard", # Heavy (DB query + ML status)
+        "/api/health",  # Lightweight (health check)
+        "/api/version",  # Lightweight (git describe)
+        "/api/config",  # Medium (YAML + secrets merge)
+        "/api/aurora/dashboard",  # Heavy (DB query + ML status)
     ]
 
     print("=" * 60)
@@ -140,9 +141,7 @@ async def main():
         results = []
         for endpoint in endpoints:
             print(f"\nBenchmarking {endpoint}...")
-            result = await benchmark_endpoint(
-                client, endpoint, args.requests, args.concurrency
-            )
+            result = await benchmark_endpoint(client, endpoint, args.requests, args.concurrency)
             results.append(result)
             print_result(result)
 
@@ -153,7 +152,9 @@ async def main():
     print(f"{'Endpoint':<25} {'RPS':>8} {'p50':>10} {'p95':>10} {'p99':>10}")
     print("-" * 60)
     for r in results:
-        print(f"{r.endpoint:<25} {r.rps:>8.1f} {r.p50_ms:>9.2f}ms {r.p95_ms:>9.2f}ms {r.p99_ms:>9.2f}ms")
+        print(
+            f"{r.endpoint:<25} {r.rps:>8.1f} {r.p50_ms:>9.2f}ms {r.p95_ms:>9.2f}ms {r.p99_ms:>9.2f}ms"
+        )
 
 
 if __name__ == "__main__":

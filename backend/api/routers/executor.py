@@ -531,4 +531,3 @@ def get_executor_health() -> dict[str, Any]:
         "error": executor.status.last_error if executor.status.last_run_status == "error" else None,
         "is_healthy": is_alive == should_be_running and executor.status.last_run_status != "error",
     }
-

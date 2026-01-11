@@ -76,6 +76,7 @@ OLD_ROUTES = [
 
 BASE_URL = "http://localhost:5000"
 
+
 async def check_route(client, method, path, semaphore):
     async with semaphore:
         url = f"{BASE_URL}{path}"
@@ -94,8 +95,9 @@ async def check_route(client, method, path, semaphore):
         except Exception as e:
             return method, path, -1, str(e)
 
+
 async def main():
-    semaphore = asyncio.Semaphore(3) # Very conservative
+    semaphore = asyncio.Semaphore(3)  # Very conservative
     async with httpx.AsyncClient() as client:
         tasks = [check_route(client, m, p, semaphore) for m, p in OLD_ROUTES]
         results = await asyncio.gather(*tasks)
@@ -116,6 +118,7 @@ async def main():
         sys.exit(0)
     else:
         sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

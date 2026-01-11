@@ -53,7 +53,9 @@ class Controller:
     Ported from n8n Helios Executor "Controller" JavaScript node.
     """
 
-    def __init__(self, config: ControllerConfig, water_heater_config: WaterHeaterConfig | None = None):
+    def __init__(
+        self, config: ControllerConfig, water_heater_config: WaterHeaterConfig | None = None
+    ):
         self.config = config
         self.water_heater_config = water_heater_config or WaterHeaterConfig()
 
@@ -219,7 +221,9 @@ class Controller:
         - This is a critical fix for Bug #1: letting the battery provide full current
           even during export slots ensures local load is covered first.
         """
-        logger.debug("Setting discharge to max %.0fA for full load coverage", self.config.max_discharge_a)
+        logger.debug(
+            "Setting discharge to max %.0fA for full load coverage", self.config.max_discharge_a
+        )
         return self.config.max_discharge_a, True
 
     def _determine_water_temp(self, slot: SlotPlan) -> int:

@@ -208,8 +208,13 @@ class AntaresRLEnv:
 
                     # Expensive hours: mild penalty for sitting on energy when SoC is high
                     # and very little discharge is used.
-                    if high_thr is not None and price > high_thr and soc_pct > 60.0 and discharge_kw < 0.25:
-                            reward -= 0.1
+                    if (
+                        high_thr is not None
+                        and price > high_thr
+                        and soc_pct > 60.0
+                        and discharge_kw < 0.25
+                    ):
+                        reward -= 0.1
             except Exception:
                 # Never let shaping break the environment.
                 pass

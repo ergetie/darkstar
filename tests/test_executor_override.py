@@ -214,7 +214,7 @@ class TestOverrideEvaluatorExcessPVHeating:
         evaluator = OverrideEvaluator(
             excess_pv_threshold_kw=2.0,
             water_temp_boost=70,  # Configured boost
-            water_temp_max=85,    # Configured max
+            water_temp_max=85,  # Configured max
         )
         state = SystemState(
             current_pv_kw=5.0,

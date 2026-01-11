@@ -127,7 +127,6 @@ def create_app() -> socketio.ASGIApp:
 
     app.add_middleware(TimingMiddleware)
 
-
     # 4. Mount Routers
     app.include_router(dashboard.router)
     app.include_router(system.router)

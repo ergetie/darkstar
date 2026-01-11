@@ -42,13 +42,12 @@ class KeplerConfig:
     water_spacing_penalty_sek: float = 0.20  # Rev K21: Soft penalty for frequent starts
     # Rev WH2: Mid-block locking (force ON for specific slots)
     force_water_on_slots: list[int] | None = None  # Slots indices that MUST be ON
-    
+
     # Rev WH2: Block start penalty
     water_block_start_penalty_sek: float = 0.0  # Penalty for starting a new block
-    
+
     # Rev WH2: Smart deferral
     defer_up_to_hours: float = 0.0  # Allow heating until N hours into next day
-
 
 
 @dataclass
@@ -86,6 +85,7 @@ class KeplerResultSlot:
     import_price_sek_kwh: float = 0.0
     export_price_sek_kwh: float = 0.0
     water_heat_kw: float = 0.0  # Rev K17: Water heating power in this slot
+    terminal_credit_sek: float = 0.0  # Rev K25: Debug term
     is_optimal: bool = True
 
 

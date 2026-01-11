@@ -94,13 +94,6 @@ def config_to_kepler_config(
     if overrides and "kepler" in overrides:
         kepler_overrides = overrides["kepler"]
 
-    # Also read from config.yaml kepler section
-    kepler_config = planner_config.get("kepler", {})
-
-    capacity = float(battery.get("capacity_kwh", 0.0))
-    roundtrip = float(battery.get("roundtrip_efficiency_percent", 95.0))
-    eff_one_way = (roundtrip / 100.0) ** 0.5
-
     def get_val(key: str, default: float) -> float:
         # Check runtime overrides first, then config file, then default
         # Check kepler_overrides (legacy support)
@@ -115,37 +108,33 @@ def config_to_kepler_config(
 
     system = planner_config.get("system", {})
     battery = planner_config.get("battery", {})
-    
+
     # Calculate terminal value
     terminal_value = get_val("terminal_value_sek_kwh", 0.0)
-    # If terminal value is 0 (default), try to infer from future prices
-    if terminal_value == 0.0 and slots:
-        try:
-            prices = [s.import_price_sek_kwh for s in slots if s.import_price_sek_kwh is not None]
-            if prices:
-                min_price = min(prices)
-                avg_price = sum(prices) / len(prices)
-                # Midpoint: balances charge profitability (needs terminal > min)
-                # and discharge profitability (needs terminal + wear < avg)
-                terminal_value = (min_price + avg_price) / 2.0
-        except Exception:
-            pass
+    # If terminal value is 0 (default), we don't infer one automatically anymore
+    # to avoid making discharge profitable when it shouldn't be (prevent "dumping").
+    # The user can explicitly set 'terminal_value_sek_kwh' in config if they want credit.
+    pass
 
     # Rev WH2: Block start penalty
     # Prefer new key 'block_start_penalty_sek', fallback to dead key 'block_consolidation_tolerance_sek'
     wh_cfg = planner_config.get("water_heating", {})
-    block_start_penalty = float(wh_cfg.get("block_start_penalty_sek", 
-        wh_cfg.get("block_consolidation_tolerance_sek", 0.0)
-    ))
+    block_start_penalty = float(
+        wh_cfg.get("block_start_penalty_sek", wh_cfg.get("block_consolidation_tolerance_sek", 0.0))
+    )
+
+    capacity = float(battery.get("capacity_kwh", 13.5))
+    charge_eff = float(battery.get("charge_efficiency", 0.95))
+    discharge_eff = float(battery.get("discharge_efficiency", 0.95))
 
     kepler_cfg = KeplerConfig(
-        capacity_kwh=float(battery.get("capacity_kwh", 13.5)),
+        capacity_kwh=capacity,
         min_soc_percent=float(battery.get("min_soc_percent", 10.0)),
         max_soc_percent=float(battery.get("max_soc_percent", 100.0)),
         max_charge_power_kw=float(battery.get("max_charge_power_kw", 0.0)),
         max_discharge_power_kw=float(battery.get("max_discharge_power_kw", 0.0)),
-        charge_efficiency=float(battery.get("charge_efficiency", 0.95)),
-        discharge_efficiency=float(battery.get("discharge_efficiency", 0.95)),
+        charge_efficiency=charge_eff,
+        discharge_efficiency=discharge_eff,
         wear_cost_sek_per_kwh=get_val("wear_cost_sek_per_kwh", 0.0),
         max_export_power_kw=(
             float(system.get("grid", {}).get("max_power_kw"))
@@ -161,7 +150,6 @@ def config_to_kepler_config(
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
         # Rev K23: terminal_value = max(avg_future_price, stored_energy_cost)
         terminal_value_sek_kwh=terminal_value,
-
         # Water heating as deferrable load
         water_heating_power_kw=float(wh_cfg.get("power_kw", 0.0)),
         water_heating_min_kwh=float(wh_cfg.get("min_kwh_per_day", 0.0)),
@@ -172,28 +160,22 @@ def config_to_kepler_config(
             else 0.0
         ),
         water_heated_today_kwh=0.0,  # Set in pipeline from HA sensor
-        water_comfort_penalty_sek=_comfort_level_to_penalty(
-            int(wh_cfg.get("comfort_level", 3))
-        )
+        water_comfort_penalty_sek=_comfort_level_to_penalty(int(wh_cfg.get("comfort_level", 3)))
         if wh_cfg.get("enable_top_ups", True)
         else 0.0,
         # Rev WH1: Disable spacing constraints when top-ups are disabled
         water_min_spacing_hours=float(
-            wh_cfg.get("min_spacing_hours", 5.0)
-            if wh_cfg.get("enable_top_ups", True)
-            else 0.0
+            wh_cfg.get("min_spacing_hours", 5.0) if wh_cfg.get("enable_top_ups", True) else 0.0
         ),
         water_spacing_penalty_sek=float(
-            wh_cfg.get("spacing_penalty_sek", 0.20)
-            if wh_cfg.get("enable_top_ups", True)
-            else 0.0
+            wh_cfg.get("spacing_penalty_sek", 0.20) if wh_cfg.get("enable_top_ups", True) else 0.0
         ),
         # Rev WH2: Smart Water Heating Logic
         force_water_on_slots=force_water_on_slots,
         water_block_start_penalty_sek=block_start_penalty,
         defer_up_to_hours=float(wh_cfg.get("defer_up_to_hours", 0.0)),
     )
-    
+
     return kepler_cfg
 
 

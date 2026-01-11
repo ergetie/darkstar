@@ -52,13 +52,18 @@ DASHBOARD_ENDPOINTS = {
     "/api/ha/water_today": {"threshold_warn": 300, "threshold_error": 1000, "critical": False},
     "/api/aurora/dashboard": {"threshold_warn": 800, "threshold_error": 3000, "critical": False},
     "/api/executor/status": {"threshold_warn": 100, "threshold_error": 300, "critical": True},
-    "/api/schedule/today_with_history": {"threshold_warn": 300, "threshold_error": 1000, "critical": False},
+    "/api/schedule/today_with_history": {
+        "threshold_warn": 300,
+        "threshold_error": 1000,
+        "critical": False,
+    },
 }
 
 
 # -----------------------------------------------------------------------------
 # ANSI Colors
 # -----------------------------------------------------------------------------
+
 
 class Colors:
     RESET = "\033[0m"
@@ -79,6 +84,7 @@ def colored(text: str, color: str) -> str:
 # -----------------------------------------------------------------------------
 # Data Classes
 # -----------------------------------------------------------------------------
+
 
 @dataclass
 class EndpointResult:
@@ -106,6 +112,7 @@ class EndpointResult:
 # -----------------------------------------------------------------------------
 # Benchmark Functions
 # -----------------------------------------------------------------------------
+
 
 def time_endpoint(base_url: str, endpoint: str, config: dict[str, Any]) -> EndpointResult:
     """Time a single endpoint request."""
@@ -208,14 +215,20 @@ def print_report(
     """Print a colored terminal report."""
     print()
     print(colored("╭" + "─" * 68 + "╮", Colors.CYAN))
-    print(colored("│", Colors.CYAN) + colored("  DARKSTAR DASHBOARD PERFORMANCE REPORT", Colors.BOLD).center(76) + colored("│", Colors.CYAN))
+    print(
+        colored("│", Colors.CYAN)
+        + colored("  DARKSTAR DASHBOARD PERFORMANCE REPORT", Colors.BOLD).center(76)
+        + colored("│", Colors.CYAN)
+    )
     print(colored("╰" + "─" * 68 + "╯", Colors.CYAN))
     print()
     print(f"  {colored('Target:', Colors.GRAY)} {base_url}")
     print(f"  {colored('Time:', Colors.GRAY)} {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print()
     print(f"  {colored('Sequential Total:', Colors.GRAY)} {sequential_time_ms:.0f}ms")
-    print(f"  {colored('Parallel Total:', Colors.GRAY)} {parallel_time_ms:.0f}ms {colored('(browser behavior)', Colors.GRAY)}")
+    print(
+        f"  {colored('Parallel Total:', Colors.GRAY)} {parallel_time_ms:.0f}ms {colored('(browser behavior)', Colors.GRAY)}"
+    )
     print()
     print(colored("─" * 70, Colors.GRAY))
     print(f"  {'Endpoint':<40} {'Time':>8} {'Server':>8} {'Status':>10}")
@@ -238,7 +251,9 @@ def print_report(
             time_color = Colors.RED
 
         time_str = colored(f"{r.response_time_ms:>6.0f}ms", time_color)
-        server_str = f"{r.server_time_ms:>6.0f}ms" if r.server_time_ms else colored("    N/A", Colors.GRAY)
+        server_str = (
+            f"{r.server_time_ms:>6.0f}ms" if r.server_time_ms else colored("    N/A", Colors.GRAY)
+        )
 
         crit = colored(" [CRIT]", Colors.CYAN) if r.critical else ""
         print(f"  {r.endpoint:<40} {time_str} {server_str} {status_str}{crit}")
@@ -301,6 +316,7 @@ def save_json_report(
 # Main
 # -----------------------------------------------------------------------------
 
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Benchmark Darkstar Dashboard API endpoints",
@@ -312,7 +328,8 @@ def main() -> int:
         help=f"Base URL of Darkstar instance (default: {DEFAULT_URL})",
     )
     parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         type=Path,
         default=Path("tests/performance/reports/bench_latest.json"),
         help="Output path for JSON report",

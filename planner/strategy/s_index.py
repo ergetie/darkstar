@@ -383,7 +383,6 @@ def calculate_target_soc_risk_factor(
     d2_deficit = None
     total_load = 0.0
     total_pv = 0.0
-    data_source = "none"
 
     for offset, target_date, weight in [(1, d1_date, 0.7), (2, d2_date, 0.3)]:
         date_key = target_date.isoformat()
@@ -393,13 +392,12 @@ def calculate_target_soc_risk_factor(
         if mask.any():
             load_sum = float(df.loc[mask, "load_forecast_kwh"].sum())
             pv_sum = float(df.loc[mask, "pv_forecast_kwh"].sum())
-            data_source = "slots"
         # Fall back to daily aggregates from Aurora extended horizon
         elif daily_load_forecast and daily_pv_forecast:
             load_sum = float(daily_load_forecast.get(date_key, 0.0))
             pv_sum = float(daily_pv_forecast.get(date_key, 0.0))
             if load_sum > 0 or pv_sum > 0:
-                data_source = "daily"
+                pass
             else:
                 continue
         else:
@@ -420,7 +418,6 @@ def calculate_target_soc_risk_factor(
                 d2_deficit = deficit
 
             pv_deficit_ratio += weight * deficit
-
 
     # Temperature adjustment (same as before, but only additive)
     temps_map: dict[int, float] = {}

@@ -192,7 +192,9 @@ async def schedule_today_with_history() -> dict[str, Any]:
                     WHERE slot_start >= ? AND slot_start < ?
                     ORDER BY slot_start ASC
                 """
-                async with conn.execute(query, (today_start.isoformat(), now_dt.isoformat())) as cursor:
+                async with conn.execute(
+                    query, (today_start.isoformat(), now_dt.isoformat())
+                ) as cursor:
                     async for row in cursor:
                         try:
                             # Parse Timestamp
@@ -264,7 +266,9 @@ async def schedule_today_with_history() -> dict[str, Any]:
                             }
                         except Exception:
                             pass
-        logger.info(f"Loaded {len(forecast_map)} forecast slots for {today_local} (ver={active_version})")
+        logger.info(
+            f"Loaded {len(forecast_map)} forecast slots for {today_local} (ver={active_version})"
+        )
     except Exception as e:
         logger.warning(f"Failed to load forecast map: {e}")
 
@@ -305,8 +309,8 @@ async def schedule_today_with_history() -> dict[str, Any]:
             if "load_kwh" not in slot:
                 slot["load_kwh"] = f["load_forecast_kwh"]
         elif not slot.get("pv_kwh") and not exec_map.get(key):
-             # Only warn if we have neither plan nor history nor forecast for a slot that exists
-             pass
+            # Only warn if we have neither plan nor history nor forecast for a slot that exists
+            pass
 
         merged_slots.append(slot)
 

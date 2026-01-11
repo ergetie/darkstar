@@ -38,8 +38,7 @@ class TimingMiddleware(BaseHTTPMiddleware):
         # Log slow requests
         if process_time_ms >= SLOW_REQUEST_THRESHOLD_MS:
             logger.warning(
-                f"Slow request: {request.method} {request.url.path} "
-                f"took {process_time_ms:.0f}ms"
+                f"Slow request: {request.method} {request.url.path} took {process_time_ms:.0f}ms"
             )
 
         return response

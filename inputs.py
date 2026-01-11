@@ -85,7 +85,9 @@ async def async_get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
     token = ha_config.get("token")
 
     if not url or not token or not entity_id:
-        print(f"[async_get_ha_entity_state] Missing config: url={bool(url)}, token={bool(token)}, entity={entity_id}")
+        print(
+            f"[async_get_ha_entity_state] Missing config: url={bool(url)}, token={bool(token)}, entity={entity_id}"
+        )
         return None
 
     endpoint = f"{url.rstrip('/')}/api/states/{entity_id}"
@@ -203,9 +205,7 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
         first_slot = cached[0]["start_time"]
         first_slot_date = first_slot.date() if hasattr(first_slot, "date") else today
         has_tomorrow = any(
-            s["start_time"].date() > today
-            for s in cached
-            if hasattr(s["start_time"], "date")
+            s["start_time"].date() > today for s in cached if hasattr(s["start_time"], "date")
         )
 
         # Invalidate if cache is from yesterday
@@ -213,17 +213,16 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
             print("[nordpool] Cache invalidated: contains yesterday's data")
             cached = None
         # Invalidate if cache starts in the future (Today must be in cache!)
-        elif first_slot > now and now.hour < 23: # Allow for late night rollover edge cases
-             # If first_slot is more than 1 hour away from current 15m slot, it's poisoned
-             current_slot_start = now.replace(
-                 minute=(now.minute // 15) * 15, second=0, microsecond=0
-             )
-             if first_slot > current_slot_start:
-                 print(
-                     f"[nordpool] Cache invalidated: poisoned "
-                     f"(starts at {first_slot}, now is {now})"
-                 )
-                 cached = None
+        elif first_slot > now and now.hour < 23:  # Allow for late night rollover edge cases
+            # If first_slot is more than 1 hour away from current 15m slot, it's poisoned
+            current_slot_start = now.replace(
+                minute=(now.minute // 15) * 15, second=0, microsecond=0
+            )
+            if first_slot > current_slot_start:
+                print(
+                    f"[nordpool] Cache invalidated: poisoned (starts at {first_slot}, now is {now})"
+                )
+                cached = None
 
         # After 13:00, we expect tomorrow's prices to be available
         if cached and now.hour >= 13 and not has_tomorrow:
@@ -250,16 +249,14 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     try:
         # Fetch TODAY's slots
         data_today = prices_client.fetch(
-            end_date=now.date(),
-            areas=[price_area],
-            resolution=resolution_minutes
+            end_date=now.date(), areas=[price_area], resolution=resolution_minutes
         )
         if data_today and data_today.get("areas") and data_today["areas"].get(price_area):
             area_data = data_today["areas"][price_area]
             today_values = cast("list[dict[str, Any]]", area_data.get("values", []))
 
         if not today_values:
-             print(f"[nordpool] Warning: Fetched today ({now.date()}) but got 0 slots")
+            print(f"[nordpool] Warning: Fetched today ({now.date()}) but got 0 slots")
     except Exception as e:
         print(f"[nordpool] Warning: Could not fetch today's prices: {e}")
 
@@ -268,10 +265,7 @@ def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, Any]]:
     if now.hour >= 13:
         try:
             # Fetch TOMORROW's slots (latest usually returns tomorrow if available)
-            data_tomorrow = prices_client.fetch(
-                areas=[price_area],
-                resolution=resolution_minutes
-            )
+            data_tomorrow = prices_client.fetch(areas=[price_area], resolution=resolution_minutes)
             tomorrow_areas = data_tomorrow.get("areas", {}) if data_tomorrow else {}
             if tomorrow_areas.get(price_area):
                 area_vals = tomorrow_areas[price_area].get("values", [])
@@ -720,9 +714,7 @@ def get_initial_state(config_path: str = "config.yaml") -> dict[str, Any]:
     water_heated_today_kwh = 0.0
 
     if has_water_heater:
-        water_entity = input_sensors.get(
-            "water_heater_consumption", "sensor.vvb_energy_daily"
-        )
+        water_entity = input_sensors.get("water_heater_consumption", "sensor.vvb_energy_daily")
         if water_entity:
             ha_water = get_home_assistant_sensor_float(water_entity)
             if ha_water is not None:

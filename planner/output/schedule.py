@@ -76,7 +76,6 @@ def save_schedule_to_json(
     # Update forecast meta with provided data
     final_forecast_meta = forecast_meta.copy()
 
-
     version = get_git_version()
 
     output = {

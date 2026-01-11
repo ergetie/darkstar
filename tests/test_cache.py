@@ -6,6 +6,7 @@ from backend.core.cache import TTLCache, TTLCacheSync
 def test_ttl_cache_async_wrapper():
     asyncio.run(_async_cache_tests())
 
+
 async def _async_cache_tests():
     cache = TTLCache()
 
@@ -31,6 +32,7 @@ async def _async_cache_tests():
     assert await cache.get("prefix:1") is None
     assert await cache.get("prefix:2") is None
     assert await cache.get("other:1") == "v3"
+
 
 def test_ttl_cache_sync():
     cache = TTLCacheSync()

@@ -72,4 +72,3 @@ class WebSocketManager:
 
 # Global instance
 ws_manager = WebSocketManager()
-

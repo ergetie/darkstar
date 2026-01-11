@@ -38,7 +38,11 @@ DASHBOARD_ENDPOINTS = {
     "/api/ha/water_today": {"threshold_warn": 300, "threshold_error": 1000, "critical": False},
     "/api/aurora/dashboard": {"threshold_warn": 800, "threshold_error": 3000, "critical": False},
     "/api/executor/status": {"threshold_warn": 100, "threshold_error": 300, "critical": True},
-    "/api/schedule/today_with_history": {"threshold_warn": 300, "threshold_error": 1000, "critical": False},
+    "/api/schedule/today_with_history": {
+        "threshold_warn": 300,
+        "threshold_error": 1000,
+        "critical": False,
+    },
 }
 
 # Total dashboard load time thresholds
@@ -76,9 +80,7 @@ class EndpointResult:
 
     @property
     def status_emoji(self) -> str:
-        return {"OK": "✓", "WARN": "⚠", "SLOW": "❌", "ERROR": "💥"}.get(
-            self.status, "?"
-        )
+        return {"OK": "✓", "WARN": "⚠", "SLOW": "❌", "ERROR": "💥"}.get(self.status, "?")
 
 
 @dataclass
@@ -225,7 +227,9 @@ def time_endpoint(client: Any, endpoint: str, config: dict[str, Any]) -> Endpoin
 class TestDashboardPerformance:
     """Performance tests for Dashboard API endpoints."""
 
-    def test_endpoint_response_times(self, client: Any, performance_report: PerformanceReport) -> None:
+    def test_endpoint_response_times(
+        self, client: Any, performance_report: PerformanceReport
+    ) -> None:
         """Measure response time for each Dashboard endpoint."""
         total_start = time.perf_counter()
 

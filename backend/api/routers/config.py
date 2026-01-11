@@ -79,13 +79,17 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                 if key in exclusions:
                     excl_val = exclusions[key]
                     if excl_val is None:
-                        logger.warning(f"Security: Stripped sensitive block '{key}' from config save.")
+                        logger.warning(
+                            f"Security: Stripped sensitive block '{key}' from config save."
+                        )
                         overrides.pop(key)
                     elif isinstance(overrides[key], dict):
                         if isinstance(excl_val, set):
                             for subkey in list(overrides[key].keys()):
                                 if subkey in excl_val:
-                                    logger.warning(f"Security: Stripped sensitive sub-key '{key}.{subkey}' from config save.")
+                                    logger.warning(
+                                        f"Security: Stripped sensitive sub-key '{key}.{subkey}' from config save."
+                                    )
                                     overrides[key].pop(subkey)
                         elif isinstance(excl_val, dict):
                             filter_secrets(overrides[key], excl_val)
@@ -105,7 +109,7 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                         # If source[key] exists but isn't a dict, replace it
                         logger.warning(f"Config key '{key}' exists but isn't a dict - replacing")
                         source[key] = {}
-                    
+
                     # Recursively merge the nested dict
                     deep_update(source[key], value)
                 else:
@@ -169,12 +173,14 @@ def _validate_config_for_save(config: dict[str, Any]) -> list[dict[str, str]]:
         except (ValueError, TypeError):
             capacity = 0.0
         if capacity <= 0:
-            issues.append({
-                "severity": "error",
-                "message": "Battery enabled but capacity not configured",
-                "guidance": "Set battery.capacity_kwh to your battery's capacity, "
-                "or set system.has_battery to false.",
-            })
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": "Battery enabled but capacity not configured",
+                    "guidance": "Set battery.capacity_kwh to your battery's capacity, "
+                    "or set system.has_battery to false.",
+                }
+            )
 
     # Water heater: WARNING (feature disabled, system still works)
     if system_cfg.get("has_water_heater", True):
@@ -183,12 +189,14 @@ def _validate_config_for_save(config: dict[str, Any]) -> list[dict[str, str]]:
         except (ValueError, TypeError):
             power_kw = 0.0
         if power_kw <= 0:
-            issues.append({
-                "severity": "warning",
-                "message": "Water heater enabled but power not configured",
-                "guidance": "Set water_heating.power_kw to your heater's power (e.g., 3.0), "
-                "or set system.has_water_heater to false.",
-            })
+            issues.append(
+                {
+                    "severity": "warning",
+                    "message": "Water heater enabled but power not configured",
+                    "guidance": "Set water_heating.power_kw to your heater's power (e.g., 3.0), "
+                    "or set system.has_water_heater to false.",
+                }
+            )
 
     # Solar: WARNING (PV forecasts will be zero)
     if system_cfg.get("has_solar", True):
@@ -198,12 +206,14 @@ def _validate_config_for_save(config: dict[str, Any]) -> list[dict[str, str]]:
         except (ValueError, TypeError):
             kwp = 0.0
         if kwp <= 0:
-            issues.append({
-                "severity": "warning",
-                "message": "Solar enabled but panel size not configured",
-                "guidance": "Set system.solar_array.kwp to your PV capacity, "
-                "or set system.has_solar to false.",
-            })
+            issues.append(
+                {
+                    "severity": "warning",
+                    "message": "Solar enabled but panel size not configured",
+                    "guidance": "Set system.solar_array.kwp to your PV capacity, "
+                    "or set system.has_solar to false.",
+                }
+            )
 
     return issues
 

@@ -102,7 +102,6 @@ class PlannerPipeline:
                     "PV forecasts will be zero."
                 )
 
-
     def _apply_overrides(self, config: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
         """Apply configuration overrides recursively."""
         new_config = copy.deepcopy(config)
@@ -171,6 +170,7 @@ class PlannerPipeline:
         previous_schedule = []
         try:
             import json
+
             schedule_path = Path("schedule.json")
             if schedule_path.exists():
                 with schedule_path.open() as f:
@@ -211,12 +211,14 @@ class PlannerPipeline:
                     if s["start_time"].startswith(now_iso[:16]):  # Match up to minute
                         current_idx = i
                         break
-                
+
                 # If we are currently heating (water_heating_kw > 0), force the rest of the block
                 if current_idx >= 0:
                     curr = previous_schedule[current_idx]
                     if float(curr.get("water_heating_kw", 0.0)) > 0:
-                        logger.info("Rev WH2: Currently inside a water heating block - locking remaining slots.")
+                        logger.info(
+                            "Rev WH2: Currently inside a water heating block - locking remaining slots."
+                        )
                         # Look ahead until heating stops
                         for i in range(current_idx, len(previous_schedule)):
                             s = previous_schedule[i]
@@ -363,14 +365,17 @@ class PlannerPipeline:
                 if ts in force_water_timestamps:
                     force_water_slots_indices.append(i)
             if force_water_slots_indices:
-                logger.info("Rev WH2: Forcing water heating ON for %d slots (mid-block lock)", len(force_water_slots_indices))
+                logger.info(
+                    "Rev WH2: Forcing water heating ON for %d slots (mid-block lock)",
+                    len(force_water_slots_indices),
+                )
 
         kepler_input = planner_to_kepler_input(future_df, initial_soc_kwh)
         kepler_config = config_to_kepler_config(
-            active_config, 
-            overrides, 
+            active_config,
+            overrides,
             kepler_input.slots,
-            force_water_on_slots=force_water_slots_indices  # Rev WH2
+            force_water_on_slots=force_water_slots_indices,  # Rev WH2
         )
 
         # Rev O1: Disable water heating in Kepler if no water heater

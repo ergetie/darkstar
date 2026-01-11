@@ -121,7 +121,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     try:
         with Path(config_path).open(encoding="utf-8") as f:
             raw_data = yaml.safe_load(f)
-            data: dict[str, Any] = cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
+            data: dict[str, Any] = (
+                cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
+            )
     except FileNotFoundError:
         logger.warning("Config file not found at %s, using defaults", config_path)
         return ExecutorConfig()
@@ -133,39 +135,59 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     timezone = str(data.get("timezone", "Europe/Stockholm"))
 
     # System toggles (Rev O1)
-    system_data: dict[str, Any] = data.get("system", {}) if isinstance(data.get("system"), dict) else {}
+    system_data: dict[str, Any] = (
+        data.get("system", {}) if isinstance(data.get("system"), dict) else {}
+    )
     has_solar = bool(system_data.get("has_solar", True))
     has_battery = bool(system_data.get("has_battery", True))
     has_water_heater = bool(system_data.get("has_water_heater", True))
 
-    executor_data: dict[str, Any] = data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}
+    executor_data: dict[str, Any] = (
+        data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}
+    )
     if not executor_data:
         logger.info("No executor section in config, using defaults")
         return ExecutorConfig(timezone=timezone)
 
     # Parse nested configs
-    inverter_data: dict[str, Any] = executor_data.get("inverter", {}) if isinstance(executor_data.get("inverter"), dict) else {}
+    inverter_data: dict[str, Any] = (
+        executor_data.get("inverter", {}) if isinstance(executor_data.get("inverter"), dict) else {}
+    )
     inverter = InverterConfig(
-        work_mode_entity=str(inverter_data.get("work_mode_entity", InverterConfig.work_mode_entity)),
-        work_mode_export=str(inverter_data.get("work_mode_export", InverterConfig.work_mode_export)),
-        work_mode_zero_export=str(inverter_data.get(
-            "work_mode_zero_export", InverterConfig.work_mode_zero_export
-        )),
-        grid_charging_entity=str(inverter_data.get(
-            "grid_charging_entity", InverterConfig.grid_charging_entity
-        )),
-        max_charging_current_entity=str(inverter_data.get(
-            "max_charging_current_entity", InverterConfig.max_charging_current_entity
-        )),
-        max_discharging_current_entity=str(inverter_data.get(
-            "max_discharging_current_entity", InverterConfig.max_discharging_current_entity
-        )),
-        grid_max_export_power_entity=str(inverter_data.get(
-            "grid_max_export_power_entity", InverterConfig.grid_max_export_power_entity
-        )),
+        work_mode_entity=str(
+            inverter_data.get("work_mode_entity", InverterConfig.work_mode_entity)
+        ),
+        work_mode_export=str(
+            inverter_data.get("work_mode_export", InverterConfig.work_mode_export)
+        ),
+        work_mode_zero_export=str(
+            inverter_data.get("work_mode_zero_export", InverterConfig.work_mode_zero_export)
+        ),
+        grid_charging_entity=str(
+            inverter_data.get("grid_charging_entity", InverterConfig.grid_charging_entity)
+        ),
+        max_charging_current_entity=str(
+            inverter_data.get(
+                "max_charging_current_entity", InverterConfig.max_charging_current_entity
+            )
+        ),
+        max_discharging_current_entity=str(
+            inverter_data.get(
+                "max_discharging_current_entity", InverterConfig.max_discharging_current_entity
+            )
+        ),
+        grid_max_export_power_entity=str(
+            inverter_data.get(
+                "grid_max_export_power_entity", InverterConfig.grid_max_export_power_entity
+            )
+        ),
     )
 
-    water_data: dict[str, Any] = executor_data.get("water_heater", {}) if isinstance(executor_data.get("water_heater"), dict) else {}
+    water_data: dict[str, Any] = (
+        executor_data.get("water_heater", {})
+        if isinstance(executor_data.get("water_heater"), dict)
+        else {}
+    )
     water_heater = WaterHeaterConfig(
         target_entity=str(water_data.get("target_entity", WaterHeaterConfig.target_entity)),
         temp_normal=int(water_data.get("temp_normal", WaterHeaterConfig.temp_normal)),
@@ -174,7 +196,11 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         temp_max=int(water_data.get("temp_max", WaterHeaterConfig.temp_max)),
     )
 
-    notif_data: dict[str, Any] = executor_data.get("notifications", {}) if isinstance(executor_data.get("notifications"), dict) else {}
+    notif_data: dict[str, Any] = (
+        executor_data.get("notifications", {})
+        if isinstance(executor_data.get("notifications"), dict)
+        else {}
+    )
     notifications = NotificationConfig(
         service=str(notif_data.get("service", NotificationConfig.service)),
         on_charge_start=bool(notif_data.get("on_charge_start", NotificationConfig.on_charge_start)),
@@ -196,7 +222,11 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         on_error=bool(notif_data.get("on_error", NotificationConfig.on_error)),
     )
 
-    ctrl_data: dict[str, Any] = executor_data.get("controller", {}) if isinstance(executor_data.get("controller"), dict) else {}
+    ctrl_data: dict[str, Any] = (
+        executor_data.get("controller", {})
+        if isinstance(executor_data.get("controller"), dict)
+        else {}
+    )
     controller = ControllerConfig(
         battery_capacity_kwh=float(
             str(ctrl_data.get("battery_capacity_kwh", ControllerConfig.battery_capacity_kwh))
@@ -209,7 +239,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ),
         min_charge_a=float(str(ctrl_data.get("min_charge_a", ControllerConfig.min_charge_a))),
         max_charge_a=float(str(ctrl_data.get("max_charge_a", ControllerConfig.max_charge_a))),
-        max_discharge_a=float(str(ctrl_data.get("max_discharge_a", ControllerConfig.max_discharge_a))),
+        max_discharge_a=float(
+            str(ctrl_data.get("max_discharge_a", ControllerConfig.max_discharge_a))
+        ),
         round_step_a=float(str(ctrl_data.get("round_step_a", ControllerConfig.round_step_a))),
         write_threshold_a=float(
             str(ctrl_data.get("write_threshold_a", ControllerConfig.write_threshold_a))
@@ -226,13 +258,15 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         enabled=bool(executor_data.get("enabled", False)),
         shadow_mode=bool(executor_data.get("shadow_mode", False)),
         interval_seconds=int(executor_data.get("interval_seconds", 300)),
-        automation_toggle_entity=str(executor_data.get(
-            "automation_toggle_entity", ExecutorConfig.automation_toggle_entity
-        )),
-        manual_override_entity=str(executor_data.get(
-            "manual_override_entity", ExecutorConfig.manual_override_entity
-        )),
-        soc_target_entity=str(executor_data.get("soc_target_entity", ExecutorConfig.soc_target_entity)),
+        automation_toggle_entity=str(
+            executor_data.get("automation_toggle_entity", ExecutorConfig.automation_toggle_entity)
+        ),
+        manual_override_entity=str(
+            executor_data.get("manual_override_entity", ExecutorConfig.manual_override_entity)
+        ),
+        soc_target_entity=str(
+            executor_data.get("soc_target_entity", ExecutorConfig.soc_target_entity)
+        ),
         inverter=inverter,
         water_heater=water_heater,
         notifications=notifications,

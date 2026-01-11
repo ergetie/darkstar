@@ -224,9 +224,7 @@ def apply_safety_margins(
             df["adjusted_pv_kwh"] = raw_pv.clip(lower=0.0)
         if load_adj and len(load_adj) == 24:
             # Apply adjustment and clamp to 0 to prevent negative load
-            raw_adjusted = (
-                df["adjusted_load_kwh"] + hours.map(lambda h: float(load_adj[h])).values
-            )
+            raw_adjusted = df["adjusted_load_kwh"] + hours.map(lambda h: float(load_adj[h])).values
             df["adjusted_load_kwh"] = raw_adjusted.clip(lower=0.0)
 
     return df

@@ -12,6 +12,7 @@ from backend.api.routers import config, executor, schedule, system
 logger = logging.getLogger("darkstar.api.dashboard")
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
+
 @router.get(
     "/bundle",
     summary="Get Dashboard Bundle",

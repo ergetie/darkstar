@@ -34,5 +34,6 @@ def verify_secrets():
         print(f"❌ Error connecting to API: {e}")
         sys.exit(1)
 
+
 if __name__ == "__main__":
     verify_secrets()

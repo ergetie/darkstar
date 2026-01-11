@@ -8,27 +8,31 @@ import socketio
 sio = socketio.AsyncClient()
 received_event = asyncio.Event()
 
+
 @sio.event
 async def connect():
     print("✅ WebSocket Connected")
+
 
 @sio.event
 async def connect_error(data):
     print(f"❌ WebSocket Connect Error: {data}")
 
+
 @sio.event
 async def live_metrics(data):
     print(f"⚡ live_metrics received: {data}")
-    if data and ('load_kw' in data or 'pv_kw' in data):
+    if data and ("load_kw" in data or "pv_kw" in data):
         print("🎉 Validation Successful: Live power data flowing!")
         received_event.set()
     else:
         print("⚠️ Received empty/invalid metrics")
 
+
 async def main():
     print("🔍 Starting WebSocket Verification...")
     try:
-        await sio.connect('http://localhost:5000')
+        await sio.connect("http://localhost:5000")
 
         # Wait for event with timeout
         try:
@@ -44,6 +48,7 @@ async def main():
     except Exception as e:
         print(f"❌ WebSocket Client Error: {e}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     try:

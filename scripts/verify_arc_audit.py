@@ -11,10 +11,11 @@ def check_file_exists(path, description):
     print(f"❌ {description} MISSING: {path}")
     return False
 
+
 def check_content(path, pattern, description, expected_count=None, invert=False):
     if not Path(path).exists():
-         print(f"❌ {description} SKIPPED (File missing): {path}")
-         return False
+        print(f"❌ {description} SKIPPED (File missing): {path}")
+        return False
 
     with Path(path).open(encoding="utf-8") as f:
         content = f.read()
@@ -23,11 +24,11 @@ def check_content(path, pattern, description, expected_count=None, invert=False)
 
     if invert:
         if matches == 0:
-             print(f"✅ {description}: Pattern '{pattern}' NOT found (Clean)")
-             return True
+            print(f"✅ {description}: Pattern '{pattern}' NOT found (Clean)")
+            return True
         else:
-             print(f"❌ {description}: Pattern '{pattern}' FOUND {matches} times (Should be 0)")
-             return False
+            print(f"❌ {description}: Pattern '{pattern}' FOUND {matches} times (Should be 0)")
+            return False
 
     if expected_count is not None:
         if matches == expected_count:
@@ -44,10 +45,11 @@ def check_content(path, pattern, description, expected_count=None, invert=False)
     print(f"❌ {description}: Pattern '{pattern}' in {path} NOT found")
     return False
 
+
 def main():
-    print("="*60)
+    print("=" * 60)
     print("ARC Revision Audit")
-    print("="*60)
+    print("=" * 60)
 
     failed = 0
 
@@ -63,18 +65,27 @@ def main():
     # ARC2: Critical Bugs
     print("\n--- ARC2 ---")
     # Slot append bug (should verify logic, but pattern check is proxy)
-    if not check_content("backend/api/routers/schedule.py", "merged_slots.append", "Slot Append", expected_count=1):
+    if not check_content(
+        "backend/api/routers/schedule.py", "merged_slots.append", "Slot Append", expected_count=1
+    ):
         failed += 1
     if not check_content("backend/main.py", "HealthChecker", "HealthChecker Integration"):
         failed += 1
 
     # ARC3: logging & exceptions
     print("\n--- ARC3 ---")
-    if not check_content("backend/api/routers/services.py", r"print\(", "No print() in routers", invert=True):
+    if not check_content(
+        "backend/api/routers/services.py", r"print\(", "No print() in routers", invert=True
+    ):
         failed += 1
     # We allow 'except Exception' but not bare 'except:'
     # Regex for bare except: except:\s*$
-    if not check_content("backend/api/routers/forecast.py", r"except:\s*$", "No bare except in forecast.py", invert=True):
+    if not check_content(
+        "backend/api/routers/forecast.py",
+        r"except:\s*$",
+        "No bare except in forecast.py",
+        invert=True,
+    ):
         failed += 1
 
     # ARC4: Best Practices
@@ -84,13 +95,14 @@ def main():
     if not check_file_exists(".github/workflows/ci.yml", "CI Workflow"):
         failed += 1
 
-    print("="*60)
+    print("=" * 60)
     if failed == 0:
         print("\n✅ ALL ARC CHECKS PASSED")
         sys.exit(0)
     else:
         print(f"\n❌ {failed} CHECKS FAILED")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

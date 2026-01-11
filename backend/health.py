@@ -91,7 +91,6 @@ class HealthChecker:
             if not any(i.category == "ha_connection" for i in issues):
                 issues.extend(await self.check_entities())
 
-
         # Check executor health
         issues.extend(self.check_executor())
 
@@ -164,7 +163,6 @@ class HealthChecker:
 
         if not self._config:
             return issues
-
 
         # Check input_sensors section exists
         if not self._config.get("input_sensors"):
@@ -420,7 +418,6 @@ class HealthChecker:
                     pass
 
         return issues
-
 
     def check_executor(self) -> list[HealthIssue]:
         """Check executor health status."""

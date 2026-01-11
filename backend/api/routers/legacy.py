@@ -38,4 +38,3 @@ async def initial_state() -> dict[str, Any]:
     """Bootstrap state for frontend."""
     # Simplified version
     return {"user": {"name": "User"}, "config": {}, "notifications": []}
-

@@ -61,7 +61,7 @@ water_heating:
   power_kw: 3.0                    # Power consumption of the water heater
   min_kwh_per_day: 6.0             # Minimum energy to heat per day (usually 2-3h run time)
   defer_up_to_hours: 6             # Allow deferring "today's" heating into early tomorrow morning (up to N hours) if cheaper
-  block_start_penalty_sek: 5.0     # Penalty per heating start (higher = more consolidated bulk heating)
+  block_start_penalty_sek: 3.0     # Penalty per heating start (higher = more consolidated bulk heating)
   max_hours_between_heating: 8     # Max gap before comfort penalty (only used if enable_top_ups is true)
   comfort_level: 3                 # 1-5 (Economy→Maximum) - controls gap penalty
   min_spacing_hours: 5.0           # Min gap between starts to avoid efficiency loss

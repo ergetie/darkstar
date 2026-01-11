@@ -4,6 +4,7 @@ from typing import Any, TypeVar
 
 T = TypeVar("T")
 
+
 class TTLCache:
     """Simple TTL cache with async support."""
 
@@ -34,12 +35,14 @@ class TTLCache:
             for k in to_delete:
                 del self._cache[k]
 
+
 # Sync version for non-async contexts
 class TTLCacheSync:
     """Thread-safe TTL cache for sync contexts."""
 
     def __init__(self) -> None:
         import threading
+
         self._cache: dict[str, tuple[Any, float]] = {}
         self._lock = threading.Lock()
 
@@ -59,6 +62,7 @@ class TTLCacheSync:
     def invalidate(self, key: str) -> None:
         with self._lock:
             self._cache.pop(key, None)
+
 
 # Global instances
 cache = TTLCache()

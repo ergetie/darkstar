@@ -459,7 +459,7 @@ const createChartData = (
     // Add no-data message if needed
     if (values.hasNoData) {
         // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ; (baseData as ExtendedChartData).plugins = {
+        ;(baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -838,19 +838,21 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                    rangeState === 'day'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                    }`}
+                                }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
+                                    rangeState === '48h'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                    }`}
+                                }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -887,10 +889,11 @@ export default function ChartCard({
                                 e.preventDefault()
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
+                            className={`rounded-pill px-3 py-1 border ${
+                                overlays[key as keyof typeof overlays]
                                     ? 'bg-accent text-canvas border-accent'
                                     : 'border-line/60 text-muted hover:border-accent'
-                                }`}
+                            }`}
                         >
                             {label}
                         </button>
@@ -1160,7 +1163,6 @@ function buildLiveData(
             if (slot) {
                 // B2 FIX: Always show planned actions, prefer actual_* values when available
                 // This ensures full history is visible even when is_executed slots are cleaned up
-                const isExec = slot.is_executed === true
 
                 price.push(slot.import_price_sek_kwh ?? null)
                 // For pv/load: prefer actual if available, fallback to forecast

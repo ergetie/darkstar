@@ -34,7 +34,9 @@ def _build_sim_config(base_config: dict) -> dict:
 
 
 def _write_temp_config(sim_config: dict) -> str:
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".yaml", mode="w", encoding="utf-8") as handle:
+    with tempfile.NamedTemporaryFile(
+        delete=False, suffix=".yaml", mode="w", encoding="utf-8"
+    ) as handle:
         yaml.safe_dump(sim_config, handle)
     return handle.name
 
