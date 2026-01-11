@@ -59,18 +59,15 @@ charging_strategy:
 # Water Heating
 water_heating:
   power_kw: 3.0                    # Power consumption of the water heater
-  min_hours_per_day: 2.0           # Minimum run-time per day
-  min_kwh_per_day: 6.0             # Optional; defaults to power * hours when unset
-  max_blocks_per_day: 2            # Prefer single block, up to two if needed
-  defer_up_to_hours: 6             # Allow deferring into early tomorrow up to N hours if cheaper
-  plan_days_ahead: 1               # Plan at most today + 1 day (tomorrow) within 48h horizon
-  block_consolidation_tolerance_sek: 0.05
-  consolidation_max_gap_slots: 0
-  max_hours_between_heating: 8       # Max gap between heating sessions (0 = no constraint)
-  comfort_level: 3                   # 1-5 (Economy→Maximum) - controls gap penalty
-  min_spacing_hours: 5.0             # Min gap between starts to avoid efficiency loss
-  spacing_penalty_sek: 0.20          # Soft penalty for frequent starts
-  enable_top_ups: true               # Enable spaced top-up heating blocks (vs bulk heating only)
+  min_kwh_per_day: 6.0             # Minimum energy to heat per day (usually 2-3h run time)
+  defer_up_to_hours: 6             # Allow deferring "today's" heating into early tomorrow morning (up to N hours) if cheaper
+  block_start_penalty_sek: 5.0     # Penalty per heating start (higher = more consolidated bulk heating)
+  max_hours_between_heating: 8     # Max gap before comfort penalty (only used if enable_top_ups is true)
+  comfort_level: 3                 # 1-5 (Economy→Maximum) - controls gap penalty
+  min_spacing_hours: 5.0           # Min gap between starts to avoid efficiency loss
+  spacing_penalty_sek: 0.20        # Soft penalty for frequent starts
+  enable_top_ups: true             # Enable spaced top-up heating blocks (vs bulk heating only)
+
 
   # Vacation Mode (anti-legionella)
   vacation_mode:
