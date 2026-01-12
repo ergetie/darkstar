@@ -73,6 +73,18 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
 
             if (!field) return errors
 
+            // DEBUG: Log all validation attempts for battery_soc
+            if (key.includes('battery_soc')) {
+                console.warn('[SETTINGS_DEBUG] Validating battery_soc:', {
+                    key,
+                    value,
+                    trimmed,
+                    fieldType: field.type,
+                    fieldLabel: field.label,
+                    fullField: field,
+                })
+            }
+
             // Required check for critical power/capacity fields
             if (trimmed === '' && (key.includes('power_kw') || key.includes('capacity_kwh'))) {
                 errors[key] = 'Required'
@@ -81,6 +93,10 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
 
             // Only apply numeric validation if the field type is numeric
             if (field.type === 'number' || field.type === 'azimuth' || field.type === 'tilt') {
+                // DEBUG: Log when entering numeric validation block
+                if (key.includes('battery_soc')) {
+                    console.error('[SETTINGS_DEBUG] ERROR: battery_soc entered numeric validation block! Type:', field.type)
+                }
                 const num = Number(trimmed)
                 if (trimmed !== '' && Number.isNaN(num)) {
                     errors[key] = 'Must be a number'

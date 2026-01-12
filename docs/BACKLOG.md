@@ -57,6 +57,15 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Some users have a split import and export grid power sensors, we need support for both dual sensors and a single sensor with positive and negative values.
 
+
+### [AURORA] Support multiple MPPT strings
+
+**Goal:** Some users have multiple MPPT strings, we need to support this in the Aurora forecast.
+
+### [BACKEND] Busy port allocation
+
+**Goal:** Some users report that the backend service is not starting because the port is already in use by another add-on. How do we make this more dynamic?
+
 ## 🟡 Medium Priority
 
 ### [Refactor] Move inputs.py to Proper Module

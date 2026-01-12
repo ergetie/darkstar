@@ -121,12 +121,26 @@ from inputs import get_all_input_data
 
 ### Releasing a New Version
 When releasing a new version:
-1. **Bump version** in all locations:
-   - `darkstar/config.yaml` (add-on manifest)
+1. **Mandatory: Create/Update Release Notes**: Update [docs/RELEASE_NOTES.md](file:///home/s/sync/documents/projects/darkstar/docs/RELEASE_NOTES.md) with the changes for this version.
+2. **Bump version/notes** in all 8 locations:
+   - `/docs/RELEASE_NOTES.md` (Update with latest changes)
+   - `/package.json` (root)
+   - `/VERSION` (root)
+   - `/config.yaml` (root)
+   - `/config.default.yaml` (root)
+   - `darkstar/config.yaml` (HA add-on manifest)
    - `darkstar/run.sh` (startup banner)
    - `frontend/package.json`
-2. **Create git tag**: `git tag vX.Y.Z`
-3. **Push tag**: `git push origin vX.Y.Z`
+3. **Commit and Tag**:
+   ```bash
+   git add .
+   git commit -m "chore(release): bump to vX.Y.Z"
+   git tag vX.Y.Z
+   ```
+4. **Push**:
+   ```bash
+   git push origin main --tags
+   ```
 
 > **Note**: The CI/CD pipeline (`build-addon.yml`) is triggered **automatically** when you push a tag starting with `v`. It will build the Docker image and publish it to GHCR with the `X.Y.Z` tag and `latest`.
 

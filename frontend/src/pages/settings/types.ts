@@ -815,6 +815,13 @@ export const advancedSections: SettingsSection[] = [
                 type: 'number',
             },
             {
+                key: 'ui.debug_mode',
+                label: 'Debug Mode',
+                helper: 'Enable verbose console logging for troubleshooting. Check browser DevTools console (F12) for detailed logs.',
+                path: ['ui', 'debug_mode'],
+                type: 'boolean',
+            },
+            {
                 key: 'learning.auto_tune_enabled',
                 label: 'Enable Auto-Tuning',
                 helper: 'Automatically adjust system constants based on historical data.',
@@ -893,6 +900,19 @@ export const systemFieldList = systemSections.flatMap((section) => section.field
 export const parameterFieldList = parameterSections.flatMap((section) => section.fields)
 export const uiFieldList = uiSections.flatMap((section) => section.fields)
 export const advancedFieldList = advancedSections.flatMap((section) => section.fields)
+
+// DEBUG: Log battery_soc field definition on module load
+const batterySocField = systemFieldList.find((f) => f.key === 'input_sensors.battery_soc')
+if (batterySocField) {
+    console.warn('[SETTINGS_DEBUG] Module loaded - battery_soc field definition:', {
+        key: batterySocField.key,
+        type: batterySocField.type,
+        label: batterySocField.label,
+        path: batterySocField.path,
+    })
+} else {
+    console.error('[SETTINGS_DEBUG] ERROR: battery_soc field not found in systemFieldList!')
+}
 
 export const allFields = [
     ...systemFieldList,
