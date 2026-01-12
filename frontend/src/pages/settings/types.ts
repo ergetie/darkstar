@@ -189,6 +189,13 @@ export const systemSections: SettingsSection[] = [
                 path: ['pricing', 'energy_tax_sek'],
                 type: 'number',
             },
+            {
+                key: 'pricing.subscription_fee_sek_per_month',
+                label: 'Monthly subscription fee (SEK)',
+                helper: 'Fixed monthly grid connection fee.',
+                path: ['pricing', 'subscription_fee_sek_per_month'],
+                type: 'number',
+            },
             { key: 'timezone', label: 'Timezone', helper: 'e.g. Europe/Stockholm', path: ['timezone'], type: 'text' },
         ],
     },
@@ -216,25 +223,25 @@ export const systemSections: SettingsSection[] = [
                 type: 'boolean',
             },
             {
-                key: 'executor.notifications.on_discharge_start',
-                label: 'On discharge start',
-                path: ['executor', 'notifications', 'on_discharge_start'],
+                key: 'executor.notifications.on_export_start',
+                label: 'On export start',
+                path: ['executor', 'notifications', 'on_export_start'],
                 type: 'boolean',
             },
             {
-                key: 'executor.notifications.on_discharge_stop',
-                label: 'On discharge stop',
-                path: ['executor', 'notifications', 'on_discharge_stop'],
+                key: 'executor.notifications.on_export_stop',
+                label: 'On export stop',
+                path: ['executor', 'notifications', 'on_export_stop'],
                 type: 'boolean',
             },
             {
-                key: 'executor.notifications.on_water_heating_start',
+                key: 'executor.notifications.on_water_heat_start',
                 label: 'On water heating start',
                 path: ['executor', 'notifications', 'on_water_heat_start'],
                 type: 'boolean',
             },
             {
-                key: 'executor.notifications.on_water_heating_stop',
+                key: 'executor.notifications.on_water_heat_stop',
                 label: 'On water heating stop',
                 path: ['executor', 'notifications', 'on_water_heat_stop'],
                 type: 'boolean',
@@ -448,9 +455,58 @@ export const systemSections: SettingsSection[] = [
             },
         ],
     },
+    {
+        title: "Today's Energy Sensors",
+        description: 'Daily energy statistics for the Dashboard "Today\'s Stats" card.',
+        isHA: true,
+        fields: [
+            {
+                key: 'input_sensors.today_battery_charge',
+                label: "Today's Battery Charge (kWh)",
+                path: ['input_sensors', 'today_battery_charge'],
+                type: 'entity',
+            },
+            {
+                key: 'input_sensors.today_pv_production',
+                label: "Today's PV Production (kWh)",
+                path: ['input_sensors', 'today_pv_production'],
+                type: 'entity',
+            },
+            {
+                key: 'input_sensors.today_load_consumption',
+                label: "Today's Load Consumption (kWh)",
+                path: ['input_sensors', 'today_load_consumption'],
+                type: 'entity',
+            },
+            {
+                key: 'input_sensors.today_grid_import',
+                label: "Today's Grid Import (kWh)",
+                path: ['input_sensors', 'today_grid_import'],
+                type: 'entity',
+            },
+            {
+                key: 'input_sensors.today_grid_export',
+                label: "Today's Grid Export (kWh)",
+                path: ['input_sensors', 'today_grid_export'],
+                type: 'entity',
+            },
+        ],
+    },
 ]
 
 export const parameterSections: SettingsSection[] = [
+    {
+        title: 'Arbitrage & Economics (Legacy?)',
+        description: 'TODO: Investigate if safe to remove - fields not found in config.default.yaml',
+        fields: [
+            {
+                key: 'arbitrage.price_threshold_sek',
+                label: 'Price threshold (SEK)',
+                path: ['arbitrage', 'price_threshold_sek'],
+                type: 'number',
+            },
+        ],
+    },
     {
         title: 'Charging Strategy',
         description: 'Price smoothing, consolidation tolerances, and gap settings that govern charge windows.',
@@ -518,6 +574,12 @@ export const parameterSections: SettingsSection[] = [
                 path: ['battery_economics', 'battery_cycle_cost_kwh'],
                 type: 'number',
             },
+        ],
+    },
+    {
+        title: 'Legacy Arbitrage Investigation',
+        description: 'TODO: Investigate if safe to remove - not found in config.default.yaml',
+        fields: [
             {
                 key: 'arbitrage.export_percentile_threshold',
                 label: 'Export percentile threshold',
@@ -568,12 +630,6 @@ export const parameterSections: SettingsSection[] = [
                 type: 'number',
             },
             {
-                key: 'water_heating.max_blocks_per_day',
-                label: 'Max blocks per day',
-                path: ['water_heating', 'max_blocks_per_day'],
-                type: 'number',
-            },
-            {
                 key: 'water_heating.min_kwh_per_day',
                 label: 'Min kWh/day',
                 path: ['water_heating', 'min_kwh_per_day'],
@@ -603,8 +659,30 @@ export const parameterSections: SettingsSection[] = [
             {
                 key: 'water_heating.schedule_future_only',
                 label: 'Schedule future only',
+                helper: 'TODO: Investigate if safe to remove - not found in config.default.yaml',
                 path: ['water_heating', 'schedule_future_only'],
                 type: 'boolean',
+            },
+            {
+                key: 'water_heating.max_blocks_per_day',
+                label: 'Max blocks per day',
+                helper: 'TODO: Investigate if safe to remove - not found in config.default.yaml',
+                path: ['water_heating', 'max_blocks_per_day'],
+                type: 'number',
+            },
+            {
+                key: 'water_heating.block_start_penalty_sek',
+                label: 'Block start penalty (SEK)',
+                helper: 'Advanced: Penalty per heating start (higher = more consolidated bulk heating).',
+                path: ['water_heating', 'block_start_penalty_sek'],
+                type: 'number',
+            },
+            {
+                key: 'water_heating.max_hours_between_heating',
+                label: 'Max gap comfort penalty (h)',
+                helper: 'Advanced: Max gap before comfort penalty (only used if top-ups are enabled).',
+                path: ['water_heating', 'max_hours_between_heating'],
+                type: 'number',
             },
             {
                 key: 'executor.water_heater.temp_off',
@@ -632,6 +710,36 @@ export const parameterSections: SettingsSection[] = [
                 label: 'Temp: Max/PV Dump (°C)',
                 helper: 'Max safe temperature for dumping excess solar PV.',
                 path: ['executor', 'water_heater', 'temp_max'],
+                type: 'number',
+            },
+        ],
+    },
+    {
+        title: 'Water Heater Vacation Mode',
+        description: 'Anti-legionella safety cycle when vacation mode is active.',
+        fields: [
+            {
+                key: 'water_heating.vacation_mode.enabled',
+                label: 'Enable Vacation Mode',
+                path: ['water_heating', 'vacation_mode', 'enabled'],
+                type: 'boolean',
+            },
+            {
+                key: 'water_heating.vacation_mode.anti_legionella_temp_c',
+                label: 'Safety Cycle Temp (°C)',
+                path: ['water_heating', 'vacation_mode', 'anti_legionella_temp_c'],
+                type: 'number',
+            },
+            {
+                key: 'water_heating.vacation_mode.anti_legionella_interval_days',
+                label: 'Safety Cycle Interval (days)',
+                path: ['water_heating', 'vacation_mode', 'anti_legionella_interval_days'],
+                type: 'number',
+            },
+            {
+                key: 'water_heating.vacation_mode.anti_legionella_duration_hours',
+                label: 'Safety Cycle Duration (hours)',
+                path: ['water_heating', 'vacation_mode', 'anti_legionella_duration_hours'],
                 type: 'number',
             },
         ],
@@ -808,6 +916,13 @@ export const advancedSections: SettingsSection[] = [
                 ],
             },
             {
+                key: 'automation.enable_scheduler',
+                label: 'Enable Background Scheduler',
+                helper: 'Master toggle for automatic schedule regeneration.',
+                path: ['automation', 'enable_scheduler'],
+                type: 'boolean',
+            },
+            {
                 key: 'automation.schedule.jitter_minutes',
                 label: 'Schedule Jitter (min)',
                 helper: 'Random delay to avoid thundering herd on restart.',
@@ -817,7 +932,7 @@ export const advancedSections: SettingsSection[] = [
             {
                 key: 'ui.debug_mode',
                 label: 'Debug Mode',
-                helper: 'Enable verbose console logging for troubleshooting. Check browser DevTools console (F12) for detailed logs.',
+                helper: 'TODO: Investigate if safe to remove - not found in config.default.yaml. Enable verbose console logging for troubleshooting.',
                 path: ['ui', 'debug_mode'],
                 type: 'boolean',
             },

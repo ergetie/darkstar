@@ -291,7 +291,9 @@ class KeplerSolver:
                 )
 
         # Terminal Value
-        terminal_value = soc[T] * config.terminal_value_sek_kwh if config.terminal_value_sek_kwh != 0 else 0.0
+        terminal_value = (
+            soc[T] * config.terminal_value_sek_kwh if config.terminal_value_sek_kwh != 0 else 0.0
+        )
 
         # Set Objective
         # - min_soc violation: HARD penalty (1000 SEK/kWh)

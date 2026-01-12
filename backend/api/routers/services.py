@@ -329,6 +329,7 @@ async def get_water_boost():
 class WaterBoostRequest(BaseModel):
     duration_minutes: int = 60
 
+
 @router_services.post(
     "/api/water/boost",
     summary="Set Water Boost",
@@ -357,7 +358,10 @@ async def set_water_boost(req: WaterBoostRequest) -> dict[str, str]:
                 raise HTTPException(500, f"Failed to set water boost: {result.get('error')}")
 
             logger.info(f"Water boost activated successfully for {req.duration_minutes} minutes")
-            return {"status": "success", "message": f"Water boost activated for {req.duration_minutes} minutes"}
+            return {
+                "status": "success",
+                "message": f"Water boost activated for {req.duration_minutes} minutes",
+            }
 
         logger.error("Executor missing set_water_boost method")
         raise HTTPException(501, "Water boost not supported by executor")

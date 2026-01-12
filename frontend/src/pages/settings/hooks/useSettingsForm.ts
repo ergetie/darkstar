@@ -95,7 +95,10 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
             if (field.type === 'number' || field.type === 'azimuth' || field.type === 'tilt') {
                 // DEBUG: Log when entering numeric validation block
                 if (key.includes('battery_soc')) {
-                    console.error('[SETTINGS_DEBUG] ERROR: battery_soc entered numeric validation block! Type:', field.type)
+                    console.error(
+                        '[SETTINGS_DEBUG] ERROR: battery_soc entered numeric validation block! Type:',
+                        field.type,
+                    )
                 }
                 const num = Number(trimmed)
                 if (trimmed !== '' && Number.isNaN(num)) {
