@@ -1,5 +1,26 @@
 # Darkstar Release Notes
 
+## [v2.4.9-beta] - Settings Refinement & Diagnostic Hardening - 2026-01-12
+
+**Diagnostic & Troubleshooting**
+*   **Production Diagnostic Suite**: Implemented `[SETTINGS_DEBUG]` tracing in the Settings UI to resolve environment-specific validation bugs.
+*   **Debug Mode Toggle**: Added a master "Debug Mode" toggle in Advanced Experimental Features for real-time console tracing.
+*   **Module Load Validation**: Automatic verification of field type definitions at runtime to prevent configuration corruption.
+
+**Settings & Configuration**
+*   **Config Sync**: Fully synchronized the Settings UI with `config.default.yaml`, exposing previously hidden parameters for Water Heating start penalties and gap tolerances.
+*   **Today's Stats Integration**: Added a new "Today's Energy Sensors" section for mapping daily battery, PV, and grid totals directly to the Dashboard.
+*   **Subscription Fees**: New setting for `Monthly subscription fee (SEK)` to improve long-term financial modeling.
+*   **Vacation Mode**: Added formal configuration for Water Heater Vacation Mode, including anti-legionella safety cycles.
+*   **Notification Rename**: Standardized notification naming (`on_export_start`, `on_water_heat_start`) to better reflect system states.
+*   **Scheduler Toggle**: Added a master "Enable Background Scheduler" toggle for manual control over optimization cycles.
+
+**Legacy Cleanup**
+*   **Arbitrage Audit**: Identified and marked legacy arbitrage fields for investigation and potential removal.
+*   **Consistency Fixes**: Fixed several naming discrepancies between the frontend form and backend config keys.
+
+---
+
 ## [v2.4.8-beta] - Production-Grade Settings & Power Inversion - 2026-01-12
 
 **Core Improvements**
