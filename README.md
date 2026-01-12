@@ -54,7 +54,17 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 3. Start with `docker-compose up -d`.
 4. Access the UI at **http://localhost:5000**.
 
-## ⚙️ Configuration
+---
+
+## Getting Started
+
+Once you have installed Darkstar, follow the comprehensive guide to tune the system for your home:
+
+[**👉 Read the Configuration Guide**](docs/SETUP_GUIDE.md)
+
+---
+
+## Configuration
 
 ### `config.yaml`
 
@@ -118,7 +128,7 @@ executor:
 | `temp_max` | 85°C | Excess PV with full battery |
 
 
-## 🏠 Home Assistant Integration
+## Home Assistant Integration
 
 Darkstar reads sensors and controls your inverter through Home Assistant:
 
@@ -133,7 +143,7 @@ Darkstar reads sensors and controls your inverter through Home Assistant:
 - Grid charging switch
 - Water heater temperature (optional)
 
-## 📱 Dashboard
+## Dashboard
 
 The web UI provides:
 
@@ -143,7 +153,7 @@ The web UI provides:
 - **Settings** — Tune parameters without editing YAML files
 
 
-## 📊 How It Works
+## How It Works
 
 1. **Forecasting** — Aurora ML predicts your home's energy patterns
 2. **Strategy** — Context-aware adjustments (vacation mode, weather, etc.)
@@ -154,7 +164,7 @@ The system re-optimizes every hour to adapt to changing prices and conditions.
  
 ---
 
-## 📄 License
+## License
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
