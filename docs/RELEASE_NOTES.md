@@ -1,6 +1,6 @@
 # Darkstar Release Notes
 
-## [v2.4.8-beta] - 2026-01-12
+## [v2.4.8-beta] - Production-Grade Settings & Power Inversion - 2026-01-12
 
 **Core Improvements**
 *   **Robust Entity Validation**: Implemented type-aware validation in the Settings UI. Entering Home Assistant entity IDs (like `sensor.battery_soc`) no longer triggers "Must be a number" errors.
@@ -14,7 +14,7 @@
 
 ---
 
-## [v2.4.7-beta] - 2026-01-12
+## [v2.4.7-beta] - Onboarding Documentation & UI Improvements - 2026-01-12
 
 **Documentation & Guidance**
 *   **New User Manual**: Launched `docs/USER_MANUAL.md`—a 48-hour guide to mastering Darkstar's UI, risk strategies, and troubleshooting.
