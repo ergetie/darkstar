@@ -47,9 +47,27 @@ Map your existing Home Assistant sensors so Darkstar can see your home status:
 - **PV Power**: Real-time production (Watts or kW).
 - **Load Power**: Total home consumption.
 
+> [!WARNING]
+> **Check Your Units! (Watts vs kW)**
+> This is the #1 setup error. Ensure Darkstar knows the correct unit:
+> - If your sensor emits **Watts** (e.g., `1500`), ensure your configuration matches (often auto-detected or specified in config).
+> - If your sensor emits **Kilowatts** (e.g., `1.5`), ensure units align.
+> *Mixing these up will cause the planner to think you have 1000x more power than you do!*
+
 ### 2.2 The "Hands" (Control Entities)
 Darkstar writes to these entities to execute the plan:
 - **Work Mode Selector**: The entity that switches your inverter mode.
+
+> [!TIP]
+> **Hardware Cheat Sheet: Common Inverter Mode Strings**
+> Darkstar sends text commands to change modes. Here are verified strings for popular brands:
+> | Brand | Export Mode String | Solar/Self-Use Mode String |
+> | :--- | :--- | :--- |
+> | **Solis** | `Feed-in Priority` | `Self-Use` |
+> | **Deye / SunSynk** | `Export First` | `Zero Export to CT` |
+> | **Huawei** | `General Mode` | `Time of Use` |
+> | **GoodWe** | `General Mode` | `Eco Mode` |
+> *Check your inverter integration documentation for exact case-sensitive strings. These are not verified!*
 - **Grid Charging Switch**: Toggles charging from the grid.
 - **Current Limits**: Entities to set max Amps for charging/discharging.
 
@@ -95,3 +113,7 @@ By default, Darkstar might be in **Shadow Mode**. In this mode, the system calcu
 
 > [!WARNING]
 > Always monitor the system during the first 24 hours of live execution. Ensure your inverter safety limits are configured correctly in the inverter itself!
+
+## 📚 Next Steps: The User Manual
+
+Configuration is just the start! To learn how to operate Darkstar daily (Quick Actions, Risk Appetite, Dashboard Charts), proceed to the **[Darkstar User Manual](USER_MANUAL.md)**.

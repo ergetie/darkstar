@@ -541,7 +541,7 @@ export function ControlParameters({
                 <div className="metric-card-border metric-card-border-house bg-surface2/30 p-3 overflow-hidden group">
                     <div className="flex justify-between items-baseline mb-2 pl-3">
                         <div className="text-[10px] text-muted uppercase tracking-wider flex items-center gap-2">
-                            <span>Market Strategy</span>
+                            <span>Risk Appetite</span>
                             <div
                                 className={`h-1.5 w-1.5 rounded-full transition-colors ${riskAppetite > 3
                                     ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'

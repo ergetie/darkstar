@@ -62,6 +62,10 @@ Once you have installed Darkstar, follow the comprehensive guide to tune the sys
 
 [**👉 Read the Configuration Guide**](docs/SETUP_GUIDE.md)
 
+Already configured? Learn how to operate the system daily:
+
+[**📘 Read the User Manual**](docs/USER_MANUAL.md)
+
 ---
 
 ## Configuration
