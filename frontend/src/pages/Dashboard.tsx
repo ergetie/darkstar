@@ -5,11 +5,8 @@ import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
 import { Flame, BatteryCharging } from 'lucide-react'
 import { motion } from 'framer-motion'
-import {
-    Api, type PlannerSIndex, type HealthResponse, type AuroraDashboardResponse,
-    ExecutorStatusResponse,
-} from '../lib/api'
-import type { ScheduleSlot, AuroraRiskProfile } from '../lib/types'
+import { Api, type PlannerSIndex, type HealthResponse, type ExecutorStatusResponse } from '../lib/api'
+import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import AdvisorCard from '../components/AdvisorCard'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
@@ -358,9 +355,9 @@ export default function Dashboard() {
                         setTodayStats((prev) =>
                             prev
                                 ? {
-                                    ...prev,
-                                    pvForecast: parseFloat(dailyTotal.toFixed(1)),
-                                }
+                                      ...prev,
+                                      pvForecast: parseFloat(dailyTotal.toFixed(1)),
+                                  }
                                 : null,
                         )
                     }
@@ -401,11 +398,19 @@ export default function Dashboard() {
             if (activeQA?.type === 'force_charge') {
                 await Api.executor.quickAction.clear()
                 await fetchAllData()
-                toast({ message: 'Top-Up Stopped', description: 'Battery charging override cleared', variant: 'success' })
+                toast({
+                    message: 'Top-Up Stopped',
+                    description: 'Battery charging override cleared',
+                    variant: 'success',
+                })
             } else {
                 await Api.executor.quickAction.set('force_charge', 60, { target_soc: targetSoc })
                 await fetchAllData()
-                toast({ message: 'Charging Started', description: `Battery top-up to ${targetSoc}% initiated`, variant: 'success' })
+                toast({
+                    message: 'Charging Started',
+                    description: `Battery top-up to ${targetSoc}% initiated`,
+                    variant: 'success',
+                })
             }
         } catch (e) {
             console.error('Top Up/Stop failed', e)
@@ -589,7 +594,11 @@ export default function Dashboard() {
                         <span className="font-medium">Water Heater Boost Active</span>
                         {waterBoostActive.expires_at && (
                             <span className="opacity-70 text-xs ml-2">
-                                — Expires at {new Date(waterBoostActive.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                — Expires at{' '}
+                                {new Date(waterBoostActive.expires_at).toLocaleTimeString([], {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                })}
                             </span>
                         )}
                     </div>
@@ -601,7 +610,7 @@ export default function Dashboard() {
                                 toast({
                                     message: 'Boost Cancelled',
                                     description: 'Water heater boost has been stopped.',
-                                    variant: 'success'
+                                    variant: 'success',
                                 })
                             } catch (e) {
                                 console.error('Failed to cancel boost', e)
@@ -625,7 +634,8 @@ export default function Dashboard() {
                         <BatteryCharging className="h-4 w-4 text-green-600 animate-pulse" />
                         <span className="font-medium text-green-800">Battery Top-Up Active</span>
                         <span className="opacity-70 text-green-700 text-xs ml-2">
-                            — Charging {soc ?? '?'}% → {executorStatus.quick_action.params?.target_soc ?? 60}%
+                            — Charging {soc ?? '?'}% →{' '}
+                            {(executorStatus.quick_action.params?.target_soc as number) ?? 60}%
                         </span>
                     </div>
                     <button
@@ -715,10 +725,7 @@ export default function Dashboard() {
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <div className="flex h-full flex-col gap-6">
                         <Card className="flex-1 p-4 md:p-5">
-                            <QuickActions
-                                status={plannerStatus}
-                                onRefresh={fetchAllData}
-                            />
+                            <QuickActions status={plannerStatus} onRefresh={fetchAllData} />
                         </Card>
                         <Card className="flex-1 p-4 md:p-5">
                             <div className="flex items-baseline justify-between mb-4">
@@ -726,10 +733,11 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
-                                                ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
-                                                : 'bg-line'
-                                                }`}
+                                            className={`inline-flex h-2 w-2 rounded-full ${
+                                                automationConfig?.enable_scheduler
+                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
+                                                    : 'bg-line'
+                                            }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -750,8 +758,9 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => fetchAllData()}
                                     disabled={isRefreshing}
-                                    className={`rounded-full p-1 transition ${isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
-                                        }`}
+                                    className={`rounded-full p-1 transition ${
+                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                    }`}
                                     title="Manual sync"
                                 >
                                     <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>

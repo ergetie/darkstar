@@ -243,7 +243,7 @@ export type ExecutorStatusResponse = {
         expires_at: string
         remaining_minutes: number
         reason: string
-        params?: Record<string, any>
+        params?: Record<string, unknown>
     } | null
     [key: string]: unknown
 }

@@ -14,7 +14,7 @@ import {
     ChevronLeft,
     ChevronRight,
     Palmtree,
-    Loader2
+    Loader2,
 } from 'lucide-react'
 import Card from './Card'
 import { Api, ExecutorStatusResponse } from '../lib/api'
@@ -88,12 +88,11 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
         grid_export_kwh: number
         slot_count: number
     } | null>(null)
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(true)
 
     // Fetch data when period changes
     useEffect(() => {
         let cancelled = false
-        setLoading(true)
 
         Api.energyRange(period)
             .then((data) => {
@@ -152,11 +151,15 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                 {periods.map((p) => (
                     <button
                         key={p.key}
-                        onClick={() => setPeriod(p.key)}
-                        className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${period === p.key
-                            ? 'bg-accent/20 text-accent border border-accent/30'
-                            : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
-                            }`}
+                        onClick={() => {
+                            setPeriod(p.key)
+                            setLoading(true)
+                        }}
+                        className={`px-2 py-0.5 text-[9px] font-medium rounded-full transition ${
+                            period === p.key
+                                ? 'bg-accent/20 text-accent border border-accent/30'
+                                : 'bg-surface2/50 text-muted border border-line/30 hover:border-accent/50'
+                        }`}
                     >
                         {p.label}
                     </button>
@@ -170,10 +173,10 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                     {period === 'today'
                         ? 'Daily'
                         : period === 'yesterday'
-                            ? 'Yesterday'
-                            : period === 'week'
-                                ? '7 Day'
-                                : '30 Day'}{' '}
+                          ? 'Yesterday'
+                          : period === 'week'
+                            ? '7 Day'
+                            : '30 Day'}{' '}
                     Cost
                 </div>
                 <div className="flex items-baseline gap-1">
@@ -332,8 +335,9 @@ export function StrategyDomain({ soc, socTarget, sIndex, cycles, riskLabel }: St
                 {/* SoC Big Display */}
                 <div className="col-span-2 flex items-center gap-3 p-3 rounded-xl bg-surface2/30 border border-line/30">
                     <Battery
-                        className={`h-8 w-8 ${(soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
-                            }`}
+                        className={`h-8 w-8 ${
+                            (soc ?? 0) > 50 ? 'text-good' : (soc ?? 0) > 20 ? 'text-warn' : 'text-bad'
+                        }`}
                     />
                     <div>
                         <div className="text-2xl font-bold text-text">{soc?.toFixed(0) ?? '—'}%</div>
@@ -390,7 +394,6 @@ export function ControlParameters({
 
     // --- Top-Up State ---
     const isTopUpActive = activeQuickAction?.type === 'force_charge'
-    const topUpRemaining = activeQuickAction?.remaining_minutes || 0
     const [topUpSocIndex, setTopUpSocIndex] = useState(2) // Default to 80% (index 2)
 
     const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -398,10 +401,7 @@ export function ControlParameters({
     // Fetch initial status and sync
     const fetchStatus = useCallback(async () => {
         try {
-            const [waterStatus, configData] = await Promise.all([
-                Api.waterBoost.status(),
-                Api.config(),
-            ])
+            const [waterStatus, configData] = await Promise.all([Api.waterBoost.status(), Api.config()])
 
             // Water boost status
             if (waterStatus.water_boost) {
@@ -465,7 +465,9 @@ export function ControlParameters({
             }
         }, 1000)
 
-        return () => { if (countdownRef.current) clearInterval(countdownRef.current) }
+        return () => {
+            if (countdownRef.current) clearInterval(countdownRef.current)
+        }
     }, [boostActive, boostExpiresAt])
 
     const handleToggleVacation = async () => {
@@ -488,7 +490,7 @@ export function ControlParameters({
             }
             window.dispatchEvent(new Event('config-updated'))
             onStatusRefresh?.()
-        } catch (err) {
+        } catch {
             toast({ message: 'Vacation toggle failed', variant: 'error' })
         } finally {
             setLoadingVacation(false)
@@ -543,12 +545,13 @@ export function ControlParameters({
                         <div className="text-[10px] text-muted uppercase tracking-wider flex items-center gap-2">
                             <span>Risk Appetite</span>
                             <div
-                                className={`h-1.5 w-1.5 rounded-full transition-colors ${riskAppetite > 3
-                                    ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
-                                    : riskAppetite < 2
-                                        ? 'bg-emerald-400'
-                                        : 'bg-blue-400'
-                                    }`}
+                                className={`h-1.5 w-1.5 rounded-full transition-colors ${
+                                    riskAppetite > 3
+                                        ? 'bg-purple-400 shadow-[0_0_5px_rgba(192,132,252,0.8)]'
+                                        : riskAppetite < 2
+                                          ? 'bg-emerald-400'
+                                          : 'bg-blue-400'
+                                }`}
                             />
                         </div>
                         <div className="text-xs font-medium text-text">
@@ -576,10 +579,11 @@ export function ControlParameters({
                                 <button
                                     key={level}
                                     onClick={() => setRiskAppetite(level)}
-                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
-                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                        : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
-                                        }`}
+                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${
+                                        isActive
+                                            ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
+                                            : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
+                                    }`}
                                 >
                                     {level}
                                 </button>
@@ -624,10 +628,11 @@ export function ControlParameters({
                                 <button
                                     key={level}
                                     onClick={() => setComfortLevel(level)}
-                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${isActive
-                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                        : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
-                                        }`}
+                                    className={`flex-1 rounded transition-all duration-300 border text-xs font-medium ${
+                                        isActive
+                                            ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
+                                            : 'bg-surface2/50 text-muted hover:bg-surface2 hover:text-text border-transparent hover:border-line/50'
+                                    }`}
                                 >
                                     {level}
                                 </button>
@@ -641,9 +646,10 @@ export function ControlParameters({
                     {/* Top Up Battery */}
                     <div
                         className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition-all duration-500
-                            ${isTopUpActive
-                                ? 'bg-good/40 border border-good/60 ring-2 ring-good/70 shadow-[0_0_20px_rgba(34,197,94,0.6)] animate-in fade-in zoom-in-95'
-                                : 'bg-surface2/50 border border-line/50 hover:border-accent/40 shadow-none'
+                            ${
+                                isTopUpActive
+                                    ? 'bg-good/40 border border-good/60 ring-2 ring-good/70 shadow-[0_0_20px_rgba(34,197,94,0.6)] animate-in fade-in zoom-in-95'
+                                    : 'bg-surface2/50 border border-line/50 hover:border-accent/40 shadow-none'
                             }`}
                     >
                         {!isTopUpActive && (
@@ -672,9 +678,10 @@ export function ControlParameters({
                         <button
                             onClick={handleToggleTopUp}
                             className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg transition
-                                ${isTopUpActive
-                                    ? 'bg-good/50 text-white'
-                                    : 'bg-good/10 hover:bg-good/20 text-good hover:text-good/80'
+                                ${
+                                    isTopUpActive
+                                        ? 'bg-good/50 text-white'
+                                        : 'bg-good/10 hover:bg-good/20 text-good hover:text-good/80'
                                 }`}
                         >
                             {isTopUpActive ? (
@@ -684,7 +691,8 @@ export function ControlParameters({
                             )}
                             {isTopUpActive ? (
                                 <span className="text-[10px] font-bold whitespace-nowrap">
-                                    STOP ({currentSoc ?? '?'}-{activeQuickAction?.params?.target_soc ?? 60}%)
+                                    STOP ({currentSoc ?? '?'}-{(activeQuickAction?.params?.target_soc as number) ?? 60}
+                                    %)
                                 </span>
                             ) : (
                                 <span>Top Up</span>
@@ -696,10 +704,11 @@ export function ControlParameters({
                         {/* Vacation Mode */}
                         <div
                             className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition
-                            ${vacationActive
+                            ${
+                                vacationActive
                                     ? 'bg-amber-500/30 border border-amber-500/50 ring-2 ring-amber-400/50 shadow-[0_0_15px_rgba(245,158,11,0.4)]'
                                     : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                                } ${loadingVacation ? 'opacity-60' : ''}`}
+                            } ${loadingVacation ? 'opacity-60' : ''}`}
                         >
                             {!vacationActive && (
                                 <div className="flex items-center">
@@ -715,7 +724,9 @@ export function ControlParameters({
                                     </span>
                                     <button
                                         onClick={() =>
-                                            setVacationDaysIndex((i) => Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1))
+                                            setVacationDaysIndex((i) =>
+                                                Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1),
+                                            )
                                         }
                                         className="px-0.5 hover:text-accent disabled:opacity-30"
                                         disabled={
@@ -730,14 +741,17 @@ export function ControlParameters({
                                 onClick={handleToggleVacation}
                                 disabled={loadingVacation}
                                 className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg transition
-                                    ${vacationActive
-                                        ? 'bg-amber-500/50 text-amber-100'
-                                        : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400/80 hover:text-amber-400'
+                                    ${
+                                        vacationActive
+                                            ? 'bg-amber-500/50 text-amber-100'
+                                            : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-400/80 hover:text-amber-400'
                                     }`}
                             >
                                 <Palmtree className="h-3.5 w-3.5" />
                                 {vacationActive ? (
-                                    <span className="truncate">{vacationEndDate ? `→ ${vacationEndDate.slice(5)}` : 'ON'}</span>
+                                    <span className="truncate">
+                                        {vacationEndDate ? `→ ${vacationEndDate.slice(5)}` : 'ON'}
+                                    </span>
                                 ) : (
                                     <span>Vacation</span>
                                 )}
@@ -747,10 +761,11 @@ export function ControlParameters({
                         {/* Water Boost */}
                         <div
                             className={`flex items-center rounded-xl px-2 py-1.5 text-[11px] font-semibold transition-all duration-500
-                            ${boostActive
+                            ${
+                                boostActive
                                     ? 'bg-water/40 border border-water/60 ring-2 ring-water/70 shadow-[0_0_20px_rgba(var(--color-water),0.6)] animate-in fade-in zoom-in-95'
                                     : 'bg-surface2/50 border border-line/50 hover:border-accent/40 shadow-none'
-                                } ${loadingBoost ? 'opacity-60' : ''}`}
+                            } ${loadingBoost ? 'opacity-60' : ''}`}
                         >
                             {!boostActive && (
                                 <div className="flex items-center">
@@ -765,15 +780,19 @@ export function ControlParameters({
                                         {BOOST_MINUTES_OPTIONS[boostMinutesIndex] === 120
                                             ? '2h'
                                             : BOOST_MINUTES_OPTIONS[boostMinutesIndex] === 60
-                                                ? '1h'
-                                                : '30m'}
+                                              ? '1h'
+                                              : '30m'}
                                     </span>
                                     <button
                                         onClick={() =>
-                                            setBoostMinutesIndex((i) => Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1))
+                                            setBoostMinutesIndex((i) =>
+                                                Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1),
+                                            )
                                         }
                                         className="px-0.5 hover:text-accent disabled:opacity-30"
-                                        disabled={boostMinutesIndex === BOOST_MINUTES_OPTIONS.length - 1 || loadingBoost}
+                                        disabled={
+                                            boostMinutesIndex === BOOST_MINUTES_OPTIONS.length - 1 || loadingBoost
+                                        }
                                     >
                                         <ChevronRight className="h-3 w-3" />
                                     </button>
@@ -783,9 +802,10 @@ export function ControlParameters({
                                 onClick={handleToggleBoost}
                                 disabled={loadingBoost}
                                 className={`flex-1 flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg transition
-                                    ${boostActive
-                                        ? 'bg-water/50 text-white'
-                                        : 'bg-water/10 hover:bg-water/20 text-water hover:text-water/80'
+                                    ${
+                                        boostActive
+                                            ? 'bg-water/50 text-white'
+                                            : 'bg-water/10 hover:bg-water/20 text-water hover:text-water/80'
                                     }`}
                             >
                                 {loadingBoost ? (

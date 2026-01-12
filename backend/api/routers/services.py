@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import httpx
 import pytz
-from fastapi import APIRouter, Body, HTTPException
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from inputs import (

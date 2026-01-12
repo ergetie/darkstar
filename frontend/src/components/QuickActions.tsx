@@ -1,10 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import {
-    Play,
-    Pause,
-    Loader2,
-    Rocket,
-} from 'lucide-react'
+import { Play, Pause, Loader2, Rocket } from 'lucide-react'
 import { Api } from '../lib/api'
 
 interface QuickActionsProps {
@@ -28,7 +23,7 @@ export default function QuickActions({ status, onRefresh }: QuickActionsProps) {
         setFeedback(null)
         try {
             // Planner run
-            const resp = await Api.runPlanner()
+            await Api.runPlanner()
             setPlannerPhase('executing')
 
             // Executor run
@@ -86,9 +81,10 @@ export default function QuickActions({ status, onRefresh }: QuickActionsProps) {
                 {/* 1. Run Planner */}
                 <button
                     className={`relative overflow-hidden flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary
-                        ${plannerPhase !== 'idle'
-                            ? 'bg-surface border border-accent/50 text-accent cursor-wait'
-                            : 'bg-accent hover:bg-accent2 text-[#100f0e]'
+                        ${
+                            plannerPhase !== 'idle'
+                                ? 'bg-surface border border-accent/50 text-accent cursor-wait'
+                                : 'bg-accent hover:bg-accent2 text-[#100f0e]'
                         }`}
                     onClick={handleRunPlanner}
                     disabled={plannerPhase !== 'idle'}
@@ -96,8 +92,9 @@ export default function QuickActions({ status, onRefresh }: QuickActionsProps) {
                 >
                     {/* Progress Bar Background */}
                     <div
-                        className={`absolute left-0 top-0 bottom-0 transition-all duration-[2000ms] ease-out pointer-events-none ${plannerPhase === 'idle' ? 'bg-transparent' : 'bg-accent/50'
-                            }`}
+                        className={`absolute left-0 top-0 bottom-0 transition-all duration-[2000ms] ease-out pointer-events-none ${
+                            plannerPhase === 'idle' ? 'bg-transparent' : 'bg-accent/50'
+                        }`}
                         style={{
                             width: plannerPhase === 'idle' ? '0%' : plannerPhase === 'done' ? '100%' : '90%',
                         }}
@@ -116,9 +113,10 @@ export default function QuickActions({ status, onRefresh }: QuickActionsProps) {
                 {/* 2. Executor Toggle (Pause/Resume) */}
                 <button
                     className={`flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition
-                        ${isPaused
-                            ? 'bg-bad/80 text-white ring-2 ring-bad shadow-[0_0_20px_rgba(241,81,50,0.5)] animate-pulse'
-                            : 'bg-good hover:bg-good/80 text-white btn-glow-green'
+                        ${
+                            isPaused
+                                ? 'bg-bad/80 text-white ring-2 ring-bad shadow-[0_0_20px_rgba(241,81,50,0.5)] animate-pulse'
+                                : 'bg-good hover:bg-good/80 text-white btn-glow-green'
                         } ${loading === 'pause' ? 'opacity-60 cursor-wait' : ''}`}
                     onClick={handleTogglePause}
                     disabled={loading === 'pause'}
@@ -141,8 +139,9 @@ export default function QuickActions({ status, onRefresh }: QuickActionsProps) {
             {/* Floating toast - doesn't shift layout */}
             {feedback && (
                 <div
-                    className={`absolute -bottom-8 left-0 right-0 text-center text-[10px] py-1 px-2 rounded-md transition-opacity animate-in fade-in slide-in-from-bottom-1 duration-300 ${feedback.type === 'success' ? 'text-green-400' : 'text-red-400'
-                        }`}
+                    className={`absolute -bottom-8 left-0 right-0 text-center text-[10px] py-1 px-2 rounded-md transition-opacity animate-in fade-in slide-in-from-bottom-1 duration-300 ${
+                        feedback.type === 'success' ? 'text-green-400' : 'text-red-400'
+                    }`}
                 >
                     {feedback.message}
                 </div>
