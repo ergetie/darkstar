@@ -228,6 +228,7 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
                         "input_select.",
                         "select.",
                         "number.",
+                        "alarm_control_panel.",
                     )
                 ):
                     entities.append(
