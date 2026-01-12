@@ -9,7 +9,7 @@ This document serves as the entry point for AI context. **Do not duplicate infor
 | **Project Overview** | [README.md](README.md) | User-focused: features, install, quick start. |
 | **Developer Guide** | [docs/DEVELOPER.md](docs/DEVELOPER.md) | Full installation, configuration, deployment. |
 | **Development Rules** | [AGENTS.md](AGENTS.md) | **Protocols**, coding style, build commands. |
-| **Architecture** | [docs/architecture.md](docs/architecture.md) | System design, components, and data flow. |
+| **Architecture** | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | System design, components, and data flow. |
 | **Current Plan** | [docs/PLAN.md](docs/PLAN.md) | Active revisions, backlog, and status. |
 | **Vision** | [docs/KEPLER_VISION.md](docs/KEPLER_VISION.md) | Long-term roadmap and design philosophy. |
 | **Legacy Logic** | [docs/LEGACY_MPC.md](docs/LEGACY_MPC.md) | Documentation for the deprecated heuristic planner. |
