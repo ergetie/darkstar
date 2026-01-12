@@ -65,44 +65,56 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
         reloadEntities()
     }, [reload, reloadEntities])
 
-    const validateField = useCallback((key: string, value: string, currentForm: Record<string, string>) => {
-        const errors: Record<string, string> = {}
-        const trimmed = value.trim()
+    const validateField = useCallback(
+        (key: string, value: string, currentForm: Record<string, string>) => {
+            const errors: Record<string, string> = {}
+            const trimmed = value.trim()
+            const field = fields.find((f) => f.key === key)
 
-        if (trimmed === '' && (key.includes('power_kw') || key.includes('capacity_kwh'))) {
-            errors[key] = 'Required'
-        } else if (key.includes('percent') || key.includes('soc')) {
-            const num = Number(trimmed)
-            if (Number.isNaN(num)) {
-                errors[key] = 'Must be a number'
-            } else if (num < 0 || num > 100) {
-                errors[key] = 'Must be between 0 and 100'
-            }
-        } else if (key.includes('power_kw') || key.includes('sek') || key.includes('kwh')) {
-            const num = Number(trimmed)
-            if (Number.isNaN(num)) {
-                errors[key] = 'Must be a number'
-            } else if (num < 0) {
-                errors[key] = 'Must be positive'
-            }
-        }
+            if (!field) return errors
 
-        // Cross-field validation for SoC
-        const minKey = 'battery.min_soc_percent'
-        const maxKey = 'battery.max_soc_percent'
-        if (key === minKey || key === maxKey) {
-            const minVal = Number(key === minKey ? trimmed : currentForm[minKey])
-            const maxVal = Number(key === maxKey ? trimmed : currentForm[maxKey])
-            if (!Number.isNaN(minVal) && !Number.isNaN(maxVal)) {
-                if (minVal >= maxVal) {
-                    errors[minKey] = 'Min SoC must be less than max SoC'
-                    errors[maxKey] = 'Max SoC must be greater than min SoC'
+            // Required check for critical power/capacity fields
+            if (trimmed === '' && (key.includes('power_kw') || key.includes('capacity_kwh'))) {
+                errors[key] = 'Required'
+                return errors
+            }
+
+            // Only apply numeric validation if the field type is numeric
+            if (field.type === 'number' || field.type === 'azimuth' || field.type === 'tilt') {
+                const num = Number(trimmed)
+                if (trimmed !== '' && Number.isNaN(num)) {
+                    errors[key] = 'Must be a number'
+                } else if (!Number.isNaN(num)) {
+                    if (key.includes('percent') || key.includes('soc')) {
+                        if (num < 0 || num > 100) {
+                            errors[key] = 'Must be between 0 and 100'
+                        }
+                    } else if (key.includes('power_kw') || key.includes('sek') || key.includes('kwh')) {
+                        if (num < 0) {
+                            errors[key] = 'Must be positive'
+                        }
+                    }
                 }
             }
-        }
 
-        return errors
-    }, [])
+            // Cross-field validation for SoC
+            const minKey = 'battery.min_soc_percent'
+            const maxKey = 'battery.max_soc_percent'
+            if (key === minKey || key === maxKey) {
+                const minVal = Number(key === minKey ? trimmed : currentForm[minKey])
+                const maxVal = Number(key === maxKey ? trimmed : currentForm[maxKey])
+                if (!Number.isNaN(minVal) && !Number.isNaN(maxVal)) {
+                    if (minVal >= maxVal) {
+                        errors[minKey] = 'Min SoC must be less than max SoC'
+                        errors[maxKey] = 'Max SoC must be greater than min SoC'
+                    }
+                }
+            }
+
+            return errors
+        },
+        [fields],
+    )
 
     const handleChange = useCallback(
         (key: string, value: string) => {

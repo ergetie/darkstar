@@ -83,6 +83,12 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
     if (!config) return state
 
     fields.forEach((field) => {
+        if (field.companionKey) {
+            // Companion keys are always booleans for now
+            const companionVal = getDeepValue<unknown>(config, field.companionKey.split('.'))
+            state[field.companionKey] = companionVal === true ? 'true' : 'false'
+        }
+
         const value = getDeepValue<unknown>(config, field.path)
         if (field.type === 'boolean') {
             state[field.key] = value === true ? 'true' : 'false'
@@ -106,6 +112,19 @@ export function buildPatch(
     let patch: Record<string, unknown> = {}
 
     fields.forEach((field) => {
+        if (field.companionKey) {
+            const rawCompanion = form[field.companionKey]
+            if (rawCompanion !== undefined) {
+                const parsedCompanion = rawCompanion === 'true'
+                const companionPath = field.companionKey.split('.')
+                const currentCompanion = getDeepValue<unknown>(original, companionPath)
+
+                if (parsedCompanion !== currentCompanion) {
+                    patch = setDeepValueCorrect(patch, companionPath, parsedCompanion)
+                }
+            }
+        }
+
         const raw = form[field.key]
         if (raw === undefined) return
 

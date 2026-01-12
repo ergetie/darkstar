@@ -13,6 +13,7 @@ export interface BaseField {
     path: string[]
     type: FieldType
     options?: { label: string; value: string }[]
+    companionKey?: string
 }
 
 export interface SettingsSection<T extends BaseField = BaseField> {
@@ -375,6 +376,7 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Positive = charging, negative = discharging',
                 path: ['input_sensors', 'battery_power'],
                 type: 'entity',
+                companionKey: 'input_sensors.battery_power_inverted',
             },
             {
                 key: 'input_sensors.water_power',
@@ -388,6 +390,7 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Positive = import, negative = export',
                 path: ['input_sensors', 'grid_power'],
                 type: 'entity',
+                companionKey: 'input_sensors.grid_power_inverted',
             },
             {
                 key: 'input_sensors.alarm_state',

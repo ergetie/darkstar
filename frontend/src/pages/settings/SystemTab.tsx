@@ -78,6 +78,7 @@ export const SystemTab: React.FC = () => {
                                         error={fieldErrors[field.key]}
                                         haEntities={haEntities}
                                         haLoading={haLoading}
+                                        fullForm={form}
                                     />
                                 ))}
                             </div>

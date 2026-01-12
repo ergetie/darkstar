@@ -219,7 +219,16 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
             for s in data:
                 eid = str(s.get("entity_id", ""))
                 if eid.startswith(
-                    ("sensor.", "binary_sensor.", "input_boolean.", "switch.", "input_number.")
+                    (
+                        "sensor.",
+                        "binary_sensor.",
+                        "input_boolean.",
+                        "switch.",
+                        "input_number.",
+                        "input_select.",
+                        "select.",
+                        "number.",
+                    )
                 ):
                     entities.append(
                         {

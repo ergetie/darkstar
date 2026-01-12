@@ -111,6 +111,12 @@ async def get_system_status() -> StatusResponse:
     batt_pow = results[3] or 0.0
     grid_pow = results[4] or 0.0
 
+    # Apply inversion if configured
+    if sensors.get("grid_power_inverted", False):
+        grid_pow = -grid_pow
+    if sensors.get("battery_power_inverted", False):
+        batt_pow = -batt_pow
+
     return StatusResponse(
         status="online",
         mode="fastapi",

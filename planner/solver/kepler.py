@@ -187,7 +187,7 @@ class KeplerSolver:
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
         # Penalize both being UNDER target (risk) AND OVER target (missed discharge opportunity)
         target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
-        
+
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
         # Penalize both being UNDER target (risk) AND OVER target (missed discharge opportunity)
         target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
@@ -197,7 +197,7 @@ class KeplerSolver:
             prob += soc[T] >= target_soc_kwh - target_under_violation
             # Over target: soc[T] <= target + over_violation
             prob += soc[T] <= target_soc_kwh + target_over_violation
-            
+
             # Penalize UNDER target (important)
             total_cost.append(target_soc_penalty * target_under_violation)
             # Penalize OVER target (only if target is > 0 to avoid dumping to 0)
@@ -354,7 +354,7 @@ class KeplerSolver:
                 final_total_cost += cost
 
                 t_credit = (soc_val * config.terminal_value_sek_kwh) / (T + 1) if T >= 0 else 0.0
-                
+
                 result_slots.append(
                     KeplerResultSlot(
                         start_time=s.start_time,

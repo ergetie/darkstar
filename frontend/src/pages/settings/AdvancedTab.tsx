@@ -74,6 +74,7 @@ export const AdvancedTab: React.FC = () => {
                                     value={form[field.key] ?? ''}
                                     onChange={handleChange}
                                     error={fieldErrors[field.key]}
+                                    fullForm={form}
                                 />
                             ))}
                         </div>

@@ -14,6 +14,7 @@ class HAWebSocketClient:
     def __init__(self):
         self._load_config()
         self.id_counter = 1
+        self.inversion_flags: dict[str, bool] = {}
         self.monitored_entities = self._get_monitored_entities()
         self.running = False
 
@@ -48,6 +49,13 @@ class HAWebSocketClient:
                 mapping[sensors["water_power"]] = "water_kw"
             if "vacation_mode" in sensors:
                 mapping[sensors["vacation_mode"]] = "vacation_mode"
+
+            # Store inversion flags for efficient lookup in _handle_state_change
+            self.inversion_flags = {
+                "grid_kw": sensors.get("grid_power_inverted", False),
+                "battery_kw": sensors.get("battery_power_inverted", False),
+            }
+
             logger.info(f"HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}")
             return mapping
         except Exception as e:
@@ -165,6 +173,10 @@ class HAWebSocketClient:
             unit = str(new_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
             if unit == "W":
                 value = value / 1000.0
+
+            # Apply inversion if configured
+            if self.inversion_flags.get(key, False):
+                value = -value
 
             # Emit
             payload = {key: value}

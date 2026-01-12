@@ -53,6 +53,10 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
+### [UI/Settings] Support dual grid power sensors
+
+**Goal:** Some users have a split import and export grid power sensors, we need support for both dual sensors and a single sensor with positive and negative values.
+
 ## 🟡 Medium Priority
 
 ### [Refactor] Move inputs.py to Proper Module
