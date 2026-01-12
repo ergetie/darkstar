@@ -3,9 +3,13 @@ import { useEffect, useState, useCallback } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import QuickActions from '../components/QuickActions'
+import { Flame, BatteryCharging } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { Api, type PlannerSIndex, type HealthResponse } from '../lib/api'
-import type { ScheduleSlot } from '../lib/types'
+import {
+    Api, type PlannerSIndex, type HealthResponse, type AuroraDashboardResponse,
+    ExecutorStatusResponse,
+} from '../lib/api'
+import type { ScheduleSlot, AuroraRiskProfile } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import AdvisorCard from '../components/AdvisorCard'
 import { GridDomain, ResourcesDomain, StrategyDomain, ControlParameters } from '../components/CommandDomains'
@@ -51,6 +55,7 @@ export default function Dashboard() {
     const [executorStatus, setExecutorStatus] = useState<{
         shadow_mode?: boolean
         paused?: { paused_at?: string; paused_minutes?: number } | null
+        quick_action?: ExecutorStatusResponse['quick_action']
     } | null>(null)
     const [todayStats, setTodayStats] = useState<{
         gridImport: number | null
@@ -60,6 +65,10 @@ export default function Dashboard() {
         pvForecast: number | null
         loadConsumption: number | null
         netCost: number | null
+    } | null>(null)
+    const [waterBoostActive, setWaterBoostActive] = useState<{
+        boost: boolean
+        expires_at?: string
     } | null>(null)
 
     // --- Missing State Variables Restored ---
@@ -74,6 +83,7 @@ export default function Dashboard() {
     const [vacationModeHA, setVacationModeHA] = useState<boolean>(false)
     const [vacationEntityId, setVacationEntityId] = useState<string>('')
     const [riskAppetite, setRiskAppetite] = useState<number>(1.0)
+    const [plannerStatus, setPlannerStatus] = useState<string | null>(null)
 
     // Live power metrics for PowerFlowCard
     const [livePower, setLivePower] = useState<{
@@ -169,6 +179,7 @@ export default function Dashboard() {
                 const data = bundle.status
                 if (data.soc_percent != null) setSoc(data.soc_percent)
                 else if (data.current_soc?.value != null) setSoc(data.current_soc.value)
+                setPlannerStatus(data.status || null)
             }
 
             // Process critical data: Config
@@ -244,6 +255,7 @@ export default function Dashboard() {
                 setExecutorStatus({
                     shadow_mode: bundle.executor_status.shadow_mode ?? false,
                     paused: bundle.executor_status.paused ?? null,
+                    quick_action: bundle.executor_status.quick_action ?? null,
                 })
             }
 
@@ -254,6 +266,11 @@ export default function Dashboard() {
                     last_run_status: data.last_run_status ?? null,
                     next_run_at: data.next_run_at ?? null,
                 })
+            }
+
+            // Water Boost Status
+            if (bundle.water_boost) {
+                setWaterBoostActive(bundle.water_boost)
             }
 
             setLastRefresh(new Date())
@@ -341,9 +358,9 @@ export default function Dashboard() {
                         setTodayStats((prev) =>
                             prev
                                 ? {
-                                      ...prev,
-                                      pvForecast: parseFloat(dailyTotal.toFixed(1)),
-                                  }
+                                    ...prev,
+                                    pvForecast: parseFloat(dailyTotal.toFixed(1)),
+                                }
                                 : null,
                         )
                     }
@@ -366,6 +383,35 @@ export default function Dashboard() {
     useEffect(() => {
         setPlannerMeta(plannerLocalMeta)
     }, [plannerLocalMeta])
+
+    const handleSetComfortLevel = async (l: number) => {
+        setComfortLevel(l)
+        await Api.configSave({ water_heating: { comfort_level: l } })
+    }
+
+    const handleSetRiskAppetite = async (l: number) => {
+        setRiskAppetite(l)
+        await Api.configSave({ s_index: { risk_appetite: l } })
+    }
+
+    const handleBatteryTopUp = async (targetSoc: number = 60) => {
+        try {
+            // Check if force_charge is already active
+            const activeQA = executorStatus?.quick_action
+            if (activeQA?.type === 'force_charge') {
+                await Api.executor.quickAction.clear()
+                await fetchAllData()
+                toast({ message: 'Top-Up Stopped', description: 'Battery charging override cleared', variant: 'success' })
+            } else {
+                await Api.executor.quickAction.set('force_charge', 60, { target_soc: targetSoc })
+                await fetchAllData()
+                toast({ message: 'Charging Started', description: `Battery top-up to ${targetSoc}% initiated`, variant: 'success' })
+            }
+        } catch (e) {
+            console.error('Top Up/Stop failed', e)
+            toast({ message: 'Action failed', variant: 'error' })
+        }
+    }
 
     // Initial data fetch
     useEffect(() => {
@@ -531,6 +577,75 @@ export default function Dashboard() {
                 </motion.div>
             )}
 
+            {/* Water Boost Banner */}
+            {waterBoostActive?.boost && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="banner banner-error px-4 py-3 flex items-center justify-between"
+                >
+                    <div className="flex items-center gap-2">
+                        <Flame className="h-4 w-4 text-red-400 animate-pulse" />
+                        <span className="font-medium">Water Heater Boost Active</span>
+                        {waterBoostActive.expires_at && (
+                            <span className="opacity-70 text-xs ml-2">
+                                — Expires at {new Date(waterBoostActive.expires_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                        )}
+                    </div>
+                    <button
+                        onClick={async () => {
+                            try {
+                                await Api.waterBoost.cancel()
+                                fetchAllData()
+                                toast({
+                                    message: 'Boost Cancelled',
+                                    description: 'Water heater boost has been stopped.',
+                                    variant: 'success'
+                                })
+                            } catch (e) {
+                                console.error('Failed to cancel boost', e)
+                            }
+                        }}
+                        className="bg-white/10 hover:bg-white/20 px-3 py-1 rounded-md text-[10px] font-semibold transition"
+                    >
+                        STOP BOOST
+                    </button>
+                </motion.div>
+            )}
+
+            {/* Top-Up Active Banner */}
+            {executorStatus?.quick_action?.type === 'force_charge' && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="banner banner-success px-4 py-3 flex items-center justify-between"
+                >
+                    <div className="flex items-center gap-2">
+                        <BatteryCharging className="h-4 w-4 text-green-600 animate-pulse" />
+                        <span className="font-medium text-green-800">Battery Top-Up Active</span>
+                        <span className="opacity-70 text-green-700 text-xs ml-2">
+                            — Charging {soc ?? '?'}% → {executorStatus.quick_action.params?.target_soc ?? 60}%
+                        </span>
+                    </div>
+                    <button
+                        onClick={async () => {
+                            try {
+                                await Api.executor.quickAction.clear()
+                                await fetchAllData()
+                                toast({ message: 'Top-Up Stopped', variant: 'success' })
+                            } catch (e) {
+                                console.error('Failed to stop top-up', e)
+                                toast({ message: 'Failed to stop top-up', variant: 'error' })
+                            }
+                        }}
+                        className="px-2 py-1 bg-green-600/20 hover:bg-green-600/30 text-green-800 rounded text-xs transition border border-green-600/20"
+                    >
+                        STOP TOP-UP
+                    </button>
+                </motion.div>
+            )}
+
             {/* Row 1: Schedule Overview (24h / 48h) */}
             <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                 <ChartCard
@@ -584,32 +699,15 @@ export default function Dashboard() {
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
                     <ControlParameters
                         comfortLevel={comfortLevel}
-                        setComfortLevel={async (l) => {
-                            setComfortLevel(l)
-                            await Api.configSave({ water_heating: { comfort_level: l } })
-                        }}
+                        setComfortLevel={handleSetComfortLevel}
                         riskAppetite={riskAppetite}
-                        setRiskAppetite={async (l) => {
-                            setRiskAppetite(l)
-                            await Api.configSave({ s_index: { risk_appetite: l } })
-                        }}
-                        vacationMode={vacationMode}
-                        onWaterBoost={async () => {
-                            try {
-                                await Api.waterBoost.start(60)
-                                fetchAllData()
-                            } catch (e) {
-                                console.error('Boost failed', e)
-                            }
-                        }}
-                        onBatteryTopUp={async () => {
-                            try {
-                                await Api.executor.quickAction.set('force_charge', 60)
-                                fetchAllData()
-                            } catch (e) {
-                                console.error('Top Up failed', e)
-                            }
-                        }}
+                        setRiskAppetite={handleSetRiskAppetite}
+                        vacationMode={vacationMode || vacationModeHA}
+                        boostActive={waterBoostActive?.boost}
+                        activeQuickAction={executorStatus?.quick_action}
+                        currentSoc={soc ?? 0}
+                        onBatteryTopUp={handleBatteryTopUp}
+                        onStatusRefresh={fetchAllData}
                     />
                 </motion.div>
 
@@ -618,8 +716,8 @@ export default function Dashboard() {
                     <div className="flex h-full flex-col gap-6">
                         <Card className="flex-1 p-4 md:p-5">
                             <QuickActions
-                                onDataRefresh={fetchAllData}
-                                onVacationModeChange={(enabled) => setVacationMode(enabled)}
+                                status={plannerStatus}
+                                onRefresh={fetchAllData}
                             />
                         </Card>
                         <Card className="flex-1 p-4 md:p-5">
@@ -628,11 +726,10 @@ export default function Dashboard() {
                                 <div className="flex items-center gap-2">
                                     <div className="flex items-center gap-2 text-[10px] text-muted">
                                         <span
-                                            className={`inline-flex h-2 w-2 rounded-full ${
-                                                automationConfig?.enable_scheduler
-                                                    ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
-                                                    : 'bg-line'
-                                            }`}
+                                            className={`inline-flex h-2 w-2 rounded-full ${automationConfig?.enable_scheduler
+                                                ? 'bg-good shadow-[0_0_0_2px_rgba(var(--color-good),0.4)]'
+                                                : 'bg-line'
+                                                }`}
                                         />
                                         <span>{automationConfig?.enable_scheduler ? 'Active' : 'Disabled'}</span>
                                     </div>
@@ -653,9 +750,8 @@ export default function Dashboard() {
                                 <button
                                     onClick={() => fetchAllData()}
                                     disabled={isRefreshing}
-                                    className={`rounded-full p-1 transition ${
-                                        isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
-                                    }`}
+                                    className={`rounded-full p-1 transition ${isRefreshing ? 'bg-surface2 text-muted' : 'text-muted hover:text-accent'
+                                        }`}
                                     title="Manual sync"
                                 >
                                     <span className={`inline-block text-[10px] ${isRefreshing ? 'animate-spin' : ''}`}>

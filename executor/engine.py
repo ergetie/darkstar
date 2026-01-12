@@ -263,15 +263,19 @@ class ExecutorEngine:
                 "expires_at": self._quick_action["expires_at"],
                 "remaining_minutes": round(remaining, 1),
                 "reason": self._quick_action.get("reason", ""),
+                "params": self._quick_action.get("params", {}),
             }
 
-    def set_quick_action(self, action_type: str, duration_minutes: int) -> dict[str, Any]:
+    def set_quick_action(
+        self, action_type: str, duration_minutes: int, params: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Set a time-limited quick action override.
 
         Args:
             action_type: One of 'force_charge', 'force_export', 'force_stop'
             duration_minutes: How long the override should last (15, 30, 60)
+            params: Optional parameters (e.g., {'target_soc': 80})
 
         Returns:
             Status dict with expires_at
@@ -293,6 +297,7 @@ class ExecutorEngine:
                 "expires_at": expires_at.isoformat(),
                 "reason": f"User activated {action_type} for {duration_minutes} minutes",
                 "created_at": now.isoformat(),
+                "params": params or {},
             }
 
         logger.info(
@@ -807,10 +812,12 @@ class ExecutorEngine:
                 actions = {}
 
                 if action_type == "force_charge":
+                    # allow target_soc from params (default 100)
+                    target_soc = quick_action.get("params", {}).get("target_soc", 100)
                     actions = {
                         "work_mode": self.config.inverter.work_mode_zero_export,
                         "grid_charging": True,
-                        "soc_target": 100,  # Charge to max
+                        "soc_target": int(target_soc),
                     }
                 elif action_type == "force_export":
                     actions = {

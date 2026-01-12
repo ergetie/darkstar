@@ -8,7 +8,8 @@ from typing import Any, cast
 
 import httpx
 import pytz
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
+from pydantic import BaseModel
 
 from inputs import (
     async_get_ha_entity_state,
@@ -316,12 +317,15 @@ async def get_water_boost():
     return {"boost": False, "source": "executor"}
 
 
+class WaterBoostRequest(BaseModel):
+    duration_minutes: int = 60
+
 @router_services.post(
     "/api/water/boost",
     summary="Set Water Boost",
     description="Activate water heater boost via executor quick action.",
 )
-async def set_water_boost() -> dict[str, str]:
+async def set_water_boost(req: WaterBoostRequest) -> dict[str, str]:
     """Activate water heater boost via executor quick action."""
     try:
         from backend.api.routers.executor import (
@@ -338,13 +342,13 @@ async def set_water_boost() -> dict[str, str]:
             # Assuming set_water_boost(duration_minutes=...) exists on the executor instance
             # which is actually engine.py's ExecutorEngine or similar.
             # Actually get_executor_instance returns the Engine instance.
-            result = executor.set_water_boost(duration_minutes=60)  # pyright: ignore [reportUnknownMemberType]
+            result = executor.set_water_boost(duration_minutes=req.duration_minutes)  # pyright: ignore [reportUnknownMemberType]
             if not result.get("success"):
                 logger.error(f"Failed to set water boost: {result.get('error')}")
                 raise HTTPException(500, f"Failed to set water boost: {result.get('error')}")
 
-            logger.info("Water boost activated successfully")
-            return {"status": "success", "message": "Water boost activated for 60 minutes"}
+            logger.info(f"Water boost activated successfully for {req.duration_minutes} minutes")
+            return {"status": "success", "message": f"Water boost activated for {req.duration_minutes} minutes"}
 
         logger.error("Executor missing set_water_boost method")
         raise HTTPException(501, "Water boost not supported by executor")

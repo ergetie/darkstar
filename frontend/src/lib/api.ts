@@ -238,6 +238,13 @@ export type ExecutorStatusResponse = {
         paused_at?: string
         paused_minutes?: number
     } | null
+    quick_action?: {
+        type: string
+        expires_at: string
+        remaining_minutes: number
+        reason: string
+        params?: Record<string, any>
+    } | null
     [key: string]: unknown
 }
 
@@ -324,6 +331,7 @@ export type DashboardBundleResponse = {
     schedule: ScheduleResponse | null
     executor_status: ExecutorStatusResponse | null
     scheduler_status: SchedulerStatusResponse | null
+    water_boost: { boost: boolean; expires_at?: string; source?: string } | null
 }
 export type AuroraBriefingResponse = { briefing: string }
 
@@ -450,8 +458,12 @@ export const Api = {
             }>('/api/executor/resume', 'POST'),
         quickAction: {
             get: () => getJSON<{ quick_action: unknown | null }>('/api/executor/quick-action'),
-            set: (type: string, duration_minutes: number) =>
-                getJSON<unknown>('/api/executor/quick-action', 'POST', { type, duration_minutes }),
+            set: (action: string, duration_minutes: number, params?: Record<string, unknown>) =>
+                getJSON<{ status: string }>('/api/executor/quick-action', 'POST', {
+                    action,
+                    duration_minutes,
+                    params,
+                }),
             clear: () => getJSON<unknown>('/api/executor/quick-action', 'DELETE'),
         },
     },

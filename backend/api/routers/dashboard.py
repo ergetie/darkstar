@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter
 
-from backend.api.routers import config, executor, schedule, system
+from backend.api.routers import config, executor, schedule, services, system
 
 # We'll use the specific response models if they exist, or just Dict[str, Any]
 # For bundles, usually we prefer a unified Pydantic model.
@@ -30,6 +30,7 @@ async def get_dashboard_bundle() -> dict[str, Any]:
         schedule.get_schedule(),
         executor.get_executor_status_snapshot(),
         schedule.get_scheduler_status(),
+        services.get_water_boost(),
     ]
 
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -47,4 +48,5 @@ async def get_dashboard_bundle() -> dict[str, Any]:
         "schedule": val(results[2]),
         "executor_status": val(results[3]),
         "scheduler_status": val(results[4]),
+        "water_boost": val(results[5]),
     }
