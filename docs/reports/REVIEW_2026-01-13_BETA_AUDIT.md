@@ -12,7 +12,7 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 
 | Category | Status | key Findings |
 | :--- | :--- | :--- |
-| **docs** | � PASS | Comprehensive Setup Guide, User Manual, and Architecture docs. |
+| **docs** | 🟢 PASS | Comprehensive Setup Guide, User Manual, and Architecture docs. |
 | **Security** | 🟡 WARN | SQL hygiene is good, but a **Path Traversal risk** exists in the SPA fallback handler. |
 | **Perf** | 🔴 FAIL | **Blocking Sync I/O** inside async functions (SQLite) poses a major scalability risk. Frontend bundle is monolithic (772kB). |
 | **A11y** | 🔴 FAIL | Missing form labels, ARIA live regions, and semantic headings. Touch targets <44px. |
@@ -25,10 +25,63 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 
 ---
 
+## Priority Action List
+
+### Immediate (Before Release)
+1. [ ] Delete 9 dead arbitrage/water_heating fields from types.ts
+2. [ ] Either implement OR remove `export.enable_export`
+3. [ ] Remove 4 debug console.* statements
+4. [ ] Remove 5 TODO markers from user-facing text
+5. [ ] Fix typo "calculationsWfz"
+6. [ ] Delete 4 orphan help text entries
+7. [ ] **Consolidate Battery Capacity:** Resolve mismatch between Planner (34.2kWh) and Executor (27.0kWh).
+8. [ ] **Fix Path Traversal:** Secure `serve_spa`.
+
+### Short-Term
+9. [ ] Add more aria-* attributes for accessibility
+10. [ ] Review 50+ console.error for necessity
+11. [ ] Document which config keys are intentionally backend-only
+12. [ ] Refactor `services.py` / `store.py` to use async DB methods.
+
+### Future (Backlog)
+13. [ ] Split services.py (HA vs Energy)
+14. [ ] Extract Executor.tsx components
+15. [ ] Add E2E test coverage
+
+---
+
 ## 🔴 Critical Issues
 
-### 1. Dead Config Keys in UI (VERIFIED: 0 backend references)
+### 1. Critical Blocking I/O (Backend)
+- **Files:** `store.py`
+- **Issue:** Uses synchronous `sqlite3.connect()` and `cursor.execute()` inside standard `def` methods called by async endpoints.
+- **Impact:** **The entire AsyncIO event loop blocks** during database queries. Requests will hang if one query is slow. This is a major scalability risk.
+- **Action:** Must use `run_in_executor` or an async driver like `aiosqlite`.
 
+### 2. Config Duplication & Inconsistency
+- **Issue:** Battery parameters are defined in two separate places with **different default values**.
+    - `battery.capacity_kwh` (Planner): **34.2 kWh**
+    - `executor.controller.battery_capacity_kwh` (Executor): **27.0 kWh**
+- **Impact:** Planner optimizes for 34.2kWh while Executor calculates SoC based on 27.0kWh. This will cause major SoC drift and incorrect decision making.
+- **Action:** Consolidate to a single source of truth or enforce data validation equality.
+
+### 3. Missing "First Run" Experience
+- **Code Analysis:** `App.tsx` and `pages/settings/index.tsx` confirm **no onboarding wizard exists**.
+- **Impact:** A fresh install lands the user directly on the Dashboard (`/`) which will likely be empty/broken because no HA token or System ID is configured.
+- **Expectation:** Users should be redirected to `/settings` or a specialized setup route if `health.healthy` returns specific "not configured" errors.
+
+### 4. Notification Spam
+- **Component:** `SystemAlert.tsx`
+- **Issue:** Iterates violently over all health issues, creating a **stacked banner for every single error**.
+- **Impact:** If 5 sensors are missing and 2 settings are wrong, the user sees **7 separate banners** consuming 50%+ of the viewport.
+- **Expectation:** Errors should be grouped into a single expandable banner (e.g., "7 System Issues Detected").
+
+### 5. Weak Validation Logic
+- **File:** `useSettingsForm.ts`
+- **Issue:** Relies on **fragile string matching** of the setting key rather than explicit field definitions. Only checks `value < 0` if key contains "power_kw", "sek", or "kwh".
+- **Exploit:** Fields like `hours` (e.g., `water_heating.min_spacing_hours`) or geolocation can be set to negative values. No maximum limits exist for non-percentage fields (e.g. `99999` for `latitude`).
+
+### 6. Dead Config Keys in UI (VERIFIED: 0 backend references)
 | Key | Action |
 |-----|--------|
 | `arbitrage.price_threshold_sek` | Delete |
@@ -41,69 +94,86 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 | `water_heating.max_blocks_per_day` | Delete |
 | `ui.debug_mode` | Delete |
 
-**Evidence:** `grep -r "export_percentile_threshold" --include="*.py"` → 0 results
-
-### 2. Non-Functional Toggle
+### 7. Non-Functional Toggle
 - **Field:** `export.enable_export`
-- **Issue:** Shows working toggle but has NO backend implementation
-- **Evidence:** `grep -r "enable_export" --include="*.py"` → 0 results
-- **Action:** Remove from UI OR implement
+- **Issue:** Shows working toggle but has NO backend implementation (0 code references).
+- **Action:** Remove from UI OR implement.
 
-### 3. Debug Console Statements in Production
-
-| File | Line | Statement |
-|------|------|-----------|
-| types.ts | 1022 | `console.warn('[SETTINGS_DEBUG]...` |
-| types.ts | 1029 | `console.error('[SETTINGS_DEBUG]...` |
-| useSettingsForm.ts | 78-102 | DEBUG logging block |
-| Dashboard.tsx | 101,115 | `console.log` with emojis |
-| socket.ts | 13,25 | Connection logging |
-
-### 4. TODO Markers in User-Facing Text (5 found)
-- types.ts lines: 500, 581, 662, 669, 935
-- User sees "TODO: Investigate..." in helper text
-
-### 5. Help Text Typo
-- `s_index.base_factor` contains "calculationsWfz"
+### 8. Debug Console Statements in Production
+- **Evidence:** `types.ts` (1022, 1029), `useSettingsForm.ts` (78-102), `Dashboard.tsx` (101,115), `socket.ts` (13,25).
+- **Action:** Remove all `console.log`, `console.warn` (unless legitimate), and debugging blocks.
 
 ---
 
 ## 🟡 High Priority Issues
 
-### 6. Console.error/warn Throughout (50+ occurrences)
-- Most are legitimate error handling
-- 4 are debug statements to remove:
-  - types.ts:1022, 1029
-  - useSettingsForm.ts:78, 98
+### 1. Path Traversal Risk (Security)
+- **File:** `main.py`
+- **Issue:** The SPA fallback handler serves static files via `/{full_path:path}` and joins `static_dir / full_path` without checking if the resolved path is still inside `static_dir`.
+- **Exploit:** Potentially allows `GET /../../etc/passwd`.
+- **Fix:** Add `if static_dir not in file_path.resolve().parents: raise 404`.
 
-### 7. Limited Accessibility Support
-- Only 12 `aria-*` attributes found
-- No `alt=` attributes found on img tags
-- Good: Sidebar has aria-label, dials have aria-value*
+### 2. Forms & Input Labels (Accessibility)
+- **Component:** `SettingsField.tsx`
+- **Issue:** Renders `<label>` and `<input>` as siblings without `htmlFor`/`id` association.
+- **Impact:** Screen readers will announce "Edit text" without the label name.
+- **Fix:** Add `htmlFor={field.key}` to label and `id={field.key}` to input.
 
-### 8. Orphan Help Text Entries
-| Key | Status |
-|-----|--------|
-| `strategic_charging.price_threshold_sek` | No config key |
-| `strategic_charging.target_soc_percent` | No config key |
-| `water_heating.plan_days_ahead` | No config key |
-| `water_heating.min_hours_per_day` | No config key |
+### 3. Invalid Entity Handling
+- **Component:** `EntitySelect.tsx`
+- **Issue:** If `config.yaml` contains an entity ID that doesn't exist in HA, the dropdown shows the raw ID but **no visual error state**.
+- ** Impact:** User thinks it's valid, but backend may fail.
+
+### 4. Console.error/warn Throughout
+- **Count:** 50+ occurrences.
+- **Details:** Most are legitimate, but 4 are debug statements that must be removed. `useSettingsForm.ts` explicitly logs "battery_soc entered numeric validation block!".
+
+### 5. Limited Accessibility Support
+- **Issue:** Only 12 `aria-*` attributes found. No `alt=` attributes found on img tags.
+- **Action:** Audit all interactive elements.
+
+### 6. Orphan Help Text Entries
+- **Keys:** `strategic_charging.price_threshold_sek`, `strategic_charging.target_soc_percent`, `water_heating.plan_days_ahead`, `water_heating.min_hours_per_day`.
+- **Issue:** Text exists in help file but no corresponding config key exists.
+
+### 7. Testing Gaps (Kepler Solver)
+- **Issue:** While unit tests exist, "economic correctness" (did it save money?) is hard to verify automatically.
+- **Action:** Need more robust scenario-based testing.
+
+### 8. Archived Frontend Code
+- **Location:** `frontend/src/pages/archive/`
+- **Issue:** 4 large files (`Forecasting.tsx`, `Lab.tsx`, `Learning.tsx`, `Planning.tsx`) totaling ~68KB.
+- **Action:** Confirm dead code and DELETE.
 
 ---
 
 ## 🟢 Medium Priority
 
-### 9. Large Files (Refactoring Candidates)
-| File | LOC | Priority |
-|------|-----|----------|
-| store.py | 903 | Low |
-| services.py | 711 | Medium |
-| Executor.tsx | 1480 | Medium |
-| ChartCard.tsx | 1278 | Low |
+### 1. UX & Design Issues
+- **Live Regions:** `Toast.tsx` lacks `role="alert"` or `aria-live="assertive"`. Silent failures for screen readers.
+- **Touch Targets:** Many buttons (e.g. Invert ±) are 36px (h-9). Standard is 44px (h-11).
+- **Typography:** Widespread use of `text-[10px]`. Too small for many users.
+- **Design System Violations:** Hardcoded colors in `CommandDomains.tsx` and `ChartCard.tsx` (duplicates theme).
 
-### 10. Backend TODOs (2 found)
-- executor/controller.py:206 - Compare inverter state
-- backend/learning/engine.py:65 - Capture context
+### 2. Frontend Performance
+- **Bundle Size:** Main bundle is **772kB**. Triggers Vite warning. Monolithic build includes Chart.js, Framer Motion, Lucide.
+- **Recommendation:** Code splitting (lazy load Executor, Settings, ChartCard).
+
+### 3. Misc Documentation & Config
+- **Oddly Specific Defaults:** `config.default.yaml` has `34.2` kWh cap and `117.0` load margin (likely form a specific install).
+- **Missing Help Text:** `battery.capacity_kwh`, `battery.min_soc_percent`, `learning.enable`, etc.
+- **Accuracy:** Typo in `s_index.base_factor` ("calculationsWfz").
+- **Clarity:** "Thundering herd" explanation needed simplification.
+
+### 4. Large Files (Refactoring Candidates)
+- `store.py` (903 LOC)
+- `services.py` (711 LOC)
+- `Executor.tsx` (1480 LOC)
+- `ChartCard.tsx` (1278 LOC)
+
+### 5. Backend TODOs
+- `executor/controller.py`: "Compare inverter state"
+- `backend/learning/engine.py`: "Capture context"
 
 ---
 
@@ -113,168 +183,34 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 - ✅ Tokens not logged (`logger.info.*token` → 0 results)
 - ✅ Secrets stripped from API responses (config.py:42-44)
 - ✅ Token passed via Authorization header only
+- ✅ All database writes use parameterized queries (SQL Injection safe)
 
 ### Documentation
 - ✅ SETUP_GUIDE.md steps are accurate
 - ✅ USER_MANUAL.md matches current UI
 - ✅ Version consistent across 8 locations
+- ✅ Architecture docs accurately reference `backend/services`
 
-### Error Handling
+### Stability & Error Handling
 - ✅ 38 HTTPException points with good messages
 - ✅ Frontend shows validation errors inline
 - ✅ Health check system comprehensive (462 LOC)
+- ✅ `Api.configSave` maps 400 errors to fields perfectly.
+- ✅ State preservation works (forms don't clear on error).
+
+### UX Features
+- ✅ Battery Top-Up has excellent feedback (Spinner, progress bar).
+- ✅ Mobile layout works well (responsive).
+- ✅ Dashboard grid adapts correctly.
 
 ### Legacy Code
-- ✅ No FIXME markers found
-- ✅ No deprecated markers found
-- ✅ Flask/MariaDB refs only in archive/
+- ✅ No FIXME markers found.
+- ✅ No deprecated markers found.
+- ✅ No unused imports (ruff passed).
 
 ---
 
-## Priority Action List
-
-### Immediate (Before Release)
-1. [ ] Delete 9 dead arbitrage/water_heating fields from types.ts
-2. [ ] Either implement OR remove `export.enable_export`
-3. [ ] Remove 4 debug console.* statements
-4. [ ] Remove 5 TODO markers from user-facing text
-5. [ ] Fix typo "calculationsWfz"
-6. [ ] Delete 4 orphan help text entries
-
-### Short-Term
-7. [ ] Add more aria-* attributes for accessibility
-8. [ ] Review 50+ console.error for necessity
-9. [ ] Document which config keys are intentionally backend-only
-
-### Future (Backlog)
-10. [ ] Split services.py (HA vs Energy)
-11. [ ] Extract Executor.tsx components
-12. [ ] Add E2E test coverage
-
----
-
-## Phase 1 Findings: Config Mapping
-
-### 1. Critical Duplication & Inconsistency
-**Issue:** Battery parameters are defined in two separate places with **different default values**.
-- `battery.capacity_kwh` (Planner): **34.2 kWh**
-- `executor.controller.battery_capacity_kwh` (Executor): **27.0 kWh**
-- **Impact:** Planner optimizes for 34.2kWh while Executor calculates SoC based on 27.0kWh. This will cause major SoC drift and incorrect decision making.
-
-**Action:** Consolidate to a single source of truth or enforce data validation equality.
-
-### 2. Oddly Specific Default Values
-The `config.default.yaml` contains what appear to be production values from a specific installation rather than safe defaults:
-- `forecasting.load_safety_margin_percent`: **117.0** (Should likely be 100 or 110)
-- `forecasting.pv_confidence_percent`: **83.0** (Should likely be 100 or 90)
-- `battery.capacity_kwh`: **34.2** (Should be 0.0 or standard value like 10.0)
-
-### 3. Missing Help Text
-The following critical config keys exist in `config.default.yaml` but are **missing from `config-help.json`**:
-- `battery.capacity_kwh`
-- `battery.min_soc_percent`
-- `battery.max_charge_power_kw`
-- `battery.max_discharge_power_kw`
-- `battery.roundtrip_efficiency_percent`
-- `learning.enable`
-- `learning.horizon_days`
-
-### 4. Backend-Only Key Recommendations
-The following keys should be hidden from the standard UI to prevent user error/security issues:
-- `learning.sqlite_path` (Security constraint)
-- `system.system_id` (Internal ML tag)
-- `executor.shadow_mode` (Developer/Debug only)
-- `executor.controller.*` (Advanced hardware constants - considering moving to "Advanced" hidden section)
-
----
-
-## Phase 2 Findings: Legacy Code Detection
-
-### 1. Archived Frontend Code
-The directory `frontend/src/pages/archive/` contains **4 large files** (Total: ~68KB) that appear to be dead code:
-- `Forecasting.tsx` (16.5KB)
-- `Lab.tsx` (6.5KB)
-- `Learning.tsx` (29.7KB)
-- `Planning.tsx` (15.9KB)
-**Action:** Confirm these are not imported anywhere and DELETE them to reduce bundle size and confusion.
-
-### 2. Codebase Hygiene
-- **No TypeScript TODOs:** `// TODO` search yielded 0 results in `frontend/src`.
-- **No Deprecated/FIXME:** Search yielded 0 results.
-- **Python TODOs (Low Priority):** 2 minor items found:
-  - `backend/learning/engine.py`: Capture context if available
-  - `executor/controller.py`: Compare with current inverter setting
-- **Clean Comments:** Most comments are descriptive headers or functional notes.
-- **No Unused Imports:** `ruff check . --select F401` passed.
-
----
-
-## Phase 3 Findings: UI Bugs Investigation
-
-### 1. Weak Validation Logic (Critical)
-The validation in `useSettingsForm.ts` relies on **fragile string matching** of the setting key rather than explicit field definitions.
-- **Issue:** It only checks `value < 0` if the key contains "power_kw", "sek", or "kwh".
-- **Exploit:** Fields like `hours` (e.g., `water_heating.min_spacing_hours`) or geolocation can be set to negative values.
-- **Missing Limits:** No maximum limits exist for non-percentage fields. User can enter `99999` for `latitude`.
-
-### 2. Invalid Entity Handling
-`EntitySelect.tsx` has no mechanism to flag invalid entities loaded from config.
-- **Issue:** If `config.yaml` contains an entity ID that doesn't exist in HA, the dropdown shows the raw ID but **no visual error state** (red border/warning). user thinks it's valid.
-
-### 3. Production Debug Code
-Confirmed presence of debug logging in `useSettingsForm.ts`:
-```typescript
-if (key.includes('battery_soc')) {
-    console.warn('[SETTINGS_DEBUG] Validating battery_soc:', ...
-```
-This spams the console for every keystroke on battery fields.
-
----
-
-## Phase 4 Findings: UX & Code Analysis
-
-### 1. Missing "First Run" Experience (Critical)
-Code analysis of `App.tsx` and `pages/settings/index.tsx` confirms **no onboarding wizard exists**.
-- **Flow:** A fresh install lands the user directly on the Dashboard (`/`).
-- **Impact:** The dashboard will likely be empty/broken because no HA token or System ID is configured.
-- **Expectation:** Users should be redirected to `/settings` or a specialized setup route if `health.healthy` returns specific "not configured" errors.
-
-### 2. Error Handling & Stale Data
-- **Backend Offline:** `App.tsx` contains a specific `backendOffline` state that triggers an amber banner: *"Backend appears offline or degraded"*. This is **Good**.
-- **Stale Data:** `Dashboard.tsx` (inferred from `App.tsx` structure) does not appear to have granular "stale data" graying-out for individual cards. If the backend is up but HA is down, the UI might show old sensor values without warning unless `SystemAlert` catches it.
-- **API Logic:** `api.ts` throws generic errors (`/api/config/save -> 400`). It lacks a centralized "Connection Lost" interceptor that could freeze the UI state globally.
-
-### 6. Battery Top-Up Feedback (Good)
-`QuickActions.tsx` implements excellent feedback mechanisms:
-- **Visuals:** Uses `Loader2` spinner and a progress bar overlay.
-- **State:** Dedicated `plannerPhase` ('planning' -> 'executing' -> 'done') gives clear transparency.
-- **Feedback:** Inline error/success messages that don't block the screen.
-
-### 7. Vacation Mode Feedback (Weak)
-Vacation Mode is buried in `ParametersTab.tsx`.
-- **Issue:** Toggling "Vacation Mode" is treated as just another setting save.
-- **Feedback:** User gets a generic "Settings saved successfully" toast.
-- **Gap:** No specific confirmation like "Vacation Mode Active: Water heater limits applied" or visual indicator on the dashboard that this major mode is active.
-
-### 3. Notification Spam (Critical UX)
-`SystemAlert.tsx` iterates violently over all health issues, creating a **stacked banner for every single error**.
-- **Issue:** If 5 sensors are missing and 2 settings are wrong, the user sees **7 separate banners** consuming 50%+ of the viewport.
-- **Expectation:** Errors should be grouped into a single expandable banner (e.g., "7 System Issues Detected").
-
-### 4. Sidebar & Mobile Navigation
-Code analysis of `Sidebar.tsx` shows functional mobile logic but potential usability gaps:
-- **Good:** Uses `backdrop-blur-sm` and covers full screen.
-- **Gap:** The "Close" logic relies on clicking specific areas. It checks `onClick={closeMobile}` on the grid container.
-- **Missing:** No swipe gestures or "click outside" listeners explicitly on the backdrop itself (it's one big div), which is acceptable but basic.
-
-### 5. Toast System (Potential Spam)
-`Toast.tsx` generates a random ID for every toast call (`Math.random()`).
-- **Issue:** There is **no de-duplication**. If a loop triggers an error 10 times in 1 second, the user gets 10 identical stacked toasts covering the bottom right corner.
-- **Risk:** High during connection flaps.
-
-## 🧠 Phase 4 Brainstorming: UX Improvements
-
-Based on the code analysis, here are the recommended high-impact UX improvements:
+## 💡 Brainstorming Suggestions (UX Improvements)
 
 ### 🚀 1. The "First Run" Wizard
 **Goal:** Prevent empty dashboard confusion.
@@ -297,106 +233,10 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - If `401/Connection Error` occurs, overlay the entire app with a "Reconnecting..." backdrop.
 - This prevents users from toggling switches that won't work.
 
-## Phase 5 Findings: Help Text Review
-
-### 1. Accuracy Issues
-- **Typo in `s_index.base_factor`:** Key `s_index.base_factor` description contains typo "**calculationsWfz**" instead of "calculations" (Line 42).
-- **Unimplemented Features:**
-  - `export.enable_export`: Description explicitly starts with `[NOT IMPLEMENTED]` (Line 50).
-  - `strategic_charging.price_threshold_sek`: Description explicitly starts with `[NOT IMPLEMENTED]` (Line 24).
-- **Missing Help Keys:** The following keys exist in `config.default.yaml` but are **missing from `config-help.json`**, resulting in no UI tooltips:
-  - `battery.capacity_kwh`
-  - `battery.min_soc_percent`
-  - `battery.max_charge_power_kw`
-- **Hardware-Specific Defaults:** `executor.controller.max_charge_a` help text claims "Default is 185A" (Line 104), which is a Huawei-specific value and misleading for other inverters.
-
-### 2. Clarity & Jargon
-- **Technical Jargon:** `automation.schedule.jitter_minutes` uses the phrase "**thundering herd**" (Line 57), which is backend engineering slang not suitable for end-users.
-- **Historical References:** `executor.controller.max_discharge_a` starts with "**Unlike earlier versions...**" (Line 105), which is irrelevant for new users and adds noise.
-- **Implementation Leaks:** `charging_strategy.target_soc_percent` references "**(used in windows.py)**" (Line 25), exposing internal filenames to the user.
-
-### 3. Consistency
-- **Terminology Clash (Planner vs Scheduler):**
-  - `automation.enable_scheduler`: "Enable automatic **schedule** regeneration" (Line 55).
-  - `debug.enable_planner_debug`: "Enable verbose **planner** logging" (Line 53).
-  - `battery.max_soc_percent`: "**Planner** target ceiling" (Line 17).
-  - **Issue:** Users may be confused if "Planner" and "Scheduler" refer to different things or the same thing.
-- **Future Flags:** `pricing.subscription_fee_sek_per_month` is marked as `[FUTURE]` (Line 68), indicating dead UI code.
-
-## Phase 6 Findings: Visual/Design Review
-
-### 1. Design System Violations in Code
-- **Hardcoded Colors:** `CommandDomains.tsx` (Line 549) uses `bg-purple-400`, `bg-emerald-400`, and `bg-blue-400` for risk indicators, bypassing the semantic `bg-ai`, `bg-good`, `bg-water` tokens.
-- **Hardcoded Hex Values:**
-  - `text-[#100f0e]` is manually used in `CommandDomains.tsx` and `QuickActions.tsx` for button text loops, instead of a semantic class like `text-on-accent` or relying on `.btn` styles.
-  - `Sidebar.tsx` uses `bg-[rgba(4,6,10,0.92)]` (Line 154) and `bg-slate-700` (Line 108) instead of theme variables.
-
-### 2. Chart.js & Theme Sync
-- **Duplicated Palette:** `ChartCard.tsx` (Lines 246-255) defines a `DS` object with hardcoded hex values (e.g., `accent: '#FFCE59'`) that duplicate `index.css`.
-  - **Risk:** Changing a theme color in CSS will **not** update the charts, causing a visual mismatch. The code even comments: `// Deprecated - using Design System tokens directly` but actually hardcodes them.
-- **Hardcoded Chart Elements:**
-  - Legend labels use `#e6e9ef` (Dark mode text) regardless of theme.
-  - "NOW" line uses `#e879f9` (Pink) hardcoded.
-
-### 3. Component Consistency
-- **Buttons:** Most buttons use the `.btn` class, but `QuickActions.tsx` and `CommandDomains.tsx` rebuild button styles manually with long tailwind strings (e.g., `rounded-xl px-3 py-2.5 ...`).
-- **Typography:** `Sidebar.tsx` uses `text-[10px]` and `text-[11px]` explicitly. While `tailwind.config.cjs` maps `xs` to 10px and `sm` to 11px, using the arbitrary value `[]` syntax bypasses the config alias. Note: My grep missed this because it searched for `text-[` but I missed the specific files in the grep list or regex limit. Manual view confirmed it.
-
-## Phase 7 Findings: Error Handling
-
-### 1. API & Network Handling
-- **No Explicit Timeouts:** `api.ts` uses raw `fetch` without an `AbortController` timeout. Network requests can hang indefinitely (default browser timeout) instead of failing fast (Task 7.3).
-- **500 Error Visibility:**
-  - **Settings:** Handled well. `useSettingsForm` captures exceptions, shows a "Save failed" toast, and a red status message.
-  - **Dashboard:** Handled poorly. `fetchCriticalData` logs errors to console (`console.error`) but does not trigger a user-facing error state for the whole dashboard if the initial bundle fails. The user might see empty/stale cards.
-- **Retry Logic:** Manual refresh available on Dashboard (good). No auto-retry strategy for failed background polls.
-
-### 2. Form Validation & UX
-- **Robust 400 Handling:** `Api.configSave` specifically parses 400 responses to map backend validation errors to frontend fields (Task 7.2). This is excellent.
-- **Client-Side Validation:** `useSettingsForm` implements immediate feedback for:
-  - Required fields.
-  - Numeric constraints (`NaN`, positive values).
-  - Cross-field logic (Min SoC < Max SoC).
-- **Leftover Debug Code:** `useSettingsForm.ts` contains `console.warn` and `console.error` logs explicitly marked `[SETTINGS_DEBUG]` (Lines 76-102), including a "battery_soc entered numeric validation block!" message. This should be removed.
-
-### 3. Error Recovery
-- **State Preservation:** Settings forms correctly separate `form` state from `config` state, ensuring user input is not lost on save failure (Task 7.10).
-- **Error Boundaries:** `ErrorBoundary.tsx` exists and wraps the app, providing a "Reload Page" button for crashes.
-
+---
 ---
 
-## Phase 9 Findings: Performance Information
-
-### 1. Frontend Performance
-- **Bundle Size:** `App-[hash].js` is **772kB** (minified) + `index-[hash].js` **197kB`. Total ~1MB main thread JS.
-  - **Issue:** Triggers Vite warning "Chunks larger than 500kB".
-  - **Cause:** Monolithic build. `Chart.js`, `Framer Motion`, and `Lucide` likely bundled into one entry.
-  - **Recommendation:** Implement code splitting (lazy load `Executor`, `Settings`, `ChartCard`).
-
-- **Chart Rendering:** `ChartCard.tsx` (1278 LOC) is complex.
-  - **Optimization Gap:** `createChartData` runs on every render and is not memoized.
-  - **Logic:** Custom canvas plugins (`dotGrid`, `glow`) are efficient (canvas-based), but React wrapper re-initializes often.
-
-### 2. Backend Performance
-- **Critical Blocking I/O:** `store.py` uses synchronous `sqlite3.connect()` and `cursor.execute()` inside standard `def` methods.
-  - **Impact:** These are called by `services.py` `async def` endpoints (e.g., `/api/energy/range`).
-  - **Result:** **The entire AsyncIO event loop blocks** during database queries. Requests will hang if one query is slow.
-  - **Fix:** Must use `run_in_executor` or an async driver like `aiosqlite`.
-
-- **Database Efficiency:**
-  - `store_slot_observations` does row-by-row `UPDATE` then `INSERT` (upsert emulation) inside a Python loop.
-  - **Fix:** Refactor to `executemany` or single SQL `INSERT OR REPLACE` statement for bulk operations.
-
-### 3. Service Layer
-- **Good:** `get_energy_today` uses `asyncio.gather` for parallel HA sensor fetching.
-- **Risk:** `_fetch_ha_history_avg` manually iterates over state changes in Python. For large history (multi-day), this will spike CPU and block the loop.
-
-
----
-
-## Full Task Checklist
-
-**Last Updated:** 2026-01-13 08:21
+## Audit Checklists
 
 ### Phase 1: Config Mapping Review
 
@@ -466,10 +306,10 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 ---
 
 ### Phase 4: UX & Code Analysis
+
 - [x] 4.1 Analyze "First Run" / Setup Experience - Code Review done (Confirmed missing wizard)
 - [x] 4.2 Analyze Connection/Error Handling Logic - Code Review done (Partial logic found)
 - [x] 4.3 Review Dashboard Stale Data Indicators - Code Review done (Gap identified)
-
 - [x] 4.4 Analyze Sidebar & Mobile Navigation - Code Review done (Mobile gap found)
 - [x] 4.5 Analyze Toast/Notification System - Code Review done (De-dupe gap found)
 - [x] 4.6 Brainstorm UX Improvements - Strategy done (Added to report)
@@ -516,7 +356,6 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 6.11 Check chart color accessibility - Hardcoded overrides found
 - [x] 6.14 Check axis labels - Monospace used (Good)
 
-
 ---
 
 ### Phase 7: Error Handling Review
@@ -532,7 +371,6 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 7.8 Test error banner dismissal - Dashboard banner is dismissible
 - [x] 7.9 Test retry functionality - Manual refresh button on Dashboard
 - [x] 7.10 Check state preservation after error - Confirmed
-
 
 ---
 
@@ -571,12 +409,11 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 9.6 Check database query performance - Sync I/O blocking identified
 - [x] 9.7 Audit caching effectiveness - TTLCache active for Nordpool/HA
 
-#### Large Files (documented via run_command)
+#### Large Files
 - [x] 9.8 store.py (903 LOC) - Analyzed: Sync IO blocking event loop
 - [x] 9.9 services.py (711 LOC) - Analyzed: Efficient gather, but calls sync store
 - [x] 9.10 Executor.tsx (1480 LOC) - Analyzed: Monolithic, frequent socket updates
 - [x] 9.11 ChartCard.tsx (1278 LOC) - Analyzed: Complex canvas logic, heavy renders
-
 
 ---
 
@@ -599,32 +436,6 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 10.12 Check UI element contrast (3:1) - Chart colors are fixed (SEK/kWh grey)
 - [x] 10.13 Check color-only indicators - Status dots used with text (Good)
 
-## Phase 10 Findings: Accessibility Audit
-
-### 1. Forms & Input Labels (Critical)
-- **Disconnected Labels:** `SettingsField.tsx` renders a `<label>` and an `<input>` as siblings.
-  - **Issue:** The `label` does not wrap the input, nor does it use `htmlFor`.
-  - **Impact:** Screen readers will announce "Edit text" without the label name.
-  - **Fix:** Add `htmlFor={field.key}` to label and `id={field.key}` to input.
-
-### 2. Live Regions & Notifications
-- **Silent Toasts:** `Toast.tsx` renders alerts but lacks `role="alert"` or `aria-live="assertive"`.
-  - **Impact:** Screen reader users will not be notified of success/error messages unless they manually find the toast region.
-
-### 3. ARIA Roles in Custom Components
-- **Select Component:** `Select.tsx` implements excellent keyboard navigation (Arrows/Enter) but lacks semantic roles.
-  - **Missing:** `role="listbox"`, `role="option"`, `aria-activedescendant`.
-  - **Result:** Behaves like a button that reveals a div, not a standard combobox.
-
-### 4. Heading Hierarchy
-- **Executor:** Uses `h1` for the main title but div classes (`text-lg font-medium`) for card titles.
-- **Settings:** Uses Tabs but lacks `h2` for section headers.
-- **Structure:** The document outline is flat.
-
-### 5. Touch Targets
-- **Small Targets:** Many buttons in `SettingsField` (e.g., the invert "±" button) are `h-9 w-9` (36px).
-- **Recommendation:** Increase to minimum 44px (h-11) for mobile compliance.
-
 ---
 
 ### Phase 11: Mobile Responsiveness
@@ -643,25 +454,6 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 11.10 Check form stacking - Full width on mobile (Good)
 - [x] 11.11 Check modal fit - Select menu has max-h set (Good)
 
-## Phase 11 Findings: Mobile Responsiveness
-
-### 1. Touch Targets (Gap)
-- **Sub-optimal sizes:**
-  - Sidebar primitives (Hamburger/Close) are `h-10 w-10` (40px).
-  - Settings buttons (Invert) are `h-9 w-9` (36px).
-  - **Standard:** Apple/Android guidelines recommend minimum 44x44px.
-  - **Interaction:** Nav items in the mobile menu overlay are `p-4`, which is excellent.
-
-### 2. Typography Size
-- **Small Text:** widespread use of `text-[10px]` for badges, labels, and footnotes.
-  - **Issue:** May be illegible on high-DPI small screens or for users with visual impairments.
-  - **Recommendation:** Bump minimum size to `text-xs` (12px) where possible.
-
-### 3. Layout Mechanics
-- **Grid Stacking:** `Dashboard.tsx` correctly uses `grid-cols-1 lg:grid-cols-3`.
-  - Content flows vertically on mobile, horizontally on desktop.
-- **Sidebar:** Logic is robust with a backdrop overlay.
-
 ---
 
 ### Phase 12: Documentation Review
@@ -675,21 +467,9 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 12.7 Read through USER_MANUAL.md - Done
 - [x] 12.8 Verify dashboard explanation matches UI - Verified (Colors match code)
 - [x] 12.9 Test troubleshooting advice - Sound advice present
-
 - [x] 12.10 Test build commands - `npm run build` passed (warnings about size)
 - [x] 12.11 Test lint commands - `npm run lint` passed (clean)
 - [x] 12.12 Verify architecture docs - `backend/services` verified existing (Accurate)
-
-## Phase 12 Findings: Documentation
-
-### 1. Accuracy
-- **Architecture:** `ARCHITECTURE.md` correctly references the `backend/services` directory which exists.
-- **Images:** `dashboard-preview.png` and others appear to be present and linked correctly.
-- **Manual:** `USER_MANUAL.md` accurately describes the current UI (Horizon Chart colors, Sidebar status dots).
-
-### 2. completeness
-- **Setup Guide:** Comprehensive.
-- **Developer Guide:** Build commands verified working.
 
 ---
 
@@ -702,17 +482,6 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 13.4 Check SQL injection prevention - Store.py uses parameterized queries (Safe)
 - [x] 13.5 Check XSS prevention - No dangerouslySetInnerHTML found (Safe)
 - [x] 13.6 Check path traversal prevention - SPA handler lacks parent directory check (Risk)
-
-## Phase 13 Findings: Security
-
-### 1. Path Traversal Risk (Medium)
-- **SPA Fallback:** `main.py` serves static files via `/{full_path:path}`.
-- **Issue:** It joins `static_dir / full_path` without checking if the resolved path is still inside `static_dir`.
-- **Exploit:** Potentially allows `GET /../../etc/passwd` (depending on uvicorn path normalization).
-- **Fix:** Add `if static_dir not in file_path.resolve().parents: raise 404`.
-
-### 2. SQL Hygiene
-- **Good:** All database writes in `store.py` use `?` placeholders. No string formatting SQL found.
 
 ---
 
@@ -737,16 +506,6 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 - [x] 15.2 Identify missing integration tests - Full E2E flows
 - [x] 15.3 Check specialized hardware tests - HA Add-on environment specific
 
-## Phase 14 & 15 Findings: Stability & Testing
-
-### 1. Changelog
-- **Status:** Excellent. `CHANGELOG_PLAN.md` is detailed and historical.
-
-### 2. Testing Gaps (High)
-- **Kepler Solver:** While unit tests exist, "economic correctness" (did it save money?) is hard to verify automatically.
-- **E2E:** No Cypress/Playwright tests found for the frontend.
-- **Hardware:** Reliance on Raspberry Pi logic (GPIO/specifics) is hard to test in CI.
-
 ---
 
 ### Task Summary
@@ -768,5 +527,4 @@ Based on the code analysis, here are the recommended high-impact UX improvements
 | 13. Security | 6 | 1 | 5 |
 | 14. API Stability | 5 | 1 | 4 |
 | 15. Testing Gaps | 4 | 0 | 4 |
-| 15. Testing Gaps | 4 | 0 | 4 |
-| **TOTAL** | **163** | **26** | **137** |
+| **TOTAL** | **163** | **22** | **141** |
