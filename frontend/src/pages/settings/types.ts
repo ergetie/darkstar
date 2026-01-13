@@ -14,6 +14,7 @@ export interface BaseField {
     type: FieldType
     options?: { label: string; value: string }[]
     companionKey?: string
+    disabled?: boolean
 }
 
 export interface SettingsSection<T extends BaseField = BaseField> {
@@ -52,9 +53,10 @@ export const systemSections: SettingsSection[] = [
             {
                 key: 'export.enable_export',
                 label: 'Enable grid export',
-                helper: 'Master switch for grid export logic. When OFF, the planner will never schedule export slots.',
+                helper: '[NOT IMPLEMENTED YET] Master switch for grid export logic. When OFF, the planner will never schedule export slots.',
                 path: ['export', 'enable_export'],
                 type: 'boolean',
+                disabled: true,
             },
         ],
     },
@@ -496,55 +498,8 @@ export const systemSections: SettingsSection[] = [
 
 export const parameterSections: SettingsSection[] = [
     {
-        title: 'Arbitrage & Economics (Legacy?)',
-        description: 'TODO: Investigate if safe to remove - fields not found in config.default.yaml',
-        fields: [
-            {
-                key: 'arbitrage.price_threshold_sek',
-                label: 'Price threshold (SEK)',
-                path: ['arbitrage', 'price_threshold_sek'],
-                type: 'number',
-            },
-        ],
-    },
-    {
-        title: 'Charging Strategy',
-        description: 'Price smoothing, consolidation tolerances, and gap settings that govern charge windows.',
-        fields: [
-            {
-                key: 'charging_strategy.price_smoothing_sek_kwh',
-                label: 'Price smoothing (SEK/kWh)',
-                path: ['charging_strategy', 'price_smoothing_sek_kwh'],
-                type: 'number',
-            },
-            {
-                key: 'charging_strategy.block_consolidation_tolerance_sek',
-                label: 'Consolidation tolerance (SEK)',
-                path: ['charging_strategy', 'block_consolidation_tolerance_sek'],
-                type: 'number',
-            },
-            {
-                key: 'charging_strategy.consolidation_max_gap_slots',
-                label: 'Max gap slots',
-                path: ['charging_strategy', 'consolidation_max_gap_slots'],
-                type: 'number',
-            },
-            {
-                key: 'charging_strategy.charge_threshold_percentile',
-                label: 'Charge threshold (percentile)',
-                path: ['charging_strategy', 'charge_threshold_percentile'],
-                type: 'number',
-            },
-            {
-                key: 'charging_strategy.cheap_price_tolerance_sek',
-                label: 'Cheap price tolerance (SEK)',
-                path: ['charging_strategy', 'cheap_price_tolerance_sek'],
-                type: 'number',
-            },
-        ],
-    },
-    {
         title: 'Forecasting & Strategy',
+
         description: 'Tuning the AI forecasting engine and safety margins.',
         fields: [
             {
@@ -576,43 +531,7 @@ export const parameterSections: SettingsSection[] = [
             },
         ],
     },
-    {
-        title: 'Legacy Arbitrage Investigation',
-        description: 'TODO: Investigate if safe to remove - not found in config.default.yaml',
-        fields: [
-            {
-                key: 'arbitrage.export_percentile_threshold',
-                label: 'Export percentile threshold',
-                path: ['arbitrage', 'export_percentile_threshold'],
-                type: 'number',
-            },
-            {
-                key: 'arbitrage.enable_peak_only_export',
-                label: 'Enable peak-only export',
-                path: ['arbitrage', 'enable_peak_only_export'],
-                type: 'boolean',
-                helper: 'Override to only export when we hit the percentile threshold.',
-            },
-            {
-                key: 'arbitrage.export_future_price_guard',
-                label: 'Future price guard',
-                path: ['arbitrage', 'export_future_price_guard'],
-                type: 'boolean',
-            },
-            {
-                key: 'arbitrage.future_price_guard_buffer_sek',
-                label: 'Future guard buffer (SEK)',
-                path: ['arbitrage', 'future_price_guard_buffer_sek'],
-                type: 'number',
-            },
-            {
-                key: 'arbitrage.export_profit_margin_sek',
-                label: 'Export profit margin (SEK)',
-                path: ['arbitrage', 'export_profit_margin_sek'],
-                type: 'number',
-            },
-        ],
-    },
+
     {
         title: 'Water Heating',
         description: 'Quota, deferral, and sizing controls for the water heater scheduler.',
@@ -656,20 +575,7 @@ export const parameterSections: SettingsSection[] = [
                 type: 'boolean',
                 helper: 'Enable small top-up heating blocks to maintain temperature. Disable for bulk heating only.',
             },
-            {
-                key: 'water_heating.schedule_future_only',
-                label: 'Schedule future only',
-                helper: 'TODO: Investigate if safe to remove - not found in config.default.yaml',
-                path: ['water_heating', 'schedule_future_only'],
-                type: 'boolean',
-            },
-            {
-                key: 'water_heating.max_blocks_per_day',
-                label: 'Max blocks per day',
-                helper: 'TODO: Investigate if safe to remove - not found in config.default.yaml',
-                path: ['water_heating', 'max_blocks_per_day'],
-                type: 'number',
-            },
+
             {
                 key: 'water_heating.block_start_penalty_sek',
                 label: 'Block start penalty (SEK)',
@@ -929,13 +835,7 @@ export const advancedSections: SettingsSection[] = [
                 path: ['automation', 'schedule', 'jitter_minutes'],
                 type: 'number',
             },
-            {
-                key: 'ui.debug_mode',
-                label: 'Debug Mode',
-                helper: 'TODO: Investigate if safe to remove - not found in config.default.yaml. Enable verbose console logging for troubleshooting.',
-                path: ['ui', 'debug_mode'],
-                type: 'boolean',
-            },
+
             {
                 key: 'learning.auto_tune_enabled',
                 label: 'Enable Auto-Tuning',

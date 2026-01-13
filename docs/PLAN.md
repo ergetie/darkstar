@@ -303,23 +303,23 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] REV // UI3 — Config & UI Cleanup
+### [DONE] REV // UI3 — Config & UI Cleanup
 
 **Goal:** Remove legacy/unused configuration keys and UI fields to align the frontend with the active Kepler backend. This reduces user confusion and technical debt.
 
 #### Phase 1: Frontend Cleanup (`frontend/src/pages/settings/types.ts`)
-* [ ] Remove entire `parameterSection`: "Arbitrage & Economics (Legacy?)" (contains `arbitrage.price_threshold_sek`).
-* [ ] Remove entire `parameterSection`: "Charging Strategy" (contains `charging_strategy.*` keys).
-* [ ] Remove entire `parameterSection`: "Legacy Arbitrage Investigation" (contains `arbitrage.export_percentile_threshold`, `arbitrage.enable_peak_only_export`, etc).
-* [ ] Remove `water_heating` fields:
+* [x] Remove entire `parameterSection`: "Arbitrage & Economics (Legacy?)" (contains `arbitrage.price_threshold_sek`).
+* [x] Remove entire `parameterSection`: "Charging Strategy" (contains `charging_strategy.*` keys).
+* [x] Remove entire `parameterSection`: "Legacy Arbitrage Investigation" (contains `arbitrage.export_percentile_threshold`, `arbitrage.enable_peak_only_export`, etc).
+* [x] Remove `water_heating` fields:
     *   `water_heating.schedule_future_only`
     *   `water_heating.max_blocks_per_day`
-* [ ] Remove `ui` field: `ui.debug_mode`.
-* [ ] Update `export.enable_export` helper text to start with **"[NOT IMPLEMENTED YET]"** (do not remove the field).
+* [x] Remove `ui` field: `ui.debug_mode`.
+* [x] Update `export.enable_export` helper text to start with **"[NOT IMPLEMENTED YET]"** (do not remove the field).
 
 #### Phase 2: Configuration & Help Cleanup
-* [ ] **Config:** Remove entire `charging_strategy` section from `config.default.yaml`.
-* [ ] **Help:** Remove orphan entries from `frontend/src/config-help.json`:
+* [x] **Config:** Remove entire `charging_strategy` section from `config.default.yaml`.
+* [x] **Help:** Remove orphan entries from `frontend/src/config-help.json`:
     *   `strategic_charging.price_threshold_sek`
     *   `strategic_charging.target_soc_percent`
     *   `water_heating.plan_days_ahead`
@@ -329,10 +329,10 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
     *   `arbitrage.*` (if any remain)
 
 #### Phase 3: Verification
-* [ ] Verify Settings UI loads correctly without errors (`npm run dev`).
-* [ ] Verify backend starts up cleanly with the trimmed `config.default.yaml`.
+* [x] Verify Settings UI loads correctly without errors (`npm run dev`).
+* [x] Verify backend starts up cleanly with the trimmed `config.default.yaml`.
 
 #### Phase 4: Documentation Sync
-* [ ] Update `docs/reports/REVIEW_2026-01-13_BETA_AUDIT.md`:
+* [x] Update `docs/reports/REVIEW_2026-01-13_BETA_AUDIT.md`:
     *   Mark "Dead Config Keys in UI" tasks (Section 6) as `[x]`.
     *   Mark "Orphan Help Text Entries" tasks (Section 6/5) as `[x]`.

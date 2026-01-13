@@ -96,8 +96,8 @@ async def async_get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
         response = await client.get(endpoint, headers=make_ha_headers(token))
         response.raise_for_status()
         data = response.json()
-        state_value = data.get("state")
-        print(f"[async_get_ha_entity_state] {entity_id} → state={state_value}")
+        # state_value = data.get("state")
+        # print(f"[async_get_ha_entity_state] {entity_id} → state={state_value}")
         return data
     except Exception as exc:
         print(f"Warning: Failed to fetch Home Assistant entity '{entity_id}' (async): {exc}")

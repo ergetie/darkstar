@@ -119,17 +119,22 @@ export default function Dashboard() {
             description: `${data.slot_count ?? 0} slots generated`,
             variant: 'success',
         })
-        // Targeted refresh - only fetch schedule, not everything
-        Api.schedule().then((data) => {
-            if (data.schedule) setLocalSchedule(data.schedule)
-            if (data.meta) {
-                setPlannerLocalMeta({
-                    planned_at: data.meta.planned_at as string | undefined,
-                    planner_version: data.meta.planner_version as string | undefined,
-                    s_index: data.meta.s_index as PlannerSIndex | undefined,
-                })
-            }
-        })
+        // FIX: Refresh BOTH schedule AND history to maintain data consistency
+        // Previously only fetched schedule, causing historySlots to become stale
+        Promise.all([Api.schedule(), Api.scheduleTodayWithHistory()])
+            .then(([scheduleData, historyData]) => {
+                if (scheduleData.schedule) setLocalSchedule(scheduleData.schedule)
+                if (scheduleData.meta) {
+                    setPlannerLocalMeta({
+                        planned_at: scheduleData.meta.planned_at as string | undefined,
+                        planner_version: scheduleData.meta.planner_version as string | undefined,
+                        s_index: scheduleData.meta.s_index as PlannerSIndex | undefined,
+                    })
+                }
+                // Update historySlots to maintain consistency
+                if (historyData.slots) setHistorySlots(historyData.slots)
+            })
+            .catch((err) => console.error('Failed to refresh after schedule update:', err))
     })
 
     useSocket('executor_status', (data: any) => {
@@ -268,6 +273,15 @@ export default function Dashboard() {
             // Water Boost Status
             if (bundle.water_boost) {
                 setWaterBoostActive(bundle.water_boost)
+            }
+
+            // FIX: Fetch historySlots immediately as part of critical path
+            // This prevents the race condition where chart renders before history arrives
+            try {
+                const historyData = await Api.scheduleTodayWithHistory()
+                if (historyData.slots) setHistorySlots(historyData.slots)
+            } catch (historyErr) {
+                console.warn('Failed to fetch history slots in critical path:', historyErr)
             }
 
             setLastRefresh(new Date())

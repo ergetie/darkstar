@@ -285,7 +285,10 @@ pnpm run dev  # OR run backend/scheduler separately
        git tag vX.Y.Z
        git push origin vX.Y.Z
        ```
-       (This automatically triggers the CI/CD build.)
+    3. **Automated Release**:
+       - The GitHub Actions workflow will automatically build the Docker image.
+       - It will also parse `docs/RELEASE_NOTES.md` and create a **GitHub Release** with the corresponding notes.
+       - **Do not manually create releases in the GitHub UI**, as this triggers redundant builds.
     The sidebar fetches version from `/api/version` which uses `git describe --tags`.
 
 ## License

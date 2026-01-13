@@ -7,8 +7,6 @@ on:
   push:
     tags:
       - 'v*'
-  release:
-    types: [published]
   workflow_dispatch:
 
 env:
@@ -73,3 +71,39 @@ jobs:
             ${{ env.REGISTRY }}/ergetie/darkstar-${{ matrix.arch }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract Release Notes
+        id: extract_notes
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          # Extract notes for this version from docs/RELEASE_NOTES.md
+          # Starts at "## [$VERSION]", ends at next "---" or "## ["
+          awk "/^## \[$VERSION\]/{flag=1; next} /^---/{flag=0} /^## \[/{flag=0} flag" docs/RELEASE_NOTES.md > release_body.md
+          
+          # Clean up empty lines at start/end
+          sed -i '/./,$!d' release_body.md
+          sed -i :a -e '/^\n*$/{$d;N;};/\n$/ba' release_body.md
+          
+          echo "Extracted notes for $VERSION:"
+          cat release_body.md
+          if [ -s release_body.md ]; then
+            echo "notes_exist=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: steps.extract_notes.outputs.notes_exist == 'true'
+        with:
+          body_path: release_body.md
+          draft: false
+          prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
+

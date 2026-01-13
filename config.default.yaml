@@ -1,5 +1,5 @@
 # =============================================================================
-# Darkstar Configuration 2.4.9-beta
+# Darkstar Configuration 2.4.10-beta
 # =============================================================================
 # This is the user's production configuration file.
 # Structure matches config.default.yaml with user-specific values.
@@ -48,13 +48,6 @@ battery:
 battery_economics:
   battery_cycle_cost_kwh: 0.2      # Degradation cost applied per kWh cycled through the battery
 
-# Charging Strategy (when to charge from grid)
-charging_strategy:
-  charge_threshold_percentile: 15      # Bottom X% of daily prices are considered 'cheap'
-  cheap_price_tolerance_sek: 0.05      # Extends 'cheap' window to prices within this tolerance
-  price_smoothing_sek_kwh: 0.05        # Groups slots slightly above cheapest into charge window
-  block_consolidation_tolerance_sek: 0.05  # Price tolerance for merging adjacent charge blocks
-  consolidation_max_gap_slots: 0       # Max gap (in 15-min slots) to bridge when consolidating
 
 # Water Heating
 water_heating:

@@ -1,5 +1,16 @@
 # Darkstar Release Notes
 
+## [v2.4.10-beta] - History Fix & Config Cleanup - 2026-01-13
+
+**Critical Bug Fix**
+*   **Planned Actions History**: Fixed a bug where the chart's planned actions history would briefly appear then disappear on production deployments (Docker/HA add-on). Root cause was a race condition between schedule and history data fetching, plus the WebSocket handler not refreshing history data.
+
+**Config & UI Cleanup**
+*   **Legacy Field Removal**: Removed deprecated `charging_strategy` section from config and its associated UI fields (strategy selector, price smoothing thresholds).
+*   **Orphaned Help Text**: Cleaned up orphaned config help entries for removed fields.
+
+---
+
 ## [v2.4.9-beta] - Settings Refinement & Diagnostic Hardening - 2026-01-12
 
 **Diagnostic & Troubleshooting**

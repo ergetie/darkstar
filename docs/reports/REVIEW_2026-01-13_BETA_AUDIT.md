@@ -28,12 +28,12 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 ## Priority Action List
 
 ### Immediate (Before Release)
-1. [ ] Delete 9 dead arbitrage/water_heating fields from types.ts
-2. [ ] Either implement OR remove `export.enable_export`
+1. [x] Delete 9 dead arbitrage/water_heating fields from types.ts
+2. [x] Either implement OR remove `export.enable_export` (Disabled & labeled [NOT IMPLEMENTED])
 3. [ ] Remove 4 debug console.* statements
 4. [ ] Remove 5 TODO markers from user-facing text
 5. [ ] Fix typo "calculationsWfz"
-6. [ ] Delete 4 orphan help text entries
+6. [x] Delete 4 orphan help text entries
 7. [ ] **Consolidate Battery Capacity:** Resolve mismatch between Planner (34.2kWh) and Executor (27.0kWh).
 8. [ ] **Fix Path Traversal:** Secure `serve_spa`.
 
@@ -84,20 +84,20 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 ### 6. Dead Config Keys in UI (VERIFIED: 0 backend references)
 | Key | Action |
 |-----|--------|
-| `arbitrage.price_threshold_sek` | Delete |
-| `arbitrage.export_percentile_threshold` | Delete |
-| `arbitrage.enable_peak_only_export` | Delete |
-| `arbitrage.export_future_price_guard` | Delete |
-| `arbitrage.future_price_guard_buffer_sek` | Delete |
-| `arbitrage.export_profit_margin_sek` | Delete |
-| `water_heating.schedule_future_only` | Delete |
-| `water_heating.max_blocks_per_day` | Delete |
-| `ui.debug_mode` | Delete |
+| `arbitrage.price_threshold_sek` | Deleted |
+| `arbitrage.export_percentile_threshold` | Deleted |
+| `arbitrage.enable_peak_only_export` | Deleted |
+| `arbitrage.export_future_price_guard` | Deleted |
+| `arbitrage.future_price_guard_buffer_sek` | Deleted |
+| `arbitrage.export_profit_margin_sek` | Deleted |
+| `water_heating.schedule_future_only` | Deleted |
+| `water_heating.max_blocks_per_day` | Deleted |
+| `ui.debug_mode` | Deleted |
 
 ### 7. Non-Functional Toggle
 - **Field:** `export.enable_export`
 - **Issue:** Shows working toggle but has NO backend implementation (0 code references).
-- **Action:** Remove from UI OR implement.
+- **Action:** Updated helper text to [NOT IMPLEMENTED YET] (Pending implementation).
 
 ### 8. Debug Console Statements in Production
 - **Evidence:** `types.ts` (1022, 1029), `useSettingsForm.ts` (78-102), `Dashboard.tsx` (101,115), `socket.ts` (13,25).
@@ -135,6 +135,7 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 ### 6. Orphan Help Text Entries
 - **Keys:** `strategic_charging.price_threshold_sek`, `strategic_charging.target_soc_percent`, `water_heating.plan_days_ahead`, `water_heating.min_hours_per_day`.
 - **Issue:** Text exists in help file but no corresponding config key exists.
+- **Status:** Fixed (Deleted entries).
 
 ### 7. Testing Gaps (Kepler Solver)
 - **Issue:** While unit tests exist, "economic correctness" (did it save money?) is hard to verify automatically.

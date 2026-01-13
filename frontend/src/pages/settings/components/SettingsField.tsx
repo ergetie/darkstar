@@ -36,6 +36,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         <Switch
                             checked={value === 'true'}
                             onCheckedChange={(checked) => onChange(field.key, checked ? 'true' : 'false')}
+                            disabled={field.disabled}
                         />
                         <span className="text-sm font-semibold">{field.label}</span>
                     </div>
@@ -48,6 +49,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         onChange={(val) => onChange(field.key, val)}
                         options={field.options || []}
                         placeholder="Select..."
+                        disabled={field.disabled}
                     />
                 )
 
@@ -144,7 +146,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         inputMode={field.type === 'number' ? 'decimal' : undefined}
                         value={value}
                         onChange={(e) => onChange(field.key, e.target.value)}
-                        className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
+                        className={`w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none ${
+                            field.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                        }`}
+                        disabled={field.disabled}
                     />
                 )
         }
