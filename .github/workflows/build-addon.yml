@@ -70,7 +70,6 @@ jobs:
             ${{ env.REGISTRY }}/ergetie/darkstar-${{ matrix.arch }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/ergetie/darkstar-${{ matrix.arch }}:latest
           cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   release:
     needs: build
