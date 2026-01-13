@@ -142,7 +142,9 @@ When releasing a new version:
    git push origin main --tags
    ```
 
-> **Note**: The CI/CD pipeline (`build-addon.yml`) is triggered **automatically** when you push a tag starting with `v`. It will build the Docker image and publish it to GHCR with the `X.Y.Z` tag and `latest`.
+> **Note**: The CI/CD pipeline (`build-addon.yml`) is triggered **automatically** when you push a tag starting with `v`. It will:
+> 1. Build the Docker image and publish it to GHCR.
+> 2. **Automatically create a GitHub Release** using the notes extracted from `docs/RELEASE_NOTES.md`.
 
 The sidebar version is fetched from `/api/version` which uses `git describe --tags`. Without a proper tag, it shows `vX.Y.Z-N-ghash` format.
 
