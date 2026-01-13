@@ -90,7 +90,7 @@ jobs:
           
           # Clean up empty lines at start/end
           sed -i '/./,$!d' release_body.md
-          sed -i :a -e '/^\n*$/{$d;N;};/\n$/ba' release_body.md
+          sed -i -e :a -e '/^\n*$/{$d;N;ba' -e '}' release_body.md
           
           echo "Extracted notes for $VERSION:"
           cat release_body.md
