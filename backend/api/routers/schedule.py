@@ -161,7 +161,9 @@ async def schedule_today_with_history() -> dict[str, Any]:
                 try:
                     start = datetime.fromisoformat(str(start_str).replace("Z", "+00:00"))
                     local = tz.localize(start) if start.tzinfo is None else start.astimezone(tz)
-                    if local.date() != today_local:
+                    tomorrow_local = today_local + timedelta(days=1)
+                    # Include today AND tomorrow for 48h view compatibility
+                    if local.date() not in (today_local, tomorrow_local):
                         continue
                     schedule_map[local.replace(tzinfo=None)] = slot
                 except Exception:
