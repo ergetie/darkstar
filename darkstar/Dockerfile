@@ -28,14 +28,11 @@ WORKDIR /app
 COPY frontend/package.json frontend/pnpm-lock.yaml ./frontend/
 RUN npm install -g pnpm && cd frontend && pnpm install --frozen-lockfile
 
-COPY frontend/ ./frontend/
-RUN cd frontend && pnpm build
-
 # Install Python dependencies
 COPY requirements.txt ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code (except frontend)
 COPY backend/ ./backend/
 COPY planner/ ./planner/
 COPY executor/ ./executor/
@@ -43,6 +40,10 @@ COPY bin/ ./bin/
 COPY ml/*.py ./ml/
 COPY ml/models/*.lgb ./ml/models/
 COPY inputs.py ./
+
+# Copy frontend source and build (AFTER copying backend to avoid overwriting static assets)
+COPY frontend/ ./frontend/
+RUN cd frontend && pnpm build
 
 # Copy configuration templates
 COPY config.default.yaml ./

@@ -174,6 +174,11 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
   - [x] Validate config before saving, reject errors with 400, return warnings
 - [x] Create `tests/test_config_validation.py`:
   - [x] Test water heater misconfiguration returns warning
+  - [x] **[CRITICAL]** "524 Timeout Occurred" - Planner is too slow
+  - [x] Investigate root cause (LearningStore init vs ML I/O)
+  - [x] Fix invalid UPDATE query in `store.py` (Immediate 524 fix)
+  - [x] Disable legacy `training_episodes` logging (Prevent future bloat)
+  - [x] Provide `scripts/optimize_db.py` to reclaim space (Fix ML bottleneck)
   - [x] Test battery misconfiguration raises error
   - [x] Test solar misconfiguration returns warning
   - [x] Test valid config passes

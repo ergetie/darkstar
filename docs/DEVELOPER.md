@@ -54,6 +54,12 @@ For complete requirements, see `requirements.txt`.
     > [!IMPORTANT]
     > **WebSockets & Concurrency**: The backend must run via `python backend/run.py` (which `pnpm run dev` does automatically) to enable the Uvicorn-based async server. Direct `uvicorn` invocation for development is also supported.
 
+### Update:
+```bash
+git pull
+docker compose up -d --build
+docker compose logs -f
+```
 ---
 
 ## Architecture & Algorithm

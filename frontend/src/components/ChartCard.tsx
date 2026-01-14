@@ -850,8 +850,8 @@ export default function ChartCard({
                             </button>
                             <button
                                 className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
-                                    ? 'bg-accent text-canvas'
-                                    : 'bg-surface border border-line/60 text-muted'
+                                        ? 'bg-accent text-canvas'
+                                        : 'bg-surface border border-line/60 text-muted'
                                     }`}
                                 onClick={() => setRangeState('48h')}
                             >
