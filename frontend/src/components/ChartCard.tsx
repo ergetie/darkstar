@@ -813,10 +813,12 @@ export default function ChartCard({
             return
         }
 
-        const loader =
-            useHistoryForToday && rangeState === 'day' && currentDay === 'today'
-                ? Api.scheduleTodayWithHistory().then((res) => ({ schedule: res.slots }))
-                : Api.schedule()
+        const shouldLoadHistory =
+            useHistoryForToday && currentDay === 'today' && (rangeState === 'day' || rangeState === '48h')
+
+        const loader = shouldLoadHistory
+            ? Api.scheduleTodayWithHistory().then((res) => ({ schedule: res.slots }))
+            : Api.schedule()
 
         loader
             .then((data) => {

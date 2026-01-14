@@ -25,7 +25,8 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
                 planned_charge_kwh REAL,
                 planned_discharge_kwh REAL,
                 planned_soc_percent REAL,
-                planned_export_kwh REAL
+                planned_export_kwh REAL,
+                planned_water_heating_kwh REAL
             )
         """)
         await conn.execute("""
@@ -60,8 +61,8 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
         slot_10 = today_start.replace(hour=10).isoformat()
         await conn.execute(
             """
-            INSERT INTO slot_plans (slot_start, planned_charge_kwh, planned_discharge_kwh, planned_soc_percent, planned_export_kwh)
-            VALUES (?, 0.5, 0.0, 50.0, 0.0)
+            INSERT INTO slot_plans (slot_start, planned_charge_kwh, planned_discharge_kwh, planned_soc_percent, planned_export_kwh, planned_water_heating_kwh)
+            VALUES (?, 0.5, 0.0, 50.0, 0.0, 0.25)
         """,
             (slot_10,),
         )
@@ -70,8 +71,8 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
         slot_11 = today_start.replace(hour=11).isoformat()
         await conn.execute(
             """
-            INSERT INTO slot_plans (slot_start, planned_charge_kwh, planned_discharge_kwh, planned_soc_percent, planned_export_kwh)
-            VALUES (?, 0.0, 0.25, 40.0, 0.1)
+            INSERT INTO slot_plans (slot_start, planned_charge_kwh, planned_discharge_kwh, planned_soc_percent, planned_export_kwh, planned_water_heating_kwh)
+            VALUES (?, 0.0, 0.25, 40.0, 0.1, 0.0)
         """,
             (slot_11,),
         )
@@ -118,8 +119,13 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
         # Times in response are ISO strings
         if "10:00:00" in slot["start_time"]:
             # 0.5 kWh / 0.25h = 2.0 kW
+            # 0.25 kWh / 0.25h = 1.0 kW (Water)
             print(f"Checking slot 10:00: {slot}")
-            if slot.get("battery_charge_kw") == 2.0 and slot.get("soc_target_percent") == 50.0:
+            if (
+                slot.get("battery_charge_kw") == 2.0
+                and slot.get("soc_target_percent") == 50.0
+                and slot.get("water_heating_kw") == 1.0
+            ):
                 found_charge = True
 
         if "11:00:00" in slot["start_time"]:
@@ -128,7 +134,7 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
             if slot.get("battery_discharge_kw") == 1.0 and slot.get("export_kwh") == 0.1:
                 found_discharge = True
 
-    assert found_charge, "Did not find planned charge slot from DB (expected 2.0 kW charge)"
+    assert found_charge, "Did not find planned charge/water slot from DB (expected 2.0 kW charge, 1.0 kW water)"
     assert found_discharge, (
         "Did not find planned discharge slot from DB (expected 1.0 kW discharge)"
     )

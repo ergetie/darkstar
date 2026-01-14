@@ -290,7 +290,8 @@ async def schedule_today_with_history() -> dict[str, Any]:
                         planned_charge_kwh,
                         planned_discharge_kwh,
                         planned_soc_percent,
-                        planned_export_kwh
+                        planned_export_kwh,
+                        planned_water_heating_kwh
                     FROM slot_plans
                     WHERE slot_start >= ?
                     ORDER BY slot_start ASC
@@ -313,6 +314,10 @@ async def schedule_today_with_history() -> dict[str, Any]:
                                 / duration_hours,
                                 "soc_target_percent": float(row["planned_soc_percent"] or 0.0),
                                 "export_kwh": float(row["planned_export_kwh"] or 0.0),
+                                "water_heating_kw": float(
+                                    row["planned_water_heating_kwh"] or 0.0
+                                )
+                                / duration_hours,
                             }
                         except Exception:
                             continue
@@ -373,6 +378,8 @@ async def schedule_today_with_history() -> dict[str, Any]:
                 slot["soc_target_percent"] = p["soc_target_percent"]
             if "export_kwh" not in slot or slot.get("export_kwh") is None:
                 slot["export_kwh"] = p.get("export_kwh", 0.0)
+            if "water_heating_kw" not in slot or slot.get("water_heating_kw") is None:
+                slot["water_heating_kw"] = p.get("water_heating_kw", 0.0)
 
         merged_slots.append(slot)
 

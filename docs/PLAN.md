@@ -1708,43 +1708,43 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [PLANNED] REV // H4 — Detailed Historical Planned Actions Persistence
+### [DONE] REV // H4 — Detailed Historical Planned Actions Persistence
 
-**Goal:** Ensure 100% reliable historical data for SoC targets and Water Heating in both 24h and 48h views by fixing persistence gaps and frontend logic, rather than relying on ephemeral \`schedule.json\` artifacts.
+**Goal:** Ensure 100% reliable historical data for SoC targets and Water Heating in both 24h and 48h views by fixing persistence gaps and frontend logic, rather than relying on ephemeral `schedule.json` artifacts.
 
 **Phase 1: Backend Persistence Fixes**
-1. **[SCHEMA] Update \`slot_plans\` Table**
-   * [ ] Add \`planned_water_heating_kwh\` (REAL) column to \`LearningStore._init_schema\`
-   * [ ] Handle migration for existing DBs (add column if missing)
+1. **[SCHEMA] Update `slot_plans` Table**
+   * [x] Add `planned_water_heating_kwh` (REAL) column to `LearningStore._init_schema`
+   * [x] Handle migration for existing DBs (add column if missing)
 
-2. **[LOGIC] Fix \`store_plan\` Mapping**
-   * [ ] In \`store.py\`, map DataFrame column \`soc_target_percent\` → \`planned_soc_percent\` (Fix the 0% bug)
-   * [ ] Map DataFrame column \`water_heating_kw\` → \`planned_water_heating_kwh\` (Convert kW to kWh using slot duration)
+2. **[LOGIC] Fix `store_plan` Mapping**
+   * [x] In `store.py`, map DataFrame column `soc_target_percent` → `planned_soc_percent` (Fix the 0% bug)
+   * [x] Map DataFrame column `water_heating_kw` → `planned_water_heating_kwh` (Convert kW to kWh using slot duration)
 
 3. **[API] Expose Water Heating History**
-   * [ ] Update \`schedule_today_with_history\` in \`schedule.py\` to SELECT \`planned_water_heating_kwh\`
-   * [ ] Convert kWh back to kW for API response
-   * [ ] Merge into response slot data
+   * [x] Update `schedule_today_with_history` in `schedule.py` to SELECT `planned_water_heating_kwh`
+   * [x] Convert kWh back to kW for API response
+   * [x] Merge into response slot data
 
 **Phase 2: Frontend Consistency**
 4. **[UI] Unify Data Source for ChartCard**
-   * [ ] Update \`ChartCard.tsx\` to use \`Api.scheduleTodayWithHistory()\` for BOTH 'day' and '48h' views
-   * [ ] Ensure \`buildLiveData\` correctly handles historical data for the 48h range
+   * [x] Update `ChartCard.tsx` to use `Api.scheduleTodayWithHistory()` for BOTH 'day' and '48h' views
+   * [x] Ensure `buildLiveData` correctly handles historical data for the 48h range
 
 **Phase 3: Verification**
 5. **[TEST] Unit Tests**
-   * [ ] Create \`tests/test_store_plan_mapping.py\` to verify DataFrame → DB mapping for SoC and Water
-   * [ ] Verify \`soc_target_percent\` is correctly stored as non-zero
-   * [ ] Verify \`water_heating_kw\` is correctly stored and converted
+   * [x] Create `tests/test_store_plan_mapping.py` to verify DataFrame → DB mapping for SoC and Water
+   * [x] Verify `soc_target_percent` is correctly stored as non-zero
+   * [x] Verify `water_heating_kw` is correctly stored and converted
 
 6. **[MANUAL] Production Validation**
    * [ ] Deploy to prod
-   * [ ] Verify DB has non-zero \`planned_soc_percent\`
-   * [ ] Verify DB has \`planned_water_heating_kwh\` data
+   * [ ] Verify DB has non-zero `planned_soc_percent`
+   * [ ] Verify DB has `planned_water_heating_kwh` data
    * [ ] Verify 48h view shows historical attributes
 
 **Exit Criteria:**
-- [ ] \`slot_plans\` table has \`planned_water_heating_kwh\` column
-- [ ] Historical \`planned_soc_percent\` in DB is correct (not 0)
-- [ ] Historical water heating is visible in ChartCard
-- [ ] 48h view shows same historical fidelity as 24h view
+- [x] `slot_plans` table has `planned_water_heating_kwh` column
+- [x] Historical `planned_soc_percent` in DB is correct (not 0)
+- [x] Historical water heating is visible in ChartCard
+- [x] 48h view shows same historical fidelity as 24h view
