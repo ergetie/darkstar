@@ -46,20 +46,7 @@ export const SystemTab: React.FC = () => {
     return (
         <div className="space-y-4">
             {/* HA Add-on Guidance Banner */}
-            <Card className="p-4 bg-accent/5 border border-accent/20">
-                <div className="flex items-start gap-3">
-                    <div className="text-xl">🔌</div>
-                    <div>
-                        <div className="text-sm font-semibold text-accent">HA Add-on User?</div>
-                        <p className="text-xs text-muted mt-1 leading-relaxed">
-                            If you are running as a Home Assistant Add-on, connection settings are managed
-                            automatically.
-                            <strong> Manually entering them here is not required</strong> and they will be reset to
-                            match your add-on configuration on next save.
-                        </p>
-                    </div>
-                </div>
-            </Card>
+
 
             {systemSections.map((section, idx) => {
                 const prevSection = idx > 0 ? systemSections[idx - 1] : null
@@ -75,6 +62,22 @@ export const SystemTab: React.FC = () => {
                                 </span>
                                 <div className="h-px flex-1 bg-line/30" />
                             </div>
+                        )}
+                        {section.title === 'Home Assistant Connection' && (
+                            <Card className="mb-4 p-4 bg-accent/5 border border-accent/20">
+                                <div className="flex items-start gap-3">
+                                    <div className="text-xl">🔌</div>
+                                    <div>
+                                        <div className="text-sm font-semibold text-accent">HA Add-on User?</div>
+                                        <p className="text-xs text-muted mt-1 leading-relaxed">
+                                            If you are running as a Home Assistant Add-on, connection settings are managed
+                                            automatically.
+                                            <strong> Manually entering them here is not required</strong> and they will be reset to
+                                            match your add-on configuration on next save.
+                                        </p>
+                                    </div>
+                                </div>
+                            </Card>
                         )}
                         <Card className="p-6">
                             <div className="flex items-baseline justify-between gap-2">
@@ -132,13 +135,12 @@ export const SystemTab: React.FC = () => {
                 </button>
                 {statusMessage && (
                     <div
-                        className={`rounded-lg p-3 text-sm ${
-                            statusMessage.startsWith('Please fix') ||
-                            statusMessage.startsWith('Save failed') ||
-                            statusMessage.startsWith('Failed to load')
+                        className={`rounded-lg p-3 text-sm ${statusMessage.startsWith('Please fix') ||
+                                statusMessage.startsWith('Save failed') ||
+                                statusMessage.startsWith('Failed to load')
                                 ? 'bg-bad/10 border border-bad/30 text-bad'
                                 : 'bg-good/10 border border-good/30 text-good'
-                        }`}
+                            }`}
                     >
                         {statusMessage}
                     </div>
