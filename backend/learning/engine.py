@@ -57,21 +57,23 @@ class LearningEngine:
         Log a training episode (inputs + outputs) for RL.
         Also logs the planned schedule to slot_plans for metric tracking.
         """
-        # 1. Log to training_episodes
-        episode_id = str(uuid.uuid4())
+        # 1. Log to training_episodes (Legacy/Debug only)
+        # Defaults to False to prevent DB bloat (2GB+).
+        if self.config.get("debug", {}).get("enable_training_episodes", False):
+            episode_id = str(uuid.uuid4())
 
-        inputs_json = json.dumps(input_data, default=str)
-        schedule_json = schedule_df.to_json(orient="records", date_format="iso")
-        context_json = None  # TODO: Capture context if available
-        config_overrides_json = json.dumps(config_overrides) if config_overrides else None
+            inputs_json = json.dumps(input_data, default=str)
+            schedule_json = schedule_df.to_json(orient="records", date_format="iso")
+            context_json = None  # TODO: Capture context if available
+            config_overrides_json = json.dumps(config_overrides) if config_overrides else None
 
-        self.store.store_training_episode(
-            episode_id=episode_id,
-            inputs_json=inputs_json,
-            schedule_json=schedule_json,
-            context_json=context_json,
-            config_overrides_json=config_overrides_json,
-        )
+            self.store.store_training_episode(
+                episode_id=episode_id,
+                inputs_json=inputs_json,
+                schedule_json=schedule_json,
+                context_json=context_json,
+                config_overrides_json=config_overrides_json,
+            )
 
         # 2. Log to slot_plans
         self.store.store_plan(schedule_df)
