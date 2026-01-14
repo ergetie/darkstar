@@ -51,10 +51,23 @@ export default function App() {
         }
     }, [])
 
+    // Help React Router find the base path when running under HA Ingress
+    const getBasename = () => {
+        const base = document.querySelector('base')
+        const href = base?.getAttribute('href')
+        if (href && href.startsWith('/')) {
+            return href.replace(/\/$/, '') // Remove trailing slash
+        }
+        return '/'
+    }
+
     return (
         <ErrorBoundary>
             <ToastProvider>
-                <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <BrowserRouter
+                    basename={getBasename()}
+                    future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+                >
                     <Sidebar />
                     <div className="lg:pl-[96px]">
                         {/* Show health alerts if not fully healthy */}
