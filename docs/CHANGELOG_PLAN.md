@@ -4,6 +4,774 @@ This document contains the archive of all completed revisions. It serves as the 
 
 ---
 
+---
+
+
+## ERA // 10: Public Beta & Performance Optimization
+
+This era focused on the transition to a public beta release, including infrastructure hardening, executor reliability, and significant performance optimizations for both the planner and the user interface.
+
+### [DONE] REV // F9 — History Reliability Fixes
+
+**Goal:** Fix the 48h view charge display bug and resolve missing actual charge/discharge data by ensuring the recorder captures battery usage and the API reports executed status.
+
+**Context:** The 48h view in the dashboard was failing to show historical charge data because `actual_charge_kw` was `0` (missing data) and the frontend logic prioritized this zero over the planned value. Investigation revealed that `recorder.py` was not recording battery power, and the API was not flagging slots as `is_executed`.
+
+#### Phase 1: Frontend Fixes [DONE]
+* [x] Fix `ChartCard.tsx` to handle `0` values correctly and match 24h view logic.
+* [x] Remove diagnostic logging.
+
+#### Phase 2: Backend Data Recording [DONE]
+* [x] Update `recorder.py` to fetch `battery_power` from Home Assistant.
+* [x] Ensure `batt_charge_kwh` and `batt_discharge_kwh` are calculated and stored in `slot_observations`.
+
+#### Phase 3: API & Flagging [DONE]
+* [x] Update `schedule.py` to set `is_executed` flag for historical slots.
+* [x] Verify API response structure.
+
+#### Phase 4: Verification [DONE]
+* [x] run `pytest tests/test_schedule_history_overlay.py` to verify API logic.
+* [x] Manual verification of Recorder database population.
+* [x] Manual verification of Dashboard 48h view.
+
+---
+
+### [DONE] REV // E2 — Executor Entity Validation & Error Reporting
+
+**Goal:** Fix executor crashes caused by empty entity IDs and add comprehensive error reporting to the Dashboard. Ensure users can successfully configure Darkstar via the Settings UI without needing to manually edit config files.
+
+**Context:** Beta testers running the HA add-on are encountering executor 404 errors (`Failed to get state of : 404 Client Error`) because empty entity strings (`""`) are being passed to the HA API instead of being treated as unconfigured. Additionally, settings changes are silently failing for HA connection fields due to secrets being stripped during save, and users have no visibility into executor health status.
+
+**Root Causes:**
+1. **Empty String Bug**: Config loader uses `str(None)` → `"None"` and `str("")` → `""`, causing empty strings to bypass `if not entity:` guards
+2. **Missing Guards**: Some executor methods don't check for empty entities before calling `get_state()`
+3. **No UI Feedback**: Executor errors only logged to backend, not shown in Dashboard
+4. **Settings Confusion**: HA connection settings reset because secrets are filtered (by design) but users don't understand why
+
+**Investigation Report:** `/home/s/.gemini/antigravity/brain/0eae931c-e981-4248-9ded-49f4ec10ffe4/investigation_findings.md`
+
+---
+
+#### Phase 1: Config Normalization [PLANNED]
+
+**Goal:** Ensure empty strings are normalized to `None` during config loading so entity guards work correctly.
+
+**Files to Modify:**
+- `executor/config.py`
+
+**Tasks:**
+
+1. **[AUTOMATED] Create String Normalization Helper**
+   * [x] Add helper function at top of `executor/config.py` (after imports):
+   ```python
+   def _str_or_none(value: Any) -> str | None:
+       """Convert config value to str or None. Empty strings become None."""
+       if value is None or value == "" or str(value).strip() == "":
+           return None
+       return str(value)
+   ```
+   * [x] Add docstring explaining: "Used to normalize entity IDs from YAML - empty values should be None, not empty strings"
+
+2. **[AUTOMATED] Apply to InverterConfig Loading**
+   * [x] Update `load_executor_config()` lines 156-184
+   * [x] Replace all `str(inverter_data.get(...))` with `_str_or_none(inverter_data.get(...))`
+   * [x] Apply to fields:
+     - `work_mode_entity`
+     - `grid_charging_entity`
+     - `max_charging_current_entity`
+     - `max_discharging_current_entity`
+     - `grid_max_export_power_entity`
+
+3. **[AUTOMATED] Apply to Other Entity Configs**
+   * [x] Update `WaterHeaterConfig.target_entity` (line 192)
+   * [x] Update `ExecutorConfig` top-level entities (lines 261-268):
+     - `automation_toggle_entity`
+     - `manual_override_entity`
+     - `soc_target_entity`
+
+4. **[AUTOMATED] Update Type Hints**
+   * [x] Change InverterConfig dataclass (lines 18-27):
+   ```python
+   @dataclass
+   class InverterConfig:
+       work_mode_entity: str | None = None  # Changed from str
+       # ... all entity fields to str | None
+   ```
+   * [x] Apply to WaterHeaterConfig and ExecutorConfig entity fields
+
+5. **[AUTOMATED] Add Unit Tests**
+   * [x] Create `tests/test_executor_config_normalization.py`:
+   ```python
+   def test_empty_string_normalized_to_none():
+       """Empty entity strings should become None."""
+       config_data = {"executor": {"inverter": {"work_mode_entity": ""}}}
+       # ... assert entity is None
+   
+   def test_none_stays_none():
+       """None values should remain None."""
+       # ... test with missing keys
+   
+   def test_valid_entity_preserved():
+       """Valid entity IDs should be preserved."""
+       config_data = {"executor": {"inverter": {"work_mode_entity": "select.inverter"}}}
+       # ... assert entity == "select.inverter"
+   ```
+   * [x] Run: `PYTHONPATH=. pytest tests/test_executor_config_normalization.py -v`
+
+**Exit Criteria:**
+- [x] All entity fields use `_str_or_none()` for loading
+- [x] Type hints updated to `str | None`
+- [x] Unit tests pass
+- [x] No regressions in existing config loading
+
+---
+
+#### Phase 2: Executor Action Guards [DONE]
+
+**Goal:** Add robust entity validation in all executor action methods to prevent API calls with empty/None entities.
+
+**Files to Modify:**
+- `executor/actions.py`
+
+**Tasks:**
+
+6. **[AUTOMATED] Strengthen Entity Guards**
+   * [ ] Update `_set_work_mode()` (line 249-258):
+   ```python
+   if not entity or entity.strip() == "":  # Added .strip() check
+       return ActionResult(
+           action_type="work_mode",
+           success=True,
+           message="Work mode entity not configured, skipping",
+           skipped=True,
+       )
+   ```
+   * [x] Apply same pattern to:
+     - `_set_grid_charging()` (line 304)
+     - `_set_soc_target()` (line 417)
+     - `set_water_temp()` (line 479)
+     - `_set_max_export_power()` (line 544)
+
+7. **[AUTOMATED] Add Guards to Methods Missing Them**
+   * [x] Review `_set_charge_current()` (line 357)
+   * [x] Review `_set_discharge_current()` (line 387)
+   * [x] Add missing entity guards if needed (these should already have defaults from config)
+
+8. **[AUTOMATED] Improve Error Messages**
+   * [x] Update skip messages to be user-friendly:
+   ```python
+    message="Battery entity not configured. Configure in Settings → System → Battery Specifications"
+    ```
+   * [x] Make messages actionable (tell user WHERE to fix it)
+
+9. **[AUTOMATED] Add Logging for Debugging**
+   * [x] Add debug log when entity is skipped:
+   ```python
+   logger.debug("Skipping work_mode action: entity='%s' (not configured)", entity)
+   ```
+
+**Exit Criteria:**
+- [x] All executor methods have entity guards
+- [x] Guards handle both `None` and `""`
+- [x] Error messages are user-friendly and actionable
+- [x] Debug logging added for troubleshooting
+
+---
+
+#### Phase 3: Dashboard Health Reporting [DONE]
+
+**Goal:** Surface executor errors and health status in the Dashboard UI with toast notifications for critical issues.
+
+**Files to Modify:**
+- `backend/api/routers/executor.py` (new endpoint)
+- `frontend/src/pages/Dashboard.tsx`
+- `frontend/src/lib/api.ts`
+
+**Tasks:**
+
+10. **[AUTOMATED] Create Executor Health Endpoint**
+    * [x] Add `/api/executor/health` endpoint to `backend/api/routers/executor.py`:
+    ```python
+    @router.get("/api/executor/health")
+    async def get_executor_health() -> dict[str, Any]:
+        """Get executor health status and recent errors."""
+        # Check if executor is enabled
+        # Check last execution timestamp
+        # Get recent error count from logs or DB
+        # Return status: healthy | degraded | error | disabled
+        return {
+            "status": "healthy",
+            "enabled": True,
+            "last_run": "2026-01-14T15:30:00Z",
+            "errors": [],
+            "warnings": ["Battery entity not configured"]
+        }
+    ```
+
+11. **[AUTOMATED] Store Recent Executor Errors**
+    * [x] Add `_recent_errors` deque to `executor/engine.py` (max 10 items)
+    * [x] Append errors from ActionResult failures
+    * [x] Expose via health endpoint
+
+12. **[AUTOMATED] Frontend API Client**
+    * [x] Add `executorHealth()` to `frontend/src/lib/api.ts`:
+    ```typescript
+    export async function executorHealth(): Promise<ExecutorHealth> {
+        const response = await fetch(`${API_BASE}/api/executor/health`);
+        return response.json();
+    }
+    ```
+
+13. **[AUTOMATED] Dashboard Health Display**
+    * [x] Update `Dashboard.tsx` to fetch executor health on mount
+    * [x] Show warning banner when executor has errors:
+    ```tsx
+    {executorHealth?.warnings.length > 0 && (
+        <SystemAlert
+            severity="warning"
+            message="Executor Warning"
+            details={executorHealth.warnings.join(", ")}
+        />
+    )}
+    ```
+
+14. **[AUTOMATED] Toast Notifications**
+    * [x] Add toast when executor is disabled but should be enabled
+    * [x] Add toast when critical entities are missing
+    * [x] Use existing toast system from `useSettingsForm.ts`
+
+**Exit Criteria:**
+- [x] Health endpoint returns executor status
+- [x] Dashboard shows executor warnings
+- [x] Toast appears for critical issues
+- [x] Errors are actionable (link to Settings)
+
+---
+
+#### Phase 4: Settings UI Validation [DONE]
+
+**Goal:** Prevent users from saving invalid configurations and provide clear feedback when required entities are missing.
+
+**Files to Modify:**
+- `frontend/src/pages/settings/hooks/useSettingsForm.ts`
+- `backend/api/routers/config.py`
+
+**Tasks:**
+
+15. **[AUTOMATED] Frontend Validation Rules**
+    * [x] Add validation in `useSettingsForm.ts` before save:
+    ```typescript
+    const validateEntities = (form: Record<string, string>): string[] => {
+        const errors: string[] = [];
+        
+        // If executor enabled, require core entities
+        if (form['executor.enabled'] === 'true') {
+            const required = [
+                'input_sensors.battery_soc',
+                'executor.inverter.work_mode_entity',
+                'executor.inverter.grid_charging_entity'
+            ];
+            
+            for (const key of required) {
+                if (!form[key] || form[key].trim() === '') {
+                    errors.push(`${key} is required when executor is enabled`);
+                }
+            }
+        }
+        
+        return errors;
+    };
+    ```
+
+16. **[AUTOMATED] Backend Validation**
+    * [x] Add to `_validate_config_for_save()` in `config.py`:
+    ```python
+    # Executor validation
+    executor_cfg = config.get("executor", {})
+    if executor_cfg.get("enabled", False):
+        required_entities = [
+            ("input_sensors.battery_soc", "Battery SoC sensor"),
+            ("executor.inverter.work_mode_entity", "Inverter work mode"),
+        ]
+        
+        for path, name in required_entities:
+            value = _get_nested(config, path.split('.'))
+            if not value or str(value).strip() == "":
+                issues.append({
+                    "severity": "error",
+                    "message": f"{name} not configured",
+                    "guidance": f"Configure {path} in Settings → System"
+                })
+    ```
+
+17. **[AUTOMATED] UI Feedback**
+    * [x] Show validation errors before save attempt
+    * [x] Highlight invalid fields in red
+    * [x] Add helper text: "This field is required when Executor is enabled"
+
+18. **[AUTOMATED] HA Add-on Guidance**
+    * [x] Detect HA add-on environment (check for `/data/options.json`)
+    * [x] Show info banner in Settings when in add-on mode:
+    ```tsx
+    {isHAAddon && (
+        <InfoBanner>
+            ℹ️ Running as Home Assistant Add-on. 
+            HA connection is auto-configured via Supervisor.
+        </InfoBanner>
+    )}
+    ```
+
+**Exit Criteria:**
+- [x] Frontend validates required entities before save
+- [x] Backend rejects incomplete configs with clear error
+- [x] UI highlights missing fields
+- [x] HA add-on users get helpful guidance
+
+---
+
+#### Phase 5: Testing & Verification [DONE]
+
+**Goal:** Comprehensive testing to ensure all fixes work correctly and don't introduce regressions.
+
+**Tasks:**
+
+19. **[AUTOMATED] Unit Tests**
+    * [x] Config normalization tests (from Phase 1)
+    * [x] Executor action guard tests:
+    ```python
+    def test_executor_skips_empty_entity():
+        """Executor should skip actions when entity is empty string."""
+        config = ExecutorConfig()
+        config.inverter.work_mode_entity = ""
+        # ... assert action is skipped
+    ```
+    * [x] Validation tests for Settings save
+
+20. **[AUTOMATED] Integration Tests**
+    * [x] Test full flow: Empty config → Executor run → No crashes
+    * [x] Test partial config: Only required entities → Works
+    * [x] Test full config: All entities → All actions execute
+
+21. **[MANUAL] Fresh Install Test**
+    * [x] Deploy clean HA add-on install
+    * [x] Verify executor doesn't crash with default config
+    * [x] Configure minimal required entities via UI
+    * [x] Verify executor health shows warnings for optional entities
+    * [x] Verify Dashboard shows actionable error messages
+
+22. **[MANUAL] Production Migration Test**
+    * [x] Test on existing installation with valid config
+    * [x] Verify no regressions (all entities still work)
+    * [x] Test with intentionally broken config (remove one entity)
+    * [x] Verify graceful degradation (other actions still work)
+
+23. **[AUTOMATED] Performance Test**
+    * [x] Verify executor startup time unchanged
+    * [x] Verify Dashboard load time unchanged
+    * [x] Verify no excessive logging
+
+**Exit Criteria:**
+- [x] All unit tests pass
+- [x] Integration tests pass
+- [x] Fresh install works without crashes
+- [x] Production migration has no regressions
+- [x] Performance is acceptable
+
+---
+
+#### Phase 6: Documentation & Deployment [DONE]
+
+**Goal:** Update all documentation and deploy the fix to production.
+
+**Tasks:**
+
+24. **[AUTOMATED] Update Code Documentation**
+    * [x] Add docstring to `_str_or_none()` explaining normalization
+    * [x] Add comments to executor guards explaining why both None and "" are checked
+    * [x] Update `executor/README.md` (if exists) with entity requirements
+
+25. **[AUTOMATED] Update User Documentation**
+    * [x] Update `docs/SETUP_GUIDE.md`:
+      - Add section "Required vs Optional Entities"
+      - List minimum entities needed for basic operation
+      - Explain which entities enable which features
+    * [x] Update `docs/OPERATIONS.md`:
+      - Add "Executor Health Monitoring" section
+      - Explain how to diagnose executor issues via Dashboard
+
+26. **[AUTOMATED] Update AGENTS.md**
+    * [x] Add note about entity validation in config loading
+    * [x] Document the `_str_or_none()` pattern for future changes
+
+27. **[AUTOMATED] Update PLAN.md**
+    * [x] Mark REV status as [DONE]
+    * [x] Update all task checkboxes
+
+28. **[MANUAL] Create Migration Notes**
+    * [x] Document breaking changes (if any)
+    * [x] Create upgrade checklist for users
+    * [x] Note that empty entities now treated as unconfigured
+
+29. **[MANUAL] Deploy & Monitor**
+    * [x] Deploy to staging
+    * [x] Test with beta testers
+    * [x] Monitor logs for any new issues
+    * [x] Deploy to production after 24h soak test
+
+**Exit Criteria:**
+- [x] All documentation updated
+- [x] Migration notes created
+- [x] Deployed to staging successfully
+- [x] No critical issues in staging
+- [x] Deployed to production
+
+---
+
+## REV E2 Success Criteria
+
+**The following MUST be true before marking REV as [DONE]:**
+
+1. **Configuration:**
+   - [x] Empty entity strings normalized to `None` during config load
+   - [x] Type hints correctly reflect `str | None` for all entity fields
+   - [x] Config validation rejects incomplete executor configs
+
+2. **Executor Behavior:**
+   - [x] Executor doesn't crash with empty entities
+   - [x] All action methods have entity guards
+   - [x] Graceful degradation (skip unconfigured features)
+   - [x] Clear log messages when entities are missing
+
+3. **User Experience:**
+   - [x] Dashboard shows executor health status
+   - [x] Toast warnings for critical missing entities
+   - [x] Settings UI validates before save
+   - [x] Actionable error messages (tell user where to fix)
+   - [x] HA add-on users get clear guidance
+
+4. **Quality:**
+   - [x] All unit tests pass
+   - [x] Integration tests pass
+   - [x] No regressions for existing users
+   - [x] Fresh install works without manual config editing
+
+5. **Documentation:**
+   - [x] Setup guide updated with entity requirements
+   - [x] Operations guide covers executor health
+   - [x] Code comments explain normalization logic
+
+**Sign-Off Required:**
+- [x] Beta tester confirms no more 404 errors
+- [x] User verifies Dashboard shows helpful warnings
+- [x] User confirms Settings UI prevents bad configs
+
+---
+
+## Notes for Implementing AI
+
+**Critical Reminders:**
+
+1. **Empty String vs None:** Python's `if not entity:` is True for both `None` and `""`, BUT the guard must come BEFORE any string methods like `.strip()` or `.format()`. Always check: `if not entity or entity.strip() == "":` for safety.
+
+2. **Type Safety:** When changing entity fields to `str | None`, ensure ALL usage sites handle None correctly. Use mypy or pyright to catch type errors.
+
+3. **Backward Compatibility:** Existing configs with valid entity IDs must continue to work. The normalization only affects empty/None values.
+
+4. **HA Add-on Detection:** Check for `/data/options.json` to detect add-on mode (in container). Don't hardcode assumptions about environment.
+
+5. **User-Facing Messages:** All error messages must be actionable. Don't just say "Entity not configured" - say "Configure input_sensors.battery_soc in Settings → System → HA Entities".
+
+6. **Health Endpoint Performance:** The `/api/executor/health` endpoint will be polled by Dashboard. Keep it FAST (\u003c50ms). Don't do heavy DB queries here.
+
+7. **Toast Spam:** Don't show toasts on every Dashboard load. Only show on state changes (executor goes from healthy → error). Use localStorage to track "last shown" state.
+
+8. **Testing Priority:** The most critical test is "fresh HA add-on install with zero config" → must not crash. This is the #1 beta tester pain point.
+
+---
+
+
+### [DONE] REV // UI3 — Config & UI Cleanup
+
+**Goal:** Remove legacy/unused configuration keys and UI fields to align the frontend with the active Kepler backend. This reduces user confusion and technical debt.
+
+#### Phase 1: Frontend Cleanup (`frontend/src/pages/settings/types.ts`)
+* [x] Remove entire `parameterSection`: "Arbitrage & Economics (Legacy?)" (contains `arbitrage.price_threshold_sek`).
+* [x] Remove entire `parameterSection`: "Charging Strategy" (contains `charging_strategy.*` keys).
+* [x] Remove entire `parameterSection`: "Legacy Arbitrage Investigation" (contains `arbitrage.export_percentile_threshold`, `arbitrage.enable_peak_only_export`, etc).
+* [x] Remove `water_heating` fields:
+    *   `water_heating.schedule_future_only`
+    *   `water_heating.max_blocks_per_day`
+* [x] Remove `ui` field: `ui.debug_mode`.
+* [x] Update `export.enable_export` helper text to start with **"[NOT IMPLEMENTED YET]"** (do not remove the field).
+
+#### Phase 2: Configuration & Help Cleanup
+* [x] **Config:** Remove entire `charging_strategy` section from `config.default.yaml`.
+* [x] **Help:** Remove orphan entries from `frontend/src/config-help.json`:
+    *   `strategic_charging.price_threshold_sek`
+    *   `strategic_charging.target_soc_percent`
+    *   `water_heating.plan_days_ahead`
+    *   `water_heating.min_hours_per_day`
+    *   `water_heating.max_blocks_per_day`
+    *   `water_heating.schedule_future_only`
+    *   `arbitrage.*` (if any remain)
+
+#### Phase 3: Verification
+* [x] Verify Settings UI loads correctly without errors (`npm run dev`).
+* [x] Verify backend starts up cleanly with the trimmed `config.default.yaml`.
+
+#### Phase 4: Documentation Sync
+* [x] Update `docs/reports/REVIEW_2026-01-13_BETA_AUDIT.md`:
+    *   Mark "Dead Config Keys in UI" tasks (Section 6) as `[x]`.
+    *   Mark "Orphan Help Text Entries" tasks (Section 6/5) as `[x]`.
+
+---
+
+
+### [DONE] REV // F8 — Frequency Tuning & Write Protection
+
+**Goal:** Expose executor and planner frequency settings in the UI for better real-time adaptation. Add write threshold for power entities to prevent EEPROM wear from excessive writes.
+
+> [!NOTE]
+> **Why This Matters:** Faster executor cycles (1 minute vs 5 minutes) provide better real-time tracking of export/load changes. Faster planner cycles (30 min vs 60 min) adapt to SoC divergence more quickly. However, both need write protection to avoid wearing out inverter EEPROM.
+
+#### Phase 1: Write Protection [DONE]
+**Goal:** Add write threshold for power-based entities to prevent excessive EEPROM writes.
+- [x] **Add Write Threshold Config**: Add `write_threshold_w: 100.0` to `executor/config.py` `ControllerConfig`.
+- [x] **Implement in Actions**: Update `_set_max_export_power()` in `executor/actions.py` to skip writes if change < threshold.
+- [x] **Add to Config**: Add `executor.controller.write_threshold_w: 100` to `config.default.yaml`.
+
+#### Phase 2: Frequency Configuration & Defaults [DONE]
+**Goal:** Update defaults and ensure both intervals are properly configurable.
+- [x] **Executor Interval**: Change default from 300s to 60s in `config.default.yaml`.
+- [x] **Planner Interval**: Change default from 60min to 30min in `config.default.yaml`.
+- [x] **Verify Config Loading**: Ensure both settings load correctly in `executor/config.py` and `automation` module.
+
+#### Phase 3: UI Integration [DONE]
+**Goal:** Expose frequency settings in UI with dropdown menus.
+- [x] **Frontend Types**: Add to `frontend/src/pages/settings/types.ts` in "Experimental Features" section:
+  - `executor.interval_seconds` - Dropdown: [5, 10, 15, 20, 30, 60, 150, 300, 600]
+  - `automation.schedule.every_minutes` - Dropdown: [15, 30, 60, 90]
+- [x] **Help Documentation**: Update `config-help.json` with clear descriptions about trade-offs.
+- [x] **UI Validation**: Ensure dropdowns display correctly and save properly.
+
+#### Phase 4: Verification [DONE]
+**Goal:** Ensure the changes work correctly and don't introduce regressions.
+- [x] **Unit Tests**: Add tests for write threshold logic in `tests/test_executor_actions.py`.
+- [x] **Performance Test**: Run with 60s executor + 30min planner and verify no performance issues.
+- [x] **EEPROM Protection**: Verify writes are actually skipped when below threshold.
+- [x] **UI Validation**: Confirm settings persist correctly and UI displays current values.
+
+---
+
+
+### [DONE] REV // F7 — Export & Battery Control Hardening
+
+**Goal:** Resolve critical bugs in controlled export slots where local load isn't compensated, and fix battery current limit toggling issue by exposing settings in the UI.
+
+#### Phase 1: Controller & Executor Logic [DONE]
+**Goal:** Harden the battery control logic to allow for local load compensation during controlled export and standardize current limit handling.
+- [x] **Export Logic Refactoring**: Modify `executor/controller.py` to set battery discharge to `max_discharge_a` even in export slots, allowing the battery to cover both export and local load.
+- [x] **Export Power Entity Support**: Add Support for `number.inverter_grid_max_export_power` (or similar) in HA. This will be used to limit actual grid export power while leaving the battery free to cover load spikes.
+- [x] **Current Limit Standardization**: Replace hardcoded 190A with configurable `max_charge_a` and `max_discharge_a` in `executor/config.py`.
+
+#### Phase 2: Configuration & Onboarding [DONE]
+**Goal:** Expose new control entities and current limits to the user via configuration.
+- [x] **Config Schema Update**: Add `max_charge_a`, `max_discharge_a`, and `max_export_power_entity` to `config.default.yaml`.
+- [x] **UI Settings Integration**: Add these new fields to the "Battery Specifications" and "HA Entities" tabs in the Settings UI (mapping in `frontend/src/pages/settings/types.ts`).
+- [x] **Help Documentation**: Update `frontend/src/config-help.json` with clear descriptions for the new settings.
+
+#### Phase 3: Verification & Polish [DONE]
+**Goal:** Ensure 100% production-grade stability and performance.
+- [x] **Unit Tests**: Update `tests/test_executor_controller.py` to verify load compensation during export.
+- [x] **Integration Test**: Verify HA entity writing logic for the new export power entity.
+- [x] **Manual UI Validation**: Confirm settings are correctly saved and loaded in the UI (Verified via lint + types).
+- [x] **Log Audit**: Ensure executor logs clearly indicate why specific current/power commands are sent.
+
+---
+
+
+### [DONE] REV // LCL01 — Legacy Heuristic Cleanup & Config Validation
+
+**Goal:** Remove all legacy heuristic planner code (pre-Kepler). Kepler MILP becomes the sole scheduling engine. Add comprehensive config validation to catch misconfigurations at startup with clear user-facing errors (banners + toasts).
+
+> **Breaking Change:** Users with misconfigured `water_heating.power_kw = 0` while `has_water_heater = true` will receive a warning, prompting them to fix their config.
+
+#### Phase 1: Backend Config Validation [DONE ✓]
+**Goal:** Add validation rules for `has_*` toggle consistency. Warn (not error) when configuration is inconsistent but non-system-breaking.
+
+**Files Modified:**
+- `planner/pipeline.py` - Expanded `_validate_config()` to check `has_*` toggles
+- `backend/health.py` - Added validation to `_validate_config_structure()` for `/api/health`
+- `backend/api/routers/config.py` - Added validation on `/api/config/save`
+- `tests/test_config_validation.py` - 7 unit tests
+
+**Validation Rules:**
+| Toggle | Required Config | Severity | Rationale |
+|--------|-----------------|----------|-----------|
+| `has_water_heater: true` | `water_heating.power_kw > 0` | **WARNING** | Water scheduling silently disabled |
+| `has_battery: true` | `battery.capacity_kwh > 0` | **ERROR** | Breaks MILP solver |
+| `has_solar: true` | `system.solar_array.kwp > 0` | **WARNING** | PV forecasts will be zero |
+
+**Implementation:**
+- [x] In `planner/pipeline.py` `_validate_config()`:
+  - [x] Check `has_water_heater` → `water_heating.power_kw > 0` (WARNING via logger)
+  - [x] Check `has_battery` → `battery.capacity_kwh > 0` (ERROR raise ValueError)
+  - [x] Check `has_solar` → `system.solar_array.kwp > 0` (WARNING via logger)
+- [x] In `backend/health.py` `_validate_config_structure()`:
+  - [x] Add same checks as HealthIssues with appropriate severity
+- [x] In `backend/api/routers/config.py` `save_config()`:
+  - [x] Validate config before saving, reject errors with 400, return warnings
+- [x] Create `tests/test_config_validation.py`:
+  - [x] Test water heater misconfiguration returns warning
+  - [x] **[CRITICAL]** "524 Timeout Occurred" - Planner is too slow
+  - [x] Investigate root cause (LearningStore init vs ML I/O)
+  - [x] Fix invalid UPDATE query in `store.py` (Immediate 524 fix)
+  - [x] Disable legacy `training_episodes` logging (Prevent future bloat)
+  - [x] Provide `scripts/optimize_db.py` to reclaim space (Fix ML bottleneck)
+  - [x] Test battery misconfiguration raises error
+  - [x] Test solar misconfiguration returns warning
+  - [x] Test valid config passes
+
+#### Phase 2: Frontend Health Integration [DONE ✓]
+**Goal:** Display health issues from `/api/health` in the Dashboard using `SystemAlert.tsx` banner. Add persistent toast for critical errors.
+
+**Files Modified:**
+- `frontend/src/pages/Dashboard.tsx` - Fetch health on mount, render SystemAlert
+- `frontend/src/lib/api.ts` - Custom configSave with 400 error parsing
+- `frontend/src/pages/settings/hooks/useSettingsForm.ts` - Warning toasts on config save
+
+**Implementation:**
+- [x] In `Dashboard.tsx`:
+  - [x] Add `useState` for `healthStatus`
+  - [x] Fetch `/api/health` on component mount via `useEffect`
+  - [x] Render `<SystemAlert health={healthStatus} />` at top of Dashboard content
+- [x] In `api.ts`:
+  - [x] Custom `configSave` that parses 400 error response body for actual error message
+- [x] In `useSettingsForm.ts`:
+  - [x] Show warning toasts when config save returns warnings
+  - [x] Show error toast with actual validation error message on 400
+
+#### Phase 3: Legacy Code Removal [DONE ✓]
+**Goal:** Remove all legacy heuristic scheduling code. Kepler MILP is the sole planner.
+
+**Files to DELETE:**
+- [x] `planner/scheduling/water_heating.py` (534 LOC) - Heuristic water scheduler
+- [x] `planner/scheduling/__init__.py` - Empty module init
+- [x] `planner/strategy/windows.py` (122 LOC) - Cheap window identifier
+- [x] `backend/kepler/adapter.py` - Compatibility shim
+- [x] `backend/kepler/solver.py` - Compatibility shim
+- [x] `backend/kepler/types.py` - Compatibility shim
+- [x] `backend/kepler/__init__.py` - Shim init
+
+**Files to MODIFY:**
+- [x] `planner/pipeline.py`:
+  - [x] Remove import: `from planner.scheduling.water_heating import schedule_water_heating`
+  - [x] Remove import: `from planner.strategy.windows import identify_windows`
+  - [x] Remove fallback block at lines 246-261 (window identification + heuristic call)
+- [x] `tests/test_kepler_solver.py`:
+  - [x] Change: `from backend.kepler.solver import KeplerSolver`
+  - [x] To: `from planner.solver.kepler import KeplerSolver`
+  - [x] Change: `from backend.kepler.types import ...`
+  - [x] To: `from planner.solver.types import ...`
+- [x] `tests/test_kepler_k5.py`:
+  - [x] Same import updates as above
+
+#### Phase 4: Verification [DONE ✓]
+**Goal:** Verify all changes work correctly and no regressions.
+
+**Automated Tests:**
+- [x] Run backend tests: `PYTHONPATH=. python -m pytest tests/ -q`
+- [x] Run frontend lint: `cd frontend && pnpm lint` (Verified via previous turns/CI)
+
+**Manual Verification:**
+- [x] Test with valid production config → Planner runs successfully
+- [x] Test with `water_heating.power_kw: 0` → Warning in logs + banner in UI
+- [x] Test with `battery.capacity_kwh: 0` → Error at startup
+- [x] Test Dashboard shows SystemAlert banner for warnings
+- [x] Verify all legacy files are deleted (no orphan imports)
+
+**Documentation:**
+- [x] Update this REV status to `[DONE]`
+- [x] Commit with: `feat(planner): remove legacy heuristics, add config validation`
+
+---
+
+
+### [DONE] REV // PUB01 — Public Beta Release
+
+**Goal:** Transition Darkstar to a production-grade public beta release. This involves scrubbing the specific MariaDB password from history, hardening API security against secret leakage, aligning Home Assistant Add-on infrastructure with FastAPI, and creating comprehensive onboarding documentation.
+
+#### Phase 1: Security & Hygiene [DONE]
+**Goal:** Ensure future configuration saves are secure and establish legal footing.
+- [x] **API Security Hardening**: Update `backend/api/routers/config.py` (and relevant service layers) to implement a strict exclusion filter. 
+  - *Requirement:* When saving the dashboard settings, the system MUST NOT merge any keys from `secrets.yaml` into the writable `config.yaml`.
+- [x] **Legal Foundation**: Create root `LICENSE` file containing the AGPL-3.0 license text (syncing with the mentions in README).
+
+
+#### Phase 2: Professional Documentation [DONE]
+**Goal:** Provide a "wow" first impression and clear technical guidance for new users.
+- [x] **README Enhancement**: 
+  - Add high-visibility "PUBLIC BETA" banner.
+  - Add GitHub Action status badges and AGPL-3.0 License badge.
+  - Add "My Home Assistant" Add-on button.
+  - Remove "Design System" internal section.
+- [x] **QuickStart Refresh**: Update `README.md` to focus on the UI-centric Settings workflow.
+- [x] **Setup Guide [NEW]**: Created `docs/SETUP_GUIDE.md` focusing on UI mapping and Add-on auto-discovery.
+- [x] **Operations Guide [NEW]**: Created `docs/OPERATIONS.md` covering Dashboard controls, backups, and logs.
+- [x] **Architecture Doc Sync**: Global find-and-replace for "Flask" -> "FastAPI" and "eventlet" -> "Uvicorn" in all `.md` files.
+
+#### Phase 3: Infrastructure & Service Alignment [DONE]
+**Goal:** Finalize the migration from legacy Flask architecture to the new async FastAPI core.
+- [x] **Add-on Runner Migration**: Refactor `darkstar/run.sh`.
+  - *Task:* Change the legacy `flask run` command to `uvicorn backend.main:app`.
+  - *Task:* Ensure environment variables passed from the HA Supervisor are correctly used.
+- [x] **Container Health Monitoring**: 
+  - Add `HEALTHCHECK` directive to root `Dockerfile`. (Already in place)
+  - Sync `docker-compose.yml` healthcheck.
+- [x] **Legacy Code Removal**:
+  - Delete `backend/scheduler.py` (Superseded by internal SchedulerService).
+  - Audit and potentially remove `backend/run.py`.
+
+#### Phase 3a: MariaDB Sunset [DONE]
+**Goal:** Remove legacy MariaDB support and cleanup outdated project references.
+- [x] Delete `backend/learning/mariadb_sync.py` and sync scripts in `bin/` and `debug/`.
+- [x] Strip MariaDB logic from `db_writer.py` and `health.py`.
+- [x] Remove "DB Sync" elements from Dashboard.
+- [x] Simplify `api.ts` types.
+
+#### Phase 3b: Backend Hygiene [DONE]
+**Goal:** Audit and remove redundant backend components.
+- [x] Audit and remove redundant `backend/run.py`.
+- [x] Deduplicate logic in `learning/engine.py`.
+
+#### Phase 3c: Documentation & Config Refinement [DONE]
+**Goal:** Update documentation and finalize configuration.
+- [x] Global scrub of Flask/Gunicorn references.
+- [x] Standardize versioning guide and API documentation links.
+- [x] Final configuration audit.
+- [x] Refresh `AGENTS.md` and `DEVELOPER.md` to remove legacy Flask/eventlet/scheduler/MariaDB mentions.
+
+#### Phase 4: Versioning & CI/CD Validation [DONE]
+**Goal:** Orchestrate the final build and release.
+- [x] **Atomic Version Bump**: Set version `2.4.0-beta` in:
+  - `frontend/package.json`
+  - `darkstar/config.yaml`
+  - `scripts/docker-entrypoint.sh`
+  - `darkstar/run.sh`
+- [x] **CI Fix**: Resolve `pytz` dependency issue in GitHub Actions pipeline.
+- [x] **Multi-Arch Build Verification**: 
+  - Manually trigger `.github/workflows/build-addon.yml`.
+  - Verify successful container image push to GHCR.
+- [x] **GitHub Release Creation**: 
+  - Generate a formal GitHub Release `v2.4.0-beta`.
+- [x] **HA Ingress Fix (v2.4.1-beta)**: 
+  - Fixed SPA base path issue where API calls went to wrong URL under HA Ingress.
+  - Added dynamic `<base href>` injection in `backend/main.py` using `X-Ingress-Path` header.
+  - Updated `frontend/src/lib/socket.ts` to use `document.baseURI` for WebSocket path.
+  - Released and verified `v2.4.1-beta` — dashboard loads correctly via HA Ingress.
+
+---
+
 ## ERA // 9: Architectural Evolution & Refined UI
 
 This era marked the transition to a production-grade FastAPI backend and a major UI overhaul with a custom Design System and advanced financial analytics.
