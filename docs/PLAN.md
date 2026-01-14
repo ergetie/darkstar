@@ -1748,3 +1748,458 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] Historical `planned_soc_percent` in DB is correct (not 0)
 - [x] Historical water heating is visible in ChartCard
 - [x] 48h view shows same historical fidelity as 24h view
+
+---
+
+### [PLANNED] REV // E2 — Executor Entity Validation & Error Reporting
+
+**Goal:** Fix executor crashes caused by empty entity IDs and add comprehensive error reporting to the Dashboard. Ensure users can successfully configure Darkstar via the Settings UI without needing to manually edit config files.
+
+**Context:** Beta testers running the HA add-on are encountering executor 404 errors (`Failed to get state of : 404 Client Error`) because empty entity strings (`""`) are being passed to the HA API instead of being treated as unconfigured. Additionally, settings changes are silently failing for HA connection fields due to secrets being stripped during save, and users have no visibility into executor health status.
+
+**Root Causes:**
+1. **Empty String Bug**: Config loader uses `str(None)` → `"None"` and `str("")` → `""`, causing empty strings to bypass `if not entity:` guards
+2. **Missing Guards**: Some executor methods don't check for empty entities before calling `get_state()`
+3. **No UI Feedback**: Executor errors only logged to backend, not shown in Dashboard
+4. **Settings Confusion**: HA connection settings reset because secrets are filtered (by design) but users don't understand why
+
+**Investigation Report:** `/home/s/.gemini/antigravity/brain/0eae931c-e981-4248-9ded-49f4ec10ffe4/investigation_findings.md`
+
+---
+
+#### Phase 1: Config Normalization [PLANNED]
+
+**Goal:** Ensure empty strings are normalized to `None` during config loading so entity guards work correctly.
+
+**Files to Modify:**
+- `executor/config.py`
+
+**Tasks:**
+
+1. **[AUTOMATED] Create String Normalization Helper**
+   * [ ] Add helper function at top of `executor/config.py` (after imports):
+   ```python
+   def _str_or_none(value: Any) -> str | None:
+       """Convert config value to str or None. Empty strings become None."""
+       if value is None or value == "" or str(value).strip() == "":
+           return None
+       return str(value)
+   ```
+   * [ ] Add docstring explaining: "Used to normalize entity IDs from YAML - empty values should be None, not empty strings"
+
+2. **[AUTOMATED] Apply to InverterConfig Loading**
+   * [ ] Update `load_executor_config()` lines 156-184
+   * [ ] Replace all `str(inverter_data.get(...))` with `_str_or_none(inverter_data.get(...))`
+   * [ ] Apply to fields:
+     - `work_mode_entity`
+     - `grid_charging_entity`
+     - `max_charging_current_entity`
+     - `max_discharging_current_entity`
+     - `grid_max_export_power_entity`
+
+3. **[AUTOMATED] Apply to Other Entity Configs**
+   * [ ] Update `WaterHeaterConfig.target_entity` (line 192)
+   * [ ] Update `ExecutorConfig` top-level entities (lines 261-268):
+     - `automation_toggle_entity`
+     - `manual_override_entity`
+     - `soc_target_entity`
+
+4. **[AUTOMATED] Update Type Hints**
+   * [ ] Change InverterConfig dataclass (lines 18-27):
+   ```python
+   @dataclass
+   class InverterConfig:
+       work_mode_entity: str | None = None  # Changed from str
+       # ... all entity fields to str | None
+   ```
+   * [ ] Apply to WaterHeaterConfig and ExecutorConfig entity fields
+
+5. **[AUTOMATED] Add Unit Tests**
+   * [ ] Create `tests/test_executor_config_normalization.py`:
+   ```python
+   def test_empty_string_normalized_to_none():
+       """Empty entity strings should become None."""
+       config_data = {"executor": {"inverter": {"work_mode_entity": ""}}}
+       # ... assert entity is None
+   
+   def test_none_stays_none():
+       """None values should remain None."""
+       # ... test with missing keys
+   
+   def test_valid_entity_preserved():
+       """Valid entity IDs should be preserved."""
+       config_data = {"executor": {"inverter": {"work_mode_entity": "select.inverter"}}}
+       # ... assert entity == "select.inverter"
+   ```
+   * [ ] Run: `PYTHONPATH=. pytest tests/test_executor_config_normalization.py -v`
+
+**Exit Criteria:**
+- [ ] All entity fields use `_str_or_none()` for loading
+- [ ] Type hints updated to `str | None`
+- [ ] Unit tests pass
+- [ ] No regressions in existing config loading
+
+---
+
+#### Phase 2: Executor Action Guards [PLANNED]
+
+**Goal:** Add robust entity validation in all executor action methods to prevent API calls with empty/None entities.
+
+**Files to Modify:**
+- `executor/actions.py`
+
+**Tasks:**
+
+6. **[AUTOMATED] Strengthen Entity Guards**
+   * [ ] Update `_set_work_mode()` (line 249-258):
+   ```python
+   if not entity or entity.strip() == "":  # Added .strip() check
+       return ActionResult(
+           action_type="work_mode",
+           success=True,
+           message="Work mode entity not configured, skipping",
+           skipped=True,
+       )
+   ```
+   * [ ] Apply same pattern to:
+     - `_set_grid_charging()` (line 304)
+     - `_set_soc_target()` (line 417)
+     - `set_water_temp()` (line 479)
+     - `_set_max_export_power()` (line 544)
+
+7. **[AUTOMATED] Add Guards to Methods Missing Them**
+   * [ ] Review `_set_charge_current()` (line 357)
+   * [ ] Review `_set_discharge_current()` (line 387)
+   * [ ] Add missing entity guards if needed (these should already have defaults from config)
+
+8. **[AUTOMATED] Improve Error Messages**
+   * [ ] Update skip messages to be user-friendly:
+   ```python
+   message="Battery entity not configured. Configure in Settings → System → Battery Specifications"
+   ```
+   * [ ] Make messages actionable (tell user WHERE to fix it)
+
+9. **[AUTOMATED] Add Logging for Debugging**
+   * [ ] Add debug log when entity is skipped:
+   ```python
+   logger.debug("Skipping work_mode action: entity='%s' (not configured)", entity)
+   ```
+
+**Exit Criteria:**
+- [ ] All executor methods have entity guards
+- [ ] Guards handle both `None` and `""`
+- [ ] Error messages are user-friendly and actionable
+- [ ] Debug logging added for troubleshooting
+
+---
+
+#### Phase 3: Dashboard Health Reporting [PLANNED]
+
+**Goal:** Surface executor errors and health status in the Dashboard UI with toast notifications for critical issues.
+
+**Files to Modify:**
+- `backend/api/routers/executor.py` (new endpoint)
+- `frontend/src/pages/Dashboard.tsx`
+- `frontend/src/lib/api.ts`
+
+**Tasks:**
+
+10. **[AUTOMATED] Create Executor Health Endpoint**
+    * [ ] Add `/api/executor/health` endpoint to `backend/api/routers/executor.py`:
+    ```python
+    @router.get("/api/executor/health")
+    async def get_executor_health() -> dict[str, Any]:
+        """Get executor health status and recent errors."""
+        # Check if executor is enabled
+        # Check last execution timestamp
+        # Get recent error count from logs or DB
+        # Return status: healthy | degraded | error | disabled
+        return {
+            "status": "healthy",
+            "enabled": True,
+            "last_run": "2026-01-14T15:30:00Z",
+            "errors": [],
+            "warnings": ["Battery entity not configured"]
+        }
+    ```
+
+11. **[AUTOMATED] Store Recent Executor Errors**
+    * [ ] Add `_recent_errors` deque to `executor/engine.py` (max 10 items)
+    * [ ] Append errors from ActionResult failures
+    * [ ] Expose via health endpoint
+
+12. **[AUTOMATED] Frontend API Client**
+    * [ ] Add `executorHealth()` to `frontend/src/lib/api.ts`:
+    ```typescript
+    export async function executorHealth(): Promise<ExecutorHealth> {
+        const response = await fetch(`${API_BASE}/api/executor/health`);
+        return response.json();
+    }
+    ```
+
+13. **[AUTOMATED] Dashboard Health Display**
+    * [ ] Update `Dashboard.tsx` to fetch executor health on mount
+    * [ ] Show warning banner when executor has errors:
+    ```tsx
+    {executorHealth?.warnings.length > 0 && (
+        <SystemAlert
+            severity="warning"
+            message="Executor Warning"
+            details={executorHealth.warnings.join(", ")}
+        />
+    )}
+    ```
+
+14. **[AUTOMATED] Toast Notifications**
+    * [ ] Add toast when executor is disabled but should be enabled
+    * [ ] Add toast when critical entities are missing
+    * [ ] Use existing toast system from `useSettingsForm.ts`
+
+**Exit Criteria:**
+- [ ] Health endpoint returns executor status
+- [ ] Dashboard shows executor warnings
+- [ ] Toast appears for critical issues
+- [ ] Errors are actionable (link to Settings)
+
+---
+
+#### Phase 4: Settings UI Validation [PLANNED]
+
+**Goal:** Prevent users from saving invalid configurations and provide clear feedback when required entities are missing.
+
+**Files to Modify:**
+- `frontend/src/pages/settings/hooks/useSettingsForm.ts`
+- `backend/api/routers/config.py`
+
+**Tasks:**
+
+15. **[AUTOMATED] Frontend Validation Rules**
+    * [ ] Add validation in `useSettingsForm.ts` before save:
+    ```typescript
+    const validateEntities = (form: Record<string, string>): string[] => {
+        const errors: string[] = [];
+        
+        // If executor enabled, require core entities
+        if (form['executor.enabled'] === 'true') {
+            const required = [
+                'input_sensors.battery_soc',
+                'executor.inverter.work_mode_entity',
+                'executor.inverter.grid_charging_entity'
+            ];
+            
+            for (const key of required) {
+                if (!form[key] || form[key].trim() === '') {
+                    errors.push(`${key} is required when executor is enabled`);
+                }
+            }
+        }
+        
+        return errors;
+    };
+    ```
+
+16. **[AUTOMATED] Backend Validation**
+    * [ ] Add to `_validate_config_for_save()` in `config.py`:
+    ```python
+    # Executor validation
+    executor_cfg = config.get("executor", {})
+    if executor_cfg.get("enabled", False):
+        required_entities = [
+            ("input_sensors.battery_soc", "Battery SoC sensor"),
+            ("executor.inverter.work_mode_entity", "Inverter work mode"),
+        ]
+        
+        for path, name in required_entities:
+            value = _get_nested(config, path.split('.'))
+            if not value or str(value).strip() == "":
+                issues.append({
+                    "severity": "error",
+                    "message": f"{name} not configured",
+                    "guidance": f"Configure {path} in Settings → System"
+                })
+    ```
+
+17. **[AUTOMATED] UI Feedback**
+    * [ ] Show validation errors before save attempt
+    * [ ] Highlight invalid fields in red
+    * [ ] Add helper text: "This field is required when Executor is enabled"
+
+18. **[AUTOMATED] HA Add-on Guidance**
+    * [ ] Detect HA add-on environment (check for `/data/options.json`)
+    * [ ] Show info banner in Settings when in add-on mode:
+    ```tsx
+    {isHAAddon && (
+        <InfoBanner>
+            ℹ️ Running as Home Assistant Add-on. 
+            HA connection is auto-configured via Supervisor.
+        </InfoBanner>
+    )}
+    ```
+
+**Exit Criteria:**
+- [ ] Frontend validates required entities before save
+- [ ] Backend rejects incomplete configs with clear error
+- [ ] UI highlights missing fields
+- [ ] HA add-on users get helpful guidance
+
+---
+
+#### Phase 5: Testing & Verification [PLANNED]
+
+**Goal:** Comprehensive testing to ensure all fixes work correctly and don't introduce regressions.
+
+**Tasks:**
+
+19. **[AUTOMATED] Unit Tests**
+    * [ ] Config normalization tests (from Phase 1)
+    * [ ] Executor action guard tests:
+    ```python
+    def test_executor_skips_empty_entity():
+        """Executor should skip actions when entity is empty string."""
+        config = ExecutorConfig()
+        config.inverter.work_mode_entity = ""
+        # ... assert action is skipped
+    ```
+    * [ ] Validation tests for Settings save
+
+20. **[AUTOMATED] Integration Tests**
+    * [ ] Test full flow: Empty config → Executor run → No crashes
+    * [ ] Test partial config: Only required entities → Works
+    * [ ] Test full config: All entities → All actions execute
+
+21. **[MANUAL] Fresh Install Test**
+    * [ ] Deploy clean HA add-on install
+    * [ ] Verify executor doesn't crash with default config
+    * [ ] Configure minimal required entities via UI
+    * [ ] Verify executor health shows warnings for optional entities
+    * [ ] Verify Dashboard shows actionable error messages
+
+22. **[MANUAL] Production Migration Test**
+    * [ ] Test on existing installation with valid config
+    * [ ] Verify no regressions (all entities still work)
+    * [ ] Test with intentionally broken config (remove one entity)
+    * [ ] Verify graceful degradation (other actions still work)
+
+23. **[AUTOMATED] Performance Test**
+    * [ ] Verify executor startup time unchanged
+    * [ ] Verify Dashboard load time unchanged
+    * [ ] Verify no excessive logging
+
+**Exit Criteria:**
+- [ ] All unit tests pass
+- [ ] Integration tests pass
+- [ ] Fresh install works without crashes
+- [ ] Production migration has no regressions
+- [ ] Performance is acceptable
+
+---
+
+#### Phase 6: Documentation & Deployment [PLANNED]
+
+**Goal:** Update all documentation and deploy the fix to production.
+
+**Tasks:**
+
+24. **[AUTOMATED] Update Code Documentation**
+    * [ ] Add docstring to `_str_or_none()` explaining normalization
+    * [ ] Add comments to executor guards explaining why both None and "" are checked
+    * [ ] Update `executor/README.md` (if exists) with entity requirements
+
+25. **[AUTOMATED] Update User Documentation**
+    * [ ] Update `docs/SETUP_GUIDE.md`:
+      - Add section "Required vs Optional Entities"
+      - List minimum entities needed for basic operation
+      - Explain which entities enable which features
+    * [ ] Update `docs/OPERATIONS.md`:
+      - Add "Executor Health Monitoring" section
+      - Explain how to diagnose executor issues via Dashboard
+
+26. **[AUTOMATED] Update AGENTS.md**
+    * [ ] Add note about entity validation in config loading
+    * [ ] Document the `_str_or_none()` pattern for future changes
+
+27. **[AUTOMATED] Update PLAN.md**
+    * [ ] Mark REV status as [DONE]
+    * [ ] Update all task checkboxes
+
+28. **[MANUAL] Create Migration Notes**
+    * [ ] Document breaking changes (if any)
+    * [ ] Create upgrade checklist for users
+    * [ ] Note that empty entities now treated as unconfigured
+
+29. **[MANUAL] Deploy & Monitor**
+    * [ ] Deploy to staging
+    * [ ] Test with beta testers
+    * [ ] Monitor logs for any new issues
+    * [ ] Deploy to production after 24h soak test
+
+**Exit Criteria:**
+- [ ] All documentation updated
+- [ ] Migration notes created
+- [ ] Deployed to staging successfully
+- [ ] No critical issues in staging
+- [ ] Deployed to production
+
+---
+
+## REV E2 Success Criteria
+
+**The following MUST be true before marking REV as [DONE]:**
+
+1. **Configuration:**
+   - [ ] Empty entity strings normalized to `None` during config load
+   - [ ] Type hints correctly reflect `str | None` for all entity fields
+   - [ ] Config validation rejects incomplete executor configs
+
+2. **Executor Behavior:**
+   - [ ] Executor doesn't crash with empty entities
+   - [ ] All action methods have entity guards
+   - [ ] Graceful degradation (skip unconfigured features)
+   - [ ] Clear log messages when entities are missing
+
+3. **User Experience:**
+   - [ ] Dashboard shows executor health status
+   - [ ] Toast warnings for critical missing entities
+   - [ ] Settings UI validates before save
+   - [ ] Actionable error messages (tell user where to fix)
+   - [ ] HA add-on users get clear guidance
+
+4. **Quality:**
+   - [ ] All unit tests pass
+   - [ ] Integration tests pass
+   - [ ] No regressions for existing users
+   - [ ] Fresh install works without manual config editing
+
+5. **Documentation:**
+   - [ ] Setup guide updated with entity requirements
+   - [ ] Operations guide covers executor health
+   - [ ] Code comments explain normalization logic
+
+**Sign-Off Required:**
+- [ ] Beta tester confirms no more 404 errors
+- [ ] User verifies Dashboard shows helpful warnings
+- [ ] User confirms Settings UI prevents bad configs
+
+---
+
+## Notes for Implementing AI
+
+**Critical Reminders:**
+
+1. **Empty String vs None:** Python's `if not entity:` is True for both `None` and `""`, BUT the guard must come BEFORE any string methods like `.strip()` or `.format()`. Always check: `if not entity or entity.strip() == "":` for safety.
+
+2. **Type Safety:** When changing entity fields to `str | None`, ensure ALL usage sites handle None correctly. Use mypy or pyright to catch type errors.
+
+3. **Backward Compatibility:** Existing configs with valid entity IDs must continue to work. The normalization only affects empty/None values.
+
+4. **HA Add-on Detection:** Check for `/data/options.json` to detect add-on mode (in container). Don't hardcode assumptions about environment.
+
+5. **User-Facing Messages:** All error messages must be actionable. Don't just say "Entity not configured" - say "Configure input_sensors.battery_soc in Settings → System → HA Entities".
+
+6. **Health Endpoint Performance:** The `/api/executor/health` endpoint will be polled by Dashboard. Keep it FAST (\u003c50ms). Don't do heavy DB queries here.
+
+7. **Toast Spam:** Don't show toasts on every Dashboard load. Only show on state changes (executor goes from healthy → error). Use localStorage to track "last shown" state.
+
+8. **Testing Priority:** The most critical test is "fresh HA add-on install with zero config" → must not crash. This is the #1 beta tester pain point.
+
+---
