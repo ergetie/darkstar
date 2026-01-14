@@ -55,6 +55,7 @@ COPY bin/ ./bin/
 COPY ml/*.py ./ml/
 COPY ml/models/*.lgb ./ml/models/
 COPY inputs.py ./
+COPY scripts/ ./scripts/
 COPY scripts/docker-entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
