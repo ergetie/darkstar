@@ -459,7 +459,7 @@ const createChartData = (
     // Add no-data message if needed
     if (values.hasNoData) {
         // cast to ExtendedChartData here to avoid ChartData strictness while manipulating plugins
-        ;(baseData as ExtendedChartData).plugins = {
+        ; (baseData as ExtendedChartData).plugins = {
             tooltip: {
                 enabled: true,
                 external: true,
@@ -840,21 +840,19 @@ export default function ChartCard({
                     <div className="flex items-center gap-2">
                         <div className="flex gap-1">
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === 'day'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                    }`}
                                 onClick={() => setRangeState('day')}
                             >
                                 24h
                             </button>
                             <button
-                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${
-                                    rangeState === '48h'
+                                className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
                                         ? 'bg-accent text-canvas'
                                         : 'bg-surface border border-line/60 text-muted'
-                                }`}
+                                    }`}
                                 onClick={() => setRangeState('48h')}
                             >
                                 48h
@@ -891,11 +889,10 @@ export default function ChartCard({
                                 e.preventDefault()
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
-                            className={`rounded-pill px-3 py-1 border ${
-                                overlays[key as keyof typeof overlays]
+                            className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
                                     ? 'bg-accent text-canvas border-accent'
                                     : 'border-line/60 text-muted hover:border-accent'
-                            }`}
+                                }`}
                         >
                             {label}
                         </button>
@@ -930,6 +927,19 @@ function buildLiveData(
         range === 'day'
             ? filterSlotsByDay(slots, day)
             : slots.filter((slot) => isToday(slot.start_time) || isTomorrow(slot.start_time))
+
+    // DEBUG: Track filtered slots for 48h view
+    if (range === '48h') {
+        console.log(`[48h DEBUG] Filtered ${filtered.length} slots from ${slots.length} total slots`)
+        if (filtered.length > 0) {
+            console.log(`[48h DEBUG] First slot: ${filtered[0].start_time}, charge: ${filtered[0].battery_charge_kw ?? filtered[0].charge_kw}`)
+            console.log(`[48h DEBUG] Sample charge values:`, filtered.slice(0, 10).map(s => ({
+                time: s.start_time,
+                charge: s.battery_charge_kw ?? s.charge_kw,
+                actual_charge: s.actual_charge_kw
+            })))
+        }
+    }
 
     // Special handling for full-day views: always show 00:00–24:00,
     // padding with nulls where the schedule has no data.
@@ -1140,6 +1150,15 @@ function buildLiveData(
             slotByTime.set(t, s)
         }
 
+        // DEBUG: Verify map population with charge data
+        console.log(`[48h DEBUG] slotByTime map populated with ${slotByTime.size} entries`)
+        const firstFewEntries = Array.from(slotByTime.entries()).slice(0, 5)
+        console.log(`[48h DEBUG] First 5 map entries:`, firstFewEntries.map(([ts, slot]) => ({
+            timestamp: new Date(ts).toISOString(),
+            charge: slot.battery_charge_kw ?? slot.charge_kw,
+            actual_charge: slot.actual_charge_kw
+        })))
+
         const labels: string[] = []
         const price: (number | null)[] = []
         const pv: (number | null)[] = []
@@ -1159,6 +1178,12 @@ function buildLiveData(
             const bucketStart = new Date(anchor.getTime() + i * stepMs)
             const bucketEnd = new Date(bucketStart.getTime() + stepMs)
             const slot = slotByTime.get(bucketStart.getTime())
+
+            // DEBUG: Log first 10 bucket iterations to check slot lookups
+            if (i < 10) {
+                const chargeVal = slot ? (slot.actual_charge_kw ?? slot.battery_charge_kw ?? slot.charge_kw) : null
+                console.log(`[48h DEBUG] Bucket ${i}: ${bucketStart.toISOString()}, timestamp=${bucketStart.getTime()}, slot=${slot ? 'found' : 'NOT FOUND'}, charge=${chargeVal}`)
+            }
 
             labels.push(formatHour(bucketStart.toISOString()))
 
