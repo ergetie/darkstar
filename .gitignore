@@ -79,3 +79,4 @@ calculate_metrics_n8n.js
 .gemini/
 .idx/
 .vscode/
+data/planner_learning.db.manual_backup_20260114_202015
