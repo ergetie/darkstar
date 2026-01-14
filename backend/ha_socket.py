@@ -29,13 +29,33 @@ class HAWebSocketClient:
 
     def _load_config(self):
         """Load HA connection parameters from secrets.yaml."""
-        self.config = load_home_assistant_config()
-        base_url = self.config.get("url", "")
-        if base_url.startswith("https"):
-            self.url = base_url.replace("https", "wss") + "/api/websocket"
-        else:
-            self.url = base_url.replace("http", "ws") + "/api/websocket"
-        self.token = self.config.get("token")
+        try:
+            self.config = load_home_assistant_config()
+            base_url = self.config.get("url", "")
+
+            if not base_url:
+                logger.error("❌ No HA URL found in secrets.yaml - WebSocket cannot connect")
+                self.url = "/api/websocket"  # Invalid URL to prevent connection
+                self.token = None
+                return
+
+            if base_url.startswith("https"):
+                self.url = base_url.replace("https", "wss") + "/api/websocket"
+            else:
+                self.url = base_url.replace("http", "ws") + "/api/websocket"
+
+            self.token = self.config.get("token")
+
+            if not self.token:
+                logger.error("❌ No HA token found in secrets.yaml - WebSocket cannot authenticate")
+            else:
+                # Log token length for verification without exposing the actual token
+                logger.info(f"✅ HA config loaded: URL={base_url}, token_len={len(self.token)}")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to load HA configuration: {e}", exc_info=True)
+            self.url = "/api/websocket"
+            self.token = None
 
     def _get_monitored_entities(self) -> dict[str, str]:
         # Load config to map entity_id -> metric_key
@@ -65,10 +85,13 @@ class HAWebSocketClient:
                 "battery_kw": sensors.get("battery_power_inverted", False),
             }
 
-            logger.info(f"HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}")
+            if not mapping:
+                logger.warning("⚠️ No entities configured for HA WebSocket monitoring - check input_sensors in config.yaml")
+            else:
+                logger.info(f"✅ HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}")
             return mapping
         except Exception as e:
-            logger.error(f"Failed to load monitored entities: {e}")
+            logger.error(f"❌ Failed to load monitored entities: {e}", exc_info=True)
             return {}
 
     async def connect(self):
