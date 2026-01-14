@@ -10,7 +10,6 @@ typings/
 
 # Secrets and user config (DO NOT COMMIT)
 secrets.yaml
-/config.yaml
 !darkstar/config.yaml
 
 # IDE / Editor
@@ -41,7 +40,7 @@ planner_learning.db
 
 
 # Generated files
-schedule.json
+
 data/scheduler_status.json
 data/strategy_history.json
 data/*.backup*
@@ -74,11 +73,7 @@ pytz
 Helios*.json
 calculate_metrics_n8n.js
 
-# IDE / Local dev (personal preferences)
-.agent/
-.gemini/
-.idx/
-.vscode/
+
 data/planner_learning.db.manual_backup_20260114_202015
 data/planner_learning.db.bak.20260114_214615
-debugging/ace75461_darkstar_2026-01-14T21-37-07.431Z.txt
+
