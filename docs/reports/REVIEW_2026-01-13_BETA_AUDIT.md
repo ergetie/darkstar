@@ -31,22 +31,27 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 1. [x] Delete 9 dead arbitrage/water_heating fields from types.ts
 2. [x] Either implement OR remove `export.enable_export` (Disabled & labeled [NOT IMPLEMENTED])
 3. [ ] Remove 4 debug console.* statements
-4. [ ] Remove 5 TODO markers from user-facing text
-5. [ ] Fix typo "calculationsWfz"
+4. [x] Remove 5 TODO markers from user-facing text
+5. [x] Fix typo "calculationsWfz"
 6. [x] Delete 4 orphan help text entries
 7. [ ] **Consolidate Battery Capacity:** Resolve mismatch between Planner (34.2kWh) and Executor (27.0kWh).
-8. [ ] **Fix Path Traversal:** Secure `serve_spa`.
+8. [x] **Fix Path Traversal:** Secure `serve_spa`.
+9. [ ] **Refactor to Async DB:** Switch `store.py` from sync `sqlite3` to `aiosqlite` to prevent event loop blocking (Critical #1).
+10. [ ] **Delete Archived Frontend Code:** Remove 68KB dead code in `frontend/src/pages/archive/` (4 files). (THIS SHOULD NOT BE DONE BEFORE INVESTIGATING WHAT WE SHOULD KEEP! THE PAGES ARE MIXED PLACEHOLDERS AND LEGACY PAGES.)
 
 ### Short-Term
-9. [ ] Add more aria-* attributes for accessibility
-10. [ ] Review 50+ console.error for necessity
-11. [ ] Document which config keys are intentionally backend-only
-12. [ ] Refactor `services.py` / `store.py` to use async DB methods.
+11. [ ] **Fix Weak Validation Logic:** Replace fragile string matching in `useSettingsForm.ts` with explicit field validation (prevent negative hours/coordinates).
+12. [ ] **Fix Notification Spam:** Group `SystemAlert.tsx` banners by category instead of stacking 7+ separate banners.
+13. [ ] **Add Invalid Entity Error State:** Show visual error in `EntitySelect.tsx` when entity ID doesn't exist in HA.
+14. [ ] **Fix Form Label Accessibility:** Connect `<label>` to `<input>` via `htmlFor`/`id` in `SettingsField.tsx`.
+15. [ ] Review 50+ console.error for necessity
+16. [ ] Document which config keys are intentionally backend-only
 
 ### Future (Backlog)
-13. [ ] Split services.py (HA vs Energy)
-14. [ ] Extract Executor.tsx components
-15. [ ] Add E2E test coverage
+17. [ ] **Implement "First Run" Wizard:** Redirect fresh installs to `/setup` if no HA token configured (Critical #3).
+18. [ ] Split services.py (HA vs Energy)
+19. [ ] Extract Executor.tsx components
+20. [ ] Add E2E test coverage
 
 ---
 
@@ -107,11 +112,12 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 
 ## 🟡 High Priority Issues
 
-### 1. Path Traversal Risk (Security)
+### 1. Path Traversal Risk (Security) [RESOLVED]
 - **File:** `main.py`
 - **Issue:** The SPA fallback handler serves static files via `/{full_path:path}` and joins `static_dir / full_path` without checking if the resolved path is still inside `static_dir`.
 - **Exploit:** Potentially allows `GET /../../etc/passwd`.
 - **Fix:** Add `if static_dir not in file_path.resolve().parents: raise 404`.
+- **Status:** Fixed in REV F9 (Jan 14 2026). Path validation logic added to `serve_spa`.
 
 ### 2. Forms & Input Labels (Accessibility)
 - **Component:** `SettingsField.tsx`

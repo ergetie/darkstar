@@ -7,6 +7,7 @@ import EntitySelect from '../../../components/EntitySelect'
 import ServiceSelect from '../../../components/ServiceSelect'
 import Select from '../../../components/ui/Select'
 import Switch from '../../../components/ui/Switch'
+import { Badge } from '../../../components/ui/Badge'
 import configHelp from '../../../config-help.json'
 
 interface SettingsFieldProps {
@@ -157,16 +158,17 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
 
     return (
         <div className="space-y-1">
-            <label className="block text-sm font-medium mb-1.5 flex items-center gap-1">
+            <label className="block text-sm font-medium mb-1.5 flex items-center gap-1.5">
                 <span
                     className={field.type === 'boolean' ? 'sr-only' : 'text-[10px] uppercase tracking-wide text-muted'}
                 >
                     {field.label}
                 </span>
+                {field.notImplemented && <Badge variant="warning">NOT IMPLEMENTED</Badge>}
                 <Tooltip text={(configHelp as Record<string, string>)[field.key] || field.helper} />
             </label>
             {renderInput()}
-            {field.helper && field.type !== 'boolean' && <p className="text-[11px] text-muted">{field.helper}</p>}
+            {renderInput()}
             {error && <p className="text-[11px] text-bad">{error}</p>}
         </div>
     )

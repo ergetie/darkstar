@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 import socketio
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -100,6 +100,40 @@ def get_base_path(request: Request) -> str:
         # Ensure trailing slash for base href
         return ingress_path if ingress_path.endswith("/") else ingress_path + "/"
     return "/"
+
+    return "/"
+
+
+def validate_path(base_dir: Path, requested_path: str) -> Path:
+    """Validate that the requested path is within the base directory.
+
+    Args:
+        base_dir: The trusted base directory (e.g., static files).
+        requested_path: The potentially unsafe relative path.
+
+    Returns:
+        Path: The resolved absolute path if safe.
+
+    Raises:
+        HTTPException(404): If path traversal is detected.
+    """
+    try:
+        # Join and resolve
+        target = base_dir / requested_path
+        resolved = target.resolve()
+        
+        # Verify strict containment
+        # We check both:
+        # 1. Is base_dir a parent of resolved?
+        # 2. Is resolved exactly base_dir? (Accessing root static dir)
+        base_resolved = base_dir.resolve()
+        
+        if base_resolved not in resolved.parents and resolved != base_resolved:
+            raise HTTPException(status_code=404, detail="Not found")
+            
+        return resolved
+    except (ValueError, OSError):
+        raise HTTPException(status_code=404, detail="Not found")
 
 
 def create_app() -> socketio.ASGIApp:
@@ -210,6 +244,10 @@ def create_app() -> socketio.ASGIApp:
             For HA Ingress support, dynamically injects <base href> tag
             based on X-Ingress-Path header.
             """
+            # Security: Prevent directory traversal attacks
+            # checking logic extracted to validate_path for testability
+            _ = validate_path(static_dir, full_path)
+            
             # If requesting a specific file that exists, serve it directly
             file_path = static_dir / full_path
             if file_path.is_file():

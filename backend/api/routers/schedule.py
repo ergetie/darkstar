@@ -272,8 +272,57 @@ async def schedule_today_with_history() -> dict[str, Any]:
     except Exception as e:
         logger.warning(f"Failed to load forecast map: {e}")
 
-    # 4. Merge
-    all_keys = sorted(set(schedule_map.keys()) | set(exec_map.keys()))
+    # 4. Planned Actions Map (slot_plans table)
+    planned_map: dict[datetime, dict[str, float]] = {}
+    try:
+        db_path_str = str(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
+        db_path = Path(db_path_str)
+        if db_path.exists():
+            async with aiosqlite.connect(str(db_path)) as conn:
+                conn.row_factory = aiosqlite.Row
+                today_iso = tz.localize(
+                    datetime.combine(today_local, datetime.min.time())
+                ).isoformat()
+
+                query = """
+                    SELECT
+                        slot_start,
+                        planned_charge_kwh,
+                        planned_discharge_kwh,
+                        planned_soc_percent,
+                        planned_export_kwh
+                    FROM slot_plans
+                    WHERE slot_start >= ?
+                    ORDER BY slot_start ASC
+                """
+
+                async with conn.execute(query, (today_iso,)) as cursor:
+                    async for row in cursor:
+                        try:
+                            st = datetime.fromisoformat(str(row["slot_start"]))
+                            st_local = st if st.tzinfo else tz.localize(st)
+                            key = st_local.astimezone(tz).replace(tzinfo=None)
+
+                            # Convert kWh to kW (slot_plans stores kWh, frontend expects kW)
+                            duration_hours = 0.25  # 15-min slots
+
+                            planned_map[key] = {
+                                "battery_charge_kw": float(row["planned_charge_kwh"] or 0.0)
+                                / duration_hours,
+                                "battery_discharge_kw": float(row["planned_discharge_kwh"] or 0.0)
+                                / duration_hours,
+                                "soc_target_percent": float(row["planned_soc_percent"] or 0.0),
+                                "export_kwh": float(row["planned_export_kwh"] or 0.0),
+                            }
+                        except Exception:
+                            continue
+
+        logger.info(f"Loaded {len(planned_map)} planned slots for {today_local}")
+    except Exception as e:
+        logger.warning(f"Failed to load planned map: {e}")
+
+    # 5. Merge
+    all_keys = sorted(set(schedule_map.keys()) | set(exec_map.keys()) | set(planned_map.keys()))
     merged_slots: list[dict[str, Any]] = []
 
     for key in all_keys:
@@ -312,7 +361,29 @@ async def schedule_today_with_history() -> dict[str, Any]:
             # Only warn if we have neither plan nor history nor forecast for a slot that exists
             pass
 
+        # Attach planned actions from slot_plans database (Historical Overlay)
+        if key in planned_map:
+            p = planned_map[key]
+            # Only add if not already present from schedule.json (schedule.json takes priority for future)
+            if "battery_charge_kw" not in slot or slot.get("battery_charge_kw") is None:
+                slot["battery_charge_kw"] = p["battery_charge_kw"]
+            if "battery_discharge_kw" not in slot or slot.get("battery_discharge_kw") is None:
+                slot["battery_discharge_kw"] = p["battery_discharge_kw"]
+            if "soc_target_percent" not in slot or slot.get("soc_target_percent") is None:
+                slot["soc_target_percent"] = p["soc_target_percent"]
+            if "export_kwh" not in slot or slot.get("export_kwh") is None:
+                slot["export_kwh"] = p.get("export_kwh", 0.0)
+
         merged_slots.append(slot)
+
+    historical_with_planned = sum(
+        1
+        for s in merged_slots
+        if s.get("actual_soc") is not None and s.get("battery_charge_kw") is not None
+    )
+    logger.info(
+        f"Returning {len(merged_slots)} slots, {historical_with_planned} historical with planned actions"
+    )
 
     result_data = {"date": today_local.isoformat(), "slots": merged_slots}
     return cast("dict[str, Any]", _clean_nans(result_data))

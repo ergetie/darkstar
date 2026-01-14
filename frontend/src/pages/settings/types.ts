@@ -15,6 +15,7 @@ export interface BaseField {
     options?: { label: string; value: string }[]
     companionKey?: string
     disabled?: boolean
+    notImplemented?: boolean
 }
 
 export interface SettingsSection<T extends BaseField = BaseField> {
@@ -32,31 +33,28 @@ export const systemSections: SettingsSection[] = [
             {
                 key: 'system.has_solar',
                 label: 'Solar panels installed',
-                helper: 'Enable PV forecasting and solar optimization',
                 path: ['system', 'has_solar'],
                 type: 'boolean',
             },
             {
                 key: 'system.has_battery',
                 label: 'Home battery installed',
-                helper: 'Enable battery control and grid arbitrage',
                 path: ['system', 'has_battery'],
                 type: 'boolean',
             },
             {
                 key: 'system.has_water_heater',
                 label: 'Smart water heater',
-                helper: 'Enable water heating optimization',
                 path: ['system', 'has_water_heater'],
                 type: 'boolean',
             },
             {
                 key: 'export.enable_export',
                 label: 'Enable grid export',
-                helper: '[NOT IMPLEMENTED YET] Master switch for grid export logic. When OFF, the planner will never schedule export slots.',
                 path: ['export', 'enable_export'],
                 type: 'boolean',
                 disabled: true,
+                notImplemented: true,
             },
         ],
     },
@@ -153,14 +151,12 @@ export const systemSections: SettingsSection[] = [
             {
                 key: 'system.grid.max_power_kw',
                 label: 'HARD Grid max power (kW)',
-                helper: 'Absolute limit from your grid fuse/connection.',
                 path: ['system', 'grid', 'max_power_kw'],
                 type: 'number',
             },
             {
                 key: 'grid.import_limit_kw',
                 label: 'Soft import limit (kW)',
-                helper: 'Threshold for peak power penalties (effekttariff).',
                 path: ['grid', 'import_limit_kw'],
                 type: 'number',
             },
@@ -198,7 +194,7 @@ export const systemSections: SettingsSection[] = [
                 path: ['pricing', 'subscription_fee_sek_per_month'],
                 type: 'number',
             },
-            { key: 'timezone', label: 'Timezone', helper: 'e.g. Europe/Stockholm', path: ['timezone'], type: 'text' },
+            { key: 'timezone', label: 'Timezone', path: ['timezone'], type: 'text' },
         ],
     },
     {
