@@ -380,7 +380,18 @@ class TestRunOnce:
 
                     # Mock HA client
                     mock_ha = MagicMock(spec=HAClient)
-                    mock_ha.get_state_value.return_value = "on"  # Automation on
+
+                    # Default mock behavior: return "on" for booleans, "50" for numbers
+                    def side_effect_get_state(entity_id):
+                        if "input_boolean" in entity_id or "automation" in entity_id:
+                            return "on"
+                        if "soc" in entity_id:
+                            return "50"
+                        if "temp" in entity_id or "target" in entity_id:
+                            return "55"
+                        return "0.0"
+
+                    mock_ha.get_state_value.side_effect = side_effect_get_state
                     mock_ha.set_select_option.return_value = True
                     mock_ha.set_switch.return_value = True
                     mock_ha.set_number.return_value = True
@@ -409,6 +420,7 @@ class TestRunOnce:
 
     def test_run_once_skips_when_automation_off(self, engine, temp_schedule):
         """run_once skips when automation toggle is off."""
+        engine.ha_client.get_state_value.side_effect = None
         engine.ha_client.get_state_value.return_value = "off"
 
         with Path(temp_schedule).open("w", encoding="utf-8") as f:

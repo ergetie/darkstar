@@ -906,6 +906,16 @@ class ExecutorEngine:
                             {"timestamp": now_iso, "type": r.action_type, "message": r.message}
                         )
 
+                result["actions"] = [
+                    {
+                        "type": r.action_type,
+                        "success": r.success,
+                        "message": r.message,
+                        "skipped": r.skipped,
+                    }
+                    for r in action_results
+                ]
+
             # 7. Log execution to history
             duration_ms = int((time.time() - start_time) * 1000)
             record = self._create_execution_record(

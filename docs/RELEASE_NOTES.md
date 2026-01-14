@@ -1,5 +1,13 @@
 # Darkstar Release Notes
 
+## [v2.4.15-beta] - Regression Fix & Logging - 2026-01-15
+
+**Fixes**
+*   **Executor Engine**: Fixed a regression where the list of executed actions was not being correctly populated in the execution result.
+*   **Logging Refinement**: Enhanced Home Assistant WebSocket logging to respect the `LOG_LEVEL` environment variable.
+
+---
+
 ## [v2.4.14-beta] - Stability & Performance Plan - 2026-01-15
 
 **Improvements**

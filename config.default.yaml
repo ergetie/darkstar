@@ -1,12 +1,12 @@
 # =============================================================================
-# Darkstar Configuration 2.4.14-beta
+# Darkstar Configuration 2.4.15-beta
 # =============================================================================
 # This is the user's production configuration file.
 # Structure matches config.default.yaml with user-specific values.
 # =============================================================================
 
 # System Metadata
-version: "2.4.14-beta"
+version: "2.4.15-beta"
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
 # AI Advisor (Smart Assistant on Dashboard)
