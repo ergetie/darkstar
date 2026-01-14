@@ -2,7 +2,6 @@
 Security test: Path traversal prevention in SPA fallback handler.
 """
 
-
 import pytest
 from fastapi import HTTPException
 
@@ -23,6 +22,7 @@ def test_validate_path_traversal():
     # Better approach: Use a real temp dir for reliable .resolve() test
     pass
 
+
 @pytest.fixture
 def temp_static_dir(tmp_path):
     """Create a temporary static directory structure."""
@@ -32,17 +32,20 @@ def temp_static_dir(tmp_path):
     (tmp_path / "secret.txt").write_text("secret")
     return static
 
+
 def test_validate_path_safe(temp_static_dir):
     """Test legitimate file access."""
     # Should not raise
     resolved = validate_path(temp_static_dir, "safe.txt")
     assert resolved.name == "safe.txt"
 
+
 def test_validate_path_traversal_blocked(temp_static_dir):
     """Test traversal to parent directory."""
     with pytest.raises(HTTPException) as exc:
         validate_path(temp_static_dir, "../secret.txt")
     assert exc.value.status_code == 404
+
 
 def test_validate_path_traversal_deep(temp_static_dir):
     """Test deep traversal."""

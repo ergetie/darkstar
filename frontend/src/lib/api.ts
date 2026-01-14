@@ -248,6 +248,25 @@ export type ExecutorStatusResponse = {
     [key: string]: unknown
 }
 
+export type ExecutorHealthResponse = {
+    status: 'healthy' | 'error' | 'warning'
+    is_running: boolean
+    is_enabled: boolean
+    is_paused: boolean
+    should_be_running: boolean
+    last_run_at: string | null
+    last_run_status: string
+    has_error: boolean
+    error: string | null
+    recent_errors: {
+        timestamp: string
+        type: string
+        message: string
+    }[]
+    warnings: string[]
+    is_healthy: boolean
+}
+
 export type EnergyTodayResponse = {
     grid_import_kwh: number | null
     grid_export_kwh: number | null
@@ -466,6 +485,7 @@ export const Api = {
                 }),
             clear: () => getJSON<unknown>('/api/executor/quick-action', 'DELETE'),
         },
+        health: () => getJSON<ExecutorHealthResponse>('/api/executor/health'),
     },
     waterBoost: {
         status: () =>

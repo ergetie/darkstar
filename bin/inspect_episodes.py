@@ -28,6 +28,7 @@ def get_db_path() -> Path:
     """Get the database path from config."""
     try:
         from inputs import load_yaml
+
         config = load_yaml("config.yaml")
         return Path(config.get("learning", {}).get("sqlite_path", "data/planner_learning.db"))
     except Exception:
@@ -41,11 +42,11 @@ def decompress_if_needed(data: bytes | str) -> str:
 
     try:
         # Try zlib decompression
-        return zlib.decompress(data).decode('utf-8')
+        return zlib.decompress(data).decode("utf-8")
     except (zlib.error, UnicodeDecodeError):
         # Not compressed, treat as plain text
         try:
-            return data.decode('utf-8')
+            return data.decode("utf-8")
         except UnicodeDecodeError:
             return str(data)
 
@@ -61,30 +62,33 @@ def list_episodes(conn: sqlite3.Connection, limit: int = 50) -> None:
         ORDER BY created_at DESC
         LIMIT ?
         """,
-        (limit,)
+        (limit,),
     )
 
     print(f"{'Episode ID':<40} {'Created At':<20} {'Inputs':<10} {'Schedule':<10}")
     print("-" * 85)
     for row in cursor:
         episode_id, created_at, inputs_size, schedule_size = row
+
         # Format sizes
         def fmt_size(b):
             if b < 1024:
                 return f"{b}B"
-            elif b < 1024*1024:
-                return f"{b/1024:.1f}KB"
+            elif b < 1024 * 1024:
+                return f"{b / 1024:.1f}KB"
             else:
-                return f"{b/1024/1024:.1f}MB"
+                return f"{b / 1024 / 1024:.1f}MB"
 
-        print(f"{episode_id:<40} {created_at:<20} {fmt_size(inputs_size):<10} {fmt_size(schedule_size):<10}")
+        print(
+            f"{episode_id:<40} {created_at:<20} {fmt_size(inputs_size):<10} {fmt_size(schedule_size):<10}"
+        )
 
 
 def show_episode(conn: sqlite3.Connection, episode_id: str) -> None:
     """Show full episode content (decompressed)."""
     cursor = conn.execute(
         "SELECT inputs_json, schedule_json, context_json FROM training_episodes WHERE episode_id = ?",
-        (episode_id,)
+        (episode_id,),
     )
     row = cursor.fetchone()
 
@@ -128,7 +132,7 @@ def search_episodes(conn: sqlite3.Connection, date: str | None = None) -> None:
             WHERE created_at LIKE ? OR episode_id LIKE ?
             ORDER BY created_at DESC
             """,
-            (f"%{date}%", f"%{date}%")
+            (f"%{date}%", f"%{date}%"),
         )
 
         results = cursor.fetchall()
@@ -145,7 +149,7 @@ def export_episode(conn: sqlite3.Connection, episode_id: str, output_path: str) 
     """Export episode to JSON file."""
     cursor = conn.execute(
         "SELECT inputs_json, schedule_json, context_json, config_overrides_json FROM training_episodes WHERE episode_id = ?",
-        (episode_id,)
+        (episode_id,),
     )
     row = cursor.fetchone()
 
@@ -161,17 +165,21 @@ def export_episode(conn: sqlite3.Connection, episode_id: str, output_path: str) 
         "inputs": json.loads(decompress_if_needed(inputs_raw)),
         "schedule": json.loads(decompress_if_needed(schedule_raw)),
         "context": json.loads(decompress_if_needed(context_raw)) if context_raw else None,
-        "config_overrides": json.loads(decompress_if_needed(overrides_raw)) if overrides_raw else None,
+        "config_overrides": json.loads(decompress_if_needed(overrides_raw))
+        if overrides_raw
+        else None,
     }
 
-    with Path(output_path).open('w') as f:
+    with Path(output_path).open("w") as f:
         json.dump(export_data, f, indent=2)
 
     print(f"Episode exported to: {output_path}")
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Inspect training episodes (handles compressed data)")
+    parser = argparse.ArgumentParser(
+        description="Inspect training episodes (handles compressed data)"
+    )
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
 
     # List command

@@ -85,8 +85,8 @@ export function useSettingsForm(fields: BaseField[]): UseSettingsFormReturn {
                 })
             }
 
-            // Required check for critical power/capacity fields
-            if (trimmed === '' && (key.includes('power_kw') || key.includes('capacity_kwh'))) {
+            // Required check
+            if (trimmed === '' && (field.required || key.includes('power_kw') || key.includes('capacity_kwh'))) {
                 errors[key] = 'Required'
                 return errors
             }

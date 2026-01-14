@@ -134,7 +134,9 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
             if slot.get("battery_discharge_kw") == 1.0 and slot.get("export_kwh") == 0.1:
                 found_discharge = True
 
-    assert found_charge, "Did not find planned charge/water slot from DB (expected 2.0 kW charge, 1.0 kW water)"
+    assert found_charge, (
+        "Did not find planned charge/water slot from DB (expected 2.0 kW charge, 1.0 kW water)"
+    )
     assert found_discharge, (
         "Did not find planned discharge slot from DB (expected 1.0 kW discharge)"
     )

@@ -173,6 +173,8 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
   - **Live Preview**: `/design-system` route shows all components
   - **SSOT**: `frontend/src/index.css` contains all tokens and component classes
 - **Documentation Always Updated**: When making any code changes, update relevant documentation (`architecture.md`, `README.md`, etc.). Documentation must always reflect the current implementation.
+- **Unified Validation**: All configuration changes MUST pass the unified validation in `backend/api/routers/config.py:_validate_config_for_save`. Critical entities (SoC, Work Mode, Grid Charging) are mandatory for the executor to avoid 404 errors.
+- **Error Tracking**: Complex background tasks (like the Executor) must track recent errors using a bounded queue (e.g. `deque`) and expose them via a `/health` endpoint for real-time UI feedback.
 - **User Consultation**: Consult the user before:
   - Making major architectural changes.
   - Archiving revisions.

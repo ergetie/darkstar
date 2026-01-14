@@ -314,9 +314,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
                                 / duration_hours,
                                 "soc_target_percent": float(row["planned_soc_percent"] or 0.0),
                                 "export_kwh": float(row["planned_export_kwh"] or 0.0),
-                                "water_heating_kw": float(
-                                    row["planned_water_heating_kwh"] or 0.0
-                                )
+                                "water_heating_kw": float(row["planned_water_heating_kwh"] or 0.0)
                                 / duration_hours,
                             }
                         except Exception:

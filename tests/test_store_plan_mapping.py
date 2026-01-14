@@ -1,4 +1,3 @@
-
 import sqlite3
 from datetime import datetime, timedelta
 
@@ -11,13 +10,16 @@ from backend.learning.store import LearningStore
 # Mock timezone
 TZ = pytz.timezone("Europe/Stockholm")
 
+
 @pytest.fixture
 def memory_db_path(tmp_path):
     return str(tmp_path / "test_learning.db")
 
+
 @pytest.fixture
 def store(memory_db_path):
     return LearningStore(memory_db_path, TZ)
+
 
 def test_store_plan_mappings(store, memory_db_path):
     """
@@ -33,15 +35,17 @@ def test_store_plan_mappings(store, memory_db_path):
     slots = []
     for i in range(4):
         t = now + timedelta(minutes=15 * i)
-        slots.append({
-            "start_time": t,
-            "kepler_charge_kwh": 0.0,
-            "kepler_discharge_kwh": 0.0,
-            "kepler_soc_percent": 0.0, # Old column, should be ignored for target
-            "soc_target_percent": 50.0 + i, # New column we want to Map
-            "water_heating_kw": 2.0, # 2 kW -> 0.5 kWh per 15min slot
-            "planned_cost_sek": 10.0
-        })
+        slots.append(
+            {
+                "start_time": t,
+                "kepler_charge_kwh": 0.0,
+                "kepler_discharge_kwh": 0.0,
+                "kepler_soc_percent": 0.0,  # Old column, should be ignored for target
+                "soc_target_percent": 50.0 + i,  # New column we want to Map
+                "water_heating_kw": 2.0,  # 2 kW -> 0.5 kWh per 15min slot
+                "planned_cost_sek": 10.0,
+            }
+        )
 
     df = pd.DataFrame(slots)
 

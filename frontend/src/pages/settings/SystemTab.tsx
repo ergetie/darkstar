@@ -45,6 +45,22 @@ export const SystemTab: React.FC = () => {
 
     return (
         <div className="space-y-4">
+            {/* HA Add-on Guidance Banner */}
+            <Card className="p-4 bg-accent/5 border border-accent/20">
+                <div className="flex items-start gap-3">
+                    <div className="text-xl">🔌</div>
+                    <div>
+                        <div className="text-sm font-semibold text-accent">HA Add-on User?</div>
+                        <p className="text-xs text-muted mt-1 leading-relaxed">
+                            If you are running as a Home Assistant Add-on, connection settings are managed
+                            automatically.
+                            <strong> Manually entering them here is not required</strong> and they will be reset to
+                            match your add-on configuration on next save.
+                        </p>
+                    </div>
+                </div>
+            </Card>
+
             {systemSections.map((section, idx) => {
                 const prevSection = idx > 0 ? systemSections[idx - 1] : null
                 const showDivider = section.isHA && prevSection && !prevSection.isHA

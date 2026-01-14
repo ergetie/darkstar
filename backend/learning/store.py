@@ -612,7 +612,9 @@ class LearningStore:
                         slot_start,
                         float(row.get("kepler_charge_kwh", 0.0) or 0.0),
                         float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
-                        float(row.get("soc_target_percent", row.get("kepler_soc_percent", 0.0)) or 0.0),
+                        float(
+                            row.get("soc_target_percent", row.get("kepler_soc_percent", 0.0)) or 0.0
+                        ),
                         float(row.get("kepler_import_kwh", 0.0) or 0.0),
                         float(row.get("kepler_export_kwh", 0.0) or 0.0),
                         float(row.get("water_heating_kw", 0.0) or 0.0) * 0.25,  # kW -> kWh (15min)

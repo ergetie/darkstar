@@ -197,8 +197,13 @@ class TestActionDispatcherIdempotency:
     def executor_config(self):
         """Create an executor config."""
         return ExecutorConfig(
-            inverter=InverterConfig(),
-            water_heater=WaterHeaterConfig(),
+            automation_toggle_entity="input_boolean.automation",
+            soc_target_entity="input_number.soc_target",
+            inverter=InverterConfig(
+                work_mode_entity="select.work_mode",
+                grid_charging_entity="switch.grid_charging",
+            ),
+            water_heater=WaterHeaterConfig(target_entity="input_number.water_temp"),
             notifications=NotificationConfig(),
             controller=ControllerConfig(),
         )
@@ -262,7 +267,12 @@ class TestActionDispatcherShadowMode:
         """Create an executor config."""
         return ExecutorConfig(
             shadow_mode=True,
-            inverter=InverterConfig(),
+            soc_target_entity="input_number.soc_target",
+            inverter=InverterConfig(
+                work_mode_entity="select.work_mode",
+                max_charging_current_entity="number.charge_current",
+                grid_max_export_power_entity="number.export_power",
+            ),
             water_heater=WaterHeaterConfig(),
             notifications=NotificationConfig(),
             controller=ControllerConfig(),
@@ -321,8 +331,15 @@ class TestActionDispatcherExecute:
     def executor_config(self):
         """Create an executor config."""
         return ExecutorConfig(
-            inverter=InverterConfig(),
-            water_heater=WaterHeaterConfig(),
+            soc_target_entity="input_number.master_soc_target",
+            inverter=InverterConfig(
+                work_mode_entity="select.inverter_work_mode",
+                grid_charging_entity="switch.inverter_battery_grid_charging",
+                max_charging_current_entity="number.inverter_battery_max_charging_current",
+                max_discharging_current_entity="number.inverter_battery_max_discharging_current",
+                grid_max_export_power_entity="number.inverter_grid_max_export_power",
+            ),
+            water_heater=WaterHeaterConfig(target_entity="input_number.vvbtemp"),
             notifications=NotificationConfig(
                 on_charge_start=False,
                 on_export_start=False,

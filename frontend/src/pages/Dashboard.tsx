@@ -93,6 +93,9 @@ export default function Dashboard() {
 
     // REV LCL01: Health status for config validation banners
     const [healthStatus, setHealthStatus] = useState<HealthResponse | null>(null)
+    // Phase 3: Executor health status
+    const [executorHealth, setExecutorHealth] = useState<import('../lib/api').ExecutorHealthResponse | null>(null)
+    const [lastProcessedErrorTime, setLastProcessedErrorTime] = useState<string | null>(null)
 
     const { toast } = useToast()
 
@@ -301,6 +304,7 @@ export default function Dashboard() {
                 auroraData,
                 historyData,
                 healthData, // REV LCL01: Fetch health for config validation banners
+                executorHealthData, // Phase 3
             ] = await Promise.allSettled([
                 Api.haAverage(), // Cached for 60s
                 Api.energyToday(),
@@ -308,11 +312,31 @@ export default function Dashboard() {
                 Api.aurora.dashboard(),
                 Api.scheduleTodayWithHistory(),
                 Api.health(), // REV LCL01
+                Api.executor.health(), // Phase 3
             ])
 
             // REV LCL01: Update health status for banners
             if (healthData.status === 'fulfilled') {
                 setHealthStatus(healthData.value)
+            }
+
+            // Phase 3: Update executor health and show toasts for new errors
+            if (executorHealthData.status === 'fulfilled') {
+                const health = executorHealthData.value
+                setExecutorHealth(health)
+
+                // Show toasts for NEW errors
+                if (health.recent_errors && health.recent_errors.length > 0) {
+                    const latestError = health.recent_errors[health.recent_errors.length - 1]
+                    if (latestError.timestamp !== lastProcessedErrorTime) {
+                        toast({
+                            message: `Executor Error: ${latestError.type}`,
+                            description: latestError.message,
+                            variant: 'error',
+                        })
+                        setLastProcessedErrorTime(latestError.timestamp)
+                    }
+                }
             }
 
             if (haAverageData.status === 'fulfilled') {
@@ -382,7 +406,7 @@ export default function Dashboard() {
         } finally {
             setChartRefreshToken((token) => token + 1)
         }
-    }, [])
+    }, [lastProcessedErrorTime, toast])
 
     const fetchAllData = useCallback(async () => {
         await fetchCriticalData()
@@ -581,6 +605,42 @@ export default function Dashboard() {
                         </span>
                     )}
                 </motion.div>
+            )}
+
+            {/* Executor Critical Error Banner */}
+            {executorHealth?.has_error && (
+                <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="banner banner-error px-4 py-3 flex items-center justify-between"
+                >
+                    <div className="flex items-center gap-2">
+                        <span>🚨</span>
+                        <span className="font-medium">Executor Error: {executorHealth.last_run_status}</span>
+                        <span className="opacity-70 text-xs">— {executorHealth.error}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px] opacity-60">
+                        {executorHealth.last_run_at && new Date(executorHealth.last_run_at).toLocaleTimeString()}
+                    </div>
+                </motion.div>
+            )}
+
+            {/* Executor Warnings (Critical Entities Missing) */}
+            {executorHealth?.warnings && executorHealth.warnings.length > 0 && (
+                <div className="space-y-2">
+                    {executorHealth.warnings.map((warning, idx) => (
+                        <motion.div
+                            key={`executor-warning-${idx}`}
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="banner banner-warning px-4 py-3 flex items-center gap-2"
+                        >
+                            <span>⚠️</span>
+                            <span className="font-medium">{warning}</span>
+                            <span className="opacity-70 text-xs">— Action skipped. Configure in Settings.</span>
+                        </motion.div>
+                    ))}
+                </div>
             )}
 
             {/* Vacation Mode Banner */}

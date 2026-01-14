@@ -14,24 +14,41 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+def _str_or_none(value: Any) -> str | None:
+    """Convert config value to str or None. Empty strings become None.
+
+    Used to normalize entity IDs from YAML - empty values should be None, not empty strings.
+    This ensures `if not entity:` guards work correctly in executor actions.
+
+    Args:
+        value: Any value from config (str, None, or other)
+
+    Returns:
+        str if value is non-empty string, None otherwise
+    """
+    if value is None or value == "" or str(value).strip() == "":
+        return None
+    return str(value)
+
+
 @dataclass
 class InverterConfig:
     """Inverter control entity configuration."""
 
-    work_mode_entity: str = "select.inverter_work_mode"
+    work_mode_entity: str | None = None
     work_mode_export: str = "Export First"
     work_mode_zero_export: str = "Zero Export To CT"
-    grid_charging_entity: str = "switch.inverter_battery_grid_charging"
-    max_charging_current_entity: str = "number.inverter_battery_max_charging_current"
-    max_discharging_current_entity: str = "number.inverter_battery_max_discharging_current"
-    grid_max_export_power_entity: str = "number.inverter_grid_max_export_power"
+    grid_charging_entity: str | None = None
+    max_charging_current_entity: str | None = None
+    max_discharging_current_entity: str | None = None
+    grid_max_export_power_entity: str | None = None
 
 
 @dataclass
 class WaterHeaterConfig:
     """Water heater control configuration."""
 
-    target_entity: str = "input_number.vvbtemp"
+    target_entity: str | None = None
     temp_normal: int = 60
     temp_off: int = 40
     temp_boost: int = 70
@@ -79,9 +96,9 @@ class ExecutorConfig:
     shadow_mode: bool = False  # Log only, don't execute
     interval_seconds: int = 300  # 5 minutes
 
-    automation_toggle_entity: str = "input_boolean.helios_ai_mode"
-    manual_override_entity: str = "input_boolean.darkstar_manual_override"
-    soc_target_entity: str = "input_number.master_soc_target"
+    automation_toggle_entity: str | None = None
+    manual_override_entity: str | None = None
+    soc_target_entity: str | None = None
 
     inverter: InverterConfig = field(default_factory=InverterConfig)
     water_heater: WaterHeaterConfig = field(default_factory=WaterHeaterConfig)
@@ -154,32 +171,20 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         executor_data.get("inverter", {}) if isinstance(executor_data.get("inverter"), dict) else {}
     )
     inverter = InverterConfig(
-        work_mode_entity=str(
-            inverter_data.get("work_mode_entity", InverterConfig.work_mode_entity)
-        ),
+        work_mode_entity=_str_or_none(inverter_data.get("work_mode_entity")),
         work_mode_export=str(
             inverter_data.get("work_mode_export", InverterConfig.work_mode_export)
         ),
         work_mode_zero_export=str(
             inverter_data.get("work_mode_zero_export", InverterConfig.work_mode_zero_export)
         ),
-        grid_charging_entity=str(
-            inverter_data.get("grid_charging_entity", InverterConfig.grid_charging_entity)
+        grid_charging_entity=_str_or_none(inverter_data.get("grid_charging_entity")),
+        max_charging_current_entity=_str_or_none(inverter_data.get("max_charging_current_entity")),
+        max_discharging_current_entity=_str_or_none(
+            inverter_data.get("max_discharging_current_entity")
         ),
-        max_charging_current_entity=str(
-            inverter_data.get(
-                "max_charging_current_entity", InverterConfig.max_charging_current_entity
-            )
-        ),
-        max_discharging_current_entity=str(
-            inverter_data.get(
-                "max_discharging_current_entity", InverterConfig.max_discharging_current_entity
-            )
-        ),
-        grid_max_export_power_entity=str(
-            inverter_data.get(
-                "grid_max_export_power_entity", InverterConfig.grid_max_export_power_entity
-            )
+        grid_max_export_power_entity=_str_or_none(
+            inverter_data.get("grid_max_export_power_entity")
         ),
     )
 
@@ -189,7 +194,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         else {}
     )
     water_heater = WaterHeaterConfig(
-        target_entity=str(water_data.get("target_entity", WaterHeaterConfig.target_entity)),
+        target_entity=_str_or_none(water_data.get("target_entity")),
         temp_normal=int(water_data.get("temp_normal", WaterHeaterConfig.temp_normal)),
         temp_off=int(water_data.get("temp_off", WaterHeaterConfig.temp_off)),
         temp_boost=int(water_data.get("temp_boost", WaterHeaterConfig.temp_boost)),
@@ -258,15 +263,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         enabled=bool(executor_data.get("enabled", False)),
         shadow_mode=bool(executor_data.get("shadow_mode", False)),
         interval_seconds=int(executor_data.get("interval_seconds", 300)),
-        automation_toggle_entity=str(
-            executor_data.get("automation_toggle_entity", ExecutorConfig.automation_toggle_entity)
-        ),
-        manual_override_entity=str(
-            executor_data.get("manual_override_entity", ExecutorConfig.manual_override_entity)
-        ),
-        soc_target_entity=str(
-            executor_data.get("soc_target_entity", ExecutorConfig.soc_target_entity)
-        ),
+        automation_toggle_entity=_str_or_none(executor_data.get("automation_toggle_entity")),
+        manual_override_entity=_str_or_none(executor_data.get("manual_override_entity")),
+        soc_target_entity=_str_or_none(executor_data.get("soc_target_entity")),
         inverter=inverter,
         water_heater=water_heater,
         notifications=notifications,

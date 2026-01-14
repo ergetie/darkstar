@@ -10,6 +10,7 @@ The main executor loop that orchestrates:
 6. Logging execution history
 """
 
+import collections
 import contextlib
 import json
 import logging
@@ -113,6 +114,9 @@ class ExecutorEngine:
         self._has_battery = system_cfg.get("has_battery", True)
         self._has_water_heater = system_cfg.get("has_water_heater", True)
 
+        # Recent errors tracking (Phase 3)
+        self.recent_errors = collections.deque(maxlen=10)
+
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
         # Use the same database as the learning engine
@@ -193,6 +197,7 @@ class ExecutorEngine:
                 "quick_action": quick_action_status,
                 "paused": pause_status,
                 "water_boost": water_boost_status,
+                "recent_errors": list(self.recent_errors),
                 "version": EXECUTOR_VERSION,
             }
 
@@ -893,15 +898,13 @@ class ExecutorEngine:
             action_results: list[ActionResult] = []
             if self.dispatcher:
                 action_results = self.dispatcher.execute(decision)
-                result["actions"] = [
-                    {
-                        "type": r.action_type,
-                        "success": r.success,
-                        "message": r.message,
-                        "skipped": r.skipped,
-                    }
-                    for r in action_results
-                ]
+
+                # Phase 3: Capture errors from action results
+                for r in action_results:
+                    if not r.success and not r.skipped:
+                        self.recent_errors.append(
+                            {"timestamp": now_iso, "type": r.action_type, "message": r.message}
+                        )
 
             # 7. Log execution to history
             duration_ms = int((time.time() - start_time) * 1000)
@@ -956,6 +959,11 @@ class ExecutorEngine:
 
             if self.dispatcher:
                 self.dispatcher.notify_error(str(e))
+
+            # Phase 3: Capture critical tick failure
+            self.recent_errors.append(
+                {"timestamp": now_iso, "type": "engine_tick", "message": str(e)}
+            )
 
         return result
 

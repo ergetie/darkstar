@@ -248,11 +248,12 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.work_mode_entity
 
-        if not entity:
+        if not entity or entity.strip() == "":
+            logger.debug("Skipping work_mode action: entity not configured")
             return ActionResult(
                 action_type="work_mode",
                 success=True,
-                message="Work mode entity not configured, skipping",
+                message="Work mode entity not configured. Configure in Settings → System → HA Entities",
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
@@ -303,11 +304,12 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.grid_charging_entity
 
-        if not entity:
+        if not entity or entity.strip() == "":
+            logger.debug("Skipping grid_charging action: entity not configured")
             return ActionResult(
                 action_type="grid_charging",
                 success=True,
-                message="Grid charging entity not configured, skipping",
+                message="Grid charging entity not configured. Configure in Settings → System → HA Entities",
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
@@ -359,6 +361,16 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.max_charging_current_entity
 
+        if not entity or entity.strip() == "":
+            logger.debug("Skipping charge_current action: entity not configured")
+            return ActionResult(
+                action_type="charge_current",
+                success=True,
+                message="Max charge current entity not configured. Configure in Settings → System → HA Entities",
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
         logger.info("Setting charge_current: %.1f A on entity: %s", amps, entity)
 
         if self.shadow_mode:
@@ -388,7 +400,15 @@ class ActionDispatcher:
         """Set max discharging current."""
         start = time.time()
         entity = self.config.inverter.max_discharging_current_entity
-
+        if not entity or entity.strip() == "":
+            logger.debug("Skipping discharge_current action: entity not configured")
+            return ActionResult(
+                action_type="discharge_current",
+                success=True,
+                message="Max discharge current entity not configured. Configure in Settings → System → HA Entities",
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
         if self.shadow_mode:
             logger.info("[SHADOW] Would set discharge_current to %s A", amps)
             return ActionResult(
@@ -416,11 +436,12 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.soc_target_entity
 
-        if not entity:
+        if not entity or entity.strip() == "":
+            logger.debug("Skipping soc_target action: entity not configured")
             return ActionResult(
                 action_type="soc_target",
                 success=True,
-                message="SoC target entity not configured, skipping",
+                message="SoC target entity not configured. Configure in Settings → System → HA Entities",
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
@@ -478,11 +499,12 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.water_heater.target_entity
 
-        if not entity:
+        if not entity or entity.strip() == "":
+            logger.debug("Skipping water_temp action: entity not configured")
             return ActionResult(
                 action_type="water_temp",
                 success=True,
-                message="Water heater target entity not configured, skipping",
+                message="Water heater target entity not configured. Configure in Settings → System → HA Entities",
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
@@ -543,12 +565,14 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.grid_max_export_power_entity
 
-        if not entity or entity == "none":
+        if not entity or entity.strip() == "" or entity.lower() == "none":
+            logger.debug("Skipping max_export_power action: entity not configured")
             return ActionResult(
                 action_type="max_export_power",
                 success=True,
-                message="Export power entity not configured, skipping",
+                message="Export power entity not configured. Configure in Settings → System → HA Entities",
                 skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
             )
 
         # Check current value and apply write threshold to prevent EEPROM wear

@@ -16,6 +16,7 @@ export interface BaseField {
     companionKey?: string
     disabled?: boolean
     notImplemented?: boolean
+    required?: boolean
 }
 
 export interface SettingsSection<T extends BaseField = BaseField> {
@@ -294,6 +295,7 @@ export const systemSections: SettingsSection[] = [
                 label: 'Battery SoC (%)',
                 path: ['input_sensors', 'battery_soc'],
                 type: 'entity',
+                required: true,
             },
             {
                 key: 'input_sensors.pv_power',
@@ -312,12 +314,14 @@ export const systemSections: SettingsSection[] = [
                 label: 'Work Mode Selector',
                 path: ['executor', 'inverter', 'work_mode_entity'],
                 type: 'entity',
+                required: true,
             },
             {
                 key: 'executor.inverter.grid_charging_entity',
                 label: 'Grid Charging Switch',
                 path: ['executor', 'inverter', 'grid_charging_entity'],
                 type: 'entity',
+                required: true,
             },
             {
                 key: 'executor.inverter.max_charging_current_entity',

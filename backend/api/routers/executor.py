@@ -498,36 +498,47 @@ async def get_executor_status_snapshot() -> dict[str, Any]:
     return executor.get_status()
 
 
-def get_executor_health() -> dict[str, Any]:
+@router.get(
+    "/api/executor/health",
+    summary="Get Executor Health",
+    description="Returns detailed health information about the executor.",
+)
+async def get_health(executor: ExecutorDep) -> dict[str, Any]:
     """
-    Get executor health status for health check endpoint.
-
-    Returns:
-        Dictionary with health status, including:
-        - is_running: Whether executor thread is alive
-        - is_enabled: Whether executor is enabled in config
-        - last_run: When executor last ran
-        - has_error: Whether last run had an error
+    Get executor health status for dashboard.
     """
-    executor = get_executor_instance()
-    if not executor:
-        return {
-            "is_running": False,
-            "is_enabled": False,
-            "has_error": True,
-            "error": "Executor failed to initialize",
-        }
-
     is_alive = executor._thread and executor._thread.is_alive()
-    should_be_running = executor.config.enabled and not executor.is_paused()
+    paused = executor.is_paused
+    should_be_running = executor.config.enabled and not paused
+
+    # Collect warnings
+    warnings = []
+    if executor.config.enabled and not is_alive and not paused:
+        warnings.append("Executor is enabled but background thread is not running")
+
+    # Check for missing critical entities
+    critical_entities = {
+        "work_mode": executor.config.inverter.work_mode_entity,
+        "grid_charging": executor.config.inverter.grid_charging_entity,
+        "soc_target": executor.config.soc_target_entity,
+    }
+    for name, entity in critical_entities.items():
+        if not entity:
+            warnings.append(f"Critical entity '{name}' not configured")
 
     return {
+        "status": "healthy"
+        if is_alive == should_be_running and executor.status.last_run_status != "error"
+        else "error",
         "is_running": is_alive,
         "is_enabled": executor.config.enabled,
+        "is_paused": paused,
         "should_be_running": should_be_running,
         "last_run_at": executor.status.last_run_at,
         "last_run_status": executor.status.last_run_status,
         "has_error": executor.status.last_run_status == "error",
         "error": executor.status.last_error if executor.status.last_run_status == "error" else None,
+        "recent_errors": list(executor.recent_errors),
+        "warnings": warnings,
         "is_healthy": is_alive == should_be_running and executor.status.last_run_status != "error",
     }

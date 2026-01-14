@@ -215,6 +215,29 @@ def _validate_config_for_save(config: dict[str, Any]) -> list[dict[str, str]]:
                 }
             )
 
+    # Executor: Critical entities (ERROR)
+    executor_cfg = config.get("executor", {})
+    inverter_cfg = executor_cfg.get("inverter", {})
+    input_sensors = config.get("input_sensors", {})
+
+    critical_entities = [
+        ("executor.inverter.work_mode_entity", inverter_cfg.get("work_mode_entity")),
+        ("executor.inverter.grid_charging_entity", inverter_cfg.get("grid_charging_entity")),
+        ("input_sensors.battery_soc", input_sensors.get("battery_soc")),
+    ]
+
+    for field_path, value in critical_entities:
+        if (
+            not value or str(value).strip() == "" or str(value).lower() == "none"
+        ) and executor_cfg.get("enabled", True):
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"Executor is enabled but critical entity {field_path} is not configured.",
+                    "guidance": "Please configure this entity in the Settings - System tab.",
+                }
+            )
+
     return issues
 
 
