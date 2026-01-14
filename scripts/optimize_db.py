@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.resolve()))
 
 
-def optimize_db(days_to_keep: int = 14):
+def optimize_db(rows_to_keep: int = 0):
     """Optimize the database by trimming old training episodes."""
 
     db_path = Path("data/planner_learning.db")
@@ -26,7 +26,7 @@ def optimize_db(days_to_keep: int = 14):
     print("DATABASE OPTIMIZER")
     print("=" * 80)
     print(f"Target Database: {db_path}")
-    print(f"Policy: Keep last {days_to_keep} days of history")
+    print(f"Policy: Keep most recent {rows_to_keep} rows (0 = Delete All)")
     print("=" * 80 + "\n")
 
     if not db_path.exists():
@@ -73,24 +73,22 @@ def optimize_db(days_to_keep: int = 14):
         count_before = cursor.fetchone()[0]
         print(f"   Rows before: {count_before:,}")
 
-        # Calculate cutoff
-        # We use explicit date calculation for safety, rather than just "NOT IN LIMIT"
-        # Although "NOT IN LIMIT" is safer for "always keep N rows".
-        # Let's stick to the "Keep N Rows" logic from the successful test as it is robust against clock skews.
-        # Assuming ~96 episodes/day (15min), 14 days = 1,344 rows. Let's keep 2,000 to be safe.
-
-        rows_to_keep = 2000
-        print(f"   Target: Keep most recent {rows_to_keep:,} rows (approx. {rows_to_keep/96:.1f} days)")
+        print(f"   Target: Keep {rows_to_keep} rows")
 
         start = time.time()
-        cursor.execute(f"""
-            DELETE FROM training_episodes
-            WHERE episode_id NOT IN (
-                SELECT episode_id FROM training_episodes
-                ORDER BY created_at DESC
-                LIMIT {rows_to_keep}
-            )
-        """)
+
+        if rows_to_keep == 0:
+            cursor.execute("DELETE FROM training_episodes")
+        else:
+            cursor.execute(f"""
+                DELETE FROM training_episodes
+                WHERE episode_id NOT IN (
+                    SELECT episode_id FROM training_episodes
+                    ORDER BY created_at DESC
+                    LIMIT {rows_to_keep}
+                )
+            """)
+
         deleted_count = cursor.rowcount
         conn.commit()
 

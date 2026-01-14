@@ -80,3 +80,4 @@ calculate_metrics_n8n.js
 .idx/
 .vscode/
 data/planner_learning.db.manual_backup_20260114_202015
+data/planner_learning.db.bak.20260114_214615
