@@ -1,5 +1,18 @@
 # Darkstar Release Notes
 
+## [v2.4.13-beta] - Performance & UI Polish - 2026-01-14
+
+### 🚀 Performance
+- **Planner Speedup:** Fixed a critical "524 Timeout" issue by optimizing database initialization and disabling legacy debug logging.
+- **Database Tools:** Added `scripts/optimize_db.py` to safe-trim oversized databases (reducing 2GB+ files to <200MB) and `scripts/profile_planner.py` for performance analysis.
+- **Fix:** `training_episodes` table is no longer populated by default, preventing indefinite database growth.
+
+### 🐛 Fixes
+- **UI:** Moved "HA Add-on User" banner to correct section in Settings.
+- **UI:** Added warning tooltip to HA URL setting for add-on users.
+
+---
+
 ## [v2.4.12-beta] - Executor Resilience & History Fixes - 2026-01-14
 
 **Core Features**
@@ -14,6 +27,8 @@
 ---
 
 ## [v2.4.11-beta] - Historical Charts & Security Polish - 2026-01-14
+
+
 
 **Core Fixes**
 *   **Historical Charts Restored (REV H3)**: Fixed missing planned actions in the chart history view. The API now correctly queries the `slot_plans` table to overlay charge/discharge bars and SoC targets for past time slots.

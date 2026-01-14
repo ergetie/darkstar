@@ -94,6 +94,12 @@ Located in `planner.py`, the system now uses **Kepler**, a Mixed-Integer Linear 
     *   **Dynamic Target SoC**: Buffers against tomorrow's risks (e.g., low PV).
 *   **Water Heating**: Scheduled as a "committed load" before the battery optimization runs.
 
+### Database Management
+Darkstar uses SQLite (`data/planner_learning.db`). Over time, this file may grow large due to debug logging.
+- **Optimize:** Run `python scripts/optimize_db.py` to backup, trim old history, and vacuum the database.
+- **Profile:** Run `python scripts/profile_db.py` to analyze table sizes and performance.
+- **Planner Profile:** Run `python scripts/profile_planner.py` to benchmark the planner pipeline.
+
 For a deep dive into the solver logic, see [architecture.md](architecture.md).
 
 > **Note:** The legacy heuristic MPC planner (7-pass logic) is preserved for reference in [LEGACY_MPC.md](LEGACY_MPC.md).
