@@ -1,23 +1,25 @@
 """
 Security test: Path traversal prevention in SPA fallback handler.
 """
-from pathlib import Path
+
+
 import pytest
 from fastapi import HTTPException
+
 from backend.main import validate_path
+
 
 def test_validate_path_traversal():
     """Verify validate_path raises 404 for traversal attempts."""
     # Create a dummy base structure
     # We don't need real files, just Path logic
-    base_dir = Path("/tmp/static_test")
-    
-    # Logic is purely Path-based, so we can test with non-existent paths 
+
+    # Logic is purely Path-based, so we can test with non-existent paths
     # as long as we mock resolve behavior OR assume standard behavior.
-    # Actually, .resolve() typically requires files to exist to resolve symlinks, 
+    # Actually, .resolve() typically requires files to exist to resolve symlinks,
     # but for ".." collapsing it handles it lexically in recent Pythons IF strict=False (default).
     # HOWEVER, strict containment check relies on .resolve() returning absolute path.
-    
+
     # Better approach: Use a real temp dir for reliable .resolve() test
     pass
 

@@ -1,5 +1,19 @@
 # Darkstar Release Notes
 
+## [v2.4.11-beta] - Historical Charts & Security Polish - 2026-01-14
+
+**Core Fixes**
+*   **Historical Charts Restored (REV H3)**: Fixed missing planned actions in the chart history view. The API now correctly queries the `slot_plans` table to overlay charge/discharge bars and SoC targets for past time slots.
+*   **Security Patch (REV F9)**: Fixed a critical path traversal vulnerability in the SPA fallback handler to prevent unauthorized file access.
+
+**UI & Cleanups**
+*   **Help System Refinement**: Simplified the help system to rely on tooltips (Single Source of Truth) and removed redundant inline helper text.
+*   **"Not Implemented" Badges**: Added visual warning badges for non-functional toggles (e.g., Export Enable) to set clear user expectations.
+*   **Code Hygiene**: Removed typo "calculationsWfz" and cleaned up TODO markers from user-facing text.
+*   **Startup & Config Hardening**: Upgraded `run.sh` to preserve comments in `config.yaml` using `ruamel.yaml` and improved logic for manual overrides.
+
+---
+
 ## [v2.4.10-beta] - History Fix & Config Cleanup - 2026-01-13
 
 **Critical Bug Fix**

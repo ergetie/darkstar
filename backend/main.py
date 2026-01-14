@@ -121,19 +121,19 @@ def validate_path(base_dir: Path, requested_path: str) -> Path:
         # Join and resolve
         target = base_dir / requested_path
         resolved = target.resolve()
-        
+
         # Verify strict containment
         # We check both:
         # 1. Is base_dir a parent of resolved?
         # 2. Is resolved exactly base_dir? (Accessing root static dir)
         base_resolved = base_dir.resolve()
-        
+
         if base_resolved not in resolved.parents and resolved != base_resolved:
             raise HTTPException(status_code=404, detail="Not found")
-            
+
         return resolved
     except (ValueError, OSError):
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Not found") from None
 
 
 def create_app() -> socketio.ASGIApp:
@@ -247,7 +247,7 @@ def create_app() -> socketio.ASGIApp:
             # Security: Prevent directory traversal attacks
             # checking logic extracted to validate_path for testability
             _ = validate_path(static_dir, full_path)
-            
+
             # If requesting a specific file that exists, serve it directly
             file_path = static_dir / full_path
             if file_path.is_file():

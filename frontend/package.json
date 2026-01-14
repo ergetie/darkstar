@@ -1,7 +1,7 @@
 {
-  "name": "darkstar-sandbox",
+  "name": "darkstar-frontend",
   "private": true,
-  "version": "2.4.10-beta",
+  "version": "2.4.11-beta",
   "type": "module",
   "scripts": {
     "dev": "vite",

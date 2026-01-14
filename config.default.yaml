@@ -5,7 +5,8 @@
 # Structure matches config.default.yaml with user-specific values.
 # =============================================================================
 
-# General System Settings
+# System Metadata
+version: "2.4.11-beta"
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
 # AI Advisor (Smart Assistant on Dashboard)
