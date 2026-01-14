@@ -34,7 +34,7 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 4. [x] Remove 5 TODO markers from user-facing text
 5. [x] Fix typo "calculationsWfz"
 6. [x] Delete 4 orphan help text entries
-7. [ ] **Consolidate Battery Capacity:** Resolve mismatch between Planner (34.2kWh) and Executor (27.0kWh).
+7. [ ] **Consolidate Battery Capacity:** Resolve mismatch between Planner (34.2kWh) and Executor (27.0kWh). (NEEDS INVESTIGATION IF WE EVEN CAN/SHOULD CONSOLIDATE AND IF WE CURRENTLY EXPOSE BOTH IN UI!)
 8. [x] **Fix Path Traversal:** Secure `serve_spa`.
 9. [ ] **Refactor to Async DB:** Switch `store.py` from sync `sqlite3` to `aiosqlite` to prevent event loop blocking (Critical #1).
 10. [ ] **Delete Archived Frontend Code:** Remove 68KB dead code in `frontend/src/pages/archive/` (4 files). (THIS SHOULD NOT BE DONE BEFORE INVESTIGATING WHAT WE SHOULD KEEP! THE PAGES ARE MIXED PLACEHOLDERS AND LEGACY PAGES.)

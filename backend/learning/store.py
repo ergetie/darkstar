@@ -80,6 +80,7 @@ class LearningStore:
                     planned_soc_percent REAL,
                     planned_import_kwh REAL,
                     planned_export_kwh REAL,
+                    planned_water_heating_kwh REAL,
                     planned_cost_sek REAL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(slot_start)
@@ -105,6 +106,10 @@ class LearningStore:
                 ("pv_p90", "ALTER TABLE slot_forecasts ADD COLUMN pv_p90 REAL"),
                 ("load_p10", "ALTER TABLE slot_forecasts ADD COLUMN load_p10 REAL"),
                 ("load_p90", "ALTER TABLE slot_forecasts ADD COLUMN load_p90 REAL"),
+                (
+                    "planned_water_heating_kwh",
+                    "ALTER TABLE slot_plans ADD COLUMN planned_water_heating_kwh REAL",
+                ),
             ):
                 try:
                     cursor.execute(ddl)
@@ -121,6 +126,9 @@ class LearningStore:
                     pv_correction_kwh = COALESCE(pv_correction_kwh, 0.0),
                     load_correction_kwh = COALESCE(load_correction_kwh, 0.0),
                     correction_source = COALESCE(correction_source, 'none')
+                WHERE pv_correction_kwh IS NULL
+                   OR load_correction_kwh IS NULL
+                   OR correction_source IS NULL
                 """
             )
 
@@ -586,15 +594,17 @@ class LearningStore:
                         planned_soc_percent,
                         planned_import_kwh,
                         planned_export_kwh,
+                        planned_water_heating_kwh,
                         planned_cost_sek
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(slot_start) DO UPDATE SET
                         planned_charge_kwh = excluded.planned_charge_kwh,
                         planned_discharge_kwh = excluded.planned_discharge_kwh,
                         planned_soc_percent = excluded.planned_soc_percent,
                         planned_import_kwh = excluded.planned_import_kwh,
                         planned_export_kwh = excluded.planned_export_kwh,
+                        planned_water_heating_kwh = excluded.planned_water_heating_kwh,
                         planned_cost_sek = excluded.planned_cost_sek,
                         created_at = CURRENT_TIMESTAMP
                     """,
@@ -602,9 +612,10 @@ class LearningStore:
                         slot_start,
                         float(row.get("kepler_charge_kwh", 0.0) or 0.0),
                         float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
-                        float(row.get("kepler_soc_percent", 0.0) or 0.0),
+                        float(row.get("soc_target_percent", row.get("kepler_soc_percent", 0.0)) or 0.0),
                         float(row.get("kepler_import_kwh", 0.0) or 0.0),
                         float(row.get("kepler_export_kwh", 0.0) or 0.0),
+                        float(row.get("water_heating_kw", 0.0) or 0.0) * 0.25,  # kW -> kWh (15min)
                         float(row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0),
                     ),
                 )
