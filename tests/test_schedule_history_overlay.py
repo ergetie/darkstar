@@ -145,7 +145,7 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
 async def test_today_with_history_sets_executed_flag(tmp_path):
     """Verify that historical slots from observations have is_executed=True."""
     db_path = tmp_path / "planner_learning.db"
-    
+
     async with aiosqlite.connect(db_path) as conn:
         await conn.execute("""
             CREATE TABLE slot_observations (
@@ -184,7 +184,7 @@ async def test_today_with_history_sets_executed_flag(tmp_path):
         now = datetime.now(tz)
         past_start = (now - timedelta(minutes=60)).replace(minute=0, second=0, microsecond=0)
         past_end = past_start + timedelta(minutes=15)
-        
+
         await conn.execute(
             "INSERT INTO slot_observations (slot_start, slot_end, batt_charge_kwh, batt_discharge_kwh, soc_end_percent, water_kwh, import_kwh, export_kwh, import_price_sek_kwh) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (past_start.isoformat(), past_end.isoformat(), 0.5, 0.0, 50.0, 0.0, 0.0, 0.0, 0.5)
@@ -194,10 +194,12 @@ async def test_today_with_history_sets_executed_flag(tmp_path):
     # Mock config
     mock_config = {"learning": {"sqlite_path": str(db_path)}, "timezone": "UTC"}
 
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import MagicMock, patch
 
-    with patch("backend.api.routers.schedule.load_yaml", return_value=mock_config):
-        with patch("backend.api.routers.schedule.Path") as MockPath:
+    with (
+        patch("backend.api.routers.schedule.load_yaml", return_value=mock_config),
+        patch("backend.api.routers.schedule.Path") as MockPath,
+    ):
              # Hide schedule.json so we rely on DB
             def side_effect(arg):
                 if str(arg) == "schedule.json":
@@ -207,15 +209,15 @@ async def test_today_with_history_sets_executed_flag(tmp_path):
                 return Path(arg) # Use real path for DB
 
             MockPath.side_effect = side_effect
-            
+
             from backend.api.routers.schedule import schedule_today_with_history
             result = await schedule_today_with_history()
 
     slots = result["slots"]
     found_executed = False
-    
+
     target_time_str = past_start.isoformat()
-    
+
     for slot in slots:
         if slot["start_time"] == target_time_str:
             print(f"Checking slot {target_time_str}: {slot}")
@@ -223,5 +225,5 @@ async def test_today_with_history_sets_executed_flag(tmp_path):
                 found_executed = True
                 # Also verify mapping of actual_charge_kw (0.5 kWh / 0.25h = 2.0 kW)
                 assert slot.get("actual_charge_kw") == 2.0
-            
+
     assert found_executed, "Did not find is_executed=True for historical slot"

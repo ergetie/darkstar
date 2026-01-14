@@ -22,16 +22,16 @@ logger = logging.getLogger("profiler")
 
 def profile_planner():
     """Profile the planner execution with detailed timings."""
-    
+
     print("\n" + "=" * 80)
     print("PLANNER PERFORMANCE PROFILE")
     print("=" * 80)
     print(f"Start Time: {datetime.now().isoformat()}")
     print("=" * 80 + "\n")
-    
+
     timings = {}
     overall_start = time.time()
-    
+
     # Step 1: Import planner
     step_start = time.time()
     try:
@@ -41,7 +41,7 @@ def profile_planner():
     except Exception as e:
         print(f"✗ Import planner FAILED: {e}")
         return
-    
+
     # Step 2: Import LearningEngine
     step_start = time.time()
     try:
@@ -51,33 +51,34 @@ def profile_planner():
     except Exception as e:
         print(f"✗ Import learning engine FAILED: {e}")
         return
-    
+
     # Step 3: Initialize LearningEngine
     step_start = time.time()
     try:
-        engine = get_learning_engine()
+        get_learning_engine()
         timings["3_init_learning_engine"] = time.time() - step_start
         print(f"✓ Initialize learning engine: {timings['3_init_learning_engine']:.4f}s")
     except Exception as e:
         print(f"✗ Initialize learning engine FAILED: {e}")
         return
-    
+
     # Step 4: Initialize LearningStore directly
     step_start = time.time()
     try:
         import pytz
+
         from backend.learning.store import LearningStore
-        
+
         db_path = "data/planner_learning.db"
         tz = pytz.timezone("Europe/Stockholm")
-        store = LearningStore(db_path, tz)
-        
+        LearningStore(db_path, tz)
+
         timings["4_init_learning_store"] = time.time() - step_start
         print(f"✓ Initialize learning store: {timings['4_init_learning_store']:.4f}s")
     except Exception as e:
         print(f"✗ Initialize learning store FAILED: {e}")
         return
-    
+
     # Step 5: Run full planner
     step_start = time.time()
     try:
@@ -88,10 +89,10 @@ def profile_planner():
     except Exception as e:
         print(f"✗ Run planner FAILED: {e}")
         return
-    
+
     # Overall
     timings["total"] = time.time() - overall_start
-    
+
     # Print Summary
     print("\n" + "=" * 80)
     print("SUMMARY")
@@ -99,7 +100,7 @@ def profile_planner():
     for key, value in timings.items():
         print(f"{key:.<40} {value:>10.4f}s")
     print("=" * 80)
-    
+
     # Analysis
     print("\nANALYSIS:")
     if timings.get("3_init_learning_engine", 0) > 1.0:
@@ -108,7 +109,7 @@ def profile_planner():
         print("⚠️  WARNING: Learning store init > 1s (expected ~0.05s with fix)")
     if timings.get("5_run_planner", 0) > 30.0:
         print("⚠️  WARNING: Planner execution > 30s (may indicate DB I/O bottleneck)")
-    
+
     print(f"\nEnd Time: {datetime.now().isoformat()}")
     print("=" * 80 + "\n")
 
