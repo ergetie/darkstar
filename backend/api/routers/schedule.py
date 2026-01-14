@@ -344,6 +344,7 @@ async def schedule_today_with_history() -> dict[str, Any]:
         # Attach history
         if key in exec_map:
             h = exec_map[key]
+            slot["is_executed"] = True
             slot["actual_charge_kw"] = h.get("actual_charge_kw")
             slot["actual_discharge_kw"] = h.get("actual_discharge_kw")
             slot["actual_export_kwh"] = h.get("actual_export_kwh")

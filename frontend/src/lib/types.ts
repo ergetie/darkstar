@@ -20,6 +20,7 @@ export type ScheduleSlot = {
     actual_soc?: number // Backend key for SOC actual
     actual_charge_kw?: number
     actual_export_kw?: number
+    actual_discharge_kw?: number
     actual_load_kwh?: number
     actual_pv_kwh?: number
 }

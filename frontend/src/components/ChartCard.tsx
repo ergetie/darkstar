@@ -1151,15 +1151,6 @@ function buildLiveData(
             slotByTime.set(t, s)
         }
 
-        // DEBUG: Verify map population with charge data
-        console.log(`[48h DEBUG] slotByTime map populated with ${slotByTime.size} entries`)
-        const firstFewEntries = Array.from(slotByTime.entries()).slice(0, 5)
-        console.log(`[48h DEBUG] First 5 map entries:`, firstFewEntries.map(([ts, slot]) => ({
-            timestamp: new Date(ts).toISOString(),
-            charge: slot.battery_charge_kw ?? slot.charge_kw,
-            actual_charge: slot.actual_charge_kw
-        })))
-
         const labels: string[] = []
         const price: (number | null)[] = []
         const pv: (number | null)[] = []
@@ -1180,12 +1171,6 @@ function buildLiveData(
             const bucketEnd = new Date(bucketStart.getTime() + stepMs)
             const slot = slotByTime.get(bucketStart.getTime())
 
-            // DEBUG: Log first 10 bucket iterations to check slot lookups
-            if (i < 10) {
-                const chargeVal = slot ? (slot.actual_charge_kw ?? slot.battery_charge_kw ?? slot.charge_kw) : null
-                console.log(`[48h DEBUG] Bucket ${i}: ${bucketStart.toISOString()}, timestamp=${bucketStart.getTime()}, slot=${slot ? 'found' : 'NOT FOUND'}, charge=${chargeVal}`)
-            }
-
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
@@ -1201,8 +1186,11 @@ function buildLiveData(
                         ? slot.actual_charge_kw
                         : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
                 )
-                // Discharge and water: always show planned (actual_discharge/actual_water not tracked)
-                discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
+                discharge.push(
+                    isExec && slot.actual_discharge_kw != null
+                        ? slot.actual_discharge_kw
+                        : (slot.battery_discharge_kw ?? slot.discharge_kw ?? null),
+                )
                 exp.push(isExec && slot.actual_export_kw != null ? slot.actual_export_kw : (slot.export_kwh ?? null))
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)

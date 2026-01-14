@@ -2203,3 +2203,26 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 8. **Testing Priority:** The most critical test is "fresh HA add-on install with zero config" → must not crash. This is the #1 beta tester pain point.
 
 ---
+
+### [DONE] REV // F9 — History Reliability Fixes
+
+**Goal:** Fix the 48h view charge display bug and resolve missing actual charge/discharge data by ensuring the recorder captures battery usage and the API reports executed status.
+
+**Context:** The 48h view in the dashboard was failing to show historical charge data because `actual_charge_kw` was `0` (missing data) and the frontend logic prioritized this zero over the planned value. Investigation revealed that `recorder.py` was not recording battery power, and the API was not flagging slots as `is_executed`.
+
+#### Phase 1: Frontend Fixes [DONE]
+* [x] Fix `ChartCard.tsx` to handle `0` values correctly and match 24h view logic.
+* [x] Remove diagnostic logging.
+
+#### Phase 2: Backend Data Recording [DONE]
+* [x] Update `recorder.py` to fetch `battery_power` from Home Assistant.
+* [x] Ensure `batt_charge_kwh` and `batt_discharge_kwh` are calculated and stored in `slot_observations`.
+
+#### Phase 3: API & Flagging [DONE]
+* [x] Update `schedule.py` to set `is_executed` flag for historical slots.
+* [x] Verify API response structure.
+
+#### Phase 4: Verification [DONE]
+* [x] run `pytest tests/test_schedule_history_overlay.py` to verify API logic.
+* [x] Manual verification of Recorder database population.
+* [x] Manual verification of Dashboard 48h view.
