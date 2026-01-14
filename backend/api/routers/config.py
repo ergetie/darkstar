@@ -65,7 +65,7 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
         # EXCLUSION FILTER: Ensure secrets from secrets.yaml never leak into config.yaml
         # These keys should only live in secrets.yaml
         SECRET_KEYS = {
-            "home_assistant": {"token", "url"},
+            "home_assistant": {"token"},
             "notifications": {"api_key", "token", "password", "webhook_url", "discord_webhook_url"},
             "openrouter_api_key": None,
         }

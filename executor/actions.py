@@ -248,6 +248,15 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.work_mode_entity
 
+        if not entity:
+            return ActionResult(
+                action_type="work_mode",
+                success=True,
+                message="Work mode entity not configured, skipping",
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
         # Get current state
         current = self.ha.get_state_value(entity)
 
@@ -293,6 +302,15 @@ class ActionDispatcher:
         """Set grid charging switch."""
         start = time.time()
         entity = self.config.inverter.grid_charging_entity
+
+        if not entity:
+            return ActionResult(
+                action_type="grid_charging",
+                success=True,
+                message="Grid charging entity not configured, skipping",
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
 
         current = self.ha.get_state_value(entity)
         target = "on" if enabled else "off"
@@ -398,6 +416,15 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.soc_target_entity
 
+        if not entity:
+            return ActionResult(
+                action_type="soc_target",
+                success=True,
+                message="SoC target entity not configured, skipping",
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
         current = self.ha.get_state_value(entity)
         try:
             current_val = int(float(current)) if current else None
@@ -451,8 +478,14 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.water_heater.target_entity
 
-        # Safety clamp: never exceed temp_max
-        target = min(target, self.config.water_heater.temp_max)
+        if not entity:
+            return ActionResult(
+                action_type="water_temp",
+                success=True,
+                message="Water heater target entity not configured, skipping",
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
 
         current = self.ha.get_state_value(entity)
         try:

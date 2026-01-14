@@ -83,66 +83,157 @@ fi
 
 # Apply Add-on UI settings to config.yaml
 python3 << EOF
-import yaml
-from pathlib import Path
+import sys
 import os
+import json
+from pathlib import Path
+
+# Try to import ruamel.yaml for comment preservation, fallback to PyYAML
+try:
+    from ruamel.yaml import YAML
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    HAS_RUAMEL = True
+    print("[run.sh] Using ruamel.yaml (comments preserved)")
+except ImportError:
+    import yaml
+    HAS_RUAMEL = False
+    print("[run.sh] Using PyYAML (comments NOT preserved)")
+
+def safe_load_stream(stream):
+    if HAS_RUAMEL:
+        return yaml.load(stream)
+    else:
+        return yaml.safe_load(stream) or {}
+
+def safe_dump_stream(data, stream):
+    if HAS_RUAMEL:
+        yaml.dump(data, stream)
+    else:
+        yaml.dump(data, stream, default_flow_style=False, sort_keys=False)
 
 config_path = Path('/config/darkstar/config.yaml')
-config = yaml.safe_load(config_path.read_text()) or {}
+secrets_path = Path('/config/darkstar/secrets.yaml')
 
-modified = False
+# Load existing files
+try:
+    if config_path.exists():
+        with open(config_path) as f:
+            config = safe_load_stream(f)
+    else:
+        config = {}
+except Exception as e:
+    print(f"[run.sh] Error loading config.yaml: {e}")
+    config = {}
 
-# Apply entity selections from Add-on config
-battery_soc = os.environ.get('BATTERY_SOC', '$BATTERY_SOC')
-pv_sensor = os.environ.get('PV_SENSOR', '$PV_SENSOR')
-load_sensor = os.environ.get('LOAD_SENSOR', '$LOAD_SENSOR')
-price_area = os.environ.get('PRICE_AREA', '$PRICE_AREA')
-has_solar = '$HAS_SOLAR'.lower() == 'true'
-has_battery = '$HAS_BATTERY'.lower() == 'true'
-has_water_heater = '$HAS_WATER_HEATER'.lower() == 'true'
+try:
+    if secrets_path.exists():
+        with open(secrets_path) as f:
+            secrets = safe_load_stream(f)
+    else:
+        secrets = {}
+except Exception as e:
+    print(f"[run.sh] Error loading secrets.yaml: {e}")
+    secrets = {}
 
-# Update price area
-if price_area:
-    if 'nordpool' not in config:
-        config['nordpool'] = {}
-    if config['nordpool'].get('price_area') != price_area:
-        config['nordpool']['price_area'] = price_area
-        modified = True
+modified_config = False
+modified_secrets = False
 
-# Update input sensors
-if 'input_sensors' not in config:
-    config['input_sensors'] = {}
+# -----------------------------------------------------------------------------
+# HA CONNECTION (SECRETS)
+# -----------------------------------------------------------------------------
+supervisor_token = os.environ.get('SUPERVISOR_TOKEN')
+if supervisor_token:
+    if 'home_assistant' not in secrets:
+        secrets['home_assistant'] = {}
+    
+    # Always update token (it rotates)
+    if secrets['home_assistant'].get('token') != supervisor_token:
+        secrets['home_assistant']['token'] = supervisor_token
+        modified_secrets = True
+    
+    # Only set URL if missing (don't overwrite manual changes)
+    if not secrets['home_assistant'].get('url'):
+        secrets['home_assistant']['url'] = "http://supervisor/core"
+        modified_secrets = True
 
-if battery_soc and config['input_sensors'].get('battery_soc') != battery_soc:
-    config['input_sensors']['battery_soc'] = battery_soc
-    modified = True
-if pv_sensor and config['input_sensors'].get('total_pv_production') != pv_sensor:
-    config['input_sensors']['total_pv_production'] = pv_sensor
-    modified = True
-if load_sensor and config['input_sensors'].get('total_load_consumption') != load_sensor:
-    config['input_sensors']['total_load_consumption'] = load_sensor
-    modified = True
+# -----------------------------------------------------------------------------
+# ADD-ON CONFIGURATION
+# -----------------------------------------------------------------------------
+# Read options.json directly to avoid "default overwrite" issues
+options_path = Path('/data/options.json')
+options = {}
+if options_path.exists():
+    try:
+        options = json.loads(options_path.read_text())
+    except Exception as e:
+        print(f"[run.sh] Error reading options.json: {e}")
 
-# Update system profile
-if 'system' not in config:
-    config['system'] = {}
+# Apply settings ONLY if they exist in options.json (user configured them)
+def update_config(section, key, value, transform=None):
+    global modified_config
+    if value is None or value == "":
+        return
+    
+    if transform:
+        try:
+            value = transform(value)
+        except:
+            return
 
-if config['system'].get('has_solar') != has_solar:
-    config['system']['has_solar'] = has_solar
-    modified = True
-if config['system'].get('has_battery') != has_battery:
-    config['system']['has_battery'] = has_battery
-    modified = True
-if config['system'].get('has_water_heater') != has_water_heater:
-    config['system']['has_water_heater'] = has_water_heater
-    modified = True
+    if section not in config:
+        config[section] = {}
+    
+    if config[section].get(key) != value:
+        print(f"[run.sh] Updating {section}.{key} from Add-on Config: {value}")
+        config[section][key] = value
+        modified_config = True
 
-if modified:
+# 1. Price Area
+if 'price_area' in options:
+    update_config('nordpool', 'price_area', options['price_area'])
+
+# 2. Timezone
+if 'timezone' in options:
+    if config.get('timezone') != options['timezone']:
+        config['timezone'] = options['timezone']
+        modified_config = True
+
+# 3. Input Sensors
+if 'battery_soc_sensor' in options:
+    update_config('input_sensors', 'battery_soc', options['battery_soc_sensor'])
+
+if 'pv_production_sensor' in options:
+    update_config('input_sensors', 'total_pv_production', options['pv_production_sensor'])
+
+if 'load_consumption_sensor' in options:
+    update_config('input_sensors', 'total_load_consumption', options['load_consumption_sensor'])
+
+# 4. System Toggles
+if 'has_solar' in options:
+    update_config('system', 'has_solar', options['has_solar'], lambda x: bool(x))
+
+if 'has_battery' in options:
+    update_config('system', 'has_battery', options['has_battery'], lambda x: bool(x))
+
+if 'has_water_heater' in options:
+    update_config('system', 'has_water_heater', options['has_water_heater'], lambda x: bool(x))
+
+
+if modified_config:
     with open(config_path, 'w') as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        safe_dump_stream(config, f)
     print("[run.sh] Applied Add-on settings to config.yaml")
 else:
     print("[run.sh] Config unchanged")
+
+if modified_secrets:
+    with open(secrets_path, 'w') as f:
+        safe_dump_stream(secrets, f)
+    print("[run.sh] Updated secrets.yaml")
+else:
+    print("[run.sh] Secrets unchanged")
+
 EOF
 
 # Symlink config files to app directory
@@ -154,7 +245,7 @@ mkdir -p /share/darkstar
 ln -sf /share/darkstar /app/data
 
 log "=========================================="
-log "  Darkstar Energy Manager v2.4.10-beta"
+log "  Darkstar Energy Manager v2.4.11-beta"
 log "=========================================="
 log "  Timezone: $TIMEZONE"
 log "  Log Level: $LOG_LEVEL"
