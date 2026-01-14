@@ -73,11 +73,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                                     const current = fullForm[field.companionKey!] === 'true'
                                     onChange(field.companionKey!, current ? 'false' : 'true')
                                 }}
-                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 ${
-                                    fullForm[field.companionKey] === 'true'
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 ${fullForm[field.companionKey] === 'true'
                                         ? 'bg-accent/20 border-accent/50 text-accent shadow-[0_0_10px_rgba(var(--accent-rgb),0.1)]'
                                         : 'bg-surface2 border-line/50 text-muted hover:border-accent/40 hover:text-text'
-                                }`}
+                                    }`}
                                 title="Invert sensor logic (Positive <-> Negative)"
                             >
                                 <span className="text-sm font-bold">±</span>
@@ -147,9 +146,8 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         inputMode={field.type === 'number' ? 'decimal' : undefined}
                         value={value}
                         onChange={(e) => onChange(field.key, e.target.value)}
-                        className={`w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none ${
-                            field.disabled ? 'opacity-50 cursor-not-allowed' : ''
-                        }`}
+                        className={`w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none ${field.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                            }`}
                         disabled={field.disabled}
                     />
                 )
@@ -167,7 +165,6 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                 {field.notImplemented && <Badge variant="warning">NOT IMPLEMENTED</Badge>}
                 <Tooltip text={(configHelp as Record<string, string>)[field.key] || field.helper} />
             </label>
-            {renderInput()}
             {renderInput()}
             {error && <p className="text-[11px] text-bad">{error}</p>}
         </div>
