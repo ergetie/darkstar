@@ -1,5 +1,19 @@
 # Darkstar Release Notes
 
+## [v2.4.14-beta] - Stability & Performance Plan - 2026-01-15
+
+**Improvements**
+*   **Performance Plan (REV PERF1)**: Outlined a comprehensive roadmap to optimize the Kepler MILP solver, targeting a reduction in solving time from 22s to <5s.
+*   **Developer Experience**: Migrated personal git ignore rules to `.git/info/exclude` to keep the repo clean and prevent accidental commits of local config overrides.
+*   **Documentation Hygiene**: Archived completed tasks (REVs F9, H3, H4) to `CHANGELOG_PLAN.md`, keeping the active plan focused.
+
+**Fixes**
+*   **Live Dashboard**: Fixed a critical bug where the Home Assistant WebSocket connection would crash or fail silently on `None` entity IDs, restoring real-time updates.
+*   **Diagnostic API**: Fixed the `/api/ha-socket` endpoint to correctly report connection status.
+*   **Linting**: Resolved unused imports and formatting issues in the ML pipeline.
+
+---
+
 ## [v2.4.13-beta] - Performance & UI Polish - 2026-01-14
 
 ### Performance

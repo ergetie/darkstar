@@ -7,7 +7,6 @@ from __future__ import annotations
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 import pytz
