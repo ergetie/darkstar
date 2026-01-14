@@ -4,13 +4,19 @@ Weather data fetching and processing for Aurora.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import pytz
 import requests
 import yaml
+
+# Simple in-memory cache with TTL (5 minutes)
+_weather_cache: dict[str, tuple[float, pd.DataFrame]] = {}
+_CACHE_TTL_SECONDS = 300.0  # 5 minutes
 
 
 def _load_config(config_path: str = "config.yaml") -> dict:
@@ -53,6 +59,14 @@ def get_weather_series(
     end_date_obj = end_local.date()
     today_local = datetime.now(tz).date()
 
+    # --- Cache Lookup ---
+    cache_key = f"{latitude:.2f}_{longitude:.2f}_{start_date_obj}_{end_date_obj}"
+    now_ts = time.time()
+    if cache_key in _weather_cache:
+        cached_ts, cached_df = _weather_cache[cache_key]
+        if now_ts - cached_ts < _CACHE_TTL_SECONDS:
+            return cached_df.copy()
+
     try:
         hourly_params: list[str] = [
             "temperature_2m",
@@ -86,7 +100,8 @@ def get_weather_series(
                 "timezone": timezone_name,
             }
 
-        response = requests.get(url, params=params, timeout=20)
+        # Reduced timeout from 20s to 5s to fail fast
+        response = requests.get(url, params=params, timeout=5)
         response.raise_for_status()
         payload = response.json()
     except Exception as exc:  # pragma: no cover - defensive logging
@@ -119,6 +134,10 @@ def get_weather_series(
 
     df = pd.DataFrame(data, index=dt_index).astype("float64")
     df = df[(df.index >= start_local) & (df.index < end_local)]
+
+    # --- Cache Store ---
+    _weather_cache[cache_key] = (time.time(), df.copy())
+
     return df
 
 
