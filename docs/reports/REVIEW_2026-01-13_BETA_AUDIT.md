@@ -38,20 +38,21 @@ This audit, conducted on January 13, 2026, covered the full stack of the Darksta
 8. [x] **Fix Path Traversal:** Secure `serve_spa`.
 9. [ ] **Refactor to Async DB:** Switch `store.py` from sync `sqlite3` to `aiosqlite` to prevent event loop blocking (Critical #1).
 10. [ ] **Delete Archived Frontend Code:** Remove 68KB dead code in `frontend/src/pages/archive/` (4 files). (THIS SHOULD NOT BE DONE BEFORE INVESTIGATING WHAT WE SHOULD KEEP! THE PAGES ARE MIXED PLACEHOLDERS AND LEGACY PAGES.)
+11. [x] **Restore Historical Charts:** Fixed missing planned actions in historical view (REV H3).
 
 ### Short-Term
-11. [ ] **Fix Weak Validation Logic:** Replace fragile string matching in `useSettingsForm.ts` with explicit field validation (prevent negative hours/coordinates).
-12. [ ] **Fix Notification Spam:** Group `SystemAlert.tsx` banners by category instead of stacking 7+ separate banners.
-13. [ ] **Add Invalid Entity Error State:** Show visual error in `EntitySelect.tsx` when entity ID doesn't exist in HA.
-14. [ ] **Fix Form Label Accessibility:** Connect `<label>` to `<input>` via `htmlFor`/`id` in `SettingsField.tsx`.
-15. [ ] Review 50+ console.error for necessity
-16. [ ] Document which config keys are intentionally backend-only
+12. [ ] **Fix Weak Validation Logic:** Replace fragile string matching in `useSettingsForm.ts` with explicit field validation (prevent negative hours/coordinates).
+13. [ ] **Fix Notification Spam:** Group `SystemAlert.tsx` banners by category instead of stacking 7+ separate banners.
+14. [ ] **Add Invalid Entity Error State:** Show visual error in `EntitySelect.tsx` when entity ID doesn't exist in HA.
+15. [ ] **Fix Form Label Accessibility:** Connect `<label>` to `<input>` via `htmlFor`/`id` in `SettingsField.tsx`.
+16. [ ] Review 50+ console.error for necessity
+17. [ ] Document which config keys are intentionally backend-only
 
 ### Future (Backlog)
-17. [ ] **Implement "First Run" Wizard:** Redirect fresh installs to `/setup` if no HA token configured (Critical #3).
-18. [ ] Split services.py (HA vs Energy)
-19. [ ] Extract Executor.tsx components
-20. [ ] Add E2E test coverage
+18. [ ] **Implement "First Run" Wizard:** Redirect fresh installs to `/setup` if no HA token configured (Critical #3).
+19. [ ] Split services.py (HA vs Energy)
+20. [ ] Extract Executor.tsx components
+21. [ ] Add E2E test coverage
 
 ---
 
