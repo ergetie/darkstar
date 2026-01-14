@@ -742,7 +742,13 @@ def get_all_input_data(config_path: str = "config.yaml") -> dict[str, Any]:
             print("🧠 Running AURORA ML Inference Pipeline (base + correction)...")
             from ml.pipeline import run_inference
 
-            run_inference(horizon_hours=168, forecast_version="aurora")
+            # Rev 2.4.13: Respect configured horizon (default 2 days / 48h)
+            # Previously hardcoded to 168h (7 days), causing wasted CPU cycles.
+            learning_cfg = config.get("learning", {})
+            days = int(learning_cfg.get("horizon_days", 2))
+            hours = days * 24
+
+            run_inference(horizon_hours=hours, forecast_version="aurora")
         except Exception as e:
             print(f"⚠️ AURORA Inference Pipeline Failed: {e}")
 
