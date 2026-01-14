@@ -1,5 +1,18 @@
 # Darkstar Release Notes
 
+## [v2.4.12-beta] - Executor Resilience & History Fixes - 2026-01-14
+
+**Core Features**
+*   **Executor Health Monitoring (REV E2)**: Added new health endpoint and Dashboard integration. Dashboard now shows warnings if the Executor encounters errors or if critical entities are unconfigured.
+*   **Settings Validation**: The Settings UI now actively validates configuration before saving, preventing invalid states (e.g., enabling Executor without a battery sensor).
+*   **Historical Accuracy (REV H4)**: Fixed persistence for historical planned actions. The "48h" chart view now correctly displays past data (SoC targets, water heating) from the database instead of relying on ephemeral files.
+
+**Bug Fixes**
+*   **Entity Configuration**: Fixed a crash where empty string entity IDs (from YAML) caused 404 errors in the Executor.
+*   **UI Polish**: Removed duplicate input field rendering in Settings.
+
+---
+
 ## [v2.4.11-beta] - Historical Charts & Security Polish - 2026-01-14
 
 **Core Fixes**
