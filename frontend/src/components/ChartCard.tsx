@@ -841,8 +841,8 @@ export default function ChartCard({
                         <div className="flex gap-1">
                             <button
                                 className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === 'day'
-                                        ? 'bg-accent text-canvas'
-                                        : 'bg-surface border border-line/60 text-muted'
+                                    ? 'bg-accent text-canvas'
+                                    : 'bg-surface border border-line/60 text-muted'
                                     }`}
                                 onClick={() => setRangeState('day')}
                             >
@@ -850,8 +850,8 @@ export default function ChartCard({
                             </button>
                             <button
                                 className={`rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide transition ${rangeState === '48h'
-                                        ? 'bg-accent text-canvas'
-                                        : 'bg-surface border border-line/60 text-muted'
+                                    ? 'bg-accent text-canvas'
+                                    : 'bg-surface border border-line/60 text-muted'
                                     }`}
                                 onClick={() => setRangeState('48h')}
                             >
@@ -890,8 +890,8 @@ export default function ChartCard({
                                 setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
                             }}
                             className={`rounded-pill px-3 py-1 border ${overlays[key as keyof typeof overlays]
-                                    ? 'bg-accent text-canvas border-accent'
-                                    : 'border-line/60 text-muted hover:border-accent'
+                                ? 'bg-accent text-canvas border-accent'
+                                : 'border-line/60 text-muted hover:border-accent'
                                 }`}
                         >
                             {label}
@@ -936,7 +936,8 @@ function buildLiveData(
             console.log(`[48h DEBUG] Sample charge values:`, filtered.slice(0, 10).map(s => ({
                 time: s.start_time,
                 charge: s.battery_charge_kw ?? s.charge_kw,
-                actual_charge: s.actual_charge_kw
+                actual_charge: s.actual_charge_kw,
+                is_executed: s.is_executed
             })))
         }
     }
@@ -1188,18 +1189,21 @@ function buildLiveData(
             labels.push(formatHour(bucketStart.toISOString()))
 
             if (slot) {
-                // B2 FIX: Always show planned actions, prefer actual_* values when available
-                // This ensures full history is visible even when is_executed slots are cleaned up
+                const isExec = slot.is_executed === true
 
                 price.push(slot.import_price_sek_kwh ?? null)
                 // For pv/load: prefer actual if available, fallback to forecast
-                pv.push(slot.actual_pv_kwh ?? slot.pv_forecast_kwh ?? null)
-                load.push(slot.actual_load_kwh ?? slot.load_forecast_kwh ?? null)
-                // For charge: prefer actual if available, fallback to planned
-                charge.push(slot.actual_charge_kw ?? slot.battery_charge_kw ?? slot.charge_kw ?? null)
+                pv.push(isExec && slot.actual_pv_kwh != null ? slot.actual_pv_kwh : (slot.pv_forecast_kwh ?? null))
+                load.push(isExec && slot.actual_load_kwh != null ? slot.actual_load_kwh : (slot.load_forecast_kwh ?? null))
+                // For charge: only use actual if executed AND not null, otherwise use planned
+                charge.push(
+                    isExec && slot.actual_charge_kw != null
+                        ? slot.actual_charge_kw
+                        : (slot.battery_charge_kw ?? slot.charge_kw ?? null),
+                )
                 // Discharge and water: always show planned (actual_discharge/actual_water not tracked)
                 discharge.push(slot.battery_discharge_kw ?? slot.discharge_kw ?? null)
-                exp.push(slot.actual_export_kw ?? slot.export_kwh ?? null)
+                exp.push(isExec && slot.actual_export_kw != null ? slot.actual_export_kw : (slot.export_kwh ?? null))
                 water.push(slot.water_heating_kw ?? null)
                 socTarget.push(slot.soc_target_percent ?? null)
                 socProjected.push(slot.projected_soc_percent ?? null)
