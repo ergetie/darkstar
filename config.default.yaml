@@ -114,7 +114,7 @@ automation:
 learning:
   enable: true
   sqlite_path: "data/planner_learning.db"
-  horizon_days: 2
+  horizon_days: 7
   min_improvement_threshold: 0.015
   auto_tune_enabled: true
   reflex_enabled: true

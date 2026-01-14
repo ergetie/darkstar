@@ -12,11 +12,20 @@ logger = logging.getLogger("darkstar.ha_socket")
 
 class HAWebSocketClient:
     def __init__(self):
+        logger.debug("Initializing HAWebSocketClient...")
         self._load_config()
         self.id_counter = 1
         self.inversion_flags: dict[str, bool] = {}
         self.monitored_entities = self._get_monitored_entities()
         self.running = False
+
+        # Early validation with logging
+        if not self.token:
+            logger.warning("⚠️ No HA token configured - WebSocket will not connect")
+        if not self.url or self.url == "/api/websocket":
+            logger.warning("⚠️ No HA URL configured - WebSocket will not connect")
+        else:
+            logger.debug(f"HA WebSocket URL: {self.url}")
 
     def _load_config(self):
         """Load HA connection parameters from secrets.yaml."""
@@ -194,10 +203,16 @@ class HAWebSocketClient:
 
     def start(self):
         self.running = True
-        # Use Socket.IO background task instead of threading.Thread for eventlet compatibility (Rev U23)
-        # Use simple thread for background loop (Rev ARC1)
-        # backend.extensions import removed
-        threading.Thread(target=lambda: asyncio.run(self.connect()), daemon=True).start()
+
+        def _run_ws():
+            """Thread target with exception handling to prevent silent crashes."""
+            try:
+                asyncio.run(self.connect())
+            except Exception as e:
+                logger.error(f"❌ HA WebSocket thread crashed: {e}", exc_info=True)
+
+        logger.info(f"🔗 Connecting to HA WebSocket: {self.url}")
+        threading.Thread(target=_run_ws, daemon=True, name="HA-WebSocket").start()
 
     def reload_monitored_entities(self):
         """Reload the monitored entities mapping from config.yaml and HA params from secrets.yaml."""
@@ -211,10 +226,16 @@ _ha_client = None
 
 
 def start_ha_socket_client():
+    """Start the HA WebSocket client for live sensor updates."""
     global _ha_client
+    logger.info("🔌 Starting HA WebSocket client...")
     if _ha_client is None:
-        _ha_client = HAWebSocketClient()
-        _ha_client.start()
+        try:
+            _ha_client = HAWebSocketClient()
+            _ha_client.start()
+            logger.info("✅ HA WebSocket client initialized")
+        except Exception as e:
+            logger.error(f"❌ Failed to start HA WebSocket client: {e}", exc_info=True)
 
 
 def reload_ha_socket_client():

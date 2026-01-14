@@ -19,6 +19,21 @@ from .controller import ControllerDecision
 logger = logging.getLogger(__name__)
 
 
+def _is_entity_configured(entity: str | None) -> bool:
+    """Check if an entity ID is properly configured.
+
+    Returns False if entity is:
+    - None
+    - Empty string
+    - Whitespace only
+    - Literal string "None" (case-insensitive)
+    """
+    if not entity:
+        return False
+    stripped = entity.strip()
+    return stripped != "" and stripped.lower() != "none"
+
+
 @dataclass
 class ActionResult:
     """Result of executing an action."""
@@ -248,7 +263,7 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.work_mode_entity
 
-        if not entity or entity.strip() == "":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping work_mode action: entity not configured")
             return ActionResult(
                 action_type="work_mode",
@@ -304,7 +319,7 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.grid_charging_entity
 
-        if not entity or entity.strip() == "":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping grid_charging action: entity not configured")
             return ActionResult(
                 action_type="grid_charging",
@@ -361,7 +376,7 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.max_charging_current_entity
 
-        if not entity or entity.strip() == "":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping charge_current action: entity not configured")
             return ActionResult(
                 action_type="charge_current",
@@ -400,7 +415,7 @@ class ActionDispatcher:
         """Set max discharging current."""
         start = time.time()
         entity = self.config.inverter.max_discharging_current_entity
-        if not entity or entity.strip() == "":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping discharge_current action: entity not configured")
             return ActionResult(
                 action_type="discharge_current",
@@ -436,7 +451,7 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.soc_target_entity
 
-        if not entity or entity.strip() == "":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping soc_target action: entity not configured")
             return ActionResult(
                 action_type="soc_target",
@@ -499,7 +514,7 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.water_heater.target_entity
 
-        if not entity or entity.strip() == "":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping water_temp action: entity not configured")
             return ActionResult(
                 action_type="water_temp",
@@ -565,7 +580,7 @@ class ActionDispatcher:
         start = time.time()
         entity = self.config.inverter.grid_max_export_power_entity
 
-        if not entity or entity.strip() == "" or entity.lower() == "none":
+        if not _is_entity_configured(entity):
             logger.debug("Skipping max_export_power action: entity not configured")
             return ActionResult(
                 action_type="max_export_power",

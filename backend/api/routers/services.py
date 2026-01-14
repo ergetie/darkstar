@@ -676,11 +676,9 @@ async def test_ha_connection() -> dict[str, str]:
 async def get_ha_socket_status() -> dict[str, Any]:
     """Return status of the HA WebSocket connection."""
     try:
-        from backend.ha_socket import (
-            get_socket_status,  # pyright: ignore [reportMissingImports, reportUnknownVariableType, reportAttributeAccessIssue]
-        )
+        from backend.ha_socket import get_ha_socket_status as _get_status
 
-        return cast("dict[str, Any]", get_socket_status())
+        return cast("dict[str, Any]", _get_status())
     except ImportError:
         return {"status": "unavailable", "message": "HA socket module not loaded"}
     except Exception as e:
