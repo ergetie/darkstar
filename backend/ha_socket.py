@@ -32,6 +32,9 @@ class HAWebSocketClient:
             "errors": [],  # Keep last 5 errors
         }
 
+        # State tracking for synthetic sensors
+        self.latest_values = {}
+
         # Early validation with logging
         if not self.token:
             logger.warning("⚠️ No HA token configured - WebSocket will not connect")
@@ -75,6 +78,9 @@ class HAWebSocketClient:
         try:
             cfg = load_yaml("config.yaml")
             sensors = cfg.get("input_sensors", {})
+            system = cfg.get("system", {})
+            meter_type = system.get("grid_meter_type", "net")
+
             # Map: entity_id -> key (e.g. 'sensor.inverter_battery' -> 'soc')
             mapping = {}
             if "battery_soc" in sensors:
@@ -83,8 +89,15 @@ class HAWebSocketClient:
                 mapping[sensors["pv_power"]] = "pv_kw"
             if "load_power" in sensors:
                 mapping[sensors["load_power"]] = "load_kw"
-            if "grid_power" in sensors:
+            if "grid_power" in sensors and meter_type == "net":
                 mapping[sensors["grid_power"]] = "grid_kw"
+
+            # Dual Meter Support (REV // UI5)
+            if meter_type == "dual":
+                if "grid_import_power" in sensors:
+                    mapping[sensors["grid_import_power"]] = "grid_import_kw"
+                if "grid_export_power" in sensors:
+                    mapping[sensors["grid_export_power"]] = "grid_export_kw"
             if "battery_power" in sensors:
                 mapping[sensors["battery_power"]] = "battery_kw"
             if "water_power" in sensors:
@@ -246,6 +259,14 @@ class HAWebSocketClient:
 
             # Emit
             payload = {key: value}
+
+            # Synthetic Net Calculation for Dual Meter (REV // UI5)
+            if key in ("grid_import_kw", "grid_export_kw"):
+                self.latest_values[key] = value
+                # Default to 0.0 if one side hasn't been seen yet
+                i = self.latest_values.get("grid_import_kw", 0.0)
+                e = self.latest_values.get("grid_export_kw", 0.0)
+                payload["grid_kw"] = i - e
 
             # Import here to avoid circular imports at module level
             from backend.events import emit_live_metrics

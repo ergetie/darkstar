@@ -20,8 +20,8 @@ export interface BaseField {
     /** Conditional visibility based on a single config key */
     showIf?: {
         configKey: string // e.g., 'system.has_water_heater'
-        value?: boolean // expected value (default: true)
-        disabledText: string // overlay text when disabled
+        value?: string | boolean | number // expected value (default: true)
+        disabledText?: string // overlay text when disabled
     }
     /** All config keys must be truthy for field to be enabled */
     showIfAll?: string[]
@@ -60,6 +60,17 @@ export const systemSections: SettingsSection[] = [
                 label: 'Smart water heater',
                 path: ['system', 'has_water_heater'],
                 type: 'boolean',
+            },
+            {
+                key: 'system.grid_meter_type',
+                label: 'Grid Meter Type',
+                path: ['system', 'grid_meter_type'],
+                type: 'select',
+                options: [
+                    { label: 'Net Meter (Single Sensor)', value: 'net' },
+                    { label: 'Dual Meter (Separate Import/Export)', value: 'dual' },
+                ],
+                helper: 'Select "Net" if you have one sensor (+/-). Select "Dual" if you have separate import/export sensors.',
             },
             {
                 key: 'export.enable_export',
@@ -373,12 +384,43 @@ export const systemSections: SettingsSection[] = [
             },
             {
                 key: 'input_sensors.grid_power',
-                label: 'Grid Power (W/kW)',
-                helper: 'Positive = import, negative = export',
+                label: 'Net Grid Power (W/kW)',
+                helper: 'Positive = import, negative = export. Required for Net Meter mode.',
                 path: ['input_sensors', 'grid_power'],
                 type: 'entity',
                 companionKey: 'input_sensors.grid_power_inverted',
                 subsection: 'Power Flow & Dashboard',
+                showIf: {
+                    configKey: 'system.grid_meter_type',
+                    value: 'net',
+                    disabledText: 'Enable "Net Meter" in System Profile to configure',
+                },
+            },
+            {
+                key: 'input_sensors.grid_import_power',
+                label: 'Grid Import Power (W/kW)',
+                helper: 'Required for Dual Meter mode.',
+                path: ['input_sensors', 'grid_import_power'],
+                type: 'entity',
+                subsection: 'Power Flow & Dashboard',
+                showIf: {
+                    configKey: 'system.grid_meter_type',
+                    value: 'dual',
+                    disabledText: 'Enable "Dual Meter" in System Profile to configure',
+                },
+            },
+            {
+                key: 'input_sensors.grid_export_power',
+                label: 'Grid Export Power (W/kW)',
+                helper: 'Required for Dual Meter mode.',
+                path: ['input_sensors', 'grid_export_power'],
+                type: 'entity',
+                subsection: 'Power Flow & Dashboard',
+                showIf: {
+                    configKey: 'system.grid_meter_type',
+                    value: 'dual',
+                    disabledText: 'Enable "Dual Meter" in System Profile to configure',
+                },
             },
 
             // Smart Home Integration

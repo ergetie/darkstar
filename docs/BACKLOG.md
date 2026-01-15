@@ -36,28 +36,29 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 📋 Backlog
 
-> **Source:** Items marked with `(REVIEW-2026-01-04)` are from Comprehensive Codebase Review dated 2026-01-04.
-
 ---
+## 📥 Inbox (User Added / Unsorted)
 
----
-## USER ADDED BACKLOG ITEMS (NEEDS TO BE RE-WRITTEN)
+<!-- Add new bugs/requests here. AI will wipe this section when processing. -->
 
-- Hide water power sensor in power flow card when not enabled
-- Support multiple heating sources
-- Remove live system card
-- Toggle for soc_target entity (some inverters dont use it)
-- Support different inverter profiles
-- Hard to read chartCard on mobile due to big tool tip
-- A beta tester (Kristoffer) reports this: "I Fronius Modbus integrationen behöver sätta Storage Control Mode samt ange värde på i watt på entitet för charge, discharge etc. Man har flertalet val under storage contol mode. Det kanske skulle varamöjligt att lsa med extra helpers och trigga automationer baserat på förändringar och översätta A till W men det känns lite för komplext. Du räknar ju redan idag ut hur många Watt som det skall laddas med så om du kunde få till det direkt i darkstar, skulle vara bäst att använda samma entiter men att du hade en switch som angav om man använde A eller W?" This is for "max_charge_current" and "max_discharge_current" entities for example.
-- Add both "input_sensors:
-  grid_import_power: sensor.their_import_sensor
-  grid_export_power: sensor.their_export_sensor"
-  To the UI!
-- Expose the new "override:" config keys to the UI!
 ---
 
 ## 🔴 High Priority
+
+### [AURORA] Support multiple MPPT strings
+
+**Goal:** Some users have multiple MPPT strings, we need to support this in the Aurora forecast.
+
+
+### [Config] Optional SoC Target
+
+**Goal:** Make `soc_target` entity optional for inverters that do not support it or have internal management.
+
+**Notes:** Some inverters don't expose this control; preventing the app from blocking startup without it increases compatibility.
+
+---
+
+## 🟡 Medium Priority
 
 ### [UI] Advisor Overhaul
 
@@ -66,21 +67,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 **Notes:** Current version is disabled/hidden as it needs a complete overhaul. Should integrate better with Kepler schedules and Aurora forecasts.
 
 ---
-
-### [UI/Settings] Support dual grid power sensors
-
-**Goal:** Some users have a split import and export grid power sensors, we need support for both dual sensors and a single sensor with positive and negative values.
-
-
-### [AURORA] Support multiple MPPT strings
-
-**Goal:** Some users have multiple MPPT strings, we need to support this in the Aurora forecast.
-
-### [BACKEND] Busy port allocation
-
-**Goal:** Some users report that the backend service is not starting because the port is already in use by another add-on. How do we make this more dynamic?
-
-## 🟡 Medium Priority
 
 ### [Refactor] Move inputs.py to Proper Module
 
@@ -214,56 +200,6 @@ pip list --outdated
 
 ---
 
----
-
-### [Frontend] Accessibility Audit (REVIEW-2026-01-04)
-
-**Goal:** Ensure WCAG AA compliance for broader user base including users with disabilities.
-
-**Current State:** 
-- Modern UI with good visual design
-- Accessibility not explicitly tested
-- No ARIA labels verified
-- Keyboard navigation not tested
-- Color contrast not verified
-
-**Audit Process:**
-
-1. **Automated Tools:**
-   - Chrome DevTools Lighthouse: Accessibility score
-   - axe DevTools extension: Scan all pages
-   - WAVE extension: Visual accessibility feedback
-
-2. **Manual Testing:**
-   - Keyboard navigation (Tab, Enter, Esc)
-   - Screen reader testing (NVDA/JAWS on Windows, VoiceOver on Mac)
-   - Color contrast checker (WebAIM)
-   - Focus indicators visible
-   - Form labels present
-
-3. **Common Issues to Check:**
-   - Images without alt text
-   - Buttons without accessible names
-   - Form inputs without labels
-   - Insufficient color contrast
-   - Missing skip links
-   - Div/span used instead of semantic HTML
-
-**Fixes:**
-- Add ARIA labels to icon buttons
-- Ensure all form inputs have labels
-- Add skip navigation link
-- Verify color contrast ratios (min 4.5:1 for text)
-- Use semantic HTML (`<button>`, `<nav>`, `<main>`, etc.)
-
-**Effort:** 4-6 hours (audit + fixes)
-
----
-
----
-
----
-
 ### [Backend] Split services.py Router (REVIEW-2026-01-04)
 
 **Goal:** Improve maintainability by splitting the large `services.py` router (740 LOC) into focused modules.
@@ -375,6 +311,22 @@ pip list --outdated
 **Effort:** 3-4 hours (implement versioning + update recorder + add API)
 
 ---
+
+---
+
+### [Planner] Multiple Heating Sources
+
+**Goal:** Support control for multiple distinct heating sources (e.g., HVAC + Water Heater + Floor Heating) independently.
+
+**Notes:** Currently limited to a single water heater channel.
+
+---
+
+### [Core] Expandable Working Mode Logic
+
+**Goal:** Refactor working mode logic to support more than 2 modes (charging/discharging) and customizable profiles.
+
+**Notes:** Some inverters have complex multi-mode requirements.
 
 ---
 
@@ -622,6 +574,22 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
 **Notes:** One-time ops task. Backup everything first!
 
 **Source:** Existing backlog item
+
+---
+
+### [UI] Hide Disabled Water Sensors
+
+**Goal:** Hide water power value in the power flow card when water heating is not enabled.
+
+**Notes:** Purely visual polish.
+
+---
+
+### [UI] Mobile Chart Tooltip Readability
+
+**Goal:** Fix chart tooltips on mobile devices where they obscure data points or are too large.
+
+**Notes:** Usability fix for mobile users.
 
 ---
 

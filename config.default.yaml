@@ -176,7 +176,9 @@ input_sensors:
   load_power: sensor.inverter_load_power         # Current load consumption (W or kW)
   battery_power: sensor.inverter_battery_power   # Current battery power (+ discharge, - charge)
   water_power: sensor.vvb_power                  # Current water heater power (W or kW)
-  grid_power: sensor.inverter_grid_power         # Current grid power (+ import, - export)
+  grid_power: sensor.inverter_grid_power         # Current grid power (+ import, - export) (Used if meter_type=net)
+  grid_import_power: sensor.grid_import_power    # Current grid import power (W/kW) (Used if meter_type=dual)
+  grid_export_power: sensor.grid_export_power    # Current grid export power (W/kW) (Used if meter_type=dual)
 
   # Cumulative energy sensors (totals)
   total_battery_charge: sensor.inverter_total_battery_charge      # Cumulative battery charge (kWh)

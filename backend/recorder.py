@@ -59,9 +59,20 @@ def record_observation_from_current_state():
     # Current Power State (Snapshot)
     pv_kw = get_kw("pv_power")
     load_kw = get_kw("load_power")
-    import_kw = get_kw("grid_import_power")
-    import_kw = get_kw("grid_import_power")
-    export_kw = get_kw("grid_export_power")
+
+    # Grid Metering Logic (REV // UI5)
+    meter_type = config.get("system", {}).get("grid_meter_type", "net")
+
+    if meter_type == "dual":
+        # Dual sensors (Import/Export separate)
+        import_kw = get_kw("grid_import_power")
+        export_kw = get_kw("grid_export_power")
+    else:
+        # Net Meter (Single sensor, positive = import, negative = export)
+        grid_net_kw = get_kw("grid_power")
+        import_kw = max(0.0, grid_net_kw)
+        export_kw = max(0.0, -grid_net_kw)
+
     battery_kw = get_kw("battery_power")
     water_kw = get_kw("water_power")
 

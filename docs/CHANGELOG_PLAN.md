@@ -39,7 +39,7 @@ This era focused on the transition to a public beta release, including infrastru
 
 ---
 
-### [DONE] REV // UI3 — Hide Live System Card
+### [DONE] REV // UI4 — Hide Live System Card
 
 **Goal:** Hide the "Live System" card in the Executor tab as requested by the user, to simplify the interface.
 
