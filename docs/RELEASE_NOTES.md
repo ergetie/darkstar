@@ -1,5 +1,15 @@
 # Darkstar Release Notes
 
+## [v2.4.21-beta] - Runtime Socket Diagnostics - 2026-01-15
+
+### Core Features
+- **Runtime Debugging (REV F11)**: Added support for runtime Socket.IO configuration overrides via URL query parameters (`?socket_path=...` and `?socket_transports=...`). This allows debugging connectivity issues in complex Ingress environments without redeploying the application.
+
+### Observability
+- **Deep Packet Logging**: Instrumented the Socket.IO Manager to log low-level packet creation and reception, providing visibility into the handshake process during connection stalls.
+
+---
+
 ## [v2.4.20-beta] - HA Ingress Stability & Quality - 2026-01-15
 
 ### Critical Fixes
