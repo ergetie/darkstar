@@ -6,7 +6,7 @@
 # =============================================================================
 
 # System Metadata
-version: "2.4.15-beta"
+version: "2.4.17-beta"
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
 # AI Advisor (Smart Assistant on Dashboard)

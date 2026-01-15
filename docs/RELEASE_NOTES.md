@@ -1,5 +1,20 @@
 # Darkstar Release Notes
 
+## [v2.4.17-beta] - HA Add-on Connectivity & Observability (REV F11) - 2026-01-15
+
+### Critical Fixes (REV F11)
+- **HA Ingress Connection**: Fixed a critical bug where the WebSocket client failed to connect in Home Assistant Add-on environments. The client now correctly handles the Ingress path, resolving the "blank dashboard" and "missing live metrics" issues.
+- **Data Sanitization**: Implemented "Poison Pill" protection for sensor data. The system now safely handles `NaN` and `Inf` values from HA sensors (replacing them with 0.0) to prevent JSON serialization crashes that could take down the backend.
+
+### Observability
+- **New Diagnostic Endpoints**:
+    - `/api/ha-socket`: Real-time diagnostics for the HA WebSocket connection (message counts, errors, emission stats).
+    - `/api/scheduler-debug`: Status of the background scheduler.
+    - `/api/executor-debug`: detailed state of the execution engine.
+- **Enhanced Logging**: Added deep diagnostic (`DIAG`) logging option to trace WebSocket packet flow for easier debugging of connectivity issues.
+
+---
+
 ## [v2.4.16-beta] - Observability & Reliability - 2026-01-15
 
 ### Core Improvements
