@@ -5,15 +5,18 @@ let socket: Socket | null = null
 
 export const getSocket = () => {
     if (!socket) {
-        // Use document.baseURI which respects <base href> tag for HA Ingress (Rev U21)
-        // This ensures socket.io connects to the correct path when running under HA Ingress
+        // REV F11: Fix Socket.IO connection for HA Ingress
+        // Use document.baseURI which respects <base href> tag injected by backend
+        // We must pass the FULL URL (origin + ingress path) to io() so that
+        // Socket.IO connects to the correct proxied endpoint, not just window.location.origin
         const baseUrl = new URL(document.baseURI)
-        const socketPath = (baseUrl.pathname + 'socket.io').replace(/\/\//g, '/')
+        // Remove trailing slash to avoid double-slash issues with socket.io path
+        const socketUrl = baseUrl.origin + baseUrl.pathname.replace(/\/$/, '')
 
-        console.log(`🔌 WebSocket initializing at path: ${socketPath}`)
+        console.log(`🔌 WebSocket initializing at URL: ${socketUrl}`)
 
-        socket = io({
-            path: socketPath,
+        socket = io(socketUrl, {
+            path: '/socket.io/', // Standard path, relative to socketUrl
             transports: ['polling', 'websocket'], // Ensure fallback works
             autoConnect: true,
             reconnection: true,

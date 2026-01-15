@@ -768,3 +768,44 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [x] Fix Implemented
 - [x] Unit Tests Passed
 - [x] Committed to main
+
+---
+
+### [IN PROGRESS] REV // F11 — Socket.IO Live Metrics Not Working in HA Add-on
+
+**Goal:** Fix Socket.IO frontend connection failing in HA Ingress environment, preventing live metrics from reaching the PowerFlow card.
+
+**Context:** Diagnostic API (`/api/ha-socket`) shows backend is healthy:
+- `messages_received: 3559` ✅
+- `metrics_emitted: 129` ✅
+- `errors: []` ✅
+
+But frontend receives nothing. Issue is **HA Add-on specific** — works in Docker and local dev.
+
+**Root Cause Analysis:**
+1. `socket.ts` calls `io({ path: socketPath })` without a URL
+2. Socket.IO defaults to `window.location.origin` (e.g., `http://homeassistant.local:8123`)
+3. The computed `socketPath` includes Ingress prefix: `/api/hassio_ingress/<slug>/socket.io`
+4. Result: Browser tries to connect to `http://homeassistant.local:8123/api/hassio_ingress/<slug>/socket.io`
+5. This bypasses Ingress path rewriting — request goes to HA Core, not the add-on!
+
+**Fix:** Pass full URL to `io()` instead of relying on default origin:
+```javascript
+// BEFORE (broken)
+socket = io({ path: socketPath })
+
+// AFTER (correct)  
+socket = io(socketUrl, { path: '/socket.io/' })
+```
+
+**Bonus:** Added production observability endpoints:
+- `GET /api/ha-socket` — HA WebSocket diagnostic status
+- `GET /api/scheduler-debug` — Scheduler engine diagnostic status  
+- `GET /api/executor-debug` — Executor engine diagnostic status
+
+**Status:**
+- [x] Root Cause Identified (Incorrect URL/path calculation in socket.ts)
+- [x] Implementation Plan Created
+- [x] Fix Implemented
+- [x] Debug Endpoints Added
+- [ ] User Verified in HA Add-on Environment

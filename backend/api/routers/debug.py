@@ -201,3 +201,168 @@ async def debug_load_profile() -> dict[str, Any]:
             }
     except Exception as e:
         return {"error": f"Critical error: {e!s}"}
+
+
+@router.get(
+    "/api/ha-socket",
+    summary="HA WebSocket Status",
+    description="Diagnostic info about the Home Assistant WebSocket connection.",
+)
+async def ha_socket_status() -> dict[str, Any]:
+    """Return HA WebSocket diagnostic info for debugging."""
+    from backend.ha_socket import get_ha_socket_status
+
+    return get_ha_socket_status()
+
+
+@router.get(
+    "/api/scheduler-debug",
+    summary="Scheduler Debug Status",
+    description="Comprehensive diagnostic info about the background scheduler.",
+)
+async def scheduler_debug_status() -> dict[str, Any]:
+    """Return comprehensive scheduler diagnostic info for debugging."""
+    from backend.services.scheduler_service import scheduler_service
+
+    status = scheduler_service.status
+
+    # Load config to show what scheduler reads
+    try:
+        config = load_yaml("config.yaml") or {}
+        automation = config.get("automation", {})
+        schedule_cfg = automation.get("schedule", {})
+        scheduler_config = {
+            "enabled_in_config": bool(automation.get("enable_scheduler", False)),
+            "every_minutes": schedule_cfg.get("every_minutes", 60),
+            "jitter_minutes": schedule_cfg.get("jitter_minutes", 0),
+        }
+    except Exception as e:
+        scheduler_config = {"error": str(e)}
+
+    return {
+        "status": "running" if status.running else "stopped",
+        "enabled": status.enabled,
+        "enabled_in_config": scheduler_config.get("enabled_in_config", False),
+        "schedule_config": scheduler_config,
+        "runtime": {
+            "last_run_at": status.last_run_at.isoformat() if status.last_run_at else None,
+            "next_run_at": status.next_run_at.isoformat() if status.next_run_at else None,
+            "last_run_status": status.last_run_status,
+            "last_error": status.last_error,
+            "current_task": status.current_task,
+        },
+        "diagnostics": {
+            "now": datetime.now(UTC).isoformat(),
+            "message": _get_scheduler_diagnostic_message(status, scheduler_config),
+        },
+    }
+
+
+def _get_scheduler_diagnostic_message(status: Any, config: dict[str, Any]) -> str:
+    """Generate a human-readable diagnostic message for scheduler state."""
+    if not config.get("enabled_in_config", False):
+        return "❌ Scheduler is DISABLED in config.yaml (automation.enable_scheduler: false)"
+    if not status.running:
+        return "⚠️ Scheduler task not running (should have started on app startup)"
+    if not status.enabled:
+        return "⚠️ Scheduler task is running but disabled flag is set"
+    if status.last_run_status == "error":
+        return f"⚠️ Last planner run failed: {status.last_error}"
+    if status.last_run_at is None:
+        return "🔄 Scheduler is enabled but hasn't run yet (waiting for first scheduled time)"
+    return "✅ Scheduler is running normally"
+
+
+@router.get(
+    "/api/executor-debug",
+    summary="Executor Debug Status",
+    description="Comprehensive diagnostic info about the executor engine.",
+)
+async def executor_debug_status() -> dict[str, Any]:
+    """Return comprehensive executor diagnostic info for debugging."""
+    from backend.api.routers.executor import get_executor_instance
+
+    executor = get_executor_instance()
+
+    if executor is None:
+        return {
+            "status": "not_initialized",
+            "error": "Executor failed to initialize - check logs for import/config errors",
+            "diagnostics": {
+                "now": datetime.now(UTC).isoformat(),
+                "message": "❌ Executor could not be initialized (check Python errors in logs)",
+            },
+        }
+
+    # Get executor config
+    cfg = executor.config
+    ha_client = executor.ha_client
+
+    # Check thread status
+    thread_alive = executor._thread is not None and executor._thread.is_alive()
+
+    # Load config to compare
+    try:
+        config = load_yaml("config.yaml") or {}
+        executor_cfg = config.get("executor", {})
+        config_enabled = executor_cfg.get("enabled", False)
+    except Exception:
+        executor_cfg = {}
+        config_enabled = "unknown"
+
+    return {
+        "status": "running" if thread_alive else "stopped",
+        "enabled": cfg.enabled,
+        "enabled_in_config": config_enabled,
+        "shadow_mode": cfg.shadow_mode,
+        "ha_client_initialized": ha_client is not None,
+        "config": {
+            "interval_seconds": cfg.interval_seconds,
+            "automation_toggle_entity": cfg.automation_toggle_entity,
+            "soc_target_entity": cfg.soc_target_entity,
+            "has_battery": cfg.has_battery,
+            "has_water_heater": cfg.has_water_heater,
+        },
+        "entities": {
+            "work_mode_entity": cfg.inverter.work_mode_entity,
+            "grid_charging_entity": cfg.inverter.grid_charging_entity,
+            "water_target_entity": cfg.water_heater.target_entity,
+        },
+        "runtime": {
+            "thread_alive": thread_alive,
+            "is_paused": executor.is_paused,
+            "last_run_at": executor.status.last_run_at,
+            "last_run_status": executor.status.last_run_status,
+            "last_error": executor.status.last_error,
+            "next_run_at": executor.status.next_run_at,
+            "current_slot": executor.status.current_slot,
+            "override_active": executor.status.override_active,
+            "quick_action": executor.get_active_quick_action(),
+        },
+        "recent_errors": list(executor.recent_errors) if executor.recent_errors else [],
+        "diagnostics": {
+            "now": datetime.now(UTC).isoformat(),
+            "message": _get_executor_diagnostic_message(executor, cfg, thread_alive, config_enabled),
+        },
+    }
+
+
+def _get_executor_diagnostic_message(
+    executor: Any, cfg: Any, thread_alive: bool, config_enabled: Any
+) -> str:
+    """Generate a human-readable diagnostic message for executor state."""
+    if not config_enabled:
+        return "❌ Executor is DISABLED in config.yaml (executor.enabled: false)"
+    if not cfg.enabled:
+        return "⚠️ Executor config.enabled is false (may need reload)"
+    if not thread_alive:
+        return "⚠️ Executor is enabled but background thread is not running"
+    if executor.ha_client is None:
+        return "⚠️ HA client not initialized - check secrets.yaml for home_assistant.url and token"
+    if executor.is_paused:
+        return "⏸️ Executor is PAUSED (user-initiated)"
+    if executor.status.last_run_status == "error":
+        return f"⚠️ Last executor run failed: {executor.status.last_error}"
+    if executor.status.last_run_at is None:
+        return "🔄 Executor is enabled but hasn't run yet"
+    return "✅ Executor is running normally"
