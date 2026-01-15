@@ -444,7 +444,9 @@ To ensure compatibility with Home Assistant Ingress (which exposes the add-on un
 1.  **Manager**: Configured with the full Ingress HTTP path for the *transport layer* (Engine.IO).
 2.  **Socket**: Explicitly connected to the `/` namespace for the *application layer*.
 
-This decoupling prevents the client from inferring an incorrect namespace from the complex Ingress URL, a common failure mode in proxied environments.
+**Critical: No Trailing Slash.** The ASGI Socket.IO server is strict about path matching. The path must be `/socket.io` (no trailing slash), otherwise the namespace handshake fails silently.
+
+**Runtime Debug Config:** URL parameters `?socket_path=...` and `?socket_transports=...` allow debugging connection issues without redeploying.
 
 ---
 

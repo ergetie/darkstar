@@ -771,7 +771,7 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 ---
 
-### [IN PROGRESS] REV // F11 — Socket.IO Live Metrics Not Working in HA Add-on
+### [DONE] REV // F11 — Socket.IO Live Metrics Not Working in HA Add-on
 
 **Goal:** Fix Socket.IO frontend connection failing in HA Ingress environment, preventing live metrics from reaching the PowerFlow card.
 
@@ -782,30 +782,32 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 
 But frontend receives nothing. Issue is **HA Add-on specific** — works in Docker and local dev.
 
-**Root Cause Analysis:**
-1.  **Theory 1 (Path):** `io()` defaults to `window.location.origin`, which bypasses Ingress.
-2.  **Theory 2 (Namespace):** Even with correct path, `io()` auto-connect logic fails to negotiate the default namespace `/` when the URL path is complex (Ingress). The transport connects, but the application layer stalls.
+**Root Cause (CONFIRMED):**
+The Socket.IO client path had a **trailing slash** (`/socket.io/`). The ASGI Socket.IO server is strict about path matching. This caused the Engine.IO transport to connect successfully, but the Socket.IO namespace handshake packet was never processed, resulting in a "zombie" connection where no events were exchanged.
 
-**Fix:** Refactored `socket.ts` to use the **Manager Pattern**:
+**Fix (Verified 2026-01-15):**
+1.  **Manager Pattern**: Decoupled transport (Manager) from application logic (Socket).
+2.  **Trailing Slash Removal**: `socketPath.replace(/\/$/, '')`.
+3.  **Force WebSocket**: Skip polling to avoid upgrade timing issues on Ingress.
+4.  **Manual Connection**: Disabled `autoConnect`, attached listeners, then called `manager.open()` and `socket.connect()` explicitly.
+
 ```typescript
-// 1. Manager handles low-level transport (with Ingress path)
-const manager = new Manager(baseUrl.origin, { path: socketPath, ... })
-
-// 2. Socket handles application protocol (explicit namespace)
-socket = manager.socket('/') 
+const manager = new Manager(baseUrl.origin, {
+    path: finalPath, // NO trailing slash
+    transports: ['websocket'],
+    autoConnect: false,
+})
+socket = manager.socket('/')
+manager.open(() => socket.connect())
 ```
 
-**Bonus:** Added production observability endpoints:
-- `GET /api/ha-socket` — HA WebSocket diagnostic status
-- `GET /api/scheduler-debug` — Scheduler engine diagnostic status  
-- `GET /api/executor-debug` — Executor engine diagnostic status
+**Bonus:** Added production observability endpoints + runtime debug config via URL params.
 
 **Status:**
-- [x] Root Cause Identified (Namespace handshake failure on Ingress)
-- [x] Implementation Plan Created
-- [x] Fix Implemented (Manager Pattern)
+- [x] Root Cause Identified (Trailing slash breaking ASGI namespace handshake)
+- [x] Fix Implemented (Manager Pattern + Trailing Slash Removal)
 - [x] Debug Endpoints Added
-- [/] User Verified in HA Add-on Environment
+- [x] User Verified in HA Add-on Environment ✅
 
 ---
 
@@ -834,3 +836,26 @@ From debug endpoint:
 - [ ] Consider adding "run immediately on startup if enabled" behavior
 
 **Priority:** Medium (scheduler works, just delayed start)
+
+---
+
+### REV // F13 — Socket.IO Debug Cleanup [POST-BETA]
+
+**Goal:** Remove verbose debug logging and runtime config after beta testers have confirmed stable Socket.IO connections across various environments.
+
+**Context:** REV F11 added extensive instrumentation to debug the HA Ingress connection issue:
+- `console.log` statements throughout `socket.ts`
+- `?socket_path` and `?socket_transports` URL param overrides
+- Packet-level logging (`packetCreate`, `packet` events)
+
+This should remain in place during beta testing to allow users to self-diagnose issues.
+
+**Cleanup Scope:**
+- [ ] Remove or reduce `console.log` statements in `socket.ts`
+- [ ] Consider keeping URL param overrides as a hidden "power user" feature
+- [ ] Remove `eslint-disable` comments added for debug casting
+- [ ] Update `docs/ARCHITECTURE.md` if runtime config is removed
+
+**Trigger:** After 2+ weeks of stable beta feedback with no new Socket.IO issues reported.
+
+**Priority:** Low (cleanup only, no functional change)
