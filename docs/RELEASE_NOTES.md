@@ -1,5 +1,22 @@
 # Darkstar Release Notes
 
+## [v2.4.22-beta] - Config Stability & Settings Reorganization - 2026-01-15
+
+### Core Features
+- **Settings Reorganization (REV F14)**: Major overhaul of the Settings UI. Home Assistant entities are now logically grouped into "Input Sensors" and "Control Entities", making it easier to distinguish between what Darkstar reads and what it controls.
+- **Executor Overrides (REV F17)**: Exposed new battery and PV override thresholds in the UI. Added automatic configuration migration to ensure existing installations receive these new parameters without manual editing.
+
+### Critical Fixes
+- **Config Corruption**: Resolved a long-standing issue where saving settings could strip comments from `config.yaml` or corrupt newline formatting. The system now exclusively uses `ruamel.yaml` for all config operations.
+- **Executor Stability**: Fixed a backend crash that occurred when the execution engine encountered "None" or unconfigured entity IDs.
+
+### UI/UX
+- **Clutter Reduction**: Removed the legacy "Live System" diagnostic card from the Executor tab.
+- **History Fix**: Fixed a bug where `water_power` sensors were not correctly captured in the historical energy charts.
+
+---
+
+
 ## [v2.4.21-beta] - Runtime Socket Diagnostics - 2026-01-15
 
 ### Core Features
