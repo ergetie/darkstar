@@ -170,5 +170,5 @@ The system re-optimizes every hour to adapt to changing prices and conditions.
 
 ## License
 
-Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
+Licensed under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
 
