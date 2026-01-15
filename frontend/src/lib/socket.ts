@@ -43,7 +43,7 @@ export const getSocket = () => {
             overridePath,
             overrideTransports,
             finalPath,
-            finalTransports
+            finalTransports,
         })
 
         const manager = new Manager(baseUrl.origin, {
