@@ -45,8 +45,16 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 - Hide water power sensor in power flow card when not enabled
 - Support multiple heating sources
+- Remove live system card
+- Toggle for soc_target entity (some inverters dont use it)
+- Support different inverter profiles
+- Hard to read chartCard on mobile due to big tool tip
+- A beta tester (Kristoffer) reports this: "I Fronius Modbus integrationen behöver sätta Storage Control Mode samt ange värde på i watt på entitet för charge, discharge etc. Man har flertalet val under storage contol mode. Det kanske skulle varamöjligt att lsa med extra helpers och trigga automationer baserat på förändringar och översätta A till W men det känns lite för komplext. Du räknar ju redan idag ut hur många Watt som det skall laddas med så om du kunde få till det direkt i darkstar, skulle vara bäst att använda samma entiter men att du hade en switch som angav om man använde A eller W?" This is for "max_charge_current" and "max_discharge_current" entities for example.
+- Add both "input_sensors:
+  grid_import_power: sensor.their_import_sensor
+  grid_export_power: sensor.their_export_sensor"
+  To the UI!
 - 
-
 ---
 
 ## 🔴 High Priority
