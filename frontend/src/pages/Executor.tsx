@@ -9,14 +9,8 @@ import {
     CheckCircle,
     Clock,
     RefreshCw,
-    Activity,
     Settings,
     Gauge,
-    Battery,
-    Sun,
-    Plug,
-    ArrowDownToLine,
-    ArrowUpFromLine,
     Bell,
     X,
     BatteryCharging,
@@ -25,7 +19,7 @@ import {
     ChevronDown,
 } from 'lucide-react'
 import Card from '../components/Card'
-import MiniBarGraph from '../components/MiniBarGraph'
+
 import { useSocket } from '../lib/hooks'
 
 // Types for notifications
@@ -292,16 +286,6 @@ export default function Executor() {
     const [status, setStatus] = useState<ExecutorStatus | null>(null)
     const [stats, setStats] = useState<ExecutorStats | null>(null)
     const [history, setHistory] = useState<ExecutionRecord[]>([])
-    const [live, setLive] = useState<Record<string, { value: string; numeric?: number; unit?: string }> | null>(null)
-    // Buffer for sparklines (last 20 points)
-    const [historyBuffer, setHistoryBuffer] = useState<{
-        soc: number[]
-        pv: number[]
-        load: number[]
-        import: number[]
-        export: number[]
-        labels: string[]
-    }>({ soc: [], pv: [], load: [], import: [], export: [], labels: [] })
 
     const [loading, setLoading] = useState(true)
     const [toggling, setToggling] = useState(false)
@@ -333,58 +317,6 @@ export default function Executor() {
     }, [])
 
     // --- WebSocket Event Handlers (Rev E1) ---
-    useSocket('live_metrics', (data: any) => {
-        setLive((prev) => {
-            const next = { ...(prev || {}) }
-            if (data.soc !== undefined) next.soc = { value: `${data.soc.toFixed(0)}%`, numeric: data.soc, unit: '%' }
-            if (data.pv_kw !== undefined)
-                next.pv_power = { value: `${data.pv_kw.toFixed(1)} kW`, numeric: data.pv_kw * 1000, unit: 'W' }
-            if (data.load_kw !== undefined)
-                next.load_power = { value: `${data.load_kw.toFixed(1)} kW`, numeric: data.load_kw * 1000, unit: 'W' }
-            if (data.grid_import_kw !== undefined)
-                next.grid_import = {
-                    value: `${data.grid_import_kw.toFixed(2)} kW`,
-                    numeric: data.grid_import_kw * 1000,
-                    unit: 'W',
-                }
-            if (data.grid_export_kw !== undefined)
-                next.grid_export = {
-                    value: `${data.grid_export_kw.toFixed(2)} kW`,
-                    numeric: data.grid_export_kw * 1000,
-                    unit: 'W',
-                }
-            if (data.work_mode) next.work_mode = { value: data.work_mode }
-            return next
-        })
-
-        setHistoryBuffer((prev) => {
-            const limit = 20
-            const newLabels = [...prev.labels, '']
-            const newSoc = [...prev.soc, data.soc ?? prev.soc[prev.soc.length - 1] ?? 0]
-            const newPv = [...prev.pv, data.pv_kw ?? prev.pv[prev.pv.length - 1] ?? 0]
-            const newLoad = [...prev.load, data.load_kw ?? prev.load[prev.load.length - 1] ?? 0]
-            const newImport = [...prev.import, data.grid_import_kw ?? prev.import[prev.import.length - 1] ?? 0]
-            const newExport = [...prev.export, data.grid_export_kw ?? prev.export[prev.export.length - 1] ?? 0]
-
-            if (newLabels.length > limit) {
-                newLabels.shift()
-                newSoc.shift()
-                newPv.shift()
-                newLoad.shift()
-                newImport.shift()
-                newExport.shift()
-            }
-
-            return {
-                labels: newLabels,
-                soc: newSoc,
-                pv: newPv,
-                load: newLoad,
-                import: newImport,
-                export: newExport,
-            }
-        })
-    })
 
     useSocket('executor_status', (data: any) => {
         setStatus(data)
@@ -397,55 +329,6 @@ export default function Executor() {
         const interval = setInterval(fetchAll, 30000) // Keep status polling as backup
         return () => clearInterval(interval)
     }, [fetchAll])
-
-    // Initial fetch for live values (just once)
-    useEffect(() => {
-        const loadInitialLive = async () => {
-            try {
-                const data: any = await executorApi.live()
-                // Transform raw data to UI format (same as socket handler)
-                const formatted: any = {}
-
-                if (data.soc !== undefined)
-                    formatted.soc = { value: `${Number(data.soc).toFixed(0)}%`, numeric: Number(data.soc), unit: '%' }
-
-                if (data.pv_kw !== undefined)
-                    formatted.pv_power = {
-                        value: `${Number(data.pv_kw).toFixed(1)} kW`,
-                        numeric: Number(data.pv_kw) * 1000,
-                        unit: 'W',
-                    }
-
-                if (data.load_kw !== undefined)
-                    formatted.load_power = {
-                        value: `${Number(data.load_kw).toFixed(1)} kW`,
-                        numeric: Number(data.load_kw) * 1000,
-                        unit: 'W',
-                    }
-
-                if (data.grid_import_kw !== undefined)
-                    formatted.grid_import = {
-                        value: `${Number(data.grid_import_kw).toFixed(2)} kW`,
-                        numeric: Number(data.grid_import_kw) * 1000,
-                        unit: 'W',
-                    }
-
-                if (data.grid_export_kw !== undefined)
-                    formatted.grid_export = {
-                        value: `${Number(data.grid_export_kw).toFixed(2)} kW`,
-                        numeric: Number(data.grid_export_kw) * 1000,
-                        unit: 'W',
-                    }
-
-                if (data.work_mode) formatted.work_mode = { value: data.work_mode }
-
-                setLive(formatted)
-            } catch (e) {
-                console.error('Failed to load initial live metrics', e)
-            }
-        }
-        loadInitialLive()
-    }, [])
 
     // Fetch notifications on mount
     useEffect(() => {
@@ -886,135 +769,6 @@ export default function Executor() {
                     </div>
                 </Card> */}
             </div>
-
-            {/* Live System Values */}
-            <Card className="p-4 md:p-5">
-                <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2">
-                        <Activity className="h-4 w-4 text-accent" />
-                        <span className="text-xs font-medium text-text">Live System</span>
-                        <span className="text-[9px] text-muted/70">(every 10s)</span>
-                    </div>
-                    {live?.work_mode && (
-                        <span
-                            className={`text-[10px] px-2 py-0.5 rounded-full border ${
-                                live.work_mode.value.includes('Export')
-                                    ? status?.shadow_mode
-                                        ? 'bg-warn/20 border-warn/30 text-warn'
-                                        : 'bg-good/20 border-good/30 text-good'
-                                    : 'bg-water/20 border-water/30 text-water'
-                            }`}
-                        >
-                            {live.work_mode.value}
-                        </span>
-                    )}
-                </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                    {/* SoC - Battery Green */}
-                    <div className="metric-card-border metric-card-border-battery p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
-                            <MiniBarGraph data={historyBuffer.soc} colorClass="bg-good" />
-                        </div>
-                        <div className="relative z-10 flex items-center gap-3">
-                            <Battery
-                                className={`h-6 w-6 ${
-                                    (live?.soc?.numeric ?? 0) > 50
-                                        ? 'text-good'
-                                        : (live?.soc?.numeric ?? 0) > 20
-                                          ? 'text-warn'
-                                          : 'text-bad'
-                                }`}
-                            />
-                            <div>
-                                <div className="text-lg font-bold text-good">
-                                    {live?.soc?.numeric?.toFixed(0) ?? '—'}%
-                                </div>
-                                <div className="text-[10px] text-muted">Battery SoC</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* PV Power - Solar Gold */}
-                    <div className="metric-card-border metric-card-border-solar p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
-                            <MiniBarGraph data={historyBuffer.pv} colorClass="bg-accent" />
-                        </div>
-                        <div className="relative z-10 flex items-center gap-3">
-                            <Sun
-                                className={`h-6 w-6 ${
-                                    (live?.pv_power?.numeric ?? 0) > 500 ? 'text-accent' : 'text-accent/40'
-                                }`}
-                            />
-                            <div>
-                                <div className="text-lg font-bold text-accent">
-                                    {live?.pv_power?.numeric ? (live.pv_power.numeric / 1000).toFixed(1) : '—'} kW
-                                </div>
-                                <div className="text-[10px] text-muted">PV Power</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Load - House Purple */}
-                    <div className="metric-card-border metric-card-border-house p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
-                            <MiniBarGraph data={historyBuffer.load} colorClass="bg-house" />
-                        </div>
-                        <div className="relative z-10 flex items-center gap-3">
-                            <Plug className="h-6 w-6 text-house" />
-                            <div>
-                                <div className="text-lg font-bold text-house">
-                                    {live?.load_power?.numeric ? (live.load_power.numeric / 1000).toFixed(1) : '—'} kW
-                                </div>
-                                <div className="text-[10px] text-muted">Load</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Grid Import - Grid Slate / Bad when high */}
-                    <div className="metric-card-border metric-card-border-grid p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
-                            <MiniBarGraph
-                                data={historyBuffer.import}
-                                colorClass={(live?.grid_import?.numeric ?? 0) > 100 ? 'bg-bad' : 'bg-grid'}
-                            />
-                        </div>
-                        <div className="relative z-10 flex items-center gap-3">
-                            <ArrowDownToLine
-                                className={`h-6 w-6 ${
-                                    (live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-grid'
-                                }`}
-                            />
-                            <div>
-                                <div
-                                    className={`text-lg font-bold ${
-                                        (live?.grid_import?.numeric ?? 0) > 100 ? 'text-bad' : 'text-text'
-                                    }`}
-                                >
-                                    {live?.grid_import?.numeric ? (live.grid_import.numeric / 1000).toFixed(2) : '—'} kW
-                                </div>
-                                <div className="text-[10px] text-muted">Grid Import</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Grid Export - TE Orange */}
-                    <div className="metric-card-border metric-card-border-bad p-3 bg-surface2/30 relative overflow-hidden group">
-                        <div className="mini-bars-container absolute right-2 bottom-2 transition-opacity pointer-events-none">
-                            <MiniBarGraph data={historyBuffer.export} colorClass="bg-bad" />
-                        </div>
-                        <div className="relative z-10 flex items-center gap-3">
-                            <ArrowUpFromLine className="h-6 w-6 text-bad" />
-                            <div>
-                                <div className="text-lg font-bold text-bad">
-                                    {live?.grid_export?.numeric ? (live.grid_export.numeric / 1000).toFixed(2) : '—'} kW
-                                </div>
-                                <div className="text-[10px] text-muted">Grid Export</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </Card>
 
             {/* Execution History */}
             <Card className="p-4 md:p-5">

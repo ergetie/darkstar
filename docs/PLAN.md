@@ -1226,3 +1226,16 @@ This should remain in place during beta testing to allow users to self-diagnose 
 - `executor/actions.py` — Improve error logging (Phase 1)
 - `backend/api/routers/config.py` — Fix config save (Phase 3)
 - `darkstar/run.sh` — Improve config handling (Phase 3)
+
+---
+
+### [DONE] REV // UI3 — Hide Live System Card
+
+**Goal:** Hide the "Live System" card in the Executor tab as requested by the user, to simplify the interface.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] Locate "Live System" card in `frontend/src/pages/Executor.tsx`
+* [x] Comment out or remove the Card component at lines ~891-1017
+* [x] Verify linting passes
