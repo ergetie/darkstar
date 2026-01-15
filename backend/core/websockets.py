@@ -21,14 +21,37 @@ class WebSocketManager:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             # Initialize AsyncServer in ASGI mode
+            # REV F11 DEBUG: Enable verbose logging
             cls._instance.sio = socketio.AsyncServer(
                 async_mode="asgi",
                 cors_allowed_origins="*",
-                logger=False,  # Set to True for verbose debug
-                engineio_logger=False,
+                logger=True,  # Enable Socket.IO logging
+                engineio_logger=True,  # Enable Engine.IO logging
             )
             cls._instance.loop = None
+
+            # Register connect/disconnect handlers for debugging
+            cls._instance._register_debug_handlers()
         return cls._instance
+
+    def _register_debug_handlers(self):
+        """Register Socket.IO event handlers for debugging."""
+
+        @self.sio.event
+        async def connect(sid, environ):
+            """Log client connections with request details."""
+            path = environ.get("PATH_INFO", "unknown")
+            query = environ.get("QUERY_STRING", "")
+            headers = {k: v for k, v in environ.items() if k.startswith("HTTP_")}
+            logger.info(f"🔌 Socket.IO client CONNECTED: sid={sid}")
+            logger.info(f"   PATH_INFO: {path}")
+            logger.info(f"   QUERY_STRING: {query}")
+            logger.info(f"   Headers: X-Ingress-Path={headers.get('HTTP_X_INGRESS_PATH', 'not present')}")
+
+        @self.sio.event
+        async def disconnect(sid):
+            """Log client disconnections."""
+            logger.info(f"🔌 Socket.IO client DISCONNECTED: sid={sid}")
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         """Capture the running event loop on startup."""
@@ -75,3 +98,4 @@ class WebSocketManager:
 
 # Global instance
 ws_manager = WebSocketManager()
+

@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import aiosqlite
 import pytz
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from backend.learning import get_learning_engine
 from inputs import get_dummy_load_profile, get_load_profile_from_ha, load_yaml
@@ -213,6 +213,57 @@ async def ha_socket_status() -> dict[str, Any]:
     from backend.ha_socket import get_ha_socket_status
 
     return get_ha_socket_status()
+
+
+@router.get(
+    "/api/socketio-debug",
+    summary="Socket.IO Server Debug",
+    description="Diagnostic info about the Socket.IO server for frontend live metrics.",
+)
+async def socketio_debug_status(request: Request) -> dict[str, Any]:
+    """Return Socket.IO server diagnostic info for debugging."""
+    from backend.core.websockets import ws_manager
+
+    sio = ws_manager.sio
+
+    # Get connected clients
+    try:
+        # Socket.IO manager tracks rooms/sids
+        manager = sio.manager
+        connected_sids = list(manager.rooms.get("/", {}).keys()) if hasattr(manager, "rooms") else []
+    except Exception as e:
+        connected_sids = [f"error: {e}"]
+
+    return {
+        "server_status": "initialized",
+        "async_mode": sio.async_mode,
+        "connected_clients": len(connected_sids) if isinstance(connected_sids, list) else 0,
+        "client_sids": connected_sids[:10],  # Limit to 10
+        "event_loop_captured": ws_manager.loop is not None,
+        "cors_allowed_origins": "*",  # hardcoded in ws_manager
+        "request_info": {
+            "path": str(request.url.path),
+            "base_url": str(request.base_url),
+            "headers": {
+                "x-ingress-path": request.headers.get("x-ingress-path", "not present"),
+                "host": request.headers.get("host", "not present"),
+                "origin": request.headers.get("origin", "not present"),
+            },
+        },
+        "diagnostics": {
+            "now": datetime.now(UTC).isoformat(),
+            "message": _get_socketio_diagnostic_message(connected_sids, ws_manager),
+        },
+    }
+
+
+def _get_socketio_diagnostic_message(connected_sids: list, ws_manager: Any) -> str:
+    """Generate a human-readable diagnostic message for Socket.IO state."""
+    if ws_manager.loop is None:
+        return "⚠️ Event loop not captured - Socket.IO may not be initialized"
+    if not connected_sids or len(connected_sids) == 0:
+        return "❌ No clients connected to Socket.IO - check frontend connection"
+    return f"✅ Socket.IO running with {len(connected_sids)} connected client(s)"
 
 
 @router.get(
