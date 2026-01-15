@@ -5,6 +5,7 @@
 **Fixes**
 *   **Executor Engine**: Fixed a regression where the list of executed actions was not being correctly populated in the execution result.
 *   **Logging Refinement**: Enhanced Home Assistant WebSocket logging to respect the `LOG_LEVEL` environment variable.
+*   **Historical Data Integrity**: Fixed a critical bug where historical battery charge/discharge actions were inverted in the 48h chart view. The recorder now strictly respects standard inverter sign conventions (+ discharge, - charge).
 
 ---
 

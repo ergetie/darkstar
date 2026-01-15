@@ -73,8 +73,9 @@ def record_observation_from_current_state():
     import_kwh = import_kw * 0.25
     import_kwh = import_kw * 0.25
     export_kwh = export_kw * 0.25
-    batt_charge_kwh = (battery_kw * 0.25) if battery_kw > 0 else 0.0
-    batt_discharge_kwh = (abs(battery_kw) * 0.25) if battery_kw < 0 else 0.0
+    # Standard inverter convention: positive = discharge, negative = charge
+    batt_discharge_kwh = (battery_kw * 0.25) if battery_kw > 0 else 0.0
+    batt_charge_kwh = (abs(battery_kw) * 0.25) if battery_kw < 0 else 0.0
 
     # Battery
     soc_entity = input_sensors.get("battery_soc")

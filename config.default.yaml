@@ -174,7 +174,7 @@ input_sensors:
   battery_soc: sensor.inverter_battery           # Current battery state of charge (%)
   pv_power: sensor.inverter_pv_power             # Current PV production (W or kW)
   load_power: sensor.inverter_load_power         # Current load consumption (W or kW)
-  battery_power: sensor.inverter_battery_power   # Current battery power (+ charge, - discharge)
+  battery_power: sensor.inverter_battery_power   # Current battery power (+ discharge, - charge)
   water_power: sensor.vvb_power                  # Current water heater power (W or kW)
   grid_power: sensor.inverter_grid_power         # Current grid power (+ import, - export)
 

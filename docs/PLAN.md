@@ -751,3 +751,20 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 - [ ] Water heating schedule quality remains acceptable (user-verified)
 - [ ] All tests pass
 - [ ] Changes documented
+
+---
+
+### [DONE] REV // F10 — Fix Discharge/Charge Inversion
+
+**Goal:** Correct a critical data integrity bug where historical discharge actions were inverted and recorded as charge actions.
+
+**Fix:**
+- Corrected `backend/recorder.py` to respect standard inverter sign convention (+ discharge, - charge).
+- Updated documentation.
+- Verified with unit tests.
+
+**Status:**
+- [x] Root Cause Identified (Lines 76-77 in recorder.py)
+- [x] Fix Implemented
+- [x] Unit Tests Passed
+- [x] Committed to main
