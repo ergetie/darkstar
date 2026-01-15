@@ -1,5 +1,15 @@
 # Darkstar Release Notes
 
+## [v2.4.20-beta] - HA Ingress Stability & Quality - 2026-01-15
+
+### Critical Fixes
+- **HA Ingress Stability (REV F11)**: Implemented the Socket.IO Manager pattern for explicit namespace handling. This resolves persistent connection stalls in Home Assistant Add-on environments behind Ingress proxies, ensuring reliable live metrics flow.
+
+### Internal
+- **Debugging & Handover**: Added a structured Socket.IO debugging handover prompt to accelerate future troubleshooting of proxy-related issues.
+
+---
+
 ## [v2.4.19-beta] - HA Ingress Refinement & Diagnostics - 2026-01-15
 
 ### Critical Fixes
