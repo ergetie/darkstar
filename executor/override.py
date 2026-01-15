@@ -139,8 +139,8 @@ class OverrideEvaluator:
                 actions={},  # No actions, let user control
             )
 
-        # Priority 9: Emergency charge (SoC at or below absolute floor)
-        if state.current_soc_percent <= self.min_soc_floor:
+        # Priority 9: Emergency charge (SoC BELOW absolute floor)
+        if state.current_soc_percent < self.min_soc_floor:
             return OverrideResult(
                 override_needed=True,
                 override_type=OverrideType.EMERGENCY_CHARGE,

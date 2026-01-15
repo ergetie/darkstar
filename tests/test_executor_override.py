@@ -98,20 +98,21 @@ class TestOverrideEvaluatorManualOverride:
 
 
 class TestOverrideEvaluatorEmergencyCharge:
-    """Test Priority 9: Emergency charge when SoC at floor."""
+    """Test Priority 9: Emergency charge when SoC BELOW floor."""
 
-    def test_soc_at_floor_triggers_emergency(self):
-        """SoC at minimum floor should trigger emergency charge."""
+    def test_soc_at_floor_no_emergency(self):
+        """SoC exactly at minimum floor should NOT trigger emergency charge.
+
+        The floor (min_soc) is the user's acceptable minimum. Being AT the floor
+        is still within tolerance; only dropping BELOW triggers emergency.
+        """
         evaluator = OverrideEvaluator(min_soc_floor=10.0)
         state = SystemState(current_soc_percent=10.0)
 
         result = evaluator.evaluate(state)
 
-        assert result.override_needed is True
-        assert result.override_type == OverrideType.EMERGENCY_CHARGE
-        assert result.priority == 9.0
-        assert result.actions["grid_charging"] is True
-        assert result.actions["work_mode"] == "Zero Export To CT"
+        assert result.override_needed is False
+        assert result.override_type != OverrideType.EMERGENCY_CHARGE
 
     def test_soc_below_floor_triggers_emergency(self):
         """SoC below minimum floor should trigger emergency charge."""

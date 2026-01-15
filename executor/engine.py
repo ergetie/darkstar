@@ -850,13 +850,20 @@ class ExecutorEngine:
                 )
             else:
                 # Normal override evaluation
+                # Read override thresholds from config (with sensible defaults)
+                battery_cfg = self._full_config.get("battery", {})
+                override_cfg = self._full_config.get("executor", {}).get("override", {})
+
                 override = evaluate_overrides(
                     state,
                     slot,
                     config={
-                        "min_soc_floor": 10.0,
-                        "low_soc_threshold": 20.0,
-                        "excess_pv_threshold_kw": 2.0,
+                        # min_soc_floor: triggers emergency charge when SoC drops BELOW this
+                        "min_soc_floor": float(battery_cfg.get("min_soc_percent", 10.0)),
+                        # low_soc_threshold: prevents exports when SoC is at or below this
+                        "low_soc_threshold": float(override_cfg.get("low_soc_export_floor", 20.0)),
+                        # excess_pv_threshold_kw: surplus PV needed to trigger water heating
+                        "excess_pv_threshold_kw": float(override_cfg.get("excess_pv_threshold_kw", 2.0)),
                         "water_temp_boost": self.config.water_heater.temp_boost,
                         "water_temp_max": self.config.water_heater.temp_max,
                         "water_temp_off": self.config.water_heater.temp_off,

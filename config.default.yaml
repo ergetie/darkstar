@@ -255,6 +255,21 @@ executor:
     on_override_activated: true        # Notify when manual override triggers
     on_error: true                     # Notify on executor errors
 
+  # Override Configuration (real-time safety triggers)
+  # These settings control when the executor overrides the planned schedule
+  # to protect the battery or utilize excess energy.
+  override:
+    # Export prevention floor: Stop exporting if SoC drops to this level.
+    # This is a safety buffer ABOVE your min_soc to prevent excessive discharge.
+    # Example: If min_soc=5% and low_soc_export_floor=15%, export stops at 15%
+    # but emergency charge only triggers if SoC drops BELOW 5%.
+    low_soc_export_floor: 20           # SoC % at which to prevent planned exports
+
+    # Excess PV threshold: Minimum surplus PV power (kW) to trigger water heating.
+    # When PV production exceeds load by this amount AND battery is >50%,
+    # the executor will heat water to dump free solar energy.
+    excess_pv_threshold_kw: 2.0        # Surplus PV (kW) needed to trigger PV dump
+
 # =============================================================================
 # UI Settings
 # =============================================================================
