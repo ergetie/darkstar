@@ -11,6 +11,432 @@ This document contains the archive of all completed revisions. It serves as the 
 
 This era focused on the transition to a public beta release, including infrastructure hardening, executor reliability, and significant performance optimizations for both the planner and the user interface.
 
+### [DONE] REV // F17 — Fix Override Hardcoded Values
+
+**Goal:** Fix a critical bug where emergency charge was triggered incorrectly because of hardcoded floor values in the executor engine, ignoring user configuration.
+
+**Problem:**
+- `executor/engine.py` had `min_soc_floor` hardcoded to `10.0` and `low_soc_threshold` to `20.0`.
+- Users with `min_soc_percent: 5` explicitly set were still experiencing overrides when SoC was between 5-10%.
+- Emergency charge logic used `<=` (triggered AT floor) instead of `<` (triggered BELOW floor).
+
+**Fix:**
+- Mapped `min_soc_floor` to `battery.min_soc_percent`.
+- Added new `executor.override` config section for `low_soc_export_floor` and `excess_pv_threshold_kw`.
+- Changed emergency charge condition from `<=` to `<` to match user expectation (floor is acceptable state).
+
+**Files Modified:**
+- `executor/engine.py`: Removed hardcoded values, implemented config mapping.
+- `executor/override.py`: Changed triggered condition.
+- `config.default.yaml`: Added new config section.
+- `tests/test_executor_override.py`: Updated test expectations.
+
+**Status:**
+- [x] Fix Implemented
+- [x] Config Added
+- [x] Tests Passed
+- [x] Committed to main
+
+---
+
+### [DONE] REV // UI3 — Hide Live System Card
+
+**Goal:** Hide the "Live System" card in the Executor tab as requested by the user, to simplify the interface.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] Locate "Live System" card in `frontend/src/pages/Executor.tsx`
+* [x] Comment out or remove the Card component at lines ~891-1017
+* [x] Verify linting passes
+
+---
+
+### [DONE] REV // F16 — Executor Hardening & Config Reliability
+
+**Goal:** Fix critical executor crash caused by unguarded entity lookups, investigate config save bugs (comments wiped, YAML formatting corrupted), and improve error logging.
+
+**Context (Beta Tester Report 2026-01-15):**
+- Executor fails with `Failed to get state of None: 404` even after user configured entities
+- Config comments mysteriously wiped after add-on install
+- Entity values appeared on newlines (invalid YAML) after Settings page save
+- `nordpool.price_area: SE3` reverted to `SE4` after reboot
+
+**Root Cause Analysis:**
+1. **Unguarded `get_state_value()` calls** in `engine.py` — calls HA API even when entity is `None` or empty string
+2. **Potential config save bug** — UI may be corrupting YAML formatting or not preserving comments
+3. **Error logging doesn't identify WHICH entity** is None in error messages
+
+---
+
+#### Phase 1: Guard All Entity Lookups [DONE]
+
+**Goal:** Prevent executor crash when optional entities are not configured.
+
+**Bug Locations (lines in `executor/engine.py`):**
+
+| Line | Entity | Current Guard | Issue |
+|------|--------|---------------|-------|
+| 767 | `automation_toggle_entity` | `if self.ha_client:` | Missing entity None check |
+| 1109 | `work_mode_entity` | `if has_battery:` | Missing entity None check |
+| 1114 | `grid_charging_entity` | `if has_battery:` | Missing entity None check |
+| 1121 | `water_heater.target_entity` | `if has_water_heater:` | Missing entity None check |
+
+**Tasks:**
+
+* [x] **Fix line 767** (automation_toggle_entity):
+  ```python
+  # OLD:
+  if self.ha_client:
+      toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
+  
+  # NEW:
+  if self.ha_client and self.config.automation_toggle_entity:
+      toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
+  ```
+
+* [x] **Fix lines 1109/1114** (work_mode, grid_charging):
+  ```python
+  # OLD:
+  if self.config.has_battery:
+      work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
+  
+  # NEW:
+  if self.config.has_battery and self.config.inverter.work_mode_entity:
+      work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
+  ```
+
+* [x] **Fix line 1121** (water_heater.target_entity):
+  ```python
+  # OLD:
+  if self.config.has_water_heater:
+      water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
+  
+  # NEW:
+  if self.config.has_water_heater and self.config.water_heater.target_entity:
+      water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
+  ```
+
+* [x] **Improve error logging** in `executor/actions.py:get_state()`:
+  ```python
+  # Log which entity is None/invalid for easier debugging
+  if not entity_id or entity_id.lower() == "none":
+      logger.error("get_state called with invalid entity_id: %r (type: %s)", entity_id, type(entity_id))
+      return None
+  ```
+
+* [x] **Linting:** `ruff check executor/` — All checks passed!
+* [x] **Testing:** `PYTHONPATH=. python -m pytest tests/test_executor_*.py -v` — 42 passed!
+
+---
+
+#### Phase 2: Config Save Investigation [DONE]
+
+**Goal:** Identify why config comments are wiped and YAML formatting is corrupted.
+
+**Symptoms (Confirmed by Beta Tester 2026-01-15):**
+1. **Newline Corruption:** Entities like `grid_charging_entity` are saved with newlines after UI activity:
+   ```yaml
+   grid_charging_entity:
+     input_select.my_entity
+   ```
+   *This breaks the executor because it parses as a dict or None instead of a string.*
+2. **Comment Wiping:** Comments vanish after add-on install or UI save.
+3. **Value Resets:** `nordpool.price_area` resets to default/config.default values.
+
+**Findings:**
+1. **Comment Wiping:** `darkstar/run.sh` falls back to `PyYAML` if `ruamel.yaml` is missing in system python. PyYAML strips comments.
+2. **Newline Corruption:** `ruamel.yaml` defaults to 80-char width wrapping. `backend/api/routers/config.py` does not set `width`, causing long entity IDs to wrap.
+3. **Value Resets:** `run.sh` explicitly overwrites `price_area` from `options.json` on every startup (Standard HA Add-on behavior).
+
+**Investigation Tasks:**
+
+* [x] **Trace config save flow:**
+  - `backend/api/routers/config.py:save_config()` uses `ruamel.yaml` w/ `preserve_quotes` but missing `width`.
+* [x] **Trace add-on startup flow:**
+  - `darkstar/run.sh` has PyYAML fallback that strips comments.
+* [x] **Check Settings page serialization:**
+  - Frontend serialization looks clean (`JSON.stringify`).
+  - **Root Cause:** Backend `ruamel.yaml` wrapping behavior.
+ * [x] **Document findings** in artifact: `config_save_investigation.md`
+
+---
+
+#### Phase 3: Fix Config Save Issues [DONE]
+
+**Goal:** Implement fixes to prevent config corruption and ensure reliability.
+
+**Tasks:**
+
+1. **[BackEnd] Fix Newline Corruption**
+   * [x] **Modify `backend/api/routers/config.py`:**
+     - Set `yaml_handler.width = 4096`
+     - Set `yaml_handler.default_flow_style = None`
+
+2. **[Startup] Fix Comment Wiping & Newlines**
+   * [x] **Modify `darkstar/run.sh`:**
+     - Update `safe_dump_stream` logic to use `ruamel.yaml` instance with `width=4096`
+     - Enforce `ruamel.yaml` usage (remove silent fallback to PyYAML)
+     - Log specific warning/error if `ruamel.yaml` is missing
+
+3. **[Build] Ensure Dependencies**
+   * [x] **Check/Update `Dockerfile`:**
+     - Verification: `ruamel.yaml` is in `requirements.txt` (Line 19) and installed in `Dockerfile` (Line 33).
+
+4. **[Verification] Test Save Flow**
+   * [x] **Manual Test:**
+     - (Pending Beta Tester verification of release)
+
+**Files Modified:**
+- `backend/api/routers/config.py`
+- `darkstar/run.sh`
+
+---
+
+### [DONE] REV // F14 — Settings UI: Categorize Controls vs Sensors
+
+**Goal:** Reorganize the HA entity settings to clearly separate **Input Sensors** (Darkstar reads) from **Control Entities** (Darkstar writes/commands). Add conditional visibility for entities that depend on System Profile toggles.
+
+**Problem:**
+- "Target SoC Feedback" is in "Optional HA Entities" but it's an **output entity** that Darkstar writes to
+- Current groupings mix sensors and controls chaotically
+- Users don't understand what each entity is actually used for
+- No subsections within cards — related entities (e.g., water heating) are scattered
+- Water heater entities should be REQUIRED when `has_water_heater=true`, but currently always optional
+
+**Proposed Structure (Finalized):**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🔴 REQUIRED HA INPUT SENSORS                               │
+│     • Battery SoC (%)          [always required]            │
+│     • PV Power (W/kW)          [always required]            │
+│     • Load Power (W/kW)        [always required]            │
+│     ─── Water Heater ──────────────────────────────────     │
+│     • Water Power              [greyed if !has_water_heater]│
+│     • Water Heater Daily Energy[greyed if !has_water_heater]│
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  🔴 REQUIRED HA CONTROL ENTITIES                            │
+│     • Work Mode Selector       [always required]            │
+│     • Grid Charging Switch     [always required]            │
+│     • Max Charge Current       [always required]            │
+│     • Max Discharge Current    [always required]            │
+│     • Max Grid Export (W)      [always required]            │
+│     • Target SoC Output        [always required]            │
+│     ─── Water Heater ──────────────────────────────────     │
+│     • Water Heater Setpoint    [greyed if !has_water_heater]│
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  🟢 OPTIONAL HA INPUT SENSORS                               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Power Flow & Dashboard                               │  │
+│  │    • Battery Power, Grid Power                        │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Smart Home Integration                               │  │
+│  │    • Vacation Mode Toggle, Alarm Control Panel        │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  User Override Toggles                                │  │
+│  │    • Automation Toggle, Manual Override Toggle        │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Today's Energy Stats                                 │  │
+│  │    • Battery Charge, PV, Load, Grid I/O, Net Cost     │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Lifetime Energy Totals                               │  │
+│  │    • Total Battery, Grid, PV, Load                    │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Design Decisions:**
+1. **Conditional visibility via `showIf` predicate** — fields grey out when toggle is off, not hidden
+2. **Exact overlay text** — "Enable 'Smart water heater' in System Profile to configure"
+3. **Fields stay in their logical section** — water heater entities in REQUIRED, just greyed when disabled
+4. **Support for dual requirements** — `showIf: { all: ['has_solar', 'has_battery'] }` for future use
+5. **Subsections within Required** — group related conditional entities (e.g., "Water Heater")
+
+---
+
+#### Phase 1: Entity Audit & Categorization [DONE]
+
+**Goal:** Investigate every entity and determine direction (READ vs WRITE), required status, and conditional dependencies.
+
+✅ **Completed Investigation:** See artifact `entity_categorization_matrix.md`
+
+**Summary of Findings:**
+| Category | Entities |
+|:---------|:---------|
+| Required INPUT (always) | `battery_soc`, `pv_power`, `load_power` |
+| Required INPUT (if water heater) | `water_power`, `water_heater_consumption` |
+| Required CONTROL (always) | `work_mode`, `grid_charging`, `max_charge_current`, `max_discharge_current`, `grid_max_export_power`, `soc_target_entity` |
+| Required CONTROL (if water heater) | `water_heater.target_entity` |
+| Optional INPUT | All dashboard stats, smart home toggles, user overrides, lifetime totals |
+| Optional CONTROL | None (all moved to Required or conditional) |
+
+**Label Fix:** `"Target SoC Feedback"` → `"Target SoC Output"` (it's a WRITE)
+
+---
+
+#### Phase 2: types.ts Restructure [DONE]
+
+**Goal:** Add `showIf` support and reorganize `systemSections`.
+
+* [x] **Extend `BaseField` interface:**
+  ```typescript
+  interface BaseField {
+      // ... existing fields ...
+      showIf?: {
+          configKey: string           // e.g., 'system.has_water_heater'
+          value: boolean              // expected value to enable
+          disabledText: string        // exact overlay text
+      }
+      // For complex conditions:
+      showIfAll?: string[]            // ALL config keys must be true
+      showIfAny?: string[]            // ANY config key must be true
+      subsection?: string             // Subsection grouping within a card
+  }
+  ```
+
+* [x] **Reorganize sections:**
+  - Move `pv_power`, `load_power` to Required Input Sensors
+  - Move inverter controls to Required Control Entities
+  - Move `soc_target_entity` to Required Controls, rename label
+  - Add `showIf` to water heater entities
+  - Add `subsection: 'Water Heater'` grouping
+
+* [x] **Add conditional entities with exact text:**
+  ```typescript
+  {
+      key: 'executor.water_heater.target_entity',
+      label: 'Water Heater Setpoint',
+      helper: 'HA entity to control water heater target temperature.',
+      showIf: {
+          configKey: 'system.has_water_heater',
+          value: true,
+          disabledText: "Enable 'Smart water heater' in System Profile to configure"
+      },
+      subsection: 'Water Heater',
+      ...
+  }
+  ```
+
+---
+
+#### Phase 3: SystemTab.tsx & SettingsField.tsx Update [DONE]
+
+**Goal:** Render conditional fields with grey overlay.
+
+* [x] **SettingsField.tsx changes:**
+  - Accept `showIf` from field definition and `fullForm` (config values)
+  - When `showIf` condition is FALSE:
+    - Reduce opacity (e.g., `opacity-40`)
+    - Disable all inputs
+    - Show overlay text above the field (not tooltip — clear visible text)
+    - Keep helper text as normal tooltip
+
+* [x] **Overlay text styling:**
+  ```tsx
+  {!isEnabled && (
+      <div className="text-xs text-muted italic mb-1">
+          {field.showIf.disabledText}
+      </div>
+  )}
+  ```
+
+* [x] **Subsection rendering:**
+  - Group fields by `subsection` value
+  - Add visual separator/header for each subsection within a card
+
+---
+
+#### Phase 4: Helper Text Enhancement [DONE]
+
+**Goal:** Write clear, user-friendly helper text for each entity.
+
+* [x] **For each entity**, update helper text with:
+  - WHAT it does
+  - WHERE it's used (PowerFlow, Planner, Recorder, etc.)
+  - Example: "Used by the PowerFlow card to show real-time battery charge/discharge."
+
+* [x] **Label improvements:**
+  - `"Target SoC Feedback"` → `"Target SoC Output"`
+  - Review all labels for clarity
+
+---
+
+#### Phase 5: Verification [DONE]
+
+* [x] `pnpm lint` passes
+* [x] Manual verification: Settings page renders correctly
+* [x] Conditional fields grey out when toggle is off
+* [x] Overlay text is visible and clear
+* [x] Subsection groupings render correctly
+* [x] Mobile responsive layout works
+
+---
+
+### [DONE] REV // F11 — Socket.IO Live Metrics Not Working in HA Add-on
+
+**Goal:** Fix Socket.IO frontend connection failing in HA Ingress environment, preventing live metrics from reaching the PowerFlow card.
+
+**Context:** Diagnostic API (`/api/ha-socket`) shows backend is healthy:
+- `messages_received: 3559` ✅
+- `metrics_emitted: 129` ✅
+- `errors: []` ✅
+
+But frontend receives nothing. Issue is **HA Add-on specific** — works in Docker and local dev.
+
+**Root Cause (CONFIRMED):**
+The Socket.IO client path had a **trailing slash** (`/socket.io/`). The ASGI Socket.IO server is strict about path matching. This caused the Engine.IO transport to connect successfully, but the Socket.IO namespace handshake packet was never processed, resulting in a "zombie" connection where no events were exchanged.
+
+**Fix (Verified 2026-01-15):**
+1.  **Manager Pattern**: Decoupled transport (Manager) from application logic (Socket).
+2.  **Trailing Slash Removal**: `socketPath.replace(/\/$/, '')`.
+3.  **Force WebSocket**: Skip polling to avoid upgrade timing issues on Ingress.
+4.  **Manual Connection**: Disabled `autoConnect`, attached listeners, then called `manager.open()` and `socket.connect()` explicitly.
+
+```typescript
+const manager = new Manager(baseUrl.origin, {
+    path: finalPath, // NO trailing slash
+    transports: ['websocket'],
+    autoConnect: false,
+})
+socket = manager.socket('/')
+manager.open(() => socket.connect())
+```
+
+**Bonus:** Added production observability endpoints + runtime debug config via URL params.
+
+**Status:**
+- [x] Root Cause Identified (Trailing slash breaking ASGI namespace handshake)
+- [x] Fix Implemented (Manager Pattern + Trailing Slash Removal)
+- [x] Debug Endpoints Added
+- [x] User Verified in HA Add-on Environment ✅
+
+---
+
+### [DONE] REV // F10 — Fix Discharge/Charge Inversion
+
+**Goal:** Correct a critical data integrity bug where historical discharge actions were inverted and recorded as charge actions.
+
+**Fix:**
+- Corrected `backend/recorder.py` to respect standard inverter sign convention (+ discharge, - charge).
+- Updated documentation.
+- Verified with unit tests.
+
+**Status:**
+- [x] Root Cause Identified (Lines 76-77 in recorder.py)
+- [x] Fix Implemented
+- [x] Unit Tests Passed
+- [x] Committed to main
+
+---
+
 ### [DONE] REV // F9 — History Reliability Fixes
 
 **Goal:** Fix the 48h view charge display bug and resolve missing actual charge/discharge data by ensuring the recorder captures battery usage and the API reports executed status.
