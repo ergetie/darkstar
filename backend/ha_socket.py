@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import threading
+from datetime import UTC, datetime
 
 import websockets
 
@@ -18,6 +19,18 @@ class HAWebSocketClient:
         self.inversion_flags: dict[str, bool] = {}
         self.monitored_entities = self._get_monitored_entities()
         self.running = False
+
+        # Runtime Statistics (Production Observability)
+        self.stats = {
+            "connected_at": None,
+            "disconnected_at": None,
+            "messages_received": 0,
+            "last_message_at": None,
+            "events_processed": 0,
+            "metrics_emitted": 0,
+            "last_emit_at": None,
+            "errors": [],  # Keep last 5 errors
+        }
 
         # Early validation with logging
         if not self.token:
@@ -133,12 +146,26 @@ class HAWebSocketClient:
                     await ws.send(json.dumps({"id": states_id, "type": "get_states"}))
 
                     # Listen loop
+                    logger.info("DIAG: Entering listen loop")
+                    self.stats["connected_at"] = datetime.now(UTC).isoformat()
+                    self.stats["disconnected_at"] = None
+                    rx_count = 0
+
                     while self.running:
                         msg = await ws.recv()
+                        rx_count += 1
+                        self.stats["messages_received"] += 1
+                        self.stats["last_message_at"] = datetime.now(UTC).isoformat()
+
                         data = json.loads(msg)
+
+                        # DIAG(Prob): Log first 5 messages to verify data flow
+                        if rx_count <= 5:
+                            logger.info(f"DIAG: WebSocket RX type={data.get('type')} id={data.get('id')} event={data.get('event', {}).get('event_type')}")
 
                         # Handle the get_states response
                         if data.get("id") == states_id and data.get("type") == "result":
+                            logger.info("DIAG: Received get_states result - processing initial states")
                             results = data.get("result", [])
                             for state in results:
                                 entity_id = state.get("entity_id")
@@ -181,6 +208,7 @@ class HAWebSocketClient:
                     k: v for k, v in new_state.get("attributes", {}).items() if k in allowed_attrs
                 }
 
+                logger.info(f"DIAG: Emitting vacation_mode {entity_id}={state_val}")
                 emit_ha_entity_change(
                     entity_id=entity_id, state=state_val, attributes=filtered_attrs
                 )
@@ -216,13 +244,34 @@ class HAWebSocketClient:
             # Import here to avoid circular imports at module level
             from backend.events import emit_live_metrics
 
-            # Only log at info if it's a significant change or periodically to avoid spam
-            # For now, info is fine for debugging
-            logger.debug(f"Emitting live_metrics: {payload}")
+            # DIAG: Log every emission for now to prove data flow
+            logger.info(f"DIAG: Emitting live_metrics for {key} raw={state_val} val={value}")
             emit_live_metrics(payload)
 
-        except (ValueError, TypeError):
+            # Update Runtime Stats
+            self.stats["metrics_emitted"] += 1
+            self.stats["last_emit_at"] = datetime.now(UTC).isoformat()
+
+        except (ValueError, TypeError) as e:
+            # Catch parsing errors
+            logger.warning(f"DIAG: Failed to parse state for {entity_id} value='{state_val}': {e}")
+
+            # Record error in stats
+            err_entry = {
+                "time": datetime.now(UTC).isoformat(),
+                "type": "parsing_error",
+                "entity": entity_id,
+                "value": str(state_val),
+                "error": str(e)
+            }
+            self.stats["errors"].append(err_entry)
+            # Keep only last 5
+            if len(self.stats["errors"]) > 5:
+                self.stats["errors"].pop(0)
             pass
+
+        finally:
+             self.stats["events_processed"] += 1
 
     def start(self):
         self.running = True
@@ -271,8 +320,15 @@ def get_ha_socket_status() -> dict:
     """Return diagnostic info about HA WebSocket connection."""
     if _ha_client is None:
         return {"status": "not_started", "monitored_entities": {}}
+
+    # Return full stats for debugging without logs
     return {
         "status": "running" if _ha_client.running else "stopped",
-        "monitored_entities": _ha_client.monitored_entities,
         "url": _ha_client.url,
+        "monitored_entities": _ha_client.monitored_entities,
+        "stats": _ha_client.stats,
+        "config": {
+            "has_token": bool(_ha_client.token),
+            "token_len": len(_ha_client.token) if _ha_client.token else 0
+        }
     }
