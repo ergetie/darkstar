@@ -1,5 +1,13 @@
 # Darkstar Release Notes
 
+## [v2.4.18-beta] - UI Persistence & Scheduler Stability - 2026-01-15
+
+### Critical Fixes
+- **HA Ingress (Round 2)**: Fixed a regression in the WebSocket connection logic where the Socket.IO `path` was incorrectly calculated. Live metrics should now reliably flow through the Home Assistant Ingress proxy.
+- **Scheduler Reliability (REV F12)**: Investigated and addressed a "Delayed Start" issue where the background scheduler would wait indefinitely for its first cycle. The scheduler now triggers an immediate optimization run on startup if no previous run is detected.
+
+---
+
 ## [v2.4.17-beta] - HA Add-on Connectivity & Observability (REV F11) - 2026-01-15
 
 ### Critical Fixes (REV F11)
