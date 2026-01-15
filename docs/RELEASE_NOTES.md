@@ -1,5 +1,17 @@
 # Darkstar Release Notes
 
+## [v2.4.16-beta] - Observability & Reliability - 2026-01-15
+
+### Core Improvements
+- **Production Observability**: Added `/api/ha-socket` endpoint to expose runtime statistics (messages received, errors, emission counts) for "black box" diagnosis of the HA connection.
+- **Robust Data Sanitization**: Implemented "poison pill" protection in the WebSocket client. `NaN` and `Inf` sensor values are now safe-guarded to 0.0, preventing JSON serialization crashes.
+- **Transport Safety**: Added error trapping to the internal Event Bus to catch and log previously silent emission failures.
+
+### Fixes
+- **HA Client**: Added deep diagnostic (`DIAG`) logging to trace packet flow during connection issues.
+
+---
+
 ## [v2.4.15-beta] - Regression Fix & Logging - 2026-01-15
 
 **Fixes**
