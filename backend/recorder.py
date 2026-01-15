@@ -63,6 +63,7 @@ def record_observation_from_current_state():
     import_kw = get_kw("grid_import_power")
     export_kw = get_kw("grid_export_power")
     battery_kw = get_kw("battery_power")
+    water_kw = get_kw("water_power")
 
     # Estimate Energy for the 15m slot (kWh = avg_kW * 0.25h)
     # This is a Rough Approximation if we don't have cumulative counters
@@ -73,6 +74,7 @@ def record_observation_from_current_state():
     import_kwh = import_kw * 0.25
     import_kwh = import_kw * 0.25
     export_kwh = export_kw * 0.25
+    water_kwh = water_kw * 0.25
     # Standard inverter convention: positive = discharge, negative = charge
     batt_discharge_kwh = (battery_kw * 0.25) if battery_kw > 0 else 0.0
     batt_charge_kwh = (abs(battery_kw) * 0.25) if battery_kw < 0 else 0.0
@@ -89,6 +91,7 @@ def record_observation_from_current_state():
         "load_kwh": load_kwh,
         "import_kwh": import_kwh,
         "export_kwh": export_kwh,
+        "water_kwh": water_kwh,
         "batt_charge_kwh": batt_charge_kwh,
         "batt_discharge_kwh": batt_discharge_kwh,
         "soc_end_percent": soc_percent,
@@ -96,7 +99,7 @@ def record_observation_from_current_state():
     }
 
     logger.info(
-        f"Recording observation for {slot_start}: SOC={soc_percent}% PV={pv_kwh:.3f}kWh Load={load_kwh:.3f}kWh Bat={battery_kw:.3f}kW"
+        f"Recording observation for {slot_start}: SOC={soc_percent}% PV={pv_kwh:.3f}kWh Load={load_kwh:.3f}kWh Water={water_kwh:.3f}kWh Bat={battery_kw:.3f}kW"
     )
 
     # Store
