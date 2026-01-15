@@ -859,3 +859,223 @@ This should remain in place during beta testing to allow users to self-diagnose 
 **Trigger:** After 2+ weeks of stable beta feedback with no new Socket.IO issues reported.
 
 **Priority:** Low (cleanup only, no functional change)
+
+---
+
+### [DONE] REV // F14 — Settings UI: Categorize Controls vs Sensors
+
+**Goal:** Reorganize the HA entity settings to clearly separate **Input Sensors** (Darkstar reads) from **Control Entities** (Darkstar writes/commands). Add conditional visibility for entities that depend on System Profile toggles.
+
+**Problem:**
+- "Target SoC Feedback" is in "Optional HA Entities" but it's an **output entity** that Darkstar writes to
+- Current groupings mix sensors and controls chaotically
+- Users don't understand what each entity is actually used for
+- No subsections within cards — related entities (e.g., water heating) are scattered
+- Water heater entities should be REQUIRED when `has_water_heater=true`, but currently always optional
+
+**Proposed Structure (Finalized):**
+```
+┌─────────────────────────────────────────────────────────────┐
+│  🔴 REQUIRED HA INPUT SENSORS                               │
+│     • Battery SoC (%)          [always required]            │
+│     • PV Power (W/kW)          [always required]            │
+│     • Load Power (W/kW)        [always required]            │
+│     ─── Water Heater ──────────────────────────────────     │
+│     • Water Power              [greyed if !has_water_heater]│
+│     • Water Heater Daily Energy[greyed if !has_water_heater]│
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  🔴 REQUIRED HA CONTROL ENTITIES                            │
+│     • Work Mode Selector       [always required]            │
+│     • Grid Charging Switch     [always required]            │
+│     • Max Charge Current       [always required]            │
+│     • Max Discharge Current    [always required]            │
+│     • Max Grid Export (W)      [always required]            │
+│     • Target SoC Output        [always required]            │
+│     ─── Water Heater ──────────────────────────────────     │
+│     • Water Heater Setpoint    [greyed if !has_water_heater]│
+└─────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────┐
+│  🟢 OPTIONAL HA INPUT SENSORS                               │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Power Flow & Dashboard                               │  │
+│  │    • Battery Power, Grid Power                        │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Smart Home Integration                               │  │
+│  │    • Vacation Mode Toggle, Alarm Control Panel        │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  User Override Toggles                                │  │
+│  │    • Automation Toggle, Manual Override Toggle        │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Today's Energy Stats                                 │  │
+│  │    • Battery Charge, PV, Load, Grid I/O, Net Cost     │  │
+│  └───────────────────────────────────────────────────────┘  │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Lifetime Energy Totals                               │  │
+│  │    • Total Battery, Grid, PV, Load                    │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Design Decisions:**
+1. **Conditional visibility via `showIf` predicate** — fields grey out when toggle is off, not hidden
+2. **Exact overlay text** — "Enable 'Smart water heater' in System Profile to configure"
+3. **Fields stay in their logical section** — water heater entities in REQUIRED, just greyed when disabled
+4. **Support for dual requirements** — `showIf: { all: ['has_solar', 'has_battery'] }` for future use
+5. **Subsections within Required** — group related conditional entities (e.g., "Water Heater")
+
+---
+
+#### Phase 1: Entity Audit & Categorization [DONE]
+
+**Goal:** Investigate every entity and determine direction (READ vs WRITE), required status, and conditional dependencies.
+
+✅ **Completed Investigation:** See artifact `entity_categorization_matrix.md`
+
+**Summary of Findings:**
+| Category | Entities |
+|:---------|:---------|
+| Required INPUT (always) | `battery_soc`, `pv_power`, `load_power` |
+| Required INPUT (if water heater) | `water_power`, `water_heater_consumption` |
+| Required CONTROL (always) | `work_mode`, `grid_charging`, `max_charge_current`, `max_discharge_current`, `grid_max_export_power`, `soc_target_entity` |
+| Required CONTROL (if water heater) | `water_heater.target_entity` |
+| Optional INPUT | All dashboard stats, smart home toggles, user overrides, lifetime totals |
+| Optional CONTROL | None (all moved to Required or conditional) |
+
+**Label Fix:** `"Target SoC Feedback"` → `"Target SoC Output"` (it's a WRITE)
+
+---
+
+#### Phase 2: types.ts Restructure [DONE]
+
+**Goal:** Add `showIf` support and reorganize `systemSections`.
+
+* [x] **Extend `BaseField` interface:**
+  ```typescript
+  interface BaseField {
+      // ... existing fields ...
+      showIf?: {
+          configKey: string           // e.g., 'system.has_water_heater'
+          value: boolean              // expected value to enable
+          disabledText: string        // exact overlay text
+      }
+      // For complex conditions:
+      showIfAll?: string[]            // ALL config keys must be true
+      showIfAny?: string[]            // ANY config key must be true
+      subsection?: string             // Subsection grouping within a card
+  }
+  ```
+
+* [x] **Reorganize sections:**
+  - Move `pv_power`, `load_power` to Required Input Sensors
+  - Move inverter controls to Required Control Entities
+  - Move `soc_target_entity` to Required Controls, rename label
+  - Add `showIf` to water heater entities
+  - Add `subsection: 'Water Heater'` grouping
+
+* [x] **Add conditional entities with exact text:**
+  ```typescript
+  {
+      key: 'executor.water_heater.target_entity',
+      label: 'Water Heater Setpoint',
+      helper: 'HA entity to control water heater target temperature.',
+      showIf: {
+          configKey: 'system.has_water_heater',
+          value: true,
+          disabledText: "Enable 'Smart water heater' in System Profile to configure"
+      },
+      subsection: 'Water Heater',
+      ...
+  }
+  ```
+
+---
+
+#### Phase 3: SystemTab.tsx & SettingsField.tsx Update [DONE]
+
+**Goal:** Render conditional fields with grey overlay.
+
+* [x] **SettingsField.tsx changes:**
+  - Accept `showIf` from field definition and `fullForm` (config values)
+  - When `showIf` condition is FALSE:
+    - Reduce opacity (e.g., `opacity-40`)
+    - Disable all inputs
+    - Show overlay text above the field (not tooltip — clear visible text)
+    - Keep helper text as normal tooltip
+
+* [x] **Overlay text styling:**
+  ```tsx
+  {!isEnabled && (
+      <div className="text-xs text-muted italic mb-1">
+          {field.showIf.disabledText}
+      </div>
+  )}
+  ```
+
+* [x] **Subsection rendering:**
+  - Group fields by `subsection` value
+  - Add visual separator/header for each subsection within a card
+
+---
+
+#### Phase 4: Helper Text Enhancement [DONE]
+
+**Goal:** Write clear, user-friendly helper text for each entity.
+
+* [x] **For each entity**, update helper text with:
+  - WHAT it does
+  - WHERE it's used (PowerFlow, Planner, Recorder, etc.)
+  - Example: "Used by the PowerFlow card to show real-time battery charge/discharge."
+
+* [x] **Label improvements:**
+  - `"Target SoC Feedback"` → `"Target SoC Output"`
+  - Review all labels for clarity
+
+---
+
+#### Phase 5: Verification [DONE]
+
+* [x] `pnpm lint` passes
+* [x] Manual verification: Settings page renders correctly
+* [x] Conditional fields grey out when toggle is off
+* [x] Overlay text is visible and clear
+* [x] Subsection groupings render correctly
+* [x] Mobile responsive layout works
+
+---
+
+**Priority:** Medium (UX improvement, reduces user confusion)
+
+**Dependencies:** None
+
+**Files to Modify:**
+- `frontend/src/pages/settings/types.ts` — Add `showIf`, `subsection`, reorganize sections
+- `frontend/src/pages/settings/components/SettingsField.tsx` — Conditional rendering
+- `frontend/src/pages/settings/SystemTab.tsx` — Subsection grouping
+
+---
+
+### [PLANNED] REV // F15 — Extend Conditional Visibility to Parameters Tab
+
+**Goal:** Apply the same `showIf` conditional visibility pattern from F14 to the Parameters/Settings tabs (not just HA Entities).
+
+**Context:** The System Profile toggles (`has_solar`, `has_battery`, `has_water_heater`) should control visibility of many settings across all tabs:
+- Water Heating parameters (min_kwh, spacing, temps) — grey if `!has_water_heater`
+- Battery Economics — grey if `!has_battery`
+- S-Index settings — grey if `!has_battery`
+- Solar array params — grey if `!has_solar`
+- Future: EV Charger, Heat Pump, Pool Heater, multiple MPPT strings
+
+**Scope:**
+- Extend `showIf` to `parameterSections` in `types.ts`
+- Apply same greyed overlay pattern in ParametersTab
+- Support all System Profile toggles as conditions
+
+**Priority:** Low (foundation is set in F14, this is expansion)
+
+**Dependencies:** REV F14 must be complete first

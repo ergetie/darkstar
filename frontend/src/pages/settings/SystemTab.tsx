@@ -51,6 +51,20 @@ export const SystemTab: React.FC = () => {
                 const prevSection = idx > 0 ? systemSections[idx - 1] : null
                 const showDivider = section.isHA && prevSection && !prevSection.isHA
 
+                // Group fields by subsection
+                const groups: Record<string, typeof section.fields> = {}
+                const order: string[] = []
+
+                section.fields.forEach((f) => {
+                    const sub = f.subsection || 'default'
+                    if (!groups[sub]) {
+                        groups[sub] = []
+                        order.push(sub)
+                    }
+                    groups[sub].push(f)
+                })
+                const params = { groups, order }
+
                 return (
                     <div key={section.title}>
                         {showDivider && (
@@ -81,23 +95,49 @@ export const SystemTab: React.FC = () => {
                         <Card className="p-6">
                             <div className="flex items-baseline justify-between gap-2">
                                 <div>
-                                    <div className="text-sm font-semibold">{section.title}</div>
+                                    <div className="text-base font-bold text-text">{section.title}</div>
                                     <p className="text-xs text-muted mt-1">{section.description}</p>
                                 </div>
                                 <span className="text-[10px] uppercase text-muted tracking-wide">System</span>
                             </div>
                             <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                                {section.fields.map((field) => (
-                                    <SettingsField
-                                        key={field.key}
-                                        field={field}
-                                        value={form[field.key] ?? ''}
-                                        onChange={handleChange}
-                                        error={fieldErrors[field.key]}
-                                        haEntities={haEntities}
-                                        haLoading={haLoading}
-                                        fullForm={form}
-                                    />
+                                {params.order.map((subKey) => (
+                                    <React.Fragment key={subKey}>
+                                        {subKey !== 'default' ? (
+                                            <Card className="col-span-2 p-4 bg-surface1 border border-line/20 rounded-xl">
+                                                <div className="text-sm font-semibold text-muted mb-3 uppercase tracking-wider">
+                                                    {subKey}
+                                                </div>
+                                                <div className="grid gap-4 sm:grid-cols-2">
+                                                    {params.groups[subKey].map((field) => (
+                                                        <SettingsField
+                                                            key={field.key}
+                                                            field={field}
+                                                            value={form[field.key] ?? ''}
+                                                            onChange={handleChange}
+                                                            error={fieldErrors[field.key]}
+                                                            haEntities={haEntities}
+                                                            haLoading={haLoading}
+                                                            fullForm={form}
+                                                        />
+                                                    ))}
+                                                </div>
+                                            </Card>
+                                        ) : (
+                                            params.groups[subKey].map((field) => (
+                                                <SettingsField
+                                                    key={field.key}
+                                                    field={field}
+                                                    value={form[field.key] ?? ''}
+                                                    onChange={handleChange}
+                                                    error={fieldErrors[field.key]}
+                                                    haEntities={haEntities}
+                                                    haLoading={haLoading}
+                                                    fullForm={form}
+                                                />
+                                            ))
+                                        )}
+                                    </React.Fragment>
                                 ))}
                             </div>
                             {section.title === 'Home Assistant Connection' && (

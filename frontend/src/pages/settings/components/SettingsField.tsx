@@ -29,6 +29,30 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
     haLoading = false,
     fullForm = {},
 }) => {
+    const isEnabled = React.useMemo(() => {
+        if (field.disabled) return false
+
+        if (field.showIf) {
+            const currentVal = fullForm[field.showIf.configKey]
+            const expectedVal = field.showIf.value ?? true
+            // Convert 'true'/'false' string to boolean for comparison if needed
+            const boolCurrentVal = currentVal === 'true'
+            return boolCurrentVal === expectedVal
+        }
+
+        if (field.showIfAll) {
+            return field.showIfAll.every((k) => fullForm[k] === 'true')
+        }
+
+        if (field.showIfAny) {
+            return field.showIfAny.some((k) => fullForm[k] === 'true')
+        }
+
+        return true
+    }, [field, fullForm])
+
+    const isDisabled = field.disabled || !isEnabled
+
     const renderInput = () => {
         switch (field.type) {
             case 'boolean':
@@ -37,7 +61,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         <Switch
                             checked={value === 'true'}
                             onCheckedChange={(checked) => onChange(field.key, checked ? 'true' : 'false')}
-                            disabled={field.disabled}
+                            disabled={isDisabled}
                         />
                         <span className="text-sm font-semibold">{field.label}</span>
                     </div>
@@ -50,7 +74,7 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         onChange={(val) => onChange(field.key, val)}
                         options={field.options || []}
                         placeholder="Select..."
-                        disabled={field.disabled}
+                        disabled={isDisabled}
                     />
                 )
 
@@ -148,16 +172,19 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         value={value}
                         onChange={(e) => onChange(field.key, e.target.value)}
                         className={`w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none ${
-                            field.disabled ? 'opacity-50 cursor-not-allowed' : ''
+                            isDisabled ? 'opacity-50 cursor-not-allowed' : ''
                         }`}
-                        disabled={field.disabled}
+                        disabled={isDisabled}
                     />
                 )
         }
     }
 
     return (
-        <div className="space-y-1">
+        <div className={`space-y-1 ${!isEnabled ? 'opacity-40 pointer-events-none' : ''}`}>
+            {!isEnabled && field.showIf?.disabledText && (
+                <div className="text-xs text-muted italic mb-1">{field.showIf.disabledText}</div>
+            )}
             <label className="block text-sm font-medium mb-1.5 flex items-center gap-1.5">
                 <span
                     className={field.type === 'boolean' ? 'sr-only' : 'text-[10px] uppercase tracking-wide text-muted'}

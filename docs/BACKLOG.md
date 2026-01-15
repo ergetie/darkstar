@@ -41,6 +41,12 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ---
+## USER ADDED BACKLOG ITEMS (NEEDS TO BE RE-WRITTEN)
+
+- Hide water power sensor in power flow card when not enabled
+- Support multiple heating sources
+- 
+
 ---
 
 ## 🔴 High Priority

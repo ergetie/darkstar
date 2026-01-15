@@ -17,6 +17,18 @@ export interface BaseField {
     disabled?: boolean
     notImplemented?: boolean
     required?: boolean
+    /** Conditional visibility based on a single config key */
+    showIf?: {
+        configKey: string // e.g., 'system.has_water_heater'
+        value?: boolean // expected value (default: true)
+        disabledText: string // overlay text when disabled
+    }
+    /** All config keys must be truthy for field to be enabled */
+    showIfAll?: string[]
+    /** Any config key must be truthy for field to be enabled */
+    showIfAny?: string[]
+    /** Subsection grouping within a card */
+    subsection?: string
 }
 
 export interface SettingsSection<T extends BaseField = BaseField> {
@@ -199,73 +211,6 @@ export const systemSections: SettingsSection[] = [
         ],
     },
     {
-        title: 'Notifications',
-        description: 'Configure automated notifications via Home Assistant.',
-        fields: [
-            {
-                key: 'executor.notifications.service',
-                label: 'HA Notify Service',
-                helper: 'e.g. notify.mobile_app_iphone',
-                path: ['executor', 'notifications', 'service'],
-                type: 'service',
-            },
-            {
-                key: 'executor.notifications.on_charge_start',
-                label: 'On charge start',
-                path: ['executor', 'notifications', 'on_charge_start'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_charge_stop',
-                label: 'On charge stop',
-                path: ['executor', 'notifications', 'on_charge_stop'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_export_start',
-                label: 'On export start',
-                path: ['executor', 'notifications', 'on_export_start'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_export_stop',
-                label: 'On export stop',
-                path: ['executor', 'notifications', 'on_export_stop'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_water_heat_start',
-                label: 'On water heating start',
-                path: ['executor', 'notifications', 'on_water_heat_start'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_water_heat_stop',
-                label: 'On water heating stop',
-                path: ['executor', 'notifications', 'on_water_heat_stop'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_soc_target_change',
-                label: 'On SoC target change',
-                path: ['executor', 'notifications', 'on_soc_target_change'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_override_activated',
-                label: 'On override activated',
-                path: ['executor', 'notifications', 'on_override_activated'],
-                type: 'boolean',
-            },
-            {
-                key: 'executor.notifications.on_error',
-                label: 'On error',
-                path: ['executor', 'notifications', 'on_error'],
-                type: 'boolean',
-            },
-        ],
-    },
-    {
         title: '── Home Assistant Connection ──',
         isHA: true,
         description: 'Connection parameters for your Home Assistant instance.',
@@ -286,15 +231,16 @@ export const systemSections: SettingsSection[] = [
         ],
     },
     {
-        title: 'Required HA Entities',
+        title: 'Required HA Input Sensors',
         isHA: true,
-        description: 'Core sensors and switches required for battery control.',
+        description: 'Core sensors Darkstar reads from Home Assistant.',
         fields: [
             {
                 key: 'input_sensors.battery_soc',
                 label: 'Battery SoC (%)',
                 path: ['input_sensors', 'battery_soc'],
                 type: 'entity',
+                helper: 'Core sensor. Required for planner SoC targeting.',
                 required: true,
             },
             {
@@ -302,18 +248,54 @@ export const systemSections: SettingsSection[] = [
                 label: 'PV Power (W/kW)',
                 path: ['input_sensors', 'pv_power'],
                 type: 'entity',
+                helper: 'Used by executor for PV dump detection and recorder for history.',
             },
             {
                 key: 'input_sensors.load_power',
                 label: 'Load Power (W/kW)',
                 path: ['input_sensors', 'load_power'],
                 type: 'entity',
+                helper: 'Used by executor for system state and Aurora training.',
             },
+            {
+                key: 'input_sensors.water_power',
+                label: 'Water Heater Power (W/kW)',
+                path: ['input_sensors', 'water_power'],
+                type: 'entity',
+                helper: 'Power sensor of the water heater element. Used for live metrics and history.',
+                subsection: 'Water Heater',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
+            },
+            {
+                key: 'input_sensors.water_heater_consumption',
+                label: 'Water Heater Daily Energy',
+                path: ['input_sensors', 'water_heater_consumption'],
+                type: 'entity',
+                helper: 'Total energy consumed by the water heater today. Used for quota tracking.',
+                subsection: 'Water Heater',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
+            },
+        ],
+    },
+    {
+        title: 'Required HA Control Entities',
+        isHA: true,
+        description: 'Entities Darkstar writes to for control.',
+        fields: [
             {
                 key: 'executor.inverter.work_mode_entity',
                 label: 'Work Mode Selector',
                 path: ['executor', 'inverter', 'work_mode_entity'],
                 type: 'entity',
+                helper: 'Darkstar sets inverter mode (Export/Zero-Export).',
                 required: true,
             },
             {
@@ -321,6 +303,7 @@ export const systemSections: SettingsSection[] = [
                 label: 'Grid Charging Switch',
                 path: ['executor', 'inverter', 'grid_charging_entity'],
                 type: 'entity',
+                helper: 'Darkstar enables/disables grid→battery charging.',
                 required: true,
             },
             {
@@ -328,12 +311,14 @@ export const systemSections: SettingsSection[] = [
                 label: 'Max Charge Current',
                 path: ['executor', 'inverter', 'max_charging_current_entity'],
                 type: 'entity',
+                helper: 'Darkstar sets charge rate in Amps.',
             },
             {
                 key: 'executor.inverter.max_discharging_current_entity',
                 label: 'Max Discharge Current',
                 path: ['executor', 'inverter', 'max_discharging_current_entity'],
                 type: 'entity',
+                helper: 'Darkstar sets discharge rate in Amps.',
             },
             {
                 key: 'executor.inverter.grid_max_export_power_entity',
@@ -342,28 +327,10 @@ export const systemSections: SettingsSection[] = [
                 path: ['executor', 'inverter', 'grid_max_export_power_entity'],
                 type: 'entity',
             },
-        ],
-    },
-    {
-        title: 'Optional HA Entities',
-        isHA: true,
-        description: 'Optional sensors for better forecasting and dashboard metrics.',
-        fields: [
-            {
-                key: 'executor.automation_toggle_entity',
-                label: 'Automation Toggle',
-                path: ['executor', 'automation_toggle_entity'],
-                type: 'entity',
-            },
-            {
-                key: 'executor.manual_override_entity',
-                label: 'Manual Override Toggle',
-                path: ['executor', 'manual_override_entity'],
-                type: 'entity',
-            },
             {
                 key: 'executor.soc_target_entity',
-                label: 'Target SoC Feedback',
+                label: 'Target SoC Output',
+                helper: 'Darkstar writes the calculated target SoC to this entity.',
                 path: ['executor', 'soc_target_entity'],
                 type: 'entity',
             },
@@ -372,13 +339,22 @@ export const systemSections: SettingsSection[] = [
                 label: 'Water Heater Setpoint',
                 path: ['executor', 'water_heater', 'target_entity'],
                 type: 'entity',
+                helper: 'Thermostat entity that controls the water heater target temperature.',
+                subsection: 'Water Heater',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
-            {
-                key: 'input_sensors.vacation_mode',
-                label: 'Vacation Mode Toggle',
-                path: ['input_sensors', 'vacation_mode'],
-                type: 'entity',
-            },
+        ],
+    },
+    {
+        title: 'Optional HA Input Sensors',
+        isHA: true,
+        description: 'Optional sensors for monitoring, Smart Home integration, and statistics.',
+        fields: [
+            // Power Flow & Dashboard
             {
                 key: 'input_sensors.battery_power',
                 label: 'Battery Power (W/kW)',
@@ -386,12 +362,7 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'battery_power'],
                 type: 'entity',
                 companionKey: 'input_sensors.battery_power_inverted',
-            },
-            {
-                key: 'input_sensors.water_power',
-                label: 'Water Heater Power (W/kW)',
-                path: ['input_sensors', 'water_power'],
-                type: 'entity',
+                subsection: 'Power Flow & Dashboard',
             },
             {
                 key: 'input_sensors.grid_power',
@@ -400,97 +371,131 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'grid_power'],
                 type: 'entity',
                 companionKey: 'input_sensors.grid_power_inverted',
+                subsection: 'Power Flow & Dashboard',
+            },
+
+            // Smart Home Integration
+            {
+                key: 'input_sensors.vacation_mode',
+                label: 'Vacation Mode Toggle',
+                path: ['input_sensors', 'vacation_mode'],
+                type: 'entity',
+                helper: 'Reduces water heating quota when active.',
+                subsection: 'Smart Home Integration',
             },
             {
                 key: 'input_sensors.alarm_state',
                 label: 'Alarm Control Panel',
                 path: ['input_sensors', 'alarm_state'],
                 type: 'entity',
+                helper: 'Enables emergency reserve boost when armed.',
+                subsection: 'Smart Home Integration',
+            },
+
+            // User Override Toggles (READS)
+            {
+                key: 'executor.automation_toggle_entity',
+                label: 'Automation Toggle',
+                path: ['executor', 'automation_toggle_entity'],
+                type: 'entity',
+                helper: 'When OFF, executor skips all inverter actions.',
+                subsection: 'User Override Toggles',
             },
             {
-                key: 'input_sensors.water_heater_consumption',
-                label: 'Water Heater Daily Energy',
-                path: ['input_sensors', 'water_heater_consumption'],
+                key: 'executor.manual_override_entity',
+                label: 'Manual Override Toggle',
+                path: ['executor', 'manual_override_entity'],
                 type: 'entity',
+                helper: 'Triggers manual override mode in executor.',
+                subsection: 'User Override Toggles',
             },
-            {
-                key: 'input_sensors.today_net_cost',
-                label: "Today's Net Cost",
-                path: ['input_sensors', 'today_net_cost'],
-                type: 'entity',
-            },
-            {
-                key: 'input_sensors.total_battery_charge',
-                label: 'Total Battery Charge (kWh)',
-                path: ['input_sensors', 'total_battery_charge'],
-                type: 'entity',
-            },
-            {
-                key: 'input_sensors.total_battery_discharge',
-                label: 'Total Battery Discharge (kWh)',
-                path: ['input_sensors', 'total_battery_discharge'],
-                type: 'entity',
-            },
-            {
-                key: 'input_sensors.total_grid_export',
-                label: 'Total Grid Export (kWh)',
-                path: ['input_sensors', 'total_grid_export'],
-                type: 'entity',
-            },
-            {
-                key: 'input_sensors.total_grid_import',
-                label: 'Total Grid Import (kWh)',
-                path: ['input_sensors', 'total_grid_import'],
-                type: 'entity',
-            },
-            {
-                key: 'input_sensors.total_load_consumption',
-                label: 'Total Load Consumption (kWh)',
-                path: ['input_sensors', 'total_load_consumption'],
-                type: 'entity',
-            },
-            {
-                key: 'input_sensors.total_pv_production',
-                label: 'Total PV Production (kWh)',
-                path: ['input_sensors', 'total_pv_production'],
-                type: 'entity',
-            },
-        ],
-    },
-    {
-        title: "Today's Energy Sensors",
-        description: 'Daily energy statistics for the Dashboard "Today\'s Stats" card.',
-        isHA: true,
-        fields: [
+
+            // Today's Energy Stats
             {
                 key: 'input_sensors.today_battery_charge',
                 label: "Today's Battery Charge (kWh)",
                 path: ['input_sensors', 'today_battery_charge'],
                 type: 'entity',
+                subsection: "Today's Energy Stats",
             },
             {
                 key: 'input_sensors.today_pv_production',
                 label: "Today's PV Production (kWh)",
                 path: ['input_sensors', 'today_pv_production'],
                 type: 'entity',
+                subsection: "Today's Energy Stats",
             },
             {
                 key: 'input_sensors.today_load_consumption',
                 label: "Today's Load Consumption (kWh)",
                 path: ['input_sensors', 'today_load_consumption'],
                 type: 'entity',
+                subsection: "Today's Energy Stats",
             },
             {
                 key: 'input_sensors.today_grid_import',
                 label: "Today's Grid Import (kWh)",
                 path: ['input_sensors', 'today_grid_import'],
                 type: 'entity',
+                subsection: "Today's Energy Stats",
             },
             {
                 key: 'input_sensors.today_grid_export',
                 label: "Today's Grid Export (kWh)",
                 path: ['input_sensors', 'today_grid_export'],
                 type: 'entity',
+                subsection: "Today's Energy Stats",
+            },
+            {
+                key: 'input_sensors.today_net_cost',
+                label: "Today's Net Cost",
+                path: ['input_sensors', 'today_net_cost'],
+                type: 'entity',
+                subsection: "Today's Energy Stats",
+            },
+
+            // Lifetime Energy Totals
+            {
+                key: 'input_sensors.total_battery_charge',
+                label: 'Total Battery Charge (kWh)',
+                path: ['input_sensors', 'total_battery_charge'],
+                type: 'entity',
+                subsection: 'Lifetime Energy Totals',
+            },
+            {
+                key: 'input_sensors.total_battery_discharge',
+                label: 'Total Battery Discharge (kWh)',
+                path: ['input_sensors', 'total_battery_discharge'],
+                type: 'entity',
+                subsection: 'Lifetime Energy Totals',
+            },
+            {
+                key: 'input_sensors.total_grid_export',
+                label: 'Total Grid Export (kWh)',
+                path: ['input_sensors', 'total_grid_export'],
+                type: 'entity',
+                subsection: 'Lifetime Energy Totals',
+            },
+            {
+                key: 'input_sensors.total_grid_import',
+                label: 'Total Grid Import (kWh)',
+                path: ['input_sensors', 'total_grid_import'],
+                type: 'entity',
+                subsection: 'Lifetime Energy Totals',
+            },
+            {
+                key: 'input_sensors.total_load_consumption',
+                label: 'Total Load Consumption (kWh)',
+                path: ['input_sensors', 'total_load_consumption'],
+                type: 'entity',
+                subsection: 'Lifetime Energy Totals',
+            },
+            {
+                key: 'input_sensors.total_pv_production',
+                label: 'Total PV Production (kWh)',
+                path: ['input_sensors', 'total_pv_production'],
+                type: 'entity',
+                subsection: 'Lifetime Energy Totals',
             },
         ],
     },
@@ -741,6 +746,73 @@ export const parameterSections: SettingsSection[] = [
 ]
 
 export const uiSections: SettingsSection[] = [
+    {
+        title: 'Notifications',
+        description: 'Configure automated notifications via Home Assistant.',
+        fields: [
+            {
+                key: 'executor.notifications.service',
+                label: 'HA Notify Service',
+                helper: 'e.g. notify.mobile_app_iphone',
+                path: ['executor', 'notifications', 'service'],
+                type: 'service',
+            },
+            {
+                key: 'executor.notifications.on_charge_start',
+                label: 'On charge start',
+                path: ['executor', 'notifications', 'on_charge_start'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_charge_stop',
+                label: 'On charge stop',
+                path: ['executor', 'notifications', 'on_charge_stop'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_export_start',
+                label: 'On export start',
+                path: ['executor', 'notifications', 'on_export_start'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_export_stop',
+                label: 'On export stop',
+                path: ['executor', 'notifications', 'on_export_stop'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_water_heat_start',
+                label: 'On water heating start',
+                path: ['executor', 'notifications', 'on_water_heat_start'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_water_heat_stop',
+                label: 'On water heating stop',
+                path: ['executor', 'notifications', 'on_water_heat_stop'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_soc_target_change',
+                label: 'On SoC target change',
+                path: ['executor', 'notifications', 'on_soc_target_change'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_override_activated',
+                label: 'On override activated',
+                path: ['executor', 'notifications', 'on_override_activated'],
+                type: 'boolean',
+            },
+            {
+                key: 'executor.notifications.on_error',
+                label: 'On error',
+                path: ['executor', 'notifications', 'on_error'],
+                type: 'boolean',
+            },
+        ],
+    },
     {
         title: 'Dashboard Defaults',
         description: 'Overlay defaults and refresh cadence for the planner dashboard.',

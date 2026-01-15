@@ -10,7 +10,7 @@ import { AdvancedTab } from './AdvancedTab'
 const tabs = [
     { id: 'system', label: 'System', icon: <SettingsIcon size={16} /> },
     { id: 'parameters', label: 'Parameters', icon: <Sliders size={16} /> },
-    { id: 'ui', label: 'UI & Theme', icon: <Palette size={16} /> },
+    { id: 'ui', label: 'UI', icon: <Palette size={16} /> },
     { id: 'advanced', label: 'Advanced', icon: <Zap size={16} /> },
 ]
 
