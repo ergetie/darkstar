@@ -439,6 +439,13 @@ backend/
 - **Sync→Async Bridge**: `ws_manager.emit_sync()` schedules coroutines from sync threads
 - **ASGI Wrapping**: Socket.IO ASGIApp wraps FastAPI for WebSocket support
 
+### 9.1 Socket.IO Client Strategy (Rev F11)
+To ensure compatibility with Home Assistant Ingress (which exposes the add-on under a complex dynamic path like `/api/hassio_ingress/xxx/`), the frontend uses the **Manager Pattern**:
+1.  **Manager**: Configured with the full Ingress HTTP path for the *transport layer* (Engine.IO).
+2.  **Socket**: Explicitly connected to the `/` namespace for the *application layer*.
+
+This decoupling prevents the client from inferring an incorrect namespace from the complex Ingress URL, a common failure mode in proxied environments.
+
 ---
 
 ## 10. Performance Optimizations (Rev ARC7)

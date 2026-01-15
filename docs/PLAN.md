@@ -783,19 +783,16 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 But frontend receives nothing. Issue is **HA Add-on specific** — works in Docker and local dev.
 
 **Root Cause Analysis:**
-1. `socket.ts` calls `io({ path: socketPath })` without a URL
-2. Socket.IO defaults to `window.location.origin` (e.g., `http://homeassistant.local:8123`)
-3. The computed `socketPath` includes Ingress prefix: `/api/hassio_ingress/<slug>/socket.io`
-4. Result: Browser tries to connect to `http://homeassistant.local:8123/api/hassio_ingress/<slug>/socket.io`
-5. This bypasses Ingress path rewriting — request goes to HA Core, not the add-on!
+1.  **Theory 1 (Path):** `io()` defaults to `window.location.origin`, which bypasses Ingress.
+2.  **Theory 2 (Namespace):** Even with correct path, `io()` auto-connect logic fails to negotiate the default namespace `/` when the URL path is complex (Ingress). The transport connects, but the application layer stalls.
 
-**Fix:** Pass full URL to `io()` instead of relying on default origin:
-```javascript
-// BEFORE (broken)
-socket = io({ path: socketPath })
+**Fix:** Refactored `socket.ts` to use the **Manager Pattern**:
+```typescript
+// 1. Manager handles low-level transport (with Ingress path)
+const manager = new Manager(baseUrl.origin, { path: socketPath, ... })
 
-// AFTER (correct)  
-socket = io(socketUrl, { path: '/socket.io/' })
+// 2. Socket handles application protocol (explicit namespace)
+socket = manager.socket('/') 
 ```
 
 **Bonus:** Added production observability endpoints:
@@ -804,11 +801,11 @@ socket = io(socketUrl, { path: '/socket.io/' })
 - `GET /api/executor-debug` — Executor engine diagnostic status
 
 **Status:**
-- [x] Root Cause Identified (Socket.IO `path` appends to origin, not full URL)
+- [x] Root Cause Identified (Namespace handshake failure on Ingress)
 - [x] Implementation Plan Created
-- [x] Fix Implemented (Round 2 - path includes ingress prefix)
+- [x] Fix Implemented (Manager Pattern)
 - [x] Debug Endpoints Added
-- [ ] User Verified in HA Add-on Environment
+- [/] User Verified in HA Add-on Environment
 
 ---
 
