@@ -54,7 +54,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
   grid_import_power: sensor.their_import_sensor
   grid_export_power: sensor.their_export_sensor"
   To the UI!
-- 
+- Expose the new "override:" config keys to the UI!
 ---
 
 ## 🔴 High Priority

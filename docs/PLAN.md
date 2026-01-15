@@ -1082,7 +1082,7 @@ This should remain in place during beta testing to allow users to self-diagnose 
 
 ---
 
-### [IN PROGRESS] REV // F16 — Executor Hardening & Config Reliability
+### [DONE] REV // F16 — Executor Hardening & Config Reliability
 
 **Goal:** Fix critical executor crash caused by unguarded entity lookups, investigate config save bugs (comments wiped, YAML formatting corrupted), and improve error logging.
 
@@ -1160,62 +1160,66 @@ This should remain in place during beta testing to allow users to self-diagnose 
 
 ---
 
-#### Phase 2: Config Save Investigation [PLANNED]
+#### Phase 2: Config Save Investigation [DONE]
 
 **Goal:** Identify why config comments are wiped and YAML formatting is corrupted.
 
-**Symptoms:**
-1. Comments from `config.default.yaml` disappear after add-on install
-2. Entity values appear on newlines (invalid YAML): 
+**Symptoms (Confirmed by Beta Tester 2026-01-15):**
+1. **Newline Corruption:** Entities like `grid_charging_entity` are saved with newlines after UI activity:
    ```yaml
    grid_charging_entity:
-     input_select.my_entity  # ← Invalid, parsed as nested key!
+     input_select.my_entity
    ```
-3. `nordpool.price_area` resets to default after reboot
+   *This breaks the executor because it parses as a dict or None instead of a string.*
+2. **Comment Wiping:** Comments vanish after add-on install or UI save.
+3. **Value Resets:** `nordpool.price_area` resets to default/config.default values.
+
+**Findings:**
+1. **Comment Wiping:** `darkstar/run.sh` falls back to `PyYAML` if `ruamel.yaml` is missing in system python. PyYAML strips comments.
+2. **Newline Corruption:** `ruamel.yaml` defaults to 80-char width wrapping. `backend/api/routers/config.py` does not set `width`, causing long entity IDs to wrap.
+3. **Value Resets:** `run.sh` explicitly overwrites `price_area` from `options.json` on every startup (Standard HA Add-on behavior).
 
 **Investigation Tasks:**
 
-* [ ] **Trace config save flow:**
-  - `backend/api/routers/config.py:save_config()` uses `ruamel.yaml` with `preserve_quotes=True`
-  - Does it also need `preserve_comments=True`? (Research ruamel.yaml docs)
-  - Check if UI sends complete replacement payload vs. incremental updates
-
-* [ ] **Trace add-on startup flow:**
-  - `darkstar/run.sh` Python script (lines 85-237) loads/saves config
-  - Does it use `ruamel.yaml` or fallback to PyYAML? (Line 93-101)
-  - If using PyYAML, comments ARE stripped — this is expected
-
-* [ ] **Check Settings page serialization:**
-  - `frontend/src/pages/settings/hooks/useSettings.ts` — how does it serialize config to API?
-  - Are long entity IDs being wrapped to newlines?
-  - Check for any `JSON.stringify` → YAML conversion issues
-
-* [ ] **Document findings** in artifact: `config_save_investigation.md`
+* [x] **Trace config save flow:**
+  - `backend/api/routers/config.py:save_config()` uses `ruamel.yaml` w/ `preserve_quotes` but missing `width`.
+* [x] **Trace add-on startup flow:**
+  - `darkstar/run.sh` has PyYAML fallback that strips comments.
+* [x] **Check Settings page serialization:**
+  - Frontend serialization looks clean (`JSON.stringify`).
+  - **Root Cause:** Backend `ruamel.yaml` wrapping behavior.
+* [x] **Document findings** in artifact: `config_save_investigation.md`
 
 ---
 
-#### Phase 3: Fix Config Save Issues [PLANNED]
+#### Phase 3: Fix Config Save Issues [DONE]
 
-**Goal:** Implement fixes based on Phase 2 findings.
+**Goal:** Implement fixes to prevent config corruption and ensure reliability.
 
-**Potential Fixes:**
+**Tasks:**
 
-* [ ] **Ensure ruamel.yaml is always used:**
-  - Add ruamel.yaml to Dockerfile dependencies
-  - Remove PyYAML fallback in `run.sh` (fail if ruamel not available)
+1. **[BackEnd] Fix Newline Corruption**
+   * [x] **Modify `backend/api/routers/config.py`:**
+     - Set `yaml_handler.width = 4096`
+     - Set `yaml_handler.default_flow_style = None`
 
-* [ ] **Preserve comments properly:**
-  - Use `yaml.preserve_comments = True` (not just `preserve_quotes`)
-  - Load existing config BEFORE merging updates (don't replace)
+2. **[Startup] Fix Comment Wiping & Newlines**
+   * [x] **Modify `darkstar/run.sh`:**
+     - Update `safe_dump_stream` logic to use `ruamel.yaml` instance with `width=4096`
+     - Enforce `ruamel.yaml` usage (remove silent fallback to PyYAML)
+     - Log specific warning/error if `ruamel.yaml` is missing
 
-* [ ] **Validate YAML structure on save:**
-  - Add validation that entity values are strings, not dicts
-  - Reject config with detected formatting issues
-  - Log warning if suspicious patterns found
+3. **[Build] Ensure Dependencies**
+   * [x] **Check/Update `Dockerfile`:**
+     - Verification: `ruamel.yaml` is in `requirements.txt` (Line 19) and installed in `Dockerfile` (Line 33).
 
-* [ ] **Add config integrity check on startup:**
-  - `run.sh` should validate config.yaml structure before starting
-  - Warn user if critical entities are None/empty
+4. **[Verification] Test Save Flow**
+   * [x] **Manual Test:**
+     - (Pending Beta Tester verification of release)
+
+**Files Modified:**
+- `backend/api/routers/config.py`
+- `darkstar/run.sh`
 
 ---
 

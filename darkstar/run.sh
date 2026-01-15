@@ -88,29 +88,27 @@ import os
 import json
 from pathlib import Path
 
-# Try to import ruamel.yaml for comment preservation, fallback to PyYAML
+# Try to import ruamel.yaml for comment preservation
 try:
     from ruamel.yaml import YAML
     yaml = YAML()
     yaml.preserve_quotes = True
+    yaml.width = 4096  # Prevent wrapping of long entity IDs (REV F16)
     HAS_RUAMEL = True
     print("[run.sh] Using ruamel.yaml (comments preserved)")
 except ImportError:
-    import yaml
-    HAS_RUAMEL = False
-    print("[run.sh] Using PyYAML (comments NOT preserved)")
+    # REV F16: Removed PyYAML fallback to prevent comment wiping
+    print("[run.sh] CRITICAL ERROR: ruamel.yaml not found!")
+    print("[run.sh] Config comments cannot be preserved without ruamel.yaml.")
+    print("[run.sh] Please ensure 'ruamel.yaml' is installed in the system environment.")
+    # We exit here to force a fix rather than silently corrupting config
+    sys.exit(1)
 
 def safe_load_stream(stream):
-    if HAS_RUAMEL:
-        return yaml.load(stream)
-    else:
-        return yaml.safe_load(stream) or {}
+    return yaml.load(stream)
 
 def safe_dump_stream(data, stream):
-    if HAS_RUAMEL:
-        yaml.dump(data, stream)
-    else:
-        yaml.dump(data, stream, default_flow_style=False, sort_keys=False)
+    yaml.dump(data, stream)
 
 config_path = Path('/config/darkstar/config.yaml')
 secrets_path = Path('/config/darkstar/secrets.yaml')

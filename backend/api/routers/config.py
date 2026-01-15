@@ -59,6 +59,7 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
     try:
         yaml_handler = YAML()
         yaml_handler.preserve_quotes = True
+        yaml_handler.width = 4096  # Prevent wrapping of long entity IDs (REV F16)
 
         # We might want to merge payload into existing to preserve comments?
         # Or just dump. webapp.py usually did a load-update-dump cycle using ruamel.
