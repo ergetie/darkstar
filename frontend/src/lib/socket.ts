@@ -29,10 +29,27 @@ export const getSocket = () => {
 
         // 1. Create the Manager: Handles the low-level connection (Engine.IO)
         // We configure the path here to ensure it travels through HA Ingress correctly.
+        // REV F11 UPDATE: Runtime configuration for debugging without redeploy
+
+        const params = new URLSearchParams(window.location.search)
+        const overridePath = params.get('socket_path')
+        const overrideTransports = params.get('socket_transports')?.split(',')
+
+        // Default: Force websocket, remove trailing slash
+        const finalPath = overridePath || socketPath.replace(/\/$/, '')
+        const finalTransports = overrideTransports || ['websocket']
+
+        console.log('🔧 Socket Config Overrides:', {
+            overridePath,
+            overrideTransports,
+            finalPath,
+            finalTransports
+        })
+
         const manager = new Manager(baseUrl.origin, {
-            path: socketPath,
-            transports: ['polling', 'websocket'],
-            autoConnect: true,
+            path: finalPath,
+            transports: finalTransports,
+            autoConnect: false, // We will connect manually
             reconnection: true,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
@@ -44,10 +61,40 @@ export const getSocket = () => {
         socket = manager.socket('/')
 
         // Debug Manager events (Transport Layer)
-        manager.on('open', () => console.log('🔌 Manager: Transport OPENED'))
+        manager.on('open', () => {
+            console.log('🔌 Manager: Transport OPENED')
+            // Log the transport details
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const transport = (manager.engine as any).transport
+            console.log('   Transport Type:', transport.name)
+            console.log('   Transport URL:', transport.opts.path)
+
+            // Hook into low-level packet creation to see what we are sending
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            manager.engine.on('packetCreate', (packet: any) => {
+                console.log('📤 Manager: Sending Packet:', packet.type, packet.data)
+            })
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            manager.engine.on('packet', (packet: any) => {
+                console.log('📥 Manager: Received Packet:', packet.type, packet.data)
+            })
+        })
+
         manager.on('error', (err: Error) => console.error('🔌 Manager: Transport ERROR:', err))
         manager.on('close', (reason: string) => console.log('🔌 Manager: Transport CLOSED:', reason))
         manager.on('reconnect_attempt', (attempt: number) => console.log(`🔌 Manager: Reconnect attempt ${attempt}`))
+
+        // Manually trigger connection now that listeners are attached
+        console.log('🔌 Manager: Initiating manual connection...')
+        manager.open((err?: Error) => {
+            if (err) {
+                console.error('🔌 Manager: Open failed:', err)
+            } else {
+                console.log('🔌 Manager: Open successful, connecting socket...')
+                socket?.connect()
+            }
+        })
 
         // Debug Socket events (Application Layer)
         socket.onAny((event, ...args) => {
