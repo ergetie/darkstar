@@ -1239,3 +1239,30 @@ This should remain in place during beta testing to allow users to self-diagnose 
 * [x] Locate "Live System" card in `frontend/src/pages/Executor.tsx`
 * [x] Comment out or remove the Card component at lines ~891-1017
 * [x] Verify linting passes
+---
+
+### [DONE] REV // F17 — Fix Override Hardcoded Values
+
+**Goal:** Fix a critical bug where emergency charge was triggered incorrectly because of hardcoded floor values in the executor engine, ignoring user configuration.
+
+**Problem:**
+- `executor/engine.py` had `min_soc_floor` hardcoded to `10.0` and `low_soc_threshold` to `20.0`.
+- Users with `min_soc_percent: 5` explicitly set were still experiencing overrides when SoC was between 5-10%.
+- Emergency charge logic used `<=` (triggered AT floor) instead of `<` (triggered BELOW floor).
+
+**Fix:**
+- Mapped `min_soc_floor` to `battery.min_soc_percent`.
+- Added new `executor.override` config section for `low_soc_export_floor` and `excess_pv_threshold_kw`.
+- Changed emergency charge condition from `<=` to `<` to match user expectation (floor is acceptable state).
+
+**Files Modified:**
+- `executor/engine.py`: Removed hardcoded values, implemented config mapping.
+- `executor/override.py`: Changed triggered condition.
+- `config.default.yaml`: Added new config section.
+- `tests/test_executor_override.py`: Updated test expectations.
+
+**Status:**
+- [x] Fix Implemented
+- [x] Config Added
+- [x] Tests Passed
+- [x] Committed to main
