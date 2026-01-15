@@ -1,5 +1,15 @@
 # Darkstar Release Notes
 
+## [v2.4.19-beta] - HA Ingress Refinement & Diagnostics - 2026-01-15
+
+### Critical Fixes
+- **HA Ingress (Round 3)**: Further refined the Socket.IO path handling for Home Assistant Ingress. Added a mandatory trailing slash to the path and improved URL resolution to ensure reliable connectivity across different HA network configurations.
+
+### Observability
+- **Expanded Socket Diagnostics**: Added comprehensive packet-level logging for the Socket.IO client to aid in troubleshooting persistent connection issues in complex proxy environments.
+
+---
+
 ## [v2.4.18-beta] - UI Persistence & Scheduler Stability - 2026-01-15
 
 ### Critical Fixes
