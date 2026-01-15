@@ -1079,3 +1079,150 @@ This should remain in place during beta testing to allow users to self-diagnose 
 **Priority:** Low (foundation is set in F14, this is expansion)
 
 **Dependencies:** REV F14 must be complete first
+
+---
+
+### [IN PROGRESS] REV // F16 — Executor Hardening & Config Reliability
+
+**Goal:** Fix critical executor crash caused by unguarded entity lookups, investigate config save bugs (comments wiped, YAML formatting corrupted), and improve error logging.
+
+**Context (Beta Tester Report 2026-01-15):**
+- Executor fails with `Failed to get state of None: 404` even after user configured entities
+- Config comments mysteriously wiped after add-on install
+- Entity values appeared on newlines (invalid YAML) after Settings page save
+- `nordpool.price_area: SE3` reverted to `SE4` after reboot
+
+**Root Cause Analysis:**
+1. **Unguarded `get_state_value()` calls** in `engine.py` — calls HA API even when entity is `None` or empty string
+2. **Potential config save bug** — UI may be corrupting YAML formatting or not preserving comments
+3. **Error logging doesn't identify WHICH entity** is None in error messages
+
+---
+
+#### Phase 1: Guard All Entity Lookups [DONE]
+
+**Goal:** Prevent executor crash when optional entities are not configured.
+
+**Bug Locations (lines in `executor/engine.py`):**
+
+| Line | Entity | Current Guard | Issue |
+|------|--------|---------------|-------|
+| 767 | `automation_toggle_entity` | `if self.ha_client:` | Missing entity None check |
+| 1109 | `work_mode_entity` | `if has_battery:` | Missing entity None check |
+| 1114 | `grid_charging_entity` | `if has_battery:` | Missing entity None check |
+| 1121 | `water_heater.target_entity` | `if has_water_heater:` | Missing entity None check |
+
+**Tasks:**
+
+* [x] **Fix line 767** (automation_toggle_entity):
+  ```python
+  # OLD:
+  if self.ha_client:
+      toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
+  
+  # NEW:
+  if self.ha_client and self.config.automation_toggle_entity:
+      toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
+  ```
+
+* [x] **Fix lines 1109/1114** (work_mode, grid_charging):
+  ```python
+  # OLD:
+  if self.config.has_battery:
+      work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
+  
+  # NEW:
+  if self.config.has_battery and self.config.inverter.work_mode_entity:
+      work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
+  ```
+
+* [x] **Fix line 1121** (water_heater.target_entity):
+  ```python
+  # OLD:
+  if self.config.has_water_heater:
+      water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
+  
+  # NEW:
+  if self.config.has_water_heater and self.config.water_heater.target_entity:
+      water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
+  ```
+
+* [x] **Improve error logging** in `executor/actions.py:get_state()`:
+  ```python
+  # Log which entity is None/invalid for easier debugging
+  if not entity_id or entity_id.lower() == "none":
+      logger.error("get_state called with invalid entity_id: %r (type: %s)", entity_id, type(entity_id))
+      return None
+  ```
+
+* [x] **Linting:** `ruff check executor/` — All checks passed!
+* [x] **Testing:** `PYTHONPATH=. python -m pytest tests/test_executor_*.py -v` — 42 passed!
+
+---
+
+#### Phase 2: Config Save Investigation [PLANNED]
+
+**Goal:** Identify why config comments are wiped and YAML formatting is corrupted.
+
+**Symptoms:**
+1. Comments from `config.default.yaml` disappear after add-on install
+2. Entity values appear on newlines (invalid YAML): 
+   ```yaml
+   grid_charging_entity:
+     input_select.my_entity  # ← Invalid, parsed as nested key!
+   ```
+3. `nordpool.price_area` resets to default after reboot
+
+**Investigation Tasks:**
+
+* [ ] **Trace config save flow:**
+  - `backend/api/routers/config.py:save_config()` uses `ruamel.yaml` with `preserve_quotes=True`
+  - Does it also need `preserve_comments=True`? (Research ruamel.yaml docs)
+  - Check if UI sends complete replacement payload vs. incremental updates
+
+* [ ] **Trace add-on startup flow:**
+  - `darkstar/run.sh` Python script (lines 85-237) loads/saves config
+  - Does it use `ruamel.yaml` or fallback to PyYAML? (Line 93-101)
+  - If using PyYAML, comments ARE stripped — this is expected
+
+* [ ] **Check Settings page serialization:**
+  - `frontend/src/pages/settings/hooks/useSettings.ts` — how does it serialize config to API?
+  - Are long entity IDs being wrapped to newlines?
+  - Check for any `JSON.stringify` → YAML conversion issues
+
+* [ ] **Document findings** in artifact: `config_save_investigation.md`
+
+---
+
+#### Phase 3: Fix Config Save Issues [PLANNED]
+
+**Goal:** Implement fixes based on Phase 2 findings.
+
+**Potential Fixes:**
+
+* [ ] **Ensure ruamel.yaml is always used:**
+  - Add ruamel.yaml to Dockerfile dependencies
+  - Remove PyYAML fallback in `run.sh` (fail if ruamel not available)
+
+* [ ] **Preserve comments properly:**
+  - Use `yaml.preserve_comments = True` (not just `preserve_quotes`)
+  - Load existing config BEFORE merging updates (don't replace)
+
+* [ ] **Validate YAML structure on save:**
+  - Add validation that entity values are strings, not dicts
+  - Reject config with detected formatting issues
+  - Log warning if suspicious patterns found
+
+* [ ] **Add config integrity check on startup:**
+  - `run.sh` should validate config.yaml structure before starting
+  - Warn user if critical entities are None/empty
+
+---
+
+**Priority:** CRITICAL — Executor is broken for beta testers
+
+**Files to Modify:**
+- `executor/engine.py` — Add entity guards (Phase 1)
+- `executor/actions.py` — Improve error logging (Phase 1)
+- `backend/api/routers/config.py` — Fix config save (Phase 3)
+- `darkstar/run.sh` — Improve config handling (Phase 3)

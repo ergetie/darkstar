@@ -73,6 +73,16 @@ class HAClient:
 
     def get_state(self, entity_id: str) -> dict[str, Any] | None:
         """Get the current state of an entity."""
+        # Early validation: catch None/invalid entity_id before hitting HA API
+        if not entity_id or (isinstance(entity_id, str) and entity_id.strip().lower() in ("", "none")):
+            logger.error(
+                "get_state called with invalid entity_id: %r (type: %s) - "
+                "check config.yaml for missing entity configuration",
+                entity_id,
+                type(entity_id).__name__,
+            )
+            return None
+
         try:
             response = self._session.get(
                 f"{self.base_url}/api/states/{entity_id}",

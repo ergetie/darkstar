@@ -762,8 +762,8 @@ class ExecutorEngine:
                 result["actions"] = [{"type": "skip", "reason": "paused_idle_mode"}]
                 return result
 
-            # 1. Check automation toggle
-            if self.ha_client:
+            # 1. Check automation toggle (only if entity configured)
+            if self.ha_client and self.config.automation_toggle_entity:
                 toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
                 if toggle_state != "on":
                     logger.info("Automation toggle is off, skipping execution")
@@ -1104,20 +1104,21 @@ class ExecutorEngine:
                 if exp_str and exp_str not in ("unknown", "unavailable"):
                     state.current_export_kw = float(exp_str) / 1000
 
-            # Get current work mode
-            if self.config.has_battery:
+            # Get current work mode (only if entity configured)
+            if self.config.has_battery and self.config.inverter.work_mode_entity:
                 work_mode = self.ha_client.get_state_value(self.config.inverter.work_mode_entity)
                 if work_mode:
                     state.current_work_mode = work_mode
 
-                # Get grid charging state
+            # Get grid charging state (only if entity configured)
+            if self.config.has_battery and self.config.inverter.grid_charging_entity:
                 grid_charge = self.ha_client.get_state_value(
                     self.config.inverter.grid_charging_entity
                 )
                 state.grid_charging_enabled = grid_charge == "on"
 
-            # Get water heater temp (Rev O1)
-            if self.config.has_water_heater:
+            # Get water heater temp (Rev O1, only if entity configured)
+            if self.config.has_water_heater and self.config.water_heater.target_entity:
                 water_str = self.ha_client.get_state_value(self.config.water_heater.target_entity)
                 if water_str:
                     state.current_water_temp = float(water_str)
