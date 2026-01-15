@@ -156,6 +156,13 @@ export const systemSections: SettingsSection[] = [
                 type: 'number',
             },
             {
+                key: 'executor.override.low_soc_export_floor',
+                label: 'Export Prevention Floor (%)',
+                helper: 'Minimum SoC to allow battery export. Prevents discharging to grid when battery is low.',
+                path: ['executor', 'override', 'low_soc_export_floor'],
+                type: 'number',
+            },
+            {
                 key: 'battery.max_soc_percent',
                 label: 'Max SoC (%)',
                 path: ['battery', 'max_soc_percent'],
@@ -622,6 +629,14 @@ export const parameterSections: SettingsSection[] = [
                 helper: 'Max safe temperature for dumping excess solar PV.',
                 path: ['executor', 'water_heater', 'temp_max'],
                 type: 'number',
+            },
+            {
+                key: 'executor.override.excess_pv_threshold_kw',
+                label: 'PV Dump Threshold (kW)',
+                helper: 'Surplus PV power required to trigger water heating as a PV dump.',
+                path: ['executor', 'override', 'excess_pv_threshold_kw'],
+                type: 'number',
+                subsection: 'PV Dump Control',
             },
         ],
     },

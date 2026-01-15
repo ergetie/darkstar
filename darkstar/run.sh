@@ -111,6 +111,7 @@ def safe_dump_stream(data, stream):
     yaml.dump(data, stream)
 
 config_path = Path('/config/darkstar/config.yaml')
+default_config_path = Path('/app/config.default.yaml')
 secrets_path = Path('/config/darkstar/secrets.yaml')
 
 # Load existing files
@@ -123,6 +124,36 @@ try:
 except Exception as e:
     print(f"[run.sh] Error loading config.yaml: {e}")
     config = {}
+
+# Load defaults for migration (REV F17)
+try:
+    if default_config_path.exists():
+        with open(default_config_path) as f:
+            default_config = safe_load_stream(f)
+    else:
+        default_config = {}
+except Exception as e:
+    print(f"[run.sh] Warning: Could not load config.default.yaml for migration: {e}")
+    default_config = {}
+
+def deep_merge_missing(target, source):
+    """Recursively add missing keys from source to target while preserving target values and comments."""
+    is_modified = False
+    if not isinstance(source, dict) or not isinstance(target, dict):
+        return False
+    
+    for key, value in source.items():
+        if key not in target:
+            print(f"[run.sh] Migration: Adding missing key '{key}' to config.yaml")
+            target[key] = value
+            is_modified = True
+        elif isinstance(value, dict) and isinstance(target.get(key), dict):
+            if deep_merge_missing(target[key], value):
+                is_modified = True
+    return is_modified
+
+# Perform migration
+modified_config = deep_merge_missing(config, default_config)
 
 try:
     if secrets_path.exists():
