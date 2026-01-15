@@ -804,8 +804,36 @@ socket = io(socketUrl, { path: '/socket.io/' })
 - `GET /api/executor-debug` — Executor engine diagnostic status
 
 **Status:**
-- [x] Root Cause Identified (Incorrect URL/path calculation in socket.ts)
+- [x] Root Cause Identified (Socket.IO `path` appends to origin, not full URL)
 - [x] Implementation Plan Created
-- [x] Fix Implemented
+- [x] Fix Implemented (Round 2 - path includes ingress prefix)
 - [x] Debug Endpoints Added
 - [ ] User Verified in HA Add-on Environment
+
+---
+
+### REV // F12 — Scheduler Not Running First Cycle [TO INVESTIGATE]
+
+**Problem:** Scheduler shows `last_run_at: null` even though enabled and running.
+From debug endpoint:
+```json
+{
+  "status": "running",
+  "enabled": true,
+  "runtime": {
+    "last_run_at": null,
+    "next_run_at": "2026-01-15T09:15:27",
+    "last_run_status": null
+  },
+  "diagnostics": {
+    "message": "🔄 Scheduler is enabled but hasn't run yet (waiting for first scheduled time)"
+  }
+}
+```
+
+**To Investigate:**
+- [ ] Why scheduler waits until next boundary instead of running immediately on startup
+- [ ] Check if `next_run_at` calculation is correct
+- [ ] Consider adding "run immediately on startup if enabled" behavior
+
+**Priority:** Medium (scheduler works, just delayed start)

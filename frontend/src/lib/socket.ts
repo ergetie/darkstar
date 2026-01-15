@@ -6,18 +6,25 @@ let socket: Socket | null = null
 export const getSocket = () => {
     if (!socket) {
         // REV F11: Fix Socket.IO connection for HA Ingress
-        // Use document.baseURI which respects <base href> tag injected by backend
-        // We must pass the FULL URL (origin + ingress path) to io() so that
-        // Socket.IO connects to the correct proxied endpoint, not just window.location.origin
+        // document.baseURI respects <base href> tag injected by backend
+        //
+        // CRITICAL: Socket.IO's `path` option is appended to the ORIGIN, not the full URL.
+        // So we must:
+        //   1. Connect to the origin (https://home.wxl.se)
+        //   2. Set path to include the ingress prefix (/api/hassio_ingress/xxx/socket.io)
+        //
+        // This ensures requests go to: origin + path = correct proxied endpoint
         const baseUrl = new URL(document.baseURI)
-        // Remove trailing slash to avoid double-slash issues with socket.io path
-        const socketUrl = baseUrl.origin + baseUrl.pathname.replace(/\/$/, '')
 
-        console.log(`🔌 WebSocket initializing at URL: ${socketUrl}`)
+        // Build socket.io path: ingress pathname + /socket.io
+        // e.g., /api/hassio_ingress/xxx/ -> /api/hassio_ingress/xxx/socket.io
+        const socketPath = (baseUrl.pathname + 'socket.io').replace(/\/\//g, '/')
 
-        socket = io(socketUrl, {
-            path: '/socket.io/', // Standard path, relative to socketUrl
-            transports: ['polling', 'websocket'], // Ensure fallback works
+        console.log(`🔌 WebSocket initializing: origin=${baseUrl.origin}, path=${socketPath}`)
+
+        socket = io(baseUrl.origin, {
+            path: socketPath, // Full path including ingress prefix
+            transports: ['polling', 'websocket'],
             autoConnect: true,
             reconnection: true,
             reconnectionDelay: 1000,
