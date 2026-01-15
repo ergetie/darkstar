@@ -238,6 +238,12 @@ class HAWebSocketClient:
             if self.inversion_flags.get(key, False):
                 value = -value
 
+            # Sanitize value (prevent NaN/Inf from crashing JSON transport)
+            import math
+            if math.isnan(value) or math.isinf(value):
+                logger.warning(f"DIAG: Sanitized invalid float for {key}: {value} -> 0.0")
+                value = 0.0
+
             # Emit
             payload = {key: value}
 

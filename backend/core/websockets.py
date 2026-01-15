@@ -39,7 +39,10 @@ class WebSocketManager:
         """
         Emit an event from an async context (e.g. FastAPI route).
         """
-        await self.sio.emit(event, data, to=to)  # pyright: ignore [reportUnknownMemberType]
+        try:
+            await self.sio.emit(event, data, to=to)  # pyright: ignore [reportUnknownMemberType]
+        except Exception as e:
+            logger.error(f"WebSocketManager: Failed to emit '{event}': {e}", exc_info=True)
 
     def emit_sync(self, event: str, data: Any, to: str | None = None):
         """
