@@ -205,7 +205,7 @@ This should remain in place during beta testing to allow users to self-diagnose 
 
 ---
 
-### [PLANNED] REV // F15 — Extend Conditional Visibility to Parameters Tab
+### [DONE] REV // F15 — Extend Conditional Visibility to Parameters Tab
 
 **Goal:** Apply the same `showIf` conditional visibility pattern from F14 to the Parameters/Settings tabs (not just HA Entities).
 
@@ -214,16 +214,11 @@ This should remain in place during beta testing to allow users to self-diagnose 
 - Battery Economics — grey if `!has_battery`
 - S-Index settings — grey if `!has_battery`
 - Solar array params — grey if `!has_solar`
-- Future: EV Charger, Heat Pump, Pool Heater, multiple MPPT strings
 
 **Scope:**
 - Extend `showIf` to `parameterSections` in `types.ts`
 - Apply same greyed overlay pattern in ParametersTab
 - Support all System Profile toggles as conditions
-
-**Priority:** Low (foundation is set in F14, this is expansion)
-
-**Dependencies:** REV F14 must be complete first
 
 ---
 

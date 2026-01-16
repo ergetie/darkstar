@@ -131,6 +131,11 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Panel direction: 0° = North, 90° = East, 180° = South, 270° = West.',
                 path: ['system', 'solar_array', 'azimuth'],
                 type: 'azimuth',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
             {
                 key: 'system.solar_array.tilt',
@@ -138,6 +143,11 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Angle from horizontal. 0° = flat, 90° = vertical.',
                 path: ['system', 'solar_array', 'tilt'],
                 type: 'tilt',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
             {
                 key: 'system.solar_array.kwp',
@@ -145,6 +155,11 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Total DC peak power of the PV array.',
                 path: ['system', 'solar_array', 'kwp'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
         ],
     },
@@ -1211,6 +1226,11 @@ export const advancedSections: SettingsSection[] = [
                     { label: 'Probabilistic (P10/P90)', value: 'probabilistic' },
                     { label: 'Dynamic (Adaptive)', value: 'dynamic' },
                 ],
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 's_index.risk_appetite',
@@ -1225,6 +1245,11 @@ export const advancedSections: SettingsSection[] = [
                     { label: '4 - Aggressive', value: '4' },
                     { label: '5 - Gambler', value: '5' },
                 ],
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
         ],
     },
