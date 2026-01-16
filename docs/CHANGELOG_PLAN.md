@@ -7,6 +7,269 @@ This document contains the archive of all completed revisions. It serves as the 
 ---
 
 
+## ERA // 11: Inverter Profiles & Configuration Hardening
+
+This era introduced the Inverter Profile system for multi-vendor support, implemented a robust "soft merge" configuration migration strategy, and finalized the settings UI for production release.
+
+### [DONE] REV // F18 — Config Soft Merge & Version Sync
+
+**Goal:** Ensure `config.yaml` automatically receives new keys from `config.default.yaml` on startup without overwriting existing user data. Also syncs the `version` field.
+
+**Context:**
+Currently, `config.yaml` can drift from `config.default.yaml` when new features (like Inverter Profiles) are added, causing `KeyError` or hidden behavior. The specific migration logic is too rigid. We need a "soft merge" that recursively fills in missing gaps.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] **Logic:** Implement `soft_merge_defaults(user_cfg, default_cfg)` in `backend/config_migration.py`.
+    *   Recursive walk: If key missing in user config, copy from default.
+    *   **Safety:** NEVER overwrite existing keys (except `version`).
+    *   **Safety:** NEVER delete user keys.
+* [x] **Version Sync:** Explicitly update `version` in `config.yaml` to match `config.default.yaml`.
+* [x] **Integration:** Add this step to `MIGRATIONS` list in `config_migration.py`.
+
+#### Phase 2: Verification [DONE]
+* [x] **Test:** Manually delete `system.inverter_profile` and `version` from `config.yaml`.
+* [x] **Run:** Restart backend.
+* [x] **Verify:** Check that keys reappeared and existing values were untouched.
+
+---
+
+### [DONE] REV // F17 — Unified Battery & Control Configuration
+
+**Goal:** Resolve configuration duplication, clarify "Amps vs Watts" control, and establish a **Single Source of Truth** where Hardware Limits drive Optimizer Limits.
+
+**Plan:**
+
+#### Phase 0: Auto-Migration (Startup) [DONE]
+* [x] **Migration Module:** Create `backend.config_migration` to handle versioned config updates.
+* [x] **Startup Hook:** Call migration logic in `backend.main:lifespan` before executor starts.
+* [x] **Logic:** Move legacy keys (`executor.controller.battery_capacity_kwh`, `system_voltage_v`, etc.) to new `battery` section and delete old keys.
+* [x] **Safety:** Use `ruamel.yaml` to preserve comments and structure. Fallback to warning if write fails.
+
+#### Phase 1: Configuration Refactoring (Single Source of Truth) [DONE]
+* [x] **Cleanup:** Remove `executor.controller.battery_capacity_kwh` (redundant). Point all logic to `battery.capacity_kwh`.
+* [x] **Cleanup:** Remove `max_charge_power_kw` and `max_discharge_power_kw` from config and UI (redundant).
+* [x] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` to root `battery` section.
+* [x] **Logic:** Update `planner.solver.adapter` to **auto-calculate** optimizer limits from hardware settings:
+    *   `Watts`: Optimizer kW = Hardware W / 1000.
+    *   `Amps`: Optimizer kW = (Hardware A * System Voltage) / 1000.
+
+#### Phase 2: UI Schema & Visibility [DONE]
+* [x] **Battery Section:** Hide entire section if `system.has_battery` is false.
+* [x] **Voltage Fields:** Show only if `control_unit == "A"`. Hide for "W".
+*   **Profile Locking:**
+    *   If `inverter_profile == "deye"`, force `control_unit` to "A" (disable selector).
+    *   If `inverter_profile == "generic"`, default `control_unit` to "W".
+* [x] **Labels:** Rename inputs to "Max Hardware Charge (A/W)" to clarify purpose.
+
+#### Phase 3: Dashboard & Metrics [DONE]
+* [x] **Dynamic Units:** Ensure Dashboard cards display "A" or "W" based on `control_unit`.
+* [x] **Logs:** Ensure Execution history uses the correct unit suffix (e.g., "9600 W" vs "9600 A").
+
+#### Phase 4: Safety & Validation [DONE]
+* [x] **Entity Sniffing:** Add UI warning i Unit mismatch detected (Resolved via auto-enforcement).
+* [x] **Verification:** Verify end-to-end flow for Deye (Amps -> Auto kW) and Generic (Watts -> Auto kW).
+
+---
+
+### [DONE] REV // E3 — Watt-mode Safety & 9600A Fix
+
+**Goal:** Resolve the critical bug where 9.6kW (9600W) was being interpreted as 9600A due to a dataclass misalignment. Add safety guards and improved observability.
+
+**Plan:**
+
+#### Phase 1: Logic Fixes [DONE]
+* [x] **Controller:** Remove duplicate `grid_charging` field in `ControllerDecision`.
+* [x] **Controller:** Fix override logic using `max_charge_a` for discharge.
+* [x] **Actions:** Implement hard safety guard (refuse > 500A commands).
+* [x] **Actions:** Add explicit entity logging for all power/current actions.
+
+#### Phase 2: Observability [DONE]
+* [x] **Engine:** Add `last_skip_reason` to `ExecutorStatus`.
+* [x] **Debug API:** Expose skip reasons and automation toggle status.
+* [x] **Health:** Ensure skip reasons are visible in diagnostics.
+
+#### Phase 3: Verification [DONE]
+* [x] **Unit Tests:** Verify `ControllerDecision` field alignment.
+* [x] **Engine Tests:** Verify skip reporting (52/52 tests passing).
+
+---
+
+### [DONE] REV // DX3 — Dev Add-on Workflow
+
+**Goal:** Enable rapid iteration by creating a "Darkstar Dev" add-on that tracks the `dev` branch and builds significantly faster (amd64 only).
+
+**Plan:**
+
+#### Phase 1: Add-on Definition [DONE]
+* [x] Create `darkstar-dev/` directory with `config.yaml`, `icon.png`, and `logo.png`.
+* [x] Configure `darkstar-dev/config.yaml` with `slug: darkstar-dev` and `amd64` only.
+
+#### Phase 2: CI/CD Implementation [DONE]
+* [x] Update `.github/workflows/build-addon.yml` to support `dev` branch triggers.
+* [x] Implement dynamic versioning (`dev-YYYYMMDD.HHMM`) for the dev add-on.
+* [x] Optimize `dev` build to only target `amd64`.
+
+#### Phase 3: Documentation [DONE]
+* [x] Update `README.md` with Dev add-on info/warning.
+* [x] Update `docs/DEVELOPER.md` with dev workflow instructions.
+
+#### Phase 4: Verification [DONE]
+* [x] Verify HA Add-on Store shows both versions.
+* [x] Verify update notification triggers on push to `dev`.
+
+---
+
+### [DONE] REV // F16 — Conditional Configuration Validation
+
+**Goal:** Fix the bug where disabling `has_battery` still requires `input_sensors.battery_soc` to be configured. Relax validation logic in both frontend and backend.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] **Frontend:** Update `types.ts` to add `showIf` to battery and solar fields.
+* [x] **Backend:** Update `config.py` to condition critical entity validation on system toggles.
+* [x] **Verification:** Verify saving config with `has_battery: false` works.
+
+---
+
+### [DONE] REV // E5 — Inverter Profile Foundation
+
+**Goal:** Establish a modular "Inverter Profile" system in the settings UI. This moves away from generic toggles towards brand-specific presets, starting with hiding `soc_target_entity` for non-Deye inverters.
+
+**Profiles:**
+1.  **Generic (Default):** Standard entities, `soc_target` hidden.
+2.  **Deye/SunSynk (Gen2 Hybrid):** `soc_target` enabled & required.
+3.  **Fronius:** Placeholder (same as Generic for now).
+4.  **Victron:** Placeholder (same as Generic for now).
+
+**Plan:**
+
+#### Phase 1: Configuration & UI Schema [DONE]
+* [x] **Config:** Add `system.inverter_profile` to `config.default.yaml` (default: "generic").
+* [x] **UI Schema:**
+    *   Add `system.inverter_profile` dropdown to System Profile card.
+    *   Update `executor.soc_target_entity` to `showIf: { configKey: 'system.inverter_profile', value: 'deye' }` (or similar ID).
+* [x] **Warning Label:** Add a UI hint/warning that non-Deye profiles are "Work in Progress".
+
+#### Phase 2: Executor Handling [DONE]
+* [x] **Executor Logic:** Ensure `executor/config.py` loads the profile key (for future logic branching).
+* [x] **Validation:** Ensure `soc_target_entity` is only required if profile == Deye.
+
+#### Phase 3: Verification [DONE]
+* [x] **UI Test:** Select "Generic" → `soc_target` disappears. Select "Gen2 Hybrid" → `soc_target` appears.
+* [x] **Config Persistency:** Verify `inverter_profile` saves to `config.yaml`.
+
+---
+
+### [DONE] REV // E4 — Config Flexibility & Export Control
+
+**Goal:** Improve configuration flexibility by making the SoC target entity optional (increasing compatibility with inverters that manage this internally) and implementing a strict export toggle associated with comprehensive UI conditional visibility.
+
+**Plan:**
+
+#### Phase 1: Optional SoC Target [DONE]
+**Goal:** Make `soc_target` entity optional for inverters that do not support it, while clarifying its behavior for those that do.
+* [x] **Config Update:** Modify `ExecutorConfig` validation to allow `soc_target_entity` to be None/empty.
+* [x] **Executor Logic:** Update `executor/engine.py` to gracefully skip `_set_soc_target` actions if the entity is not configured.
+* [x] **UI Update (Tooltip):** Update `soc_target_entity` tooltip: "Target maintenance level. Acts as a discharge floor (won't discharge below this %) AND a grid charge target (won't charge above this % from grid). Required for inverters like Deye (behavior for other inverters unknown)."
+* [x] **UI Update (Optionality):** Field should be marked optional in the form validation logic.
+
+#### Phase 2: Export Toggle & UI Logic [DONE]
+**Goal:** Allow users to disable grid export constraints and hide irrelevant settings in the UI.
+* [x] **Config:** Ensure `config.default.yaml` has `export.enable_export: true` by default.
+* [x] **Constraint Logic:** In `planner/solver/kepler.py`, read `export.enable_export`. Add global constraint: `export_power[t] == 0` if disabled.
+* [x] **UI Toggle:** Remove `disabled` and `notImplemented` flags from `export.enable_export` in `types.ts`.
+* [x] **UI Conditionals:** Apply `showIf: { configKey: 'export.enable_export' }` to:
+  *   `executor.inverter.grid_max_export_power_entity`
+  *   `input_sensors.grid_export_power` (and related total/today export sensors)
+  *   Any export-specific parameters in `Settings/Parameters`.
+* [x] **Frontend Update:** Ensure `types.ts` defines these dependencies correctly so they grey out/disable.
+
+#### Phase 3: Verification [DONE]
+**Goal:** Verify safety, correctness, and UI behavior.
+* [x] **Startup Test:** Verify Darkstar starts correctly with `soc_target_entity` removed.
+* [x] **Planner Test:** Run planner with `enable_export: false` → verify 0 export.
+* [x] **UI Test:** Toggle `enable_export` in System Profile/Config and verify export fields grey out.
+* [x] **Regression Test:** Verify normal operation with `enable_export: true`.
+
+---
+
+### [DONE] REV // E3 — Inverter Compatibility (Watt Control)
+
+**Goal:** Support inverters that require Watt-based control instead of Amperes (e.g., Fronius).
+
+**Outcome:**
+Implemented strict separation between Ampere and Watt control modes. Added explicit configuration for Watt limits and entities. The system now refuses to start if Watt mode is selected but Watt entities are missing.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] Add `control_unit` (Amperes vs Watts) to Inverter config
+* [x] Update `Executor` logic to calculate values based on selected unit
+* [x] Verify safety limits in both modes
+
+---
+
+### [DONE] REV // UI5 — Support Dual Grid Power Sensors
+
+**Goal:** Support split import/export grid power sensors in addition to single net-metering sensors.
+
+**Plan:**
+
+#### Phase 1: Implementation [PLANNED]
+* [X] Add `grid_import_power_entity` and `grid_export_power_entity` to config/Settings
+* [X] Update `inputs.py` to handle both single (net) and dual sensors
+* [X] Verify power flow calculations
+
+---
+
+### [DONE] REV // F15 — Extend Conditional Visibility to Parameters Tab
+
+**Goal:** Apply the same `showIf` conditional visibility pattern from F14 to the Parameters/Settings tabs (not just HA Entities).
+
+**Context:** The System Profile toggles (`has_solar`, `has_battery`, `has_water_heater`) should control visibility of many settings across all tabs:
+- Water Heating parameters (min_kwh, spacing, temps) — grey if `!has_water_heater`
+- Battery Economics — grey if `!has_battery`
+- S-Index settings — grey if `!has_battery`
+- Solar array params — grey if `!has_solar`
+
+**Scope:**
+- Extend `showIf` to `parameterSections` in `types.ts`
+- Apply same greyed overlay pattern in ParametersTab
+- Support all System Profile toggles as conditions
+
+---
+
+### [DONE] REV // F12 — Scheduler Not Running First Cycle
+
+**Problem:** Scheduler shows `last_run_at: null` even though enabled and running.
+
+**Resolution:**
+The scheduler was waiting for the full configured interval (default 60m) before the first run.
+Updated `SchedulerService` to schedule the first run 10 seconds after startup.
+
+**Status:** [DONE]
+
+---
+
+### [DONE] REV // H2 — Training Episodes Database Optimization
+
+**Goal:** Reduce `training_episodes` table size.
+
+**Outcome:**
+Instead of complex compression, we decided to **disable writing to `training_episodes` by default** (see `backend/learning/engine.py`). The table was causing bloat (2GB+) and wasn't critical for daily operations.
+
+**Resolution:**
+1.  **Disabled by Default:** `log_training_episode()` now checks `debug.enable_training_episodes` (default: False).
+2.  **Cleanup Script:** Created `scripts/optimize_db.py` to trim/vacuum the database.
+3.  **Documentation:** Added `optimize_db.py` usage to `docs/DEVELOPER.md`.
+
+**Status:** [DONE] (Solved via Avoidance)
+
+---
+
 ## ERA // 10: Public Beta & Performance Optimization
 
 This era focused on the transition to a public beta release, including infrastructure hardening, executor reliability, and significant performance optimizations for both the planner and the user interface.
