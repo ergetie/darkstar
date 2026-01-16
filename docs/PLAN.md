@@ -154,31 +154,15 @@ Instead of complex compression, we decided to **disable writing to `training_epi
 
 ---
 
-### REV // F12 — Scheduler Not Running First Cycle [TO INVESTIGATE]
+### [DONE] REV // F12 — Scheduler Not Running First Cycle
 
 **Problem:** Scheduler shows `last_run_at: null` even though enabled and running.
-From debug endpoint:
-```json
-{
-  "status": "running",
-  "enabled": true,
-  "runtime": {
-    "last_run_at": null,
-    "next_run_at": "2026-01-15T09:15:27",
-    "last_run_status": null
-  },
-  "diagnostics": {
-    "message": "🔄 Scheduler is enabled but hasn't run yet (waiting for first scheduled time)"
-  }
-}
-```
 
-**To Investigate:**
-- [ ] Why scheduler waits until next boundary instead of running immediately on startup
-- [ ] Check if `next_run_at` calculation is correct
-- [ ] Consider adding "run immediately on startup if enabled" behavior
+**Resolution:**
+The scheduler was waiting for the full configured interval (default 60m) before the first run.
+Updated `SchedulerService` to schedule the first run 10 seconds after startup.
 
-**Priority:** Medium (scheduler works, just delayed start)
+**Status:** [DONE]
 
 ---
 

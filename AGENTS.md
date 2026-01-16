@@ -149,7 +149,7 @@ When releasing a new version:
 The sidebar version is fetched from `/api/version` which uses `git describe --tags`. Without a proper tag, it shows `vX.Y.Z-N-ghash` format.
 
 ### Tooling
-- After major code changes or a completed revision:
+- After major code changes or a completed revision (ACTIVATE VENV FIRST!):
   - **Frontend**:
     - Run `pnpm format` in `frontend/` to fix formatting issues automatically.
     - Run `pnpm lint` in `frontend/` to verify code quality.
@@ -157,7 +157,7 @@ The sidebar version is fetched from `/api/version` which uses `git describe --ta
     - Run `ruff format .` to normalize formatting.
     - Run `ruff check .` to lint and catch issues.
     - Run `pyright .` to verify type safety (strict mode).
-    - Or simply run `./lint.sh` for all checks at once.
+    - Or simply run `./scripts/lint.sh` for all checks at once (it activates venv automatically).
 
 ### Development Protocol
 - **Production-Grade Only**: Always implement production-grade solutions. Never take shortcuts or use quick-fix approaches. Prefer clean, maintainable, and robust implementations.

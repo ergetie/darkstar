@@ -135,7 +135,9 @@ class ExecutionHistory:
                 columns = [row[1] for row in cursor.fetchall()]
                 if "commanded_unit" not in columns:
                     logger.info("Migrating execution_log: Adding commanded_unit column")
-                    conn.execute("ALTER TABLE execution_log ADD COLUMN commanded_unit TEXT DEFAULT 'A'")
+                    conn.execute(
+                        "ALTER TABLE execution_log ADD COLUMN commanded_unit TEXT DEFAULT 'A'"
+                    )
             except sqlite3.Error as e:
                 logger.warning("Failed to migrate execution_log schema: %s", e)
 

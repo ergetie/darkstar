@@ -40,7 +40,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ## 📥 Inbox (User Added / Unsorted)
 
 <!-- Add new bugs/requests here. AI will wipe this section when processing. -->
-- Difference between executor battery capacity and planner battery capacity! Like 27kWh vs 34.2kWh.
+- We need to go through the chartCard completely. In history there is a mix of what we can see and what we can't see! Can we make it so we ALWAYS see the planned actions/forecasts/soc etc, but then we can toggle an overlay to see the actual data? So actualload, actual pv, actual grid, actual soc etc.
 ---
 
 ## 🔴 High Priority
