@@ -393,3 +393,28 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 #### Phase 4: Safety & Validation [DONE]
 * [x] **Entity Sniffing:** Add UI warning i Unit mismatch detected (Resolved via auto-enforcement).
 * [x] **Verification:** Verify end-to-end flow for Deye (Amps -> Auto kW) and Generic (Watts -> Auto kW).
+
+---
+
+### [DONE] REV // F18 — Config Soft Merge & Version Sync
+
+**Goal:** Ensure `config.yaml` automatically receives new keys from `config.default.yaml` on startup without overwriting existing user data. Also syncs the `version` field.
+
+**Context:**
+Currently, `config.yaml` can drift from `config.default.yaml` when new features (like Inverter Profiles) are added, causing `KeyError` or hidden behavior. The specific migration logic is too rigid. We need a "soft merge" that recursively fills in missing gaps.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] **Logic:** Implement `soft_merge_defaults(user_cfg, default_cfg)` in `backend/config_migration.py`.
+    *   Recursive walk: If key missing in user config, copy from default.
+    *   **Safety:** NEVER overwrite existing keys (except `version`).
+    *   **Safety:** NEVER delete user keys.
+* [x] **Version Sync:** Explicitly update `version` in `config.yaml` to match `config.default.yaml`.
+* [x] **Integration:** Add this step to `MIGRATIONS` list in `config_migration.py`.
+
+#### Phase 2: Verification [DONE]
+* [x] **Test:** Manually delete `system.inverter_profile` and `version` from `config.yaml`.
+* [x] **Run:** Restart backend.
+* [x] **Verify:** Check that keys reappeared and existing values were untouched.
+

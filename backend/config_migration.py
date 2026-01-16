@@ -66,9 +66,77 @@ def migrate_battery_config(config: Any) -> bool:
     return changed
 
 
+
+def soft_merge_defaults(config: Any) -> bool:
+    """
+    Migration for REV F18: Soft Merge Defaults & Version Sync.
+    Recursively fills missing keys from config.default.yaml into user config.
+    Also updates the 'version' field to match defaults.
+    """
+    changed = False
+    default_path = Path("config.default.yaml")
+
+    if not default_path.exists():
+        logger.warning("config.default.yaml not found, skipping soft merge.")
+        return False
+
+    try:
+        if YAML is None:
+            logger.warning("ruamel.yaml not installed, skipping soft merge.")
+            return False
+
+        yaml = YAML()
+        with default_path.open("r", encoding="utf-8") as f:
+            default_config = yaml.load(f)
+
+        if not default_config:
+            return False
+
+
+        # 1. Sync Version (Always update to match default)
+        if "version" in default_config:
+            if config.get("version") != default_config["version"]:
+                # If key exists, update it. If not, insert at top.
+                if "version" in config:
+                    config["version"] = default_config["version"]
+                else:
+                    config.insert(0, "version", default_config["version"])
+                logger.info(f"Updated config version to {default_config['version']}")
+                changed = True
+
+
+        # 2. Recursive Soft Merge
+        def recursive_merge(user_node: dict, default_node: dict, path: str = "") -> bool:
+            node_changed = False
+            for key, default_val in default_node.items():
+                current_path = f"{path}.{key}" if path else key
+
+                if key not in user_node:
+                    # Key missing in user config -> Copy from default
+                    user_node[key] = default_val
+                    logger.info(f"Added missing key: {current_path}")
+                    node_changed = True
+                elif isinstance(user_node[key], dict) and isinstance(default_val, dict):
+                    # Both are dicts -> Recurse
+                    if recursive_merge(user_node[key], default_val, current_path):
+                        node_changed = True
+                # Else: Key exists and is not a dict (or type mismatch) -> Keep user value (Safe)
+
+            return node_changed
+
+        if recursive_merge(config, default_config):
+            changed = True
+
+    except Exception as e:
+        logger.error(f"Soft merge failed: {e}")
+
+    return changed
+
+
 # List of migrations to run in order
 MIGRATIONS: list[MigrationStep] = [
     migrate_battery_config,
+    soft_merge_defaults,
 ]
 
 
@@ -92,6 +160,8 @@ async def migrate_config(config_path: str = "config.yaml") -> None:
         yaml = YAML()
         yaml.preserve_quotes = True
         yaml.indent(mapping=2, sequence=4, offset=2)
+        # Prevent wrapping of long lines (like entity IDs)
+        yaml.width = 4096
 
         with path.open("r", encoding="utf-8") as f:
             config = yaml.load(f)
