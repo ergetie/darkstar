@@ -40,7 +40,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ## 📥 Inbox (User Added / Unsorted)
 
 <!-- Add new bugs/requests here. AI will wipe this section when processing. -->
-
+- Difference between executor battery capacity and planner battery capacity! Like 27kWh vs 34.2kWh.
 ---
 
 ## 🔴 High Priority

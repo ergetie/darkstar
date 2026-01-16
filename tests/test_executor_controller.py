@@ -7,7 +7,7 @@ based on slot plan and override state.
 
 import pytest
 
-from executor.config import ControllerConfig
+from executor.config import ControllerConfig, InverterConfig
 from executor.controller import Controller, ControllerDecision, make_decision
 from executor.override import OverrideResult, OverrideType, SlotPlan, SystemState
 
@@ -20,14 +20,14 @@ class TestControllerDecision:
         decision = ControllerDecision(
             work_mode="Export First",
             grid_charging=True,
-            charge_current_a=100.0,
-            discharge_current_a=50.0,
+            charge_value=100.0,
+            discharge_value=50.0,
             soc_target=80,
             water_temp=60,
         )
         assert decision.work_mode == "Export First"
         assert decision.grid_charging is True
-        assert decision.charge_current_a == 100.0
+        assert decision.charge_value == 100.0
         assert decision.soc_target == 80
 
     def test_default_flags(self):
@@ -35,8 +35,8 @@ class TestControllerDecision:
         decision = ControllerDecision(
             work_mode="Zero Export To CT",
             grid_charging=False,
-            charge_current_a=0.0,
-            discharge_current_a=0.0,
+            charge_value=0.0,
+            discharge_value=0.0,
             soc_target=50,
             water_temp=40,
         )
@@ -83,7 +83,7 @@ class TestControllerFollowPlan:
     @pytest.fixture
     def controller(self):
         """Create a controller with default config."""
-        return Controller(ControllerConfig())
+        return Controller(ControllerConfig(), InverterConfig())
 
     def test_export_mode_when_export_planned(self, controller):
         """When export is planned, use Export First mode."""
@@ -156,7 +156,7 @@ class TestControllerApplyOverride:
     @pytest.fixture
     def controller(self):
         """Create a controller with default config."""
-        return Controller(ControllerConfig())
+        return Controller(ControllerConfig(), InverterConfig())
 
     def test_override_uses_override_values(self, controller):
         """When override is active, use override values."""
@@ -205,8 +205,9 @@ class TestControllerApplyOverride:
         )
 
         decision = controller.decide(slot, state, override)
-
-        assert decision.charge_current_a == controller.config.max_charge_a
+        
+        # Default is Amps
+        assert decision.charge_value == controller.config.max_charge_a
         assert decision.write_charge_current is True
 
     def test_force_export_sets_max_discharge(self, controller):
@@ -221,7 +222,7 @@ class TestControllerApplyOverride:
 
         decision = controller.decide(slot, state, override)
 
-        assert decision.discharge_current_a == controller.config.max_discharge_a
+        assert decision.discharge_value == controller.config.max_discharge_a
         assert decision.write_discharge_current is True
 
     def test_no_override_follows_plan(self, controller):
@@ -242,11 +243,11 @@ class TestCalculateChargeCurrent:
     def test_no_charge_planned_returns_zero(self):
         """When no charge planned, return 0."""
         config = ControllerConfig(worst_case_voltage_v=46.0)
-        controller = Controller(config)
+        controller = Controller(config, InverterConfig())
         slot = SlotPlan(charge_kw=0.0)
         state = SystemState()
 
-        current, should_write = controller._calculate_charge_current(slot, state)
+        current, should_write = controller._calculate_charge_limit(slot, state)
 
         assert current == 0.0
         assert should_write is False
@@ -259,12 +260,12 @@ class TestCalculateChargeCurrent:
             min_charge_a=10.0,
             max_charge_a=185.0,
         )
-        controller = Controller(config)
+        controller = Controller(config, InverterConfig())
         # 5 kW at 46V = 5000/46 ≈ 108.7A → rounds to 110A
         slot = SlotPlan(charge_kw=5.0)
         state = SystemState()
 
-        current, _ = controller._calculate_charge_current(slot, state)
+        current, _ = controller._calculate_charge_limit(slot, state)
 
         assert current == 110.0  # Rounded to step
 
@@ -276,12 +277,12 @@ class TestCalculateChargeCurrent:
             min_charge_a=10.0,
             max_charge_a=185.0,
         )
-        controller = Controller(config)
+        controller = Controller(config, InverterConfig())
         # Very small charge → would be below min
         slot = SlotPlan(charge_kw=0.1)  # 0.1kW at 46V ≈ 2.2A
         state = SystemState()
 
-        current, _ = controller._calculate_charge_current(slot, state)
+        current, _ = controller._calculate_charge_limit(slot, state)
 
         assert current >= config.min_charge_a
 
@@ -293,12 +294,12 @@ class TestCalculateChargeCurrent:
             min_charge_a=10.0,
             max_charge_a=185.0,
         )
-        controller = Controller(config)
+        controller = Controller(config, InverterConfig())
         # Very high charge → would exceed max
         slot = SlotPlan(charge_kw=20.0)  # 20kW at 46V ≈ 435A
         state = SystemState()
 
-        current, _ = controller._calculate_charge_current(slot, state)
+        current, _ = controller._calculate_charge_limit(slot, state)
 
         assert current <= config.max_charge_a
 
@@ -315,12 +316,12 @@ class TestCalculateDischargeCurrent:
             max_charge_a=185.0,
             max_discharge_a=185.0,
         )
-        controller = Controller(config)
+        controller = Controller(config, InverterConfig())
         # 3 kW export at 46V ≈ 65A → rounds to 65A
         slot = SlotPlan(export_kw=3.0)
         state = SystemState()
 
-        current, should_write = controller._calculate_discharge_current(slot, state)
+        current, should_write = controller._calculate_discharge_limit(slot, state)
 
         # Bug fix #1: Even when exporting, we set discharge to MAX
         # so local load spikes are handled by battery.
@@ -330,11 +331,11 @@ class TestCalculateDischargeCurrent:
     def test_no_export_sets_max_discharge(self):
         """When not exporting, discharge is set to max for load handling."""
         config = ControllerConfig(max_discharge_a=185.0)
-        controller = Controller(config)
+        controller = Controller(config, InverterConfig())
         slot = SlotPlan(export_kw=0.0)
         state = SystemState()
 
-        current, should_write = controller._calculate_discharge_current(slot, state)
+        current, should_write = controller._calculate_discharge_limit(slot, state)
 
         assert current == 185.0  # Max for load spikes
         assert should_write is True
@@ -345,7 +346,7 @@ class TestGenerateReason:
 
     def test_charge_reason(self):
         """Reason includes charge info."""
-        controller = Controller(ControllerConfig())
+        controller = Controller(ControllerConfig(), InverterConfig())
         slot = SlotPlan(charge_kw=5.0)
 
         reason = controller._generate_reason(slot, "Zero Export To CT", True)
@@ -355,7 +356,7 @@ class TestGenerateReason:
 
     def test_export_reason(self):
         """Reason includes export info."""
-        controller = Controller(ControllerConfig())
+        controller = Controller(ControllerConfig(), InverterConfig())
         slot = SlotPlan(export_kw=3.0)
 
         reason = controller._generate_reason(slot, "Export First", False)
@@ -365,7 +366,7 @@ class TestGenerateReason:
 
     def test_idle_reason(self):
         """Reason shows idle when nothing planned."""
-        controller = Controller(ControllerConfig())
+        controller = Controller(ControllerConfig(), InverterConfig())
         slot = SlotPlan()
 
         reason = controller._generate_reason(slot, "Zero Export To CT", False)
@@ -395,7 +396,7 @@ class TestMakeDecisionConvenience:
         decision = make_decision(slot, state, config=config)
 
         # Charge current should respect custom max
-        assert decision.charge_current_a <= 100.0
+        assert decision.charge_value <= 100.0
 
     def test_with_override(self):
         """Works with override."""
