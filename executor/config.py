@@ -42,6 +42,9 @@ class InverterConfig:
     max_charging_current_entity: str | None = None
     max_discharging_current_entity: str | None = None
     grid_max_export_power_entity: str | None = None
+    control_unit: str = "A"
+    max_charging_power_entity: str | None = None
+    max_discharging_power_entity: str | None = None
 
 
 @dataclass
@@ -83,6 +86,11 @@ class ControllerConfig:
     max_discharge_a: float = 185.0
     round_step_a: float = 5.0
     write_threshold_a: float = 5.0
+    # Watt-based limits
+    max_charge_w: float = 5000.0
+    max_discharge_w: float = 5000.0
+    min_charge_w: float = 500.0
+    round_step_w: float = 100.0
     write_threshold_w: float = 100.0
     inverter_ac_limit_kw: float = 8.8
     charge_efficiency: float = 0.92
@@ -186,6 +194,11 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         grid_max_export_power_entity=_str_or_none(
             inverter_data.get("grid_max_export_power_entity")
         ),
+        control_unit=str(inverter_data.get("control_unit", "A")),
+        max_charging_power_entity=_str_or_none(inverter_data.get("max_charging_power_entity")),
+        max_discharging_power_entity=_str_or_none(
+            inverter_data.get("max_discharging_power_entity")
+        ),
     )
 
     water_data: dict[str, Any] = (
@@ -250,6 +263,15 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         round_step_a=float(str(ctrl_data.get("round_step_a", ControllerConfig.round_step_a))),
         write_threshold_a=float(
             str(ctrl_data.get("write_threshold_a", ControllerConfig.write_threshold_a))
+        ),
+        max_charge_w=float(str(ctrl_data.get("max_charge_w", ControllerConfig.max_charge_w))),
+        max_discharge_w=float(
+            str(ctrl_data.get("max_discharge_w", ControllerConfig.max_discharge_w))
+        ),
+        min_charge_w=float(str(ctrl_data.get("min_charge_w", ControllerConfig.min_charge_w))),
+        round_step_w=float(str(ctrl_data.get("round_step_w", ControllerConfig.round_step_w))),
+        write_threshold_w=float(
+            str(ctrl_data.get("write_threshold_w", ControllerConfig.write_threshold_w))
         ),
         inverter_ac_limit_kw=float(
             str(ctrl_data.get("inverter_ac_limit_kw", ControllerConfig.inverter_ac_limit_kw))

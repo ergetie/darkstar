@@ -441,10 +441,11 @@ class ExecutorEngine:
         idle_decision = ControllerDecision(
             work_mode=self.config.inverter.work_mode_zero_export,
             grid_charging=False,
-            charge_current_a=0,
-            discharge_current_a=50,  # Allow discharge to power house
+            charge_value=0,
+            discharge_value=50,  # Allow discharge to power house
             soc_target=10,  # Min SoC
             water_temp=self.config.water_heater.temp_off,
+            control_unit=self.config.inverter.control_unit,
             source="pause_idle",
             reason="Executor paused - idle mode",
         )
@@ -896,6 +897,7 @@ class ExecutorEngine:
                 state,
                 override if override.override_needed else None,
                 self.config.controller,
+                self.config.inverter,
                 self.config.water_heater,
             )
 
@@ -1166,8 +1168,8 @@ class ExecutorEngine:
             # Commanded values
             commanded_work_mode=decision.work_mode,
             commanded_grid_charging=1 if decision.grid_charging else 0,
-            commanded_charge_current_a=decision.charge_current_a,
-            commanded_discharge_current_a=decision.discharge_current_a,
+            commanded_charge_current_a=decision.charge_value,
+            commanded_discharge_current_a=decision.discharge_value,
             commanded_soc_target=decision.soc_target,
             commanded_water_temp=decision.water_temp,
             # State before

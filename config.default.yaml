@@ -219,6 +219,11 @@ executor:
     max_charging_current_entity: number.inverter_battery_max_charging_current     # Max charge current (A)
     max_discharging_current_entity: number.inverter_battery_max_discharging_current  # Max discharge current (A)
     grid_max_export_power_entity: number.inverter_export_surplus_power           # Max grid export power (Watts)
+    
+    # Control Unit Configuration (REV E3)
+    control_unit: "A"                                                 # "A" (Amperes) or "W" (Watts)
+    max_charging_power_entity:                                        # Entity for max charge power (W)
+    max_discharging_power_entity:                                     # Entity for max discharge power (W)
 
   # Controller Parameters (electrical conversion constants)
   controller:
@@ -232,6 +237,13 @@ executor:
     min_charge_a: 10.0                 # Minimum meaningful charge current (A)
     round_step_a: 5.0                  # Round current commands to nearest X amps
     write_threshold_a: 5.0             # Only write if change exceeds X amps
+    
+    # Watt-based Control Limits (used if control_unit="W")
+    max_charge_w: 5000.0               # Maximum charging power (W)
+    max_discharge_w: 5000.0            # Maximum discharging power (W)
+    min_charge_w: 500.0                # Minimum meaningful charge power (W)
+    round_step_w: 100.0                # Round power commands to nearest X watts
+    
     write_threshold_w: 100.0           # Only write power if change exceeds X watts (EEPROM protection)
 
   # Water Heater Control

@@ -62,6 +62,19 @@ export const systemSections: SettingsSection[] = [
                 type: 'boolean',
             },
             {
+                key: 'executor.inverter.control_unit',
+                label: 'Control Unit',
+                path: ['executor', 'inverter', 'control_unit'],
+                type: 'select',
+                options: [
+                    { label: 'Amperes (A)', value: 'A' },
+                    { label: 'Watts (W)', value: 'W' },
+                ],
+                helper: 'Unit used for inverter control commands.',
+                required: true,
+            },
+
+            {
                 key: 'system.grid_meter_type',
                 label: 'Grid Meter Type',
                 path: ['system', 'grid_meter_type'],
@@ -146,6 +159,21 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Maximum charging current allowed from grid.',
                 path: ['executor', 'controller', 'max_charge_a'],
                 type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
+            },
+            {
+                key: 'executor.controller.max_charge_w',
+                label: 'Max charge power (W)',
+                helper: 'Maximum charging power allowed from grid.',
+                path: ['executor', 'controller', 'max_charge_w'],
+                type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'W',
+                },
             },
             {
                 key: 'executor.controller.max_discharge_a',
@@ -153,6 +181,21 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Maximum discharge current for load following.',
                 path: ['executor', 'controller', 'max_discharge_a'],
                 type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
+            },
+            {
+                key: 'executor.controller.max_discharge_w',
+                label: 'Max discharge power (W)',
+                helper: 'Maximum discharge power for load following.',
+                path: ['executor', 'controller', 'max_discharge_w'],
+                type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'W',
+                },
             },
             {
                 key: 'battery.max_discharge_power_kw',
@@ -330,6 +373,21 @@ export const systemSections: SettingsSection[] = [
                 path: ['executor', 'inverter', 'max_charging_current_entity'],
                 type: 'entity',
                 helper: 'Darkstar sets charge rate in Amps.',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
+            },
+            {
+                key: 'executor.inverter.max_charging_power_entity',
+                label: 'Max Charge Power',
+                path: ['executor', 'inverter', 'max_charging_power_entity'],
+                type: 'entity',
+                helper: 'Darkstar sets charge rate in Watts.',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'W',
+                },
             },
             {
                 key: 'executor.inverter.max_discharging_current_entity',
@@ -337,6 +395,21 @@ export const systemSections: SettingsSection[] = [
                 path: ['executor', 'inverter', 'max_discharging_current_entity'],
                 type: 'entity',
                 helper: 'Darkstar sets discharge rate in Amps.',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
+            },
+            {
+                key: 'executor.inverter.max_discharging_power_entity',
+                label: 'Max Discharge Power',
+                path: ['executor', 'inverter', 'max_discharging_power_entity'],
+                type: 'entity',
+                helper: 'Darkstar sets discharge rate in Watts.',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'W',
+                },
             },
             {
                 key: 'executor.inverter.grid_max_export_power_entity',

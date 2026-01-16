@@ -241,14 +241,14 @@ class ActionDispatcher:
             result = self._set_grid_charging(decision.grid_charging)
             results.append(result)
 
-        # 3. Set charge current (Rev O1)
+        # 3. Set charge limit (Rev O1 + E3)
         if self.config.has_battery and decision.write_charge_current:
-            result = self._set_charge_current(decision.charge_current_a)
+            result = self._set_charge_limit(decision.charge_value, decision.control_unit)
             results.append(result)
 
-        # 4. Set discharge current (Rev O1)
+        # 4. Set discharge limit (Rev O1 + E3)
         if self.config.has_battery and decision.write_discharge_current:
-            result = self._set_discharge_current(decision.discharge_current_a)
+            result = self._set_discharge_limit(decision.discharge_value, decision.control_unit)
             results.append(result)
 
         # 5. Set SoC target (Rev O1)
@@ -381,78 +381,92 @@ class ActionDispatcher:
             duration_ms=duration,
         )
 
-    def _set_charge_current(self, amps: float) -> ActionResult:
-        """Set max charging current."""
+    def _set_charge_limit(self, value: float, unit: str) -> ActionResult:
+        """Set max charging limit (Amps or Watts)."""
         start = time.time()
-        entity = self.config.inverter.max_charging_current_entity
+        
+        if unit == "W":
+            entity = self.config.inverter.max_charging_power_entity
+            unit_label = "W"
+        else:
+            entity = self.config.inverter.max_charging_current_entity
+            unit_label = "A"
 
         if not _is_entity_configured(entity):
-            logger.debug("Skipping charge_current action: entity not configured")
+            logger.debug("Skipping charge_limit action: entity not configured for unit %s", unit)
             return ActionResult(
-                action_type="charge_current",
+                action_type="charge_limit",
                 success=True,
-                message="Max charge current entity not configured. Configure in Settings → System → HA Entities",
+                message=f"Max charge {unit_label} entity not configured. Configure in Settings.",
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
 
-        logger.info("Setting charge_current: %.1f A on entity: %s", amps, entity)
+        logger.info("Setting charge_limit: %.1f %s on entity: %s", value, unit_label, entity)
 
         if self.shadow_mode:
-            logger.info("[SHADOW] Would set charge_current to %s A", amps)
+            logger.info("[SHADOW] Would set charge_limit to %s %s", value, unit_label)
             return ActionResult(
-                action_type="charge_current",
+                action_type="charge_limit",
                 success=True,
-                message=f"[SHADOW] Would set to {amps} A",
-                new_value=amps,
+                message=f"[SHADOW] Would set to {value} {unit_label}",
+                new_value=value,
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
 
-        success = self.ha.set_number(entity, amps)
+        success = self.ha.set_number(entity, value)
         duration = int((time.time() - start) * 1000)
-        logger.info("Set charge_current result: success=%s, duration=%dms", success, duration)
+        logger.info("Set charge_limit result: success=%s, duration=%dms", success, duration)
 
         return ActionResult(
-            action_type="charge_current",
+            action_type="charge_limit",
             success=success,
-            message=f"Set to {amps} A" if success else "Failed to set charge current",
-            new_value=amps,
+            message=f"Set to {value} {unit_label}" if success else "Failed to set charge limit",
+            new_value=value,
             duration_ms=duration,
         )
 
-    def _set_discharge_current(self, amps: float) -> ActionResult:
-        """Set max discharging current."""
+    def _set_discharge_limit(self, value: float, unit: str) -> ActionResult:
+        """Set max discharging limit (Amps or Watts)."""
         start = time.time()
-        entity = self.config.inverter.max_discharging_current_entity
+        
+        if unit == "W":
+            entity = self.config.inverter.max_discharging_power_entity
+            unit_label = "W"
+        else:
+            entity = self.config.inverter.max_discharging_current_entity
+            unit_label = "A"
+
         if not _is_entity_configured(entity):
-            logger.debug("Skipping discharge_current action: entity not configured")
+            logger.debug("Skipping discharge_limit action: entity not configured for unit %s", unit)
             return ActionResult(
-                action_type="discharge_current",
+                action_type="discharge_limit",
                 success=True,
-                message="Max discharge current entity not configured. Configure in Settings → System → HA Entities",
+                message=f"Max discharge {unit_label} entity not configured. Configure in Settings.",
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
+            
         if self.shadow_mode:
-            logger.info("[SHADOW] Would set discharge_current to %s A", amps)
+            logger.info("[SHADOW] Would set discharge_limit to %s %s", value, unit_label)
             return ActionResult(
-                action_type="discharge_current",
+                action_type="discharge_limit",
                 success=True,
-                message=f"[SHADOW] Would set to {amps} A",
-                new_value=amps,
+                message=f"[SHADOW] Would set to {value} {unit_label}",
+                new_value=value,
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
 
-        success = self.ha.set_number(entity, amps)
+        success = self.ha.set_number(entity, value)
         duration = int((time.time() - start) * 1000)
 
         return ActionResult(
-            action_type="discharge_current",
+            action_type="discharge_limit",
             success=success,
-            message=f"Set to {amps} A" if success else "Failed to set discharge current",
-            new_value=amps,
+            message=f"Set to {value} {unit_label}" if success else "Failed to set discharge limit",
+            new_value=value,
             duration_ms=duration,
         )
 

@@ -240,13 +240,17 @@ This should remain in place during beta testing to allow users to self-diagnose 
 
 ---
 
-### [PLANNED] REV // E3 — Inverter Compatibility (Watt Control)
+### [DONE] REV // E3 — Inverter Compatibility (Watt Control)
 
 **Goal:** Support inverters that require Watt-based control instead of Amperes (e.g., Fronius).
 
+**Outcome:**
+Implemented strict separation between Ampere and Watt control modes. Added explicit configuration for Watt limits and entities. The system now refuses to start if Watt mode is selected but Watt entities are missing.
+
 **Plan:**
 
-#### Phase 1: Implementation [PLANNED]
-* [ ] Add `control_unit` (Amperes vs Watts) to Inverter config
-* [ ] Update `Executor` logic to calculate values based on selected unit
-* [ ] Verify safety limits in both modes
+#### Phase 1: Implementation [DONE]
+* [x] Add `control_unit` (Amperes vs Watts) to Inverter config
+* [x] Update `Executor` logic to calculate values based on selected unit
+* [x] Verify safety limits in both modes
+
