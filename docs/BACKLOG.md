@@ -45,16 +45,11 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔴 High Priority
 
-### [AURORA] Support multiple MPPT strings
+### [AURORA] Support multiple MPPT strings / Panel arrays
 
-**Goal:** Some users have multiple MPPT strings, we need to support this in the Aurora forecast.
+**Goal:** Some users have multiple MPPT strings and panel arrays, we need to support this in the Aurora forecast.
 
 
-### [Config] Optional SoC Target
-
-**Goal:** Make `soc_target` entity optional for inverters that do not support it or have internal management.
-
-**Notes:** Some inverters don't expose this control; preventing the app from blocking startup without it increases compatibility.
 
 ---
 
@@ -93,15 +88,15 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-### [Testing] Add CI/CD Automation (REVIEW-2026-01-04)
+### [Testing] Expand CI/CD Coverage (REVIEW-2026-01-04)
 
-**Goal:** Automate linting, testing, and build verification on every push/PR to catch regressions before merge.
+**Goal:** Expand CI/CD automation to include full unit tests, security audits, and built verification.
 
 **Current State:** 
-- CI/CD only builds Home Assistant add-on on tag push
-- No automated testing
-- No lint checks in CI
-- No vulnerability scanning
+- Basic CI exists (Linting + API tests)
+- Missing: Full backend unit tests (pytest --cov)
+- Missing: Frontend tests
+- Missing: Security/Vulnerability scanning
 
 **Proposed GitHub Actions Workflows:**
 
@@ -238,17 +233,6 @@ pip list --outdated
 
 ---
 
-### [Planner] Implement Export Toggle (enable_export)
-
-**Goal:** Allow users to disable grid export entirely via config.
-
-**Current State:** `export.enable_export` exists in config but is not read by Kepler solver.
-
-**Notes:** Kepler currently handles export via MILP constraints. Need to add constraint that sets max export = 0 when disabled.
-
-**Source:** Existing backlog item + REVIEW-2026-01-04 (unused config key)
-
----
 
 ### [Analytics] Implement Monthly Cost Analysis (IS THIS ALREADY DONE?)
 

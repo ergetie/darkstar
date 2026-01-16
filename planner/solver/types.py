@@ -49,6 +49,9 @@ class KeplerConfig:
     # Rev WH2: Smart deferral
     defer_up_to_hours: float = 0.0  # Allow heating until N hours into next day
 
+    # Rev E4: Export Toggle
+    enable_export: bool = True  # If False, enforce 0 export
+
 
 @dataclass
 class KeplerInputSlot:

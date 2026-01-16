@@ -205,7 +205,7 @@ class TestControllerApplyOverride:
         )
 
         decision = controller.decide(slot, state, override)
-        
+
         # Default is Amps
         assert decision.charge_value == controller.config.max_charge_a
         assert decision.write_charge_current is True

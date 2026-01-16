@@ -384,7 +384,7 @@ class ActionDispatcher:
     def _set_charge_limit(self, value: float, unit: str) -> ActionResult:
         """Set max charging limit (Amps or Watts)."""
         start = time.time()
-        
+
         if unit == "W":
             entity = self.config.inverter.max_charging_power_entity
             unit_label = "W"
@@ -430,7 +430,7 @@ class ActionDispatcher:
     def _set_discharge_limit(self, value: float, unit: str) -> ActionResult:
         """Set max discharging limit (Amps or Watts)."""
         start = time.time()
-        
+
         if unit == "W":
             entity = self.config.inverter.max_discharging_power_entity
             unit_label = "W"
@@ -447,7 +447,7 @@ class ActionDispatcher:
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
-            
+
         if self.shadow_mode:
             logger.info("[SHADOW] Would set discharge_limit to %s %s", value, unit_label)
             return ActionResult(

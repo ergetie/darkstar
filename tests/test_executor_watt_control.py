@@ -2,9 +2,11 @@
 Tests for Executor Watt-based Control
 """
 import pytest
+
 from executor.config import ControllerConfig, InverterConfig
-from executor.controller import Controller, ControllerDecision
+from executor.controller import Controller
 from executor.override import SlotPlan, SystemState
+
 
 class TestWattControl:
     """Test Watt-based control logic in Controller."""
@@ -77,7 +79,7 @@ class TestWattControl:
         state = SystemState()
 
         val, _ = controller_w._calculate_discharge_limit(slot, state)
-        
+
         # Should return max discharge W
         assert val == 6000.0
 
@@ -86,6 +88,6 @@ class TestWattControl:
         slot = SlotPlan(charge_kw=2.0)
         state = SystemState()
         decision = controller_w.decide(slot, state)
-        
+
         assert decision.control_unit == "W"
         assert decision.charge_value == 2000.0

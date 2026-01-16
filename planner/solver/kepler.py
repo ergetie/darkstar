@@ -142,6 +142,10 @@ class KeplerSolver:
                 limit_kwh = config.grid_import_limit_kw * h
                 prob += grid_import[t] <= limit_kwh + import_breach[t]
 
+            # Rev E4: Strict Export Toggle
+            if not config.enable_export:
+                prob += grid_export[t] == 0
+
             # Ramping Constraints
             if t > 0:
                 prob += (charge[t] - discharge[t]) - (charge[t - 1] - discharge[t - 1]) == ramp_up[

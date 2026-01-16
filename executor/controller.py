@@ -196,20 +196,20 @@ class Controller:
         if unit == "W":
             # Watts Logic
             raw_val = slot.charge_kw * 1000.0
-            
+
             # Round to step
             step = self.config.round_step_w
             rounded = round(raw_val / step) * step
-            
+
             # Clamp
             clamped = max(
                 self.config.min_charge_w,
                 min(self.config.max_charge_w, rounded)
             )
-            
+
             # Write trigger?
             should_write = clamped >= self.config.min_charge_w
-            
+
             return clamped, should_write
 
         else:

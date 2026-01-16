@@ -90,8 +90,7 @@ export const systemSections: SettingsSection[] = [
                 label: 'Enable grid export',
                 path: ['export', 'enable_export'],
                 type: 'boolean',
-                disabled: true,
-                notImplemented: true,
+                helper: 'If disabled, the planner will enforce zero export to the grid.',
             },
         ],
     },
@@ -417,11 +416,15 @@ export const systemSections: SettingsSection[] = [
                 helper: 'HA Number entity to control grid export limit in Watts.',
                 path: ['executor', 'inverter', 'grid_max_export_power_entity'],
                 type: 'entity',
+                showIf: {
+                    configKey: 'export.enable_export',
+                    disabledText: 'Enable "Grid Export" in System Profile to configure',
+                },
             },
             {
                 key: 'executor.soc_target_entity',
                 label: 'Target SoC Output',
-                helper: 'Darkstar writes the calculated target SoC to this entity.',
+                helper: "Target maintenance level. Acts as a discharge floor (won't discharge below this %) AND a grid charge target (won't charge above this % from grid). Required for inverters like Deye (behavior for other inverters unknown).",
                 path: ['executor', 'soc_target_entity'],
                 type: 'entity',
             },
@@ -490,9 +493,8 @@ export const systemSections: SettingsSection[] = [
                 type: 'entity',
                 subsection: 'Power Flow & Dashboard',
                 showIf: {
-                    configKey: 'system.grid_meter_type',
-                    value: 'dual',
-                    disabledText: 'Enable "Dual Meter" in System Profile to configure',
+                    configKey: 'export.enable_export',
+                    disabledText: 'Enable "Grid Export" in System Profile to configure',
                 },
             },
 
@@ -567,6 +569,10 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'today_grid_export'],
                 type: 'entity',
                 subsection: "Today's Energy Stats",
+                showIf: {
+                    configKey: 'export.enable_export',
+                    disabledText: 'Enable "Grid Export" in System Profile to configure',
+                },
             },
             {
                 key: 'input_sensors.today_net_cost',
@@ -597,6 +603,10 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'total_grid_export'],
                 type: 'entity',
                 subsection: 'Lifetime Energy Totals',
+                showIf: {
+                    configKey: 'export.enable_export',
+                    disabledText: 'Enable "Grid Export" in System Profile to configure',
+                },
             },
             {
                 key: 'input_sensors.total_grid_import',

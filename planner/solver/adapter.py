@@ -174,6 +174,8 @@ def config_to_kepler_config(
         force_water_on_slots=force_water_on_slots,
         water_block_start_penalty_sek=block_start_penalty,
         defer_up_to_hours=float(wh_cfg.get("defer_up_to_hours", 0.0)),
+        # Rev E4: Export Toggle
+        enable_export=bool(planner_config.get("export", {}).get("enable_export", True)),
     )
 
     return kepler_cfg

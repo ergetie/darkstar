@@ -84,10 +84,8 @@ s_index:
   risk_appetite: 3                 # 1-5 scale (1=safe, 3=neutral, 5=gambler)
 
 
-# Export Configuration
-# [PLACEHOLDER] Most export logic not yet implemented - see backlog
 export:
-  enable_export: true              # [NOT IMPLEMENTED] Master switch for grid export
+  enable_export: true              # Master switch for grid export (if false, planner enforces 0 export)
 
 # Manual Planning Defaults
 manual_planning:
@@ -208,7 +206,7 @@ executor:
   # Toggle entities (read by executor to check if enabled)
   automation_toggle_entity: input_boolean.darkstar_enable           # Master enable/disable switch
   manual_override_entity: input_boolean.darkstar_manual_override    # Manual override active flag
-  soc_target_entity: input_number.master_soc_target                 # SoC target input_number
+  soc_target_entity: input_number.master_soc_target                 # Target maintenance level. Acts as a discharge floor (won't discharge below this %) AND a grid charge target (won't charge above this % from grid). Required for inverters like Deye (behavior for other inverters unknown).
 
   # Inverter Control Entities (executor WRITES to these)
   inverter:

@@ -254,3 +254,65 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 * [x] Update `Executor` logic to calculate values based on selected unit
 * [x] Verify safety limits in both modes
 
+---
+
+### [DONE] REV // E4 — Config Flexibility & Export Control
+
+**Goal:** Improve configuration flexibility by making the SoC target entity optional (increasing compatibility with inverters that manage this internally) and implementing a strict export toggle associated with comprehensive UI conditional visibility.
+
+**Plan:**
+
+#### Phase 1: Optional SoC Target [DONE]
+**Goal:** Make `soc_target` entity optional for inverters that do not support it, while clarifying its behavior for those that do.
+* [x] **Config Update:** Modify `ExecutorConfig` validation to allow `soc_target_entity` to be None/empty.
+* [x] **Executor Logic:** Update `executor/engine.py` to gracefully skip `_set_soc_target` actions if the entity is not configured.
+* [x] **UI Update (Tooltip):** Update `soc_target_entity` tooltip: "Target maintenance level. Acts as a discharge floor (won't discharge below this %) AND a grid charge target (won't charge above this % from grid). Required for inverters like Deye (behavior for other inverters unknown)."
+* [x] **UI Update (Optionality):** Field should be marked optional in the form validation logic.
+
+#### Phase 2: Export Toggle & UI Logic [DONE]
+**Goal:** Allow users to disable grid export constraints and hide irrelevant settings in the UI.
+* [x] **Config:** Ensure `config.default.yaml` has `export.enable_export: true` by default.
+* [x] **Constraint Logic:** In `planner/solver/kepler.py`, read `export.enable_export`. Add global constraint: `export_power[t] == 0` if disabled.
+* [x] **UI Toggle:** Remove `disabled` and `notImplemented` flags from `export.enable_export` in `types.ts`.
+* [x] **UI Conditionals:** Apply `showIf: { configKey: 'export.enable_export' }` to:
+  *   `executor.inverter.grid_max_export_power_entity`
+  *   `input_sensors.grid_export_power` (and related total/today export sensors)
+  *   Any export-specific parameters in `Settings/Parameters`.
+* [x] **Frontend Update:** Ensure `types.ts` defines these dependencies correctly so they grey out/disable.
+
+#### Phase 3: Verification [DONE]
+**Goal:** Verify safety, correctness, and UI behavior.
+* [x] **Startup Test:** Verify Darkstar starts correctly with `soc_target_entity` removed.
+* [x] **Planner Test:** Run planner with `enable_export: false` → verify 0 export.
+* [x] **UI Test:** Toggle `enable_export` in System Profile/Config and verify export fields grey out.
+* [x] **Regression Test:** Verify normal operation with `enable_export: true`.
+
+---
+
+### [PLANNED] REV // E5 — Inverter Profile Foundation
+
+**Goal:** Establish a modular "Inverter Profile" system in the settings UI. This moves away from generic toggles towards brand-specific presets, starting with hiding `soc_target_entity` for non-Deye inverters.
+
+**Profiles:**
+1.  **Generic (Default):** Standard entities, `soc_target` hidden.
+2.  **Gen2 Hybrid (Deye/SunSynk):** `soc_target` enabled & required.
+3.  **Fronius:** Placeholder (same as Generic for now).
+4.  **Victron:** Placeholder (same as Generic for now).
+
+**Plan:**
+
+#### Phase 1: Configuration & UI Schema [PLANNED]
+* [ ] **Config:** Add `system.inverter_profile` to `config.default.yaml` (default: "generic").
+* [ ] **UI Schema:**
+    *   Add `system.inverter_profile` dropdown to System Profile card.
+    *   Update `executor.soc_target_entity` to `showIf: { configKey: 'system.inverter_profile', value: 'deye' }` (or similar ID).
+* [ ] **Warning Label:** Add a UI hint/warning that non-Deye profiles are "Work in Progress".
+
+#### Phase 2: Executor Handling [PLANNED]
+* [ ] **Executor Logic:** Ensure `executor/config.py` loads the profile key (for future logic branching).
+* [ ] **Validation:** Ensure `soc_target_entity` is only required if profile == Deye.
+
+#### Phase 3: Verification [PLANNED]
+* [ ] **UI Test:** Select "Generic" → `soc_target` disappears. Select "Gen2 Hybrid" → `soc_target` appears.
+* [ ] **Config Persistency:** Verify `inverter_profile` saves to `config.yaml`.
+
