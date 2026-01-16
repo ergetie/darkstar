@@ -221,11 +221,23 @@ def _validate_config_for_save(config: dict[str, Any]) -> list[dict[str, str]]:
     inverter_cfg = executor_cfg.get("inverter", {})
     input_sensors = config.get("input_sensors", {})
 
-    critical_entities = [
-        ("executor.inverter.work_mode_entity", inverter_cfg.get("work_mode_entity")),
-        ("executor.inverter.grid_charging_entity", inverter_cfg.get("grid_charging_entity")),
-        ("input_sensors.battery_soc", input_sensors.get("battery_soc")),
-    ]
+    critical_entities = []
+
+    # Battery-specific entities
+    if system_cfg.get("has_battery", True):
+        critical_entities.extend(
+            [
+                (
+                    "executor.inverter.work_mode_entity",
+                    inverter_cfg.get("work_mode_entity"),
+                ),
+                (
+                    "executor.inverter.grid_charging_entity",
+                    inverter_cfg.get("grid_charging_entity"),
+                ),
+                ("input_sensors.battery_soc", input_sensors.get("battery_soc")),
+            ]
+        )
 
     for field_path, value in critical_entities:
         if (

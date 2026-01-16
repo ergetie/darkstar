@@ -315,6 +315,11 @@ export const systemSections: SettingsSection[] = [
                 type: 'entity',
                 helper: 'Core sensor. Required for planner SoC targeting.',
                 required: true,
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.pv_power',
@@ -322,6 +327,11 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'pv_power'],
                 type: 'entity',
                 helper: 'Used by executor for PV dump detection and recorder for history.',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.load_power',
@@ -370,6 +380,11 @@ export const systemSections: SettingsSection[] = [
                 type: 'entity',
                 helper: 'Darkstar sets inverter mode (Export/Zero-Export).',
                 required: true,
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'executor.inverter.grid_charging_entity',
@@ -378,6 +393,11 @@ export const systemSections: SettingsSection[] = [
                 type: 'entity',
                 helper: 'Darkstar enables/disables grid→battery charging.',
                 required: true,
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'executor.inverter.max_charging_current_entity',
@@ -475,6 +495,11 @@ export const systemSections: SettingsSection[] = [
                 type: 'entity',
                 companionKey: 'input_sensors.battery_power_inverted',
                 subsection: 'Power Flow & Dashboard',
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.grid_power',
@@ -559,6 +584,11 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'today_battery_charge'],
                 type: 'entity',
                 subsection: "Today's Energy Stats",
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.today_pv_production',
@@ -566,6 +596,11 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'today_pv_production'],
                 type: 'entity',
                 subsection: "Today's Energy Stats",
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.today_load_consumption',
@@ -607,6 +642,11 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'total_battery_charge'],
                 type: 'entity',
                 subsection: 'Lifetime Energy Totals',
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.total_battery_discharge',
@@ -614,6 +654,11 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'total_battery_discharge'],
                 type: 'entity',
                 subsection: 'Lifetime Energy Totals',
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 'input_sensors.total_grid_export',
@@ -646,6 +691,11 @@ export const systemSections: SettingsSection[] = [
                 path: ['input_sensors', 'total_pv_production'],
                 type: 'entity',
                 subsection: 'Lifetime Energy Totals',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
         ],
     },

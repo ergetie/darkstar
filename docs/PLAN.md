@@ -316,3 +316,16 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 * [x] **UI Test:** Select "Generic" → `soc_target` disappears. Select "Gen2 Hybrid" → `soc_target` appears.
 * [x] **Config Persistency:** Verify `inverter_profile` saves to `config.yaml`.
 
+---
+
+### [DONE] REV // F16 — Conditional Configuration Validation
+
+**Goal:** Fix the bug where disabling `has_battery` still requires `input_sensors.battery_soc` to be configured. Relax validation logic in both frontend and backend.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] **Frontend:** Update `types.ts` to add `showIf` to battery and solar fields.
+* [x] **Backend:** Update `config.py` to condition critical entity validation on system toggles.
+* [x] **Verification:** Verify saving config with `has_battery: false` works.
+

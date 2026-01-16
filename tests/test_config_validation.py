@@ -64,3 +64,21 @@ def test_validate_config_valid_config_no_issues():
     issues = _validate_config_for_save(config)
     errors = [i for i in issues if i["severity"] == "error"]
     assert len(errors) == 0
+
+
+def test_validate_config_battery_entities_not_required_if_no_battery():
+    config = {
+        "executor": {"enabled": True, "inverter": {}},
+        "system": {"has_battery": False},
+        "input_sensors": {},
+        # Provide valid non-battery config to avoid other errors
+        "battery": {"capacity_kwh": 0},
+    }
+    issues = _validate_config_for_save(config)
+
+    # Should NOT have errors for missing battery entities
+    error_messages = [i["message"] for i in issues if i["severity"] == "error"]
+    assert not any("executor.inverter.work_mode_entity" in m for m in error_messages)
+    assert not any("executor.inverter.grid_charging_entity" in m for m in error_messages)
+    assert not any("input_sensors.battery_soc" in m for m in error_messages)
+
