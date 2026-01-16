@@ -133,3 +133,43 @@ This should remain in place during beta testing to allow users to self-diagnose 
 **Priority:** Low (cleanup only, no functional change)
 
 ---
+
+### [PLANNED] REV // F19 — Config YAML Leaking Between Comments
+
+**Goal:** Investigate and fix the bug where configuration keys are inserted between comments or incorrectly nested in the YAML file.
+
+**Context:**
+Users reported that after some operations (likely UI saves or auto-migrations), config keys like `grid_meter_type` or `inverter_profile` are ending up inside commented sections or in the wrong hierarchy, breaking the YAML structure or making it hard to read.
+
+**Plan:**
+
+#### Phase 1: Investigation [PLANNED]
+* [ ] Reproduce the behavior by performing various UI saves and triggered migrations.
+* [ ] Audit `backend/api/routers/config.py` save logic (ruamel.yaml configuration).
+* [ ] Audit `backend/config_migration.py` and `darkstar/run.sh` YAML handling.
+
+#### Phase 2: Implementation [PLANNED]
+* [ ] Fix the YAML dumping/merging logic to respect comment boundaries.
+* [ ] Ensure all automated config updates preserve the intended structure and hierarchy.
+
+---
+
+### [PLANNED] REV // UI6 — ChartCard Overlay & Data Toggle
+
+**Goal:** Refactor the `ChartCard` to prioritize visibility of planned actions and forecasts, with a toggleable overlay for actual historical data.
+
+**Context:**
+Currently, the charts can become cluttered when mixing planned and actual data. The user wants to ALWAYS see the plan (forecasts, scheduled actions, target SoC) as the primary view, but be able to toggle "Actual" data (load, PV, grid, real SoC) as an overlay for comparison.
+
+**Plan:**
+
+#### Phase 1: Frontend Refactor [PLANNED]
+* [ ] Modify `ChartCard.tsx` to separate "Planned/Forecast" series from "Actual" series.
+* [ ] Add a UI toggle (e.g., "Show Actual Data") to the chart controls.
+* [ ] Implement conditional rendering for actual data series based on the toggle state.
+
+#### Phase 2: Design & Polish [PLANNED]
+* [ ] Ensure "Actual" data overlays are visually distinct (e.g., using dashed lines, thinner lines, or lower opacity).
+* [ ] Verify legend updates correctly when toggling.
+
+---

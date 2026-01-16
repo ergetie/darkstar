@@ -40,14 +40,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ## 📥 Inbox (User Added / Unsorted)
 
 <!-- Add new bugs/requests here. AI will wipe this section when processing. -->
-- We need to go through the chartCard completely. In history there is a mix of what we can see and what we can't see! Can we make it so we ALWAYS see the planned actions/forecasts/soc etc, but then we can toggle an overlay to see the actual data? So actualload, actual pv, actual grid, actual soc etc.
-- We have a bug where config keys are put between comments and a new section like 
-"
-# Battery Specifications
-  grid_meter_type: net
-  inverter_profile: generic
-battery:
-"
+
 ---
 
 ## 🔴 High Priority
@@ -504,23 +497,6 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
 **Source:** Existing backlog item
 
 ---
-
----
-
-### [UI] Chart Improvements (Polish)
-
-**Goal:** Enhance all charts with better UX and visual polish.
-
-**Tasks:**
-- Render `soc_target` as a step-line series (not smooth)
-- Add zoom support (mouse wheel + controls)
-- Offset tooltips to avoid covering data points
-- Ensure price series includes full 24h even if schedule is partial
-- Mobile responsiveness improvements
-
-**Notes:** Needs design brainstorm before implementation.
-
-**Source:** Existing backlog item
 
 ---
 
