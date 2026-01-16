@@ -46,13 +46,12 @@ class KeplerSolver:
         water_enabled = config.water_heating_power_kw > 0
         if water_enabled:
             water_heat = pulp.LpVariable.dicts("water_heat", range(T), cat="Binary")
-            # Rev K21: Spacing and transitions
+            # Rev K21/PERF1: Spacing and transitions
             water_start = pulp.LpVariable.dicts("water_start", range(T), cat="Binary")
-            water_spacing_viol = pulp.LpVariable.dicts("water_spacing_viol", range(T), cat="Binary")
+            # water_spacing_viol removed in PERF1 (Hard Constraint)
         else:
             water_heat = dict.fromkeys(range(T), 0)
             water_start = dict.fromkeys(range(T), 0)
-            water_spacing_viol = dict.fromkeys(range(T), 0)
 
         # SoC state variables (T+1 states for T slots)
 
@@ -213,7 +212,7 @@ class KeplerSolver:
 
         # Water Heating Constraints (Rev K17/K18/K21)
         gap_violation_penalty = 0.0
-        spacing_violation_penalty = 0.0
+        # spacing_violation_penalty removed in PERF1
         if water_enabled:
             avg_slot_hours = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
             water_kwh_per_slot = config.water_heating_power_kw * avg_slot_hours
@@ -279,20 +278,20 @@ class KeplerSolver:
                     + pulp.lpSum(gap_violation_2[t] for t in range(T - gap_slots_2 + 1))
                 )
 
-            # Constraint 3: Soft Efficiency Penalty (Spacing) (Rev K21)
-            # If a new block starts, it shouldn't be too close to any previous heating
-            if config.water_min_spacing_hours > 0 and config.water_spacing_penalty_sek > 0:
+            # Constraint 3: Hard Spacing Constraint (Rev PERF1)
+            # If we start a block, we MUST NOT have processed any heating in the previous window.
+            # Formulation: sum(heat[t-S : t]) + start[t] * S <= S
+            if config.water_min_spacing_hours > 0:
                 spacing_slots = max(1, int(config.water_min_spacing_hours / avg_slot_hours))
+                M = spacing_slots
                 for t in range(T):
                     # Check preceding slots in spacing window
-                    for j in range(max(0, t - spacing_slots), t):
-                        # If we start at t AND were heating at j, it's a spacing violation
-                        # Linearized: viol >= start[t] + heat[j] - 1
-                        prob += water_spacing_viol[t] >= water_start[t] + water_heat[j] - 1
-
-                spacing_violation_penalty = config.water_spacing_penalty_sek * pulp.lpSum(
-                    water_spacing_viol
-                )
+                    start_idx = max(0, t - spacing_slots)
+                    prob += (
+                        pulp.lpSum(water_heat[j] for j in range(start_idx, t))
+                        + water_start[t] * M
+                        <= M
+                    )
 
         # Terminal Value
         terminal_value = (
@@ -310,7 +309,7 @@ class KeplerSolver:
             - terminal_value
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
             + gap_violation_penalty
-            + spacing_violation_penalty
+            # + spacing_violation_penalty (Removed in PERF1)
             + (
                 pulp.lpSum(water_start[t] for t in range(T)) * config.water_block_start_penalty_sek
                 if water_enabled and config.water_block_start_penalty_sek > 0
