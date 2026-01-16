@@ -47,6 +47,13 @@ Darkstar is a local, privacy-first energy management system that optimizes your 
 3. Start the add-on - Darkstar will **automatically detect** your Home Assistant connection. No manual token required!
 4. Click **OPEN WEB UI** and navigate to **Settings** in the sidebar to map your sensors.
 
+### [DEV] Development Version (Optional)
+
+For testers and developers who want the latest features (and bugs!) from the `dev` branch:
+1. Follow the installation steps above to add the repository.
+2. In the Add-on Store, look for **[DEV] Darkstar Energy Manager**.
+3. **Note**: The Dev version is optimized for **amd64** architecture and updates frequently. It can be installed alongside the stable version for testing.
+
 ### Option 2: Docker Compose
 
 1. Copy `config.default.yaml` to `config.yaml` and `secrets.example.yaml` to `secrets.yaml`.

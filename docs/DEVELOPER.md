@@ -303,6 +303,24 @@ pnpm run dev  # OR run backend/scheduler separately
        - **Do not manually create releases in the GitHub UI**, as this triggers redundant builds.
     The sidebar fetches version from `/api/version` which uses `git describe --tags`.
 
+## Dev Branch & Add-on Workflow
+
+For rapid debugging and feature testing, we use a separate **Dev Add-on** channel:
+
+- **Branch**: `dev`
+- **Add-on**: `[DEV] Darkstar Energy Manager`
+- **Image**: `ghcr.io/ergetie/darkstar-dev-amd64`
+
+### How It Works
+1. **Push to `dev`**: Any push to the `dev` branch triggers the GitHub Action.
+2. **AMD64 Optimization**: To keep iteration fast, the dev build only targets `amd64`.
+3. **Dynamic Versioning**: The CI automatically bumps the version in `darkstar-dev/config.yaml` to `dev-YYYYMMDD.HHMM`.
+4. **HA Updates**: Because the version string changes every time, Home Assistant will show an **Update** button in the Add-on Store/Dashboard automatically.
+5. **Merging**: Once a feature is stable in `dev`, it should be merged into `main` and tagged for a formal release.
+
+### Local Development
+If you are developing locally on a different architecture (e.g., Apple Silicon), it is recommended to test the standard `darkstar/` build or run via `pnpm run dev` directly as described in the Quick Start.
+
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.

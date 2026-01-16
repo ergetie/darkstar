@@ -329,3 +329,28 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 * [x] **Backend:** Update `config.py` to condition critical entity validation on system toggles.
 * [x] **Verification:** Verify saving config with `has_battery: false` works.
 
+---
+
+### [DONE] REV // DX3 — Dev Add-on Workflow
+
+**Goal:** Enable rapid iteration by creating a "Darkstar Dev" add-on that tracks the `dev` branch and builds significantly faster (amd64 only).
+
+**Plan:**
+
+#### Phase 1: Add-on Definition [DONE]
+* [x] Create `darkstar-dev/` directory with `config.yaml`, `icon.png`, and `logo.png`.
+* [x] Configure `darkstar-dev/config.yaml` with `slug: darkstar-dev` and `amd64` only.
+
+#### Phase 2: CI/CD Implementation [DONE]
+* [x] Update `.github/workflows/build-addon.yml` to support `dev` branch triggers.
+* [x] Implement dynamic versioning (`dev-YYYYMMDD.HHMM`) for the dev add-on.
+* [x] Optimize `dev` build to only target `amd64`.
+
+#### Phase 3: Documentation [DONE]
+* [x] Update `README.md` with Dev add-on info/warning.
+* [x] Update `docs/DEVELOPER.md` with dev workflow instructions.
+
+#### Phase 4: Verification [DONE]
+* [x] Verify HA Add-on Store shows both versions.
+* [x] Verify update notification triggers on push to `dev`.
+
