@@ -41,8 +41,21 @@ export interface SettingsSection<T extends BaseField = BaseField> {
 export const systemSections: SettingsSection[] = [
     {
         title: 'System Profile',
-        description: 'Core hardware toggles and high-level system preferences.',
+        description: 'Core hardware toggles. ⚠️ Non-Deye profiles are currently Work In Progress.',
         fields: [
+            {
+                key: 'system.inverter_profile',
+                label: 'Inverter Profile',
+                path: ['system', 'inverter_profile'],
+                type: 'select',
+                options: [
+                    { label: 'Generic (Standard)', value: 'generic' },
+                    { label: 'Deye / SunSynk', value: 'deye' },
+                    { label: 'Fronius', value: 'fronius' },
+                    { label: 'Victron', value: 'victron' },
+                ],
+                helper: 'Select your inverter brand. Note: Only Deye/SunSynk is fully supported. Others are experimental.',
+            },
             {
                 key: 'system.has_solar',
                 label: 'Solar panels installed',
@@ -427,6 +440,11 @@ export const systemSections: SettingsSection[] = [
                 helper: "Target maintenance level. Acts as a discharge floor (won't discharge below this %) AND a grid charge target (won't charge above this % from grid). Required for inverters like Deye (behavior for other inverters unknown).",
                 path: ['executor', 'soc_target_entity'],
                 type: 'entity',
+                showIf: {
+                    configKey: 'system.inverter_profile',
+                    value: 'deye',
+                    disabledText: "Select 'Deye / SunSynk' profile to configure",
+                },
             },
             {
                 key: 'executor.water_heater.target_entity',

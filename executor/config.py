@@ -122,6 +122,7 @@ class ExecutorConfig:
     has_solar: bool = True
     has_battery: bool = True
     has_water_heater: bool = True
+    inverter_profile: str = "generic"
 
 
 def load_yaml(path: str) -> dict[str, Any]:
@@ -166,6 +167,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     has_solar = bool(system_data.get("has_solar", True))
     has_battery = bool(system_data.get("has_battery", True))
     has_water_heater = bool(system_data.get("has_water_heater", True))
+    inverter_profile = str(system_data.get("inverter_profile", "generic"))
 
     executor_data: dict[str, Any] = (
         data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}
@@ -299,4 +301,5 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         has_solar=has_solar,
         has_battery=has_battery,
         has_water_heater=has_water_heater,
+        inverter_profile=inverter_profile,
     )

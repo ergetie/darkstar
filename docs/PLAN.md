@@ -289,30 +289,30 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 
 ---
 
-### [PLANNED] REV // E5 — Inverter Profile Foundation
+### [DONE] REV // E5 — Inverter Profile Foundation
 
 **Goal:** Establish a modular "Inverter Profile" system in the settings UI. This moves away from generic toggles towards brand-specific presets, starting with hiding `soc_target_entity` for non-Deye inverters.
 
 **Profiles:**
 1.  **Generic (Default):** Standard entities, `soc_target` hidden.
-2.  **Gen2 Hybrid (Deye/SunSynk):** `soc_target` enabled & required.
+2.  **Deye/SunSynk (Gen2 Hybrid):** `soc_target` enabled & required.
 3.  **Fronius:** Placeholder (same as Generic for now).
 4.  **Victron:** Placeholder (same as Generic for now).
 
 **Plan:**
 
-#### Phase 1: Configuration & UI Schema [PLANNED]
-* [ ] **Config:** Add `system.inverter_profile` to `config.default.yaml` (default: "generic").
-* [ ] **UI Schema:**
+#### Phase 1: Configuration & UI Schema [DONE]
+* [x] **Config:** Add `system.inverter_profile` to `config.default.yaml` (default: "generic").
+* [x] **UI Schema:**
     *   Add `system.inverter_profile` dropdown to System Profile card.
     *   Update `executor.soc_target_entity` to `showIf: { configKey: 'system.inverter_profile', value: 'deye' }` (or similar ID).
-* [ ] **Warning Label:** Add a UI hint/warning that non-Deye profiles are "Work in Progress".
+* [x] **Warning Label:** Add a UI hint/warning that non-Deye profiles are "Work in Progress".
 
-#### Phase 2: Executor Handling [PLANNED]
-* [ ] **Executor Logic:** Ensure `executor/config.py` loads the profile key (for future logic branching).
-* [ ] **Validation:** Ensure `soc_target_entity` is only required if profile == Deye.
+#### Phase 2: Executor Handling [DONE]
+* [x] **Executor Logic:** Ensure `executor/config.py` loads the profile key (for future logic branching).
+* [x] **Validation:** Ensure `soc_target_entity` is only required if profile == Deye.
 
-#### Phase 3: Verification [PLANNED]
-* [ ] **UI Test:** Select "Generic" → `soc_target` disappears. Select "Gen2 Hybrid" → `soc_target` appears.
-* [ ] **Config Persistency:** Verify `inverter_profile` saves to `config.yaml`.
+#### Phase 3: Verification [DONE]
+* [x] **UI Test:** Select "Generic" → `soc_target` disappears. Select "Gen2 Hybrid" → `soc_target` appears.
+* [x] **Config Persistency:** Verify `inverter_profile` saves to `config.yaml`.
 

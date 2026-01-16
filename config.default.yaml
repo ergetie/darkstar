@@ -19,6 +19,7 @@ advisor:
 # System Parameters
 system:
   system_id: prod
+  inverter_profile: generic        # Profile: generic | deye | fronius | victron
   
   # System Profile Toggles (what hardware do you have?)
   has_solar: true         # Enable PV forecasting & solar-related features
