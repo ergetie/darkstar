@@ -273,7 +273,7 @@ const createChartData = (
                 },
                 fill: true,
                 yAxisID: 'y',
-                tension: 0.4,
+                stepped: 'after',
                 pointRadius: 0,
                 borderWidth: 3,
                 order: 1,
