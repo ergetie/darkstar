@@ -160,16 +160,10 @@ export const systemSections: SettingsSection[] = [
                 type: 'number',
             },
             {
-                key: 'battery.max_charge_power_kw',
-                label: 'Max charge power (kW)',
-                path: ['battery', 'max_charge_power_kw'],
-                type: 'number',
-            },
-            {
-                key: 'executor.controller.max_charge_a',
+                key: 'battery.max_charge_a',
                 label: 'Max charge current (A)',
                 helper: 'Maximum charging current allowed from grid.',
-                path: ['executor', 'controller', 'max_charge_a'],
+                path: ['battery', 'max_charge_a'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -177,10 +171,10 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'executor.controller.max_charge_w',
+                key: 'battery.max_charge_w',
                 label: 'Max charge power (W)',
                 helper: 'Maximum charging power allowed from grid.',
-                path: ['executor', 'controller', 'max_charge_w'],
+                path: ['battery', 'max_charge_w'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -188,10 +182,10 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'executor.controller.max_discharge_a',
+                key: 'battery.max_discharge_a',
                 label: 'Max discharge current (A)',
                 helper: 'Maximum discharge current for load following.',
-                path: ['executor', 'controller', 'max_discharge_a'],
+                path: ['battery', 'max_discharge_a'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -199,10 +193,10 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'executor.controller.max_discharge_w',
+                key: 'battery.max_discharge_w',
                 label: 'Max discharge power (W)',
                 helper: 'Maximum discharge power for load following.',
-                path: ['executor', 'controller', 'max_discharge_w'],
+                path: ['battery', 'max_discharge_w'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -210,10 +204,26 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'battery.max_discharge_power_kw',
-                label: 'Max discharge power (kW)',
-                path: ['battery', 'max_discharge_power_kw'],
+                key: 'battery.nominal_voltage_v',
+                label: 'Nominal Voltage (V)',
+                helper: 'Used for Ampere-to-kW calculations in the Planner.',
+                path: ['battery', 'nominal_voltage_v'],
                 type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
+            },
+            {
+                key: 'battery.min_voltage_v',
+                label: 'Worst-case Voltage (V)',
+                helper: 'Min safe voltage used by Executor for amperage safety.',
+                path: ['battery', 'min_voltage_v'],
+                type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
             },
             {
                 key: 'battery.min_soc_percent',
@@ -242,7 +252,7 @@ export const systemSections: SettingsSection[] = [
             },
             {
                 key: 'grid.import_limit_kw',
-                label: 'Soft import limit (kW)',
+                label: 'Soft import limit (kW) [NOT IMPLEMENTED]',
                 path: ['grid', 'import_limit_kw'],
                 type: 'number',
             },

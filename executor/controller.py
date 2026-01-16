@@ -205,10 +205,7 @@ class Controller:
             rounded = round(raw_val / step) * step
 
             # Clamp
-            clamped = max(
-                self.config.min_charge_w,
-                min(self.config.max_charge_w, rounded)
-            )
+            clamped = max(self.config.min_charge_w, min(self.config.max_charge_w, rounded))
 
             # Write trigger?
             should_write = clamped >= self.config.min_charge_w
@@ -218,7 +215,7 @@ class Controller:
         else:
             # Amps Logic (Default)
             # kW to Amps: I = P * 1000 / V
-            raw_current = (slot.charge_kw * 1000) / self.config.worst_case_voltage_v
+            raw_current = (slot.charge_kw * 1000) / self.config.min_voltage_v
 
             # Round to step
             rounded = round(raw_current / self.config.round_step_a) * self.config.round_step_a
@@ -231,9 +228,7 @@ class Controller:
 
             return clamped, should_write
 
-    def _calculate_discharge_limit(
-        self, slot: SlotPlan, state: SystemState
-    ) -> tuple[float, bool]:
+    def _calculate_discharge_limit(self, slot: SlotPlan, state: SystemState) -> tuple[float, bool]:
         """
         Calculate the discharge limit to command.
         ALWAYS return MAX to allow load coverage.
@@ -295,8 +290,6 @@ def make_decision(
         ControllerDecision with all action parameters
     """
     controller = Controller(
-        config or ControllerConfig(),
-        inverter_config or InverterConfig(),
-        water_heater_config
+        config or ControllerConfig(), inverter_config or InverterConfig(), water_heater_config
     )
     return controller.decide(slot, state, override)

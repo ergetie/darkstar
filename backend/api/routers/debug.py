@@ -230,7 +230,9 @@ async def socketio_debug_status(request: Request) -> dict[str, Any]:
     try:
         # Socket.IO manager tracks rooms/sids
         manager = sio.manager
-        connected_sids = list(manager.rooms.get("/", {}).keys()) if hasattr(manager, "rooms") else []
+        connected_sids = (
+            list(manager.rooms.get("/", {}).keys()) if hasattr(manager, "rooms") else []
+        )
     except Exception as e:
         connected_sids = [f"error: {e}"]
 
@@ -382,7 +384,9 @@ async def executor_debug_status() -> dict[str, Any]:
         "runtime": {
             "thread_alive": thread_alive,
             "is_paused": executor.is_paused,
-            "last_run_at": executor.status.last_run_at.isoformat() if executor.status.last_run_at else None,
+            "last_run_at": executor.status.last_run_at.isoformat()
+            if executor.status.last_run_at
+            else None,
             "last_run_status": executor.status.last_run_status,
             "last_error": executor.status.last_error,
             "last_skip_reason": executor.status.last_skip_reason,
@@ -394,7 +398,9 @@ async def executor_debug_status() -> dict[str, Any]:
         "recent_errors": list(executor.recent_errors) if executor.recent_errors else [],
         "diagnostics": {
             "now": datetime.now(UTC).isoformat(),
-            "message": _get_executor_diagnostic_message(executor, cfg, thread_alive, config_enabled),
+            "message": _get_executor_diagnostic_message(
+                executor, cfg, thread_alive, config_enabled
+            ),
         },
     }
 

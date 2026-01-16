@@ -141,20 +141,23 @@ def profile_db():
     start = time.time()
 
     for i in range(100):
-        cursor.execute("""
+        cursor.execute(
+            """
             INSERT INTO slot_observations (slot_start, slot_end, pv_kwh, load_kwh)
             VALUES (?, ?, ?, ?)
-        """, (
-            f"2099-01-01T{i//10:02d}:{i%10*6:02d}:00",
-            f"2099-01-01T{i//10:02d}:{i%10*6+15:02d}:00",
-            1.0,
-            2.0
-        ))
+        """,
+            (
+                f"2099-01-01T{i // 10:02d}:{i % 10 * 6:02d}:00",
+                f"2099-01-01T{i // 10:02d}:{i % 10 * 6 + 15:02d}:00",
+                1.0,
+                2.0,
+            ),
+        )
 
     conn.rollback()  # Don't actually commit
     elapsed = time.time() - start
 
-    print(f"100 INSERTs: {elapsed:.4f}s ({elapsed/100*1000:.2f}ms per insert)")
+    print(f"100 INSERTs: {elapsed:.4f}s ({elapsed / 100 * 1000:.2f}ms per insert)")
 
     if elapsed > 1.0:
         print("⚠️  WARNING: Write performance is degraded (expected < 0.5s for 100 inserts)")

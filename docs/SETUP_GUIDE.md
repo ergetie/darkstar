@@ -25,10 +25,13 @@ Darkstar uses the **Open-Meteo API** to predict your solar production based on w
 - **Solar Azimuth / Tilt**: 180° Azimuth is South. Tilt is the angle of your panels.
 - **Solar Capacity (kWp)**: The total peak DC power of your panels (e.g., 10.5).
 
-### 1.3 Battery Specifications
-- **Battery Capacity (kWh)**: Total usable energy storage. (Critical: Incorrect values break the planner!)
-- **Charge/Discharge Power (kW)**: The power limits of your inverter.
-- **Min/Max SoC (%)**: Your safe operating range (e.g., 12% to 100%), Darkstar will not plan outside of this range. 
+### 1.3 Battery Specifications (Hardware Limits)
+- **Battery Capacity (kWh)**: The total energy your battery can hold. Darkstar uses this alongside your SoC limits to determine the "usable window".
+- **Hardware Limits**: Depending on your inverter, you enter these in **Amperes (A)** or **Watts (W)**. Darkstar automatically converts these to kW for the planning engine.
+- **Voltage Duality (A-mode only)**:
+    - **Nominal Voltage (V)**: The standard operating voltage (e.g., `48.0` or `51.2`). Used by the **Planner** to forecast energy movement.
+    - **Minimum Voltage (V)**: The "safety floor" (e.g., `46.0`). Used by the **Executor** to calculate safety-safe charging currents—ensuring it never pushes more than the battery can handle even at its lowest state.
+- **Min/Max SoC (%)**: Your safe operating range (e.g., 12% to 100%). Darkstar will never plan a target outside this range.
 
 ### 1.4 Pricing & Timezone
 - **Nordpool Price Area**: Your region (e.g., `SE4`, `NO1`, `FI`).

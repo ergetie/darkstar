@@ -12,10 +12,7 @@ if LOG_LEVEL_STR not in VALID_LEVELS:
     LOG_LEVEL_STR = "INFO"
 
 LOG_LEVEL = getattr(logging, LOG_LEVEL_STR)
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(levelname)s:\t%(name)s - %(message)s"
-)
+logging.basicConfig(level=LOG_LEVEL, format="%(levelname)s:\t%(name)s - %(message)s")
 
 # Explicitly set darkstar loggers to respect LOG_LEVEL
 logging.getLogger("darkstar").setLevel(LOG_LEVEL)
@@ -60,6 +57,15 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events (FastAPI 0.93+)."""
     # Startup
     logger.info("🚀 Darkstar ASGI Server Starting...")
+
+    # Run config migration (Rev F17)
+    try:
+        from backend.config_migration import migrate_config
+
+        await migrate_config()
+    except Exception as e:
+        logger.error(f"❌ Config migration failed: {e}")
+
     loop = asyncio.get_running_loop()
     ws_manager.set_loop(loop)
 

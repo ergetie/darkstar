@@ -38,6 +38,7 @@ class ExecutionRecord:
     commanded_grid_charging: int | None = None  # 0/1
     commanded_charge_current_a: float | None = None
     commanded_discharge_current_a: float | None = None
+    commanded_unit: str | None = "A"  # "A" or "W"
     commanded_soc_target: int | None = None
     commanded_water_temp: int | None = None
 
@@ -101,6 +102,7 @@ class ExecutionHistory:
                     commanded_grid_charging INTEGER,
                     commanded_charge_current_a REAL,
                     commanded_discharge_current_a REAL,
+                    commanded_unit TEXT DEFAULT 'A',
                     commanded_soc_target INTEGER,
                     commanded_water_temp INTEGER,
 
@@ -127,6 +129,16 @@ class ExecutionHistory:
                 )
                 """
             )
+            # Ensure commanded_unit column exists (migration for existing dbs)
+            try:
+                cursor = conn.execute("PRAGMA table_info(execution_log)")
+                columns = [row[1] for row in cursor.fetchall()]
+                if "commanded_unit" not in columns:
+                    logger.info("Migrating execution_log: Adding commanded_unit column")
+                    conn.execute("ALTER TABLE execution_log ADD COLUMN commanded_unit TEXT DEFAULT 'A'")
+            except sqlite3.Error as e:
+                logger.warning("Failed to migrate execution_log schema: %s", e)
+
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_execution_log_slot ON execution_log(slot_start)"
             )
@@ -150,6 +162,7 @@ class ExecutionHistory:
                     planned_water_kw, planned_soc_target, planned_soc_projected,
                     commanded_work_mode, commanded_grid_charging,
                     commanded_charge_current_a, commanded_discharge_current_a,
+                    commanded_unit,
                     commanded_soc_target, commanded_water_temp,
                     before_soc_percent, before_work_mode, before_water_temp,
                     before_pv_kw, before_load_kw,
@@ -171,6 +184,7 @@ class ExecutionHistory:
                     record.commanded_grid_charging,
                     record.commanded_charge_current_a,
                     record.commanded_discharge_current_a,
+                    record.commanded_unit,
                     record.commanded_soc_target,
                     record.commanded_water_temp,
                     record.before_soc_percent,

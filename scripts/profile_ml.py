@@ -25,10 +25,11 @@ def profile(name, func, *args, **kwargs):
         print(f"[{name}] Failed in {dur:.4f}s: {e}")
         return None, dur
 
+
 def main():
-    print("="*60)
+    print("=" * 60)
     print("ML COMPONENT PROFILING")
-    print("="*60)
+    print("=" * 60)
 
     engine = LearningEngine()
     tz = engine.timezone
@@ -52,11 +53,12 @@ def main():
     print("\n4. Testing Corrector (End-to-End)...")
     profile("Corrector", predict_corrections, horizon_hours=48)
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SUMMARY")
     print(f"Weather Fetch: {w_dur:.4f}s")
     print(f"Model Load:    {m_dur:.4f}s")
-    print("="*60)
+    print("=" * 60)
+
 
 if __name__ == "__main__":
     main()

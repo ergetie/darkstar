@@ -385,6 +385,12 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 
 **Plan:**
 
+#### Phase 0: Auto-Migration (Startup)
+* [ ] **Migration Module:** Create `backend.config_migration` to handle versioned config updates.
+* [ ] **Startup Hook:** Call migration logic in `backend.main:lifespan` before executor starts.
+* [ ] **Logic:** Move legacy keys (`executor.controller.battery_capacity_kwh`, `system_voltage_v`, etc.) to new `battery` section and delete old keys.
+* [ ] **Safety:** Use `ruamel.yaml` to preserve comments and structure. Fallback to warning if write fails.
+
 #### Phase 1: Configuration Refactoring (Single Source of Truth)
 * [ ] **Cleanup:** Remove `executor.controller.battery_capacity_kwh` (redundant). Point all logic to `battery.capacity_kwh`.
 * [ ] **Cleanup:** Remove `max_charge_power_kw` and `max_discharge_power_kw` from config and UI (redundant).

@@ -79,8 +79,8 @@ class ControllerConfig:
     """Controller parameters for current/power calculations."""
 
     battery_capacity_kwh: float = 27.0
-    system_voltage_v: float = 48.0
-    worst_case_voltage_v: float = 46.0
+    nominal_voltage_v: float = 48.0
+    min_voltage_v: float = 46.0
     min_charge_a: float = 10.0
     max_charge_a: float = 185.0
     max_discharge_a: float = 185.0
@@ -242,33 +242,66 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         on_error=bool(notif_data.get("on_error", NotificationConfig.on_error)),
     )
 
+    # Root battery config (New SSOT for REV F17)
+    battery_data: dict[str, Any] = (
+        data.get("battery", {}) if isinstance(data.get("battery"), dict) else {}
+    )
+
     ctrl_data: dict[str, Any] = (
         executor_data.get("controller", {})
         if isinstance(executor_data.get("controller"), dict)
         else {}
     )
+
+    # Function to get with fallback (Rev F17 Migration)
+    def get_fb(
+        key: str,
+        legacy_key: str,
+        default: Any,
+        source: dict = battery_data,
+        legacy_source: dict = ctrl_data,
+    ) -> Any:
+        # 1. Try new source
+        val = source.get(key)
+        if val is not None:
+            return val
+        # 2. Try legacy source
+        val = legacy_source.get(legacy_key)
+        if val is not None:
+            # logger.warning(f"Using legacy config key '{legacy_key}'. Please move to battery section.") # Logged by migration module
+            return val
+        return default
+
     controller = ControllerConfig(
         battery_capacity_kwh=float(
-            str(ctrl_data.get("battery_capacity_kwh", ControllerConfig.battery_capacity_kwh))
+            str(
+                get_fb(
+                    "capacity_kwh", "battery_capacity_kwh", ControllerConfig.battery_capacity_kwh
+                )
+            )
         ),
-        system_voltage_v=float(
-            str(ctrl_data.get("system_voltage_v", ControllerConfig.system_voltage_v))
+        nominal_voltage_v=float(
+            str(get_fb("nominal_voltage_v", "system_voltage_v", ControllerConfig.nominal_voltage_v))
         ),
-        worst_case_voltage_v=float(
-            str(ctrl_data.get("worst_case_voltage_v", ControllerConfig.worst_case_voltage_v))
+        min_voltage_v=float(
+            str(get_fb("min_voltage_v", "worst_case_voltage_v", ControllerConfig.min_voltage_v))
         ),
         min_charge_a=float(str(ctrl_data.get("min_charge_a", ControllerConfig.min_charge_a))),
-        max_charge_a=float(str(ctrl_data.get("max_charge_a", ControllerConfig.max_charge_a))),
+        max_charge_a=float(
+            str(get_fb("max_charge_a", "max_charge_a", ControllerConfig.max_charge_a))
+        ),
         max_discharge_a=float(
-            str(ctrl_data.get("max_discharge_a", ControllerConfig.max_discharge_a))
+            str(get_fb("max_discharge_a", "max_discharge_a", ControllerConfig.max_discharge_a))
         ),
         round_step_a=float(str(ctrl_data.get("round_step_a", ControllerConfig.round_step_a))),
         write_threshold_a=float(
             str(ctrl_data.get("write_threshold_a", ControllerConfig.write_threshold_a))
         ),
-        max_charge_w=float(str(ctrl_data.get("max_charge_w", ControllerConfig.max_charge_w))),
+        max_charge_w=float(
+            str(get_fb("max_charge_w", "max_charge_w", ControllerConfig.max_charge_w))
+        ),
         max_discharge_w=float(
-            str(ctrl_data.get("max_discharge_w", ControllerConfig.max_discharge_w))
+            str(get_fb("max_discharge_w", "max_discharge_w", ControllerConfig.max_discharge_w))
         ),
         min_charge_w=float(str(ctrl_data.get("min_charge_w", ControllerConfig.min_charge_w))),
         round_step_w=float(str(ctrl_data.get("round_step_w", ControllerConfig.round_step_w))),

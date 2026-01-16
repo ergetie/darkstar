@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Api } from '../../lib/api'
 import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
@@ -20,6 +20,16 @@ export const SystemTab: React.FC = () => {
     } = useSettingsForm(systemFieldList)
 
     const [haTestStatus, setHaTestStatus] = useState<string | null>(null)
+
+    const profile = form['system.inverter_profile']
+    const unit = form['executor.inverter.control_unit']
+
+    // Rev F17 feedback: Auto-switch to Amps for Deye profile
+    useEffect(() => {
+        if (profile === 'deye' && unit !== 'A') {
+            handleChange('executor.inverter.control_unit', 'A')
+        }
+    }, [profile, unit, handleChange])
 
     const handleTestConnection = async () => {
         setHaTestStatus('Testing...')

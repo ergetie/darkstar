@@ -191,7 +191,9 @@ class ExecutorEngine:
             return {
                 "enabled": self.status.enabled,
                 "shadow_mode": self.status.shadow_mode,
-                "last_run_at": self.status.last_run_at.isoformat() if self.status.last_run_at else None,
+                "last_run_at": self.status.last_run_at.isoformat()
+                if self.status.last_run_at
+                else None,
                 "last_run_status": self.status.last_run_status,
                 "last_error": self.status.last_error,
                 "last_skip_reason": self.status.last_skip_reason,
@@ -801,8 +803,8 @@ class ExecutorEngine:
                             }
                         ],
                     }
-            
-            self.status.last_skip_reason = None # Reset if we proceed
+
+            self.status.last_skip_reason = None  # Reset if we proceed
 
             # 2. Load current slot from schedule.json
             slot, slot_start = self._load_current_slot(now)
@@ -895,7 +897,9 @@ class ExecutorEngine:
                         # low_soc_threshold: prevents exports when SoC is at or below this
                         "low_soc_threshold": float(override_cfg.get("low_soc_export_floor", 20.0)),
                         # excess_pv_threshold_kw: surplus PV needed to trigger water heating
-                        "excess_pv_threshold_kw": float(override_cfg.get("excess_pv_threshold_kw", 2.0)),
+                        "excess_pv_threshold_kw": float(
+                            override_cfg.get("excess_pv_threshold_kw", 2.0)
+                        ),
                         "water_temp_boost": self.config.water_heater.temp_boost,
                         "water_temp_max": self.config.water_heater.temp_max,
                         "water_temp_off": self.config.water_heater.temp_off,
@@ -1201,6 +1205,7 @@ class ExecutorEngine:
             commanded_grid_charging=1 if decision.grid_charging else 0,
             commanded_charge_current_a=decision.charge_value,
             commanded_discharge_current_a=decision.discharge_value,
+            commanded_unit=self.config.inverter.control_unit,
             commanded_soc_target=decision.soc_target,
             commanded_water_temp=decision.water_temp,
             # State before

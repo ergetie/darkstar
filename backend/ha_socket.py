@@ -112,9 +112,13 @@ class HAWebSocketClient:
             }
 
             if not mapping:
-                logger.warning("⚠️ No entities configured for HA WebSocket monitoring - check input_sensors in config.yaml")
+                logger.warning(
+                    "⚠️ No entities configured for HA WebSocket monitoring - check input_sensors in config.yaml"
+                )
             else:
-                logger.info(f"✅ HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}")
+                logger.info(
+                    f"✅ HA WebSocket monitoring {len(mapping)} entities: {list(mapping.keys())}"
+                )
             return mapping
         except Exception as e:
             logger.error(f"❌ Failed to load monitored entities: {e}", exc_info=True)
@@ -174,11 +178,15 @@ class HAWebSocketClient:
 
                         # DIAG(Prob): Log first 5 messages to verify data flow
                         if rx_count <= 5:
-                            logger.info(f"DIAG: WebSocket RX type={data.get('type')} id={data.get('id')} event={data.get('event', {}).get('event_type')}")
+                            logger.info(
+                                f"DIAG: WebSocket RX type={data.get('type')} id={data.get('id')} event={data.get('event', {}).get('event_type')}"
+                            )
 
                         # Handle the get_states response
                         if data.get("id") == states_id and data.get("type") == "result":
-                            logger.info("DIAG: Received get_states result - processing initial states")
+                            logger.info(
+                                "DIAG: Received get_states result - processing initial states"
+                            )
                             results = data.get("result", [])
                             for state in results:
                                 entity_id = state.get("entity_id")
@@ -253,6 +261,7 @@ class HAWebSocketClient:
 
             # Sanitize value (prevent NaN/Inf from crashing JSON transport)
             import math
+
             if math.isnan(value) or math.isinf(value):
                 logger.warning(f"DIAG: Sanitized invalid float for {key}: {value} -> 0.0")
                 value = 0.0
@@ -289,7 +298,7 @@ class HAWebSocketClient:
                 "type": "parsing_error",
                 "entity": entity_id,
                 "value": str(state_val),
-                "error": str(e)
+                "error": str(e),
             }
             self.stats["errors"].append(err_entry)
             # Keep only last 5
@@ -298,7 +307,7 @@ class HAWebSocketClient:
             pass
 
         finally:
-             self.stats["events_processed"] += 1
+            self.stats["events_processed"] += 1
 
     def start(self):
         self.running = True
@@ -356,6 +365,6 @@ def get_ha_socket_status() -> dict:
         "stats": _ha_client.stats,
         "config": {
             "has_token": bool(_ha_client.token),
-            "token_len": len(_ha_client.token) if _ha_client.token else 0
-        }
+            "token_len": len(_ha_client.token) if _ha_client.token else 0,
+        },
     }

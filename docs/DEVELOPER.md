@@ -102,6 +102,17 @@ Darkstar uses SQLite (`data/planner_learning.db`). Over time, this file may grow
 
 For a deep dive into the solver logic, see [architecture.md](architecture.md).
 
+### Configuration & Migrations
+Darkstar prioritizes a "zero-touch" update experience. If you introduce breaking changes to `config.yaml` or the SQLite schema:
+
+1.  **Config Migrations**: Register a new `MigrationStep` in `backend/config_migration.py`.
+    - These steps run automatically during the `backend/main.py` startup lifespan.
+    - Use `ruamel.yaml` to ensure user comments/formatting are preserved.
+2.  **Database Migrations**: Update `_ensure_schema()` in `executor/history.py`.
+    - Do **not** rely solely on `CREATE TABLE IF NOT EXISTS`.
+    - Use `PRAGMA table_info` to detect missing columns and run `ALTER TABLE` to add them safely.
+3.  **Fallback Logic**: When feasible, implement temporary "Plan B" fallbacks in Python code (e.g., `executor/config.py`) to handle both old and new key names until the next major release.
+
 > **Note:** The legacy heuristic MPC planner (7-pass logic) is preserved for reference in [LEGACY_MPC.md](LEGACY_MPC.md).
 
 ---

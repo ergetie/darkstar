@@ -46,7 +46,9 @@ class WebSocketManager:
             logger.info(f"🔌 Socket.IO client CONNECTED: sid={sid}")
             logger.info(f"   PATH_INFO: {path}")
             logger.info(f"   QUERY_STRING: {query}")
-            logger.info(f"   Headers: X-Ingress-Path={headers.get('HTTP_X_INGRESS_PATH', 'not present')}")
+            logger.info(
+                f"   Headers: X-Ingress-Path={headers.get('HTTP_X_INGRESS_PATH', 'not present')}"
+            )
 
         @self.sio.event
         async def disconnect(sid):
@@ -98,4 +100,3 @@ class WebSocketManager:
 
 # Global instance
 ws_manager = WebSocketManager()
-
