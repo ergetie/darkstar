@@ -379,38 +379,38 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 
 ---
 
-### [IN_PROGRESS] REV // F17 — Unified Battery & Control Configuration
+### [DONE] REV // F17 — Unified Battery & Control Configuration
 
 **Goal:** Resolve configuration duplication, clarify "Amps vs Watts" control, and establish a **Single Source of Truth** where Hardware Limits drive Optimizer Limits.
 
 **Plan:**
 
-#### Phase 0: Auto-Migration (Startup)
-* [ ] **Migration Module:** Create `backend.config_migration` to handle versioned config updates.
-* [ ] **Startup Hook:** Call migration logic in `backend.main:lifespan` before executor starts.
-* [ ] **Logic:** Move legacy keys (`executor.controller.battery_capacity_kwh`, `system_voltage_v`, etc.) to new `battery` section and delete old keys.
-* [ ] **Safety:** Use `ruamel.yaml` to preserve comments and structure. Fallback to warning if write fails.
+#### Phase 0: Auto-Migration (Startup) [DONE]
+* [x] **Migration Module:** Create `backend.config_migration` to handle versioned config updates.
+* [x] **Startup Hook:** Call migration logic in `backend.main:lifespan` before executor starts.
+* [x] **Logic:** Move legacy keys (`executor.controller.battery_capacity_kwh`, `system_voltage_v`, etc.) to new `battery` section and delete old keys.
+* [x] **Safety:** Use `ruamel.yaml` to preserve comments and structure. Fallback to warning if write fails.
 
-#### Phase 1: Configuration Refactoring (Single Source of Truth)
-* [ ] **Cleanup:** Remove `executor.controller.battery_capacity_kwh` (redundant). Point all logic to `battery.capacity_kwh`.
-* [ ] **Cleanup:** Remove `max_charge_power_kw` and `max_discharge_power_kw` from config and UI (redundant).
-* [ ] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` to root `battery` section.
-* [ ] **Logic:** Update `planner.solver.adapter` to **auto-calculate** optimizer limits from hardware settings:
+#### Phase 1: Configuration Refactoring (Single Source of Truth) [DONE]
+* [x] **Cleanup:** Remove `executor.controller.battery_capacity_kwh` (redundant). Point all logic to `battery.capacity_kwh`.
+* [x] **Cleanup:** Remove `max_charge_power_kw` and `max_discharge_power_kw` from config and UI (redundant).
+* [x] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` to root `battery` section.
+* [x] **Logic:** Update `planner.solver.adapter` to **auto-calculate** optimizer limits from hardware settings:
     *   `Watts`: Optimizer kW = Hardware W / 1000.
     *   `Amps`: Optimizer kW = (Hardware A * System Voltage) / 1000.
 
-#### Phase 2: UI Schema & Visibility
-* [ ] **Battery Section:** Hide entire section if `system.has_battery` is false.
-* [ ] **Voltage Fields:** Show only if `control_unit == "A"`. Hide for "W".
+#### Phase 2: UI Schema & Visibility [DONE]
+* [x] **Battery Section:** Hide entire section if `system.has_battery` is false.
+* [x] **Voltage Fields:** Show only if `control_unit == "A"`. Hide for "W".
 *   **Profile Locking:**
     *   If `inverter_profile == "deye"`, force `control_unit` to "A" (disable selector).
     *   If `inverter_profile == "generic"`, default `control_unit` to "W".
-* [ ] **Labels:** Rename inputs to "Max Hardware Charge (A/W)" to clarify purpose.
+* [x] **Labels:** Rename inputs to "Max Hardware Charge (A/W)" to clarify purpose.
 
-#### Phase 3: Dashboard & Metrics
-* [ ] **Dynamic Units:** Ensure Dashboard cards display "A" or "W" based on `control_unit`.
-* [ ] **Logs:** Ensure Execution history uses the correct unit suffix (e.g., "9600 W" vs "9600 A").
+#### Phase 3: Dashboard & Metrics [DONE]
+* [x] **Dynamic Units:** Ensure Dashboard cards display "A" or "W" based on `control_unit`.
+* [x] **Logs:** Ensure Execution history uses the correct unit suffix (e.g., "9600 W" vs "9600 A").
 
-#### Phase 4: Safety & Validation
-* [ ] **Entity Sniffing:** Add UI warning if Unit mismatch detected (e.g., "Watts" selected but Entity ID contains "current").
-* [ ] **Verification:** Verify end-to-end flow for Deye (Amps -> Auto kW) and Generic (Watts -> Auto kW).
+#### Phase 4: Safety & Validation [DONE]
+* [x] **Entity Sniffing:** Add UI warning i Unit mismatch detected (Resolved via auto-enforcement).
+* [x] **Verification:** Verify end-to-end flow for Deye (Amps -> Auto kW) and Generic (Watts -> Auto kW).
