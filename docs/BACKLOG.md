@@ -41,6 +41,13 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI will wipe this section when processing. -->
 - We need to go through the chartCard completely. In history there is a mix of what we can see and what we can't see! Can we make it so we ALWAYS see the planned actions/forecasts/soc etc, but then we can toggle an overlay to see the actual data? So actualload, actual pv, actual grid, actual soc etc.
+- We have a bug where config keys are put between comments and a new section like 
+"
+# Battery Specifications
+  grid_meter_type: net
+  inverter_profile: generic
+battery:
+"
 ---
 
 ## 🔴 High Priority
