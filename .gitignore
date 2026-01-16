@@ -11,6 +11,7 @@ typings/
 # Secrets and user config (DO NOT COMMIT)
 secrets.yaml
 !darkstar/config.yaml
+!darkstar-dev/config.yaml
 
 # IDE / Editor
 .idea/

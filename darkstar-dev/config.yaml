@@ -1,0 +1,54 @@
+# Darkstar Energy Manager - Home Assistant Add-on [DEVELOPMENT]
+# https://github.com/ergetie/darkstar
+
+name: "[DEV] Darkstar Energy Manager"
+description: "DEVELOPMENT VERSION - Tracking dev branch (amd64 only). AI-powered home battery optimization."
+version: "dev"
+slug: "darkstar-dev"
+url: "https://github.com/ergetie/darkstar"
+
+# Supported architectures (Optimized for development N100/N150)
+arch:
+  - amd64
+
+# Pre-built Docker images (built via GitHub Actions)
+# HA uses the 'version' field as the image tag automatically
+image: ghcr.io/ergetie/darkstar-dev-{arch}
+
+# Startup configuration
+init: false
+startup: application
+boot: auto
+
+# API Access (enables SUPERVISOR_TOKEN for automatic HA authentication)
+homeassistant_api: true
+hassio_api: true
+
+# Web UI
+webui: http://[HOST]:[PORT:5000]
+ingress: true
+ingress_port: 5000
+ingress_stream: true
+panel_icon: "mdi:battery-charging-outline"
+panel_title: "Darkstar [DEV]"
+
+# Ports
+ports:
+  5000/tcp: 5000
+ports_description:
+  5000/tcp: "Web UI"
+
+# Configuration options (shown in HA Add-on UI)
+options:
+  timezone: "Europe/Stockholm"
+  log_level: "debug"
+
+# Schema (validates options)
+schema:
+  timezone: str
+  log_level: list(debug|info|warning|error)
+
+# Data persistence
+map:
+  - config:rw
+  - share:rw
