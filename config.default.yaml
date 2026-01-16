@@ -6,7 +6,7 @@
 # =============================================================================
 
 # System Metadata
-version: "2.5.0"
+version: "2.5.0-beta"
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
 # AI Advisor (Smart Assistant on Dashboard)
@@ -150,7 +150,7 @@ pricing:
 
 # Forecasting Adjustments (Aurora ML tuning)
 forecasting:
-  active_forecast_version: "2.5.0"
+  active_forecast_version: "2.5.0-beta"
   pv_confidence_percent: 83.0          # PV forecast scaling (100 = trust forecast fully)
   load_safety_margin_percent: 117.0    # Load forecast scaling (>100 = expect more load)
 

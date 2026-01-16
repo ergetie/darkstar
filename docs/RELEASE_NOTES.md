@@ -1,4 +1,4 @@
-## [v2.5.0] - Configuration & Compatibility - 2026-01-16
+## [v2.5.0-beta] - Configuration & Compatibility - 2026-01-16
 
 This release solidifies the **Configuration Architecture**. It introduces a unified battery configuration, finalizes the Settings UI visibility logic, and improves startup resilience.
 
