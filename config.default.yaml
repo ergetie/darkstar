@@ -1,12 +1,12 @@
 # =============================================================================
-# Darkstar Configuration 2.4.23-beta
+# Darkstar Configuration
 # =============================================================================
 # This is the user's production configuration file.
 # Structure matches config.default.yaml with user-specific values.
 # =============================================================================
 
 # System Metadata
-version: "2.4.23-beta"
+version: "2.5.0"
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
 # AI Advisor (Smart Assistant on Dashboard)
@@ -150,7 +150,7 @@ pricing:
 
 # Forecasting Adjustments (Aurora ML tuning)
 forecasting:
-  active_forecast_version: aurora      # Forecast engine: aurora (ML) | legacy
+  active_forecast_version: "2.5.0"
   pv_confidence_percent: 83.0          # PV forecast scaling (100 = trust forecast fully)
   load_safety_margin_percent: 117.0    # Load forecast scaling (>100 = expect more load)
 

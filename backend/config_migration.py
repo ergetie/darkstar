@@ -66,7 +66,6 @@ def migrate_battery_config(config: Any) -> bool:
     return changed
 
 
-
 def soft_merge_defaults(config: Any) -> bool:
     """
     Migration for REV F18: Soft Merge Defaults & Version Sync.
@@ -92,18 +91,15 @@ def soft_merge_defaults(config: Any) -> bool:
         if not default_config:
             return False
 
-
         # 1. Sync Version (Always update to match default)
-        if "version" in default_config:
-            if config.get("version") != default_config["version"]:
-                # If key exists, update it. If not, insert at top.
-                if "version" in config:
-                    config["version"] = default_config["version"]
-                else:
-                    config.insert(0, "version", default_config["version"])
-                logger.info(f"Updated config version to {default_config['version']}")
-                changed = True
-
+        if "version" in default_config and config.get("version") != default_config["version"]:
+            # If key exists, update it. If not, insert at top.
+            if "version" in config:
+                config["version"] = default_config["version"]
+            else:
+                config.insert(0, "version", default_config["version"])
+            logger.info(f"Updated config version to {default_config['version']}")
+            changed = True
 
         # 2. Recursive Soft Merge
         def recursive_merge(user_node: dict, default_node: dict, path: str = "") -> bool:
