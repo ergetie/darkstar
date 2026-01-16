@@ -382,9 +382,10 @@ async def executor_debug_status() -> dict[str, Any]:
         "runtime": {
             "thread_alive": thread_alive,
             "is_paused": executor.is_paused,
-            "last_run_at": executor.status.last_run_at,
+            "last_run_at": executor.status.last_run_at.isoformat() if executor.status.last_run_at else None,
             "last_run_status": executor.status.last_run_status,
             "last_error": executor.status.last_error,
+            "last_skip_reason": executor.status.last_skip_reason,
             "next_run_at": executor.status.next_run_at,
             "current_slot": executor.status.current_slot,
             "override_active": executor.status.override_active,
@@ -414,6 +415,8 @@ def _get_executor_diagnostic_message(
         return "⏸️ Executor is PAUSED (user-initiated)"
     if executor.status.last_run_status == "error":
         return f"⚠️ Last executor run failed: {executor.status.last_error}"
+    if executor.status.last_run_status == "skipped" and executor.status.last_skip_reason:
+        return f"⏭️ Executor skipped: {executor.status.last_skip_reason}"
     if executor.status.last_run_at is None:
         return "🔄 Executor is enabled but hasn't run yet"
     return "✅ Executor is running normally"

@@ -354,3 +354,52 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 * [x] Verify HA Add-on Store shows both versions.
 * [x] Verify update notification triggers on push to `dev`.
 
+---
+
+### [DONE] REV // E3 — Watt-mode Safety & 9600A Fix
+
+**Goal:** Resolve the critical bug where 9.6kW (9600W) was being interpreted as 9600A due to a dataclass misalignment. Add safety guards and improved observability.
+
+**Plan:**
+
+#### Phase 1: Logic Fixes [DONE]
+* [x] **Controller:** Remove duplicate `grid_charging` field in `ControllerDecision`.
+* [x] **Controller:** Fix override logic using `max_charge_a` for discharge.
+* [x] **Actions:** Implement hard safety guard (refuse > 500A commands).
+* [x] **Actions:** Add explicit entity logging for all power/current actions.
+
+#### Phase 2: Observability [DONE]
+* [x] **Engine:** Add `last_skip_reason` to `ExecutorStatus`.
+* [x] **Debug API:** Expose skip reasons and automation toggle status.
+* [x] **Health:** Ensure skip reasons are visible in diagnostics.
+
+#### Phase 3: Verification [DONE]
+* [x] **Unit Tests:** Verify `ControllerDecision` field alignment.
+* [x] **Engine Tests:** Verify skip reporting (52/52 tests passing).
+
+---
+
+### [IN_PROGRESS] REV // F17 — Unified Battery & Control Configuration
+
+**Goal:** Resolve configuration duplication, clarify "Amps vs Watts" control, and expose essential battery specifications (Voltage) in the UI.
+
+**Plan:**
+
+#### Phase 1: Configuration Refactoring
+* [ ] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` from `executor.controller` to root `battery` section.
+* [ ] **Cleanup:** Remove redundant `executor.controller.battery_capacity_kwh` (proven unused).
+* [ ] **Code:** Update all references in `controller.py` and `config.py` to point to the unified `battery` config.
+
+#### Phase 2: UI Schema & Visibility
+* [ ] **Voltage:** Expose `battery.system_voltage_v` and `battery.worst_case_voltage_v` in the "Battery Specifications" section.
+* [ ] **Dynamic Units:** Update `frontend/src/pages/settings/types.ts` to swap suffixes (A vs W) and labels based on `executor.inverter.control_unit`.
+* [ ] **Logic Clarification:** Rename "Max Charge Power (W)" to "Max Hardware Charging Power" to distinguish from "Max Charge Power (kW)" (the optimizer limit).
+
+#### Phase 3: UI Feedback & Metrics
+* [ ] **Live Metrics:** Ensure Dashboard cards show "W" or "A" based on the unit setting.
+* [ ] **Historical Logs:** Ensure Execution logs in the UI display the commanded unit correctly.
+* [ ] **Entity Validation:** Add a UI warning if "Watts" is selected but the entity ID suggests Amps (e.g., contains "current").
+
+#### Phase 4: Verification
+* [ ] **Verification:** Verify that changing `control_unit` updates UI labels instantly.
+* [ ] **Integration:** Verify end-to-send command flow for both Deye (Amps) and Generic (Watts/Amps).
