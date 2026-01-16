@@ -743,6 +743,11 @@ export const parameterSections: SettingsSection[] = [
                 helper: 'Estimated degradation cost for every kWh cycled. Affects arbitrage profitability.',
                 path: ['battery_economics', 'battery_cycle_cost_kwh'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
         ],
     },
@@ -756,18 +761,33 @@ export const parameterSections: SettingsSection[] = [
                 label: 'Water heater power (kW)',
                 path: ['water_heating', 'power_kw'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.defer_up_to_hours',
                 label: 'Max defer hours',
                 path: ['water_heating', 'defer_up_to_hours'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.min_kwh_per_day',
                 label: 'Min kWh/day',
                 path: ['water_heating', 'min_kwh_per_day'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.min_spacing_hours',
@@ -775,6 +795,11 @@ export const parameterSections: SettingsSection[] = [
                 path: ['water_heating', 'min_spacing_hours'],
                 type: 'number',
                 helper: 'Minimum gap between heating sessions to avoid efficiency loss.',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.spacing_penalty_sek',
@@ -782,6 +807,11 @@ export const parameterSections: SettingsSection[] = [
                 path: ['water_heating', 'spacing_penalty_sek'],
                 type: 'number',
                 helper: 'Penalty applied when heating sessions are too close.',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.enable_top_ups',
@@ -789,6 +819,11 @@ export const parameterSections: SettingsSection[] = [
                 path: ['water_heating', 'enable_top_ups'],
                 type: 'boolean',
                 helper: 'Enable small top-up heating blocks to maintain temperature. Disable for bulk heating only.',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
 
             {
@@ -797,6 +832,11 @@ export const parameterSections: SettingsSection[] = [
                 helper: 'Advanced: Penalty per heating start (higher = more consolidated bulk heating).',
                 path: ['water_heating', 'block_start_penalty_sek'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.max_hours_between_heating',
