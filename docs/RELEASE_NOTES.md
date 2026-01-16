@@ -1,5 +1,19 @@
 # Darkstar Release Notes
 
+## [v2.4.23-beta] - Profile Foundations & Dual Sensors - 2026-01-16
+
+### Core Features
+- **Inverter Profile Foundation (REV E5)**: Established a modular profile system to support brand-specific presets. This initial release focuses on the underlying infrastructure (e.g., brand-specific visibility for SoC targets) and currently supports Generic and Deye/SunSynk profiles. *Note: Full integration for additional brands like Fronius and Victron is planned for future updates.*
+- **Dual Grid Power Sensors (REV UI5)**: Added support for split import/export grid sensors. Users with separate physical sensors for grid flow can now map them individually for more accurate power flow visualization.
+- **Watt-Based Inverter Control (REV E3)**: Added support for inverters controlled via Watts instead of Amperes (e.g., Fronius). The system now automatically adapts its control logic based on the selected `control_unit`.
+
+### Improvements & Fixes
+- **Relaxed Validation (REV F16)**: Disabling components like batteries or solar in the System Profile now correctly hides and relaxes validation for their dependent sensors, preventing "required field" errors for inactive hardware.
+- **Test Suite Alignment**: Synchronized the automated test suite with the updated `ActionDispatcher` API, ensuring improved stability and CI reliability.
+
+---
+
+
 ## [v2.4.22-beta] - Config Stability & Settings Reorganization - 2026-01-15
 
 ### Core Features

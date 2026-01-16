@@ -271,6 +271,7 @@ class TestActionDispatcherShadowMode:
             inverter=InverterConfig(
                 work_mode_entity="select.work_mode",
                 max_charging_current_entity="number.charge_current",
+                max_charging_power_entity="number.charge_power",
                 grid_max_export_power_entity="number.export_power",
             ),
             water_heater=WaterHeaterConfig(),
@@ -288,10 +289,10 @@ class TestActionDispatcherShadowMode:
         assert "[SHADOW]" in result.message
         mock_ha_client.set_select_option.assert_not_called()
 
-    def test_shadow_mode_charge_current(self, mock_ha_client, executor_config):
+    def test_shadow_mode_charge_limit(self, mock_ha_client, executor_config):
         """Shadow mode logs charge current changes."""
         dispatcher = ActionDispatcher(mock_ha_client, executor_config, shadow_mode=True)
-        result = dispatcher._set_charge_current(100.0)
+        result = dispatcher._set_charge_limit(100.0, "A")
 
         assert result.success is True
         assert "[SHADOW]" in result.message
@@ -353,23 +354,24 @@ class TestActionDispatcherExecute:
         decision = ControllerDecision(
             work_mode="Export First",
             grid_charging=False,
-            charge_current_a=0,
-            discharge_current_a=190,
+            charge_value=0,
+            discharge_value=190,
             soc_target=50,
             water_temp=60,
+            export_power_w=5000.0,
             write_charge_current=False,
             write_discharge_current=True,
         )
 
         results = dispatcher.execute(decision)
 
-        # Should have: work_mode, grid_charging, discharge_current, soc_target, water_temp, max_export_power
-        # (no charge_current because write_charge_current=False)
+        # Should have: work_mode, grid_charging, discharge_limit, soc_target, water_temp, max_export_power
+        # (no charge_limit because write_charge_current=False)
         assert len(results) == 6
         action_types = [r.action_type for r in results]
         assert "work_mode" in action_types
         assert "grid_charging" in action_types
-        assert "discharge_current" in action_types
+        assert "discharge_limit" in action_types
         assert "soc_target" in action_types
         assert "water_temp" in action_types
         assert "max_export_power" in action_types
@@ -380,8 +382,8 @@ class TestActionDispatcherExecute:
         decision = ControllerDecision(
             work_mode="Zero Export To CT",
             grid_charging=False,
-            charge_current_a=100,
-            discharge_current_a=50,
+            charge_value=100,
+            discharge_value=50,
             soc_target=50,
             water_temp=40,
             write_charge_current=False,  # Don't write
@@ -391,8 +393,8 @@ class TestActionDispatcherExecute:
         results = dispatcher.execute(decision)
 
         action_types = [r.action_type for r in results]
-        assert "charge_current" not in action_types
-        assert "discharge_current" not in action_types
+        assert "charge_limit" not in action_types
+        assert "discharge_limit" not in action_types
         assert (
             "max_export_power" in action_types
         )  # Still called as it doesn't have a write flag yet
