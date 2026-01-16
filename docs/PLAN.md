@@ -381,25 +381,30 @@ Implemented strict separation between Ampere and Watt control modes. Added expli
 
 ### [IN_PROGRESS] REV // F17 — Unified Battery & Control Configuration
 
-**Goal:** Resolve configuration duplication, clarify "Amps vs Watts" control, and expose essential battery specifications (Voltage) in the UI.
+**Goal:** Resolve configuration duplication, clarify "Amps vs Watts" control, and establish a **Single Source of Truth** where Hardware Limits drive Optimizer Limits.
 
 **Plan:**
 
-#### Phase 1: Configuration Refactoring
-* [ ] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` from `executor.controller` to root `battery` section.
-* [ ] **Cleanup:** Remove redundant `executor.controller.battery_capacity_kwh` (proven unused).
-* [ ] **Code:** Update all references in `controller.py` and `config.py` to point to the unified `battery` config.
+#### Phase 1: Configuration Refactoring (Single Source of Truth)
+* [ ] **Cleanup:** Remove `executor.controller.battery_capacity_kwh` (redundant). Point all logic to `battery.capacity_kwh`.
+* [ ] **Cleanup:** Remove `max_charge_power_kw` and `max_discharge_power_kw` from config and UI (redundant).
+* [ ] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` to root `battery` section.
+* [ ] **Logic:** Update `planner.solver.adapter` to **auto-calculate** optimizer limits from hardware settings:
+    *   `Watts`: Optimizer kW = Hardware W / 1000.
+    *   `Amps`: Optimizer kW = (Hardware A * System Voltage) / 1000.
 
 #### Phase 2: UI Schema & Visibility
-* [ ] **Voltage:** Expose `battery.system_voltage_v` and `battery.worst_case_voltage_v` in the "Battery Specifications" section.
-* [ ] **Dynamic Units:** Update `frontend/src/pages/settings/types.ts` to swap suffixes (A vs W) and labels based on `executor.inverter.control_unit`.
-* [ ] **Logic Clarification:** Rename "Max Charge Power (W)" to "Max Hardware Charging Power" to distinguish from "Max Charge Power (kW)" (the optimizer limit).
+* [ ] **Battery Section:** Hide entire section if `system.has_battery` is false.
+* [ ] **Voltage Fields:** Show only if `control_unit == "A"`. Hide for "W".
+*   **Profile Locking:**
+    *   If `inverter_profile == "deye"`, force `control_unit` to "A" (disable selector).
+    *   If `inverter_profile == "generic"`, default `control_unit` to "W".
+* [ ] **Labels:** Rename inputs to "Max Hardware Charge (A/W)" to clarify purpose.
 
-#### Phase 3: UI Feedback & Metrics
-* [ ] **Live Metrics:** Ensure Dashboard cards show "W" or "A" based on the unit setting.
-* [ ] **Historical Logs:** Ensure Execution logs in the UI display the commanded unit correctly.
-* [ ] **Entity Validation:** Add a UI warning if "Watts" is selected but the entity ID suggests Amps (e.g., contains "current").
+#### Phase 3: Dashboard & Metrics
+* [ ] **Dynamic Units:** Ensure Dashboard cards display "A" or "W" based on `control_unit`.
+* [ ] **Logs:** Ensure Execution history uses the correct unit suffix (e.g., "9600 W" vs "9600 A").
 
-#### Phase 4: Verification
-* [ ] **Verification:** Verify that changing `control_unit` updates UI labels instantly.
-* [ ] **Integration:** Verify end-to-send command flow for both Deye (Amps) and Generic (Watts/Amps).
+#### Phase 4: Safety & Validation
+* [ ] **Entity Sniffing:** Add UI warning if Unit mismatch detected (e.g., "Watts" selected but Entity ID contains "current").
+* [ ] **Verification:** Verify end-to-end flow for Deye (Amps -> Auto kW) and Generic (Watts -> Auto kW).
