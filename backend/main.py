@@ -60,6 +60,26 @@ async def lifespan(app: FastAPI):
 
     await scheduler_service.start()
 
+    # Run database migrations (REV ARC9)
+    try:
+        import subprocess
+        logger.info("📦 Running database migrations...")
+        # We run this as a subprocess to ensure clean environment and simplified config
+        result = subprocess.run(
+            ["python3", "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        if result.returncode == 0:
+            logger.info("✅ Database migrations completed.")
+            if result.stdout:
+                logger.debug("Migration output: %s", result.stdout)
+        else:
+            logger.error("❌ Database migrations failed: %s", result.stderr)
+    except Exception as e:
+        logger.error("❌ Failed to run database migrations: %s", e)
+
     # Start executor (if enabled in config)
     executor_instance = None
     try:

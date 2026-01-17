@@ -1,334 +1,62 @@
-import sqlite3
+import logging
 from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Any
 
 import pandas as pd
 import pytz
+from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import sessionmaker
+
+from backend.learning.models import (
+    ReflexState,
+    SlotForecast,
+    SlotObservation,
+    SlotPlan,
+    TrainingEpisode,
+)
+
+logger = logging.getLogger("darkstar.learning.store")
 
 
 class LearningStore:
     """
-    Handles all database interactions for the Learning Engine.
+    Handles all database interactions for the Learning Engine using SQLAlchemy.
     """
 
     def __init__(self, db_path: str, timezone: pytz.timezone):
         self.db_path = db_path
         self.timezone = timezone
-        self._init_schema()
 
-    def _init_schema(self) -> None:
-        """Initialize SQLite database schema"""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
+        # Initialize SQLAlchemy
+        # We use check_same_thread=False for SQLite shared access in FastAPI
+        connect_args = {"check_same_thread": False, "timeout": 30.0}
+        self.engine = create_engine(f"sqlite:///{db_path}", connect_args=connect_args)
+        self.Session = sessionmaker(bind=self.engine)
 
-            # Slot observations table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS slot_observations (
-                    slot_start TEXT PRIMARY KEY,
-                    slot_end TEXT NOT NULL,
-                    import_kwh REAL DEFAULT 0.0,
-                    export_kwh REAL DEFAULT 0.0,
-                    pv_kwh REAL DEFAULT 0.0,
-                    load_kwh REAL DEFAULT 0.0,
-                    water_kwh REAL DEFAULT 0.0,
-                    batt_charge_kwh REAL,
-                    batt_discharge_kwh REAL,
-                    soc_start_percent REAL,
-                    soc_end_percent REAL,
-                    import_price_sek_kwh REAL,
-                    export_price_sek_kwh REAL,
-                    executed_action TEXT,
-                    quality_flags TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-            """
-            )
-
-            # Slot forecasts table (base forecasts + optional corrections)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS slot_forecasts (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    slot_start TEXT NOT NULL,
-                    pv_forecast_kwh REAL DEFAULT 0.0,
-                    load_forecast_kwh REAL DEFAULT 0.0,
-                    pv_p10 REAL,
-                    pv_p90 REAL,
-                    load_p10 REAL,
-                    load_p90 REAL,
-                    temp_c REAL,
-                    forecast_version TEXT NOT NULL,
-                    pv_correction_kwh REAL DEFAULT 0.0,
-                    load_correction_kwh REAL DEFAULT 0.0,
-                    correction_source TEXT DEFAULT 'none',
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(slot_start, forecast_version)
-                )
-            """
-            )
-
-            # Slot plans table (NEW for K6)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS slot_plans (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    slot_start TEXT NOT NULL,
-                    planned_charge_kwh REAL,
-                    planned_discharge_kwh REAL,
-                    planned_soc_percent REAL,
-                    planned_import_kwh REAL,
-                    planned_export_kwh REAL,
-                    planned_water_heating_kwh REAL,
-                    planned_cost_sek REAL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(slot_start)
-                )
-                """
-            )
-
-            # Migration: ensure correction columns exist on older databases
-            for _column_name, ddl in (
-                (
-                    "pv_correction_kwh",
-                    "ALTER TABLE slot_forecasts ADD COLUMN pv_correction_kwh REAL DEFAULT 0.0",
-                ),
-                (
-                    "load_correction_kwh",
-                    "ALTER TABLE slot_forecasts ADD COLUMN load_correction_kwh REAL DEFAULT 0.0",
-                ),
-                (
-                    "correction_source",
-                    "ALTER TABLE slot_forecasts ADD COLUMN correction_source TEXT DEFAULT 'none'",
-                ),
-                ("pv_p10", "ALTER TABLE slot_forecasts ADD COLUMN pv_p10 REAL"),
-                ("pv_p90", "ALTER TABLE slot_forecasts ADD COLUMN pv_p90 REAL"),
-                ("load_p10", "ALTER TABLE slot_forecasts ADD COLUMN load_p10 REAL"),
-                ("load_p90", "ALTER TABLE slot_forecasts ADD COLUMN load_p90 REAL"),
-                (
-                    "planned_water_heating_kwh",
-                    "ALTER TABLE slot_plans ADD COLUMN planned_water_heating_kwh REAL",
-                ),
-            ):
-                try:
-                    cursor.execute(ddl)
-                except sqlite3.OperationalError as exc:
-                    # Ignore duplicate-column errors; the column already exists.
-                    if "duplicate column name" not in str(exc).lower():
-                        raise
-
-            # Backfill NULLs in correction columns to safe defaults
-            cursor.execute(
-                """
-                UPDATE slot_forecasts
-                SET
-                    pv_correction_kwh = COALESCE(pv_correction_kwh, 0.0),
-                    load_correction_kwh = COALESCE(load_correction_kwh, 0.0),
-                    correction_source = COALESCE(correction_source, 'none')
-                WHERE pv_correction_kwh IS NULL
-                   OR load_correction_kwh IS NULL
-                   OR correction_source IS NULL
-                """
-            )
-
-            # Config versions table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS config_versions (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    yaml_blob TEXT NOT NULL,
-                    reason TEXT,
-                    metrics_json TEXT,
-                    applied BOOLEAN DEFAULT FALSE
-                )
-            """
-            )
-
-            # Learning runs table
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS learning_runs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    started_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    completed_at TEXT,
-                    horizon_days INTEGER DEFAULT 7,
-                    params_json TEXT,
-                    status TEXT DEFAULT 'started',
-                    result_metrics_json TEXT,
-                    error_message TEXT
-                )
-            """
-            )
-
-            # Consolidated per-day learning outputs (one row per date/run)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS learning_daily_metrics (
-                    date TEXT PRIMARY KEY,
-                    pv_error_by_hour_kwh TEXT,
-                    load_error_by_hour_kwh TEXT,
-                    pv_adjustment_by_hour_kwh TEXT,
-                    load_adjustment_by_hour_kwh TEXT,
-                    soc_error_mean_pct REAL,
-                    soc_error_stddev_pct REAL,
-                    pv_error_mean_abs_kwh REAL,
-                    load_error_mean_abs_kwh REAL,
-                    s_index_base_factor REAL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-
-            # Drop legacy metrics tables that are no longer used
-            cursor.execute("DROP TABLE IF EXISTS learning_metrics")
-            cursor.execute("DROP TABLE IF EXISTS learning_daily_series")
-
-            # Create indexes for performance
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_slot_observations_start "
-                "ON slot_observations(slot_start)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_slot_forecasts_start ON slot_forecasts(slot_start)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_learning_runs_started ON learning_runs(started_at)"
-            )
-
-            # Parameter change history (per applied change)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS learning_param_history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id INTEGER,
-                    param_path TEXT NOT NULL,
-                    old_value TEXT,
-                    new_value TEXT,
-                    loop TEXT,
-                    reason TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-                )
-                """
-            )
-
-            # Sensor totals table for cumulative energy readings
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS sensor_totals (
-                    name TEXT PRIMARY KEY,
-                    last_value REAL,
-                    last_timestamp TEXT
-                )
-                """
-            )
-
-            # Unified training episodes table for RL agent
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS training_episodes (
-                    episode_id TEXT PRIMARY KEY,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    inputs_json TEXT NOT NULL,
-                    context_json TEXT,
-                    schedule_json TEXT NOT NULL,
-                    config_overrides_json TEXT
-                )
-                """
-            )
-
-            # Legacy tables from planner.py (moved here for consolidation)
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS schedule_planned (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    date TEXT NOT NULL,
-                    planned_kwh REAL NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_schedule_planned_date ON schedule_planned(date)"
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS realized_energy (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    slot_start TEXT NOT NULL,
-                    slot_end TEXT NOT NULL,
-                    action TEXT,
-                    energy_kwh REAL,
-                    created_at TEXT NOT NULL
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS daily_water (
-                    date TEXT PRIMARY KEY,
-                    used_kwh REAL NOT NULL DEFAULT 0,
-                    updated_at TEXT NOT NULL
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS planner_debug (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT NOT NULL,
-                    payload TEXT NOT NULL
-                )
-                """
-            )
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS strategy_log (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT,
-                    timestamp TEXT NOT NULL,
-                    overrides_json TEXT,
-                    reason TEXT
-                )
-                """
-            )
-
-            # Reflex state table for rate limiting parameter updates
-            cursor.execute(
-                """
-                CREATE TABLE IF NOT EXISTS reflex_state (
-                    param_path TEXT PRIMARY KEY,
-                    last_value REAL,
-                    last_updated TEXT,
-                    change_count INTEGER DEFAULT 0
-                )
-                """
-            )
-
-            conn.commit()
+    # _init_schema was removed as Alembic handles migrations.
 
     def store_slot_prices(self, price_rows: Iterable[dict[str, Any]]) -> None:
-        """Store slot price data (import/export SEK per kWh)."""
+        """Store slot price data (import/export SEK per kWh) using SQLAlchemy."""
         rows = list(price_rows or [])
         if not rows:
             return
 
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
+        with self.Session() as session:
             for row in rows:
                 slot_start = row.get("slot_start") or row.get("start_time")
                 slot_end = row.get("slot_end") or row.get("end_time")
                 if slot_start is None:
                     continue
 
-                if isinstance(slot_start, datetime):
+                if isinstance(slot_start, (datetime, pd.Timestamp)):
                     slot_start = slot_start.astimezone(self.timezone).isoformat()
                 else:
                     slot_start = pd.to_datetime(slot_start).astimezone(self.timezone).isoformat()
 
                 if slot_end is not None:
-                    if isinstance(slot_end, datetime):
+                    if isinstance(slot_end, (datetime, pd.Timestamp)):
                         slot_end = slot_end.astimezone(self.timezone).isoformat()
                     else:
                         slot_end = pd.to_datetime(slot_end).astimezone(self.timezone).isoformat()
@@ -336,292 +64,174 @@ class LearningStore:
                 import_price = row.get("import_price_sek_kwh")
                 export_price = row.get("export_price_sek_kwh")
 
-                cursor.execute(
-                    """
-                    INSERT INTO slot_observations (
-                        slot_start,
-                        slot_end,
-                        import_price_sek_kwh,
-                        export_price_sek_kwh
-                    )
-                    VALUES (?, ?, ?, ?)
-                    ON CONFLICT(slot_start) DO UPDATE SET
-                        slot_end = COALESCE(excluded.slot_end, slot_observations.slot_end),
-                        import_price_sek_kwh = COALESCE(
-                            excluded.import_price_sek_kwh,
-                            slot_observations.import_price_sek_kwh
-                        ),
-                        export_price_sek_kwh = COALESCE(
-                            excluded.export_price_sek_kwh,
-                            slot_observations.export_price_sek_kwh
-                        )
-                    """,
-                    (
-                        slot_start,
-                        slot_end,
-                        None if import_price is None else float(import_price),
-                        None if export_price is None else float(export_price),
-                    ),
+                stmt = sqlite_insert(SlotObservation).values(
+                    slot_start=slot_start,
+                    slot_end=slot_end,
+                    import_price_sek_kwh=import_price,
+                    export_price_sek_kwh=export_price
                 )
-
-            conn.commit()
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['slot_start'],
+                    set_={
+                        'slot_end': func.coalesce(stmt.excluded.slot_end, SlotObservation.slot_end),
+                        'import_price_sek_kwh': func.coalesce(
+                            stmt.excluded.import_price_sek_kwh,
+                            SlotObservation.import_price_sek_kwh
+                        ),
+                        'export_price_sek_kwh': func.coalesce(
+                            stmt.excluded.export_price_sek_kwh,
+                            SlotObservation.export_price_sek_kwh
+                        )
+                    }
+                )
+                session.execute(stmt)
+            session.commit()
 
     def store_slot_observations(self, observations_df: pd.DataFrame) -> None:
-        """Store slot observations in database"""
+        """Store slot observations in database using SQLAlchemy."""
         if observations_df.empty:
             return
 
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
+        with self.Session() as session:
             records = observations_df.to_dict("records")
 
             for record in records:
-                cursor = conn.cursor()
-
                 slot_start = record["slot_start"]
                 slot_end = record.get("slot_end")
-                if isinstance(slot_start, datetime):
+
+                if isinstance(slot_start, (datetime, pd.Timestamp)):
                     slot_start = slot_start.astimezone(self.timezone).isoformat()
                 else:
                     slot_start = pd.to_datetime(slot_start).astimezone(self.timezone).isoformat()
+
                 if slot_end is not None:
-                    if isinstance(slot_end, datetime):
+                    if isinstance(slot_end, (datetime, pd.Timestamp)):
                         slot_end = slot_end.astimezone(self.timezone).isoformat()
                     else:
                         slot_end = pd.to_datetime(slot_end).astimezone(self.timezone).isoformat()
 
-                import_kwh = float(record.get("import_kwh", 0.0) or 0.0)
-                export_kwh = float(record.get("export_kwh", 0.0) or 0.0)
-                pv_kwh = float(record.get("pv_kwh", 0.0) or 0.0)
-                load_kwh = float(record.get("load_kwh", 0.0) or 0.0)
-                water_kwh = float(record.get("water_kwh", 0.0) or 0.0)
-                batt_charge = record.get("batt_charge_kwh")
-                batt_discharge = record.get("batt_discharge_kwh")
-                soc_start = record.get("soc_start_percent")
-                soc_end = record.get("soc_end_percent")
-                import_price = record.get("import_price_sek_kwh")
-                export_price = record.get("export_price_sek_kwh")
-                quality_flags = record.get("quality_flags", "{}")
-
-                update_sql = """
-                    UPDATE slot_observations
-                    SET
-                        slot_end = COALESCE(?, slot_end),
-                        import_kwh = ?,
-                        export_kwh = ?,
-                        pv_kwh = ?,
-                        load_kwh = ?,
-                        water_kwh = ?,
-                        batt_charge_kwh = COALESCE(?, batt_charge_kwh),
-                        batt_discharge_kwh = COALESCE(?, batt_discharge_kwh),
-                        soc_start_percent = COALESCE(?, soc_start_percent),
-                        soc_end_percent = COALESCE(?, soc_end_percent),
-                        import_price_sek_kwh = COALESCE(?, import_price_sek_kwh),
-                        export_price_sek_kwh = COALESCE(?, export_price_sek_kwh),
-                        quality_flags = ?
-                    WHERE slot_start = ?
-                """
-                cursor.execute(
-                    update_sql,
-                    (
-                        slot_end,
-                        import_kwh,
-                        export_kwh,
-                        pv_kwh,
-                        load_kwh,
-                        water_kwh,
-                        None if batt_charge is None else float(batt_charge),
-                        None if batt_discharge is None else float(batt_discharge),
-                        None if soc_start is None else float(soc_start),
-                        None if soc_end is None else float(soc_end),
-                        None if import_price is None else float(import_price),
-                        None if export_price is None else float(export_price),
-                        quality_flags,
-                        slot_start,
-                    ),
+                stmt = sqlite_insert(SlotObservation).values(
+                    slot_start=slot_start,
+                    slot_end=slot_end,
+                    import_kwh=float(record.get("import_kwh", 0.0) or 0.0),
+                    export_kwh=float(record.get("export_kwh", 0.0) or 0.0),
+                    pv_kwh=float(record.get("pv_kwh", 0.0) or 0.0),
+                    load_kwh=float(record.get("load_kwh", 0.0) or 0.0),
+                    water_kwh=float(record.get("water_kwh", 0.0) or 0.0),
+                    batt_charge_kwh=record.get("batt_charge_kwh"),
+                    batt_discharge_kwh=record.get("batt_discharge_kwh"),
+                    soc_start_percent=record.get("soc_start_percent"),
+                    soc_end_percent=record.get("soc_end_percent"),
+                    import_price_sek_kwh=record.get("import_price_sek_kwh"),
+                    export_price_sek_kwh=record.get("export_price_sek_kwh"),
+                    quality_flags=record.get("quality_flags", "{}")
                 )
 
-                if cursor.rowcount == 0:
-                    cursor.execute(
-                        """
-                        INSERT INTO slot_observations (
-                            slot_start,
-                            slot_end,
-                            import_kwh,
-                            export_kwh,
-                            pv_kwh,
-                            load_kwh,
-                            water_kwh,
-                            batt_charge_kwh,
-                            batt_discharge_kwh,
-                            soc_start_percent,
-                            soc_end_percent,
-                            import_price_sek_kwh,
-                            export_price_sek_kwh,
-                            quality_flags
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            slot_start,
-                            slot_end,
-                            import_kwh,
-                            export_kwh,
-                            pv_kwh,
-                            load_kwh,
-                            water_kwh,
-                            None if batt_charge is None else float(batt_charge),
-                            None if batt_discharge is None else float(batt_discharge),
-                            None if soc_start is None else float(soc_start),
-                            None if soc_end is None else float(soc_end),
-                            None if import_price is None else float(import_price),
-                            None if export_price is None else float(export_price),
-                            quality_flags,
-                        ),
-                    )
-
-            conn.commit()
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['slot_start'],
+                    set_={
+                        'slot_end': func.coalesce(stmt.excluded.slot_end, SlotObservation.slot_end),
+                        'import_kwh': stmt.excluded.import_kwh,
+                        'export_kwh': stmt.excluded.export_kwh,
+                        'pv_kwh': stmt.excluded.pv_kwh,
+                        'load_kwh': stmt.excluded.load_kwh,
+                        'water_kwh': stmt.excluded.water_kwh,
+                        'batt_charge_kwh': func.coalesce(stmt.excluded.batt_charge_kwh, SlotObservation.batt_charge_kwh),
+                        'batt_discharge_kwh': func.coalesce(stmt.excluded.batt_discharge_kwh, SlotObservation.batt_discharge_kwh),
+                        'soc_start_percent': func.coalesce(stmt.excluded.soc_start_percent, SlotObservation.soc_start_percent),
+                        'soc_end_percent': func.coalesce(stmt.excluded.soc_end_percent, SlotObservation.soc_end_percent),
+                        'import_price_sek_kwh': func.coalesce(stmt.excluded.import_price_sek_kwh, SlotObservation.import_price_sek_kwh),
+                        'export_price_sek_kwh': func.coalesce(stmt.excluded.export_price_sek_kwh, SlotObservation.export_price_sek_kwh),
+                        'quality_flags': stmt.excluded.quality_flags
+                    }
+                )
+                session.execute(stmt)
+            session.commit()
 
     def store_forecasts(self, forecasts: list[dict], forecast_version: str) -> None:
-        """Store forecast data"""
+        """Store forecast data using SQLAlchemy."""
         if not forecasts:
             return
 
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-
+        with self.Session() as session:
             for forecast in forecasts:
                 slot_start = forecast.get("slot_start")
                 if slot_start is None:
                     continue
 
-                pv_forecast = forecast.get("pv_forecast_kwh", 0.0)
-                load_forecast = forecast.get("load_forecast_kwh", 0.0)
-                temp_c = forecast.get("temp_c")
-
-                pv_p10 = forecast.get("pv_p10")
-                pv_p90 = forecast.get("pv_p90")
-                load_p10 = forecast.get("load_p10")
-                load_p90 = forecast.get("load_p90")
-
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO slot_forecasts (
-                        slot_start,
-                        pv_forecast_kwh,
-                        load_forecast_kwh,
-                        pv_p10,
-                        pv_p90,
-                        load_p10,
-                        load_p90,
-                        temp_c,
-                        forecast_version,
-                        pv_correction_kwh,
-                        load_correction_kwh,
-                        correction_source
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(
-                                (SELECT pv_correction_kwh FROM slot_forecasts
-                                 WHERE slot_start = ? AND forecast_version = ?),
-                                0.0
-                            ),
-                            COALESCE(
-                                (SELECT load_correction_kwh FROM slot_forecasts
-                                 WHERE slot_start = ? AND forecast_version = ?),
-                                0.0
-                            ),
-                            COALESCE(
-                                (SELECT correction_source FROM slot_forecasts
-                                 WHERE slot_start = ? AND forecast_version = ?),
-                                'none'
-                            )
-                    )
-                    """,
-                    (
-                        slot_start,
-                        float(pv_forecast or 0.0),
-                        float(load_forecast or 0.0),
-                        None if pv_p10 is None else float(pv_p10),
-                        None if pv_p90 is None else float(pv_p90),
-                        None if load_p10 is None else float(load_p10),
-                        None if load_p90 is None else float(load_p90),
-                        None if temp_c is None else float(temp_c),
-                        forecast_version,
-                        slot_start,
-                        forecast_version,
-                        slot_start,
-                        forecast_version,
-                        slot_start,
-                        forecast_version,
-                    ),
+                stmt = sqlite_insert(SlotForecast).values(
+                    slot_start=slot_start,
+                    pv_forecast_kwh=float(forecast.get("pv_forecast_kwh", 0.0) or 0.0),
+                    load_forecast_kwh=float(forecast.get("load_forecast_kwh", 0.0) or 0.0),
+                    pv_p10=forecast.get("pv_p10"),
+                    pv_p90=forecast.get("pv_p90"),
+                    load_p10=forecast.get("load_p10"),
+                    load_p90=forecast.get("load_p90"),
+                    temp_c=forecast.get("temp_c"),
+                    forecast_version=forecast_version
                 )
-
-            conn.commit()
+                # Preserve corrections on conflict
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['slot_start', 'forecast_version'],
+                    set_={
+                        'pv_forecast_kwh': stmt.excluded.pv_forecast_kwh,
+                        'load_forecast_kwh': stmt.excluded.load_forecast_kwh,
+                        'pv_p10': stmt.excluded.pv_p10,
+                        'pv_p90': stmt.excluded.pv_p90,
+                        'load_p10': stmt.excluded.load_p10,
+                        'load_p90': stmt.excluded.load_p90,
+                        'temp_c': stmt.excluded.temp_c
+                    }
+                )
+                session.execute(stmt)
+            session.commit()
 
     def store_plan(self, plan_df: pd.DataFrame) -> None:
         """
-        Store the planned schedule for later comparison with actuals.
+        Store the planned schedule for later comparison with actuals using SQLAlchemy.
         """
         if plan_df.empty:
             return
 
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-
-            # We expect the DF to have columns like:
-            # slot_start, kepler_charge_kwh, kepler_discharge_kwh, kepler_soc_percent,
-            # kepler_import_kwh, kepler_export_kwh, kepler_cost_sek
-
-            # Map DF columns to DB columns
-            # Note: We use 'kepler_' prefix from the planner output
-
+        with self.Session() as session:
             records = plan_df.to_dict("records")
             for row in records:
                 slot_start = row.get("start_time") or row.get("slot_start")
                 if not slot_start:
                     continue
 
-                if isinstance(slot_start, datetime):
+                if isinstance(slot_start, (datetime, pd.Timestamp)):
                     slot_start = slot_start.astimezone(self.timezone).isoformat()
                 else:
                     slot_start = pd.to_datetime(slot_start).astimezone(self.timezone).isoformat()
 
-                cursor.execute(
-                    """
-                    INSERT INTO slot_plans (
-                        slot_start,
-                        planned_charge_kwh,
-                        planned_discharge_kwh,
-                        planned_soc_percent,
-                        planned_import_kwh,
-                        planned_export_kwh,
-                        planned_water_heating_kwh,
-                        planned_cost_sek
-                    )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(slot_start) DO UPDATE SET
-                        planned_charge_kwh = excluded.planned_charge_kwh,
-                        planned_discharge_kwh = excluded.planned_discharge_kwh,
-                        planned_soc_percent = excluded.planned_soc_percent,
-                        planned_import_kwh = excluded.planned_import_kwh,
-                        planned_export_kwh = excluded.planned_export_kwh,
-                        planned_water_heating_kwh = excluded.planned_water_heating_kwh,
-                        planned_cost_sek = excluded.planned_cost_sek,
-                        created_at = CURRENT_TIMESTAMP
-                    """,
-                    (
-                        slot_start,
-                        float(row.get("kepler_charge_kwh", 0.0) or 0.0),
-                        float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
-                        float(
-                            row.get("soc_target_percent", row.get("kepler_soc_percent", 0.0)) or 0.0
-                        ),
-                        float(row.get("kepler_import_kwh", 0.0) or 0.0),
-                        float(row.get("kepler_export_kwh", 0.0) or 0.0),
-                        float(row.get("water_heating_kw", 0.0) or 0.0) * 0.25,  # kW -> kWh (15min)
-                        float(row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0),
+                stmt = sqlite_insert(SlotPlan).values(
+                    slot_start=slot_start,
+                    planned_charge_kwh=float(row.get("kepler_charge_kwh", 0.0) or 0.0),
+                    planned_discharge_kwh=float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
+                    planned_soc_percent=float(
+                        row.get("soc_target_percent", row.get("kepler_soc_percent", 0.0)) or 0.0
                     ),
+                    planned_import_kwh=float(row.get("kepler_import_kwh", 0.0) or 0.0),
+                    planned_export_kwh=float(row.get("kepler_export_kwh", 0.0) or 0.0),
+                    planned_water_heating_kwh=float(row.get("water_heating_kw", 0.0) or 0.0) * 0.25,
+                    planned_cost_sek=float(row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0)
                 )
-            conn.commit()
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=['slot_start'],
+                    set_={
+                        'planned_charge_kwh': stmt.excluded.planned_charge_kwh,
+                        'planned_discharge_kwh': stmt.excluded.planned_discharge_kwh,
+                        'planned_soc_percent': stmt.excluded.planned_soc_percent,
+                        'planned_import_kwh': stmt.excluded.planned_import_kwh,
+                        'planned_export_kwh': stmt.excluded.planned_export_kwh,
+                        'planned_water_heating_kwh': stmt.excluded.planned_water_heating_kwh,
+                        'planned_cost_sek': stmt.excluded.planned_cost_sek,
+                        'created_at': func.current_timestamp()
+                    }
+                )
+                session.execute(stmt)
+            session.commit()
 
     def store_training_episode(
         self,
@@ -631,39 +241,25 @@ class LearningStore:
         context_json: str | None = None,
         config_overrides_json: str | None = None,
     ) -> None:
-        """Store a training episode for RL."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO training_episodes (
-                    episode_id,
-                    inputs_json,
-                    schedule_json,
-                    context_json,
-                    config_overrides_json
-                )
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    episode_id,
-                    inputs_json,
-                    schedule_json,
-                    context_json,
-                    config_overrides_json,
-                ),
-            )
-            conn.commit()
+        """Store a training episode for RL using SQLAlchemy."""
+        with self.Session() as session:
+            stmt = sqlite_insert(TrainingEpisode).values(
+                episode_id=episode_id,
+                inputs_json=inputs_json,
+                schedule_json=schedule_json,
+                context_json=context_json,
+                config_overrides_json=config_overrides_json
+            ).on_conflict_do_nothing()
+            session.execute(stmt)
+            session.commit()
 
     def get_last_observation_time(self) -> datetime | None:
-        """Get the timestamp of the last recorded observation."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT MAX(slot_start) FROM slot_observations")
-            row = cursor.fetchone()
-            if row and row[0]:
+        """Get the timestamp of the last recorded observation using SQLAlchemy."""
+        with self.Session() as session:
+            result = session.query(func.max(SlotObservation.slot_start)).scalar()
+            if result:
                 # Parse ISO string
-                dt = datetime.fromisoformat(row[0])
+                dt = datetime.fromisoformat(result)
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=self.timezone)
                 else:
@@ -678,88 +274,72 @@ class LearningStore:
         peak_hours: tuple[int, int] = (16, 20),
     ) -> list[dict[str, Any]]:
         """
-        Query slot_observations for low-SoC events during peak hours.
-
-        Args:
-            days_back: How many days to look back
-            threshold_percent: SoC below this is considered critical
-            peak_hours: Tuple of (start_hour, end_hour) for peak demand window
-
-        Returns:
-            List of {date, slot_start, soc_end_percent} for each critical event.
+        Query slot_observations for low-SoC events during peak hours using SQLAlchemy.
         """
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cutoff_date = (
-                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
-            )
+        cutoff_date = (
+            (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        )
+        start_hour, end_hour = peak_hours
 
-            start_hour, end_hour = peak_hours
+        with self.Session() as session:
+            stmt = select(
+                func.date(SlotObservation.slot_start),
+                SlotObservation.slot_start,
+                SlotObservation.soc_end_percent
+            ).where(
+                func.date(SlotObservation.slot_start) >= cutoff_date,
+                SlotObservation.soc_end_percent.is_not(None),
+                SlotObservation.soc_end_percent < threshold_percent,
+                func.cast(func.strftime('%H', SlotObservation.slot_start), func.Integer) >= start_hour,
+                func.cast(func.strftime('%H', SlotObservation.slot_start), func.Integer) < end_hour
+            ).order_by(SlotObservation.slot_start.desc())
 
-            query = """
-                SELECT
-                    DATE(slot_start) as date,
-                    slot_start,
-                    soc_end_percent
-                FROM slot_observations
-                WHERE DATE(slot_start) >= ?
-                  AND soc_end_percent IS NOT NULL
-                  AND soc_end_percent < ?
-                  AND CAST(strftime('%H', slot_start) AS INTEGER) >= ?
-                  AND CAST(strftime('%H', slot_start) AS INTEGER) < ?
-                ORDER BY slot_start DESC
-            """
-            cursor = conn.execute(query, (cutoff_date, threshold_percent, start_hour, end_hour))
-
-            events = []
-            for row in cursor:
-                events.append(
-                    {
-                        "date": row[0],
-                        "slot_start": row[1],
-                        "soc_end_percent": row[2],
-                    }
-                )
-            return events
+            results = session.execute(stmt).all()
+            return [
+                {
+                    "date": r[0],
+                    "slot_start": r[1],
+                    "soc_end_percent": r[2],
+                }
+                for r in results
+            ]
 
     def get_reflex_state(self, param_path: str) -> dict[str, Any] | None:
         """
-        Get the last update state for a parameter.
-
-        Returns:
-            Dict with {last_value, last_updated, change_count} or None if never updated.
+        Get the last update state for a parameter using SQLAlchemy.
         """
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cursor = conn.execute(
-                "SELECT last_value, last_updated, change_count FROM reflex_state WHERE param_path = ?",
-                (param_path,),
-            )
-            row = cursor.fetchone()
-            if row:
+        with self.Session() as session:
+            state = session.get(ReflexState, param_path)
+            if state:
                 return {
-                    "last_value": row[0],
-                    "last_updated": row[1],
-                    "change_count": row[2],
+                    "last_value": state.last_value,
+                    "last_updated": state.last_updated,
+                    "change_count": state.change_count,
                 }
             return None
 
     def update_reflex_state(self, param_path: str, new_value: float) -> None:
         """
-        Update the reflex state for a parameter after a change.
+        Update the reflex state for a parameter after a change using SQLAlchemy.
         """
         now = datetime.now(self.timezone).isoformat()
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            conn.execute(
-                """
-                INSERT INTO reflex_state (param_path, last_value, last_updated, change_count)
-                VALUES (?, ?, ?, 1)
-                ON CONFLICT(param_path) DO UPDATE SET
-                    last_value = excluded.last_value,
-                    last_updated = excluded.last_updated,
-                    change_count = change_count + 1
-                """,
-                (param_path, new_value, now),
+        with self.Session() as session:
+            stmt = sqlite_insert(ReflexState).values(
+                param_path=param_path,
+                last_value=new_value,
+                last_updated=now,
+                change_count=1
             )
-            conn.commit()
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['param_path'],
+                set_={
+                    'last_value': stmt.excluded.last_value,
+                    'last_updated': stmt.excluded.last_updated,
+                    'change_count': ReflexState.change_count + 1
+                }
+            )
+            session.execute(stmt)
+            session.commit()
 
     def get_forecast_vs_actual(
         self,
@@ -767,84 +347,65 @@ class LearningStore:
         target: str = "pv",
     ) -> pd.DataFrame:
         """
-        Compare forecast vs actual values for PV or load.
-
-        Args:
-            days_back: How many days to look back
-            target: 'pv' or 'load'
-
-        Returns:
-            DataFrame with columns: slot_start, forecast, actual, error (forecast - actual)
+        Compare forecast vs actual values for PV or load using SQLAlchemy.
         """
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cutoff_date = (
-                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
-            )
+        cutoff_date = (
+            (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        )
 
-            if target == "pv":
-                forecast_col = "f.pv_forecast_kwh"
-                actual_col = "o.pv_kwh"
-                p10_col = "f.pv_p10"
-                p90_col = "f.pv_p90"
-            else:
-                forecast_col = "f.load_forecast_kwh"
-                actual_col = "o.load_kwh"
-                p10_col = "f.load_p10"
-                p90_col = "f.load_p90"
+        if target == "pv":
+            forecast_col = "f.pv_forecast_kwh"
+            actual_col = "o.pv_kwh"
+            p10_col = "f.pv_p10"
+            p90_col = "f.pv_p90"
+        else:
+            forecast_col = "f.load_forecast_kwh"
+            actual_col = "o.load_kwh"
+            p10_col = "f.load_p10"
+            p90_col = "f.load_p90"
 
-            query = f"""
-                SELECT
-                    o.slot_start,
-                    {forecast_col} as forecast,
-                    {actual_col} as actual,
-                    ({forecast_col} - {actual_col}) as error,
-                    {p10_col} as p10,
-                    {p90_col} as p90
-                FROM slot_observations o
-                JOIN slot_forecasts f ON o.slot_start = f.slot_start
-                WHERE DATE(o.slot_start) >= ?
-                  AND {actual_col} IS NOT NULL
-                  AND {forecast_col} IS NOT NULL
-                ORDER BY o.slot_start ASC
-            """
+        query = f"""
+            SELECT
+                o.slot_start,
+                {forecast_col} as forecast,
+                {actual_col} as actual,
+                ({forecast_col} - {actual_col}) as error,
+                {p10_col} as p10,
+                {p90_col} as p90
+            FROM slot_observations o
+            JOIN slot_forecasts f ON o.slot_start = f.slot_start
+            WHERE DATE(o.slot_start) >= :cutoff
+              AND {actual_col} IS NOT NULL
+              AND {forecast_col} IS NOT NULL
+            ORDER BY o.slot_start ASC
+        """
 
-            df = pd.read_sql_query(query, conn, params=(cutoff_date,))
+        # Using engine.connect() for pd.read_sql
+        with self.engine.connect() as conn:
+            df = pd.read_sql(text(query), conn, params={"cutoff": cutoff_date})
             return df
 
     def get_arbitrage_stats(self, days_back: int = 30) -> dict[str, Any]:
         """
-        Calculate arbitrage statistics for ROI analysis.
-
-        Args:
-            days_back: How many days to look back
-
-        Returns:
-            Dict with:
-                - total_export_revenue: SEK earned from exports
-                - total_import_cost: SEK spent on imports (for charging)
-                - total_charge_kwh: Total energy charged
-                - total_discharge_kwh: Total energy discharged
-                - cycles: Estimated battery cycles (charge_kwh / capacity placeholder)
-                - profit_per_cycle: Revenue / cycles
+        Calculate arbitrage statistics for ROI analysis using SQLAlchemy.
         """
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cutoff_date = (
-                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        cutoff_date = (
+            (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        )
+
+        with self.Session() as session:
+            stmt = select(
+                func.sum(SlotObservation.export_kwh * SlotObservation.export_price_sek_kwh),
+                func.sum(SlotObservation.import_kwh * SlotObservation.import_price_sek_kwh),
+                func.sum(SlotObservation.batt_charge_kwh),
+                func.sum(SlotObservation.batt_discharge_kwh)
+            ).where(
+                func.date(SlotObservation.slot_start) >= cutoff_date,
+                SlotObservation.export_price_sek_kwh.is_not(None),
+                SlotObservation.import_price_sek_kwh.is_not(None)
             )
 
-            query = """
-                SELECT
-                    SUM(export_kwh * export_price_sek_kwh) as export_revenue,
-                    SUM(import_kwh * import_price_sek_kwh) as import_cost,
-                    SUM(batt_charge_kwh) as total_charge,
-                    SUM(batt_discharge_kwh) as total_discharge
-                FROM slot_observations
-                WHERE DATE(slot_start) >= ?
-                  AND export_price_sek_kwh IS NOT NULL
-                  AND import_price_sek_kwh IS NOT NULL
-            """
-
-            row = conn.execute(query, (cutoff_date,)).fetchone()
+            row = session.execute(stmt).fetchone()
 
             export_revenue = row[0] or 0.0
             import_cost = row[1] or 0.0
@@ -861,38 +422,27 @@ class LearningStore:
 
     def get_capacity_estimate(self, days_back: int = 30) -> float | None:
         """
-        Estimate effective battery capacity from discharge observations.
-
-        Looks for large discharge events (SoC drop > 30%) and calculates
-        the ratio of energy discharged to SoC percentage dropped.
-
-        Args:
-            days_back: How many days to look back
-
-        Returns:
-            Estimated capacity in kWh, or None if insufficient data.
+        Estimate effective battery capacity from discharge observations using SQLAlchemy.
         """
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cutoff_date = (
-                (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        cutoff_date = (
+            (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        )
+
+        with self.Session() as session:
+            stmt = select(
+                SlotObservation.soc_start_percent,
+                SlotObservation.soc_end_percent,
+                SlotObservation.batt_discharge_kwh
+            ).where(
+                func.date(SlotObservation.slot_start) >= cutoff_date,
+                SlotObservation.soc_start_percent.is_not(None),
+                SlotObservation.soc_end_percent.is_not(None),
+                SlotObservation.batt_discharge_kwh.is_not(None),
+                SlotObservation.batt_discharge_kwh > 0.1,
+                SlotObservation.soc_start_percent > SlotObservation.soc_end_percent
             )
 
-            # Look for slots with significant discharge
-            query = """
-                SELECT
-                    soc_start_percent,
-                    soc_end_percent,
-                    batt_discharge_kwh
-                FROM slot_observations
-                WHERE DATE(slot_start) >= ?
-                  AND soc_start_percent IS NOT NULL
-                  AND soc_end_percent IS NOT NULL
-                  AND batt_discharge_kwh IS NOT NULL
-                  AND batt_discharge_kwh > 0.1
-                  AND soc_start_percent > soc_end_percent
-            """
-
-            rows = conn.execute(query, (cutoff_date,)).fetchall()
+            rows = session.execute(stmt).all()
 
             if len(rows) < 10:
                 return None
@@ -902,7 +452,6 @@ class LearningStore:
             for soc_start, soc_end, discharge_kwh in rows:
                 soc_drop = soc_start - soc_end
                 if soc_drop > 0.5:  # At least 0.5% drop
-                    # effective_capacity = discharge / (soc_drop/100)
                     estimated_cap = discharge_kwh / (soc_drop / 100.0)
                     if 10 < estimated_cap < 100:  # Sanity check
                         estimates.append(estimated_cap)
@@ -914,3 +463,100 @@ class LearningStore:
             estimates.sort()
             median_idx = len(estimates) // 2
             return round(estimates[median_idx], 1)
+
+    def calculate_metrics(self, days_back: int = 7) -> dict[str, Any]:
+        """Calculate learning metrics using SQLAlchemy."""
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+        metrics = {}
+
+        with self.Session() as session:
+            # 1. Forecast Accuracy
+            stmt_pv = select(func.avg(func.abs(SlotObservation.pv_kwh - SlotForecast.pv_forecast_kwh))).join(
+                SlotForecast, SlotObservation.slot_start == SlotForecast.slot_start
+            ).where(func.date(SlotObservation.slot_start) >= cutoff_date)
+
+            pv_res = session.execute(stmt_pv).scalar()
+            if pv_res:
+                metrics["mae_pv"] = round(pv_res, 4)
+
+            # 2. Plan Deviation
+            stmt_plan = select(
+                func.avg(func.abs(SlotObservation.batt_charge_kwh - SlotPlan.planned_charge_kwh)),
+                func.avg(func.abs(SlotObservation.batt_discharge_kwh - SlotPlan.planned_discharge_kwh)),
+                func.avg(func.abs(SlotObservation.soc_end_percent - SlotPlan.planned_soc_percent))
+            ).join(
+                SlotPlan, SlotObservation.slot_start == SlotPlan.slot_start
+            ).where(func.date(SlotObservation.slot_start) >= cutoff_date)
+
+            plan_res = session.execute(stmt_plan).fetchone()
+            if plan_res:
+                metrics["mae_plan_charge"] = round(plan_res[0] or 0.0, 4)
+                metrics["mae_plan_discharge"] = round(plan_res[1] or 0.0, 4)
+                metrics["mae_plan_soc"] = round(plan_res[2] or 0.0, 4)
+
+            # 3. Cost Deviation
+            stmt_cost = select(
+                func.sum(SlotObservation.import_kwh * SlotObservation.import_price_sek_kwh -
+                         SlotObservation.export_kwh * SlotObservation.export_price_sek_kwh),
+                func.sum(SlotPlan.planned_cost_sek)
+            ).join(
+                SlotPlan, SlotObservation.slot_start == SlotPlan.slot_start
+            ).where(
+                func.date(SlotObservation.slot_start) >= cutoff_date,
+                SlotObservation.import_price_sek_kwh.is_not(None)
+            )
+
+            cost_res = session.execute(stmt_cost).fetchone()
+            if cost_res and cost_res[0] is not None and cost_res[1] is not None:
+                metrics["total_realized_cost"] = round(cost_res[0], 2)
+                metrics["total_planned_cost"] = round(cost_res[1], 2)
+                metrics["cost_deviation"] = round(abs(cost_res[0] - cost_res[1]), 2)
+
+        return metrics
+
+    def get_performance_series(self, days_back: int = 7) -> dict[str, list[dict]]:
+        """Get performance time-series data using SQLAlchemy."""
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+
+        with self.Session() as session:
+            # 1. SoC Series
+            stmt_soc = select(
+                SlotObservation.slot_start,
+                SlotPlan.planned_soc_percent,
+                SlotObservation.soc_end_percent
+            ).outerjoin(
+                SlotPlan, SlotObservation.slot_start == SlotPlan.slot_start
+            ).where(func.date(SlotObservation.slot_start) >= cutoff_date).order_by(SlotObservation.slot_start.asc())
+
+            soc_results = session.execute(stmt_soc).all()
+            soc_series = [{"time": r[0], "planned": r[1], "actual": r[2]} for r in soc_results]
+
+            # 2. Daily Cost Series
+            stmt_cost_daily = select(
+                func.date(SlotObservation.slot_start).label("day"),
+                func.sum(SlotPlan.planned_cost_sek),
+                func.sum(SlotObservation.import_kwh * SlotObservation.import_price_sek_kwh -
+                         SlotObservation.export_kwh * SlotObservation.export_price_sek_kwh)
+            ).outerjoin(
+                SlotPlan, SlotObservation.slot_start == SlotPlan.slot_start
+            ).where(
+                func.date(SlotObservation.slot_start) >= cutoff_date,
+                SlotObservation.import_price_sek_kwh.is_not(None)
+            ).group_by("day").order_by("day")
+
+            cost_results = session.execute(stmt_cost_daily).all()
+            cost_series = [
+                {
+                    "date": r[0],
+                    "planned": round(r[1] or 0.0, 2),
+                    "realized": round(r[2] or 0.0, 2),
+                }
+                for r in cost_results
+            ]
+
+        return {"soc_series": soc_series, "cost_series": cost_series}
+
+    def get_episodes_count(self) -> int:
+        """Count training episodes using SQLAlchemy."""
+        with self.Session() as session:
+            return session.query(func.count(TrainingEpisode.episode_id)).scalar() or 0

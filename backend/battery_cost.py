@@ -11,17 +11,21 @@ Algorithm (weighted average):
 """
 
 import logging
-import sqlite3
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
+
+from backend.learning.models import BatteryCost
 
 # Default cost when no data is available (conservative to prevent aggressive export)
 DEFAULT_BATTERY_COST_SEK_PER_KWH = 1.0
 
+logger = logging.getLogger(__name__)
+
 
 class BatteryCostTracker:
-    """Tracks battery energy cost using weighted average."""
+    """Tracks battery energy cost using weighted average using SQLAlchemy."""
 
     def __init__(self, db_path: str, capacity_kwh: float):
         """
@@ -33,20 +37,14 @@ class BatteryCostTracker:
         """
         self.db_path = db_path
         self.capacity_kwh = capacity_kwh
-        self._ensure_table()
 
-    def _ensure_table(self) -> None:
-        """Create the battery_cost table if it doesn't exist."""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS battery_cost (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    avg_cost_sek_per_kwh REAL NOT NULL,
-                    energy_kwh REAL NOT NULL,
-                    updated_at TEXT NOT NULL
-                )
-            """)
-            conn.commit()
+        # Initialize SQLAlchemy
+        connect_args = {"check_same_thread": False, "timeout": 30.0}
+        self.engine = create_engine(f"sqlite:///{db_path}", connect_args=connect_args)
+        self.Session = sessionmaker(bind=self.engine)
+
+        # Table is managed by Alembic, but we can ensure it exists for standalone tests
+        # self._ensure_table()
 
     def get_current_cost(self) -> float:
         """
@@ -56,11 +54,10 @@ class BatteryCostTracker:
             Current cost in SEK/kWh, or DEFAULT if no data
         """
         try:
-            with sqlite3.connect(self.db_path, timeout=10.0) as conn:
-                cursor = conn.execute("SELECT avg_cost_sek_per_kwh FROM battery_cost WHERE id = 1")
-                row = cursor.fetchone()
-                if row:
-                    return float(row[0])
+            with self.Session() as session:
+                cost = session.query(BatteryCost.avg_cost_sek_per_kwh).filter_by(id=1).scalar()
+                if cost is not None:
+                    return float(cost)
         except Exception as exc:
             logger.warning("Failed to read battery cost: %s", exc)
 
@@ -74,17 +71,13 @@ class BatteryCostTracker:
             Dict with cost, energy, and updated_at
         """
         try:
-            with sqlite3.connect(self.db_path, timeout=10.0) as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.execute(
-                    "SELECT avg_cost_sek_per_kwh, energy_kwh, updated_at FROM battery_cost WHERE id = 1"
-                )
-                row = cursor.fetchone()
+            with self.Session() as session:
+                row = session.get(BatteryCost, 1)
                 if row:
                     return {
-                        "avg_cost_sek_per_kwh": row["avg_cost_sek_per_kwh"],
-                        "energy_kwh": row["energy_kwh"],
-                        "updated_at": row["updated_at"],
+                        "avg_cost_sek_per_kwh": row.avg_cost_sek_per_kwh,
+                        "energy_kwh": row.energy_kwh,
+                        "updated_at": row.updated_at,
                     }
         except Exception as exc:
             logger.warning("Failed to read battery cost state: %s", exc)
@@ -154,15 +147,19 @@ class BatteryCostTracker:
 
         # Persist to database
         try:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO battery_cost (id, avg_cost_sek_per_kwh, energy_kwh, updated_at)
-                    VALUES (1, ?, ?, ?)
-                """,
-                    (new_cost, new_energy_kwh, datetime.now().isoformat()),
+            with self.Session() as session:
+                session.execute(
+                    text(
+                        "INSERT OR REPLACE INTO battery_cost (id, avg_cost_sek_per_kwh, energy_kwh, updated_at) "
+                        "VALUES (1, :cost, :energy, :updated_at)"
+                    ),
+                    {
+                        "cost": new_cost,
+                        "energy": new_energy_kwh,
+                        "updated_at": datetime.now().isoformat(),
+                    },
                 )
-                conn.commit()
+                session.commit()
 
             logger.info(
                 "Battery cost updated: %.3f SEK/kWh (energy: %.2f kWh, grid: %.2f, pv: %.2f, price: %.2f)",
@@ -178,17 +175,17 @@ class BatteryCostTracker:
         return new_cost
 
     def reset(self, cost: float = DEFAULT_BATTERY_COST_SEK_PER_KWH) -> None:
-        """Reset battery cost to a specific value."""
+        """Reset battery cost to a specific value using SQLAlchemy."""
         try:
-            with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO battery_cost (id, avg_cost_sek_per_kwh, energy_kwh, updated_at)
-                    VALUES (1, ?, 0.0, ?)
-                """,
-                    (cost, datetime.now().isoformat()),
+            with self.Session() as session:
+                session.execute(
+                    text(
+                        "INSERT OR REPLACE INTO battery_cost (id, avg_cost_sek_per_kwh, energy_kwh, updated_at) "
+                        "VALUES (1, :cost, 0.0, :updated_at)"
+                    ),
+                    {"cost": cost, "updated_at": datetime.now().isoformat()},
                 )
-                conn.commit()
+                session.commit()
             logger.info("Battery cost reset to %.3f SEK/kWh", cost)
         except Exception as exc:
             logger.error("Failed to reset battery cost: %s", exc)

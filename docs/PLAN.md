@@ -103,23 +103,26 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
-### [PLANNED] REV // ARC2 — Database Migration Framework
+### [PLANNED] REV // ARC9 — Database Migration Framework
 
 **Goal:** Introduce `Alembic` to manage database schema migrations safely and automatically.
 
 **Plan:**
 
 #### Phase 1: Setup
-* [ ] Add `alembic` to `requirements.txt`.
-* [ ] Initialize Alembic (`alembic init`).
-* [ ] Configure `alembic.ini` to use `data/planner_learning.db` (and respect `DB_PATH` env var).
-* [ ] Create `env.py` to import `Base` from `backend/learning/store.py` (or creating a proper SQLAlchemy Base).
+#### Phase 1: Setup [DONE]
+* [x] Add `alembic` to `requirements.txt`.
+* [x] Initialize Alembic (`alembic init`).
+* [x] Configure `alembic.ini` to use `data/planner_learning.db` (and respect `DB_PATH` env var).
+* [x] Create `env.py` to import `Base` from `backend/learning/store.py` (or creating a proper SQLAlchemy Base).
 
-#### Phase 2: Implementation
-* [ ] Refactor `LearningStore` to use SQLAlchemy models (if not fully compatible).
-* [ ] Create initial migration script (`alembic revision --autogenerate -m "baseline"`).
-* [ ] Update `backend/main.py` startup event to run `alembic upgrade head` instead of the custom `_init_schema` logic.
-* [ ] Verify existing databases can be "stamped" with the baseline version without data loss.
+#### Phase 2: Implementation [DONE]
+* [x] Integrate `alembic` and `sqlalchemy` (Rev ARC9)
+* [x] Define SQLAlchemy models for all learning tables in `models.py`
+* [x] Create baseline migration script (stamp existing DB)
+* [x] Implement `lifespan` migration runner in `backend/main.py`
+* [x] Refactor `LearningStore` to SQLAlchemy
+* [x] Verify migration on fresh DB
+* [x] Verify migration on existing DB (no data loss)
 
 ---
-

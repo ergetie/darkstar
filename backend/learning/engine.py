@@ -1,7 +1,6 @@
 import json
-import sqlite3
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -195,67 +194,13 @@ class LearningEngine:
         return slot_df
 
     def calculate_metrics(self, days_back: int = 7) -> dict[str, Any]:
-        """Calculate learning metrics for the last N days"""
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
-            metrics = {}
-
-            # 1. Forecast Accuracy (Existing)
-            pv_query = """
-                SELECT AVG(ABS(o.pv_kwh - f.pv_forecast_kwh))
-                FROM slot_observations o
-                JOIN slot_forecasts f ON o.slot_start = f.slot_start
-                WHERE DATE(o.slot_start) >= ?
-            """
-            pv_res = conn.execute(pv_query, (cutoff_date.isoformat(),)).fetchone()
-            if pv_res and pv_res[0]:
-                metrics["mae_pv"] = round(pv_res[0], 4)
-
-            # 2. Plan Deviation (New for K6)
-            # MAE of (Planned Charge - Actual Charge)
-            plan_query = """
-                SELECT
-                    AVG(ABS(o.batt_charge_kwh - p.planned_charge_kwh)) as mae_charge,
-                    AVG(ABS(o.batt_discharge_kwh - p.planned_discharge_kwh)) as mae_discharge,
-                    AVG(ABS(o.soc_end_percent - p.planned_soc_percent)) as mae_soc
-                FROM slot_observations o
-                JOIN slot_plans p ON o.slot_start = p.slot_start
-                WHERE DATE(o.slot_start) >= ?
-            """
-            plan_res = conn.execute(plan_query, (cutoff_date.isoformat(),)).fetchone()
-            if plan_res:
-                metrics["mae_plan_charge"] = round(plan_res[0] or 0.0, 4)
-                metrics["mae_plan_discharge"] = round(plan_res[1] or 0.0, 4)
-                metrics["mae_plan_soc"] = round(plan_res[2] or 0.0, 4)
-
-            # 3. Cost Deviation (New for K6)
-            # We need to calculate Realized Cost first.
-            # Realized Cost ~= (Import * Price) - (Export * Price)
-            # Compare with Planned Cost.
-            cost_query = """
-                SELECT
-                    SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost,
-                    SUM(p.planned_cost_sek) as planned_cost
-                FROM slot_observations o
-                JOIN slot_plans p ON o.slot_start = p.slot_start
-                WHERE DATE(o.slot_start) >= ?
-                  AND o.import_price_sek_kwh IS NOT NULL
-            """
-            cost_res = conn.execute(cost_query, (cutoff_date.isoformat(),)).fetchone()
-            if cost_res and cost_res[0] is not None and cost_res[1] is not None:
-                metrics["total_realized_cost"] = round(cost_res[0], 2)
-                metrics["total_planned_cost"] = round(cost_res[1], 2)
-                metrics["cost_deviation"] = round(abs(cost_res[0] - cost_res[1]), 2)
-
-            return metrics
+        """Calculate learning metrics for the last N days using the store."""
+        return self.store.calculate_metrics(days_back)
 
     def get_status(self) -> dict[str, Any]:
         """Get current status of the learning engine."""
         last_obs = self.store.get_last_observation_time()
-
-        # Count training episodes
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            episodes = conn.execute("SELECT COUNT(*) FROM training_episodes").fetchone()[0]
+        episodes = self.store.get_episodes_count()
 
         return {
             "status": "active",
@@ -267,54 +212,6 @@ class LearningEngine:
 
     def get_performance_series(self, days_back: int = 7) -> dict[str, list[dict]]:
         """
-        Get time-series data for performance visualization.
-        Returns:
-            {
-                "soc_series": [{"time": iso, "planned": float, "actual": float}, ...],
-                "cost_series": [{"date": iso, "planned": float, "realized": float}, ...]
-            }
+        Get time-series data for performance visualization using the store.
         """
-        with sqlite3.connect(self.db_path, timeout=30.0) as conn:
-            cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date()
-
-            # 1. SoC Series (15-min resolution)
-            soc_query = """
-                SELECT
-                    o.slot_start,
-                    p.planned_soc_percent,
-                    o.soc_end_percent
-                FROM slot_observations o
-                LEFT JOIN slot_plans p ON o.slot_start = p.slot_start
-                WHERE DATE(o.slot_start) >= ?
-                ORDER BY o.slot_start ASC
-            """
-            cursor = conn.execute(soc_query, (cutoff_date.isoformat(),))
-            soc_series = []
-            for row in cursor:
-                soc_series.append({"time": row[0], "planned": row[1], "actual": row[2]})
-
-            # 2. Cost Series (Daily resolution)
-            cost_query = """
-                SELECT
-                    DATE(o.slot_start) as day,
-                    SUM(p.planned_cost_sek) as planned_cost,
-                    SUM(o.import_kwh * o.import_price_sek_kwh - o.export_kwh * o.export_price_sek_kwh) as realized_cost
-                FROM slot_observations o
-                LEFT JOIN slot_plans p ON o.slot_start = p.slot_start
-                WHERE DATE(o.slot_start) >= ?
-                  AND o.import_price_sek_kwh IS NOT NULL
-                GROUP BY day
-                ORDER BY day ASC
-            """
-            cursor = conn.execute(cost_query, (cutoff_date.isoformat(),))
-            cost_series = []
-            for row in cursor:
-                cost_series.append(
-                    {
-                        "date": row[0],
-                        "planned": row[1] if row[1] is not None else 0.0,
-                        "realized": row[2] if row[2] is not None else 0.0,
-                    }
-                )
-
-            return {"soc_series": soc_series, "cost_series": cost_series}
+        return self.store.get_performance_series(days_back)
