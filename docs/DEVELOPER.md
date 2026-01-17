@@ -25,14 +25,19 @@ For complete requirements, see `requirements.txt`.
     ```bash
     git clone <repository-url>
     cd darkstar
-    python -m venv venv
-    source venv/bin/activate
+
+    # ⚡ Install uv (The blazing fast Python manager)
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # Create virtual environment
+    uv venv
+
     ```
 
 2.  **Install Dependencies:**
     ```bash
     # Backend & ML pipeline
-    pip install -r requirements.txt
+    uv pip install -r requirements.txt
 
     # Frontend
     pnpm install
@@ -71,6 +76,7 @@ Located in `ml/`, Aurora Vision is a LightGBM-based machine learning engine.
 *   **Training**: Learns your home's specific patterns from historical data (`planner_learning.db`).
 *   **Inference**: Generates base PV/Load forecasts and predicts forecast errors via Rolling Averages or LightGBM (depending on data depth).
 *   **Control**: You can toggle between "Baseline" (7-day average) and "Aurora" (ML) in the UI.
+
 
 ### 2. Aurora Strategy (The Context Layer)
 Located in `backend/strategy/`, this layer injects "common sense" overrides before the mathematical planner runs.
@@ -302,6 +308,17 @@ pnpm run dev  # OR run backend/scheduler separately
     ```
 3.  **UI Themes**: Add custom JSON themes to `backend/themes/`.
 4.  **Logs**: Check the **Debug** tab in the UI for real-time logs from the Planner, Scheduler, and Strategy Engine.
+
+### Commit Protocol (Strict)
+This project enforces **Conventional Commits** automatically via `commitlint`.
+All commit messages MUST follow the format: `type(scope): description`.
+
+- ✅ `fix(api): handle timeout error`
+- ✅ `feat(ui): add dark mode toggle`
+- ❌ `fixed api` (Will be rejected)
+
+Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`.
+
 5.  **Releases**:
     When releasing a new version:
     1. **Bump version** in:

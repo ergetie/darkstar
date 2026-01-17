@@ -7,6 +7,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 from collections import defaultdict
 from datetime import timedelta  # Rev WH2
+import logging
 
 import pulp
 
@@ -22,7 +23,10 @@ class KeplerSolver:
         T = len(slots)
         if T == 0:
             return KeplerResult(
-                slots=[], total_cost_sek=0.0, is_optimal=True, status_msg="No slots to schedule"
+                slots=[],
+                total_cost_sek=0.0,
+                is_optimal=True,
+                status_msg="No slots to schedule",
             )
 
         # Calculate slot duration in hours
@@ -239,7 +243,8 @@ class KeplerSolver:
                 if i == 0:
                     # First day: reduce by what's already heated today
                     day_min_kwh = max(
-                        0.0, config.water_heating_min_kwh - config.water_heated_today_kwh
+                        0.0,
+                        config.water_heating_min_kwh - config.water_heated_today_kwh,
                     )
                 else:
                     # Future days: full daily requirement
@@ -288,8 +293,7 @@ class KeplerSolver:
                     # Check preceding slots in spacing window
                     start_idx = max(0, t - spacing_slots)
                     prob += (
-                        pulp.lpSum(water_heat[j] for j in range(start_idx, t))
-                        + water_start[t] * M
+                        pulp.lpSum(water_heat[j] for j in range(start_idx, t)) + water_start[t] * M
                         <= M
                     )
 
@@ -318,16 +322,33 @@ class KeplerSolver:
         )
 
         # Solve using GLPK (available in Alpine) or CBC as fallback
+        import time
+
+        build_start = time.time()
+        # Solver setup is fast, but let's track the overhead of calling the solver command
+        # Note: pulp.LpProblem construction happened above, so 'build_time' here is mostly
+        # just the overhead of writing the LP file in prob.solve()
+
         try:
             # Try GLPK first (installed in Alpine Docker image)
-            prob.solve(pulp.GLPK_CMD(msg=False))
+            solver_cmd = pulp.GLPK_CMD(msg=False)
+            prob.solve(solver_cmd)
         except Exception:
             # Fall back to CBC if GLPK not available
-            prob.solve(pulp.PULP_CBC_CMD(msg=False))
+            solver_cmd = pulp.PULP_CBC_CMD(msg=False)
+            prob.solve(solver_cmd)
+
+        solve_end = time.time()
 
         # Extract Results
         status = pulp.LpStatus[prob.status]
         is_optimal = status == "Optimal"
+
+        # Log Performance Metrics
+        solve_duration = solve_end - build_start  # This is just the solve() call duration
+        # Count stats
+        var_count = len(prob.variables())
+        const_count = len(prob.constraints)
 
         if not is_optimal:
             prob.writeLP("kepler_debug.lp")
@@ -377,6 +398,18 @@ class KeplerSolver:
                         is_optimal=True,
                     )
                 )
+
+            # Update the log with correct cost (since we calculated it in the loop)
+            logger_perf = logging.getLogger("darkstar.performance")
+            logger_perf.setLevel(logging.INFO)  # Ensure we see it
+            logger_perf.info(
+                "Kepler Solved: %d slots in %.3fs (Vars: %d, Const: %d) | Cost: %.2f SEK",
+                T,
+                solve_duration,
+                var_count,
+                const_count,
+                final_total_cost,
+            )
 
         return KeplerResult(
             slots=result_slots,

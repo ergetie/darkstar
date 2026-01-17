@@ -191,9 +191,9 @@ class ExecutorEngine:
             return {
                 "enabled": self.status.enabled,
                 "shadow_mode": self.status.shadow_mode,
-                "last_run_at": self.status.last_run_at.isoformat()
-                if self.status.last_run_at
-                else None,
+                "last_run_at": (
+                    self.status.last_run_at.isoformat() if self.status.last_run_at else None
+                ),
                 "last_run_status": self.status.last_run_status,
                 "last_error": self.status.last_error,
                 "last_skip_reason": self.status.last_skip_reason,
@@ -281,7 +281,10 @@ class ExecutorEngine:
             }
 
     def set_quick_action(
-        self, action_type: str, duration_minutes: int, params: dict[str, Any] | None = None
+        self,
+        action_type: str,
+        duration_minutes: int,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Set a time-limited quick action override.
@@ -519,11 +522,11 @@ class ExecutorEngine:
 
         try:
             self.dispatcher._send_notification(message, title=title)
-            # If data is provided, we might need a more direct HA call since _send_notification is simplified
+            # If data is provided, we might need a more direct HA call since _send_notification is simplified  # noqa: E501
             if data:
                 self.ha_client.send_notification(
                     self.config.notifications.service, title, message, data=data
-                )
+                )  # noqa: E501
             return True
         except Exception as e:
             logger.error("Failed to send notification: %s", e)
@@ -543,7 +546,10 @@ class ExecutorEngine:
         """
         # Rev O1: Skip if no water heater configured
         if not self._has_water_heater:
-            return {"success": False, "error": "No water heater configured in system profile"}
+            return {
+                "success": False,
+                "error": "No water heater configured in system profile",
+            }
 
         valid_durations = [30, 60, 120]
         if duration_minutes not in valid_durations:
@@ -681,7 +687,9 @@ class ExecutorEngine:
             wait_seconds = (next_run - now).total_seconds()
             if wait_seconds > 1:  # Only wait if more than 1s
                 logger.debug(
-                    "Waiting %.1fs until next run at %s", wait_seconds, next_run.isoformat()
+                    "Waiting %.1fs until next run at %s",
+                    wait_seconds,
+                    next_run.isoformat(),
                 )
                 if self._stop_event.wait(wait_seconds):
                     break  # Stop event was set during wait
@@ -714,7 +722,12 @@ class ExecutorEngine:
                 logger.info("Executing scheduled tick at %s", tick_start.isoformat())
                 self._tick()
                 tick_duration = (datetime.now(tz) - tick_start).total_seconds()
-                logger.debug("Tick completed in %.2fs", tick_duration)
+
+                # Rev PERF2: Performance Logging
+                if tick_duration > 1.0:
+                    logger.warning("\u26a0\ufe0f SLOW TICK: %.2fs (Threshold: 1.0s)", tick_duration)
+                else:
+                    logger.info("Tick completed in %.2fs", tick_duration)
             except Exception as e:
                 logger.exception("Executor tick failed: %s", e)
                 self.status.last_run_status = "error"
@@ -799,7 +812,7 @@ class ExecutorEngine:
                             {
                                 "type": "skip",
                                 "reason": "automation_disabled",
-                                "message": f"Toggle {self.config.automation_toggle_entity} is {toggle_state}",
+                                "message": f"Toggle {self.config.automation_toggle_entity} is {toggle_state}",  # noqa: E501
                             }
                         ],
                     }
@@ -913,7 +926,9 @@ class ExecutorEngine:
 
             if override.override_needed:
                 logger.info(
-                    "Override active: %s - %s", override.override_type.value, override.reason
+                    "Override active: %s - %s",
+                    override.override_type.value,
+                    override.reason,
                 )
                 result["override"] = {
                     "type": override.override_type.value,
@@ -947,7 +962,11 @@ class ExecutorEngine:
                 for r in action_results:
                     if not r.success and not r.skipped:
                         self.recent_errors.append(
-                            {"timestamp": now_iso, "type": r.action_type, "message": r.message}
+                            {
+                                "timestamp": now_iso,
+                                "type": r.action_type,
+                                "message": r.message,
+                            }
                         )
 
                 result["actions"] = [
@@ -969,7 +988,7 @@ class ExecutorEngine:
                 state=state,
                 decision=decision,
                 override=override,
-                success=all(r.success for r in action_results) if action_results else True,
+                success=(all(r.success for r in action_results) if action_results else True),
                 duration_ms=duration_ms,
             )
             self.history.log_execution(record)
@@ -1063,7 +1082,9 @@ class ExecutorEngine:
                     # Sanity check: if end <= start, use 15-min default
                     if end <= start:
                         logger.warning(
-                            "Invalid end_time %s <= start_time %s, using 15min slot", end, start
+                            "Invalid end_time %s <= start_time %s, using 15min slot",
+                            end,
+                            start,
                         )
                         end = start + timedelta(minutes=15)
                 else:
@@ -1216,7 +1237,7 @@ class ExecutorEngine:
             before_load_kw=state.current_load_kw,
             # Override
             override_active=1 if override.override_needed else 0,
-            override_type=override.override_type.value if override.override_needed else None,
+            override_type=(override.override_type.value if override.override_needed else None),
             override_reason=override.reason if override.override_needed else None,
             # Result
             success=1 if success else 0,

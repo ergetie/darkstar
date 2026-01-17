@@ -25,19 +25,19 @@ Darkstar is transitioning from a deterministic optimizer (v1) to an intelligent 
 ## 🤖 AI Instructions (Read First)
 
 1.  **Structure:** This file is a **chronological stream**. Newest items are at the **bottom**.
-    
+
 2.  **No Reordering:** Never move items. Only update their status or append new items.
-    
+
 3.  **Status Protocol:**
-    
+
     -   Update the status tag in the Header: `### [STATUS] REV // ID00 — Title`
-        
+
     -   Allowed Statuses: `[DRAFT]`, `[PLANNED]`, `[IN PROGRESS]`, `[DONE]`, `[PAUSED]`, `[OBSOLETE]`.
-        
+
 4.  **New Revisions:** Always use the template below.
-    
+
 5.  **Cleanup:** When this file gets too long (>15 completed items), move the oldest `[DONE]` items to `CHANGELOG.md`.
-    
+
 
 ### Revision Template
 
@@ -133,7 +133,7 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
-### [PLANNED] REV // DX2 — Tooling Upgrade (Commitlint & uv)
+### [PLANNED] REV // DX4 — Tooling Upgrade (Commitlint & uv)
 
 **Goal:** Enforce Conventional Commits standards and accelerate backend development workflows using `uv`.
 
@@ -151,9 +151,16 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 * [ ] Verify backend starts and runs tests correctly with `uv`.
 
 #### Phase 3: Validation & Documentation [PLANNED]
-* [ ] Update `docs/DEVELOPER.md` with new workflow instructions.
+* [ ] Update `docs/DEVELOPER.md` and `.agent/rules/project.md` with new workflow instructions.
 * [ ] Manual Verification of all changes.
 * [ ] **User Manual Approval** required before final commit.
 
 ---
 
+### [PLANNED] REV // PERF2 — Performance Instrumentation
+
+**Goal:** Instrument MILP solver and Executor to identify performance bottlenecks.
+
+* [ ] Add timing logs to `KeplerSolver.solve` (build vs solve time).
+* [ ] Promote Executor tick duration to INFO and add breakdown.
+* [ ] Analyze logs to determine need for Rust optimization.

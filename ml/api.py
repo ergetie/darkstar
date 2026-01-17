@@ -7,7 +7,7 @@ from __future__ import annotations
 import sqlite3
 from typing import TYPE_CHECKING, Any, cast
 
-import aiosqlite
+# import aiosqlite # Lazy imported
 import pandas as pd
 
 from backend.learning import LearningEngine, get_learning_engine
@@ -120,6 +120,8 @@ async def get_forecast_slots_async(
     Async return forecast slots for the given time window and version.
     Uses aiosqlite for non-blocking I/O.
     """
+    import aiosqlite
+
     engine = _get_engine()
 
     query = """

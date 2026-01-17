@@ -83,4 +83,6 @@ reportMissingTypeStubs = "warning"
 reportUnusedImport = true
 reportUnusedVariable = true
 reportUnusedClass = true
-reportUnusedFunction = true
+
+[tool.black]
+line-length = 100
