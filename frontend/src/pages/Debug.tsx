@@ -172,7 +172,7 @@ export default function Debug() {
                     {logsError && <div className="text-[11px] text-amber-400 mb-2">{logsError}</div>}
                     <div
                         ref={logContainerRef}
-                        className="h-[600px] overflow-auto rounded-xl2 border border-line/60 bg-surface2/40 text-[11px] font-mono text-muted/90 mb-3"
+                        className="h-[calc(100vh-280px)] min-h-[400px] overflow-auto rounded-xl2 border border-line/60 bg-surface2/40 text-[11px] font-mono text-muted/90 mb-3"
                     >
                         {filteredLogs.length === 0 && !logsLoading && !logsError && (
                             <div className="px-3 py-2 text-muted/70">No logs captured yet.</div>
