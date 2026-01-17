@@ -63,22 +63,41 @@ async def lifespan(app: FastAPI):
     # Run database migrations (REV ARC9)
     try:
         import subprocess
-        logger.info("📦 Running database migrations...")
-        # We run this as a subprocess to ensure clean environment and simplified config
+        import os
+        logger.info("📦 Checking database schema...")
+        
+        # Ensure data directory exists
+        db_path = os.getenv("DB_PATH", "data/planner_learning.db")
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        
+        # Inherit env to ensure credentials/paths are preserved
+        run_env = os.environ.copy()
+        
         result = subprocess.run(
             ["python3", "-m", "alembic", "upgrade", "head"],
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=60,
+            env=run_env
         )
+        
         if result.returncode == 0:
-            logger.info("✅ Database migrations completed.")
-            if result.stdout:
-                logger.debug("Migration output: %s", result.stdout)
+            if "Running upgrade" in result.stdout or "Running upgrade" in result.stderr:
+                logger.info("✅ Database migrations applied successfully.")
+                if result.stdout:
+                    logger.debug(f"Migration stdout: {result.stdout.strip()}")
+            else:
+                logger.info("✅ Database schema is up to date.")
         else:
-            logger.error("❌ Database migrations failed: %s", result.stderr)
+            logger.error("❌ Database migrations failed!")
+            if result.stderr:
+                logger.error(f"Alembic error: {result.stderr.strip()}")
+            if result.stdout:
+                logger.error(f"Alembic output: {result.stdout.strip()}")
+            # In production, we might want to exit here, but for now we'll allow 
+            # partial startup to let the user see logs via the Debug page.
     except Exception as e:
-        logger.error("❌ Failed to run database migrations: %s", e)
+        logger.error(f"❌ Failed to run database migrations: {e}")
 
     # Start executor (if enabled in config)
     executor_instance = None

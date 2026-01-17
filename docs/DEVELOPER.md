@@ -95,7 +95,8 @@ Located in `planner.py`, the system now uses **Kepler**, a Mixed-Integer Linear 
 *   **Water Heating**: Scheduled as a "committed load" before the battery optimization runs.
 
 ### Database Management
-Darkstar uses SQLite (`data/planner_learning.db`). Over time, this file may grow large due to debug logging.
+Darkstar uses SQLite (`data/planner_learning.db`) managed via **SQLAlchemy ORM**.
+- **Models**: All tables are defined as declarative models in [backend/learning/models.py](backend/learning/models.py).
 - **Optimize:** Run `python scripts/optimize_db.py` to backup, trim old history, and vacuum the database.
 - **Profile:** Run `python scripts/profile_db.py` to analyze table sizes and performance.
 - **Planner Profile:** Run `python scripts/profile_planner.py` to benchmark the planner pipeline.
@@ -108,10 +109,14 @@ Darkstar prioritizes a "zero-touch" update experience. If you introduce breaking
 1.  **Config Migrations**: Register a new `MigrationStep` in `backend/config_migration.py`.
     - These steps run automatically during the `backend/main.py` startup lifespan.
     - Use `ruamel.yaml` to ensure user comments/formatting are preserved.
-2.  **Database Migrations**: Update `_ensure_schema()` in `executor/history.py`.
-    - Do **not** rely solely on `CREATE TABLE IF NOT EXISTS`.
-    - Use `PRAGMA table_info` to detect missing columns and run `ALTER TABLE` to add them safely.
-3.  **Fallback Logic**: When feasible, implement temporary "Plan B" fallbacks in Python code (e.g., `executor/config.py`) to handle both old and new key names until the next major release.
+2.  **Database Migrations**: Darkstar uses **Alembic** for versioned migrations.
+    - **Applying Migrations**: Run automatically on startup via `alembic upgrade head`.
+    - **Creating Migrations**: If you change a model in `backend/learning/models.py`, generate a new migration:
+      ```bash
+      alembic revision --autogenerate -m "description of change"
+      ```
+    - **Dynamic Path**: Alembic is configured to respect the `DB_PATH` environment variable.
+3.  **Fallback Logic**: When feasible, implement temporary "Plan B" fallbacks in Python code to handle both old and new key names until the next major release.
 
 > **Note:** The legacy heuristic MPC planner (7-pass logic) is preserved for reference in [LEGACY_MPC.md](LEGACY_MPC.md).
 

@@ -1,19 +1,14 @@
-"""
-Tests for Executor History (ExecutionHistory and ExecutionRecord)
-
-Tests the SQLite-based execution history storage.
-"""
-
 import contextlib
-import sqlite3
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
 import pytz
+from sqlalchemy import create_engine, select, text, inspect
 
 from executor.history import ExecutionHistory, ExecutionRecord
+from backend.learning.models import Base, ExecutionLog
 
 
 @pytest.fixture
@@ -32,7 +27,10 @@ def temp_db():
 @pytest.fixture
 def history(temp_db):
     """Create an ExecutionHistory instance with temp DB."""
-    return ExecutionHistory(temp_db, timezone="Europe/Stockholm")
+    h = ExecutionHistory(temp_db, timezone="Europe/Stockholm")
+    # Create schema for tests
+    Base.metadata.create_all(h.engine)
+    return h
 
 
 class TestExecutionRecord:
@@ -61,23 +59,21 @@ class TestExecutionHistorySchema:
     """Test table creation and schema."""
 
     def test_creates_table_on_init(self, temp_db):
-        """Table is created on initialization."""
-        ExecutionHistory(temp_db)
+        """Table is created via create_all in fixture."""
+        h = ExecutionHistory(temp_db)
+        Base.metadata.create_all(h.engine)
 
-        # Check table exists
-        with sqlite3.connect(temp_db) as conn:
-            cursor = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='execution_log'"
-            )
-            assert cursor.fetchone() is not None
+        # Check table exists using inspection
+        inspector = inspect(h.engine)
+        assert "execution_log" in inspector.get_table_names()
 
     def test_schema_has_required_columns(self, temp_db):
         """Table has all required columns."""
-        ExecutionHistory(temp_db)
+        h = ExecutionHistory(temp_db)
+        Base.metadata.create_all(h.engine)
 
-        with sqlite3.connect(temp_db) as conn:
-            cursor = conn.execute("PRAGMA table_info(execution_log)")
-            columns = {row[1] for row in cursor.fetchall()}
+        inspector = inspect(h.engine)
+        columns = {col["name"] for col in inspector.get_columns("execution_log")}
 
         expected = {
             "id",
@@ -287,10 +283,13 @@ class TestCleanupOldRecords:
     def test_cleanup_removes_old_records(self, temp_db):
         """cleanup_old_records removes records older than retention period."""
         history = ExecutionHistory(temp_db, timezone="Europe/Stockholm")
+        Base.metadata.create_all(history.engine)
+        
         tz = pytz.timezone("Europe/Stockholm")
         now = datetime.now(tz)
 
         # Insert old and new records
+        # Note: log_execution uses text dates, so we can just use isoformat
         old_time = (now - timedelta(days=40)).isoformat()
         new_time = (now - timedelta(days=5)).isoformat()
 
