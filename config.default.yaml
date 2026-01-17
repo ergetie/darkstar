@@ -25,6 +25,7 @@ system:
   has_solar: true         # Enable PV forecasting & solar-related features
   has_battery: true       # Enable battery control & grid arbitrage
   has_water_heater: true  # Enable water heating optimization
+  grid_meter_type: net    # Meter type: net (single +/- sensor) | dual (separate import/export)
   
   grid:
     max_power_kw: 8                    # HARD limit: max grid import (cannot be exceeded)
@@ -75,12 +76,13 @@ water_heating:
     anti_legionella_temp_c: 65        # Target temperature for safety cycle
     anti_legionella_interval_days: 7  # Run cycle every N days
     anti_legionella_duration_hours: 3.0  # Duration at power_kw (e.g., 3h * 3kW = 9kWh)
+    end_date: ""                      # Vacation mode end date (set by UI/Automation)
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:
   mode: "probabilistic"            # Options: probabilistic | dynamic
   static_factor:                   # Used when mode=static
-  base_factor: 1.1                 # Starting point for dynamic calculationsWfz  
+  base_factor: 1.1                 # Starting point for dynamic calculations
   max_factor: 1.5                  # Upper bound clamp for dynamic mode
   pv_deficit_weight: 0.2           # Weight for PV/load deficit contribution
   temp_weight: 0.3                 # Weight for temperature adjustment

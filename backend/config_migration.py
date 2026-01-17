@@ -129,10 +129,75 @@ def soft_merge_defaults(config: Any) -> bool:
     return changed
 
 
+def cleanup_obsolete_keys(config: Any) -> bool:
+    """
+    Migration for REV F19: Cleanup obsolete keys and move end_date.
+    Matches the actual observed nesting in config.yaml.
+    """
+    changed = False
+
+    # 1. Remove schedule_future_only (could be at root or under water_heating)
+    if "schedule_future_only" in config:
+        config.pop("schedule_future_only")
+        logger.info("Removed root level obsolete key: schedule_future_only")
+        changed = True
+
+    if (
+        "water_heating" in config
+        and isinstance(config["water_heating"], dict)
+        and "schedule_future_only" in config["water_heating"]
+    ):
+        config["water_heating"].pop("schedule_future_only")
+        logger.info("Removed water_heating level obsolete key: schedule_future_only")
+        changed = True
+
+    # 2. Re-anchor end_date if it is "leaking" past comments
+    # In config.yaml it was found under vacation_mode but after the S-Index comment.
+    # We want to ensure it is grouped with other vacation_mode keys.
+    # To do this, we can pop and re-insert if we detect it's misplaced,
+    # but ruamel.yaml handles ordering during dump if we sort or re-insert.
+
+    # First, find where it is
+    end_date_val = None
+    source_parent = None
+
+    if "end_date" in config:
+        end_date_val = config.pop("end_date")
+        source_parent = "root"
+    elif "water_heating" in config and isinstance(config["water_heating"], dict):
+        wh = config["water_heating"]
+        if "end_date" in wh:
+            end_date_val = wh.pop("end_date")
+            source_parent = "water_heating"
+        elif "vacation_mode" in wh and isinstance(wh["vacation_mode"], dict):
+            vm = wh["vacation_mode"]
+            if "end_date" in vm:
+                # It is already there! But is it misplaced (after comment)?
+                # Popping and re-inserting will usually put it at the end,
+                # which might still be after the comment if the comment is a 'leaf' comment.
+                end_date_val = vm.pop("end_date")
+                source_parent = "vacation_mode"
+
+    if end_date_val is not None:
+        if "water_heating" not in config:
+            config["water_heating"] = {}
+        if "vacation_mode" not in config["water_heating"]:
+            config["water_heating"]["vacation_mode"] = {}
+
+        # Re-inserting will put it at the end of vacation_mode.
+        # This is fine as long as we don't have that leaking comment as a footer.
+        config["water_heating"]["vacation_mode"]["end_date"] = end_date_val
+        logger.info(f"Re-aligned end_date to vacation_mode from {source_parent}")
+        changed = True
+
+    return changed
+
+
 # List of migrations to run in order
 MIGRATIONS: list[MigrationStep] = [
     migrate_battery_config,
     soft_merge_defaults,
+    cleanup_obsolete_keys,
 ]
 
 

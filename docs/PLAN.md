@@ -134,7 +134,7 @@ This should remain in place during beta testing to allow users to self-diagnose 
 
 ---
 
-### [PLANNED] REV // F19 — Config YAML Leaking Between Comments
+### [DONE] REV // F19 — Config YAML Leaking Between Comments
 
 **Goal:** Investigate and fix the bug where configuration keys are inserted between comments or incorrectly nested in the YAML file.
 
@@ -143,14 +143,16 @@ Users reported that after some operations (likely UI saves or auto-migrations), 
 
 **Plan:**
 
-#### Phase 1: Investigation [PLANNED]
-* [ ] Reproduce the behavior by performing various UI saves and triggered migrations.
-* [ ] Audit `backend/api/routers/config.py` save logic (ruamel.yaml configuration).
-* [ ] Audit `backend/config_migration.py` and `darkstar/run.sh` YAML handling.
+#### Phase 1: Investigation [DONE]
+* [x] Reproduce the behavior by performing various UI saves and triggered migrations.
+* [x] Audit `backend/api/routers/config.py` save logic (ruamel.yaml configuration).
+* [x] Audit `backend/config_migration.py` and `darkstar/run.sh` YAML handling.
 
-#### Phase 2: Implementation [PLANNED]
-* [ ] Fix the YAML dumping/merging logic to respect comment boundaries.
-* [ ] Ensure all automated config updates preserve the intended structure and hierarchy.
+#### Phase 2: Implementation & Cleanup [DONE]
+* [x] Implement backend type coercion based on `config.default.yaml`.
+* [x] Remove obsolete keys (`schedule_future_only`) and re-anchor `end_date`.
+* [x] Fix visual artifacts and typos in `config.yaml`.
+* [x] Verify preservation of structure in `ruamel.yaml` dumps.
 
 ---
 
