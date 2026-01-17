@@ -132,3 +132,28 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 * [x] **Verification**: Ensure all dashboards load correctly without legacy drivers.
 
 ---
+
+### [PLANNED] REV // DX2 — Tooling Upgrade (Commitlint & uv)
+
+**Goal:** Enforce Conventional Commits standards and accelerate backend development workflows using `uv`.
+
+**Plan:**
+
+#### Phase 1: Conventional Commits [PLANNED]
+* [ ] Install `@commitlint/cli` and `@commitlint/config-conventional` (devDeps).
+* [ ] Create `commitlint.config.js` extending conventional config.
+* [ ] Add `commitlint` repo/hook to `.pre-commit-config.yaml`.
+* [ ] Verify bad commits are rejected and good commits pass.
+
+#### Phase 2: High-Performance Python [PLANNED]
+* [ ] Transition project documentation to use `uv` as the preferred package manager.
+* [ ] Update `scripts/dev-backend.sh` to use `uv run` (or fallback).
+* [ ] Verify backend starts and runs tests correctly with `uv`.
+
+#### Phase 3: Validation & Documentation [PLANNED]
+* [ ] Update `docs/DEVELOPER.md` with new workflow instructions.
+* [ ] Manual Verification of all changes.
+* [ ] **User Manual Approval** required before final commit.
+
+---
+
