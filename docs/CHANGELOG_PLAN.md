@@ -7,6 +7,116 @@ This document contains the archive of all completed revisions. It serves as the 
 ---
 
 
+## ERA // 12: Solver Optimization & Structured Logging
+
+This era introduced significant performance gains in the MILP solver, implemented structured JSON logging with a live debug UI, and addressed configuration reliability issues.
+
+### [DONE] REV // H2 — Structured Logging & Management
+
+**Goal:** Switch to structured JSON logging for better observability and allow users to download/clear logs from the UI.
+
+**Plan:**
+
+#### Phase 1: Logging Config [DONE]
+* [x] Install `python-json-logger`.
+* [x] Update `backend/main.py`:
+    - Configure `JSONFormatter`.
+    - Configure `TimedRotatingFileHandler` (e.g., daily rotation, keep 7 days) to `data/darkstar.log`.
+
+#### Phase 2: Management API & UI [DONE]
+* [x] `GET /api/system/logs`: Download current log file.
+* [x] `DELETE /api/system/logs`: Clear/Truncate main log file.
+* [x] UI: Add "Download" and "Clear" buttons to Debug page.
+* [x] UI: Add "Go Live" mode with polling and **autoscroll**.
+* [x] UI: Make log container height **viewport-adaptive** and remove "Historical SoC" card.
+* [x] UI: Display file size and "Last Rotated" info if possible.
+
+---
+
+### [DONE] REV // F19 — Config YAML Leaking Between Comments
+
+**Goal:** Investigate and fix the bug where configuration keys are inserted between comments or incorrectly nested in the YAML file.
+
+**Context:**
+Users reported that after some operations (likely UI saves or auto-migrations), config keys like `grid_meter_type` or `inverter_profile` are ending up inside commented sections or in the wrong hierarchy, breaking the YAML structure or making it hard to read.
+
+**Plan:**
+
+#### Phase 1: Investigation [DONE]
+* [x] Reproduce the behavior by performing various UI saves and triggered migrations.
+* [x] Audit `backend/api/routers/config.py` save logic (ruamel.yaml configuration).
+* [x] Audit `backend/config_migration.py` and `darkstar/run.sh` YAML handling.
+
+#### Phase 2: Implementation & Cleanup [DONE]
+* [x] Implement backend type coercion based on `config.default.yaml`.
+* [x] Remove obsolete keys (`schedule_future_only`) and re-anchor `end_date`.
+* [x] Fix visual artifacts and typos in `config.yaml`.
+* [x] Verify preservation of structure in `ruamel.yaml` dumps.
+
+---
+
+### [DONE] REV // F13 — Socket.IO Conditional Debug
+
+**Goal:** Refactor verbose Socket.IO logging to be **conditional** (e.g. `?debug=true`) rather than removing it completely, enabling future debugging without code changes.
+
+**Context:** REV F11 added extensive instrumentation. Removing it entirely risks losing valuable diagnostics for future environment-specific issues (Ingress, Proxy, Etc).
+
+**Cleanup Scope:**
+- [x] Wrap `console.log` statements in `socket.ts` with a `debug` flag check.
+- [x] Implement `?debug=true` URL parameter detection to enable this flag.
+- [x] Keep `eslint-disable` comments (necessary for debug casting).
+- [x] Update `docs/DEVELOPER.md` with instructions on how to enable debug mode.
+
+---
+
+### [DONE] REV // PERF1 — MILP Solver Performance Optimization
+
+**Goal:** Reduce Kepler MILP solver execution time from 22s to <5s by switching from soft pairwise spacing penalties to a hardened linear spacing constraint.
+
+**Context:** 
+Profiling confirmed the water heating "spacing penalty" (O(T×S) pairwise constraints) was the primary bottleneck (0.47s benchmark). Switch to a "Hard Constraint" formulation (`sum(heat[t-S:t]) + start[t]*S <= S`) reduced benchmark time to 0.07s (**6.7x speedup**). This formulation prunes the search space aggressively and scales linearly O(T).
+
+**Trade-off:** This removes the ability to "pay" to violate spacing. Users must configure `water_min_spacing_hours` < `water_heating_max_gap_hours` to ensure top-ups are possible when comfort requires it.
+
+#### Phase 1: Investigation [DONE]
+* [x] **Document Current Behavior:** Confirmed O(T×S) complexity is ~2000 constraints.
+* [x] **Benchmark:**
+  - Baseline (Soft): 0.47s
+  - Control (None): 0.11s
+  - Optimized (Hard): 0.07s
+* [x] **Decision:** Proceed with Hard Constraint formulation.
+
+#### Phase 2: Implementation [DONE]
+**Goal:** Deploy the O(T) Hard Constraint logic.
+
+* [x] **Code Changes:**
+  - Modify `planner/solver/kepler.py`: Replace `water_spacing_penalty` logic with the new linear constraint.
+  - Simplify `KeplerConfig`: Deprecate `water_spacing_penalty_sek` (or use it as a boolean toggle).
+  - Update `planner/solver/types.py` docstrings.
+
+* [x] **Testing:**
+  - Unit tests: Verify strict spacing behavior (heater CANNOT start if within window).
+  - Integration test: Verify planner solves full problem in <5s.
+  - Regression test: Verify basic water heating accumulation still met.
+
+#### Phase 3: Validation [DONE]
+**Goal:** Verify production-readiness.
+
+* [x] **Performance Verification:**
+  - Run `scripts/profile_deep.py` → Target Planner <5s.
+  - Stress test 1000-slot horizon.
+
+* [x] **Documentation:**
+  - Update `docs/ARCHITECTURE.md` with new constraint formulation.
+  - Update `config.default.yaml` comments to explain the rigid nature of spacing.
+
+**Exit Criteria:**
+- [x] Planner execution time < 5s
+- [x] Water heating obeys spacing strictly
+- [x] Tests pass
+
+---
+
 ## ERA // 11: Inverter Profiles & Configuration Hardening
 
 This era introduced the Inverter Profile system for multi-vendor support, implemented a robust "soft merge" configuration migration strategy, and finalized the settings UI for production release.
