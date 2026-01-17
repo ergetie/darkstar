@@ -64,6 +64,7 @@ async def lifespan(app: FastAPI):
     try:
         import subprocess
         import os
+        import sys
         logger.info("📦 Checking database schema...")
         
         # Ensure data directory exists
@@ -74,7 +75,7 @@ async def lifespan(app: FastAPI):
         run_env = os.environ.copy()
         
         result = subprocess.run(
-            ["python3", "-m", "alembic", "upgrade", "head"],
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
             capture_output=True,
             text=True,
             timeout=60,

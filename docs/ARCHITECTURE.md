@@ -452,6 +452,22 @@ To ensure compatibility with Home Assistant Ingress (which exposes the add-on un
 
 ---
 
+### 9.2 Database Abstraction (Rev ARC9)
+
+To ensure type safety and schema stability, the backend uses **SQLAlchemy 2.0+** (AsyncIO) for all database interactions, replacing raw SQL/aiosqlite.
+
+**Key Components:**
+- **ORM Models**: Defined in `backend/learning/models.py`.
+- **Schema Management**: Managed by **Alembic**, running migrations automatically on startup (`alembic upgrade head`).
+- **Engine**: Singleton `LearningStore` provides session management and connection pooling.
+
+**Migration Flow:**
+1. Developer modifies `models.py`.
+2. Developer runs `alembic revision --autogenerate`.
+3. Startup script applies migration to production DB.
+
+---
+
 ## 10. Performance Optimizations (Rev ARC7)
 
 To ensure the Dashboard loads instantly (<200ms) even on limited hardware, a multi-layered optimization strategy is implemented:

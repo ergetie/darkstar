@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -13,11 +13,11 @@ class SlotObservation(Base):
 
     slot_start: Mapped[str] = mapped_column(String, primary_key=True)
     slot_end: Mapped[str] = mapped_column(String)
-    import_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    export_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    pv_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    load_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    water_kwh: Mapped[float] = mapped_column(Float, default=0.0)
+    import_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    export_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    pv_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    load_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    water_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     batt_charge_kwh: Mapped[float | None] = mapped_column(Float)
     batt_discharge_kwh: Mapped[float | None] = mapped_column(Float)
     soc_start_percent: Mapped[float | None] = mapped_column(Float)
@@ -36,17 +36,17 @@ class SlotForecast(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     slot_start: Mapped[str] = mapped_column(String)
-    pv_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    load_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0)
+    pv_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    load_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     pv_p10: Mapped[float | None] = mapped_column(Float)
     pv_p90: Mapped[float | None] = mapped_column(Float)
     load_p10: Mapped[float | None] = mapped_column(Float)
     load_p90: Mapped[float | None] = mapped_column(Float)
     temp_c: Mapped[float | None] = mapped_column(Float)
     forecast_version: Mapped[str] = mapped_column(String)
-    pv_correction_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    load_correction_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    correction_source: Mapped[str] = mapped_column(String, default="none")
+    pv_correction_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    load_correction_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    correction_source: Mapped[str] = mapped_column(String, default="none", server_default=text("'none'"))
     created_at: Mapped[datetime | None] = mapped_column(
         DateTime, default=datetime.utcnow
     )

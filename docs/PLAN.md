@@ -103,7 +103,7 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
-### [PLANNED] REV // ARC9 — Database Migration Framework
+### [DONE] REV // ARC9 — Database Migration Framework
 
 **Goal:** Introduce `Alembic` to manage database schema migrations safely and automatically.
 
@@ -124,5 +124,11 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 * [x] Refactor `LearningStore` to SQLAlchemy
 * [x] Verify migration on fresh DB
 * [x] Verify migration on existing DB (no data loss)
+
+#### Phase 3: Production Polish [DONE]
+* [x] **Unified Router Logic**: Refactor `forecast`, `debug`, `services` to use SQLAlchemy (remove `aiosqlite`).
+* [x] **ORM Observability**: Refactor `logging.py` to use `PlannerDebug` model.
+* [x] **Optimization**: Fix inefficient date queries in `services.py`.
+* [x] **Verification**: Ensure all dashboards load correctly without legacy drivers.
 
 ---

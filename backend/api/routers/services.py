@@ -457,11 +457,10 @@ async def get_energy_today() -> dict[str, float]:
 )
 async def get_energy_range(period: str = "today") -> dict[str, Any]:
     """Get energy range data."""
-    import sqlite3
-
     import pytz
-
+    from sqlalchemy import func, select
     from backend.learning import get_learning_engine
+    from backend.learning.models import SlotObservation
 
     config = load_yaml("config.yaml")
     sensors: dict[str, Any] = config.get("input_sensors", {})
@@ -475,6 +474,9 @@ async def get_energy_range(period: str = "today") -> dict[str, Any]:
     # All periods now query the database for financial metrics
     try:
         engine = get_learning_engine()
+        if not hasattr(engine, "store"): 
+             raise ValueError("Learning store not available")
+             
         tz = pytz.timezone(config.get("timezone", "Europe/Stockholm"))
         now_local = datetime.now(tz)
         today_local = now_local.date()
@@ -494,54 +496,61 @@ async def get_energy_range(period: str = "today") -> dict[str, Any]:
         else:
             # Fallback
             start_date = end_date = today_local
+        
+        # Optimize query: filter by string range to use index
+        day_start = tz.localize(datetime(start_date.year, start_date.month, start_date.day))
+        # End date is inclusive in the logic, so we want up to the end of that day.
+        # Logic says: DATE(slot_start) <= end_date. 
+        # So we want < end_date + 1 day
+        day_end_excl = tz.localize(datetime(end_date.year, end_date.month, end_date.day)) + timedelta(days=1)
+        
+        start_iso = day_start.isoformat()
+        end_iso = day_end_excl.isoformat()
 
-        # Query
-        with sqlite3.connect(str(engine.db_path), timeout=5.0) as conn:  # pyright: ignore [reportUnknownMemberType, reportUnknownArgumentType]
-            cursor = conn.cursor()
-            # We filter by DATE(slot_start) which works if slot_start is ISO-8601 YYYY-MM-DD...
-            row = cursor.execute(
-                """
-                SELECT
-                    SUM(COALESCE(import_kwh, 0)),
-                    SUM(COALESCE(export_kwh, 0)),
-                    SUM(COALESCE(batt_charge_kwh, 0)),
-                    SUM(COALESCE(batt_discharge_kwh, 0)),
-                    SUM(COALESCE(water_kwh, 0)),
-                    SUM(COALESCE(pv_kwh, 0)),
-                    SUM(COALESCE(load_kwh, 0)),
-                    -- Costs
-                -- Costs
-                    SUM(COALESCE(import_kwh, 0) * COALESCE(import_price_sek_kwh, 0)),
-                    SUM(COALESCE(export_kwh, 0) * COALESCE(export_price_sek_kwh, 0)),
-                    -- Grid Charge Cost (Import excess of load)
-                    SUM(MAX(0, COALESCE(import_kwh, 0) - COALESCE(load_kwh, 0))
-                        * COALESCE(import_price_sek_kwh, 0)),
-                    -- Self Consumption Savings (Load covered by non-grid sources)
-                    SUM(MAX(0, COALESCE(load_kwh, 0) - COALESCE(import_kwh, 0))
-                        * COALESCE(import_price_sek_kwh, 0)),
-                    -- Count
-                    COUNT(*)
-                FROM slot_observations
-                WHERE DATE(slot_start) >= ? AND DATE(slot_start) <= ?
-            """,
-                (start_date.isoformat(), end_date.isoformat()),
-            ).fetchone()
+        def fetch():
+            with engine.store.Session() as session:
+                stmt = select(
+                    func.sum(func.coalesce(SlotObservation.import_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.export_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.batt_charge_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.batt_discharge_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.water_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.pv_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.load_kwh, 0)),
+                    # Costs
+                    func.sum(func.coalesce(SlotObservation.import_kwh, 0) * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
+                    func.sum(func.coalesce(SlotObservation.export_kwh, 0) * func.coalesce(SlotObservation.export_price_sek_kwh, 0)),
+                    # Grid Charge Cost
+                    func.sum(func.max(0, func.coalesce(SlotObservation.import_kwh, 0) - func.coalesce(SlotObservation.load_kwh, 0))
+                        * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
+                    # Self Consumption Savings
+                    func.sum(func.max(0, func.coalesce(SlotObservation.load_kwh, 0) - func.coalesce(SlotObservation.import_kwh, 0))
+                        * func.coalesce(SlotObservation.import_price_sek_kwh, 0)),
+                    func.count()
+                ).where(
+                    SlotObservation.slot_start >= start_iso,
+                    SlotObservation.slot_start < end_iso
+                )
+                return session.execute(stmt).fetchone()
+
+        row = await asyncio.to_thread(fetch)
 
         if not row:
             raise ValueError("No data returned")
 
-        grid_imp_kwh = row[0] or 0.0
-        grid_exp_kwh = row[1] or 0.0
-        batt_chg_kwh = row[2] or 0.0
-        batt_dis_kwh = row[3] or 0.0
-        water_kwh = row[4] or 0.0
-        pv_kwh = row[5] or 0.0
-        load_kwh = row[6] or 0.0
+        grid_imp_kwh = float(row[0] or 0.0)
+        grid_exp_kwh = float(row[1] or 0.0)
+        batt_chg_kwh = float(row[2] or 0.0)
+        batt_dis_kwh = float(row[3] or 0.0)
+        water_kwh = float(row[4] or 0.0)
+        pv_kwh = float(row[5] or 0.0)
+        load_kwh = float(row[6] or 0.0)
 
-        import_cost = row[7] or 0.0
-        export_rev = row[8] or 0.0
-        grid_charge_cost = row[9] or 0.0
-        self_cons_savings = row[10] or 0.0
+        import_cost = float(row[7] or 0.0)
+        export_rev = float(row[8] or 0.0)
+        grid_charge_cost = float(row[9] or 0.0)
+        self_cons_savings = float(row[10] or 0.0)
+        slot_count = int(row[11] or 0)
 
         net_cost = import_cost - export_rev
 
@@ -581,7 +590,7 @@ async def get_energy_range(period: str = "today") -> dict[str, Any]:
             "grid_charge_cost_sek": round(grid_charge_cost, 2),
             "self_consumption_savings_sek": round(self_cons_savings, 2),
             "net_cost_sek": round(net_cost, 2),
-            "slot_count": row[11] or 0,
+            "slot_count": slot_count,
         }
     except Exception as e:
         # logger.warning(f"Failed to get historical energy data for {period}: {e}")

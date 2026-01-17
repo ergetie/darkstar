@@ -5,7 +5,7 @@ from typing import Any
 
 import pandas as pd
 import pytz
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, select, text, cast, Integer
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import sessionmaker
 
@@ -290,8 +290,8 @@ class LearningStore:
                 func.date(SlotObservation.slot_start) >= cutoff_date,
                 SlotObservation.soc_end_percent.is_not(None),
                 SlotObservation.soc_end_percent < threshold_percent,
-                func.cast(func.strftime('%H', SlotObservation.slot_start), func.Integer) >= start_hour,
-                func.cast(func.strftime('%H', SlotObservation.slot_start), func.Integer) < end_hour
+                cast(func.strftime('%H', SlotObservation.slot_start), Integer) >= start_hour,
+                cast(func.strftime('%H', SlotObservation.slot_start), Integer) < end_hour
             ).order_by(SlotObservation.slot_start.desc())
 
             results = session.execute(stmt).all()

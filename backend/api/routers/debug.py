@@ -6,7 +6,7 @@ Provides debug endpoints for logs, history, and diagnostics.
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -67,6 +67,12 @@ async def debug_logs() -> dict[str, Any]:
         raise HTTPException(500, str(exc)) from exc
 
 
+import asyncio
+from typing import cast
+from sqlalchemy import func, select
+
+from backend.learning.models import SlotObservation
+
 @router.get(
     "/api/history/soc",
     summary="Get Historic SoC",
@@ -88,18 +94,40 @@ async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
 
         # Get learning engine and query historic SoC data
         engine = get_learning_engine()
-        db_path = str(getattr(engine, "db_path", ""))
+        if not engine or not hasattr(engine, "store"):
+             # Fallback or error if engine not ready
+             return {
+                "date": target_date.isoformat(),
+                "slots": [],
+                "message": "Engine not initialized",
+            }
+            
+        target_iso = target_date.isoformat()
 
-        async with aiosqlite.connect(db_path) as conn:
-            query = """
-                SELECT slot_start, soc_end_percent, quality_flags
-                FROM slot_observations
-                WHERE DATE(slot_start) = ?
-                  AND soc_end_percent IS NOT NULL
-                ORDER BY slot_start ASC
-            """
-            async with conn.execute(query, (target_date.isoformat(),)) as cursor:
-                rows = await cursor.fetchall()
+        def fetch():
+            with engine.store.Session() as session:
+                # We need to filter by date. 
+                # Since slot_start is an ISO string, we can filter by prefix OR use func.date logic if compatible.
+                # SlotObservation.slot_start is YYYY-MM-DDTHH:MM:SS...
+                # Filtering by >= target_date and < target_date + 1 day is better for index.
+                day_start = tz.localize(datetime(target_date.year, target_date.month, target_date.day))
+                day_end = day_start + timedelta(days=1)
+                
+                start_iso_str = day_start.isoformat()
+                end_iso_str = day_end.isoformat()
+                
+                stmt = (
+                    select(SlotObservation.slot_start, SlotObservation.soc_end_percent, SlotObservation.quality_flags)
+                    .where(
+                        SlotObservation.slot_start >= start_iso_str,
+                        SlotObservation.slot_start < end_iso_str,
+                        SlotObservation.soc_end_percent.is_not(None)
+                    )
+                    .order_by(SlotObservation.slot_start)
+                )
+                return session.execute(stmt).all()
+
+        rows = await asyncio.to_thread(fetch)
 
         if not rows:
             return {
@@ -133,6 +161,7 @@ async def get_performance_metrics(days: int = Query(7, ge=1, le=90)) -> dict[str
     """Get performance metrics for charts."""
     try:
         engine = get_learning_engine()
+        # engine.get_performance_series handles session internally via store
         data = cast("dict[str, Any]", engine.get_performance_series(days_back=days))  # type: ignore
         return data
     except Exception:
