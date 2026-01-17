@@ -133,27 +133,27 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
-### [PLANNED] REV // DX4 — Tooling Upgrade (Commitlint & uv)
+### [COMPLETED] REV // DX4 — Tooling Upgrade (Commitlint & uv)
 
 **Goal:** Enforce Conventional Commits standards and accelerate backend development workflows using `uv`.
 
 **Plan:**
 
-#### Phase 1: Conventional Commits [PLANNED]
-* [ ] Install `@commitlint/cli` and `@commitlint/config-conventional` (devDeps).
-* [ ] Create `commitlint.config.js` extending conventional config.
-* [ ] Add `commitlint` repo/hook to `.pre-commit-config.yaml`.
-* [ ] Verify bad commits are rejected and good commits pass.
+#### Phase 1: Conventional Commits [COMPLETED]
+* [x] Install `@commitlint/cli` and `@commitlint/config-conventional` (devDeps).
+* [x] Create `commitlint.config.js` extending conventional config.
+* [x] Add `commitlint` repo/hook to `.pre-commit-config.yaml`.
+* [x] Verify bad commits are rejected and good commits pass.
 
-#### Phase 2: High-Performance Python [PLANNED]
-* [ ] Transition project documentation to use `uv` as the preferred package manager.
-* [ ] Update `scripts/dev-backend.sh` to use `uv run` (or fallback).
-* [ ] Verify backend starts and runs tests correctly with `uv`.
+#### Phase 2: High-Performance Python [COMPLETED]
+* [x] Transition project documentation to use `uv` as the preferred package manager.
+* [x] Update `scripts/dev-backend.sh` to use `uv run` (or fallback).
+* [x] Verify backend starts and runs tests correctly with `uv`.
 
-#### Phase 3: Validation & Documentation [PLANNED]
-* [ ] Update `docs/DEVELOPER.md` and `.agent/rules/project.md` with new workflow instructions.
-* [ ] Manual Verification of all changes.
-* [ ] **User Manual Approval** required before final commit.
+#### Phase 3: Validation & Documentation [COMPLETED]
+* [x] Update `docs/DEVELOPER.md` and `.agent/rules/project.md` with new workflow instructions.
+* [x] Manual Verification of all changes.
+* [x] **User Manual Approval** required before final commit.
 
 ---
 
