@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import Card from '../components/Card'
-import { Api, type DebugLogsResponse, type HistorySocResponse, type LogInfoResponse } from '../lib/api'
-import { Chart as ChartJS, type Chart, type ChartConfiguration } from 'chart.js/auto'
+import { Api, type DebugLogsResponse, type LogInfoResponse } from '../lib/api'
 
 type LogLevelFilter = 'all' | 'warn_error' | 'error'
 type LogTimeRange = 'all' | '1h' | '6h' | '24h'
-type SocDateFilter = 'today' | 'yesterday'
 
 export default function Debug() {
     const [logs, setLogs] = useState<DebugLogsResponse['logs']>([])
@@ -89,7 +87,6 @@ export default function Debug() {
         return level === 'ERROR' || level === 'CRITICAL'
     })
 
-
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
             <div className="mb-6">
@@ -105,10 +102,11 @@ export default function Debug() {
                         <div className="text-sm text-muted">Logs</div>
                         <div className="flex items-center gap-2 text-[11px] text-muted">
                             <button
-                                className={`rounded-pill border px-3 py-1 transition-colors text-[11px] ${isLive
-                                    ? 'bg-accent/10 border-accent text-accent'
-                                    : 'border-line/60 hover:border-accent text-muted'
-                                    }`}
+                                className={`rounded-pill border px-3 py-1 transition-colors text-[11px] ${
+                                    isLive
+                                        ? 'bg-accent/10 border-accent text-accent'
+                                        : 'border-line/60 hover:border-accent text-muted'
+                                }`}
                                 onClick={() => setIsLive(!isLive)}
                             >
                                 {isLive ? '● Live' : 'Go Live'}
@@ -255,7 +253,6 @@ export default function Debug() {
                     </div>
                 </Card>
             </div>
-
         </main>
     )
 }
