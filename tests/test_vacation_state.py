@@ -14,6 +14,8 @@ from planner.vacation_state import (
     load_last_anti_legionella,
     save_last_anti_legionella,
 )
+from sqlalchemy import create_engine
+from backend.learning.models import Base
 
 
 @pytest.fixture
@@ -21,6 +23,11 @@ def temp_db():
     """Create a temporary database file for testing."""
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
+    
+    # Create schema
+    engine = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(engine)
+    
     yield path
     Path(path).unlink()
 

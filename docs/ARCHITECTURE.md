@@ -53,6 +53,7 @@ Minimize: Sum(Import_Cost - Export_Revenue + Wear_Cost) - (End_SoC * Terminal_Va
 
     3.  **Soft vs Hard Constraints in Kepler**:
         *   **Min SoC (Hard)**: 1000 SEK/kWh penalty - NEVER violate battery safety floor.
+        *   **Water Spacing (Hard)**: Strictly enforced minimum gap between starts to prevent short-cycling.
         *   **Target SoC (Soft)**: Risk-based penalty (2-20 SEK/kWh) - economics can override.
         *   **Risk Penalty Scaling**:
             *   Level 1: 20 SEK/kWh (hard to violate)
@@ -72,6 +73,7 @@ The water heater is integrated into Kepler as a **deferrable load**, allowing op
 - `water_heat[t]` binary variable in MILP: is heating ON in slot t?
 - **Constraint**: Must schedule `min_kwh_per_day` (e.g., 6 kWh)
 - **Constraint**: Max gap `max_hours_between_heating` (e.g., 8h)
+- **Constraint**: Min spacing `water_min_spacing_hours` (Hard minimum gap between starts) (Rev PERF1)
 - Water load added to energy balance → Kepler sources from grid or battery
 
 ### Source Selection
@@ -447,6 +449,22 @@ To ensure compatibility with Home Assistant Ingress (which exposes the add-on un
 **Critical: No Trailing Slash.** The ASGI Socket.IO server is strict about path matching. The path must be `/socket.io` (no trailing slash), otherwise the namespace handshake fails silently.
 
 **Runtime Debug Config:** URL parameters `?socket_path=...` and `?socket_transports=...` allow debugging connection issues without redeploying.
+
+---
+
+### 9.2 Database Abstraction (Rev ARC9)
+
+To ensure type safety and schema stability, the backend uses **SQLAlchemy 2.0+** (AsyncIO) for all database interactions, replacing raw SQL/aiosqlite.
+
+**Key Components:**
+- **ORM Models**: Defined in `backend/learning/models.py`.
+- **Schema Management**: Managed by **Alembic**, running migrations automatically on startup (`alembic upgrade head`).
+- **Engine**: Singleton `LearningStore` provides session management and connection pooling.
+
+**Migration Flow:**
+1. Developer modifies `models.py`.
+2. Developer runs `alembic revision --autogenerate`.
+3. Startup script applies migration to production DB.
 
 ---
 

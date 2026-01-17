@@ -81,4 +81,3 @@ def test_validate_config_battery_entities_not_required_if_no_battery():
     assert not any("executor.inverter.work_mode_entity" in m for m in error_messages)
     assert not any("executor.inverter.grid_charging_entity" in m for m in error_messages)
     assert not any("input_sensors.battery_soc" in m for m in error_messages)
-

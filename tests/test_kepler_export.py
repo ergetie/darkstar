@@ -20,7 +20,7 @@ def test_kepler_solver_export_disabled():
                 load_kwh=0.0,
                 pv_kwh=0.0,
                 import_price_sek_kwh=2.0,
-                export_price_sek_kwh=10.0, # Massive incentive
+                export_price_sek_kwh=10.0,  # Massive incentive
             )
         )
 
@@ -36,7 +36,7 @@ def test_kepler_solver_export_disabled():
         min_soc_percent=0.0,
         max_soc_percent=100.0,
         wear_cost_sek_per_kwh=0.0,
-        enable_export=False, # KEY: Disable export
+        enable_export=False,  # KEY: Disable export
     )
 
     solver = KeplerSolver()

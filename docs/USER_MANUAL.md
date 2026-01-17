@@ -64,6 +64,7 @@ You'll see an "S-Index" score on the dashboard. This measures **volatility**.
 ## 🎮 3. Operations & Controls
 
 ### Quick Actions (Executor Tab)
+*   **Dynamic Monitoring**: All logs and charts in the Executor tab automatically respect your hardware's native units (**Amperes** or **Watts**).
 *   **Force Charge**: Immediately charges the battery to 100% (or your set limit) at max power. Useful if a storm is coming.
 *   **Pause Plan**: Stops all automated control. Your battery will sit idle.
 *   **Water Boost**: Triggers the water heater immediately, ignoring price. Useful if you need a hot bath *now*.

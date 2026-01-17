@@ -7,6 +7,379 @@ This document contains the archive of all completed revisions. It serves as the 
 ---
 
 
+## ERA // 12: Solver Optimization & Structured Logging
+
+This era introduced significant performance gains in the MILP solver, implemented structured JSON logging with a live debug UI, and addressed configuration reliability issues.
+
+### [DONE] REV // H2 — Structured Logging & Management
+
+**Goal:** Switch to structured JSON logging for better observability and allow users to download/clear logs from the UI.
+
+**Plan:**
+
+#### Phase 1: Logging Config [DONE]
+* [x] Install `python-json-logger`.
+* [x] Update `backend/main.py`:
+    - Configure `JSONFormatter`.
+    - Configure `TimedRotatingFileHandler` (e.g., daily rotation, keep 7 days) to `data/darkstar.log`.
+
+#### Phase 2: Management API & UI [DONE]
+* [x] `GET /api/system/logs`: Download current log file.
+* [x] `DELETE /api/system/logs`: Clear/Truncate main log file.
+* [x] UI: Add "Download" and "Clear" buttons to Debug page.
+* [x] UI: Add "Go Live" mode with polling and **autoscroll**.
+* [x] UI: Make log container height **viewport-adaptive** and remove "Historical SoC" card.
+* [x] UI: Display file size and "Last Rotated" info if possible.
+
+---
+
+### [DONE] REV // F19 — Config YAML Leaking Between Comments
+
+**Goal:** Investigate and fix the bug where configuration keys are inserted between comments or incorrectly nested in the YAML file.
+
+**Context:**
+Users reported that after some operations (likely UI saves or auto-migrations), config keys like `grid_meter_type` or `inverter_profile` are ending up inside commented sections or in the wrong hierarchy, breaking the YAML structure or making it hard to read.
+
+**Plan:**
+
+#### Phase 1: Investigation [DONE]
+* [x] Reproduce the behavior by performing various UI saves and triggered migrations.
+* [x] Audit `backend/api/routers/config.py` save logic (ruamel.yaml configuration).
+* [x] Audit `backend/config_migration.py` and `darkstar/run.sh` YAML handling.
+
+#### Phase 2: Implementation & Cleanup [DONE]
+* [x] Implement backend type coercion based on `config.default.yaml`.
+* [x] Remove obsolete keys (`schedule_future_only`) and re-anchor `end_date`.
+* [x] Fix visual artifacts and typos in `config.yaml`.
+* [x] Verify preservation of structure in `ruamel.yaml` dumps.
+
+---
+
+### [DONE] REV // F13 — Socket.IO Conditional Debug
+
+**Goal:** Refactor verbose Socket.IO logging to be **conditional** (e.g. `?debug=true`) rather than removing it completely, enabling future debugging without code changes.
+
+**Context:** REV F11 added extensive instrumentation. Removing it entirely risks losing valuable diagnostics for future environment-specific issues (Ingress, Proxy, Etc).
+
+**Cleanup Scope:**
+- [x] Wrap `console.log` statements in `socket.ts` with a `debug` flag check.
+- [x] Implement `?debug=true` URL parameter detection to enable this flag.
+- [x] Keep `eslint-disable` comments (necessary for debug casting).
+- [x] Update `docs/DEVELOPER.md` with instructions on how to enable debug mode.
+
+---
+
+### [DONE] REV // PERF1 — MILP Solver Performance Optimization
+
+**Goal:** Reduce Kepler MILP solver execution time from 22s to <5s by switching from soft pairwise spacing penalties to a hardened linear spacing constraint.
+
+**Context:** 
+Profiling confirmed the water heating "spacing penalty" (O(T×S) pairwise constraints) was the primary bottleneck (0.47s benchmark). Switch to a "Hard Constraint" formulation (`sum(heat[t-S:t]) + start[t]*S <= S`) reduced benchmark time to 0.07s (**6.7x speedup**). This formulation prunes the search space aggressively and scales linearly O(T).
+
+**Trade-off:** This removes the ability to "pay" to violate spacing. Users must configure `water_min_spacing_hours` < `water_heating_max_gap_hours` to ensure top-ups are possible when comfort requires it.
+
+#### Phase 1: Investigation [DONE]
+* [x] **Document Current Behavior:** Confirmed O(T×S) complexity is ~2000 constraints.
+* [x] **Benchmark:**
+  - Baseline (Soft): 0.47s
+  - Control (None): 0.11s
+  - Optimized (Hard): 0.07s
+* [x] **Decision:** Proceed with Hard Constraint formulation.
+
+#### Phase 2: Implementation [DONE]
+**Goal:** Deploy the O(T) Hard Constraint logic.
+
+* [x] **Code Changes:**
+  - Modify `planner/solver/kepler.py`: Replace `water_spacing_penalty` logic with the new linear constraint.
+  - Simplify `KeplerConfig`: Deprecate `water_spacing_penalty_sek` (or use it as a boolean toggle).
+  - Update `planner/solver/types.py` docstrings.
+
+* [x] **Testing:**
+  - Unit tests: Verify strict spacing behavior (heater CANNOT start if within window).
+  - Integration test: Verify planner solves full problem in <5s.
+  - Regression test: Verify basic water heating accumulation still met.
+
+#### Phase 3: Validation [DONE]
+**Goal:** Verify production-readiness.
+
+* [x] **Performance Verification:**
+  - Run `scripts/profile_deep.py` → Target Planner <5s.
+  - Stress test 1000-slot horizon.
+
+* [x] **Documentation:**
+  - Update `docs/ARCHITECTURE.md` with new constraint formulation.
+  - Update `config.default.yaml` comments to explain the rigid nature of spacing.
+
+**Exit Criteria:**
+- [x] Planner execution time < 5s
+- [x] Water heating obeys spacing strictly
+- [x] Tests pass
+
+---
+
+## ERA // 11: Inverter Profiles & Configuration Hardening
+
+This era introduced the Inverter Profile system for multi-vendor support, implemented a robust "soft merge" configuration migration strategy, and finalized the settings UI for production release.
+
+### [DONE] REV // F18 — Config Soft Merge & Version Sync
+
+**Goal:** Ensure `config.yaml` automatically receives new keys from `config.default.yaml` on startup without overwriting existing user data. Also syncs the `version` field.
+
+**Context:**
+Currently, `config.yaml` can drift from `config.default.yaml` when new features (like Inverter Profiles) are added, causing `KeyError` or hidden behavior. The specific migration logic is too rigid. We need a "soft merge" that recursively fills in missing gaps.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] **Logic:** Implement `soft_merge_defaults(user_cfg, default_cfg)` in `backend/config_migration.py`.
+    *   Recursive walk: If key missing in user config, copy from default.
+    *   **Safety:** NEVER overwrite existing keys (except `version`).
+    *   **Safety:** NEVER delete user keys.
+* [x] **Version Sync:** Explicitly update `version` in `config.yaml` to match `config.default.yaml`.
+* [x] **Integration:** Add this step to `MIGRATIONS` list in `config_migration.py`.
+
+#### Phase 2: Verification [DONE]
+* [x] **Test:** Manually delete `system.inverter_profile` and `version` from `config.yaml`.
+* [x] **Run:** Restart backend.
+* [x] **Verify:** Check that keys reappeared and existing values were untouched.
+
+---
+
+### [DONE] REV // F17 — Unified Battery & Control Configuration
+
+**Goal:** Resolve configuration duplication, clarify "Amps vs Watts" control, and establish a **Single Source of Truth** where Hardware Limits drive Optimizer Limits.
+
+**Plan:**
+
+#### Phase 0: Auto-Migration (Startup) [DONE]
+* [x] **Migration Module:** Create `backend.config_migration` to handle versioned config updates.
+* [x] **Startup Hook:** Call migration logic in `backend.main:lifespan` before executor starts.
+* [x] **Logic:** Move legacy keys (`executor.controller.battery_capacity_kwh`, `system_voltage_v`, etc.) to new `battery` section and delete old keys.
+* [x] **Safety:** Use `ruamel.yaml` to preserve comments and structure. Fallback to warning if write fails.
+
+#### Phase 1: Configuration Refactoring (Single Source of Truth) [DONE]
+* [x] **Cleanup:** Remove `executor.controller.battery_capacity_kwh` (redundant). Point all logic to `battery.capacity_kwh`.
+* [x] **Cleanup:** Remove `max_charge_power_kw` and `max_discharge_power_kw` from config and UI (redundant).
+* [x] **Config:** Move `system_voltage_v` and `worst_case_voltage_v` to root `battery` section.
+* [x] **Logic:** Update `planner.solver.adapter` to **auto-calculate** optimizer limits from hardware settings:
+    *   `Watts`: Optimizer kW = Hardware W / 1000.
+    *   `Amps`: Optimizer kW = (Hardware A * System Voltage) / 1000.
+
+#### Phase 2: UI Schema & Visibility [DONE]
+* [x] **Battery Section:** Hide entire section if `system.has_battery` is false.
+* [x] **Voltage Fields:** Show only if `control_unit == "A"`. Hide for "W".
+*   **Profile Locking:**
+    *   If `inverter_profile == "deye"`, force `control_unit` to "A" (disable selector).
+    *   If `inverter_profile == "generic"`, default `control_unit` to "W".
+* [x] **Labels:** Rename inputs to "Max Hardware Charge (A/W)" to clarify purpose.
+
+#### Phase 3: Dashboard & Metrics [DONE]
+* [x] **Dynamic Units:** Ensure Dashboard cards display "A" or "W" based on `control_unit`.
+* [x] **Logs:** Ensure Execution history uses the correct unit suffix (e.g., "9600 W" vs "9600 A").
+
+#### Phase 4: Safety & Validation [DONE]
+* [x] **Entity Sniffing:** Add UI warning i Unit mismatch detected (Resolved via auto-enforcement).
+* [x] **Verification:** Verify end-to-end flow for Deye (Amps -> Auto kW) and Generic (Watts -> Auto kW).
+
+---
+
+### [DONE] REV // E3 — Watt-mode Safety & 9600A Fix
+
+**Goal:** Resolve the critical bug where 9.6kW (9600W) was being interpreted as 9600A due to a dataclass misalignment. Add safety guards and improved observability.
+
+**Plan:**
+
+#### Phase 1: Logic Fixes [DONE]
+* [x] **Controller:** Remove duplicate `grid_charging` field in `ControllerDecision`.
+* [x] **Controller:** Fix override logic using `max_charge_a` for discharge.
+* [x] **Actions:** Implement hard safety guard (refuse > 500A commands).
+* [x] **Actions:** Add explicit entity logging for all power/current actions.
+
+#### Phase 2: Observability [DONE]
+* [x] **Engine:** Add `last_skip_reason` to `ExecutorStatus`.
+* [x] **Debug API:** Expose skip reasons and automation toggle status.
+* [x] **Health:** Ensure skip reasons are visible in diagnostics.
+
+#### Phase 3: Verification [DONE]
+* [x] **Unit Tests:** Verify `ControllerDecision` field alignment.
+* [x] **Engine Tests:** Verify skip reporting (52/52 tests passing).
+
+---
+
+### [DONE] REV // DX3 — Dev Add-on Workflow
+
+**Goal:** Enable rapid iteration by creating a "Darkstar Dev" add-on that tracks the `dev` branch and builds significantly faster (amd64 only).
+
+**Plan:**
+
+#### Phase 1: Add-on Definition [DONE]
+* [x] Create `darkstar-dev/` directory with `config.yaml`, `icon.png`, and `logo.png`.
+* [x] Configure `darkstar-dev/config.yaml` with `slug: darkstar-dev` and `amd64` only.
+
+#### Phase 2: CI/CD Implementation [DONE]
+* [x] Update `.github/workflows/build-addon.yml` to support `dev` branch triggers.
+* [x] Implement dynamic versioning (`dev-YYYYMMDD.HHMM`) for the dev add-on.
+* [x] Optimize `dev` build to only target `amd64`.
+
+#### Phase 3: Documentation [DONE]
+* [x] Update `README.md` with Dev add-on info/warning.
+* [x] Update `docs/DEVELOPER.md` with dev workflow instructions.
+
+#### Phase 4: Verification [DONE]
+* [x] Verify HA Add-on Store shows both versions.
+* [x] Verify update notification triggers on push to `dev`.
+
+---
+
+### [DONE] REV // F16 — Conditional Configuration Validation
+
+**Goal:** Fix the bug where disabling `has_battery` still requires `input_sensors.battery_soc` to be configured. Relax validation logic in both frontend and backend.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] **Frontend:** Update `types.ts` to add `showIf` to battery and solar fields.
+* [x] **Backend:** Update `config.py` to condition critical entity validation on system toggles.
+* [x] **Verification:** Verify saving config with `has_battery: false` works.
+
+---
+
+### [DONE] REV // E5 — Inverter Profile Foundation
+
+**Goal:** Establish a modular "Inverter Profile" system in the settings UI. This moves away from generic toggles towards brand-specific presets, starting with hiding `soc_target_entity` for non-Deye inverters.
+
+**Profiles:**
+1.  **Generic (Default):** Standard entities, `soc_target` hidden.
+2.  **Deye/SunSynk (Gen2 Hybrid):** `soc_target` enabled & required.
+3.  **Fronius:** Placeholder (same as Generic for now).
+4.  **Victron:** Placeholder (same as Generic for now).
+
+**Plan:**
+
+#### Phase 1: Configuration & UI Schema [DONE]
+* [x] **Config:** Add `system.inverter_profile` to `config.default.yaml` (default: "generic").
+* [x] **UI Schema:**
+    *   Add `system.inverter_profile` dropdown to System Profile card.
+    *   Update `executor.soc_target_entity` to `showIf: { configKey: 'system.inverter_profile', value: 'deye' }` (or similar ID).
+* [x] **Warning Label:** Add a UI hint/warning that non-Deye profiles are "Work in Progress".
+
+#### Phase 2: Executor Handling [DONE]
+* [x] **Executor Logic:** Ensure `executor/config.py` loads the profile key (for future logic branching).
+* [x] **Validation:** Ensure `soc_target_entity` is only required if profile == Deye.
+
+#### Phase 3: Verification [DONE]
+* [x] **UI Test:** Select "Generic" → `soc_target` disappears. Select "Gen2 Hybrid" → `soc_target` appears.
+* [x] **Config Persistency:** Verify `inverter_profile` saves to `config.yaml`.
+
+---
+
+### [DONE] REV // E4 — Config Flexibility & Export Control
+
+**Goal:** Improve configuration flexibility by making the SoC target entity optional (increasing compatibility with inverters that manage this internally) and implementing a strict export toggle associated with comprehensive UI conditional visibility.
+
+**Plan:**
+
+#### Phase 1: Optional SoC Target [DONE]
+**Goal:** Make `soc_target` entity optional for inverters that do not support it, while clarifying its behavior for those that do.
+* [x] **Config Update:** Modify `ExecutorConfig` validation to allow `soc_target_entity` to be None/empty.
+* [x] **Executor Logic:** Update `executor/engine.py` to gracefully skip `_set_soc_target` actions if the entity is not configured.
+* [x] **UI Update (Tooltip):** Update `soc_target_entity` tooltip: "Target maintenance level. Acts as a discharge floor (won't discharge below this %) AND a grid charge target (won't charge above this % from grid). Required for inverters like Deye (behavior for other inverters unknown)."
+* [x] **UI Update (Optionality):** Field should be marked optional in the form validation logic.
+
+#### Phase 2: Export Toggle & UI Logic [DONE]
+**Goal:** Allow users to disable grid export constraints and hide irrelevant settings in the UI.
+* [x] **Config:** Ensure `config.default.yaml` has `export.enable_export: true` by default.
+* [x] **Constraint Logic:** In `planner/solver/kepler.py`, read `export.enable_export`. Add global constraint: `export_power[t] == 0` if disabled.
+* [x] **UI Toggle:** Remove `disabled` and `notImplemented` flags from `export.enable_export` in `types.ts`.
+* [x] **UI Conditionals:** Apply `showIf: { configKey: 'export.enable_export' }` to:
+  *   `executor.inverter.grid_max_export_power_entity`
+  *   `input_sensors.grid_export_power` (and related total/today export sensors)
+  *   Any export-specific parameters in `Settings/Parameters`.
+* [x] **Frontend Update:** Ensure `types.ts` defines these dependencies correctly so they grey out/disable.
+
+#### Phase 3: Verification [DONE]
+**Goal:** Verify safety, correctness, and UI behavior.
+* [x] **Startup Test:** Verify Darkstar starts correctly with `soc_target_entity` removed.
+* [x] **Planner Test:** Run planner with `enable_export: false` → verify 0 export.
+* [x] **UI Test:** Toggle `enable_export` in System Profile/Config and verify export fields grey out.
+* [x] **Regression Test:** Verify normal operation with `enable_export: true`.
+
+---
+
+### [DONE] REV // E3 — Inverter Compatibility (Watt Control)
+
+**Goal:** Support inverters that require Watt-based control instead of Amperes (e.g., Fronius).
+
+**Outcome:**
+Implemented strict separation between Ampere and Watt control modes. Added explicit configuration for Watt limits and entities. The system now refuses to start if Watt mode is selected but Watt entities are missing.
+
+**Plan:**
+
+#### Phase 1: Implementation [DONE]
+* [x] Add `control_unit` (Amperes vs Watts) to Inverter config
+* [x] Update `Executor` logic to calculate values based on selected unit
+* [x] Verify safety limits in both modes
+
+---
+
+### [DONE] REV // UI5 — Support Dual Grid Power Sensors
+
+**Goal:** Support split import/export grid power sensors in addition to single net-metering sensors.
+
+**Plan:**
+
+#### Phase 1: Implementation [PLANNED]
+* [X] Add `grid_import_power_entity` and `grid_export_power_entity` to config/Settings
+* [X] Update `inputs.py` to handle both single (net) and dual sensors
+* [X] Verify power flow calculations
+
+---
+
+### [DONE] REV // F15 — Extend Conditional Visibility to Parameters Tab
+
+**Goal:** Apply the same `showIf` conditional visibility pattern from F14 to the Parameters/Settings tabs (not just HA Entities).
+
+**Context:** The System Profile toggles (`has_solar`, `has_battery`, `has_water_heater`) should control visibility of many settings across all tabs:
+- Water Heating parameters (min_kwh, spacing, temps) — grey if `!has_water_heater`
+- Battery Economics — grey if `!has_battery`
+- S-Index settings — grey if `!has_battery`
+- Solar array params — grey if `!has_solar`
+
+**Scope:**
+- Extend `showIf` to `parameterSections` in `types.ts`
+- Apply same greyed overlay pattern in ParametersTab
+- Support all System Profile toggles as conditions
+
+---
+
+### [DONE] REV // F12 — Scheduler Not Running First Cycle
+
+**Problem:** Scheduler shows `last_run_at: null` even though enabled and running.
+
+**Resolution:**
+The scheduler was waiting for the full configured interval (default 60m) before the first run.
+Updated `SchedulerService` to schedule the first run 10 seconds after startup.
+
+**Status:** [DONE]
+
+---
+
+### [DONE] REV // H2 — Training Episodes Database Optimization
+
+**Goal:** Reduce `training_episodes` table size.
+
+**Outcome:**
+Instead of complex compression, we decided to **disable writing to `training_episodes` by default** (see `backend/learning/engine.py`). The table was causing bloat (2GB+) and wasn't critical for daily operations.
+
+**Resolution:**
+1.  **Disabled by Default:** `log_training_episode()` now checks `debug.enable_training_episodes` (default: False).
+2.  **Cleanup Script:** Created `scripts/optimize_db.py` to trim/vacuum the database.
+3.  **Documentation:** Added `optimize_db.py` usage to `docs/DEVELOPER.md`.
+
+**Status:** [DONE] (Solved via Avoidance)
+
+---
+
 ## ERA // 10: Public Beta & Performance Optimization
 
 This era focused on the transition to a public beta release, including infrastructure hardening, executor reliability, and significant performance optimizations for both the planner and the user interface.

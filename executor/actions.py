@@ -74,7 +74,9 @@ class HAClient:
     def get_state(self, entity_id: str) -> dict[str, Any] | None:
         """Get the current state of an entity."""
         # Early validation: catch None/invalid entity_id before hitting HA API
-        if not entity_id or (isinstance(entity_id, str) and entity_id.strip().lower() in ("", "none")):
+        if not entity_id or (
+            isinstance(entity_id, str) and entity_id.strip().lower() in ("", "none")
+        ):
             logger.error(
                 "get_state called with invalid entity_id: %r (type: %s) - "
                 "check config.yaml for missing entity configuration",
@@ -448,19 +450,41 @@ class ActionDispatcher:
                 duration_ms=int((time.time() - start) * 1000),
             )
 
+        result_label = f"{value} {unit_label}"
+        logger.info("Setting discharge_limit: %s on entity: %s", result_label, entity)
+
         if self.shadow_mode:
-            logger.info("[SHADOW] Would set discharge_limit to %s %s", value, unit_label)
+            logger.info(
+                "[SHADOW] Would set discharge_limit to %s %s on entity %s",
+                value,
+                unit_label,
+                entity,
+            )
             return ActionResult(
                 action_type="discharge_limit",
                 success=True,
-                message=f"[SHADOW] Would set to {value} {unit_label}",
+                message=f"[SHADOW] Would set to {result_label}",
                 new_value=value,
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
             )
 
+        # Safety Guard: Prevent extremely high Amps (Rev E3 Bug Fix)
+        if unit == "A" and value > 500:
+            logger.error(
+                "SAFETY GUARD: Refusing to set discharge limit to %.0fA (limit exceeded)", value
+            )
+            return ActionResult(
+                action_type="discharge_limit",
+                success=False,
+                message=f"Refused dangerously high limit: {value}A",
+                skipped=False,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
         success = self.ha.set_number(entity, value)
         duration = int((time.time() - start) * 1000)
+        logger.info("Set discharge_limit result: success=%s, duration=%dms", success, duration)
 
         return ActionResult(
             action_type="discharge_limit",

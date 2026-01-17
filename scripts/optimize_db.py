@@ -53,7 +53,7 @@ def optimize_db(rows_to_keep: int = 0):
             print(f"✗ Backup failed: Size mismatch ({original_size} vs {backup_size})")
             return
 
-        print(f"✓ Backup complete ({backup_size / (1024*1024):.2f} MB) in {elapsed:.2f}s")
+        print(f"✓ Backup complete ({backup_size / (1024 * 1024):.2f} MB) in {elapsed:.2f}s")
 
     except Exception as e:
         print(f"✗ Backup failed: {e}")
@@ -130,7 +130,7 @@ def optimize_db(rows_to_keep: int = 0):
     new_size_mb = new_size / (1024 * 1024)
 
     print("-" * 40)
-    print(f"Original Size: {original_size / (1024*1024):.2f} MB")
+    print(f"Original Size: {original_size / (1024 * 1024):.2f} MB")
     print(f"New Size:      {new_size_mb:.2f} MB")
     print(f"Space Saved:   {reduction_mb:.2f} MB")
     print("-" * 40)

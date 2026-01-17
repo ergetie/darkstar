@@ -36,6 +36,7 @@ def profile_planner():
     step_start = time.time()
     try:
         from bin.run_planner import main as planner_main
+
         timings["1_import_planner"] = time.time() - step_start
         print(f"✓ Import planner: {timings['1_import_planner']:.4f}s")
     except Exception as e:
@@ -46,6 +47,7 @@ def profile_planner():
     step_start = time.time()
     try:
         from backend.learning import get_learning_engine
+
         timings["2_import_learning"] = time.time() - step_start
         print(f"✓ Import learning engine: {timings['2_import_learning']:.4f}s")
     except Exception as e:

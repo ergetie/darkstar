@@ -40,7 +40,8 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ## 📥 Inbox (User Added / Unsorted)
 
 <!-- Add new bugs/requests here. AI will wipe this section when processing. -->
-- Difference between executor battery capacity and planner battery capacity! Like 27kWh vs 34.2kWh.
+- [Recurring] Check dependencies (`pnpm outdated` / `pip list --outdated`) every month.
+- Do we support direct PV export if profitable? It would make no sense to for example charge the battery then export from battery a sunny summer day where we have severe surplus solar and the prices are high midday.
 ---
 
 ## 🔴 High Priority
@@ -48,8 +49,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ### [AURORA] Support multiple MPPT strings / Panel arrays
 
 **Goal:** Some users have multiple MPPT strings and panel arrays, we need to support this in the Aurora forecast.
-
-
 
 ---
 
@@ -129,71 +128,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-### [Database] Add Migration Framework (REVIEW-2026-01-04)
 
-**Goal:** Enable safe, version-controlled database schema evolution without manual SQL.
 
-**Current State:** 
-- SQLite schema changes are manual
-- No migration tracking
-- Risk of schema drift between environments
 
-**Implementation Options:**
-
-1. **Alembic** (Standard Python migrations)
-   - Pros: Industry standard, autogenerate migrations, version tracking
-   - Cons: Adds dependency, learning curve
-   - Setup: `pip install alembic`, `alembic init`, create initial migration
-
-2. **Simple Version Table** (Lightweight custom solution)
-   - Add `schema_version` table with single row
-   - Store migration scripts in `migrations/` directory (001_initial.sql, 002_add_battery_cost.sql, etc.)
-   - Custom Python script applies pending migrations
-   - Pros: Simple, no dependencies
-   - Cons: Manual migration writing, no rollback
-
-**Recommendation:** Start with Alembic for long-term maintainability.
-
-**Database File:** `planner_learning.db`
-
-**Tables to Manage:**
-- `slot_plans`, `execution_log`, `slot_forecasts`, `vacation_state`, `battery_cost`
-
-**Effort:** 3-4 hours (setup Alembic + create initial migration + docs)
-
----
-
-### [Dependencies] Audit and Update Outdated Packages (REVIEW-2026-01-04)
-
-**Goal:** Update dependencies to latest stable versions for security patches and new features.
-
-**Current State:** Dependency versions not audited recently.
-
-**Commands to Run:**
-```bash
-# Frontend
-cd frontend && pnpm outdated
-
-# Backend
-pip list --outdated
-```
-
-**Review Considerations:**
-- **React 19**: Bleeding edge, verify stability before production
-- **FastAPI**: Check for breaking changes in 0.109+ → latest
-- **LightGBM**: Check for model compatibility if updating
-- **Chart.js**: Review changelog for breaking changes
-
-**Process:**
-1. Run `pnpm outdated` and `pip list --outdated`
-2. Review changelogs for major version bumps
-3. Update in batches (frontend, backend, ML separately)
-4. Run full test suite after each batch
-5. Manual smoke testing for UI changes
-
-**Effort:** 2-4 hours (depending on breaking changes)
-
----
 
 ### [Backend] Split services.py Router (REVIEW-2026-01-04)
 
@@ -230,22 +167,6 @@ pip list --outdated
 - Reduced merge conflicts
 
 **Effort:** 2 hours (refactor + update imports + test)
-
----
-
-
-### [Analytics] Implement Monthly Cost Analysis (IS THIS ALREADY DONE?)
-
-**Goal:** Use `pricing.subscription_fee_sek_per_month` to show total monthly costs.
-
-**Current State:** Config key exists but is not used anywhere in code.
-
-**Potential Uses:**
-- Calculate true break-even for battery/solar ROI
-- Show monthly cost projection on Dashboard
-- Include in Cost Reality comparisons
-
-**Source:** Existing backlog item + REVIEW-2026-01-04 (unused config key)
 
 ---
 
@@ -298,9 +219,9 @@ pip list --outdated
 
 ---
 
-### [Planner] Multiple Heating Sources
+### [Planner] Multiple Heating Sources/Deferrable Loads
 
-**Goal:** Support control for multiple distinct heating sources (e.g., HVAC + Water Heater + Floor Heating) independently.
+**Goal:** Support control for multiple distinct heating sources (e.g., HVAC + Water Heater + Floor Heating) independently. A simple switch per each source to enable/disable it, and then the planner will decide when to turn them on/off based on the optimization problem. We need parameter for the kW consumption of each source and time/kWh goal.
 
 **Notes:** Currently limited to a single water heater channel.
 
@@ -311,25 +232,6 @@ pip list --outdated
 **Goal:** Refactor working mode logic to support more than 2 modes (charging/discharging) and customizable profiles.
 
 **Notes:** Some inverters have complex multi-mode requirements.
-
----
-
-## 🟢 Low Priority
-
-### [Docs] Add Migration Guide (v1→v2) (REVIEW-2026-01-04)
-
-**Goal:** Help existing Darkstar v1 users migrate to v2 (Kepler architecture).
-
-**Current State:** No migration guide exists.
-
-**Content:**
-- Breaking changes (heuristic planner → Kepler MILP)
-- Config file changes
-- Database migration (if applicable)
-- What to expect (different schedules, better optimization)
-- Rollback plan if needed
-
-**Effort:** 2 hours (write guide)
 
 ---
 
@@ -377,42 +279,7 @@ pip list --outdated
 
 ---
 
-### [Logging] Structured JSON Logs (REVIEW-2026-01-04)
 
-**Goal:** Use structured JSON logging for easier parsing and log aggregation.
-
-**Current State:** Python `logging` module with text format.
-
-**Implementation:**
-```bash
-pip install python-json-logger
-```
-
-```python
-# backend/main.py
-from pythonjsonlogger import jsonlogger
-
-handler = logging.StreamHandler()
-formatter = jsonlogger.JsonFormatter(
-    '%(asctime)s %(name)s %(levelname)s %(message)s'
-)
-handler.setFormatter(formatter)
-logging.root.addHandler(handler)
-```
-
-**Output:**
-```json
-{"asctime": "2026-01-04 12:00:00", "name": "darkstar.api", "levelname": "INFO", "message": "Dashboard loaded", "duration_ms": 45}
-```
-
-**Benefits:**
-- Easy parsing with jq, Splunk, ELK
-- Machine-readable
-- Add contextual fields (request_id, user_id, etc.)
-
-**Effort:** 2 hours (implement + test)
-
----
 
 ### [Backend] Add SQLite Connection Pooling (REVIEW-2026-01-04)
 
@@ -460,78 +327,7 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
 
 ---
 
----
 
----
-
----
-
----
-
-### [UI] Improve SmartAdvisor Appliance Recommendations
-
-**Goal:** Make the SmartAdvisor appliance scheduling feature more useful and reliable.
-
-**Current State:** Feature exists but recommendations are not consistently helpful.
-
-**Tasks:**
-- Review and improve scheduling algorithm
-- Better integration with price data and forecasts
-- Consider showing savings estimates
-
-**Source:** Existing backlog item
-
----
-
-### [Planner] Implement Configurable Effekttariff Penalty
-
-**Goal:** Allow users to configure the peak power penalty instead of hardcoded 5000 SEK/kWh.
-
-**Current State:** `grid.import_limit_kw` is a soft constraint with fixed `IMPORT_BREACH_PENALTY = 5000` in Kepler.
-
-**Tasks:**
-- Add `grid.import_breach_penalty_sek` config key
-- Read from config in Kepler solver
-- Expose in Settings UI
-
-**Source:** Existing backlog item
-
----
-
----
-
-### [UI] Chart Improvements (Polish)
-
-**Goal:** Enhance all charts with better UX and visual polish.
-
-**Tasks:**
-- Render `soc_target` as a step-line series (not smooth)
-- Add zoom support (mouse wheel + controls)
-- Offset tooltips to avoid covering data points
-- Ensure price series includes full 24h even if schedule is partial
-- Mobile responsiveness improvements
-
-**Notes:** Needs design brainstorm before implementation.
-
-**Source:** Existing backlog item
-
----
-
-### [UI] UX/UI Review
-
-**Goal:** Comprehensive review of all tabs for usability improvements.
-
-**Scope:**
-- Review each tab for clarity and flow
-- Identify confusing UI elements
-- Add info/explanation buttons or hover tooltips where needed
-- Mobile responsiveness audit
-
-**Source:** Existing backlog item
-
----
-
----
 
 ### [Planner] Proactive PV Dump (Water Heating)
 

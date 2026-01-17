@@ -28,6 +28,7 @@ from backend.learning.reflex import (
     AuroraReflex,
 )
 from backend.learning.store import LearningStore
+from backend.learning.models import Base
 
 
 @pytest.fixture
@@ -38,6 +39,9 @@ def temp_db():
 
     tz = pytz.timezone("Europe/Stockholm")
     store = LearningStore(db_path, tz)
+    
+    # Create schema
+    Base.metadata.create_all(store.engine)
 
     yield db_path, store, tz
 

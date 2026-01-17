@@ -98,33 +98,68 @@ async def save_config(payload: dict[str, Any] = Body(...)) -> dict[str, Any]:
                         if not overrides[key]:
                             overrides.pop(key)
 
-        # Deep merge helper - FIXED to preserve YAML structure
-        def deep_update(source: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
-            """Recursively merge overrides into source, preserving structure."""
+        # Deep merge helper - FIXED to preserve YAML structure and coerce types
+        def deep_update(
+            source: dict[str, Any],
+            overrides: dict[str, Any],
+            schema: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            """Recursively merge overrides into source, preserving structure and types."""
             for key, value in overrides.items():
+                # Get expected type from schema if available
+                expected_val = schema.get(key) if schema else None
+
                 if isinstance(value, dict) and value:
                     # Ensure parent key exists as dict before merging
                     if key not in source:
                         source[key] = {}
                     elif not isinstance(source[key], dict):
-                        # If source[key] exists but isn't a dict, replace it
                         logger.warning(f"Config key '{key}' exists but isn't a dict - replacing")
                         source[key] = {}
 
-                    # Recursively merge the nested dict
-                    deep_update(source[key], value)
+                    # Recursively merge the nested dict, passing sub-schema
+                    sub_schema = expected_val if isinstance(expected_val, dict) else None
+                    deep_update(source[key], value, sub_schema)
                 else:
-                    source[key] = overrides[key]
+                    # Type Coercion Logic
+                    coerced_value = value
+                    if expected_val is not None and value is not None:
+                        try:
+                            if isinstance(expected_val, bool) and not isinstance(value, bool):
+                                if str(value).lower() in ("true", "1", "yes"):
+                                    coerced_value = True
+                                elif str(value).lower() in ("false", "0", "no"):
+                                    coerced_value = False
+                            elif isinstance(expected_val, int) and not isinstance(value, int):
+                                coerced_value = int(float(value))
+                            elif isinstance(expected_val, float) and not isinstance(
+                                value, (int, float)
+                            ):
+                                coerced_value = float(value)
+                        except (ValueError, TypeError):
+                            logger.warning(
+                                f"Failed to coerce '{key}': {value} -> {type(expected_val)}"
+                            )
+
+                    source[key] = coerced_value
             return source
 
         config_path = Path("config.yaml")
+        default_path = Path("config.default.yaml")
+
+        # Load schema for type coercion
+        schema_data = {}
+        if default_path.exists():
+            with default_path.open(encoding="utf-8") as df:
+                schema_data = cast("dict[str, Any]", yaml_handler.load(df) or {})
+
         with config_path.open(encoding="utf-8") as f:
             data = cast("dict[str, Any]", yaml_handler.load(f) or {})  # type: ignore
 
             # Filter the incoming payload before merging
             filter_secrets(payload, SECRET_KEYS)
 
-            deep_update(data, payload)
+            deep_update(data, payload, schema_data)
 
         # REV LCL01: Validate config before saving and collect warnings/errors
         validation_issues = _validate_config_for_save(data)

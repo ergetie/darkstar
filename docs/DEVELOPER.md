@@ -25,14 +25,19 @@ For complete requirements, see `requirements.txt`.
     ```bash
     git clone <repository-url>
     cd darkstar
-    python -m venv venv
-    source venv/bin/activate
+
+    # ⚡ Install uv (The blazing fast Python manager)
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # Create virtual environment
+    uv venv
+
     ```
 
 2.  **Install Dependencies:**
     ```bash
     # Backend & ML pipeline
-    pip install -r requirements.txt
+    uv pip install -r requirements.txt
 
     # Frontend
     pnpm install
@@ -72,6 +77,7 @@ Located in `ml/`, Aurora Vision is a LightGBM-based machine learning engine.
 *   **Inference**: Generates base PV/Load forecasts and predicts forecast errors via Rolling Averages or LightGBM (depending on data depth).
 *   **Control**: You can toggle between "Baseline" (7-day average) and "Aurora" (ML) in the UI.
 
+
 ### 2. Aurora Strategy (The Context Layer)
 Located in `backend/strategy/`, this layer injects "common sense" overrides before the mathematical planner runs.
 *   **Vacation Mode**: Detects if the home is empty and suppresses water heating.
@@ -95,12 +101,28 @@ Located in `planner.py`, the system now uses **Kepler**, a Mixed-Integer Linear 
 *   **Water Heating**: Scheduled as a "committed load" before the battery optimization runs.
 
 ### Database Management
-Darkstar uses SQLite (`data/planner_learning.db`). Over time, this file may grow large due to debug logging.
+Darkstar uses SQLite (`data/planner_learning.db`) managed via **SQLAlchemy ORM**.
+- **Models**: All tables are defined as declarative models in [backend/learning/models.py](backend/learning/models.py).
 - **Optimize:** Run `python scripts/optimize_db.py` to backup, trim old history, and vacuum the database.
 - **Profile:** Run `python scripts/profile_db.py` to analyze table sizes and performance.
 - **Planner Profile:** Run `python scripts/profile_planner.py` to benchmark the planner pipeline.
 
 For a deep dive into the solver logic, see [architecture.md](architecture.md).
+
+### Configuration & Migrations
+Darkstar prioritizes a "zero-touch" update experience. If you introduce breaking changes to `config.yaml` or the SQLite schema:
+
+1.  **Config Migrations**: Register a new `MigrationStep` in `backend/config_migration.py`.
+    - These steps run automatically during the `backend/main.py` startup lifespan.
+    - Use `ruamel.yaml` to ensure user comments/formatting are preserved.
+2.  **Database Migrations**: Darkstar uses **Alembic** for versioned migrations.
+    - **Applying Migrations**: Run automatically on startup via `alembic upgrade head`.
+    - **Creating Migrations**: If you change a model in `backend/learning/models.py`, generate a new migration:
+      ```bash
+      alembic revision --autogenerate -m "description of change"
+      ```
+    - **Dynamic Path**: Alembic is configured to respect the `DB_PATH` environment variable.
+3.  **Fallback Logic**: When feasible, implement temporary "Plan B" fallbacks in Python code to handle both old and new key names until the next major release.
 
 > **Note:** The legacy heuristic MPC planner (7-pass logic) is preserved for reference in [LEGACY_MPC.md](LEGACY_MPC.md).
 
@@ -286,6 +308,17 @@ pnpm run dev  # OR run backend/scheduler separately
     ```
 3.  **UI Themes**: Add custom JSON themes to `backend/themes/`.
 4.  **Logs**: Check the **Debug** tab in the UI for real-time logs from the Planner, Scheduler, and Strategy Engine.
+
+### Commit Protocol (Strict)
+This project enforces **Conventional Commits** automatically via `commitlint`.
+All commit messages MUST follow the format: `type(scope): description`.
+
+- ✅ `fix(api): handle timeout error`
+- ✅ `feat(ui): add dark mode toggle`
+- ❌ `fixed api` (Will be rejected)
+
+Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`.
+
 5.  **Releases**:
     When releasing a new version:
     1. **Bump version** in:
@@ -302,6 +335,20 @@ pnpm run dev  # OR run backend/scheduler separately
        - It will also parse `docs/RELEASE_NOTES.md` and create a **GitHub Release** with the corresponding notes.
        - **Do not manually create releases in the GitHub UI**, as this triggers redundant builds.
     The sidebar fetches version from `/api/version` which uses `git describe --tags`.
+
+## Troubleshooting & Debugging
+
+### Socket.IO Diagnostics
+If you encounter WebSocket connection issues (especially through Home Assistant Ingress), you can enable verbose frontend logging by adding `debug=true` to the URL:
+
+`http://localhost:5173/?debug=true`
+
+This will output detailed connection lifecycle events, transport details, and packet data to the browser console.
+
+**Advanced Overrides:**
+You can also force specific Socket.IO parameters via the URL for testing:
+*   `socket_path=/custom/path`: Override the service worker path.
+*   `socket_transports=websocket,polling`: Force specific transports.
 
 ## Dev Branch & Add-on Workflow
 

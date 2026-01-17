@@ -1,32 +1,15 @@
-"""
-Observability Logging
-
-Handles persistence of debug payloads and other observability metrics.
-"""
-
 import json
-import sqlite3
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
+from backend.learning import get_learning_engine
+from backend.learning.models import PlannerDebug
 
+# ensure_learning_schema is no longer needed as Alembic handles schema.
+# Kept as no-op if called from legacy code, or can be removed if confident.
 def ensure_learning_schema(db_path: str) -> None:
-    """Create sqlite tables when learning is enabled."""
-    # Ensure directory exists
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
-    with sqlite3.connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS planner_debug (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at TEXT NOT NULL,
-                payload TEXT NOT NULL
-            )
-            """
-        )
-        conn.commit()
+    """Legacy no-op: Schema is managed by Alembic."""
+    pass
 
 
 def record_debug_payload(payload: dict[str, Any], learning_config: dict[str, Any]) -> None:
@@ -40,22 +23,24 @@ def record_debug_payload(payload: dict[str, Any], learning_config: dict[str, Any
     if not learning_config.get("enable", False):
         return
 
-    db_path = learning_config.get("sqlite_path", "data/learning.db")
-
-    # Ensure schema exists
-    ensure_learning_schema(db_path)
-
-    timestamp = datetime.now(UTC).isoformat()
-
     try:
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO planner_debug (created_at, payload)
-                VALUES (?, ?)
-                """,
-                (timestamp, json.dumps(payload)),
+        engine = get_learning_engine()
+        # Ensure store is available
+        if not hasattr(engine, "store"):
+             # If engine/store not initialized (e.g. running outside full app context),
+             # we skip recording to avoid duplicate initialization logic or crashes.
+             return
+
+        timestamp = datetime.now(UTC).isoformat()
+        
+        with engine.store.Session() as session:
+            record = PlannerDebug(
+                created_at=timestamp,
+                payload=json.dumps(payload)
             )
-            conn.commit()
+            session.add(record)
+            session.commit()
+
     except Exception as e:
+        # Use simple print as fallback if logger not available/configured
         print(f"[observability] Failed to record debug payload: {e}")

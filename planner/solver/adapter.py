@@ -127,12 +127,26 @@ def config_to_kepler_config(
     charge_eff = float(battery.get("charge_efficiency", 0.95))
     discharge_eff = float(battery.get("discharge_efficiency", 0.95))
 
+    # Dynamic Power Limits (Rev F17)
+    # Hardware limits (Amps or Watts) drive the Optimizer limits (kW)
+    inverter_cfg = planner_config.get("executor", {}).get("inverter", {})
+    control_unit = inverter_cfg.get("control_unit", "A")
+
+    if control_unit == "W":
+        max_charge_kw = float(battery.get("max_charge_w", 0.0)) / 1000.0
+        max_discharge_kw = float(battery.get("max_discharge_w", 0.0)) / 1000.0
+    else:
+        # Amps mode - use nominal voltage for planning
+        voltage = float(battery.get("nominal_voltage_v", battery.get("system_voltage_v", 48.0)))
+        max_charge_kw = (float(battery.get("max_charge_a", 0.0)) * voltage) / 1000.0
+        max_discharge_kw = (float(battery.get("max_discharge_a", 0.0)) * voltage) / 1000.0
+
     kepler_cfg = KeplerConfig(
         capacity_kwh=capacity,
         min_soc_percent=float(battery.get("min_soc_percent", 10.0)),
         max_soc_percent=float(battery.get("max_soc_percent", 100.0)),
-        max_charge_power_kw=float(battery.get("max_charge_power_kw", 0.0)),
-        max_discharge_power_kw=float(battery.get("max_discharge_power_kw", 0.0)),
+        max_charge_power_kw=max_charge_kw,
+        max_discharge_power_kw=max_discharge_kw,
         charge_efficiency=charge_eff,
         discharge_efficiency=discharge_eff,
         wear_cost_sek_per_kwh=get_val("wear_cost_sek_per_kwh", 0.0),

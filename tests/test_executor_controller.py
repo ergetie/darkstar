@@ -53,7 +53,7 @@ class TestControllerConfig:
         """ControllerConfig has sensible defaults."""
         config = ControllerConfig()
         assert config.battery_capacity_kwh == 27.0
-        assert config.system_voltage_v == 48.0
+        assert config.nominal_voltage_v == 48.0
         assert config.min_charge_a == 10.0
         assert config.max_charge_a == 185.0
         assert config.max_discharge_a == 185.0
@@ -63,14 +63,14 @@ class TestControllerConfig:
         """ControllerConfig can be initialized with custom values."""
         config = ControllerConfig(
             battery_capacity_kwh=30.0,
-            system_voltage_v=50.0,
+            nominal_voltage_v=50.0,
             min_charge_a=5.0,
             max_charge_a=200.0,
             max_discharge_a=200.0,
             round_step_a=10.0,
         )
         assert config.battery_capacity_kwh == 30.0
-        assert config.system_voltage_v == 50.0
+        assert config.nominal_voltage_v == 50.0
         assert config.min_charge_a == 5.0
         assert config.max_charge_a == 200.0
         assert config.max_discharge_a == 200.0
@@ -242,7 +242,7 @@ class TestCalculateChargeCurrent:
 
     def test_no_charge_planned_returns_zero(self):
         """When no charge planned, return 0."""
-        config = ControllerConfig(worst_case_voltage_v=46.0)
+        config = ControllerConfig(min_voltage_v=46.0)
         controller = Controller(config, InverterConfig())
         slot = SlotPlan(charge_kw=0.0)
         state = SystemState()
@@ -255,7 +255,7 @@ class TestCalculateChargeCurrent:
     def test_kw_to_amps_conversion(self):
         """Correctly converts kW to Amps."""
         config = ControllerConfig(
-            worst_case_voltage_v=46.0,
+            min_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
             max_charge_a=185.0,
@@ -272,7 +272,7 @@ class TestCalculateChargeCurrent:
     def test_respects_min_limit(self):
         """Current is clamped to minimum."""
         config = ControllerConfig(
-            worst_case_voltage_v=46.0,
+            min_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
             max_charge_a=185.0,
@@ -289,7 +289,7 @@ class TestCalculateChargeCurrent:
     def test_respects_max_limit(self):
         """Current is clamped to maximum."""
         config = ControllerConfig(
-            worst_case_voltage_v=46.0,
+            min_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
             max_charge_a=185.0,
@@ -310,7 +310,7 @@ class TestCalculateDischargeCurrent:
     def test_export_mode_limits_discharge(self):
         """When exporting, discharge is limited to export rate."""
         config = ControllerConfig(
-            worst_case_voltage_v=46.0,
+            min_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
             max_charge_a=185.0,

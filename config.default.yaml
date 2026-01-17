@@ -1,12 +1,12 @@
 # =============================================================================
-# Darkstar Configuration 2.4.23-beta
+# Darkstar Configuration
 # =============================================================================
 # This is the user's production configuration file.
 # Structure matches config.default.yaml with user-specific values.
 # =============================================================================
 
 # System Metadata
-version: "2.4.23-beta"
+version: "2.5.0-beta"
 timezone: "Europe/Stockholm"          # IANA timezone for all schedule calculations
 
 # AI Advisor (Smart Assistant on Dashboard)
@@ -25,6 +25,7 @@ system:
   has_solar: true         # Enable PV forecasting & solar-related features
   has_battery: true       # Enable battery control & grid arbitrage
   has_water_heater: true  # Enable water heating optimization
+  grid_meter_type: net    # Meter type: net (single +/- sensor) | dual (separate import/export)
   
   grid:
     max_power_kw: 8                    # HARD limit: max grid import (cannot be exceeded)
@@ -41,11 +42,16 @@ system:
 # Battery Specifications
 battery:
   capacity_kwh: 34.2
+  nominal_voltage_v: 48.0             # Nominal battery voltage (used for Planning)
+  min_voltage_v: 46.0                 # Minimum safe voltage (used for Executor safety)
+  max_charge_a: 185.0                 # Max charging current (A)
+  max_discharge_a: 185.0              # Max discharging current (A)
+  max_charge_w: 5000.0                # Max charging power (W)
+  max_discharge_w: 5000.0             # Max discharging power (W)
   min_soc_percent: 12
-  max_soc_percent: 100             # Planner target ceiling (BMS still enforces absolute limit)
-  max_charge_power_kw: 8
-  max_discharge_power_kw: 8
+  max_soc_percent: 100                # Planner target ceiling
   roundtrip_efficiency_percent: 95.0
+  charge_efficiency: 0.92             # Charging efficiency (0-1)
 
 battery_economics:
   battery_cycle_cost_kwh: 0.2      # Degradation cost applied per kWh cycled through the battery
@@ -70,12 +76,13 @@ water_heating:
     anti_legionella_temp_c: 65        # Target temperature for safety cycle
     anti_legionella_interval_days: 7  # Run cycle every N days
     anti_legionella_duration_hours: 3.0  # Duration at power_kw (e.g., 3h * 3kW = 9kWh)
+    end_date: ""                      # Vacation mode end date (set by UI/Automation)
 
 # S-Index Configuration (Risk & Safety Strategy)
 s_index:
   mode: "probabilistic"            # Options: probabilistic | dynamic
   static_factor:                   # Used when mode=static
-  base_factor: 1.1                 # Starting point for dynamic calculationsWfz  
+  base_factor: 1.1                 # Starting point for dynamic calculations
   max_factor: 1.5                  # Upper bound clamp for dynamic mode
   pv_deficit_weight: 0.2           # Weight for PV/load deficit contribution
   temp_weight: 0.3                 # Weight for temperature adjustment
@@ -141,11 +148,10 @@ pricing:
   vat_percent: 25.0                    # VAT percentage on electricity
   grid_transfer_fee_sek: 0.2456        # Grid operator transfer fee per kWh
   energy_tax_sek: 0.439                # Energy tax per kWh
-  subscription_fee_sek_per_month: 593.0  # [FUTURE] Fixed monthly grid subscription (for cost analysis)
 
 # Forecasting Adjustments (Aurora ML tuning)
 forecasting:
-  active_forecast_version: aurora      # Forecast engine: aurora (ML) | legacy
+  active_forecast_version: "2.5.0-beta"
   pv_confidence_percent: 83.0          # PV forecast scaling (100 = trust forecast fully)
   load_safety_margin_percent: 117.0    # Load forecast scaling (>100 = expect more load)
 
@@ -226,23 +232,14 @@ executor:
 
   # Controller Parameters (electrical conversion constants)
   controller:
-    battery_capacity_kwh: 27.0         # Battery capacity in kWh (for current calculations)
-    system_voltage_v: 48.0             # Nominal battery voltage
-    worst_case_voltage_v: 46.0         # Minimum voltage for conservative calculations
     inverter_ac_limit_kw: 8.8          # Max AC power output of inverter
-    charge_efficiency: 0.92            # Charging efficiency (0-1)
-    max_charge_a: 185.0                # Maximum charging current (A)
-    max_discharge_a: 185.0             # Maximum discharging current (A)
     min_charge_a: 10.0                 # Minimum meaningful charge current (A)
     round_step_a: 5.0                  # Round current commands to nearest X amps
     write_threshold_a: 5.0             # Only write if change exceeds X amps
     
     # Watt-based Control Limits (used if control_unit="W")
-    max_charge_w: 5000.0               # Maximum charging power (W)
-    max_discharge_w: 5000.0            # Maximum discharging power (W)
     min_charge_w: 500.0                # Minimum meaningful charge power (W)
     round_step_w: 100.0                # Round power commands to nearest X watts
-    
     write_threshold_w: 100.0           # Only write power if change exceeds X watts (EEPROM protection)
 
   # Water Heater Control

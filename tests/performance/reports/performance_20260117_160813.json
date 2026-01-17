@@ -1,0 +1,104 @@
+{
+  "timestamp": "2026-01-17T16:08:13.136794",
+  "summary": {
+    "total_time_ms": 441.67,
+    "parallel_time_ms": 225.6,
+    "endpoint_count": 11,
+    "failed_count": 0,
+    "slow_count": 1
+  },
+  "endpoints": [
+    {
+      "endpoint": "/api/schedule",
+      "response_time_ms": 225.6,
+      "status_code": 200,
+      "status": "WARN",
+      "critical": true,
+      "error": null
+    },
+    {
+      "endpoint": "/api/ha/average",
+      "response_time_ms": 65.79,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/status",
+      "response_time_ms": 44.36,
+      "status_code": 200,
+      "status": "OK",
+      "critical": true,
+      "error": null
+    },
+    {
+      "endpoint": "/api/energy/today",
+      "response_time_ms": 22.17,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/executor/status",
+      "response_time_ms": 20.88,
+      "status_code": 200,
+      "status": "OK",
+      "critical": true,
+      "error": null
+    },
+    {
+      "endpoint": "/api/schedule/today_with_history",
+      "response_time_ms": 19.07,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/learning/status",
+      "response_time_ms": 18.05,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/ha/water_today",
+      "response_time_ms": 12.12,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/config",
+      "response_time_ms": 10.96,
+      "status_code": 200,
+      "status": "OK",
+      "critical": true,
+      "error": null
+    },
+    {
+      "endpoint": "/api/aurora/dashboard",
+      "response_time_ms": 1.32,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    },
+    {
+      "endpoint": "/api/scheduler/status",
+      "response_time_ms": 1.3,
+      "status_code": 200,
+      "status": "OK",
+      "critical": false,
+      "error": null
+    }
+  ],
+  "thresholds": {
+    "total_warn_ms": 2000,
+    "total_error_ms": 5000
+  }
+}

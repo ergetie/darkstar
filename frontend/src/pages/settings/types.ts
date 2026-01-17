@@ -131,6 +131,11 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Panel direction: 0° = North, 90° = East, 180° = South, 270° = West.',
                 path: ['system', 'solar_array', 'azimuth'],
                 type: 'azimuth',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
             {
                 key: 'system.solar_array.tilt',
@@ -138,6 +143,11 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Angle from horizontal. 0° = flat, 90° = vertical.',
                 path: ['system', 'solar_array', 'tilt'],
                 type: 'tilt',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
             {
                 key: 'system.solar_array.kwp',
@@ -145,6 +155,11 @@ export const systemSections: SettingsSection[] = [
                 helper: 'Total DC peak power of the PV array.',
                 path: ['system', 'solar_array', 'kwp'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_solar',
+                    value: true,
+                    disabledText: "Enable 'Solar panels installed' in System Profile to configure",
+                },
             },
         ],
     },
@@ -160,16 +175,10 @@ export const systemSections: SettingsSection[] = [
                 type: 'number',
             },
             {
-                key: 'battery.max_charge_power_kw',
-                label: 'Max charge power (kW)',
-                path: ['battery', 'max_charge_power_kw'],
-                type: 'number',
-            },
-            {
-                key: 'executor.controller.max_charge_a',
+                key: 'battery.max_charge_a',
                 label: 'Max charge current (A)',
                 helper: 'Maximum charging current allowed from grid.',
-                path: ['executor', 'controller', 'max_charge_a'],
+                path: ['battery', 'max_charge_a'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -177,10 +186,10 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'executor.controller.max_charge_w',
+                key: 'battery.max_charge_w',
                 label: 'Max charge power (W)',
                 helper: 'Maximum charging power allowed from grid.',
-                path: ['executor', 'controller', 'max_charge_w'],
+                path: ['battery', 'max_charge_w'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -188,10 +197,10 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'executor.controller.max_discharge_a',
+                key: 'battery.max_discharge_a',
                 label: 'Max discharge current (A)',
                 helper: 'Maximum discharge current for load following.',
-                path: ['executor', 'controller', 'max_discharge_a'],
+                path: ['battery', 'max_discharge_a'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -199,10 +208,10 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'executor.controller.max_discharge_w',
+                key: 'battery.max_discharge_w',
                 label: 'Max discharge power (W)',
                 helper: 'Maximum discharge power for load following.',
-                path: ['executor', 'controller', 'max_discharge_w'],
+                path: ['battery', 'max_discharge_w'],
                 type: 'number',
                 showIf: {
                     configKey: 'executor.inverter.control_unit',
@@ -210,10 +219,26 @@ export const systemSections: SettingsSection[] = [
                 },
             },
             {
-                key: 'battery.max_discharge_power_kw',
-                label: 'Max discharge power (kW)',
-                path: ['battery', 'max_discharge_power_kw'],
+                key: 'battery.nominal_voltage_v',
+                label: 'Nominal Voltage (V)',
+                helper: 'Used for Ampere-to-kW calculations in the Planner.',
+                path: ['battery', 'nominal_voltage_v'],
                 type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
+            },
+            {
+                key: 'battery.min_voltage_v',
+                label: 'Worst-case Voltage (V)',
+                helper: 'Min safe voltage used by Executor for amperage safety.',
+                path: ['battery', 'min_voltage_v'],
+                type: 'number',
+                showIf: {
+                    configKey: 'executor.inverter.control_unit',
+                    value: 'A',
+                },
             },
             {
                 key: 'battery.min_soc_percent',
@@ -242,7 +267,7 @@ export const systemSections: SettingsSection[] = [
             },
             {
                 key: 'grid.import_limit_kw',
-                label: 'Soft import limit (kW)',
+                label: 'Soft import limit (kW) [NOT IMPLEMENTED]',
                 path: ['grid', 'import_limit_kw'],
                 type: 'number',
             },
@@ -733,6 +758,11 @@ export const parameterSections: SettingsSection[] = [
                 helper: 'Estimated degradation cost for every kWh cycled. Affects arbitrage profitability.',
                 path: ['battery_economics', 'battery_cycle_cost_kwh'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
         ],
     },
@@ -746,18 +776,33 @@ export const parameterSections: SettingsSection[] = [
                 label: 'Water heater power (kW)',
                 path: ['water_heating', 'power_kw'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.defer_up_to_hours',
                 label: 'Max defer hours',
                 path: ['water_heating', 'defer_up_to_hours'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.min_kwh_per_day',
                 label: 'Min kWh/day',
                 path: ['water_heating', 'min_kwh_per_day'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.min_spacing_hours',
@@ -765,6 +810,11 @@ export const parameterSections: SettingsSection[] = [
                 path: ['water_heating', 'min_spacing_hours'],
                 type: 'number',
                 helper: 'Minimum gap between heating sessions to avoid efficiency loss.',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.spacing_penalty_sek',
@@ -772,6 +822,11 @@ export const parameterSections: SettingsSection[] = [
                 path: ['water_heating', 'spacing_penalty_sek'],
                 type: 'number',
                 helper: 'Penalty applied when heating sessions are too close.',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.enable_top_ups',
@@ -779,6 +834,11 @@ export const parameterSections: SettingsSection[] = [
                 path: ['water_heating', 'enable_top_ups'],
                 type: 'boolean',
                 helper: 'Enable small top-up heating blocks to maintain temperature. Disable for bulk heating only.',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
 
             {
@@ -787,6 +847,11 @@ export const parameterSections: SettingsSection[] = [
                 helper: 'Advanced: Penalty per heating start (higher = more consolidated bulk heating).',
                 path: ['water_heating', 'block_start_penalty_sek'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.max_hours_between_heating',
@@ -830,6 +895,7 @@ export const parameterSections: SettingsSection[] = [
                 path: ['executor', 'override', 'excess_pv_threshold_kw'],
                 type: 'number',
                 subsection: 'PV Dump Control',
+                showIfAll: ['system.has_solar', 'system.has_water_heater'],
             },
         ],
     },
@@ -842,24 +908,44 @@ export const parameterSections: SettingsSection[] = [
                 label: 'Enable Vacation Mode',
                 path: ['water_heating', 'vacation_mode', 'enabled'],
                 type: 'boolean',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.vacation_mode.anti_legionella_temp_c',
                 label: 'Safety Cycle Temp (°C)',
                 path: ['water_heating', 'vacation_mode', 'anti_legionella_temp_c'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.vacation_mode.anti_legionella_interval_days',
                 label: 'Safety Cycle Interval (days)',
                 path: ['water_heating', 'vacation_mode', 'anti_legionella_interval_days'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
             {
                 key: 'water_heating.vacation_mode.anti_legionella_duration_hours',
                 label: 'Safety Cycle Duration (hours)',
                 path: ['water_heating', 'vacation_mode', 'anti_legionella_duration_hours'],
                 type: 'number',
+                showIf: {
+                    configKey: 'system.has_water_heater',
+                    value: true,
+                    disabledText: "Enable 'Smart water heater' in System Profile to configure",
+                },
             },
         ],
     },
@@ -1140,6 +1226,11 @@ export const advancedSections: SettingsSection[] = [
                     { label: 'Probabilistic (P10/P90)', value: 'probabilistic' },
                     { label: 'Dynamic (Adaptive)', value: 'dynamic' },
                 ],
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
             {
                 key: 's_index.risk_appetite',
@@ -1154,6 +1245,11 @@ export const advancedSections: SettingsSection[] = [
                     { label: '4 - Aggressive', value: '4' },
                     { label: '5 - Gambler', value: '5' },
                 ],
+                showIf: {
+                    configKey: 'system.has_battery',
+                    value: true,
+                    disabledText: "Enable 'Home battery installed' in System Profile to configure",
+                },
             },
         ],
     },

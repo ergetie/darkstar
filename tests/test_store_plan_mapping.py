@@ -6,6 +6,7 @@ import pytest
 import pytz
 
 from backend.learning.store import LearningStore
+from backend.learning.models import Base
 
 # Mock timezone
 TZ = pytz.timezone("Europe/Stockholm")
@@ -18,7 +19,10 @@ def memory_db_path(tmp_path):
 
 @pytest.fixture
 def store(memory_db_path):
-    return LearningStore(memory_db_path, TZ)
+    store = LearningStore(memory_db_path, TZ)
+    # Manually create schema for tests
+    Base.metadata.create_all(store.engine)
+    return store
 
 
 def test_store_plan_mappings(store, memory_db_path):

@@ -7,6 +7,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 from collections import defaultdict
 from datetime import timedelta  # Rev WH2
+import logging
 
 import pulp
 
@@ -22,7 +23,10 @@ class KeplerSolver:
         T = len(slots)
         if T == 0:
             return KeplerResult(
-                slots=[], total_cost_sek=0.0, is_optimal=True, status_msg="No slots to schedule"
+                slots=[],
+                total_cost_sek=0.0,
+                is_optimal=True,
+                status_msg="No slots to schedule",
             )
 
         # Calculate slot duration in hours
@@ -46,13 +50,12 @@ class KeplerSolver:
         water_enabled = config.water_heating_power_kw > 0
         if water_enabled:
             water_heat = pulp.LpVariable.dicts("water_heat", range(T), cat="Binary")
-            # Rev K21: Spacing and transitions
+            # Rev K21/PERF1: Spacing and transitions
             water_start = pulp.LpVariable.dicts("water_start", range(T), cat="Binary")
-            water_spacing_viol = pulp.LpVariable.dicts("water_spacing_viol", range(T), cat="Binary")
+            # water_spacing_viol removed in PERF1 (Hard Constraint)
         else:
             water_heat = dict.fromkeys(range(T), 0)
             water_start = dict.fromkeys(range(T), 0)
-            water_spacing_viol = dict.fromkeys(range(T), 0)
 
         # SoC state variables (T+1 states for T slots)
 
@@ -213,7 +216,7 @@ class KeplerSolver:
 
         # Water Heating Constraints (Rev K17/K18/K21)
         gap_violation_penalty = 0.0
-        spacing_violation_penalty = 0.0
+        # spacing_violation_penalty removed in PERF1
         if water_enabled:
             avg_slot_hours = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
             water_kwh_per_slot = config.water_heating_power_kw * avg_slot_hours
@@ -240,7 +243,8 @@ class KeplerSolver:
                 if i == 0:
                     # First day: reduce by what's already heated today
                     day_min_kwh = max(
-                        0.0, config.water_heating_min_kwh - config.water_heated_today_kwh
+                        0.0,
+                        config.water_heating_min_kwh - config.water_heated_today_kwh,
                     )
                 else:
                     # Future days: full daily requirement
@@ -279,20 +283,19 @@ class KeplerSolver:
                     + pulp.lpSum(gap_violation_2[t] for t in range(T - gap_slots_2 + 1))
                 )
 
-            # Constraint 3: Soft Efficiency Penalty (Spacing) (Rev K21)
-            # If a new block starts, it shouldn't be too close to any previous heating
-            if config.water_min_spacing_hours > 0 and config.water_spacing_penalty_sek > 0:
+            # Constraint 3: Hard Spacing Constraint (Rev PERF1)
+            # If we start a block, we MUST NOT have processed any heating in the previous window.
+            # Formulation: sum(heat[t-S : t]) + start[t] * S <= S
+            if config.water_min_spacing_hours > 0:
                 spacing_slots = max(1, int(config.water_min_spacing_hours / avg_slot_hours))
+                M = spacing_slots
                 for t in range(T):
                     # Check preceding slots in spacing window
-                    for j in range(max(0, t - spacing_slots), t):
-                        # If we start at t AND were heating at j, it's a spacing violation
-                        # Linearized: viol >= start[t] + heat[j] - 1
-                        prob += water_spacing_viol[t] >= water_start[t] + water_heat[j] - 1
-
-                spacing_violation_penalty = config.water_spacing_penalty_sek * pulp.lpSum(
-                    water_spacing_viol
-                )
+                    start_idx = max(0, t - spacing_slots)
+                    prob += (
+                        pulp.lpSum(water_heat[j] for j in range(start_idx, t)) + water_start[t] * M
+                        <= M
+                    )
 
         # Terminal Value
         terminal_value = (
@@ -310,7 +313,7 @@ class KeplerSolver:
             - terminal_value
             + MIN_SOC_PENALTY * pulp.lpSum(soc_violation)
             + gap_violation_penalty
-            + spacing_violation_penalty
+            # + spacing_violation_penalty (Removed in PERF1)
             + (
                 pulp.lpSum(water_start[t] for t in range(T)) * config.water_block_start_penalty_sek
                 if water_enabled and config.water_block_start_penalty_sek > 0
@@ -319,16 +322,33 @@ class KeplerSolver:
         )
 
         # Solve using GLPK (available in Alpine) or CBC as fallback
+        import time
+
+        build_start = time.time()
+        # Solver setup is fast, but let's track the overhead of calling the solver command
+        # Note: pulp.LpProblem construction happened above, so 'build_time' here is mostly
+        # just the overhead of writing the LP file in prob.solve()
+
         try:
             # Try GLPK first (installed in Alpine Docker image)
-            prob.solve(pulp.GLPK_CMD(msg=False))
+            solver_cmd = pulp.GLPK_CMD(msg=False)
+            prob.solve(solver_cmd)
         except Exception:
             # Fall back to CBC if GLPK not available
-            prob.solve(pulp.PULP_CBC_CMD(msg=False))
+            solver_cmd = pulp.PULP_CBC_CMD(msg=False)
+            prob.solve(solver_cmd)
+
+        solve_end = time.time()
 
         # Extract Results
         status = pulp.LpStatus[prob.status]
         is_optimal = status == "Optimal"
+
+        # Log Performance Metrics
+        solve_duration = solve_end - build_start  # This is just the solve() call duration
+        # Count stats
+        var_count = len(prob.variables())
+        const_count = len(prob.constraints)
 
         if not is_optimal:
             prob.writeLP("kepler_debug.lp")
@@ -378,6 +398,18 @@ class KeplerSolver:
                         is_optimal=True,
                     )
                 )
+
+            # Update the log with correct cost (since we calculated it in the loop)
+            logger_perf = logging.getLogger("darkstar.performance")
+            logger_perf.setLevel(logging.INFO)  # Ensure we see it
+            logger_perf.info(
+                "Kepler Solved: %d slots in %.3fs (Vars: %d, Const: %d) | Cost: %.2f SEK",
+                T,
+                solve_duration,
+                var_count,
+                const_count,
+                final_total_cost,
+            )
 
         return KeplerResult(
             slots=result_slots,

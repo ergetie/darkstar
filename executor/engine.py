@@ -45,14 +45,17 @@ EXECUTOR_VERSION = "1.0.0"
 
 @dataclass
 class ExecutorStatus:
-    """Current status of the executor."""
+    """Current runtime state of the executor."""
 
     enabled: bool = False
     shadow_mode: bool = False
-    last_run_at: str | None = None
-    last_run_status: str = "pending"
+    is_paused: bool = False
+    last_run_at: datetime | None = None
+    last_run_status: str = "pending"  # "pending", "success", "error", "skipped"
     last_error: str | None = None
-    next_run_at: str | None = None
+    last_skip_reason: str | None = None  # NEW: Explain why we skipped
+    next_run_at: datetime | None = None
+    ha_client_initialized: bool = False
     current_slot: str | None = None
     last_action: str | None = None
     override_active: bool = False
@@ -129,6 +132,7 @@ class ExecutorEngine:
 
         if not ha_config:
             logger.error("No Home Assistant configuration found in secrets.yaml")
+            self.status.ha_client_initialized = False
             return False
 
         base_url = ha_config.get("url", "")
@@ -136,6 +140,7 @@ class ExecutorEngine:
 
         if not base_url or not token:
             logger.error("Missing HA URL or token in secrets")
+            self.status.ha_client_initialized = False
             return False
 
         self.ha_client = HAClient(base_url, token)
@@ -144,6 +149,7 @@ class ExecutorEngine:
             self.config,
             shadow_mode=self.config.shadow_mode,
         )
+        self.status.ha_client_initialized = True
         return True
 
     def reload_config(self) -> None:
@@ -185,9 +191,12 @@ class ExecutorEngine:
             return {
                 "enabled": self.status.enabled,
                 "shadow_mode": self.status.shadow_mode,
-                "last_run_at": self.status.last_run_at,
+                "last_run_at": (
+                    self.status.last_run_at.isoformat() if self.status.last_run_at else None
+                ),
                 "last_run_status": self.status.last_run_status,
                 "last_error": self.status.last_error,
+                "last_skip_reason": self.status.last_skip_reason,
                 "next_run_at": self.status.next_run_at,
                 "current_slot": self.status.current_slot,
                 "current_slot_plan": current_slot_plan,
@@ -272,7 +281,10 @@ class ExecutorEngine:
             }
 
     def set_quick_action(
-        self, action_type: str, duration_minutes: int, params: dict[str, Any] | None = None
+        self,
+        action_type: str,
+        duration_minutes: int,
+        params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """
         Set a time-limited quick action override.
@@ -362,6 +374,7 @@ class ExecutorEngine:
 
             self._paused_at = now
             self._pause_reminder_sent = False
+            self.status.is_paused = True
             # Rev update: You could store duration_minutes here if you wanted dynamic reminders
             # For now just accepting the arg avoids the 500 error.
 
@@ -397,6 +410,7 @@ class ExecutorEngine:
             paused_duration = (now - self._paused_at).total_seconds() / 60
             self._paused_at = None
             self._pause_reminder_sent = False
+            self.status.is_paused = False
 
         logger.info("Executor RESUMED after %.1f minutes paused", paused_duration)
 
@@ -508,11 +522,11 @@ class ExecutorEngine:
 
         try:
             self.dispatcher._send_notification(message, title=title)
-            # If data is provided, we might need a more direct HA call since _send_notification is simplified
+            # If data is provided, we might need a more direct HA call since _send_notification is simplified  # noqa: E501
             if data:
                 self.ha_client.send_notification(
                     self.config.notifications.service, title, message, data=data
-                )
+                )  # noqa: E501
             return True
         except Exception as e:
             logger.error("Failed to send notification: %s", e)
@@ -532,7 +546,10 @@ class ExecutorEngine:
         """
         # Rev O1: Skip if no water heater configured
         if not self._has_water_heater:
-            return {"success": False, "error": "No water heater configured in system profile"}
+            return {
+                "success": False,
+                "error": "No water heater configured in system profile",
+            }
 
         valid_durations = [30, 60, 120]
         if duration_minutes not in valid_durations:
@@ -649,8 +666,16 @@ class ExecutorEngine:
 
             # Check if enabled
             if not self.config.enabled:
-                logger.debug("Executor disabled, waiting 10s...")
+                logger.debug("Executor disabled in config, sleeping")
+                self.status.last_skip_reason = "disabled_in_config"
                 self._stop_event.wait(10)  # Check every 10s
+                continue
+
+            # Check if paused
+            if self.is_paused:
+                logger.debug("Executor paused, sleeping")
+                self.status.last_skip_reason = "paused_by_user"
+                self._stop_event.wait(10)
                 continue
 
             # Calculate next run time
@@ -662,7 +687,9 @@ class ExecutorEngine:
             wait_seconds = (next_run - now).total_seconds()
             if wait_seconds > 1:  # Only wait if more than 1s
                 logger.debug(
-                    "Waiting %.1fs until next run at %s", wait_seconds, next_run.isoformat()
+                    "Waiting %.1fs until next run at %s",
+                    wait_seconds,
+                    next_run.isoformat(),
                 )
                 if self._stop_event.wait(wait_seconds):
                     break  # Stop event was set during wait
@@ -672,11 +699,7 @@ class ExecutorEngine:
             # Prevent double execution - check if we ran recently
             if self.status.last_run_at:
                 try:
-                    last_run = datetime.fromisoformat(
-                        self.status.last_run_at.replace("Z", "+00:00")
-                    )
-                    if last_run.tzinfo is None:
-                        last_run = tz.localize(last_run)
+                    last_run = self.status.last_run_at
                     # Skip if we ran within the last interval minus a buffer
                     min_interval = self.config.interval_seconds - 30  # 30s buffer
                     seconds_since_last = (now - last_run).total_seconds()
@@ -686,6 +709,8 @@ class ExecutorEngine:
                             seconds_since_last,
                             min_interval,
                         )
+                        self.status.last_run_status = "skipped"
+                        self.status.last_skip_reason = "already_ran_recently"
                         # Don't tight-loop - wait until next boundary
                         continue  # Will recalculate next_run on next iteration
                 except Exception as e:
@@ -697,7 +722,12 @@ class ExecutorEngine:
                 logger.info("Executing scheduled tick at %s", tick_start.isoformat())
                 self._tick()
                 tick_duration = (datetime.now(tz) - tick_start).total_seconds()
-                logger.debug("Tick completed in %.2fs", tick_duration)
+
+                # Rev PERF2: Performance Logging
+                if tick_duration > 1.0:
+                    logger.warning("\u26a0\ufe0f SLOW TICK: %.2fs (Threshold: 1.0s)", tick_duration)
+                else:
+                    logger.info("Tick completed in %.2fs", tick_duration)
             except Exception as e:
                 logger.exception("Executor tick failed: %s", e)
                 self.status.last_run_status = "error"
@@ -741,7 +771,7 @@ class ExecutorEngine:
         now_iso = now.isoformat()
 
         logger.info("Executor tick started at %s", now_iso)
-        self.status.last_run_at = now_iso
+        self.status.last_run_at = now
 
         result: dict[str, Any] = {
             "success": True,
@@ -758,20 +788,36 @@ class ExecutorEngine:
                 logger.info("Executor is PAUSED - applying idle mode")
                 self._check_pause_reminder()
                 self._apply_idle_mode()
-                self.status.last_run_status = "paused"
+                self.status.last_run_status = "skipped"
+                self.status.last_skip_reason = "paused_idle_mode"
                 result["success"] = True
                 result["actions"] = [{"type": "skip", "reason": "paused_idle_mode"}]
                 return result
 
-            # 1. Check automation toggle (only if entity configured)
-            if self.ha_client and self.config.automation_toggle_entity:
+            # 1. Check automation toggle (Rev O1)
+            if self.config.automation_toggle_entity:
                 toggle_state = self.ha_client.get_state_value(self.config.automation_toggle_entity)
-                if toggle_state != "on":
-                    logger.info("Automation toggle is off, skipping execution")
+                if toggle_state and toggle_state.lower() != "on":
+                    logger.warning(
+                        "Executor skip: Automation toggle (%s) is %s",
+                        self.config.automation_toggle_entity,
+                        toggle_state,
+                    )
                     self.status.last_run_status = "skipped"
-                    result["success"] = True
-                    result["actions"] = [{"type": "skip", "reason": "automation_disabled"}]
-                    return result
+                    self.status.last_skip_reason = f"automation_toggle_off ({toggle_state})"
+                    return {
+                        "success": True,
+                        "executed_at": now_iso,
+                        "actions": [
+                            {
+                                "type": "skip",
+                                "reason": "automation_disabled",
+                                "message": f"Toggle {self.config.automation_toggle_entity} is {toggle_state}",  # noqa: E501
+                            }
+                        ],
+                    }
+
+            self.status.last_skip_reason = None  # Reset if we proceed
 
             # 2. Load current slot from schedule.json
             slot, slot_start = self._load_current_slot(now)
@@ -864,7 +910,9 @@ class ExecutorEngine:
                         # low_soc_threshold: prevents exports when SoC is at or below this
                         "low_soc_threshold": float(override_cfg.get("low_soc_export_floor", 20.0)),
                         # excess_pv_threshold_kw: surplus PV needed to trigger water heating
-                        "excess_pv_threshold_kw": float(override_cfg.get("excess_pv_threshold_kw", 2.0)),
+                        "excess_pv_threshold_kw": float(
+                            override_cfg.get("excess_pv_threshold_kw", 2.0)
+                        ),
                         "water_temp_boost": self.config.water_heater.temp_boost,
                         "water_temp_max": self.config.water_heater.temp_max,
                         "water_temp_off": self.config.water_heater.temp_off,
@@ -878,7 +926,9 @@ class ExecutorEngine:
 
             if override.override_needed:
                 logger.info(
-                    "Override active: %s - %s", override.override_type.value, override.reason
+                    "Override active: %s - %s",
+                    override.override_type.value,
+                    override.reason,
                 )
                 result["override"] = {
                     "type": override.override_type.value,
@@ -912,7 +962,11 @@ class ExecutorEngine:
                 for r in action_results:
                     if not r.success and not r.skipped:
                         self.recent_errors.append(
-                            {"timestamp": now_iso, "type": r.action_type, "message": r.message}
+                            {
+                                "timestamp": now_iso,
+                                "type": r.action_type,
+                                "message": r.message,
+                            }
                         )
 
                 result["actions"] = [
@@ -934,7 +988,7 @@ class ExecutorEngine:
                 state=state,
                 decision=decision,
                 override=override,
-                success=all(r.success for r in action_results) if action_results else True,
+                success=(all(r.success for r in action_results) if action_results else True),
                 duration_ms=duration_ms,
             )
             self.history.log_execution(record)
@@ -1028,7 +1082,9 @@ class ExecutorEngine:
                     # Sanity check: if end <= start, use 15-min default
                     if end <= start:
                         logger.warning(
-                            "Invalid end_time %s <= start_time %s, using 15min slot", end, start
+                            "Invalid end_time %s <= start_time %s, using 15min slot",
+                            end,
+                            start,
                         )
                         end = start + timedelta(minutes=15)
                 else:
@@ -1170,6 +1226,7 @@ class ExecutorEngine:
             commanded_grid_charging=1 if decision.grid_charging else 0,
             commanded_charge_current_a=decision.charge_value,
             commanded_discharge_current_a=decision.discharge_value,
+            commanded_unit=self.config.inverter.control_unit,
             commanded_soc_target=decision.soc_target,
             commanded_water_temp=decision.water_temp,
             # State before
@@ -1180,7 +1237,7 @@ class ExecutorEngine:
             before_load_kw=state.current_load_kw,
             # Override
             override_active=1 if override.override_needed else 0,
-            override_type=override.override_type.value if override.override_needed else None,
+            override_type=(override.override_type.value if override.override_needed else None),
             override_reason=override.reason if override.override_needed else None,
             # Result
             success=1 if success else 0,

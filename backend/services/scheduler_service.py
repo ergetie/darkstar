@@ -90,11 +90,8 @@ class SchedulerService:
         self._status.enabled = config.get("enabled", False)
 
         if self._status.enabled:
-            self._status.next_run_at = self._compute_next_run(
-                datetime.now(UTC),
-                config.get("every_minutes", 60),
-                config.get("jitter_minutes", 0),
-            )
+            # Run 10 seconds after startup instead of waiting full interval
+            self._status.next_run_at = datetime.now(UTC) + timedelta(seconds=10)
 
         while self._running:
             try:

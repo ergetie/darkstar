@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import Card from '../components/Card'
-import { Api, type DebugLogsResponse, type HistorySocResponse } from '../lib/api'
-import { Chart as ChartJS, type Chart, type ChartConfiguration } from 'chart.js/auto'
+import { Api, type DebugLogsResponse, type LogInfoResponse } from '../lib/api'
 
 type LogLevelFilter = 'all' | 'warn_error' | 'error'
 type LogTimeRange = 'all' | '1h' | '6h' | '24h'
-type SocDateFilter = 'today' | 'yesterday'
 
 export default function Debug() {
     const [logs, setLogs] = useState<DebugLogsResponse['logs']>([])
@@ -13,50 +11,54 @@ export default function Debug() {
     const [logsError, setLogsError] = useState<string | null>(null)
     const [levelFilter, setLevelFilter] = useState<LogLevelFilter>('all')
     const [timeRange, setTimeRange] = useState<LogTimeRange>('all')
+    const [isLive, setIsLive] = useState(false)
+    const [logInfo, setLogInfo] = useState<LogInfoResponse | null>(null)
 
-    const [socHistory, setSocHistory] = useState<HistorySocResponse | null>(null)
-    const [socError, setSocError] = useState<string | null>(null)
-    const [socDate, setSocDate] = useState<SocDateFilter>('today')
-    const socCanvasRef = useRef<HTMLCanvasElement | null>(null)
-    const socChartRef = useRef<Chart | null>(null)
+    const logContainerRef = useRef<HTMLDivElement>(null)
 
+    const loadLogs = () => {
+        setLogsLoading(true)
+        setLogsError(null)
+        Api.debugLogs()
+            .then((res) => setLogs(res.logs ?? []))
+            .catch((err) => {
+                console.error('Failed to fetch debug logs:', err)
+                setLogsError('Failed to load logs')
+            })
+            .finally(() => setLogsLoading(false))
+    }
+
+    const loadLogInfo = () => {
+        Api.logInfo()
+            .then((res) => setLogInfo(res))
+            .catch((err) => console.error('Failed to fetch log info:', err))
+    }
+
+    // Initial load
     useEffect(() => {
-        const loadLogs = () => {
-            setLogsLoading(true)
-            setLogsError(null)
-            Api.debugLogs()
-                .then((res) => setLogs(res.logs ?? []))
-                .catch((err) => {
-                    console.error('Failed to fetch debug logs:', err)
-                    setLogsError('Failed to load logs')
-                })
-                .finally(() => setLogsLoading(false))
-        }
-
         loadLogs()
+        loadLogInfo()
     }, [])
 
+    // Polling for Live mode
     useEffect(() => {
-        const loadSoc = () => {
-            setSocError(null)
+        if (!isLive) return
 
-            let dateParam: string = 'today'
-            if (socDate === 'yesterday') {
-                const d = new Date()
-                d.setDate(d.getDate() - 1)
-                dateParam = d.toISOString().slice(0, 10)
-            }
+        const interval = setInterval(() => {
+            // Silently refresh in live mode
+            Api.debugLogs().then((res) => setLogs(res.logs ?? []))
+            Api.logInfo().then((res) => setLogInfo(res))
+        }, 3000)
 
-            Api.historySoc(dateParam)
-                .then((res) => setSocHistory(res))
-                .catch((err) => {
-                    console.error('Failed to fetch historic SoC:', err)
-                    setSocError('Failed to load SoC history')
-                })
+        return () => clearInterval(interval)
+    }, [isLive])
+
+    // Autoscroll
+    useEffect(() => {
+        if (isLive && logContainerRef.current) {
+            logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight
         }
-
-        loadSoc()
-    }, [socDate])
+    }, [logs, isLive])
 
     const filteredLogs = logs
         .filter((entry) => {
@@ -85,85 +87,6 @@ export default function Debug() {
         return level === 'ERROR' || level === 'CRITICAL'
     })
 
-    useEffect(() => {
-        if (!socCanvasRef.current) return
-        const slots = socHistory?.slots ?? []
-        if (!slots.length) {
-            if (socChartRef.current) {
-                socChartRef.current.destroy()
-                socChartRef.current = null
-            }
-            return
-        }
-
-        const labels = slots.map((slot) => {
-            const d = new Date(slot.timestamp)
-            if (Number.isNaN(d.getTime())) return ''
-            return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-        })
-        const values = slots.map((slot) => slot.soc_percent ?? 0)
-
-        const data = {
-            labels,
-            datasets: [
-                {
-                    type: 'line' as const,
-                    label: 'SoC (%)',
-                    data: values,
-                    borderColor: 'rgba(129, 200, 253, 0.9)',
-                    backgroundColor: 'rgba(129, 200, 253, 0.15)',
-                    pointRadius: 0,
-                    tension: 0.25,
-                },
-            ],
-        }
-
-        const options: ChartConfiguration['options'] = {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    callbacks: {
-                        label: (ctx: { parsed: { y: number | null } }) => `SoC: ${ctx.parsed.y?.toFixed(1) ?? '--'}%`,
-                    },
-                },
-            },
-            scales: {
-                x: {
-                    ticks: { color: '#a6b0bf', maxRotation: 0 },
-                    grid: { display: false },
-                },
-                y: {
-                    ticks: { color: '#a6b0bf', stepSize: 10 },
-                    grid: { color: 'rgba(255,255,255,0.06)' },
-                    beginAtZero: true,
-                    suggestedMax: 100,
-                },
-            },
-        }
-
-        if (socChartRef.current) {
-            socChartRef.current.data = data
-            socChartRef.current.options = options
-            socChartRef.current.update()
-            return
-        }
-
-        socChartRef.current = new ChartJS(socCanvasRef.current, {
-            type: 'line',
-            data: data,
-            options,
-        })
-
-        return () => {
-            if (socChartRef.current) {
-                socChartRef.current.destroy()
-                socChartRef.current = null
-            }
-        }
-    }, [socHistory])
-
     return (
         <main className="mx-auto max-w-7xl px-4 pb-24 pt-8 sm:px-6 lg:pt-12">
             <div className="mb-6">
@@ -179,21 +102,49 @@ export default function Debug() {
                         <div className="text-sm text-muted">Logs</div>
                         <div className="flex items-center gap-2 text-[11px] text-muted">
                             <button
+                                className={`rounded-pill border px-3 py-1 transition-colors text-[11px] ${
+                                    isLive
+                                        ? 'bg-accent/10 border-accent text-accent'
+                                        : 'border-line/60 hover:border-accent text-muted'
+                                }`}
+                                onClick={() => setIsLive(!isLive)}
+                            >
+                                {isLive ? '● Live' : 'Go Live'}
+                            </button>
+                            <button
                                 className="rounded-pill border border-line/60 px-3 py-1 hover:border-accent disabled:opacity-40"
-                                onClick={() => {
-                                    setLogsLoading(true)
-                                    setLogsError(null)
-                                    Api.debugLogs()
-                                        .then((res) => setLogs(res.logs ?? []))
-                                        .catch((err) => {
-                                            console.error('Failed to refresh debug logs:', err)
-                                            setLogsError('Failed to refresh logs')
-                                        })
-                                        .finally(() => setLogsLoading(false))
-                                }}
+                                onClick={() => loadLogs()}
                                 disabled={logsLoading}
                             >
                                 {logsLoading ? 'Refreshing…' : 'Refresh'}
+                            </button>
+                            <button
+                                className="rounded-pill border border-line/60 px-3 py-1 hover:border-accent"
+                                onClick={() => {
+                                    window.location.href = 'api/system/logs'
+                                }}
+                            >
+                                Download
+                            </button>
+                            <button
+                                className="rounded-pill border border-rose-500/40 px-3 py-1 hover:border-rose-500 text-rose-300 disabled:opacity-40"
+                                onClick={() => {
+                                    if (
+                                        window.confirm(
+                                            'Are you sure you want to clear the log file? This cannot be undone.',
+                                        )
+                                    ) {
+                                        Api.clearLogs()
+                                            .then(() => {
+                                                setLogs([])
+                                                // Refresh info
+                                                loadLogInfo()
+                                            })
+                                            .catch((err: Error) => console.error('Failed to clear logs:', err))
+                                    }
+                                }}
+                            >
+                                Clear
                             </button>
                             <select
                                 className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
@@ -217,7 +168,10 @@ export default function Debug() {
                         </div>
                     </div>
                     {logsError && <div className="text-[11px] text-amber-400 mb-2">{logsError}</div>}
-                    <div className="h-64 overflow-auto rounded-xl2 border border-line/60 bg-surface2/40 text-[11px] font-mono text-muted/90">
+                    <div
+                        ref={logContainerRef}
+                        className="h-[calc(100vh-280px)] min-h-[400px] overflow-auto rounded-xl2 border border-line/60 bg-surface2/40 text-[11px] font-mono text-muted/90 mb-3"
+                    >
                         {filteredLogs.length === 0 && !logsLoading && !logsError && (
                             <div className="px-3 py-2 text-muted/70">No logs captured yet.</div>
                         )}
@@ -241,6 +195,23 @@ export default function Debug() {
                             </div>
                         ))}
                     </div>
+
+                    {logInfo && (
+                        <div className="flex items-center gap-4 text-[10px] text-muted/60 px-1">
+                            <div>
+                                File: <span className="text-muted/80">{logInfo.filename}</span>
+                            </div>
+                            <div>
+                                Size: <span className="text-muted/80">{(logInfo.size_bytes / 1024).toFixed(1)} KB</span>
+                            </div>
+                            <div>
+                                Last Modified:{' '}
+                                <span className="text-muted/80">
+                                    {new Date(logInfo.last_modified).toLocaleString()}
+                                </span>
+                            </div>
+                        </div>
+                    )}
                 </Card>
 
                 <Card className="p-5 lg:col-span-1">
@@ -279,33 +250,6 @@ export default function Debug() {
                                 <div className="text-[11px] text-muted/70">No error-level entries yet.</div>
                             )}
                         </div>
-                    </div>
-                </Card>
-            </div>
-
-            <div className="grid gap-6 mt-6 lg:grid-cols-3">
-                <Card className="p-5 lg:col-span-2">
-                    <div className="flex items-center justify-between mb-3">
-                        <div className="text-sm text-muted">Historical SoC</div>
-                        <div className="flex items-center gap-2 text-[11px] text-muted">
-                            <span className="text-muted/70">Range</span>
-                            <select
-                                className="rounded-md bg-surface2 border border-line/60 px-2 py-1 text-[11px]"
-                                value={socDate}
-                                onChange={(e) => setSocDate(e.target.value as SocDateFilter)}
-                            >
-                                <option value="today">Today</option>
-                                <option value="yesterday">Yesterday</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div className="text-[13px] text-muted/80 mb-2">
-                        SoC (%) over the selected day from the learning database. Use this to correlate planner
-                        behaviour with actual SoC movement.
-                    </div>
-                    {socError && <div className="text-[11px] text-amber-400 mb-2">{socError}</div>}
-                    <div className="h-48">
-                        <canvas ref={socCanvasRef} className="w-full h-full" />
                     </div>
                 </Card>
             </div>

@@ -96,6 +96,7 @@ type ExecutionRecord = {
     commanded_grid_charging?: number
     commanded_charge_current_a?: number
     commanded_discharge_current_a?: number
+    commanded_unit?: string
     commanded_soc_target?: number
     commanded_water_temp?: number
     // State before execution
@@ -1000,7 +1001,8 @@ export default function Executor() {
                                                                     : 'text-muted/40'
                                                             }
                                                         >
-                                                            {record.commanded_charge_current_a ?? '—'} A
+                                                            {record.commanded_charge_current_a ?? '—'}{' '}
+                                                            {record.commanded_unit ?? 'A'}
                                                         </span>
                                                     </div>
                                                     <div className="flex flex-col">
@@ -1012,7 +1014,8 @@ export default function Executor() {
                                                                     : 'text-muted/40'
                                                             }
                                                         >
-                                                            {record.commanded_discharge_current_a ?? '—'} A
+                                                            {record.commanded_discharge_current_a ?? '—'}{' '}
+                                                            {record.commanded_unit ?? 'A'}
                                                         </span>
                                                     </div>
                                                     <div className="flex flex-col">

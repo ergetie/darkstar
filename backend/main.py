@@ -1,28 +1,11 @@
-import logging
-import os
+from backend.core.logging import setup_logging
 
-# ============================================================================
-# LOGGING CONFIGURATION - MUST BE FIRST
-# ============================================================================
-# Configure logging BEFORE any other imports to ensure all modules inherit
-# the correct log level, especially darkstar.ha_socket
-LOG_LEVEL_STR = os.environ.get("LOG_LEVEL", "INFO").upper()
-VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-if LOG_LEVEL_STR not in VALID_LEVELS:
-    LOG_LEVEL_STR = "INFO"
+setup_logging()
 
-LOG_LEVEL = getattr(logging, LOG_LEVEL_STR)
-logging.basicConfig(
-    level=LOG_LEVEL,
-    format="%(levelname)s:\t%(name)s - %(message)s"
-)
-
-# Explicitly set darkstar loggers to respect LOG_LEVEL
-logging.getLogger("darkstar").setLevel(LOG_LEVEL)
-
-# Now import other modules (they'll inherit the configured log level)
 # ruff: noqa: E402
+
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +43,15 @@ async def lifespan(app: FastAPI):
     """Lifespan context manager for startup/shutdown events (FastAPI 0.93+)."""
     # Startup
     logger.info("🚀 Darkstar ASGI Server Starting...")
+
+    # Run config migration (Rev F17)
+    try:
+        from backend.config_migration import migrate_config
+
+        await migrate_config()
+    except Exception as e:
+        logger.error(f"❌ Config migration failed: {e}")
+
     loop = asyncio.get_running_loop()
     ws_manager.set_loop(loop)
 
@@ -67,6 +59,46 @@ async def lifespan(app: FastAPI):
     from backend.services.scheduler_service import scheduler_service
 
     await scheduler_service.start()
+
+    # Run database migrations (REV ARC9)
+    try:
+        import subprocess
+        import os
+        import sys
+        logger.info("📦 Checking database schema...")
+        
+        # Ensure data directory exists
+        db_path = os.getenv("DB_PATH", "data/planner_learning.db")
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        
+        # Inherit env to ensure credentials/paths are preserved
+        run_env = os.environ.copy()
+        
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=run_env
+        )
+        
+        if result.returncode == 0:
+            if "Running upgrade" in result.stdout or "Running upgrade" in result.stderr:
+                logger.info("✅ Database migrations applied successfully.")
+                if result.stdout:
+                    logger.debug(f"Migration stdout: {result.stdout.strip()}")
+            else:
+                logger.info("✅ Database schema is up to date.")
+        else:
+            logger.error("❌ Database migrations failed!")
+            if result.stderr:
+                logger.error(f"Alembic error: {result.stderr.strip()}")
+            if result.stdout:
+                logger.error(f"Alembic output: {result.stdout.strip()}")
+            # In production, we might want to exit here, but for now we'll allow 
+            # partial startup to let the user see logs via the Debug page.
+    except Exception as e:
+        logger.error(f"❌ Failed to run database migrations: {e}")
 
     # Start executor (if enabled in config)
     executor_instance = None

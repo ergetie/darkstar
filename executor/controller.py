@@ -29,7 +29,6 @@ class ControllerDecision:
     # Inverter control
     work_mode: str  # "Export First" or "Zero Export To CT"
     grid_charging: bool
-    grid_charging: bool
     charge_value: float
     discharge_value: float
 
@@ -99,7 +98,7 @@ class Controller:
         actions = override.actions or {}
 
         # Use override values, falling back to safe defaults
-        work_mode = actions.get("work_mode", "Zero Export To CT")
+        work_mode = actions.get("work_mode", self.inverter_config.work_mode_zero_export)
         grid_charging = bool(actions.get("grid_charging", False))
         soc_target = int(actions.get("soc_target", 10))
         water_temp = int(actions.get("water_temp", 40))
@@ -126,7 +125,7 @@ class Controller:
             if self.inverter_config.control_unit == "W":
                 discharge_value = self.config.max_discharge_w
             else:
-                discharge_value = self.config.max_charge_a  # Use max
+                discharge_value = self.config.max_discharge_a
             write_discharge = True
 
         return ControllerDecision(
@@ -147,7 +146,11 @@ class Controller:
     def _follow_plan(self, slot: SlotPlan, state: SystemState) -> ControllerDecision:
         """Follow the slot plan for normal operation."""
         # Determine work mode based on planned export
-        work_mode = "Export First" if slot.export_kw > 0 else "Zero Export To CT"
+        work_mode = (
+            self.inverter_config.work_mode_export
+            if slot.export_kw > 0
+            else self.inverter_config.work_mode_zero_export
+        )
 
         # Determine grid charging
         # Grid charging is enabled when we're actively charging from grid
@@ -202,10 +205,7 @@ class Controller:
             rounded = round(raw_val / step) * step
 
             # Clamp
-            clamped = max(
-                self.config.min_charge_w,
-                min(self.config.max_charge_w, rounded)
-            )
+            clamped = max(self.config.min_charge_w, min(self.config.max_charge_w, rounded))
 
             # Write trigger?
             should_write = clamped >= self.config.min_charge_w
@@ -215,7 +215,7 @@ class Controller:
         else:
             # Amps Logic (Default)
             # kW to Amps: I = P * 1000 / V
-            raw_current = (slot.charge_kw * 1000) / self.config.worst_case_voltage_v
+            raw_current = (slot.charge_kw * 1000) / self.config.min_voltage_v
 
             # Round to step
             rounded = round(raw_current / self.config.round_step_a) * self.config.round_step_a
@@ -228,9 +228,7 @@ class Controller:
 
             return clamped, should_write
 
-    def _calculate_discharge_limit(
-        self, slot: SlotPlan, state: SystemState
-    ) -> tuple[float, bool]:
+    def _calculate_discharge_limit(self, slot: SlotPlan, state: SystemState) -> tuple[float, bool]:
         """
         Calculate the discharge limit to command.
         ALWAYS return MAX to allow load coverage.
@@ -292,8 +290,6 @@ def make_decision(
         ControllerDecision with all action parameters
     """
     controller = Controller(
-        config or ControllerConfig(),
-        inverter_config or InverterConfig(),
-        water_heater_config
+        config or ControllerConfig(), inverter_config or InverterConfig(), water_heater_config
     )
     return controller.decide(slot, state, override)

@@ -1,6 +1,7 @@
 """
 Tests for Executor Watt-based Control
 """
+
 import pytest
 
 from executor.config import ControllerConfig, InverterConfig
@@ -32,7 +33,7 @@ class TestWattControl:
             max_discharge_a=100.0,
             min_charge_a=10.0,
             round_step_a=5.0,
-            worst_case_voltage_v=50.0 # Simple math: 100A * 50V = 5000W
+            worst_case_voltage_v=50.0,  # Simple math: 100A * 50V = 5000W
         )
         return Controller(controller_cfg, inverter_cfg)
 

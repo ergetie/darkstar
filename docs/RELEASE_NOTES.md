@@ -1,4 +1,32 @@
-# Darkstar Release Notes
+## [v2.5.0-beta] - Configuration & Compatibility - 2026-01-16
+
+This release solidifies the **Configuration Architecture**. It introduces a unified battery configuration, finalizes the Settings UI visibility logic, and improves startup resilience.
+
+> [!WARNING]
+> **Breaking Configuration Changes**
+> *   The structure of `config.yaml` has changed (REV F17).
+> *   The `system_voltage_v` and capacity settings have been moved to the new `battery:` section.
+> *   **Auto-Migration:** Darkstar will attempt to automatically migrate your config file on startup (REV F18). Please back up your `config.yaml` before updating.
+
+### ✨ New Features
+
+#### Unified Battery Configuration (REV F17)
+*   **Single Source of Truth:** Battery limits (Capacity, Max Amps/Watts) are now centralized in the new `battery:` section.
+*   **Auto-Calculation:** The planner now automatically converts between Amps and Watts based on your system voltage, removing the need for duplicate manual entry.
+
+#### Conditional Settings Polish (REV F15)
+*   **Smart Visibility:** Extended the conditional logic to all parameter sections. Settings for Battery Economics, S-Index, and Water Heating Deferral are now completely hidden if the respective hardware is disabled in the System Profile.
+
+#### Developer Experience (REV DX3)
+*   **Darkstar Dev Add-on:** A new development-focused Home Assistant add-on is available for contributors, featuring faster build times (amd64 only) and tracking the `dev` branch.
+
+### 🐛 Fixes & Improvements
+
+*   **REV F12: Scheduler Fast Start:** The planner now runs 10 seconds after startup instead of waiting for the full hour interval.
+*   **REV F18: Config Soft Merge:** Start-up now automatically fills in missing configuration keys from `config.default.yaml` without overwriting your custom settings.
+*   **REV E3 Safety Patch:** Added a hard safety limit (500A) to the Watt-control logic to prevent potential integer overflow issues (9600W -> 9600A interpretation bug).
+
+---
 
 ## [v2.4.23-beta] - Profile Foundations & Dual Sensors - 2026-01-16
 

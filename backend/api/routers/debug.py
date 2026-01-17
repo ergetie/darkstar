@@ -6,8 +6,7 @@ Provides debug endpoints for logs, history, and diagnostics.
 
 import json
 import logging
-from collections import deque
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -15,6 +14,7 @@ import aiosqlite
 import pytz
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from backend.core.logging import get_ring_buffer
 from backend.learning import get_learning_engine
 from inputs import get_dummy_load_profile, get_load_profile_from_ha, load_yaml
 
@@ -22,41 +22,8 @@ logger = logging.getLogger("darkstar.api.debug")
 
 router = APIRouter(tags=["debug"])
 
-
-# --- Ring Buffer for Logs ---
-class RingBufferHandler(logging.Handler):
-    """In-memory ring buffer for log entries that the UI can poll."""
-
-    def __init__(self, maxlen: int = 1000) -> None:
-        super().__init__()
-        self._buffer: deque[dict[str, Any]] = deque(maxlen=maxlen)
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            timestamp = datetime.fromtimestamp(record.created, tz=UTC)
-        except Exception:
-            timestamp = datetime.now(UTC)
-        entry = {
-            "timestamp": timestamp.isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": self.format(record),
-        }
-        self._buffer.append(entry)
-
-    def get_logs(self) -> list[dict[str, Any]]:
-        return list(self._buffer)
-
-
 # Global ring buffer handler
-_ring_buffer_handler = RingBufferHandler(maxlen=1000)
-_ring_buffer_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-_ring_buffer_handler.setFormatter(_ring_buffer_formatter)
-
-# Attach to root logger
-root_logger = logging.getLogger()
-if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
-    root_logger.addHandler(_ring_buffer_handler)
+_ring_buffer_handler = get_ring_buffer()
 
 
 @router.get(
@@ -100,6 +67,12 @@ async def debug_logs() -> dict[str, Any]:
         raise HTTPException(500, str(exc)) from exc
 
 
+import asyncio
+from typing import cast
+from sqlalchemy import func, select
+
+from backend.learning.models import SlotObservation
+
 @router.get(
     "/api/history/soc",
     summary="Get Historic SoC",
@@ -121,18 +94,40 @@ async def historic_soc(date: str = Query("today")) -> dict[str, Any]:
 
         # Get learning engine and query historic SoC data
         engine = get_learning_engine()
-        db_path = str(getattr(engine, "db_path", ""))
+        if not engine or not hasattr(engine, "store"):
+             # Fallback or error if engine not ready
+             return {
+                "date": target_date.isoformat(),
+                "slots": [],
+                "message": "Engine not initialized",
+            }
+            
+        target_iso = target_date.isoformat()
 
-        async with aiosqlite.connect(db_path) as conn:
-            query = """
-                SELECT slot_start, soc_end_percent, quality_flags
-                FROM slot_observations
-                WHERE DATE(slot_start) = ?
-                  AND soc_end_percent IS NOT NULL
-                ORDER BY slot_start ASC
-            """
-            async with conn.execute(query, (target_date.isoformat(),)) as cursor:
-                rows = await cursor.fetchall()
+        def fetch():
+            with engine.store.Session() as session:
+                # We need to filter by date. 
+                # Since slot_start is an ISO string, we can filter by prefix OR use func.date logic if compatible.
+                # SlotObservation.slot_start is YYYY-MM-DDTHH:MM:SS...
+                # Filtering by >= target_date and < target_date + 1 day is better for index.
+                day_start = tz.localize(datetime(target_date.year, target_date.month, target_date.day))
+                day_end = day_start + timedelta(days=1)
+                
+                start_iso_str = day_start.isoformat()
+                end_iso_str = day_end.isoformat()
+                
+                stmt = (
+                    select(SlotObservation.slot_start, SlotObservation.soc_end_percent, SlotObservation.quality_flags)
+                    .where(
+                        SlotObservation.slot_start >= start_iso_str,
+                        SlotObservation.slot_start < end_iso_str,
+                        SlotObservation.soc_end_percent.is_not(None)
+                    )
+                    .order_by(SlotObservation.slot_start)
+                )
+                return session.execute(stmt).all()
+
+        rows = await asyncio.to_thread(fetch)
 
         if not rows:
             return {
@@ -166,6 +161,7 @@ async def get_performance_metrics(days: int = Query(7, ge=1, le=90)) -> dict[str
     """Get performance metrics for charts."""
     try:
         engine = get_learning_engine()
+        # engine.get_performance_series handles session internally via store
         data = cast("dict[str, Any]", engine.get_performance_series(days_back=days))  # type: ignore
         return data
     except Exception:
@@ -230,7 +226,9 @@ async def socketio_debug_status(request: Request) -> dict[str, Any]:
     try:
         # Socket.IO manager tracks rooms/sids
         manager = sio.manager
-        connected_sids = list(manager.rooms.get("/", {}).keys()) if hasattr(manager, "rooms") else []
+        connected_sids = (
+            list(manager.rooms.get("/", {}).keys()) if hasattr(manager, "rooms") else []
+        )
     except Exception as e:
         connected_sids = [f"error: {e}"]
 
@@ -382,9 +380,12 @@ async def executor_debug_status() -> dict[str, Any]:
         "runtime": {
             "thread_alive": thread_alive,
             "is_paused": executor.is_paused,
-            "last_run_at": executor.status.last_run_at,
+            "last_run_at": executor.status.last_run_at.isoformat()
+            if executor.status.last_run_at
+            else None,
             "last_run_status": executor.status.last_run_status,
             "last_error": executor.status.last_error,
+            "last_skip_reason": executor.status.last_skip_reason,
             "next_run_at": executor.status.next_run_at,
             "current_slot": executor.status.current_slot,
             "override_active": executor.status.override_active,
@@ -393,7 +394,9 @@ async def executor_debug_status() -> dict[str, Any]:
         "recent_errors": list(executor.recent_errors) if executor.recent_errors else [],
         "diagnostics": {
             "now": datetime.now(UTC).isoformat(),
-            "message": _get_executor_diagnostic_message(executor, cfg, thread_alive, config_enabled),
+            "message": _get_executor_diagnostic_message(
+                executor, cfg, thread_alive, config_enabled
+            ),
         },
     }
 
@@ -414,6 +417,8 @@ def _get_executor_diagnostic_message(
         return "⏸️ Executor is PAUSED (user-initiated)"
     if executor.status.last_run_status == "error":
         return f"⚠️ Last executor run failed: {executor.status.last_error}"
+    if executor.status.last_run_status == "skipped" and executor.status.last_skip_reason:
+        return f"⏭️ Executor skipped: {executor.status.last_skip_reason}"
     if executor.status.last_run_at is None:
         return "🔄 Executor is enabled but hasn't run yet"
     return "✅ Executor is running normally"

@@ -20,3 +20,11 @@ class StatusResponse(BaseModel):
     load_power_kw: float
     battery_power_kw: float
     grid_power_kw: float
+
+
+class LogInfoResponse(BaseModel):
+    """Response model for /api/system/log-info endpoint."""
+
+    filename: str
+    size_bytes: int
+    last_modified: str

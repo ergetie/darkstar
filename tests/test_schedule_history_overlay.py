@@ -141,6 +141,7 @@ async def test_today_with_history_includes_planned_actions(tmp_path):
         "Did not find planned discharge slot from DB (expected 1.0 kW discharge)"
     )
 
+
 @pytest.mark.anyio
 async def test_today_with_history_sets_executed_flag(tmp_path):
     """Verify that historical slots from observations have is_executed=True."""
@@ -187,7 +188,7 @@ async def test_today_with_history_sets_executed_flag(tmp_path):
 
         await conn.execute(
             "INSERT INTO slot_observations (slot_start, slot_end, batt_charge_kwh, batt_discharge_kwh, soc_end_percent, water_kwh, import_kwh, export_kwh, import_price_sek_kwh) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (past_start.isoformat(), past_end.isoformat(), 0.5, 0.0, 50.0, 0.0, 0.0, 0.0, 0.5)
+            (past_start.isoformat(), past_end.isoformat(), 0.5, 0.0, 50.0, 0.0, 0.0, 0.0, 0.5),
         )
         await conn.commit()
 
@@ -200,18 +201,19 @@ async def test_today_with_history_sets_executed_flag(tmp_path):
         patch("backend.api.routers.schedule.load_yaml", return_value=mock_config),
         patch("backend.api.routers.schedule.Path") as MockPath,
     ):
-             # Hide schedule.json so we rely on DB
-            def side_effect(arg):
-                if str(arg) == "schedule.json":
-                    m = MagicMock()
-                    m.exists.return_value = False
-                    return m
-                return Path(arg) # Use real path for DB
+        # Hide schedule.json so we rely on DB
+        def side_effect(arg):
+            if str(arg) == "schedule.json":
+                m = MagicMock()
+                m.exists.return_value = False
+                return m
+            return Path(arg)  # Use real path for DB
 
-            MockPath.side_effect = side_effect
+        MockPath.side_effect = side_effect
 
-            from backend.api.routers.schedule import schedule_today_with_history
-            result = await schedule_today_with_history()
+        from backend.api.routers.schedule import schedule_today_with_history
+
+        result = await schedule_today_with_history()
 
     slots = result["slots"]
     found_executed = False
