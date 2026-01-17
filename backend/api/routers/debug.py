@@ -6,7 +6,6 @@ Provides debug endpoints for logs, history, and diagnostics.
 
 import json
 import logging
-from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -15,6 +14,7 @@ import aiosqlite
 import pytz
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from backend.core.logging import get_ring_buffer
 from backend.learning import get_learning_engine
 from inputs import get_dummy_load_profile, get_load_profile_from_ha, load_yaml
 
@@ -22,41 +22,8 @@ logger = logging.getLogger("darkstar.api.debug")
 
 router = APIRouter(tags=["debug"])
 
-
-# --- Ring Buffer for Logs ---
-class RingBufferHandler(logging.Handler):
-    """In-memory ring buffer for log entries that the UI can poll."""
-
-    def __init__(self, maxlen: int = 1000) -> None:
-        super().__init__()
-        self._buffer: deque[dict[str, Any]] = deque(maxlen=maxlen)
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            timestamp = datetime.fromtimestamp(record.created, tz=UTC)
-        except Exception:
-            timestamp = datetime.now(UTC)
-        entry = {
-            "timestamp": timestamp.isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": self.format(record),
-        }
-        self._buffer.append(entry)
-
-    def get_logs(self) -> list[dict[str, Any]]:
-        return list(self._buffer)
-
-
 # Global ring buffer handler
-_ring_buffer_handler = RingBufferHandler(maxlen=1000)
-_ring_buffer_formatter = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
-_ring_buffer_handler.setFormatter(_ring_buffer_formatter)
-
-# Attach to root logger
-root_logger = logging.getLogger()
-if not any(isinstance(h, RingBufferHandler) for h in root_logger.handlers):
-    root_logger.addHandler(_ring_buffer_handler)
+_ring_buffer_handler = get_ring_buffer()
 
 
 @router.get(

@@ -1,25 +1,11 @@
-import logging
-import os
+from backend.core.logging import setup_logging
 
-# ============================================================================
-# LOGGING CONFIGURATION - MUST BE FIRST
-# ============================================================================
-# Configure logging BEFORE any other imports to ensure all modules inherit
-# the correct log level, especially darkstar.ha_socket
-LOG_LEVEL_STR = os.environ.get("LOG_LEVEL", "INFO").upper()
-VALID_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-if LOG_LEVEL_STR not in VALID_LEVELS:
-    LOG_LEVEL_STR = "INFO"
+setup_logging()
 
-LOG_LEVEL = getattr(logging, LOG_LEVEL_STR)
-logging.basicConfig(level=LOG_LEVEL, format="%(levelname)s:\t%(name)s - %(message)s")
-
-# Explicitly set darkstar loggers to respect LOG_LEVEL
-logging.getLogger("darkstar").setLevel(LOG_LEVEL)
-
-# Now import other modules (they'll inherit the configured log level)
 # ruff: noqa: E402
+
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path

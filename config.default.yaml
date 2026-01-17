@@ -148,7 +148,6 @@ pricing:
   vat_percent: 25.0                    # VAT percentage on electricity
   grid_transfer_fee_sek: 0.2456        # Grid operator transfer fee per kWh
   energy_tax_sek: 0.439                # Energy tax per kWh
-  subscription_fee_sek_per_month: 593.0  # [FUTURE] Fixed monthly grid subscription (for cost analysis)
 
 # Forecasting Adjustments (Aurora ML tuning)
 forecasting:

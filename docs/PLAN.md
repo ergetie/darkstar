@@ -111,26 +111,17 @@ Profiling confirmed the water heating "spacing penalty" (O(T×S) pairwise constr
 - [x] Tests pass
 ---
 
-### REV // F13 — Socket.IO Debug Cleanup [POST-BETA]
+### [DONE] REV // F13 — Socket.IO Conditional Debug
 
-**Goal:** Remove verbose debug logging and runtime config after beta testers have confirmed stable Socket.IO connections across various environments.
+**Goal:** Refactor verbose Socket.IO logging to be **conditional** (e.g. `?debug=true`) rather than removing it completely, enabling future debugging without code changes.
 
-**Context:** REV F11 added extensive instrumentation to debug the HA Ingress connection issue:
-- `console.log` statements throughout `socket.ts`
-- `?socket_path` and `?socket_transports` URL param overrides
-- Packet-level logging (`packetCreate`, `packet` events)
-
-This should remain in place during beta testing to allow users to self-diagnose issues.
+**Context:** REV F11 added extensive instrumentation. Removing it entirely risks losing valuable diagnostics for future environment-specific issues (Ingress, Proxy, Etc).
 
 **Cleanup Scope:**
-- [ ] Remove or reduce `console.log` statements in `socket.ts`
-- [ ] Consider keeping URL param overrides as a hidden "power user" feature
-- [ ] Remove `eslint-disable` comments added for debug casting
-- [ ] Update `docs/ARCHITECTURE.md` if runtime config is removed
-
-**Trigger:** After 2+ weeks of stable beta feedback with no new Socket.IO issues reported.
-
-**Priority:** Low (cleanup only, no functional change)
+- [x] Wrap `console.log` statements in `socket.ts` with a `debug` flag check.
+- [x] Implement `?debug=true` URL parameter detection to enable this flag.
+- [x] Keep `eslint-disable` comments (necessary for debug casting).
+- [x] Update `docs/DEVELOPER.md` with instructions on how to enable debug mode.
 
 ---
 
@@ -174,4 +165,66 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 * [ ] Ensure "Actual" data overlays are visually distinct (e.g., using dashed lines, thinner lines, or lower opacity).
 * [ ] Verify legend updates correctly when toggling.
 
+
 ---
+
+### [PLANNED] REV // K22 — Configurable Effekttariff Penalty
+
+**Goal:** Allow users to dynamically control the "Peak Power" (Effekttariff) penalty via Home Assistant, enabling complex logic (seasonal/time-based) to be handled externally.
+
+**Plan:**
+
+#### Phase 1: Configuration & Entities
+* [ ] Add `grid.import_breach_penalty_sek` (Default: 5000.0) to `config.default.yaml`.
+* [ ] Add `grid.import_breach_penalty_enabled` (Default: false) to `config.default.yaml` (**User requested default OFF**).
+* [ ] Add override entities to `executor.config`.
+
+#### Phase 2: Logic & Reactivity
+* [ ] **Planner Logic:** In `adapter.py` (or pipeline), if `import_breach_penalty_enabled` is False, pass `0.0` as the penalty cost to Kepler. If True, pass the configured/overridden value.
+* [ ] **Watcher Logic:** In `executor/engine.py`, monitor the `import_breach_penalty_enabled` entity. If it changes, **Trigger Immediate Re-plan**. This ensures the planner schedule always reflects the current fee state.
+* [ ] Frontend: Add these controls to `Settings > Grid`.
+
+---
+
+### [DONE] REV // H2 — Structured Logging & Management
+
+**Goal:** Switch to structured JSON logging for better observability and allow users to download/clear logs from the UI.
+
+**Plan:**
+
+#### Phase 1: Logging Config [DONE]
+* [x] Install `python-json-logger`.
+* [x] Update `backend/main.py`:
+    - Configure `JSONFormatter`.
+    - Configure `TimedRotatingFileHandler` (e.g., daily rotation, keep 7 days) to `data/darkstar.log`.
+
+#### Phase 2: Management API & UI [DONE]
+* [x] `GET /api/system/logs`: Download current log file.
+* [x] `DELETE /api/system/logs`: Clear/Truncate main log file.
+* [x] UI: Add "Download" and "Clear" buttons to Debug page.
+* [x] UI: Add "Go Live" mode with polling and **autoscroll**.
+* [x] UI: Increase log container height and remove "Historical SoC" card.
+* [x] UI: Display file size and "Last Rotated" info if possible.
+
+---
+
+### [PLANNED] REV // ARC2 — Database Migration Framework
+
+**Goal:** Introduce `Alembic` to manage database schema migrations safely and automatically.
+
+**Plan:**
+
+#### Phase 1: Setup
+* [ ] Add `alembic` to `requirements.txt`.
+* [ ] Initialize Alembic (`alembic init`).
+* [ ] Configure `alembic.ini` to use `data/planner_learning.db` (and respect `DB_PATH` env var).
+* [ ] Create `env.py` to import `Base` from `backend/learning/store.py` (or creating a proper SQLAlchemy Base).
+
+#### Phase 2: Implementation
+* [ ] Refactor `LearningStore` to use SQLAlchemy models (if not fully compatible).
+* [ ] Create initial migration script (`alembic revision --autogenerate -m "baseline"`).
+* [ ] Update `backend/main.py` startup event to run `alembic upgrade head` instead of the custom `_init_schema` logic.
+* [ ] Verify existing databases can be "stamped" with the baseline version without data loss.
+
+---
+

@@ -17,29 +17,38 @@ export const getSocket = () => {
         // For Ingress: try full path first, HA may or may not strip it
         const socketPath = basePath + 'socket.io/'
 
-        console.log('========================================')
-        console.log('🔌 Socket.IO Connection Diagnosis (Manager Pattern)')
-        console.log('========================================')
-        console.log('📍 document.baseURI:', document.baseURI)
-        console.log('📍 Origin:', baseUrl.origin)
-        console.log('📍 Pathname:', baseUrl.pathname)
-        console.log('📍 Is Ingress:', isIngressPath)
-        console.log('📍 Socket Path:', socketPath)
-        console.log('========================================')
+        const params = new URLSearchParams(window.location.search)
+        const isDebug = params.get('debug') === 'true'
+        const overridePath = params.get('socket_path')
+        const overrideTransports = params.get('socket_transports')?.split(',')
+
+        // Helper for conditional logging
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const debugLog = (...args: any[]) => {
+            if (isDebug) {
+                console.log(...args)
+            }
+        }
+
+        debugLog('========================================')
+        debugLog('🔌 Socket.IO Connection Diagnosis (Manager Pattern)')
+        debugLog('========================================')
+        debugLog('📍 document.baseURI:', document.baseURI)
+        debugLog('📍 Origin:', baseUrl.origin)
+        debugLog('📍 Pathname:', baseUrl.pathname)
+        debugLog('📍 Is Ingress:', isIngressPath)
+        debugLog('📍 Socket Path:', socketPath)
+        debugLog('========================================')
 
         // 1. Create the Manager: Handles the low-level connection (Engine.IO)
         // We configure the path here to ensure it travels through HA Ingress correctly.
         // REV F11 UPDATE: Runtime configuration for debugging without redeploy
 
-        const params = new URLSearchParams(window.location.search)
-        const overridePath = params.get('socket_path')
-        const overrideTransports = params.get('socket_transports')?.split(',')
-
         // Default: Force websocket, remove trailing slash
         const finalPath = overridePath || socketPath.replace(/\/$/, '')
         const finalTransports = overrideTransports || ['websocket']
 
-        console.log('🔧 Socket Config Overrides:', {
+        debugLog('🔧 Socket Config Overrides:', {
             overridePath,
             overrideTransports,
             finalPath,
@@ -62,47 +71,47 @@ export const getSocket = () => {
 
         // Debug Manager events (Transport Layer)
         manager.on('open', () => {
-            console.log('🔌 Manager: Transport OPENED')
+            debugLog('🔌 Manager: Transport OPENED')
             // Log the transport details
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const transport = (manager.engine as any).transport
-            console.log('   Transport Type:', transport.name)
-            console.log('   Transport URL:', transport.opts.path)
+            debugLog('   Transport Type:', transport.name)
+            debugLog('   Transport URL:', transport.opts.path)
 
             // Hook into low-level packet creation to see what we are sending
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             manager.engine.on('packetCreate', (packet: any) => {
-                console.log('📤 Manager: Sending Packet:', packet.type, packet.data)
+                debugLog('📤 Manager: Sending Packet:', packet.type, packet.data)
             })
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             manager.engine.on('packet', (packet: any) => {
-                console.log('📥 Manager: Received Packet:', packet.type, packet.data)
+                debugLog('📥 Manager: Received Packet:', packet.type, packet.data)
             })
         })
 
         manager.on('error', (err: Error) => console.error('🔌 Manager: Transport ERROR:', err))
-        manager.on('close', (reason: string) => console.log('🔌 Manager: Transport CLOSED:', reason))
-        manager.on('reconnect_attempt', (attempt: number) => console.log(`🔌 Manager: Reconnect attempt ${attempt}`))
+        manager.on('close', (reason: string) => debugLog('🔌 Manager: Transport CLOSED:', reason))
+        manager.on('reconnect_attempt', (attempt: number) => debugLog(`🔌 Manager: Reconnect attempt ${attempt}`))
 
         // Manually trigger connection now that listeners are attached
-        console.log('🔌 Manager: Initiating manual connection...')
+        debugLog('🔌 Manager: Initiating manual connection...')
         manager.open((err?: Error) => {
             if (err) {
                 console.error('🔌 Manager: Open failed:', err)
             } else {
-                console.log('🔌 Manager: Open successful, connecting socket...')
+                debugLog('🔌 Manager: Open successful, connecting socket...')
                 socket?.connect()
             }
         })
 
         // Debug Socket events (Application Layer)
         socket.onAny((event, ...args) => {
-            console.log('🔌 Socket.IO RX event:', event, args)
+            debugLog('🔌 Socket.IO RX event:', event, args)
         })
 
         socket.on('connect', () => {
-            console.log('✅ Socket.IO CONNECTED! SID:', socket?.id)
+            debugLog('✅ Socket.IO CONNECTED! SID:', socket?.id)
         })
 
         socket.on('disconnect', (reason: string) => {
@@ -112,7 +121,7 @@ export const getSocket = () => {
         socket.on('connect_error', (error: Error) => {
             console.error('❌ Socket.IO connect_error:', error.message)
             // Hint for debugging
-            if (error.message.includes('xhr poll error')) {
+            if (isDebug && error.message.includes('xhr poll error')) {
                 console.error('💡 HINT: XHR poll error usually means:')
                 console.error('   1. Wrong path - server not listening at:', socketPath)
                 console.error('   2. CORS issue')

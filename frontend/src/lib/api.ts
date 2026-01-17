@@ -353,6 +353,11 @@ export type DashboardBundleResponse = {
     water_boost: { boost: boolean; expires_at?: string; source?: string } | null
 }
 export type AuroraBriefingResponse = { briefing: string }
+export type LogInfoResponse = {
+    filename: string
+    size_bytes: number
+    last_modified: string
+}
 
 async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
     // Strip leading slash to make paths relative - works with base href for HA Ingress
@@ -504,6 +509,9 @@ export const Api = {
     energyToday: () => getJSON<EnergyTodayResponse>('/api/energy/today'),
     energyRange: (period: 'today' | 'yesterday' | 'week' | 'month') =>
         getJSON<EnergyRangeResponse>(`/api/energy/range?period=${period}`),
+    // Log management
+    logInfo: () => getJSON<LogInfoResponse>('/api/system/log-info'),
+    clearLogs: () => getJSON<{ status: string }>('/api/system/logs', 'DELETE'),
 }
 
 export const Sel = {

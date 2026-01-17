@@ -1,17 +1,18 @@
+# ruff: noqa
 import sys
 import time
-import pulp
-import random
-from datetime import datetime, timedelta
-from dataclasses import dataclass
-from typing import List, Optional
 from collections import defaultdict
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+
+import pulp
 
 # Add project root to path
 sys.path.append(".")
 
-from planner.solver.kepler import KeplerSolver, KeplerInput, KeplerConfig, KeplerResult
+from planner.solver.kepler import KeplerConfig, KeplerInput, KeplerResult, KeplerSolver
 from planner.solver.types import KeplerResultSlot
+
 
 # Mock Classes for Testing
 @dataclass
@@ -28,19 +29,19 @@ def generate_mock_data(slots: int = 96) -> KeplerInput:
     # Start at next midnight to ensure full days
     now = datetime.now()
     start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    
+
     mock_slots = []
     for i in range(slots):
         s_time = start + timedelta(minutes=30 * i)
         e_time = s_time + timedelta(minutes=30)
-        
+
         # Simple sine wave patterns
         hour = s_time.hour
         is_day = 6 <= hour <= 18
         pv = 1.0 if is_day else 0.0
         load = 0.5 + (0.5 if 17 <= hour <= 21 else 0.0)
         price = 0.5 + (1.0 if 7 <= hour <= 22 else 0.0)
-        
+
         mock_slots.append(MockSlot(
             start_time=s_time,
             end_time=e_time,
@@ -49,7 +50,7 @@ def generate_mock_data(slots: int = 96) -> KeplerInput:
             import_price_sek_kwh=price,
             export_price_sek_kwh=price * 0.8
         ))
-    
+
     return KeplerInput(
         slots=mock_slots,
         initial_soc_kwh=5.0
@@ -65,16 +66,16 @@ def get_base_config() -> KeplerConfig:
         charge_efficiency=0.95,
         discharge_efficiency=0.95,
         wear_cost_sek_per_kwh=0.1,
-        
+
         # Water Heater Defaults
         water_heating_power_kw=3.0,
         water_heating_min_kwh=5.0,
         water_heating_max_gap_hours=5.0,
         water_min_spacing_hours=4.0,  # The heavy constraint
-        
+
         water_comfort_penalty_sek=10.0,
         water_spacing_penalty_sek=10.0, # Enabled
-        
+
         # Other reqs
         target_soc_kwh=None,
         enable_export=True
@@ -82,7 +83,7 @@ def get_base_config() -> KeplerConfig:
 
 class OptimizedSolver(KeplerSolver):
     """Subclass with Hard Constraint optimization."""
-    
+
     def solve(self, input_data: KeplerInput, config: KeplerConfig) -> KeplerResult:
         slots = input_data.slots
         T = len(slots)
@@ -128,27 +129,27 @@ class OptimizedSolver(KeplerSolver):
         prob += soc[0] == initial_soc
 
         total_cost = []
-        
+
         # Helper map
         slots_ref = slots # local access
 
         for t in range(T):
             s = slots_ref[t]
             h = slot_hours[t]
-            
+
             w_load = water_heat[t] * config.water_heating_power_kw * h if water_enabled else 0
-            
+
             # Balance
-            prob += (s.load_kwh + w_load + charge[t] + grid_export[t] + curtailment[t] 
+            prob += (s.load_kwh + w_load + charge[t] + grid_export[t] + curtailment[t]
                      == s.pv_kwh + discharge[t] + grid_import[t] + load_shedding[t])
-            
+
             # Water Start
             if water_enabled:
                 if t == 0:
                     prob += water_start[t] == water_heat[t]
                 else:
                     prob += water_start[t] >= water_heat[t] - water_heat[t-1]
-            
+
             # Battery Logic
             prob += soc[t + 1] == soc[t] + charge[t] * config.charge_efficiency - discharge[t] / config.discharge_efficiency
 
@@ -159,7 +160,7 @@ class OptimizedSolver(KeplerSolver):
             if config.max_import_power_kw: prob += grid_import[t] <= config.max_import_power_kw * h
             if config.grid_import_limit_kw: prob += grid_import[t] <= config.grid_import_limit_kw * h + import_breach[t]
             if not config.enable_export: prob += grid_export[t] == 0
-            
+
             # Costs
             cost = (
                 (charge[t] + discharge[t]) * config.wear_cost_sek_per_kwh +
@@ -169,7 +170,7 @@ class OptimizedSolver(KeplerSolver):
                 load_shedding[t] * 10000.0
             )
             total_cost.append(cost)
-            
+
             # Soft SoC
             prob += soc[t] >= min_soc_kwh - soc_violation[t]
             prob += soc[t] <= max_soc_kwh
@@ -177,7 +178,7 @@ class OptimizedSolver(KeplerSolver):
         # Terminal
         prob += soc[T] >= min_soc_kwh - soc_violation[T]
         prob += soc[T] <= max_soc_kwh
-        
+
         # Target SoC
         if config.target_soc_kwh is not None:
              prob += soc[T] >= config.target_soc_kwh - target_under
@@ -191,7 +192,7 @@ class OptimizedSolver(KeplerSolver):
             # Min kWh per day (simplified from original for brevity, assuming full days)
             # Just implement the global min spacing for benchmark
             avg_slot_hours = sum(slot_hours) / len(slot_hours)
-            
+
             # 1. Daily Needs (Simplified: just total need for benchmark duration?)
             # No, lets stick to the loop structure if possible or just simplified.
             # To be fair, we must include the daily constraints otherwise problem is easier.
@@ -205,11 +206,11 @@ class OptimizedSolver(KeplerSolver):
                 if defer_hours > 0 and dt.hour < defer_hours:
                     bucket -= timedelta(days=1)
                 slots_by_day[bucket].append(t)
-            
+
             for i, day in enumerate(sorted(slots_by_day.keys())):
                 indices = slots_by_day[day]
                 req = config.water_heating_min_kwh
-                if i == 0: 
+                if i == 0:
                     req = max(0, req - config.water_heated_today_kwh)
                 prob += pulp.lpSum(water_heat[t] for t in indices) * water_kwh_per_slot >= req
 
@@ -221,8 +222,8 @@ class OptimizedSolver(KeplerSolver):
                      start_idx = max(0, t - spacing_slots)
                      # If we start at t, previous window sum must be 0
                      prob += (
-                         pulp.lpSum(water_heat[j] for j in range(start_idx, t)) 
-                         + water_start[t] * M 
+                         pulp.lpSum(water_heat[j] for j in range(start_idx, t))
+                         + water_start[t] * M
                          <= M
                      )
 
@@ -231,31 +232,31 @@ class OptimizedSolver(KeplerSolver):
         prob += pulp.lpSum(total_cost) - term_val + 1000.0 * pulp.lpSum(soc_violation)
 
         prob.solve(pulp.PULP_CBC_CMD(msg=False))
-        
+
         status = pulp.LpStatus[prob.status]
         is_optimal = status == "Optimal"
-        
+
         cost_val = 0.0
         res_slots = []
         if is_optimal:
             for t in range(T):
                 w_kw = config.water_heating_power_kw if pulp.value(water_heat[t]) > 0.5 else 0.0
                 res_slots.append(KeplerResultSlot(
-                    slots[t].start_time, slots[t].end_time, 
+                    slots[t].start_time, slots[t].end_time,
                     0,0,0,0,0,0, # dummies
                     water_heat_kw=w_kw
                 ))
-                
+
         return KeplerResult(res_slots, pulp.value(prob.objective), is_optimal, status)
 
 def benchmark(name: str, config: KeplerConfig, input_data: KeplerInput):
     print(f"--- Benchmarking: {name} ---")
     solver = KeplerSolver()
-    
+
     t0 = time.time()
     result = solver.solve(input_data, config)
     duration = time.time() - t0
-    
+
     print(f"Duration: {duration:.4f}s")
     print(f"Optimal: {result.is_optimal}")
     print(f"Cost: {result.total_cost_sek:.2f}")
@@ -269,24 +270,24 @@ def benchmark(name: str, config: KeplerConfig, input_data: KeplerInput):
 if __name__ == "__main__":
     print("Generating Data...")
     data = generate_mock_data(slots=96) # 48 hours
-    
+
     # 1. Baseline
     cfg_base = get_base_config()
     benchmark("Baseline (Pairwise Spacing)", cfg_base, data)
-    
+
     # 2. No Spacing
     cfg_none = get_base_config()
     cfg_none.water_spacing_penalty_sek = 0 # Disable
     benchmark("Control (No Spacing)", cfg_none, data)
-    
+
     # 3. Reduce Window (2h)
     cfg_short = get_base_config()
-    cfg_short.water_min_spacing_hours = 2.0 
+    cfg_short.water_min_spacing_hours = 2.0
     benchmark("Short Window (2h)", cfg_short, data)
 
     # 4. Optimized (Hard Constraint)
     cfg_opt = get_base_config()
-    print(f"--- Benchmarking: Optimized (Hard Constraint) ---")
+    print("--- Benchmarking: Optimized (Hard Constraint) ---")
     solver = OptimizedSolver()
     t0 = time.time()
     result = solver.solve(data, cfg_opt)

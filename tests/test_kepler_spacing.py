@@ -1,8 +1,10 @@
-
+# ruff: noqa
 import pytest
 from datetime import datetime, timedelta
-from planner.solver.kepler import KeplerSolver, KeplerInput, KeplerConfig
+
+from planner.solver.kepler import KeplerConfig, KeplerInput, KeplerSolver
 from planner.solver.types import KeplerInputSlot
+
 
 def create_mock_slots(count=24, start_hour=12):
     """Create N hours of mock slots (2 slots per hour)."""
@@ -30,14 +32,14 @@ def get_base_config():
         charge_efficiency=1.0,
         discharge_efficiency=1.0,
         wear_cost_sek_per_kwh=0.0,
-        
+
         # Water enabled
         water_heating_power_kw=2.0,
         water_heating_min_kwh=0.0, # Test spacing purely
         water_heating_max_gap_hours=0.0,
-        
+
         # Default spacing
-        water_min_spacing_hours=4.0, 
+        water_min_spacing_hours=4.0,
         water_spacing_penalty_sek=0.0 # Deprecated/Unused
     )
 
@@ -46,30 +48,30 @@ def test_strict_spacing_enforced():
     solver = KeplerSolver()
     input_data = KeplerInput(slots=create_mock_slots(count=24), initial_soc_kwh=5.0)
     slots = input_data.slots
-    
+
     # Manipulate prices to force heating at specific times if allowed
     # T=0 (12:00) -> Cheap (Should Heat)
-    slots[0].import_price_sek_kwh = 0.1 
+    slots[0].import_price_sek_kwh = 0.1
     # T=4 (14:00) -> Cheap (Should Heat if allowed)
     slots[4].import_price_sek_kwh = 0.1
-    
+
     # Config: Spacing 4 hours (8 slots)
     # T=0 to T=4 is only 2 hours. Should be BLOCKED.
     config = get_base_config()
     config.water_heating_min_kwh = 1.0 # Need at least 1 slot worth (2kW * 0.5h = 1kwh)
-    
+
     result = solver.solve(input_data, config)
     assert result.is_optimal
-    
+
     # Check heating schedule
     heat_map = [1 if s.water_heat_kw > 0 else 0 for s in result.slots]
-    
+
     # Expect: Heat at T=0
     assert heat_map[0] == 1
-    
+
     # Expect: NO Heat at T=4 because it's within 4h window
-    assert heat_map[4] == 0 
-    
+    assert heat_map[4] == 0
+
     # Verify no restarts in window
     # A block start is where 0 -> 1.
     starts = []
@@ -77,7 +79,7 @@ def test_strict_spacing_enforced():
         if heat_map[i] == 1 and heat_map[i-1] == 0:
             starts.append(i)
     if heat_map[0] == 1: starts.insert(0, 0)
-    
+
     # If we have multiple starts, check distance
     if len(starts) > 1:
         dist = (starts[1] - starts[0]) * 0.5 # hours
@@ -88,26 +90,26 @@ def test_spacing_disabled():
     solver = KeplerSolver()
     input_data = KeplerInput(slots=create_mock_slots(count=24), initial_soc_kwh=5.0)
     slots = input_data.slots
-    
-    # Scenario: Cheap at T=0 and T=1. 
+
+    # Scenario: Cheap at T=0 and T=1.
     # If spacing was 1.0h (2 slots), it would BLOCK T=1 because T=0 was heated.
     # With spacing=0, it should allow T=0 and T=1.
-    slots[0].import_price_sek_kwh = 0.01 
+    slots[0].import_price_sek_kwh = 0.01
     slots[1].import_price_sek_kwh = 0.01
     slots[2].import_price_sek_kwh = 1.0 # Expensive
-    
+
     config = get_base_config()
     config.water_min_spacing_hours = 0.0 # DISABLED
     config.water_heating_min_kwh = 2.0 # Needs 2 slots (2kW * 0.5h * 2 = 2kWh)
-    config.water_block_start_penalty_sek = 0.0 
-    
+    config.water_block_start_penalty_sek = 0.0
+
     result = solver.solve(input_data, config)
     assert result.is_optimal
-    
+
     heat_map = [1 if s.water_heat_kw > 0 else 0 for s in result.slots]
-    
+
     # Needs 2 slots. Cheapest are 0 and 1.
-    # If spacing was active, it might force 0 and... wait... 
+    # If spacing was active, it might force 0 and... wait...
     # Actually if spacing is 0, 0->1 is allowed.
     assert heat_map[0] == 1
     assert heat_map[1] == 1

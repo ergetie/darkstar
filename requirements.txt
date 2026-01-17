@@ -17,3 +17,4 @@ astral>=3.2
 websockets>=11.0
 pulp>=2.9.0
 ruamel.yaml>=0.17.0
+python-json-logger>=2.0.7

@@ -314,6 +314,20 @@ pnpm run dev  # OR run backend/scheduler separately
        - **Do not manually create releases in the GitHub UI**, as this triggers redundant builds.
     The sidebar fetches version from `/api/version` which uses `git describe --tags`.
 
+## Troubleshooting & Debugging
+
+### Socket.IO Diagnostics
+If you encounter WebSocket connection issues (especially through Home Assistant Ingress), you can enable verbose frontend logging by adding `debug=true` to the URL:
+
+`http://localhost:5173/?debug=true`
+
+This will output detailed connection lifecycle events, transport details, and packet data to the browser console.
+
+**Advanced Overrides:**
+You can also force specific Socket.IO parameters via the URL for testing:
+*   `socket_path=/custom/path`: Override the service worker path.
+*   `socket_transports=websocket,polling`: Force specific transports.
+
 ## Dev Branch & Add-on Workflow
 
 For rapid debugging and feature testing, we use a separate **Dev Add-on** channel:

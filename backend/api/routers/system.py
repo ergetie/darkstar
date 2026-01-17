@@ -1,12 +1,14 @@
 import asyncio
 import logging
 import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
-from backend.api.models.system import StatusResponse, VersionResponse
+from backend.api.models.system import LogInfoResponse, StatusResponse, VersionResponse
 from inputs import (
     async_get_ha_sensor_float,
     load_yaml,
@@ -127,3 +129,64 @@ async def get_system_status() -> StatusResponse:
         battery_power_kw=round(batt_pow / 1000.0, 3),
         grid_power_kw=round(grid_pow / 1000.0, 3),
     )
+
+
+@router.get(
+    "/api/system/log-info",
+    summary="Get Log File Info",
+    description="Returns metadata about the main log file (size, date).",
+    response_model=LogInfoResponse,
+)
+async def get_log_info() -> LogInfoResponse:
+    """Return metadata about the main log file."""
+    log_path = Path("data/darkstar.log")
+    if not log_path.exists():
+        return LogInfoResponse(
+            filename="darkstar.log",
+            size_bytes=0,
+            last_modified="never"
+        )
+
+    stats = log_path.stat()
+    return LogInfoResponse(
+        filename="darkstar.log",
+        size_bytes=stats.st_size,
+        last_modified=datetime.fromtimestamp(stats.st_mtime, tz=UTC).isoformat()
+    )
+
+
+@router.get(
+    "/api/system/logs",
+    summary="Download Log File",
+    description="Returns the main log file as a downloadable attachment.",
+)
+async def download_logs():
+    """Download the main log file."""
+    from fastapi.responses import FileResponse
+    log_path = Path("data/darkstar.log")
+    if not log_path.exists():
+        raise HTTPException(status_code=404, detail="Log file not found")
+
+    return FileResponse(
+        path=log_path,
+        filename="darkstar.log",
+        media_type="text/plain"
+    )
+
+
+@router.delete(
+    "/api/system/logs",
+    summary="Clear/Truncate Log File",
+    description="Truncates the main log file to zero bytes.",
+)
+async def clear_logs():
+    """Clear/Truncate the main log file."""
+    log_path = Path("data/darkstar.log")
+    try:
+        if log_path.exists():
+            with log_path.open("w") as f:
+                f.truncate(0)
+        return {"status": "ok", "message": "Logs cleared"}
+    except Exception as e:
+        logger.error(f"Failed to clear logs: {e}")
+        raise HTTPException(status_code=500, detail=str(e)) from e
