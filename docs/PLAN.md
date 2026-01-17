@@ -203,7 +203,7 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 * [x] `DELETE /api/system/logs`: Clear/Truncate main log file.
 * [x] UI: Add "Download" and "Clear" buttons to Debug page.
 * [x] UI: Add "Go Live" mode with polling and **autoscroll**.
-* [x] UI: Increase log container height and remove "Historical SoC" card.
+* [x] UI: Increase log container height (600px) and remove "Historical SoC" card.
 * [x] UI: Display file size and "Last Rotated" info if possible.
 
 ---
