@@ -236,10 +236,16 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
     *   Components: 2x EV (Async schedules), 1x Pool Heater (Deferrable), 1x Heat Pump.
     *   Tariff: Tiered/Complex grid limits.
 
-#### Phase 2: N100/Proxmox Verification [PLANNED]
-* [ ] **Deployment Strategy:** Update `docs/DEVELOPER.md` with "Remote Benchmark" protocols.
-* [ ] **Execution:**
+#### Phase 2: N100/Proxmox Verification [DONE]
+* [x] **Deployment Strategy:** Update `docs/DEVELOPER.md` with "Remote Benchmark" protocols.
+* [x] **Execution:**
     *   Sync `dev` branch to Proxmox LXC.
     *   Install Rust toolchain (`rustup`) + `uv`.
     *   Compile & Run Benchmark on N100.
-* [ ] **Analysis:** Compare `i5-13600K` vs `N100` speedup ratios to validate "Low End Hardware" hypothesis.
+* [x] **Analysis:** Compare `i5-13600K` vs `N100` speedup ratios to validate "Low End Hardware" hypothesis.
+
+### [PLANNED] REV // PERF5 — Hybrid Fallback & Build Integration
+**Goal:** Finalize the Rust solver as the primary engine with a robust Python fallback.
+* [ ] Implement `HybridSolver` in `adapter.py`.
+* [ ] Add environment check for Rust binary.
+* [ ] Automate Rust build in CI/CD.

@@ -354,14 +354,17 @@ For verification on low-power hardware (N100/Pi), follow this protocol:
     ssh user@proxmox
     cd /opt/darkstar-bench
 
-    # 1. Install Rust (for sidecar compilation)
+    # 1. Install System Dependencies (cmake and clang are required for HiGHS)
+    sudo apt update && sudo apt install -y cmake build-essential libclang-dev clang
+
+    # 2. Install Rust (for sidecar compilation)
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
     source $HOME/.cargo/env
 
-    # 2. Install uv
+    # 3. Install uv
     curl -LsSf https://astral.sh/uv/install.sh | sh
 
-    # 3. Compile Rust Solver
+    # 4. Compile Rust Solver
     cd experimental/rust_solver
     cargo build --release
     cd ../..
