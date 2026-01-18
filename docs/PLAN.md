@@ -157,10 +157,21 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
-### [PLANNED] REV // PERF2 — Performance Instrumentation
+### [IN-PROGRESS] REV // PERF2: Rust Solver Sidecar Prototype
 
-**Goal:** Instrument MILP solver and Executor to identify performance bottlenecks.
+**Goal:** Solve the combinatorial performance bottleneck in the `KeplerSolver` using a high-performance Rust sidecar.
 
-* [ ] Add timing logs to `KeplerSolver.solve` (build vs solve time).
-* [ ] Promote Executor tick duration to INFO and add breakdown.
-* [ ] Analyze logs to determine need for Rust optimization.
+#### Phase 1: Investigation [COMPLETED]
+- [x] Identified "Water Spacing Constraint" as the lead bottleneck (~15x-20x slowdown in Python).
+- [x] Benchmarked horizons (24h-72h) with 15m slots: Python takes seconds while Rust takes milliseconds.
+- [x] Confirmed `cbc` headers missing in environment; switched to `HiGHS` solver with bundled build for portability.
+
+#### Phase 2: Implementation [COMPLETED]
+- [x] Created `experimental/rust_solver` project using `good_lp` + `highs`.
+- [x] Implemented Python-to-JSON-to-Rust serialization loop.
+- [x] Developed comprehensive `scripts/benchmark_kepler.py` for head-to-head comparison.
+
+#### Phase 3: Verification [IN-PROGRESS]
+- [x] Verified ~90x-100x speedup for 2-3 day horizons.
+- [x] Verified 490x speedup for 4-day horizons (Rust: 80ms, Python: ~39s).
+- [/] Finalize Git commit of the sidecar prototype on `dev` branch.
