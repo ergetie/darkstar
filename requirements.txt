@@ -21,4 +21,6 @@ python-json-logger>=2.0.7
 # Database
 alembic
 sqlalchemy
-
+# Additional Tools (REV DX5)
+psutil>=5.9.0
+rich>=13.0.0

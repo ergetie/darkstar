@@ -157,21 +157,43 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
-### [IN-PROGRESS] REV // PERF2: Rust Solver Sidecar Prototype
+### [DONE] REV // PERF2: Rust Solver Sidecar Prototype
 
 **Goal:** Solve the combinatorial performance bottleneck in the `KeplerSolver` using a high-performance Rust sidecar.
 
-#### Phase 1: Investigation [COMPLETED]
+#### Phase 1: Investigation [DONE]
 - [x] Identified "Water Spacing Constraint" as the lead bottleneck (~15x-20x slowdown in Python).
 - [x] Benchmarked horizons (24h-72h) with 15m slots: Python takes seconds while Rust takes milliseconds.
 - [x] Confirmed `cbc` headers missing in environment; switched to `HiGHS` solver with bundled build for portability.
 
-#### Phase 2: Implementation [COMPLETED]
+#### Phase 2: Implementation [DONE]
 - [x] Created `experimental/rust_solver` project using `good_lp` + `highs`.
 - [x] Implemented Python-to-JSON-to-Rust serialization loop.
 - [x] Developed comprehensive `scripts/benchmark_kepler.py` for head-to-head comparison.
 
-#### Phase 3: Verification [IN-PROGRESS]
+#### Phase 3: Verification [DONE]
 - [x] Verified ~90x-100x speedup for 2-3 day horizons.
 - [x] Verified 490x speedup for 4-day horizons (Rust: 80ms, Python: ~39s).
-- [/] Finalize Git commit of the sidecar prototype on `dev` branch.
+- [x] Finalized sidecar prototype and verified against Python results.
+
+---
+
+### [DONE] REV // DX5 — State-of-the-Art Benchmark Tooling
+
+**Goal:** Transform `benchmark_kepler.py` into a professional performance auditing tool with high-fidelity UI and correctness verification.
+
+**Plan:**
+
+#### Phase 1: Foundation & Extensibility [DONE]
+* [x] Remove GLPK/Legacy logs.
+* [x] Implement hardware detection (CPU/RAM).
+* [x] Move scenarios to `scripts/benchmarks.yaml`.
+
+#### Phase 2: Logic & Accuracy [DONE]
+* [x] Implement "Correctness Verification" (value check between solvers).
+* [x] Add "Feature Matrix" & Complexity Score logic.
+
+#### Phase 3: UI & Reporting [DONE]
+* [x] Integrate `rich` for tables, panels, and progress bars.
+* [x] Implement color-coded Economy reporting (Profit vs Expense).
+* [x] Add automated markdown report generation.

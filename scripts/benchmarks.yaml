@@ -1,0 +1,32 @@
+# Kepler Benchmark Scenarios
+# Weights for complexity: Water (+1), Spacing (+2)
+benchmarks:
+  - name: "Baseline (24h)"
+    slots: 96
+    water: false
+    spacing: false
+
+  - name: "Baseline (48h)"
+    slots: 192
+    water: false
+    spacing: false
+
+  - name: "Water Heat (48h)"
+    slots: 192
+    water: true
+    spacing: false
+
+  - name: "Water + Spacing (48h)"
+    slots: 192
+    water: true
+    spacing: true
+
+  - name: "Water + Spacing (72h)"
+    slots: 288
+    water: true
+    spacing: true
+
+  - name: "Extreme (4 Days)"
+    slots: 384
+    water: true
+    spacing: true

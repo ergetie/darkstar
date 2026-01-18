@@ -399,9 +399,8 @@ class KeplerSolver:
                     )
                 )
 
-            # Update the log with correct cost (since we calculated it in the loop)
+            # Log Performance Metrics
             logger_perf = logging.getLogger("darkstar.performance")
-            logger_perf.setLevel(logging.INFO)  # Ensure we see it
             logger_perf.info(
                 "Kepler Solved: %d slots in %.3fs (Vars: %d, Const: %d) | Cost: %.2f SEK",
                 T,
