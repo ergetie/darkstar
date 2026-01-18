@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import platform
+import random
 import subprocess
 import sys
 import tempfile
@@ -30,8 +31,8 @@ import psutil
 import yaml
 from rich.console import Console
 from rich.panel import Panel
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn
 
 # Add project root to path
 sys.path.append(str(Path(__file__).parent.parent.resolve()))
@@ -42,7 +43,7 @@ from planner.solver.types import (  # noqa: E402
     KeplerInput,
     KeplerInputSlot,
     KeplerResult,
-)  # noqa: E402
+)
 
 # Configure nice logging
 logging.basicConfig(level=logging.ERROR, format="%(message)s")  # Silence most logs
@@ -56,7 +57,7 @@ def get_sys_info() -> dict[str, str]:
     try:
         cpu_info = f"{platform.processor()} ({psutil.cpu_count(logical=False)} Cores)"
         if platform.system() == "Linux":
-            with open("/proc/cpuinfo", "r") as f:
+            with open("/proc/cpuinfo") as f:
                 for line in f:
                     if "model name" in line:
                         cpu_info = line.split(":")[1].strip()
@@ -145,7 +146,7 @@ class RustSolverAdapter:
             )
 
             # 4. Read Result
-            with open(output_path, "r") as f:
+            with open(output_path) as f:
                 res_json = json.load(f)
 
             # 5. Parse back to KeplerResult (Simplified for benchmark stats)
@@ -161,7 +162,7 @@ class RustSolverAdapter:
         except subprocess.CalledProcessError as e:
             return KeplerResult([], 0.0, False, f"Rust Error: {e.stderr.decode()}")
         except Exception as e:
-            return KeplerResult([], 0.0, False, f"Error: {str(e)}")
+            return KeplerResult([], 0.0, False, f"Error: {e!s}")
         finally:
             # Cleanup
             Path(input_path).unlink(missing_ok=True)
@@ -175,9 +176,13 @@ def generate_scenario(sc_config: dict[str, Any]) -> dict[str, Any]:
     water_enabled = sc_config.get("water", False)
     spacing_enabled = sc_config.get("spacing", False)
     export_enabled = sc_config.get("export", True)
+    profile = sc_config.get("profile", "default")
 
     start = datetime(2025, 1, 1, 0, 0)
     input_slots = []
+
+    # Heavy Home Random Seed (deterministic for benchmark)
+    rng = random.Random(42)
 
     for i in range(slots):
         s = start + timedelta(minutes=15 * i)
@@ -193,9 +198,25 @@ def generate_scenario(sc_config: dict[str, Any]) -> dict[str, Any]:
 
         import_price = base_price + (i % 3) * 0.1
         export_price = import_price - 0.1
-        load = 0.5
-        if 18 <= hour <= 21:
-            load = 2.0
+        if profile == "heavy_home":
+            # Heavy Home: Heat Pump Base + EV Spikes
+            # Base: 1.0 - 2.0 kW fluctuating
+            base_load = 1.0 + rng.random()
+
+            # EV 1: 17:00 - 20:00 (7kW)
+            if 17 <= hour < 20:
+                base_load += 7.0
+
+            # EV 2: 19:00 - 23:00 (11kW)
+            if 19 <= hour < 23:
+                base_load += 11.0
+
+            load = base_load
+        else:
+            # Default Profile
+            load = 0.5
+            if 18 <= hour <= 21:
+                load = 2.0
 
         input_slots.append(
             KeplerInputSlot(
@@ -227,8 +248,11 @@ def generate_scenario(sc_config: dict[str, Any]) -> dict[str, Any]:
         enable_export=export_enabled,
     )
 
-    # Complexity Score: slots * (1 + water*1 + spacing*2)
-    complexity = slots * (1 + (1 if water_enabled else 0) + (2 if spacing_enabled else 0))
+    # Complexity Score: slots * (1 + water*1 + spacing*2 + profile_bonus)
+    profile_bonus = 1 if profile == "heavy_home" else 0
+    complexity = slots * (
+        1 + (1 if water_enabled else 0) + (2 if spacing_enabled else 0) + profile_bonus
+    )
 
     # Feature Matrix [W|S|E]
     f_list = []
@@ -329,7 +353,7 @@ def run_benchmark():
 
     # Load Scenarios
     yaml_path = Path(__file__).parent / "benchmarks.yaml"
-    with open(yaml_path, "r") as f:
+    with open(yaml_path) as f:
         bench_data = yaml.safe_load(f)
 
     scenarios = [generate_scenario(s) for s in bench_data["benchmarks"]]
@@ -435,6 +459,13 @@ def run_benchmark():
 
             # Memory String
             mem_str = f"{mem_py:>.1f}|{mem_rust:>.1f}" if t_py > 0 or t_rust > 0 else "-"
+
+            if diff > 0.1 and t_py > 0 and t_rust > 0:
+                console.print(f"\n[bold red]MISMATCH DETECTED for {sc['name']}![/]")
+                console.print(
+                    f"Py Cost: {cost_py:.4f}, Rust Cost: {cost_rust:.4f}, Diff: {diff:.4f}"
+                )
+                console.print("\n")
 
             table.add_row(
                 sc["name"],

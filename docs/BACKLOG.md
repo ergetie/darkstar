@@ -10,7 +10,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 2.  **Naming:** Use generic names (e.g., `Settings Cleanup`, `Chart Improvements`) until the item is promoted.
 
-3.  **Promotion Flow:** 
+3.  **Promotion Flow:**
     - When starting work on a backlog item, assign it a proper **Rev ID** following the [naming conventions in PLAN.md](PLAN.md#revision-naming-conventions).
     - Move the item to `PLAN.md` with status `[PLANNED]` or `[IN PROGRESS]`.
     - Delete the item from this file.
@@ -42,6 +42,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 <!-- Add new bugs/requests here. AI will wipe this section when processing. -->
 - [Recurring] Check dependencies (`pnpm outdated` / `pip list --outdated`) every month.
 - Do we support direct PV export if profitable? It would make no sense to for example charge the battery then export from battery a sunny summer day where we have severe surplus solar and the prices are high midday.
+- PAUSE DOES NOT WORK! WATER BOOST DOES NOT WORK! Both gets overrided by the planner! INVESTIGATE!
 ---
 
 ## 🔴 High Priority
@@ -66,7 +67,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Move `inputs.py` from project root to a proper module location (e.g., `planner/inputs.py` or `core/inputs.py`) for cleaner project structure.
 
-**Current State:** 
+**Current State:**
 - `inputs.py` is a 42KB file in project root
 - 29 files import from it across `backend/`, `bin/`, `tests/`, `ml/`
 - Contains config loading, HA sensor fetching, Nordpool API, and data utilities
@@ -91,7 +92,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Expand CI/CD automation to include full unit tests, security audits, and built verification.
 
-**Current State:** 
+**Current State:**
 - Basic CI exists (Linting + API tests)
 - Missing: Full backend unit tests (pytest --cov)
 - Missing: Frontend tests
@@ -174,7 +175,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Track which ML model version made which forecast for debugging and A/B testing.
 
-**Current State:** 
+**Current State:**
 - LightGBM models stored as pickle files in `ml/models/`
 - No version metadata
 - No tracking of which model generated which forecast
@@ -239,7 +240,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Add end-to-end tests to catch UI regressions and integration bugs.
 
-**Current State:** 
+**Current State:**
 - Backend has 187 unit/integration tests
 - Frontend has vitest configured but minimal usage
 - No E2E tests for user flows
@@ -298,7 +299,7 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
    ```python
    import threading
    _thread_local = threading.local()
-   
+
    def get_db():
        if not hasattr(_thread_local, "db"):
            _thread_local.db = sqlite3.connect(DB_PATH)
@@ -309,7 +310,7 @@ with sqlite3.connect(engine.db_path, timeout=30.0) as conn:  # Every request!
    ```python
    # For async routes only
    import aiosqlite
-   
+
    async def get_db():
        async with aiosqlite.connect(DB_PATH) as db:
            yield db

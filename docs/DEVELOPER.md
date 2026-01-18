@@ -336,6 +336,43 @@ Allowed types: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `per
        - **Do not manually create releases in the GitHub UI**, as this triggers redundant builds.
     The sidebar fetches version from `/api/version` which uses `git describe --tags`.
 
+## Remote Benchmark Protocol (Proxmox/N100)
+For verification on low-power hardware (N100/Pi), follow this protocol:
+
+1.  **Sync Code**:
+    ```bash
+    # On Local Machine
+    rsync -avz --exclude 'venv' --exclude 'node_modules' --exclude '.git' ./ user@proxmox:/opt/darkstar-bench/
+
+    # OR via Git (if key auth is set up)
+    git push origin dev
+    ssh user@proxmox "cd /opt/darkstar && git pull origin dev"
+    ```
+
+2.  **Setup Environment (Remote)**:
+    ```bash
+    ssh user@proxmox
+    cd /opt/darkstar-bench
+
+    # 1. Install Rust (for sidecar compilation)
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    source $HOME/.cargo/env
+
+    # 2. Install uv
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+
+    # 3. Compile Rust Solver
+    cd experimental/rust_solver
+    cargo build --release
+    cd ../..
+    ```
+
+3.  **Run Benchmark**:
+    ```bash
+    # Run comparison (ensure python dependencies are installed via uv)
+    uv run scripts/benchmark_kepler.py --solvers python,rust
+    ```
+
 ## Troubleshooting & Debugging
 
 ### Socket.IO Diagnostics

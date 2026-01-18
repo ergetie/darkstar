@@ -376,7 +376,23 @@ class KeplerSolver:
                     w_kw = 0.0
 
                 wear = (c_val + d_val) * config.wear_cost_sek_per_kwh
-                cost = (i_val * s.import_price_sek_kwh) - (e_val * s.export_price_sek_kwh) + wear
+                # Rev PERF4: Include water start block penalty in reported cost
+                water_start_cost = 0.0
+                if water_enabled and config.water_block_start_penalty_sek > 0:
+                    # Check if this slot started a block
+                    # We need to look at w_val vs prev_w_val.
+                    # But we don't have prev_w_val easily here in this loop unless we track it.
+                    # However, pulp.value(water_start[t]) should be available if we solved it.
+                    w_start_val = pulp.value(water_start[t])
+                    if w_start_val and w_start_val > 0.5:
+                        water_start_cost = config.water_block_start_penalty_sek
+
+                cost = (
+                    (i_val * s.import_price_sek_kwh)
+                    - (e_val * s.export_price_sek_kwh)
+                    + wear
+                    + water_start_cost
+                )
                 final_total_cost += cost
 
                 t_credit = (soc_val * config.terminal_value_sek_kwh) / (T + 1) if T >= 0 else 0.0

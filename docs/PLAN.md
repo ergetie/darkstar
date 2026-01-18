@@ -178,6 +178,29 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 
 ---
 
+### [IN PROGRESS] REV // PERF3 — Rust Solver Feature Parity
+
+**Goal:** Bridge the "Fidelity Gap" between the Rust prototype and the production Python solver by implementing all soft constraints (Slack Variables) to ensure safety and comfort.
+
+**Plan:**
+
+#### Phase 1: Feature Parity [DONE]
+* [x] Implement missing Slack Variables in Rust:
+    * `soc_violation` (Min/Max SoC soft limits)
+    * `target_under_violation`, `target_over_violation` (Target SoC)
+    * `ramp_up`, `ramp_down` (Battery health)
+    * `gap_violation` (Water comfort)
+    * `import_breach` (Grid Fuse limits)
+    * `load_shedding`, `curtailment` (Safety nets)
+* [x] Update Objective Function to include penalties.
+* [x] Verify exact cost match with Python solver (Validated: 0.00 SEK diff on Baseline).
+
+#### Phase 2: Integration [PLANNED]
+* [ ] Update `adapter.py` to support hybrid fallback (Try Rust -> Failover to Python).
+* [ ] Integrate into main build pipeline.
+
+---
+
 ### [DONE] REV // DX5 — State-of-the-Art Benchmark Tooling
 
 **Goal:** Transform `benchmark_kepler.py` into a professional performance auditing tool with high-fidelity UI and correctness verification.
@@ -194,6 +217,29 @@ Currently, the charts can become cluttered when mixing planned and actual data. 
 * [x] Add "Feature Matrix" & Complexity Score logic.
 
 #### Phase 3: UI & Reporting [DONE]
-* [x] Integrate `rich` for tables, panels, and progress bars.
 * [x] Implement color-coded Economy reporting (Profit vs Expense).
 * [x] Add automated markdown report generation.
+
+---
+
+### [PLANNED] REV // PERF4 — Realistic Benchmarking & N100 Verification
+
+**Goal:** Pivot benchmarking from synthetic stress tests (4-day horizons) to specific "Heavy Load" production scenarios, and verify performance gains on low-power hardware (N100).
+
+**Plan:**
+
+#### Phase 1: Realistic Scenarios [DONE]
+* [x] **Retire Synthetic Tests:** Remove 72h and 96h (4-Day) "Extreme" scenarios from `benchmark_kepler.py`.
+* [x] **Implement "Heavy Home" Scenario:**
+    *   Horizon: 48h (Production standard).
+    *   Complexity: High Branching Factor (Width > Depth).
+    *   Components: 2x EV (Async schedules), 1x Pool Heater (Deferrable), 1x Heat Pump.
+    *   Tariff: Tiered/Complex grid limits.
+
+#### Phase 2: N100/Proxmox Verification [PLANNED]
+* [ ] **Deployment Strategy:** Update `docs/DEVELOPER.md` with "Remote Benchmark" protocols.
+* [ ] **Execution:**
+    *   Sync `dev` branch to Proxmox LXC.
+    *   Install Rust toolchain (`rustup`) + `uv`.
+    *   Compile & Run Benchmark on N100.
+* [ ] **Analysis:** Compare `i5-13600K` vs `N100` speedup ratios to validate "Low End Hardware" hypothesis.

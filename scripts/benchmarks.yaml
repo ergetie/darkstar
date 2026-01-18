@@ -21,12 +21,8 @@ benchmarks:
     water: true
     spacing: true
 
-  - name: "Water + Spacing (72h)"
-    slots: 288
+  - name: "Heavy Home (48h)"
+    slots: 192
     water: true
     spacing: true
-
-  - name: "Extreme (4 Days)"
-    slots: 384
-    water: true
-    spacing: true
+    profile: "heavy_home"
