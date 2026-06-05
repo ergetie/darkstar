@@ -145,10 +145,10 @@ Darkstar's intelligence is powered by the **Aurora Suite**, which consists of th
 
 ### 5.1 Aurora Vision (The Eyes)
 *   **Role**: Forecasting.
-*   **Architecture**: Physics-First Hybrid PV Forecasting with Recency-Weighted Training.
+*   **Architecture**: Open-Meteo Baseline Hybrid PV Forecasting with Recency-Weighted Training.
 *   **Mechanism**: Two-layer composition:
-    1. **Physics Base**: `OpenMeteoSolarForecast` with panel tilt/azimuth calculates POA (Plane of Array) irradiance using solar position and radiation data.
-    2. **ML Residual**: LightGBM model learns residual = actual - physics, capturing shadows, panel degradation, and system efficiency differences.
+    1. **Open-Meteo Baseline**: `OpenMeteoSolarForecast` fetches per-array tilted irradiance (`global_tilted_irradiance`) and applies the library PV model; successful baselines are stored per slot for training and last-good-fetch fallback.
+    2. **Bounded ML Nudge**: LightGBM learns residual = actual - Open-Meteo baseline. The residual is capped by `forecasting.pv_residual_bound_fraction`, ramps in by paired-data volume via `forecasting.pv_personalization_ramp_days`, and the final PV forecast is capped by a physical ceiling (`kWp * slot_hours * forecasting.pv_ceiling_efficiency`, with inverter limits applied).
 *   **Training Filter**: PV models train only on slots with `pv_kwh IS NOT NULL AND (radiation > 10 OR pv_kwh > 0.01)` to exclude nighttime noise.
 *   **Load Forecasting**: LightGBM with 11 features (time, weather, context).
 *   **Recency-Weighted Training**: LightGBM models use exponential decay sample weighting (half-life = 30 days by default) so recent observations have higher influence on training than older data.

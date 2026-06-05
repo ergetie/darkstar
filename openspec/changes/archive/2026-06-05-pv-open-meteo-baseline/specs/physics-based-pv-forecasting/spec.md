@@ -1,11 +1,7 @@
-## Purpose
-
-Physics-first hybrid PV forecasting that uses the Open-Meteo solar forecast as the baseline, with bounded ML residuals learning local effects like shadows and efficiency differences.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Physics-Based PV Forecast as Base
-The system SHALL use the **open-meteo solar forecast** (`OpenMeteoSolarForecast`, which returns plane-of-array / tilted irradiance with temperature derating) as the base PV forecast, with ML providing a bounded residual correction rather than direct predictions. The system SHALL NOT use a home-grown GHI->tilt transposition as the baseline.
+The system SHALL use the **open-meteo solar forecast** (`OpenMeteoSolarForecast`, which returns plane-of-array / tilted irradiance with temperature derating) as the base PV forecast, with ML providing a bounded residual correction rather than direct predictions. The system SHALL NOT use a home-grown GHI→tilt transposition as the baseline.
 
 #### Scenario: Baseline comes from open-meteo tilted irradiance
 - **WHEN** generating a PV forecast for a time slot
@@ -23,11 +19,11 @@ The system SHALL use the **open-meteo solar forecast** (`OpenMeteoSolarForecast`
 - **AND** future forecasts SHALL include the learned shadow correction within the configured bound
 
 ### Requirement: ML Learns Residuals
-The ML training pipeline SHALL train PV models to predict the residual (actual - open-meteo baseline) rather than predicting PV directly, and the residual SHALL be applied as a bounded nudge.
+The ML training pipeline SHALL train PV models to predict the residual (actual − open-meteo baseline) rather than predicting PV directly, and the residual SHALL be applied as a bounded nudge.
 
 #### Scenario: Training targets residual against open-meteo
 - **WHEN** training data is prepared
-- **THEN** the target variable SHALL be calculated as `pv_actual - openmeteo_baseline` for each historical slot
+- **THEN** the target variable SHALL be calculated as `pv_actual − openmeteo_baseline` for each historical slot
 - **AND** the model SHALL learn to predict this residual value
 
 #### Scenario: Inference applies bounded residual
@@ -40,27 +36,13 @@ The ML training pipeline SHALL train PV models to predict the residual (actual -
 - **THEN** the ML residual SHALL learn the consistent difference within bounds
 - **AND** no user configuration of efficiency SHALL be required
 
-### Requirement: Training Data Filter
-The ML training pipeline SHALL only train on slots with actual PV data and sun-up conditions.
-
-#### Scenario: Sun-up filter
-- **WHEN** preparing training data
-- **THEN** the system SHALL filter slots where `pv_kwh IS NOT NULL`
-- **AND** filter slots where `radiation > 10 OR pv_kwh > 0.01`
-- **AND** skip nighttime slots where both radiation and production are zero
-
-#### Scenario: Filter rationale
-- **WHEN** a slot has radiation=0 and pv=0
-- **THEN** the residual SHALL be 0 - 0 = 0
-- **AND** this SHALL be excluded from training as it provides no learning signal
-
 ### Requirement: Retroactive Physics Calculation
 For historical training data, the system SHALL use **stored open-meteo forecasts** as the residual reference, replacing retroactive home-grown physics calculation.
 
 #### Scenario: Historical baseline from stored open-meteo forecasts
 - **WHEN** training on historical data
 - **THEN** the system SHALL use the stored open-meteo forecast for each slot as the baseline
-- **AND** use `actual_pv - stored_openmeteo_baseline` as the training target
+- **AND** use `actual_pv − stored_openmeteo_baseline` as the training target
 
 #### Scenario: Missing baseline handling
 - **WHEN** a stored open-meteo baseline is unavailable for a historical slot
@@ -73,7 +55,7 @@ The final PV forecast SHALL be the open-meteo baseline plus the bounded ML resid
 #### Scenario: Final forecast calculation
 - **WHEN** returning forecast via API
 - **THEN** `final.pv_kwh` SHALL equal `openmeteo_baseline + bounded_lightgbm_residual`
-- **AND** `final.pv_kwh` SHALL be capped at a physical ceiling (`kWp * slot_hours * max_efficiency`, AC limit applied)
+- **AND** `final.pv_kwh` SHALL be capped at a physical ceiling (`kWp · slot_hours · max_efficiency`, AC limit applied)
 - **AND** `base.pv_kwh` SHALL contain the open-meteo baseline value only
 
 #### Scenario: API transparency
@@ -92,17 +74,9 @@ The system SHALL fall back to the **last successful stored open-meteo fetch** wh
 #### Scenario: Open-Meteo fetch fails
 - **WHEN** an open-meteo fetch fails or throws an error
 - **THEN** the system SHALL continue using the latest previously-stored open-meteo forecast for the planning window
-- **AND** raise a warning via `record_forecast_error` so `SystemAlert` shows an "API unreachable - using last known forecast" banner
+- **AND** raise a warning via `record_forecast_error` so `SystemAlert` shows an "API unreachable — using last known forecast" banner
 
 #### Scenario: Stored forecast exhausted
 - **WHEN** an outage outlasts the stored forecast's coverage of the planning window
 - **THEN** the system SHALL escalate the existing critical forecast-failure health issue
 - **AND** SHALL NOT fabricate PV values from a home-grown formula
-
-### Requirement: Multi-Array Support
-The Open-Meteo baseline calculation SHALL support systems with multiple solar arrays at different orientations.
-
-#### Scenario: Multiple arrays with different tilts
-- **WHEN** config defines multiple arrays with different tilt/azimuth values
-- **THEN** `OpenMeteoSolarForecast` SHALL calculate per-array estimates from Open-Meteo `global_tilted_irradiance`
-- **AND** the open-meteo baseline SHALL be the sum of all array estimates

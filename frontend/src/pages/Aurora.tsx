@@ -22,12 +22,14 @@ import SystemHealthCard from '../components/SystemHealthCard'
 import ModelTrainingCard from '../components/aurora/ModelTrainingCard'
 import { Bar } from 'react-chartjs-2'
 import { Api } from '../lib/api'
+import { getAuroraForecastTogglePatch, getPvForecastSourceDisplay } from './auroraDisplay'
 import type {
     AuroraDashboardResponse,
     SchedulerStatusResponse,
     AuroraPerformanceData,
     PriceForecastSlot,
     PriceAccuracyResponse,
+    LearningStatusResponse,
 } from '../lib/api'
 
 // Import ChartJS components for the inline charts
@@ -61,6 +63,10 @@ export default function Aurora() {
     const [priceForecastSlots, setPriceForecastSlots] = useState<PriceForecastSlot[]>([])
     const [priceForecastLoading, setPriceForecastLoading] = useState(false)
     const [priceAccuracy, setPriceAccuracy] = useState<PriceAccuracyResponse | undefined>(undefined)
+    const [learningStatus, setLearningStatus] = useState<LearningStatusResponse | null>(null)
+    const [auroraLoadEnabled, setAuroraLoadEnabled] = useState(true)
+    const [auroraPvEnabled, setAuroraPvEnabled] = useState(true)
+    const [togglingForecastDomain, setTogglingForecastDomain] = useState<'load' | 'pv' | null>(null)
 
     // Performance Data State
     const [perfData, setPerfData] = useState<AuroraPerformanceData | null>(null)
@@ -115,6 +121,27 @@ export default function Aurora() {
             }
         }
         fetchPriceAccuracy()
+
+        const fetchLearningStatus = async () => {
+            try {
+                const res = await Api.learningStatus()
+                setLearningStatus(res)
+            } catch (err) {
+                console.error('Failed to load learning status:', err)
+            }
+        }
+        fetchLearningStatus()
+
+        const fetchConfig = async () => {
+            try {
+                const res = await Api.config()
+                setAuroraLoadEnabled(res.forecasting?.aurora_load_enabled ?? true)
+                setAuroraPvEnabled(res.forecasting?.aurora_pv_enabled ?? true)
+            } catch (err) {
+                console.error('Failed to load forecast controls:', err)
+            }
+        }
+        fetchConfig()
     }, [])
 
     useEffect(() => {
@@ -169,6 +196,30 @@ export default function Aurora() {
         }
     }
 
+    const handleForecastDomainToggle = async (domain: 'load' | 'pv') => {
+        const currentValue = domain === 'load' ? auroraLoadEnabled : auroraPvEnabled
+        const newValue = !currentValue
+        if (domain === 'load') {
+            setAuroraLoadEnabled(newValue)
+        } else {
+            setAuroraPvEnabled(newValue)
+        }
+        setTogglingForecastDomain(domain)
+        try {
+            await Api.configSave(getAuroraForecastTogglePatch(domain, newValue))
+            window.dispatchEvent(new Event('config-changed'))
+        } catch (err) {
+            console.error(`Failed to toggle Aurora ${domain} forecasting:`, err)
+            if (domain === 'load') {
+                setAuroraLoadEnabled(currentValue)
+            } else {
+                setAuroraPvEnabled(currentValue)
+            }
+        } finally {
+            setTogglingForecastDomain(null)
+        }
+    }
+
     const volatility = dashboard?.state?.weather_volatility
     const overallVol = volatility?.overall ?? 0
 
@@ -183,6 +234,8 @@ export default function Aurora() {
 
     const horizonSlots = dashboard?.horizon?.slots ?? []
     const originalHorizonEnd = dashboard?.horizon?.end ?? new Date().toISOString()
+    const pvPersonalization = learningStatus?.pv_personalization
+    const pvSourceDisplay = getPvForecastSourceDisplay(pvPersonalization, auroraPvEnabled)
 
     // Extract Strategy History
     const strategyEvents = dashboard?.history?.strategy_events ?? []
@@ -324,6 +377,48 @@ export default function Aurora() {
                                 />
                             </button>
                         </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50">
+                            <div className="flex flex-col pr-3">
+                                <span className="text-[11px] font-medium text-text">Aurora load forecasting</span>
+                                <span className="text-[9px] text-muted">Off uses the HA load profile fallback</span>
+                            </div>
+                            <button
+                                onClick={() => handleForecastDomainToggle('load')}
+                                disabled={togglingForecastDomain === 'load'}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${
+                                    auroraLoadEnabled ? 'bg-accent' : 'bg-surface2'
+                                }`}
+                                title="Toggle Aurora load forecasting"
+                            >
+                                <span
+                                    className={`${
+                                        auroraLoadEnabled ? 'translate-x-5' : 'translate-x-1'
+                                    } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
+                                />
+                            </button>
+                        </div>
+                        <div className="flex items-center justify-between p-2 rounded-lg bg-surface2/50 border border-line/50">
+                            <div className="flex flex-col pr-3">
+                                <span className="text-[11px] font-medium text-text">Aurora PV forecasting</span>
+                                <span className="text-[9px] text-muted">
+                                    Off keeps Open-Meteo baseline without the ML residual
+                                </span>
+                            </div>
+                            <button
+                                onClick={() => handleForecastDomainToggle('pv')}
+                                disabled={togglingForecastDomain === 'pv'}
+                                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-surface ${
+                                    auroraPvEnabled ? 'bg-accent' : 'bg-surface2'
+                                }`}
+                                title="Toggle Aurora PV forecasting"
+                            >
+                                <span
+                                    className={`${
+                                        auroraPvEnabled ? 'translate-x-5' : 'translate-x-1'
+                                    } inline-block h-3 w-3 transform rounded-full bg-white transition-transform`}
+                                />
+                            </button>
+                        </div>
                     </div>
                 </Card>
             </div>
@@ -405,6 +500,35 @@ export default function Aurora() {
                                     {Math.max(0, 100 - (dashboard?.metrics?.mae_pv_aurora ?? 0) * 20)}%
                                 </div>
                                 <div className="text-[9px] text-muted/70">PV forecast quality</div>
+                            </div>
+
+                            {/* PV Forecast Source */}
+                            <div className="col-span-2 p-3 rounded-lg bg-surface2/50 border border-line/50">
+                                <div className="flex items-center justify-between gap-2 mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <SunMedium className="h-3 w-3 text-amber-300" />
+                                        <span className="text-[10px] text-muted">PV source</span>
+                                    </div>
+                                    <span
+                                        className={`text-[9px] px-2 py-0.5 rounded-full border ${
+                                            pvSourceDisplay.statusTone === 'personalized'
+                                                ? 'text-emerald-300 border-emerald-400/30 bg-emerald-400/10'
+                                                : pvSourceDisplay.statusTone === 'disabled'
+                                                  ? 'text-amber-300 border-amber-400/30 bg-amber-400/10'
+                                                  : 'text-sky-300 border-sky-400/30 bg-sky-400/10'
+                                        }`}
+                                    >
+                                        {pvSourceDisplay.status}
+                                    </span>
+                                </div>
+                                <div className="text-xs font-semibold text-text">{pvSourceDisplay.label}</div>
+                                <div className="mt-2 h-1.5 rounded-full bg-surface overflow-hidden">
+                                    <div
+                                        className="h-full rounded-full bg-gradient-to-r from-sky-400 to-emerald-400"
+                                        style={{ width: `${pvSourceDisplay.progressWeight}%` }}
+                                    />
+                                </div>
+                                <div className="mt-1 text-[9px] text-muted/70">{pvSourceDisplay.progressText}</div>
                             </div>
 
                             {/* Price Spread */}

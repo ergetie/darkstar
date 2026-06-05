@@ -100,6 +100,14 @@ export type ConfigResponse = {
         enable_llm?: boolean
         auto_fetch?: boolean
     }
+    forecasting?: {
+        active_forecast_version?: 'aurora' | 'baseline_7_day_avg' | string
+        aurora_load_enabled?: boolean
+        aurora_pv_enabled?: boolean
+        pv_residual_bound_fraction?: number
+        pv_ceiling_efficiency?: number
+        pv_personalization_ramp_days?: number
+    }
     ui?: {
         theme_accent_index?: number
         theme_mode?: 'light' | 'dark' | 'system'
@@ -149,6 +157,13 @@ export type HaAverageResponse = {
 export type LearningStatusResponse = {
     enabled?: boolean
     last_updated?: string
+    pv_personalization?: {
+        source?: string
+        paired_days?: number
+        ramp_days?: number
+        weight?: number
+        mode?: 'baseline' | 'personalized'
+    }
     metrics?: {
         completed_learning_runs?: number
         days_with_data?: number

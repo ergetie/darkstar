@@ -52,8 +52,11 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
         mock_engine.store_forecasts = AsyncMock()
         mock_engine.timezone = pytz.UTC
         mock_engine.db_path = "data/test.db"
+        mock_engine.store = MagicMock()
+        mock_engine.store.count_paired_openmeteo_pv_days = AsyncMock(return_value=14)
         mock_engine.config = {
             "timezone": "UTC",
+            "forecasting": {"pv_personalization_ramp_days": 14},
             "system": {
                 "location": {"latitude": 59.3, "longitude": 18.1},
                 "solar_arrays": [{"name": "South", "kwp": 5.0, "tilt": 30.0, "azimuth": 180.0}],
@@ -92,8 +95,11 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
             "pv_p90": mock_pv_model,
         }
 
+        baseline = pd.Series([1.0] * 4, index=mock_weather.return_value.index)
+
         # Run forward pass
-        await generate_forward_slots(horizon_hours=1, forecast_version="test")
+        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+            await generate_forward_slots(horizon_hours=1, forecast_version="test")
 
         # Verify forecasts were stored
         args, _ = mock_engine.store_forecasts.call_args
@@ -101,10 +107,11 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
 
         self.assertGreater(len(forecasts), 0)
 
-        # Each forecast should have positive PV (physics - small residual)
+        # Each forecast should have Open-Meteo baseline plus the bounded residual.
         for fc in forecasts:
             pv = fc["pv_forecast_kwh"]
             self.assertGreater(pv, 0, "PV forecast should be positive during daytime")
+            self.assertLess(pv, fc["openmeteo_pv_forecast_kwh"])
 
     @patch("ml.forward.datetime")
     @patch("ml.forward.get_learning_engine")
@@ -140,6 +147,8 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
         mock_engine.store_forecasts = AsyncMock()
         mock_engine.timezone = pytz.UTC
         mock_engine.db_path = "data/test.db"
+        mock_engine.store = MagicMock()
+        mock_engine.store.count_paired_openmeteo_pv_days = AsyncMock(return_value=0)
         mock_engine.config = {
             "timezone": "UTC",
             "system": {
@@ -171,17 +180,21 @@ class TestHybridPVIntegration(unittest.IsolatedAsyncioTestCase):
         # No ML models
         mock_models.return_value = {}
 
-        await generate_forward_slots(horizon_hours=1, forecast_version="test")
+        baseline = pd.Series([1.0] * 4, index=mock_weather.return_value.index)
+
+        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+            await generate_forward_slots(horizon_hours=1, forecast_version="test")
 
         args, _ = mock_engine.store_forecasts.call_args
         forecasts = args[0]
 
         self.assertGreater(len(forecasts), 0)
 
-        # Physics-only should still give reasonable forecasts
+        # Baseline-only should still give reasonable forecasts
         for fc in forecasts:
             pv = fc["pv_forecast_kwh"]
-            self.assertGreater(pv, 0, "Physics-only should produce positive PV during daytime")
+            self.assertGreater(pv, 0, "Baseline-only should produce positive PV during daytime")
+            self.assertEqual(fc["openmeteo_pv_forecast_kwh"], 1.0)
 
 
 class TestPhysicsCalculationIntegration(unittest.TestCase):

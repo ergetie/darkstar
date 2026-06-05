@@ -65,6 +65,11 @@ class LearningEngine:
     async def store_forecasts(self, forecasts: list[dict[str, Any]], forecast_version: str) -> None:
         await self.store.store_forecasts(forecasts, forecast_version)
 
+    async def store_openmeteo_pv_baselines(
+        self, baselines: list[dict[str, Any]], forecast_version: str = "aurora"
+    ) -> None:
+        await self.store.store_openmeteo_pv_baselines(baselines, forecast_version)
+
     async def log_training_episode(
         self,
         input_data: dict[str, Any],
@@ -268,6 +273,10 @@ class LearningEngine:
         """Get current status of the learning engine."""
         last_obs = await self.store.get_last_observation_time()
         episodes = await self.store.get_episodes_count()
+        forecasting_cfg: dict[str, Any] = self.config.get("forecasting", {}) or {}
+        ramp_days = float(forecasting_cfg.get("pv_personalization_ramp_days", 14) or 14)
+        pv_days = await self.store.count_paired_openmeteo_pv_days(days_back=max(90, int(ramp_days)))
+        pv_weight = min(1.0, max(0.0, pv_days / max(ramp_days, 1.0)))
 
         return {
             "status": "active",
@@ -275,6 +284,13 @@ class LearningEngine:
             "training_episodes": episodes,
             "db_path": self.db_path,
             "timezone": str(self.timezone),
+            "pv_personalization": {
+                "source": "openmeteo",
+                "paired_days": pv_days,
+                "ramp_days": ramp_days,
+                "weight": pv_weight,
+                "mode": "personalized" if pv_weight > 0 else "baseline",
+            },
         }
 
     def etl_power_to_slots(

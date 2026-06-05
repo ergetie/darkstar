@@ -56,7 +56,6 @@
   "pricing.grid_transfer_fee_sek": "Grid operator transfer fee per kWh",
   "pricing.energy_tax_sek": "Energy tax per kWh",
   "pricing.subscription_fee_sek_per_month": "[FUTURE] Fixed monthly grid subscription (for cost analysis)",
-  "forecasting.active_forecast_version": "Forecast engine: aurora (ML) | legacy",
   "forecasting.pv_confidence_percent": "PV forecast scaling (100 = trust forecast fully)",
   "forecasting.load_safety_margin_percent": "Load forecast scaling (>100 = expect more load)",
   "grid.import_limit_kw": "Soft limit for effekttariff (breached with high penalty)",

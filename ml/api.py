@@ -46,10 +46,10 @@ async def get_forecast_slots(
     Async return forecast slots for the given time window and version using LearningStore.
 
     Hybrid PV Forecast Structure:
-    - physics.pv_kwh: Physics-based forecast (POA irradiance calculation)
-    - ml_residual.pv_kwh: ML residual correction (learns shadows, degradation)
-    - final.pv_kwh = physics + ml_residual
-    - base.pv_kwh: Legacy field, equals physics.pv_kwh
+    - base.pv_kwh: Open-Meteo PV baseline used by the planner/API contract
+    - ml_residual.pv_kwh: bounded ML residual on top of the Open-Meteo baseline
+    - final.pv_kwh: authoritative forecast value
+    - physics.pv_kwh/open_meteo_kwh: legacy diagnostic fields only
     """
     engine = get_engine()
     rows = await engine.store.get_forecasts_range(start_time, forecast_version)
@@ -104,8 +104,9 @@ async def get_forecast_slots(
                 "physics_arrays": per_array if per_array else None,
             }
 
-    # Legacy Open-Meteo data (kept for backward compatibility)
-    # Now uses physics-based calculation from already-computed physics_data
+    # Legacy diagnostic Open-Meteo fields (kept for backward compatibility).
+    # The authoritative Open-Meteo baseline is stored in openmeteo_pv_forecast_kwh
+    # and exposed as base.pv_kwh below.
     open_meteo_data: dict[str, dict[str, Any]] = {}
     if include_open_meteo and solar_arrays:
         for ts_str, phys_entry in physics_data.items():
@@ -118,6 +119,8 @@ async def get_forecast_slots(
     for raw_row in df.to_dict("records"):
         row: dict[str, Any] = raw_row  # type: ignore[assignment]
         final_pv = float(row.get("pv_forecast_kwh") or 0.0)
+        raw_openmeteo_pv = row.get("openmeteo_pv_forecast_kwh")
+        openmeteo_pv = float(raw_openmeteo_pv or 0.0)
         base_load = float(row.get("base_load_forecast_kwh") or row.get("load_forecast_kwh") or 0.0)
 
         pv_p10_val: float | None = row.get("pv_p10")
@@ -132,8 +135,8 @@ async def get_forecast_slots(
         phys_entry = physics_data.get(slot_ts_str, {})
         physics_kwh = float(phys_entry.get("physics_kwh", 0.0) or 0.0)
 
-        # Calculate ML residual: final - physics
-        ml_residual_kwh = final_pv - physics_kwh
+        base_pv = openmeteo_pv if raw_openmeteo_pv is not None else physics_kwh
+        ml_residual_kwh = final_pv - base_pv
 
         # Legacy Open-Meteo entry
         om_entry = open_meteo_data.get(slot_ts_str, {})
@@ -149,7 +152,7 @@ async def get_forecast_slots(
                     "load_kwh": round(base_load, 4),
                 },
                 # Legacy fields (backward compatibility)
-                "base": {"pv_kwh": round(physics_kwh, 4), "load_kwh": round(base_load, 4)},
+                "base": {"pv_kwh": round(base_pv, 4), "load_kwh": round(base_load, 4)},
                 "probabilistic": {
                     "pv_p10": float(pv_p10_val) if pv_p10_val is not None else None,
                     "pv_p90": float(pv_p90_val) if pv_p90_val is not None else None,

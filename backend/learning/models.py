@@ -38,6 +38,7 @@ class SlotForecast(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     slot_start: Mapped[str] = mapped_column(String)
     pv_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
+    openmeteo_pv_forecast_kwh: Mapped[float | None] = mapped_column(Float)
     load_forecast_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
     pv_p10: Mapped[float | None] = mapped_column(Float)
     pv_p90: Mapped[float | None] = mapped_column(Float)

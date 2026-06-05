@@ -7,6 +7,7 @@ Supports hybrid PV forecasting where ML learns residuals (actual - physics).
 from __future__ import annotations
 
 import argparse
+import asyncio
 import os
 import sqlite3
 from dataclasses import dataclass
@@ -21,7 +22,7 @@ import pandas as pd
 from backend.learning import LearningEngine, get_learning_engine
 from backend.validation import get_max_energy_per_slot
 from ml.context_features import get_alarm_armed_series, get_vacation_mode_series
-from ml.weather import calculate_physics_pv, get_weather_series
+from ml.weather import get_weather_series
 
 
 @dataclass
@@ -119,14 +120,18 @@ def _load_slot_observations(
         # Load all available data
         query = """
             SELECT
-                slot_start,
-                load_kwh,
-                pv_kwh
-            FROM slot_observations
-            WHERE load_kwh > 0.001
-              AND load_kwh <= ?
-              AND pv_kwh <= ?
-            ORDER BY slot_start ASC
+                o.slot_start,
+                o.load_kwh,
+                o.pv_kwh,
+                f.openmeteo_pv_forecast_kwh
+            FROM slot_observations o
+            LEFT JOIN slot_forecasts f
+              ON o.slot_start = f.slot_start
+             AND f.forecast_version = 'aurora'
+            WHERE o.load_kwh > 0.001
+              AND o.load_kwh <= ?
+              AND o.pv_kwh <= ?
+            ORDER BY o.slot_start ASC
         """
         params = (max_kwh, max_kwh)
     elif start_time is None:
@@ -134,15 +139,19 @@ def _load_slot_observations(
         assert end_time is not None, "end_time must not be None when start_time is None"
         query = """
             SELECT
-                slot_start,
-                load_kwh,
-                pv_kwh
-            FROM slot_observations
-            WHERE slot_start < ?
-              AND load_kwh > 0.001
-              AND load_kwh <= ?
-              AND pv_kwh <= ?
-            ORDER BY slot_start ASC
+                o.slot_start,
+                o.load_kwh,
+                o.pv_kwh,
+                f.openmeteo_pv_forecast_kwh
+            FROM slot_observations o
+            LEFT JOIN slot_forecasts f
+              ON o.slot_start = f.slot_start
+             AND f.forecast_version = 'aurora'
+            WHERE o.slot_start < ?
+              AND o.load_kwh > 0.001
+              AND o.load_kwh <= ?
+              AND o.pv_kwh <= ?
+            ORDER BY o.slot_start ASC
         """
         params = (end_time.isoformat(), max_kwh, max_kwh)
     elif end_time is None:
@@ -150,36 +159,57 @@ def _load_slot_observations(
         now = datetime.now(engine.timezone)
         query = """
             SELECT
-                slot_start,
-                load_kwh,
-                pv_kwh
-            FROM slot_observations
-            WHERE slot_start >= ?
-              AND slot_start < ?
-              AND load_kwh > 0.001
-              AND load_kwh <= ?
-              AND pv_kwh <= ?
-            ORDER BY slot_start ASC
+                o.slot_start,
+                o.load_kwh,
+                o.pv_kwh,
+                f.openmeteo_pv_forecast_kwh
+            FROM slot_observations o
+            LEFT JOIN slot_forecasts f
+              ON o.slot_start = f.slot_start
+             AND f.forecast_version = 'aurora'
+            WHERE o.slot_start >= ?
+              AND o.slot_start < ?
+              AND o.load_kwh > 0.001
+              AND o.load_kwh <= ?
+              AND o.pv_kwh <= ?
+            ORDER BY o.slot_start ASC
         """
         params = (start_time.isoformat(), now.isoformat(), max_kwh, max_kwh)
     else:
         # Both start and end provided
         query = """
             SELECT
-                slot_start,
-                load_kwh,
-                pv_kwh
-            FROM slot_observations
-            WHERE slot_start >= ?
-              AND slot_start < ?
-              AND load_kwh > 0.001
-              AND load_kwh <= ?
-              AND pv_kwh <= ?
-            ORDER BY slot_start ASC
+                o.slot_start,
+                o.load_kwh,
+                o.pv_kwh,
+                f.openmeteo_pv_forecast_kwh
+            FROM slot_observations o
+            LEFT JOIN slot_forecasts f
+              ON o.slot_start = f.slot_start
+             AND f.forecast_version = 'aurora'
+            WHERE o.slot_start >= ?
+              AND o.slot_start < ?
+              AND o.load_kwh > 0.001
+              AND o.load_kwh <= ?
+              AND o.pv_kwh <= ?
+            ORDER BY o.slot_start ASC
         """
         params = (start_time.isoformat(), end_time.isoformat(), max_kwh, max_kwh)
 
     with sqlite3.connect(engine.db_path, timeout=30.0) as conn:
+        has_slot_forecasts = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'slot_forecasts'"
+        ).fetchone()
+        if has_slot_forecasts is None:
+            conn.execute(
+                """
+                CREATE TEMP TABLE slot_forecasts (
+                    slot_start TEXT,
+                    forecast_version TEXT,
+                    openmeteo_pv_forecast_kwh REAL
+                )
+                """
+            )
         df = pd.read_sql_query(
             query,
             conn,
@@ -277,6 +307,17 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
         return
 
     now = datetime.now(engine.timezone)
+
+    try:
+        from backend.learning.pv_openmeteo_backfill import backfill_openmeteo_pv_baselines
+
+        backfilled = asyncio.run(backfill_openmeteo_pv_baselines(engine, days=28))
+        if backfilled > 0:
+            print(
+                f"Backfilled {backfilled} missing Open-Meteo PV baseline slots for residual training."
+            )
+    except RuntimeError as exc:
+        print(f"Warning: Skipped Open-Meteo PV backfill: {exc}")
 
     print(
         "Training window: loading all available historical data "
@@ -406,80 +447,46 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
             print(f"Filtered {filtered_count} nighttime/zero-production slots from PV training")
 
     if not pv_df.empty:
-        # Calculate physics PV for each slot
-        system_cfg: dict[str, Any] = engine.config.get("system", {}) or {}
-        loc_cfg: dict[str, Any] = system_cfg.get("location", {}) or {}
-        solar_arrays: list[dict[str, Any]] = system_cfg.get("solar_arrays", [])  # type: ignore[assignment]
-
-        # Fallback to legacy single array
-        if not solar_arrays:
-            legacy_array: dict[str, Any] = system_cfg.get("solar_array", {}) or {}
-            if legacy_array:
-                solar_arrays = [legacy_array]
-
-        latitude = float(loc_cfg.get("latitude", 59.3) or 59.3)
-        longitude = float(loc_cfg.get("longitude", 18.1) or 18.1)
-
-        if solar_arrays:
-            # Calculate physics forecast for each slot
-            physics_kwh_list: list[float] = []
-            for _idx, row in pv_df.iterrows():
-                slot_start = row["slot_start"]
-                radiation = row.get("shortwave_radiation_w_m2")
-                physics_kwh, _ = calculate_physics_pv(
-                    radiation_w_m2=radiation,
-                    solar_arrays=solar_arrays,  # type: ignore[arg-type]
-                    slot_start=slot_start,
-                    latitude=latitude,
-                    longitude=longitude,
-                )
-                physics_kwh_list.append(physics_kwh if physics_kwh is not None else 0.0)
-
-            pv_df["physics_kwh"] = physics_kwh_list
-
-            # Calculate residual target: actual - physics
-            pv_df["pv_residual"] = pv_df["pv_kwh"] - pv_df["physics_kwh"]
-
-            # Add physics as a feature for the model
-            pv_df["physics_forecast_kwh"] = pv_df["physics_kwh"]
+        pv_df = pv_df.dropna(subset=["openmeteo_pv_forecast_kwh"]).copy()
+        if pv_df.empty:
+            print("Warning: No stored Open-Meteo baselines found; skipping PV models.")
+        else:
+            pv_df["openmeteo_pv_forecast_kwh"] = pv_df["openmeteo_pv_forecast_kwh"].astype(float)
+            pv_df["pv_residual"] = pv_df["pv_kwh"] - pv_df["openmeteo_pv_forecast_kwh"]
+            pv_df["physics_forecast_kwh"] = pv_df["openmeteo_pv_forecast_kwh"]
 
             print(
                 f"PV Residual Stats: mean={pv_df['pv_residual'].mean():.4f}, "
                 f"std={pv_df['pv_residual'].std():.4f}, "
                 f"min={pv_df['pv_residual'].min():.4f}, max={pv_df['pv_residual'].max():.4f}"
             )
-        else:
-            # No solar arrays configured - use direct PV prediction (legacy mode)
-            pv_df["pv_residual"] = pv_df["pv_kwh"]
-            pv_df["physics_forecast_kwh"] = 0.0
-            print("Warning: No solar arrays configured, using direct PV prediction")
 
-        # Feature columns for PV (add physics forecast)
-        pv_feature_cols = feature_cols.copy()
-        if (
-            "physics_forecast_kwh" in pv_df.columns
-            and "physics_forecast_kwh" not in pv_feature_cols
-        ):
-            pv_feature_cols.append("physics_forecast_kwh")
+            # Feature columns for PV (add baseline forecast)
+            pv_feature_cols = feature_cols.copy()
+            if (
+                "physics_forecast_kwh" in pv_df.columns
+                and "physics_forecast_kwh" not in pv_feature_cols
+            ):
+                pv_feature_cols.append("physics_forecast_kwh")
 
-        X_pv = pv_df[pv_feature_cols]
-        y_pv = pv_df["pv_residual"].astype(float)
-        # Extract sample weights for PV training samples
-        pv_weights = sample_weights[pv_df.index]
-        print(f"Training PV models on {len(X_pv)} samples (residual mode)...")
+            X_pv = pv_df[pv_feature_cols]
+            y_pv = pv_df["pv_residual"].astype(float)
+            # Extract sample weights for PV training samples
+            pv_weights = sample_weights[pv_df.index]
+            print(f"Training PV models on {len(X_pv)} samples (residual mode)...")
 
-        for q_name, alpha in quantiles.items():
-            print(f"  > Training PV {q_name} (alpha={alpha})...")
-            model = _train_regressor(
-                X_pv, y_pv, cfg.min_samples, alpha=alpha, sample_weight=pv_weights
-            )
-            if model is not None:
-                suffix = f"_{q_name}"
-                filename = cfg.pv_model_name.replace(".lgb", f"{suffix}.lgb")
-                _save_model(model, cfg.models_dir / filename)
+            for q_name, alpha in quantiles.items():
+                print(f"  > Training PV {q_name} (alpha={alpha})...")
+                model = _train_regressor(
+                    X_pv, y_pv, cfg.min_samples, alpha=alpha, sample_weight=pv_weights
+                )
+                if model is not None:
+                    suffix = f"_{q_name}"
+                    filename = cfg.pv_model_name.replace(".lgb", f"{suffix}.lgb")
+                    _save_model(model, cfg.models_dir / filename)
 
-                if q_name == "p50":
-                    _save_model(model, cfg.models_dir / cfg.pv_model_name)
+                    if q_name == "p50":
+                        _save_model(model, cfg.models_dir / cfg.pv_model_name)
     else:
         print("Warning: No non-null pv_kwh samples found; skipping PV models.")
 

@@ -2,7 +2,7 @@ import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, cast as type_cast
 
 import pandas as pd
 from sqlalchemy import Integer, case, cast, desc, func, select, text
@@ -218,13 +218,19 @@ class LearningStore:
 
         async with self.AsyncSession() as session:
             for forecast in forecasts:
-                slot_start = forecast.get("slot_start")
-                if slot_start is None:
+                slot_start_value: Any = forecast.get("slot_start") or forecast.get("start_time")
+                if slot_start_value is None:
                     continue
+                if isinstance(slot_start_value, datetime | pd.Timestamp):
+                    slot_start = slot_start_value.astimezone(self.timezone).isoformat()
+                else:
+                    slot_start_ts = type_cast("pd.Timestamp", pd.to_datetime(slot_start_value))
+                    slot_start = slot_start_ts.astimezone(self.timezone).isoformat()
 
                 stmt = sqlite_insert(SlotForecast).values(
                     slot_start=slot_start,
                     pv_forecast_kwh=float(forecast.get("pv_forecast_kwh", 0.0) or 0.0),
+                    openmeteo_pv_forecast_kwh=forecast.get("openmeteo_pv_forecast_kwh"),
                     load_forecast_kwh=float(forecast.get("load_forecast_kwh", 0.0) or 0.0),
                     pv_p10=forecast.get("pv_p10"),
                     pv_p90=forecast.get("pv_p90"),
@@ -245,6 +251,10 @@ class LearningStore:
                     index_elements=["slot_start", "forecast_version"],
                     set_={
                         "pv_forecast_kwh": stmt.excluded.pv_forecast_kwh,
+                        "openmeteo_pv_forecast_kwh": func.coalesce(
+                            stmt.excluded.openmeteo_pv_forecast_kwh,
+                            SlotForecast.openmeteo_pv_forecast_kwh,
+                        ),
                         "load_forecast_kwh": stmt.excluded.load_forecast_kwh,
                         "pv_p10": stmt.excluded.pv_p10,
                         "pv_p90": stmt.excluded.pv_p90,
@@ -436,6 +446,130 @@ class LearningStore:
             if state:
                 return state.value
             return None
+
+    async def count_paired_openmeteo_pv_days(self, days_back: int = 90) -> int:
+        """Count days with both actual PV and a stored Open-Meteo baseline."""
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+
+        async with self.AsyncSession() as session:
+            stmt = (
+                select(func.count(func.distinct(func.date(SlotObservation.slot_start))))
+                .join(
+                    SlotForecast,
+                    (SlotObservation.slot_start == SlotForecast.slot_start)
+                    & (SlotForecast.forecast_version == "aurora"),
+                )
+                .where(
+                    func.date(SlotObservation.slot_start) >= cutoff_date,
+                    SlotObservation.pv_kwh.is_not(None),
+                    SlotObservation.pv_kwh > 0.0,
+                    SlotForecast.openmeteo_pv_forecast_kwh.is_not(None),
+                )
+            )
+            result = await session.execute(stmt)
+            return int(result.scalar() or 0)
+
+    async def get_pv_observation_days(self, days_back: int = 28) -> set[str]:
+        """Return local dates with actual PV production in the recent history window."""
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+
+        async with self.AsyncSession() as session:
+            stmt = (
+                select(func.date(SlotObservation.slot_start))
+                .where(
+                    func.date(SlotObservation.slot_start) >= cutoff_date,
+                    SlotObservation.pv_kwh.is_not(None),
+                    SlotObservation.pv_kwh > 0.0,
+                )
+                .distinct()
+            )
+            result = await session.execute(stmt)
+            return {str(row[0]) for row in result.all() if row[0]}
+
+    async def get_pv_slots_missing_openmeteo_baseline(
+        self,
+        days_back: int = 28,
+        forecast_version: str = "aurora",
+    ) -> set[str]:
+        """Return actual-PV slots missing a stored Open-Meteo baseline."""
+        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
+
+        async with self.AsyncSession() as session:
+            stmt = (
+                select(SlotObservation.slot_start)
+                .outerjoin(
+                    SlotForecast,
+                    (SlotObservation.slot_start == SlotForecast.slot_start)
+                    & (SlotForecast.forecast_version == forecast_version),
+                )
+                .where(
+                    func.date(SlotObservation.slot_start) >= cutoff_date,
+                    SlotObservation.pv_kwh.is_not(None),
+                    SlotObservation.pv_kwh > 0.0,
+                    SlotForecast.openmeteo_pv_forecast_kwh.is_(None),
+                )
+                .distinct()
+            )
+            result = await session.execute(stmt)
+            return {str(row[0]) for row in result.all() if row[0]}
+
+    async def store_openmeteo_pv_baselines(
+        self,
+        baselines: list[dict[str, Any]],
+        forecast_version: str = "aurora",
+    ) -> None:
+        """Store Open-Meteo PV baselines without overwriting final forecast values."""
+        rows = list(baselines or [])
+        if not rows:
+            return
+
+        async with self.AsyncSession() as session:
+            for row in rows:
+                slot_start_value: Any = row.get("slot_start") or row.get("start_time")
+                baseline = row.get("openmeteo_pv_forecast_kwh")
+                if slot_start_value is None or baseline is None:
+                    continue
+                if isinstance(slot_start_value, datetime | pd.Timestamp):
+                    slot_start = slot_start_value.astimezone(self.timezone).isoformat()
+                else:
+                    slot_start_ts = type_cast("pd.Timestamp", pd.to_datetime(slot_start_value))
+                    slot_start = slot_start_ts.astimezone(self.timezone).isoformat()
+
+                stmt = sqlite_insert(SlotForecast).values(
+                    slot_start=slot_start,
+                    forecast_version=forecast_version,
+                    openmeteo_pv_forecast_kwh=float(baseline),
+                )
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=["slot_start", "forecast_version"],
+                    set_={"openmeteo_pv_forecast_kwh": stmt.excluded.openmeteo_pv_forecast_kwh},
+                )
+                await session.execute(stmt)
+            await session.commit()
+
+    async def get_openmeteo_pv_baselines_range(
+        self,
+        start: datetime,
+        end: datetime,
+        forecast_version: str = "aurora",
+    ) -> list[dict[str, Any]]:
+        """Get stored Open-Meteo PV baselines for a time range."""
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+
+        async with self.AsyncSession() as session:
+            stmt = (
+                select(SlotForecast.slot_start, SlotForecast.openmeteo_pv_forecast_kwh)
+                .where(
+                    SlotForecast.slot_start >= start_iso,
+                    SlotForecast.slot_start < end_iso,
+                    SlotForecast.forecast_version == forecast_version,
+                    SlotForecast.openmeteo_pv_forecast_kwh.is_not(None),
+                )
+                .order_by(SlotForecast.slot_start.asc())
+            )
+            result = await session.execute(stmt)
+            return [row._asdict() for row in result.all()]  # type: ignore
 
     async def set_system_state(self, key: str, value: str) -> None:
         """
@@ -844,6 +978,7 @@ class LearningStore:
             stmt = select(
                 SlotForecast.slot_start,
                 SlotForecast.pv_forecast_kwh,
+                SlotForecast.openmeteo_pv_forecast_kwh,
                 SlotForecast.load_forecast_kwh,
                 SlotForecast.pv_p10,
                 SlotForecast.pv_p90,

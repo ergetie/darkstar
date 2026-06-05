@@ -45,6 +45,8 @@ class TestAuroraForward(unittest.IsolatedAsyncioTestCase):
         mock_engine.store_forecasts = AsyncMock()
         mock_engine.timezone = pytz.UTC
         mock_engine.db_path = "fake_db.db"
+        mock_engine.store = MagicMock()
+        mock_engine.store.count_paired_openmeteo_pv_days = AsyncMock(return_value=0)
 
         # 4. Mock SunCalculator
         mock_sun_instance = MagicMock()
@@ -78,15 +80,13 @@ class TestAuroraForward(unittest.IsolatedAsyncioTestCase):
         mock_vacation.return_value = pd.Series(0.0, index=mock_weather.return_value.index)
         mock_alarm.return_value = pd.Series(0.0, index=mock_weather.return_value.index)
 
-        # 5. Run forward pass (short horizon)
-        await generate_forward_slots(horizon_hours=2, forecast_version="test")
+        baseline = pd.Series([2.5] * 8, index=mock_weather.return_value.index)
 
-        # 6. Verify physics-based PV forecast in fallback mode
-        # With physics model: POA irradiance calculation with panel orientation
-        # Radiation = 800 W/m², total capacity = 15 kWp
-        # Physics model accounts for solar position and panel orientation
-        # At solar noon with south-facing panels: POA ≈ GHI, so
-        # PV ≈ (800/1000) * 15 * 0.85 * 0.25 ≈ 2.5 kWh per 15-min slot
+        # 5. Run forward pass (short horizon)
+        with patch("ml.forward._fetch_openmeteo_baseline_series", new=AsyncMock(return_value=baseline)):
+            await generate_forward_slots(horizon_hours=2, forecast_version="test")
+
+        # 6. Verify Open-Meteo baseline forecast in fallback mode
 
         args, _ = mock_engine.store_forecasts.call_args
         forecasts = args[0]
@@ -94,11 +94,12 @@ class TestAuroraForward(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(len(forecasts), 0)
         # Check p50 PV forecast for first slot
         first_pv = forecasts[0]["pv_forecast_kwh"]
-        # Physics model should give reasonable output (not zero, not huge)
+        # Open-Meteo baseline should be used directly when PV models are absent.
         self.assertGreater(first_pv, 0.0, "PV forecast should be positive during daytime")
         self.assertLess(first_pv, 4.0, "PV forecast should be reasonable for 15kWp system")
+        self.assertEqual(forecasts[0]["openmeteo_pv_forecast_kwh"], 2.5)
 
-        print("✅ Aurora forward pass used physics-based calculation with 15.0 kWp total")
+        print("✅ Aurora forward pass used Open-Meteo baseline with 15.0 kWp total")
         print(f"✅ Calculated PV forecast: {first_pv:.4f} kWh")
         print("✅ Aurora forward pass multi-array integration verified!")
 

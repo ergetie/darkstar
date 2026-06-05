@@ -22,6 +22,8 @@ interface GridCardProps {
 interface ResourcesCardProps {
     pvActual: number | null
     pvForecast: number | null
+    pvSourceLabel?: string | null
+    pvSourceActive?: boolean
     loadActual: number | null
     loadAvg: number | null
     waterKwh: number | null
@@ -350,6 +352,8 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
 export function ResourcesDomain({
     pvActual,
     pvForecast,
+    pvSourceLabel,
+    pvSourceActive = false,
     loadActual,
     loadAvg,
     waterKwh,
@@ -390,6 +394,19 @@ export function ResourcesDomain({
                                 {pvForecast?.toFixed(1) ?? '—'} kWh
                             </div>
                         </div>
+                        {pvSourceLabel && (
+                            <div className="mb-1 flex justify-end">
+                                <span
+                                    className={`rounded-full border px-2 py-0.5 text-[9px] ${
+                                        pvSourceActive
+                                            ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                                            : 'border-sky-400/30 bg-sky-400/10 text-sky-300'
+                                    }`}
+                                >
+                                    {pvSourceLabel}
+                                </span>
+                            </div>
+                        )}
                         <ProgressBar value={pvActual ?? 0} total={pvForecast ?? 1} colorClass="bg-accent" />
                     </div>
                 )}

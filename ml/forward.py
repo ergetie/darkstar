@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 import lightgbm as lgb
 import pandas as pd
@@ -53,6 +53,77 @@ def determine_graduation_level(engine: LearningEngine) -> tuple[int, str, float]
 
 
 logger = logging.getLogger("darkstar.ml.forward")
+
+
+def _total_solar_kwp(config: dict[str, Any]) -> float:
+    system_cfg: dict[str, Any] = config.get("system", {}) or {}
+    arrays: list[Any] = system_cfg.get("solar_arrays", []) or []
+    if not arrays:
+        legacy_array: dict[str, Any] = system_cfg.get("solar_array", {}) or {}
+        arrays = [legacy_array] if legacy_array else []
+    return sum(
+        float(cast("dict[str, Any]", array).get("kwp", 0.0) or 0.0)
+        for array in arrays
+        if isinstance(array, dict)
+    )
+
+
+def _pv_tuning_config(config: dict[str, Any]) -> tuple[float, float, float]:
+    forecasting_cfg: dict[str, Any] = config.get("forecasting", {}) or {}
+    bound_fraction = float(forecasting_cfg.get("pv_residual_bound_fraction", 0.25) or 0.25)
+    ceiling_efficiency = float(forecasting_cfg.get("pv_ceiling_efficiency", 0.95) or 0.95)
+    ramp_days = float(forecasting_cfg.get("pv_personalization_ramp_days", 14) or 14)
+    return max(0.0, bound_fraction), max(0.0, ceiling_efficiency), max(1.0, ramp_days)
+
+
+def _pv_physical_ceiling_kwh(config: dict[str, Any], slot_hours: float = 0.25) -> float:
+    _, ceiling_efficiency, _ = _pv_tuning_config(config)
+    total_kwp = _total_solar_kwp(config)
+    system_cfg: dict[str, Any] = config.get("system", {}) or {}
+    inverter_cfg: dict[str, Any] = system_cfg.get("inverter", {}) or {}
+    ac_limit_kw = float(inverter_cfg.get("max_ac_power_kw", 0.0) or 0.0)
+    dc_limit_kw = float(inverter_cfg.get("max_dc_input_kw", 0.0) or 0.0)
+    power_limit_kw = total_kwp * ceiling_efficiency
+    if dc_limit_kw > 0:
+        power_limit_kw = min(power_limit_kw, dc_limit_kw)
+    if ac_limit_kw > 0:
+        power_limit_kw = min(power_limit_kw, ac_limit_kw)
+    return max(0.0, power_limit_kw * slot_hours)
+
+
+async def _pv_personalization_weight(engine: LearningEngine) -> tuple[float, int, float]:
+    """Return residual ramp weight, paired day count, and configured ramp window."""
+    _, _, ramp_days = _pv_tuning_config(engine.config)
+    try:
+        days = await engine.store.count_paired_openmeteo_pv_days(days_back=max(90, int(ramp_days)))
+    except Exception as exc:
+        logger.warning("Could not count paired PV personalization days: %s", exc)
+        days = 0
+    return min(1.0, max(0.0, days / ramp_days)), days, ramp_days
+
+
+async def _fetch_openmeteo_baseline_series(
+    slots: pd.Series,
+    config: dict[str, Any],
+) -> pd.Series:
+    price_slots = [{"start_time": slot} for slot in slots]
+    try:
+        from backend.core.forecasts import (
+            _get_forecast_data_async,  # type: ignore[reportPrivateUsage]
+        )
+
+        result = await _get_forecast_data_async(price_slots, config)
+    except Exception as exc:
+        logger.warning("Open-Meteo PV baseline unavailable for Aurora inference: %s", exc)
+        return pd.Series(0.0, index=slots.index)
+
+    values = [
+        float(slot.get("openmeteo_pv_forecast_kwh") or slot.get("pv_forecast_kwh") or 0.0)
+        for slot in result.get("slots", [])
+    ]
+    if len(values) < len(slots):
+        values.extend([0.0] * (len(slots) - len(values)))
+    return pd.Series(values[: len(slots)], index=slots.index)
 
 
 def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
@@ -220,8 +291,11 @@ async def generate_forward_slots(
         predictions[f"pv_{q}"] = pd.Series(0.0, index=df.index)
 
     # REV PERS2: Fallback logic when no ML models available
-    has_load_models = any(f"load_{q}" in models for q in quantiles)
-    has_pv_models = any(f"pv_{q}" in models for q in quantiles)
+    forecasting_cfg: dict[str, Any] = engine.config.get("forecasting", {}) or {}
+    aurora_load_enabled = bool(forecasting_cfg.get("aurora_load_enabled", True))
+    aurora_pv_enabled = bool(forecasting_cfg.get("aurora_pv_enabled", True))
+    has_load_models = aurora_load_enabled and any(f"load_{q}" in models for q in quantiles)
+    has_pv_models = aurora_pv_enabled and any(f"pv_{q}" in models for q in quantiles)
 
     # --- LOAD INFERENCE (or fallback) ---
     if has_load_models:
@@ -235,7 +309,7 @@ async def generate_forward_slots(
                 predictions[model_key] = pd.Series(cleaned, index=df.index)
         # REV F65 Phase 5b: Clear degraded status when ML models working
         clear_load_forecast_status()
-    else:
+    elif aurora_load_enabled:
         # Fallback: Write 0.0 to DB so inputs.py applies HA 7-day profile fallback
         # Only use 0.5 flat as last resort when even HA fetch fails
         logger.warning(
@@ -259,6 +333,10 @@ async def generate_forward_slots(
                 predictions[f"load_{q}"] = pd.Series(baseline_load, index=df.index)
             else:  # p90
                 predictions[f"load_{q}"] = pd.Series(baseline_load * 1.3, index=df.index)
+    else:
+        logger.info("Load Aurora forecasting disabled; storing zero load for HA profile fallback")
+        for q in quantiles:
+            predictions[f"load_{q}"] = pd.Series(0.0, index=df.index)
 
     # --- PV INFERENCE (Hybrid: Physics + ML Residual) ---
     # Setup Astro Clamping
@@ -287,7 +365,7 @@ async def generate_forward_slots(
         if legacy_cfg:
             solar_arrays = [legacy_cfg]
 
-    # Calculate physics base forecast for all slots
+    # Calculate legacy physics for diagnostics and last-resort fallback only.
     physics_series = pd.Series(0.0, index=df.index)
     for idx, row in df.iterrows():
         slot_ts = row["slot_start"]
@@ -302,13 +380,30 @@ async def generate_forward_slots(
         )
         physics_series.loc[idx] = physics_kwh if physics_kwh is not None else 0.0  # type: ignore[reportIndexIssue]
 
+    openmeteo_series = await _fetch_openmeteo_baseline_series(df["slot_start"], engine.config)
+    openmeteo_series = pd.Series(list(openmeteo_series), index=df.index, dtype="float64")
+    baseline_series = pd.Series(
+        [
+            float(openmeteo_value)
+            if pd.notna(openmeteo_value)
+            else float(physics_series.iloc[pos_idx] or 0.0)
+            for pos_idx, openmeteo_value in enumerate(openmeteo_series)
+        ],
+        index=df.index,
+        dtype="float64",
+    )
+    physical_ceiling_kwh = _pv_physical_ceiling_kwh(engine.config)
+    personalization_weight, paired_days, ramp_days = await _pv_personalization_weight(engine)
+    if physical_ceiling_kwh > 0.0:
+        baseline_series = baseline_series.clip(lower=0.0, upper=physical_ceiling_kwh)
+
     # Store physics for output
     predictions["physics_kwh"] = physics_series
+    predictions["openmeteo_baseline_kwh"] = baseline_series
 
     if has_pv_models:
-        # HYBRID MODE: ML predicts residual, final = physics + residual
-        # Add physics as feature for ML model
-        df["physics_forecast_kwh"] = physics_series
+        # HYBRID MODE: ML predicts residual, final = Open-Meteo baseline + bounded residual.
+        df["physics_forecast_kwh"] = baseline_series
 
         # Feature columns for PV residual model (includes physics)
         pv_feature_cols = feature_cols.copy()
@@ -326,10 +421,12 @@ async def generate_forward_slots(
                 for pos_idx, (idx, row) in enumerate(df.iterrows()):
                     # ML predicts residual (could be negative)
                     ml_residual = float(raw_pred[pos_idx])
-                    physics = float(physics_series.iloc[pos_idx])
+                    baseline = float(baseline_series.iloc[pos_idx])
+                    max_residual = baseline * _pv_tuning_config(engine.config)[0]
+                    ml_residual = max(-max_residual, min(ml_residual, max_residual))
+                    ml_residual *= personalization_weight
 
-                    # Final = physics + residual
-                    val = physics + ml_residual
+                    val = baseline + ml_residual
 
                     # 1. Astro Clamp
                     is_sun_up = False
@@ -349,6 +446,8 @@ async def generate_forward_slots(
 
                     # Floor at 0
                     val = max(0.0, val)
+                    if physical_ceiling_kwh > 0.0:
+                        val = min(val, physical_ceiling_kwh)
                     series.loc[idx] = val  # type: ignore[reportIndexIssue]
 
                 # 3. Smoothing
@@ -356,21 +455,45 @@ async def generate_forward_slots(
                     series.rolling(window=3, center=True, min_periods=1).mean().fillna(0.0)
                 )
 
-                # Store ML residual for transparency
-                predictions[f"ml_residual_{q}"] = pd.Series(raw_pred, index=df.index)
+                # Store bounded ML residual for transparency
+                residual_series = pd.Series(raw_pred, index=df.index, dtype="float64")
+                bound_fraction = _pv_tuning_config(engine.config)[0]
+                residual_bound = pd.Series(
+                    [float(value) * bound_fraction for value in baseline_series],
+                    index=df.index,
+                    dtype="float64",
+                )
+                predictions[f"ml_residual_{q}"] = (
+                    residual_series.clip(
+                        lower=-residual_bound,
+                        upper=residual_bound,
+                    )
+                    * personalization_weight
+                )
 
-        logger.info("✅ PV: Using hybrid mode (physics + ML residual)")
+        logger.info(
+            "✅ PV: Using hybrid mode (Open-Meteo baseline + bounded ML residual, "
+            "ramp %.1f%% from %d/%.0f paired days)",
+            personalization_weight * 100,
+            paired_days,
+            ramp_days,
+        )
     else:
-        # PHYSICS-ONLY MODE: No ML models, use physics directly
-        logger.warning("⚠️ PV models not available, using physics-only mode")
+        # BASELINE-ONLY MODE: No ML models, use Open-Meteo directly.
+        if aurora_pv_enabled:
+            logger.warning("⚠️ PV models not available, using Open-Meteo baseline-only mode")
+        else:
+            logger.info("PV Aurora forecasting disabled; using Open-Meteo baseline-only mode")
         for q in quantiles:
-            # Apply uncertainty bands around physics
+            # Apply uncertainty bands around Open-Meteo baseline
             if q == "p10":
-                predictions[f"pv_{q}"] = physics_series * 0.8
+                predictions[f"pv_{q}"] = baseline_series * 0.8
             elif q == "p50":
-                predictions[f"pv_{q}"] = physics_series
+                predictions[f"pv_{q}"] = baseline_series
             else:  # p90
-                predictions[f"pv_{q}"] = physics_series * 1.2
+                predictions[f"pv_{q}"] = baseline_series * 1.2
+            if physical_ceiling_kwh > 0.0:
+                predictions[f"pv_{q}"] = predictions[f"pv_{q}"].clip(upper=physical_ceiling_kwh)
 
             # Apply smoothing
             predictions[f"pv_{q}"] = (
@@ -401,6 +524,7 @@ async def generate_forward_slots(
             "temp_c": row.get("temp_c"),
             # Primary (Legacy/p50)
             "pv_forecast_kwh": float(predictions["pv_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
+            "openmeteo_pv_forecast_kwh": float(predictions["openmeteo_baseline_kwh"][idx]),  # type: ignore[reportUnknownArgumentType]
             "load_forecast_kwh": float(predictions["load_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
             "base_load_forecast_kwh": float(predictions["load_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
             # Probabilistic Bands

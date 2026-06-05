@@ -4,7 +4,7 @@ import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import { Flame, BatteryCharging } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { Api, type PlannerSIndex, type ExecutorStatusResponse } from '../lib/api'
+import { Api, type PlannerSIndex, type ExecutorStatusResponse, type LearningStatusResponse } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
@@ -94,6 +94,7 @@ export default function Dashboard() {
 
     const [priceOutlook, setPriceOutlook] = useState<import('../lib/api').PriceOutlookResponse | undefined>(undefined)
     const [priceAdvice, setPriceAdvice] = useState<import('../lib/api').AdviceItem[]>([])
+    const [learningStatus, setLearningStatus] = useState<LearningStatusResponse | null>(null)
 
     const { toast } = useToast()
 
@@ -324,6 +325,7 @@ export default function Dashboard() {
                 executorHealthData,
                 priceOutlookData,
                 adviceData,
+                learningStatusData,
             ] = await Promise.allSettled([
                 Api.haAverage(),
                 Api.energyToday(),
@@ -332,6 +334,7 @@ export default function Dashboard() {
                 Api.executor.health(),
                 Api.priceForecast.outlook(),
                 Api.getAdvice(),
+                Api.learningStatus(),
             ])
 
             if (executorHealthData.status === 'fulfilled') {
@@ -348,6 +351,10 @@ export default function Dashboard() {
                     (item: import('../lib/api').AdviceItem) => item.category === 'price',
                 )
                 setPriceAdvice(filteredAdvice)
+            }
+
+            if (learningStatusData.status === 'fulfilled') {
+                setLearningStatus(learningStatusData.value)
             }
 
             if (haAverageData.status === 'fulfilled') {
@@ -417,6 +424,10 @@ export default function Dashboard() {
     useEffect(() => {
         setPlannerMeta(plannerLocalMeta)
     }, [plannerLocalMeta])
+
+    const pvPersonalization = learningStatus?.pv_personalization
+    const pvPersonalized = (pvPersonalization?.weight ?? 0) > 0
+    const pvSourceLabel = pvPersonalized ? 'Open-Meteo + tuned' : 'Open-Meteo baseline'
 
     const handleSetComfortLevel = async (l: number) => {
         setComfortLevel(l)
@@ -788,6 +799,8 @@ export default function Dashboard() {
                     <ResourcesDomain
                         pvActual={todayStats?.pvProduction ?? null}
                         pvForecast={todayStats?.pvForecast ?? null}
+                        pvSourceLabel={pvSourceLabel}
+                        pvSourceActive={pvPersonalized}
                         loadActual={todayStats?.loadConsumption ?? null}
                         loadAvg={avgLoad?.dailyKwh ?? null}
                         waterKwh={todayStats?.waterHeating ?? null}
