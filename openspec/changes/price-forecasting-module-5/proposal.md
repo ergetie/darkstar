@@ -1,33 +1,34 @@
 ## Why
 
-Module 4 builds the backend plumbing for multi-day EV charging (MultiDayPlanner, Kepler quota constraints, pipeline wiring) but exposes it only through static YAML config. No user will edit `config.yaml` to set a departure deadline or kWh target — the feature is effectively invisible. Module 5 adds the complete user-facing layer: a dashboard EV card with date picker and target controls, bidirectional Home Assistant `input_datetime` entity sync, and the conversion from user-friendly target percentage to the kWh values Module 4's backend expects. After Module 5, multi-day EV charging is a fully usable, end-to-end feature.
+Module 4 delivers the goal-based EV charging engine (target SoC by a ready-by time, soft requirement in Kepler, excess-PV self-consumption, automatic multi-day spreading, read-only `GET /api/ev/chargers`). But it is configured only via YAML. Module 5 makes the goal **self-service**: a dashboard EV tab to set the schedule, a write API, optional Home Assistant entity sync, and settings fields. After Module 5, the EV feature — and the fix for stabilization-review **Finding #1** — is usable end-to-end without editing config.
 
 ## What Changes
 
-- Add an **EV Charging tab/section** to the Energy Resources card on the dashboard with interactive controls: date/time picker for departure deadline, target SoC % slider, progress bar (kWh delivered vs remaining), today's quota display, mini day-by-day quota schedule, and on-track/behind status indicator. The card shows for both daily departure mode and multi-day deadline mode.
-- Add a **write API endpoint** (`POST /api/ev/chargers/{id}/deadline`) that accepts `{ deadline, target_pct }` from the dashboard, converts `target_pct` to `target_kwh` using the charger's `battery_capacity_kwh` from settings, and persists the deadline. This is consumed by Module 4's existing pipeline on the next planner run.
-- Add **bidirectional HA `input_datetime` sync**: Darkstar reads the HA entity value on startup and subscribes to state changes; when the user sets a deadline in the Darkstar UI, it writes back to the HA entity. The HA entity ID is configured per-charger in settings.
-- Add **settings UI fields** for multi-day mode: an optional HA deadline entity ID field per charger, with a warning banner if multi-day mode is active but no HA entity is configured (informational, not blocking).
-- Convert Module 4's `target_kwh` config field to `target_pct` in the user-facing layer. The system calculates `target_kwh = (target_pct / 100) * battery_capacity_kwh` at runtime. The backend MultiDayPlanner continues to work in kWh internally.
-- Auto-clear deadline when it passes AND `remaining_kwh <= 0` (trip complete). Show a "missed deadline" warning when deadline passes but energy target was not met.
+- **EV tab inside the Energy Resources card.** The dashboard has no room for another top-level card, so the controls live in a **tab** within the existing Energy Resources card (`ResourcesDomain`). A small "Metrics | EV" switch toggles between the existing resource metrics and the EV controls; the **active tab is remembered in the browser** (`localStorage`), reusing the ChartCard overlay-persistence pattern. The Metrics tab keeps the at-a-glance EV summary line.
+- **Goal controls (no modes).** Per charger: a **target SoC %** slider, a **ready-by time**, and a **repeat** selector (daily / chosen weekdays / every N days / a specific date). Plus a **keep-charger-on-after-target** toggle and an **EV-before-battery priority** toggle. There is no "daily vs multi-day" mode dropdown — a specific date is just "no repeat". Progress, today's quota, on-track/behind status, and the day-by-day schedule are shown read-only.
+- **Write API** (`POST /api/ev/chargers/{id}/schedule`): accepts the goal (`target_soc_percent`, `ready_by`, `repeat`, optional `ready_by_date`) plus the toggles, persists them, and (if configured) writes them to the linked HA entities.
+- **Optional HA entity sync (bidirectional, HA wins).** Two optional entities per charger — an **`input_datetime`** for the ready-by time and an **`input_number`** for the target SoC %. When set in HA they take priority over the dashboard value (mirroring the existing **vacation-mode** override pattern). This lets users drive the goal from calendars, work schedules, or automations.
+- **Settings fields** for the two optional HA entity IDs, with an informational tip when set.
+- **Advanced control = don't enable the charger in Darkstar.** A user who wants fully custom logic simply leaves the charger's `switch_entity` unmapped; Darkstar never touches the switch and HA owns it. No extra mode needed.
 
 ## Capabilities
 
 ### New Capabilities
-- `ev-dashboard-card`: Dashboard EV charging card integrated into the Energy Resources section. Displays charger status, deadline controls, target % picker, charging progress, daily quota schedule, and on-track/behind status for both daily and multi-day modes.
-- `ev-deadline-api`: Write API endpoint for setting/clearing EV charger deadlines and target percentages from the frontend. Handles target_pct to target_kwh conversion and persists to the multi-day state file.
-- `ha-deadline-sync`: Bidirectional synchronization between Darkstar's EV deadline state and Home Assistant `input_datetime` entities. Reads HA on startup, subscribes to changes, writes back on Darkstar-side updates.
+- `ev-dashboard-card`: The EV tab inside the Energy Resources card — target SoC, ready-by, repeat, keep-on, EV-priority controls, progress / quota / status display, with the active tab persisted in `localStorage`.
+- `ev-schedule-api`: Write endpoint to set/clear a charger's goal (target SoC + ready-by + repeat + toggles) and trigger HA sync.
+- `ha-schedule-sync`: Bidirectional sync of the ready-by time (`input_datetime`) and target SoC (`input_number`) with Home Assistant; HA values take priority when set.
 
 ### Modified Capabilities
-- `dashboard-ev-display`: The Energy Resources card gains an EV charging tab/section with interactive controls (currently only shows a static kWh total).
-- `per-device-ev-scheduling`: EV charger config gains an optional `ha_deadline_entity` field for HA sync. The `target_kwh` field is supplemented by a `target_pct` alternative that is converted at runtime using `battery_capacity_kwh`.
+- `dashboard-ev-display`: The Energy Resources card gains an EV tab (was: a static EV kWh line).
+- `per-device-ev-scheduling`: Per-charger config gains optional `ha_ready_by_entity` (`input_datetime`) and `ha_target_soc_entity` (`input_number`) fields for HA sync. (The core goal fields are defined in Module 4.)
 
 ## Impact
 
-- **Frontend** (`frontend/src/`): New EV card component in `CommandDomains.tsx` or a dedicated component. New API client calls for `GET /api/ev/chargers` (Module 4) and `POST /api/ev/chargers/{id}/deadline`. Date picker and slider UI components.
-- **Backend API** (`backend/api/routers/ev.py`): New write endpoint added to the router Module 4 creates. Reads `battery_capacity_kwh` from config to convert % → kWh.
-- **Backend HA sync** (`backend/core/` or `backend/services/`): New HA `input_datetime` subscriber that listens for state changes via the existing HA websocket connection and updates internal deadline state. Write-back on Darkstar-side changes.
-- **Config** (`executor/config.py`): New optional `ha_deadline_entity` (str | None) field per EV charger.
-- **State** (`data/ev_multi_day_state.json`): Module 4's state file is extended with fields written by the deadline API (user-set deadline and target_pct that persist across planner restarts).
-- **Dependencies**: Requires Module 4 (price-forecasting-module-4) — the read API endpoint and multi-day pipeline. Uses existing HA websocket infrastructure from the executor.
-- **No breaking changes**: All additions are optional and additive. Existing EV charging behavior unchanged when multi-day features are not used.
+- **Frontend** (`frontend/src/`): tabbed `ResourcesDomain` in `CommandDomains.tsx` with persisted active tab; new `EVChargingCard.tsx` (target/ready-by/repeat/toggles + progress/quota/status); API client calls for `GET /api/ev/chargers` and `POST /api/ev/chargers/{id}/schedule`; settings fields in `EntityArrayEditor.tsx`.
+- **Backend API** (`backend/api/routers/ev.py`): add the write endpoint to the router Module 4 created.
+- **Backend HA sync** (`backend/ha_socket.py`, `backend/core/ha_client.py`, `executor/actions.py`): subscribe to the two HA entities; add `get_ha_datetime()`; allow `input_datetime.set_datetime` (and reuse existing `input_number.set_value`); HA→Darkstar updates win; debounce echo.
+- **Config** (`executor/config.py`): optional `ha_ready_by_entity`, `ha_target_soc_entity` per charger.
+- **State** (`data/ev_multi_day_state.json`): extended with the user-set goal + toggles (Module 4 writes computed progress fields).
+- **Dependencies:** requires Module 4 (engine + GET API + state file). Uses existing HA websocket infrastructure and the vacation-mode override precedent.
+- **Relations:** completes the resolution of stabilization-review **Finding #1**; supersedes the prior penalty-level EV UX.
+- **No breaking changes:** all additive; a charger with no HA entities works dashboard-only.

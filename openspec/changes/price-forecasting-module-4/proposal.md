@@ -1,30 +1,38 @@
 ## Why
 
-Darkstar's EV charging currently operates on a single-day horizon: plug in, charge by tomorrow's departure time. When a user has a multi-day window (e.g., plug in Monday, depart Friday), the system cannot spread charging across cheaper days — it front-loads everything into the first overnight window. With Module 1's 7-day price forecasts now available, the system can distribute energy quotas across days to minimize cost. This change builds a reusable deferral controller that sits above Kepler, assigning daily energy budgets based on forecast price trends while letting Kepler handle within-day optimization using exact Nordpool prices.
+Darkstar's EV charging is driven by hand-tuned "penalty levels" (incentive buckets): a per-SoC-band willingness-to-pay in SEK/kWh. Stabilization-review **Finding #1 (S1)** confirmed this model is wrong for what users actually want:
+
+- The default is **empty**, so out of the box the EV **silently never charges** from surplus PV — it exports instead (worked example in Finding #1).
+- To make it work the user must reason about spot vs import prices and set a value that sits between them — solver math no normal user can tune.
+- Even when tuned, a willingness-to-pay can **never guarantee** the car reaches a usable charge by departure. It only ever says "charge if it's worth it", never "you must reach X% by time T".
+
+What users (and a second user requesting "leave it on so the heater can run at 07:15") actually want is a **goal**: *"have the car at X% by this time"* — and then have the system charge as cheaply as possible, preferring free solar, exactly like the home battery already does. This change replaces the penalty-level model with that goal-based model. (Multi-day deferral — the original Module 4 scope — survives as an automatic behaviour, not a user mode.)
 
 ## What Changes
 
-- Create a `MultiDayPlanner` class that takes an energy requirement (kWh), a deadline (datetime), and a 7-day price forecast, and returns a daily kWh quota allocation.
-- Extend EV charger config with an optional `deadline` field (datetime) as an alternative to the existing daily `departure_time`. When set, the deferral controller distributes charging across days; when absent, existing single-day behavior is unchanged.
-- Integrate the `MultiDayPlanner` into the planner pipeline: before Kepler runs, the controller determines today's EV energy quota. Kepler then optimizes that quota using exact Nordpool prices.
-- The quota is recalculated daily — if the forecast was wrong, the remaining energy is redistributed across remaining days using updated forecasts.
-- All multi-day deferral behavior is gated behind `price_forecast.enabled`. When disabled, EV charging uses the existing single-day `departure_time` logic.
+- **New per-charger goal:** `target_soc_percent` + `ready_by` time + optional `repeat` (daily / chosen weekdays / every N days / **none** = a one-off specific date). One concept — a specific date is just "no repeat", **not** a separate mode.
+- **Requirement, not incentive:** Kepler gains a **soft "reach target SoC by the ready-by time" constraint** (a large shortfall penalty, kept soft so an unreachable target never makes the solve infeasible — it just charges as much as it can and reports "behind"). This replaces the incentive-bucket reward term entirely.
+- **Retire penalty levels** from the user-facing model. The incentive-bucket variables/rewards are removed from Kepler; the only "penalty" left is the internal, auto-set shortfall penalty (never user-tuned).
+- **Excess PV is always self-consumed before export:** `excess PV → battery or EV → the other → export`, ordered by a per-charger **`charge_priority`** switch (default `battery` first). The switch only breaks the tie for *free* surplus; it never forces expensive grid.
+- **`keep_on_after_target`** (default false): once the target is met, leave the charger switch enabled through the ready-by time so the car can pre-condition / run its heater. (Executor behaviour; consumed by Module 5's switch control.)
+- **Multi-day is automatic:** when the ready-by date is several days out and a 7-day price forecast exists, the reusable `MultiDayPlanner` spreads the required energy onto the cheaper days; when it is near, Kepler optimises within the known Nordpool horizon. **The core feature needs only the day-ahead prices the planner already has — it is NOT gated behind `price_forecast.enabled`.** The 7-day forecast (Module 1) is an optional enhancement for multi-day spreading only.
+- **Read-only state API** (`GET /api/ev/chargers`): per-charger live status + goal + progress + on-track/behind status for Module 5's UI.
 
 ## Capabilities
 
 ### New Capabilities
-- `multi-day-deferral-controller`: The reusable `MultiDayPlanner` engine that distributes energy requirements across days based on price forecasts. Takes energy target, deadline, and price forecast; returns daily quota allocation.
-- `ev-multi-day-charging`: Integration of the deferral controller with EV charger config, pipeline, and Kepler. Extends per-device config with optional deadline, wires quota into Kepler's EV energy constraints.
+- `ev-target-charging`: The goal-based EV model — `target_soc_percent` + `ready_by` + `repeat` config, the soft target-by-time requirement in Kepler (replacing incentive buckets), the excess-PV self-consumption priority (`charge_priority`), `keep_on_after_target`, and the read-only `GET /api/ev/chargers` state API.
+- `multi-day-deferral-controller`: The reusable, load-agnostic `MultiDayPlanner` engine that spreads a required energy amount across the days until a far ready-by date using a 7-day price forecast. Invoked automatically; degrades gracefully when no forecast exists.
 
 ### Modified Capabilities
-- `per-device-ev-scheduling`: The existing EV scheduling gains an optional multi-day deadline mode alongside the existing daily `departure_time`. Pipeline deadline calculation is extended to support both modes.
+- `per-device-ev-scheduling`: Per-charger config changes from `departure_time` + `penalty_levels` to `target_soc_percent` + `ready_by` + `repeat` (+ optional `ready_by_date`, `keep_on_after_target`, `charge_priority`). `penalty_levels` is retired. `departure_time` is accepted as a deprecated alias for `ready_by` for one release.
 
 ## Impact
 
-- **Planner** (`planner/`): New `MultiDayPlanner` class (likely `planner/strategy/multi_day_planner.py`). Pipeline changes to invoke the controller before Kepler. Pipeline writes per-charger multi-day state to `data/ev_multi_day_state.json` after quota computation.
-- **Config** (`config.yaml`, `executor/config.py`): New optional `deadline` field per EV charger. Existing `departure_time` behavior preserved.
-- **Solver** (`planner/solver/`): Kepler receives a daily energy quota as an upper bound on EV charging when in multi-day mode. Adapter changes to pass quota through.
-- **API** (`backend/api/routers/ev.py`): New read-only `GET /api/ev/chargers` endpoint returning per-charger state (mode, multi-day progress, quota schedule, live HA sensor data). This is the contract that Module 5's frontend consumes.
-- **Tests**: Unit tests for `MultiDayPlanner` quota logic. Integration tests for pipeline with multi-day EV deadlines. API endpoint tests.
-- **Dependencies**: Requires Module 1 (price-forecasting-core) — specifically the price forecast API/DB. No new external dependencies.
-- **No breaking changes**: All modifications are additive and gated. Single-day `departure_time` remains the default.
+- **Solver** (`planner/solver/kepler.py`, `adapter.py`, `planner/inputs/types.py`): remove the incentive-bucket variables + reward term; add a soft "delivered EV energy ≥ required_kwh by deadline" constraint with a shortfall penalty; add the excess-PV self-consumption priority term (battery vs EV per `charge_priority`); pass `required_kwh`, `deadline`, `daily_quota_kwh`, `charge_priority` on `EVChargerInput`.
+- **Planner** (`planner/pipeline.py`, new `planner/strategy/multi_day_planner.py`): resolve each charger's next ready-by datetime from `ready_by` + `repeat` (or `ready_by_date`); compute `required_kwh` from `target_soc_percent`, current SoC, and `battery_capacity_kwh`; invoke `MultiDayPlanner` when the deadline is multi-day and a forecast exists.
+- **Config** (`executor/config.py`, `config.yaml`, `config.default.yaml`): new per-charger fields; retire `penalty_levels`; ship a sensible default goal so a configured charger charges out of the box.
+- **API** (`backend/api/routers/ev.py`): new read-only `GET /api/ev/chargers` (live HA sensor data + goal + progress + status). Contract consumed by Module 5.
+- **Data:** `required_kwh` derives from `slot_observations` EV energy + live SoC; transient multi-day state persisted to `data/ev_multi_day_state.json`. No DB schema change.
+- **Relations:** resolves stabilization-review **Finding #1 (S1)**; Module 5 adds the UI + HA entity sync; supersedes the prior penalty-level EV economics. Optional dependency on Module 1 (price forecasts) for multi-day spreading only.
+- **No breaking behaviour for a correctly configured charger**; users still on `penalty_levels` get a one-release deprecation path + migration to an equivalent goal.

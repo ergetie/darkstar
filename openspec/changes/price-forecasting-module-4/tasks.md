@@ -1,42 +1,45 @@
-## 1. MultiDayPlanner Core Engine
+## 1. Config: goal-based per-charger schema (retire penalty levels)
 
-- [ ] 1.1 Create `planner/strategy/multi_day_planner.py` with a `MultiDayPlanner` class containing a `compute_quota()` method. Input: `remaining_kwh` (float), `deadline` (datetime), `daily_prices` (list[float]), `max_daily_kwh` (list[float]), `min_daily_fraction` (float, default 0.1). Output: `dict[date, float]` mapping each remaining date to its kWh quota. Use inverse-price weighting: `weight[day] = 1 / avg_price[day]`, `quota[day] = (weight[day] / sum(weights)) * remaining_kwh`.
-- [ ] 1.2 Implement the minimum daily fraction guardrail: every day except the last SHALL receive at least `min_daily_fraction * remaining_kwh`. Apply the floor after inverse-price weighting, then redistribute any excess from capped days.
-- [ ] 1.3 Implement the power capacity cap: each day's quota SHALL be capped at the corresponding `max_daily_kwh[day]` value. Excess energy from capped days SHALL be redistributed to uncapped days proportionally.
-- [ ] 1.4 Handle edge cases: single day remaining (allocate all), zero/negative remaining_kwh (return zeros), all prices equal (distribute equally), missing price data for some days (use average of known prices as fill).
-- [ ] 1.5 Write unit tests in `tests/planner/test_multi_day_planner.py` covering: basic inverse-price weighting allocation, minimum daily fraction enforcement, power cap redistribution, single day remaining, zero remaining energy, equal prices, partial price data fallback.
+- [ ] 1.1 Add per-charger fields to `EVChargerDeviceConfig` (`executor/config.py`): `target_soc_percent` (int, default 80), `ready_by` (str `HH:MM`), `repeat` (enum `daily`|`weekdays`|`weekends`|`every_n_days`|`none`, default `daily`), `n_days` (int, used when `repeat: every_n_days`), `ready_by_date` (date string, used when `repeat: none`), `keep_on_after_target` (bool, default false), `charge_priority` (enum `battery`|`ev`, default `battery`).
+- [ ] 1.2 Accept `departure_time` as a deprecated alias for `ready_by` (log a one-time deprecation warning, copy value forward). Keep the existing YAML 1.2 string-parsing / sexagesimal-int handling for the time value.
+- [ ] 1.3 Retire `penalty_levels`: if present, ignore for scheduling, log a deprecation warning, and auto-migrate to `target_soc_percent` = the highest configured `max_soc` (so existing users keep an equivalent target). Remove incentive-bucket plumbing from the adapter (`adapter.py:146–154`).
+- [ ] 1.4 Update `config.yaml` + `config.default.yaml`: replace the `penalty_levels` example with a default goal (`target_soc_percent: 80`, `ready_by: "07:00"`, `repeat: daily`) and inline comments. Ensure a configured charger charges out of the box.
+- [ ] 1.5 Unit tests (`tests/ev/test_ev_config.py`): goal fields parse; `departure_time` alias maps to `ready_by` + warns; `penalty_levels` present → ignored + migrated + warns; `repeat: none` requires `ready_by_date`; invalid/missing time handled.
 
-## 2. Config Extension
+## 2. Pipeline: resolve ready-by + required energy
 
-- [ ] 2.1 Add `deadline` (str | None, default None) and `target_kwh` (float | None, default None) fields to the `EVChargerDeviceConfig` dataclass in `executor/config.py`. Parse `deadline` as ISO 8601 datetime string. Add validation: if `deadline` is set but `target_kwh` is missing, log a warning and set both to None.
-- [ ] 2.2 Add `deadline` and `target_kwh` example entries (commented out) to `config.yaml` and `config.default.yaml` under the first `ev_chargers` entry, with inline comments explaining multi-day mode.
-- [ ] 2.3 Write unit test in `tests/ev/test_ev_config.py` (or extend existing) covering: valid deadline + target_kwh parsing, deadline without target_kwh (warning + fallback), missing deadline (None), deadline in the past (warning + None).
+- [ ] 2.1 Add `_resolve_ready_by(charger, now)` in `planner/pipeline.py`: from `ready_by` + `repeat` (or `ready_by_date` for `none`) compute the *next* ready-by datetime (timezone-aware). Daily = next occurrence of the time; weekdays/weekends/every_n_days = next matching day; none = the specific date/time (inert once past).
+- [ ] 2.2 Add `_calculate_required_kwh(charger, db_path)`: `max(0, (target_soc_percent − current_soc_percent)/100 · battery_capacity_kwh)` minus EV energy already delivered this charging cycle (from `slot_observations` since last plug-in). Clamp ≥ 0.
+- [ ] 2.3 In the EV section of `pipeline.py`, attach `required_kwh`, resolved `deadline`, `charge_priority`, and `keep_on_after_target` to each plugged charger's state dict. Skip unplugged chargers (no requirement).
 
-## 3. Pipeline Integration
+## 3. MultiDayPlanner: automatic spreading (forecast-gated, graceful fallback)
 
-- [ ] 3.1 Add a helper function `_calculate_remaining_kwh(charger_id: str, target_kwh: float, db_path: str, plugged_since: datetime | None) -> float` in `planner/pipeline.py` that queries `slot_observations` for total `ev_charging_kwh` since the charger was plugged in, and returns `max(0, target_kwh - delivered)`.
-- [ ] 3.2 Add a helper function `_get_daily_price_averages(deadline: datetime, db_path: str) -> list[float]` in `planner/pipeline.py` (or a shared utility) that reads from the `price_forecasts` table (from Module 1), computes daily average `spot_p50` for each remaining day until deadline, and returns the list. If no forecasts exist, return an empty list.
-- [ ] 3.3 In the EV section of `planner/pipeline.py` (around line 536-593), add multi-day logic: for each charger with a valid `deadline` + `target_kwh` + `price_forecast.enabled`, compute `remaining_kwh` via 3.1, fetch daily prices via 3.2, compute `max_daily_kwh` per day from `max_power_kw * available_hours`, call `MultiDayPlanner.compute_quota()`, and attach `daily_quota_kwh` (today's quota) to the charger state dict.
-- [ ] 3.4 In the same pipeline section, set the Kepler deadline: if today is before the deadline day, use end-of-day (23:59 local time) as the deadline. If today IS the deadline day, use the actual deadline time. This replaces the `departure_time`-based calculation for multi-day chargers.
-- [ ] 3.5 When `price_forecast.enabled` is false but `deadline` is set, use the `deadline` datetime directly as a simple Kepler deadline (no quota, no MultiDayPlanner call). This provides a basic "charge by date X" mode without price intelligence.
-- [ ] 3.6 Write integration tests in `tests/planner/test_pipeline_multi_day_ev.py` covering: multi-day charger gets quota and deadline from pipeline, single-day charger is unaffected, price_forecast disabled falls back to simple deadline, unplugged charger skips quota calculation.
+- [ ] 3.1 Create `planner/strategy/multi_day_planner.py` with `MultiDayPlanner.compute_quota(remaining_kwh, deadline, daily_prices, max_daily_kwh, min_daily_fraction=0.1) -> dict[date, float]`. Inverse-price weighting: `weight[day] = 1/avg_price[day]`. Keep it **load-agnostic** (no EV-specific params).
+- [ ] 3.2 Guardrails: min-daily-fraction floor on every non-final day (then redistribute), per-day power cap (`max_power_kw · available_hours`) with redistribution, single-day-remaining = allocate all, zero/negative remaining = zeros, equal prices = equal split, partial/missing prices = fill with average of known days.
+- [ ] 3.3 Invoke automatically in `pipeline.py`: **only** when the resolved deadline is more than one day out **and** a 7-day forecast exists (`_get_daily_price_averages` from the Module 1 `price_forecasts` table). Set today's quota as `daily_quota_kwh` on the charger state. When the deadline is near OR no forecast exists, set `daily_quota_kwh = None` (no spreading; Kepler uses real day-ahead prices). **Do not gate the core feature on `price_forecast.enabled` — only the spreading.**
+- [ ] 3.4 Unit tests (`tests/planner/test_multi_day_planner.py`): inverse-price allocation, min-fraction enforcement, power-cap redistribution, single day, zero remaining, equal prices, partial price data.
 
-## 4. Solver Integration
+## 4. Solver: requirement + self-consumption priority (remove incentive buckets)
 
-- [ ] 4.1 Add `daily_quota_kwh: float | None = None` field to the `EVChargerInput` dataclass in `planner/inputs/types.py`.
-- [ ] 4.2 In `planner/solver/adapter.py` `build_ev_charger_inputs()`, read `daily_quota_kwh` from the charger state dict and set it on `EVChargerInput`.
-- [ ] 4.3 In `planner/solver/kepler.py`, after existing EV constraint setup, add a daily quota constraint for each charger where `daily_quota_kwh` is not None: `prob += pulp.lpSum(ev_energy[d][t] for t in all_slots) <= charger.daily_quota_kwh`. This limits total energy across the solve horizon for that charger.
-- [ ] 4.4 Write solver unit tests in `tests/planner/test_kepler_multi_day_quota.py` covering: charger with quota limits total energy, charger without quota is unconstrained, quota + deadline interact correctly (quota limits energy, deadline limits time window), quota of 0 results in no charging.
+- [ ] 4.1 Add fields to `EVChargerInput` (`planner/inputs/types.py`): `required_kwh: float | None`, `deadline: datetime | None`, `daily_quota_kwh: float | None`, `charge_priority: str = "battery"`. Remove `incentive_buckets`.
+- [ ] 4.2 In `adapter.py`, populate the new fields from charger state; delete the `penalty_levels → IncentiveBucket` mapping.
+- [ ] 4.3 In `kepler.py`, **remove** the incentive-bucket variables/constraints (`:203–234`) and the `Σ ev_bucket_charged · value_sek` reward (`:642–651`).
+- [ ] 4.4 Add the soft target-by-time requirement per charger: `Σ ev_energy[d][t] (t ≤ deadline) + shortfall[d] >= required_kwh`; add `shortfall[d] · EV_SHORTFALL_PENALTY` to the objective (fixed internal constant, well above any plausible import price; defined as a module constant).
+- [ ] 4.5 Add the excess-PV self-consumption preference: a small objective term so surplus PV routes to battery/EV before export, ordered by `charge_priority` (default battery-first). Must be dominated by real import/export economics (tie-break only).
+- [ ] 4.6 Apply `daily_quota_kwh` (when not None) as an upper bound on today's EV energy: `Σ ev_energy[d][t] <= daily_quota_kwh`.
+- [ ] 4.7 Keep the deadline as a time-window constraint (`ev_energy[d][t] == 0` for slots ending after the deadline).
+- [ ] 4.8 Solver tests (`tests/planner/test_kepler_ev_target.py`): configured charger charges from surplus PV instead of exporting; reaches `target_soc` by deadline when feasible; reports shortfall (stays feasible) when not; `charge_priority` flips battery/EV order for free surplus without forcing grid; daily quota caps today's energy; no incentive-bucket code path remains.
 
-## 5. EV Charger State API
+## 5. Read-only EV state API
 
-- [ ] 5.1 Create `backend/api/routers/ev.py` with a `GET /api/ev/chargers` endpoint. Register the router in `backend/api/app.py`.
-- [ ] 5.2 Implement state file persistence: at the end of the multi-day quota calculation in `planner/pipeline.py` (after task 3.3), write per-charger multi-day state (deadline, target_kwh, remaining_kwh, energy_delivered_kwh, daily_quota_kwh, days_remaining, quota_schedule, status) to `data/ev_multi_day_state.json`. Include a `last_updated` timestamp. If no chargers are in multi-day mode, write an empty chargers list.
-- [ ] 5.3 In the `GET /api/ev/chargers` endpoint: read the state file, merge with live HA sensor data (plugged_in, soc_percent, power_kw — reuse the same HA fetching pattern from `backend/api/routers/system.py` lines 123-144), and return the combined response. Include `mode` field per charger: `"multi_day"` if deadline is active, `"daily"` if only departure_time is set, `"none"` if neither.
-- [ ] 5.4 Compute the `status` field: `"complete"` if remaining_kwh ≤ 0, `"on_track"` if remaining energy can be delivered within remaining days given max_power_kw, `"behind"` if it cannot, `"idle"` if no active deadline. Include chargers in `"daily"` mode with null multi-day fields.
-- [ ] 5.5 Write unit tests in `tests/backend/test_ev_api.py` covering: endpoint returns all configured chargers, multi-day charger includes quota_schedule and status, daily-mode charger has null multi-day fields, state file missing or stale returns chargers with `"idle"` status and null multi-day fields.
+- [ ] 5.1 Create `backend/api/routers/ev.py` with `GET /api/ev/chargers`; register in `backend/api/app.py`.
+- [ ] 5.2 Persist transient state to `data/ev_multi_day_state.json` at the end of each pipeline run: per charger `id`, goal (`target_soc_percent`, `ready_by`, `repeat`, resolved `deadline`), `required_kwh`, `delivered_kwh`, `remaining_kwh`, `daily_quota_kwh`, `quota_schedule` (when spreading), `keep_on_after_target`, `charge_priority`, `status`, `last_updated`.
+- [ ] 5.3 Endpoint merges state file with live HA sensor data (`plugged_in`, `soc_percent`, `power_kw`, fetched on request, reusing the system-status HA pattern). `status ∈ {on_track, behind, complete, idle}` computed from remaining vs deliverable-by-deadline.
+- [ ] 5.4 Tests (`tests/backend/test_ev_api.py`): returns all configured chargers with goal + progress + status; spreading charger includes `quota_schedule`; non-spreading charger has null quota fields; missing/stale state file → `idle` + live sensors still populated.
 
-## 6. End-to-End Verification
+## 6. End-to-end + migration
 
-- [ ] 6.1 Write an end-to-end test in `tests/planner/test_e2e_multi_day_ev.py` that configures a charger with `deadline` 3 days away, `target_kwh=60`, mocks price forecasts with day 2 being cheapest, runs the full pipeline, and verifies: today's quota is lower than day 2's allocation, Kepler respects the quota, and the schedule contains valid EV charging slots.
-- [ ] 6.2 Write a backward-compatibility test that runs the full pipeline with NO multi-day config (standard `departure_time` only) and verifies the output is identical to the existing behavior (no quota constraint, standard deadline calculation).
+- [ ] 6.1 E2E test (`tests/planner/test_e2e_ev_target.py`): charger at 30% SoC, `target 80%` by tomorrow 07:00, midday surplus PV → schedule charges the EV from surplus (not export) and reaches 80% by the deadline using cheapest slots.
+- [ ] 6.2 E2E multi-day: `ready_by` 3 days out + forecast with a cheap middle day → more energy allocated to the cheap day, today's quota respected, target met by the deadline.
+- [ ] 6.3 Migration test: a config still using `penalty_levels` loads with a deprecation warning, migrates to an equivalent `target_soc_percent`, and charges correctly (no incentive-bucket path executed).
+- [ ] 6.4 Confirm the full suite still passes (1051+ baseline) and no `incentive_bucket` references remain in planner/solver.
