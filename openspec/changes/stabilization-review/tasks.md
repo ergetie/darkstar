@@ -41,11 +41,11 @@
 
 ## 4. Phase 3 — Architecture Review
 
-- [ ] 4.1 Two-PV-estimator reconciliation: document the relationship between the open-meteo library forecast and the physics+ML hybrid; record the "which is truth / should one clamp the other" question (decision deferred to a solution session)
-- [ ] 4.2 God files: assess `executor/engine.py` (~2035) and `actions.py` (~1244) for split candidates and risk concentration
-- [ ] 4.3 Async / threading / SQLite: review event-loop blocking risks, executor-thread vs async-service boundaries, WAL contention on `planner_learning.db`
-- [ ] 4.4 Safety invariants: document what protects the battery/grid when a forecast or plan is wildly wrong (post-Emergency-Charge-removal); identify missing guardrails
-- [ ] 4.5 Data SSOT & boundaries: validate module boundaries (planner ↔ executor ↔ recorder ↔ ML) and any double-counting / source-of-truth ambiguity
+- [x] 4.1 Two-PV-estimator reconciliation: document the relationship between the open-meteo library forecast and the physics+ML hybrid; record the "which is truth / should one clamp the other" question (decision deferred to a solution session) → OQ5 updated (largely resolved by pv-open-meteo-baseline: open-meteo = baseline spine, hybrid = baseline + bounded ±25% residual, both clamped to physical ceiling)
+- [x] 4.2 God files: assess `executor/engine.py` (~2035) and `actions.py` (~1244) for split candidates and risk concentration → Finding #36
+- [x] 4.3 Async / threading / SQLite: review event-loop blocking risks, executor-thread vs async-service boundaries, WAL contention on `planner_learning.db` → Findings #37 (WAL), #38 (sync DB on event loop); MILP solve confirmed offloaded (to_thread), not a blocker
+- [x] 4.4 Safety invariants: document what protects the battery/grid when a forecast or plan is wildly wrong (post-Emergency-Charge-removal); identify missing guardrails → Finding #35 + OQ6
+- [x] 4.5 Data SSOT & boundaries: validate module boundaries (planner ↔ executor ↔ recorder ↔ ML) and any double-counting / source-of-truth ambiguity → OQ7 (synthesis of #12/#25/#26/#27/#29 + executor↔recorder slot_observations dual-write)
 
 ## 5. Wrap-up
 
