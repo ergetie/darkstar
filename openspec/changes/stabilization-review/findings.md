@@ -532,3 +532,67 @@ Discussion with the operator settled that Finding #1 is not a solver-math bug to
 **Dashboard:** the EV controls live in a **tab inside the existing Energy Resources card** (no room for a new top-level card), with the active tab persisted in `localStorage` reusing the ChartCard overlay pattern (`darkstar-chart-overlays` → `darkstar-resources-tab`, versioned, default `"metrics"`). The "Metrics" tab keeps the at-a-glance EV line; the "EV" tab holds the controls.
 
 **Disposition:** these are unstarted proposals (0 tasks done), so the redesign **amends `price-forecasting-module-4` (engine) and `price-forecasting-module-5` (UI + HA)** rather than creating a new change. Finding #1's S1 is closed when those ship.
+
+---
+
+## Phase 5 — Completeness Audit (task 5.1, 2026-06-07)
+
+Read-only walk of every finding #1–#38 against the D1 format. **No finding is missing severity, a file:line location, or a root-cause verdict** — all 38 carry all three. Notes below are documentation flags only; no entry is renumbered or deleted.
+
+**Severity tally (38 findings):**
+- **S1 (2):** #1 (reframed → `price-forecasting-module-4/5`), #30 (wontfix).
+- **S2 (8):** #2, #6, #7 (all *resolved* by `pv-open-meteo-baseline`); #22, #25, #26, #27, #31 (still actionable).
+- **S3 (13):** #8, #9, #15, #16, #17, #18, #23, #24, #28, #29, #32, #33, #37.
+- **S4 (15):** #3, #4, #5, #10, #11, #12, #13, #14, #19, #20, #21, #34, #35, #36, #38.
+
+**Root-cause verdicts:** 37 findings are CONFIRMED. Two carry residual labels worth noting:
+- **#6 — stale labels vs. status.** Its header still reads `S2 (suspected; magnitude unconfirmed)` and `Root-cause hypothesis (UNVERIFIED)`, but the status line and the "Data Confirmation" section (2026-06-04, `compare_pv_paths.py`: physics over-produces ~2.5×) have since CONFIRMED it, and the finding is marked *resolved*. The inline "suspected/UNVERIFIED" wording is now stale — the finding is confirmed and closed. Cosmetic only; left as-is per the no-edit rule.
+- **#38 — confirmed with one unverified residual.** The blocking-sync-DB-on-event-loop pattern is CONFIRMED (price routes); the MILP-solve "blocks the loop" lead was verified *false* (it uses `to_thread`). One residual stays UNVERIFIED: whether `ml/training_orchestrator.train_all_models` offloads its sync `sqlite3`/sklearn/`requests` work off the main loop. **Chase this before the event-loop fix is scoped** — it changes whether the training path is in or out of the same downstream change.
+
+**Status freshness:** every status line is current. The five non-actionable findings are correctly marked and must NOT seed new changes: #1 (→ reframed), #2/#6/#7 (resolved), #30 (wontfix). No entry says "open" that is actually resolved. The two "Leads verified and dismissed" (net-meter double-count, duplicate-id merge) are correctly parked as non-bugs.
+
+**Actionable set:** 33 of 38 findings remain open/confirmed and are candidates for downstream changes (38 − 5 non-actionable).
+
+---
+
+## Recommendations — Proposed Downstream Changes (task 5.2, 2026-06-07)
+
+Clusters of the 33 actionable findings, grouped by domain + shared blast radius. **These are recommendations, not created changes.** Resolved/reframed/wontfix findings (#1, #2, #6, #7, #30) are excluded by rule.
+
+### Suggested sequencing (why this order)
+1. **`harden-ci-and-tests`** — *first*. Builds the regression net every later change leans on.
+2. **`recorder-ssot`** — data correctness; the ML training set and EV planning both consume it, so fix the data before the consumers.
+3. **`fix-ml-forecast-correctness`** — after the data is clean, so the model fixes are validated against corrected inputs.
+4. **`config-migration-hardening`** — independent, low coupling; slot in any time.
+5. **`harden-executor-safety`** — independent of the data path; gated on one operator decision (OQ6).
+6. **`small-correctness-cleanup`** — independent one-liners; any time.
+7. **`executor-refactor` (#36)** — *last*. Pure refactor; do it after the behavior bugs in `engine.py` are fixed, not before, or you refactor around bugs and re-touch the same lines twice.
+
+### Proposed changes
+
+**1. `harden-ci-and-tests` — S4/S3 infra (batch).** Findings **#3, #5, #11, #37, #38.**
+The CI floor + runtime-robustness cluster: run all suites + pyright as merge gates (#3), add characterization tests for the untested `backend/` glue (#5), replace `print()` with the logger (#11), wire `ensure_wal_mode()` at startup (#37), move sync DB reads off the event loop / add busy-timeouts (#38). Ship **first** — it protects every other change. *Caveat:* #38 has the unverified training-orchestrator residual (see audit) — resolve before final scope.
+
+**2. `recorder-ssot` — S2/S3 data consistency (batch, tightly coupled).** Findings **#25, #26, #27, #28, #29** + **OQ7.**
+Must be designed as one unit — they are interdependent: #25 (slot-label off-by-one + snapshot vs. integration) is the root; #26 (base-load subtraction) and #27 (backfill writes total, not base) both depend on the #25/#28 fix; #28 (time-weighted integration) is the shared primitive; #29 (UPSERT >0 guard blocks corrections). OQ7 defines the canonical owner/meaning of each `slot_observations` column (incl. the recorder↔executor dual-write). Highest-value data cluster — four S2s feed bad, time-shifted targets into ML training.
+
+**3. `fix-ml-forecast-correctness` — S3/S4 ML pipeline (batch).** Findings **#9, #10, #15, #16, #17, #18.**
+The residual ML-pipeline hygiene that `pv-open-meteo-baseline` did *not* cover: baseline `temp_c`-filled-with-load fallback (#9), silent ML-input swallowing (#10), positional-vs-label sample-weight misalignment (#15), train/inference feature-count asymmetry (#16), quantile crossing (#17), and the evaluator scoring the residual model as if absolute (#18). All live in `ml/train.py` / `forward.py` / `evaluate.py` / `api.py` / `context_features.py`. **Note:** the clamp/cold-start/toggle architecture (OQ1–OQ4) is already shipped in `pv-open-meteo-baseline`; only the minor OQ5 NaN-fallback cleanup (retire home-grown physics as the per-slot fallback) remains and can ride along here.
+
+**4. `config-migration-hardening` — S2/S3 (batch).** Findings **#31, #32, #33.**
+Atomic config writes: route UI "Save" through `_write_config` (#31), fix the bind-mount `copy2` fallback to rename-within-mount (#32), set `config_version` explicitly in migration (#33). Self-contained in `config_migration.py` + `api/routers/config.py`. **#30 (S1) is wontfix — excluded.**
+
+**5. `harden-executor-safety` — S2/S3/S4 (batch, but gated on a decision).** Findings **#22, #23, #34, #35** + **OQ6.**
+The override/safety-clamp theme: manual-override entity still writes idle settings (#22), EV control ignores override/`force_stop` (#23), PV-to-AC inverter cap (#34), and the absent execution-time clamp / dead `min_soc_floor` (#35). **OQ6 is the gating architecture call** — does Darkstar add a thin runtime defense-in-depth clamp, or is full BMS delegation intended? #22/#23 are concrete bugs that can ship regardless; #34/#35 depend on the OQ6 answer.
+
+**6. `small-correctness-cleanup` — S3/S4 standalone one-liners (batch or individual).** Findings **#8, #12, #13, #14, #19, #20, #21, #24.**
+Low-risk, independent fixes with no shared coupling: EV current from nominal not min voltage (#8), simulation SoC display field (#12), silent WS emit (#13), dead-code cluster + dropped SoC-band clamp (#14), stale Kepler comments + duplicate assignment (#19), reported-cost vs. objective price (#20), dead+broken `force_export` — recommend *remove* (#21), missing `await` on cancellation notice (#24). Can be one cleanup PR or folded opportunistically. Several (#19, #20, #34) touch `kepler.py` — see conflict note.
+
+**7. `executor-refactor` — S4 (standalone, LAST).** Finding **#36.**
+Pure refactor of the `engine.py` god object (extract `SlotLoader`, `EVChargeController`, `WaterBoostController`, etc.; shrink the 522-line `_tick`). Risk-bearing; sequence **after** all executor behavior fixes (#22/#23/#24/#34/#35) land so the extraction happens over corrected code.
+
+### Cross-change conflicts to watch
+- **Paused `price-forecasting-module-3/4/5` (#4) is the biggest collision surface.** M4 carries the reframed EV redesign (#1) and touches Kepler EV economics; M3 touches `kepler.py`/S-Index. Do **not** resume M3/M4 until `recorder-ssot` lands — EV/water disaggregation (#25–#27) feeds the EV planning M4 depends on. When EV/S-Index work resumes, explicitly diff against #19/#20/#34 (all touch `kepler.py`).
+- **`recorder-ssot` before `fix-ml-forecast-correctness`.** Both touch the training-data path; clean the data first so the model fixes are validated against correct inputs, not the current time-shifted ones.
+- **`small-correctness-cleanup` ↔ `executor-refactor` / Kepler work.** #19/#20/#34 edit `kepler.py`; #13/#21/#24 edit `engine.py`/`controller.py`. If `executor-refactor` (#36) or the M3/M4 resume runs concurrently, land the one-liners first or coordinate, to avoid re-touching the same lines.
+- **`harden-ci-and-tests` first, always.** Landing the test/pyright gate before the others means every subsequent change is checked by a real floor rather than the API-subset-only floor (#3).

@@ -49,5 +49,5 @@
 
 ## 5. Wrap-up
 
-- [ ] 5.1 Review `findings.md` for completeness; ensure every finding has severity, location, and a CONFIRMED/UNVERIFIED root cause
-- [ ] 5.2 Group confirmed findings into proposed downstream bug-fix changes (note which to batch); leave as a recommendations section — do NOT create those changes here
+- [x] 5.1 Review `findings.md` for completeness; ensure every finding has severity, location, and a CONFIRMED/UNVERIFIED root cause → all 38 complete; flagged #6 stale labels + #38 unverified residual (findings.md "Phase 5 — Completeness Audit")
+- [x] 5.2 Group confirmed findings into proposed downstream bug-fix changes (note which to batch); leave as a recommendations section — do NOT create those changes here → 7 proposed changes + sequencing + conflict notes (findings.md "Recommendations — Proposed Downstream Changes")
