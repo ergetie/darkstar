@@ -297,7 +297,7 @@
 ### Finding #25 — Recorder labels the wrong slot and estimates EV/water from a boundary snapshot instead of integrating the finished slot
 - **Severity:** S2
 - **Domain:** recorder-data
-- **Status:** open
+- **Status:** → recorder-ssot (change created 2026-06-07; addressed by D1 slot-alignment + D2 integration)
 - **Location:** `backend/recorder.py:209-214` (floors `now` to the *current* quarter and labels the row with it, despite the "just-finished slot" comment); `recorder.py:464`/`486` + `backend/core/ha_client.py:174-237` (EV/water energy = mean of HA samples in `[slot_start, slot_end]` × 0.25 h); loop order `backend/services/recorder_service.py:155` then `160` (record, then sleep-to-next-boundary)
 - **Symptom:** In steady state the recorder wakes right *after* a 15-min boundary and records the slot that just **began**. Two compounding errors result: (1) the cumulative-delta fields (load/PV/grid) measure the slot that just **finished** but are stamped with the *next* slot's `slot_start` — a one-slot (+15 min) time-shift; (2) EV/water energy is not the slot's true energy — HA returns the device's state *at the window start* (HA backfills the at-start state), so the value is effectively **"power at the boundary instant × 15 min"**, i.e. a snapshot assumed constant for the whole slot. When EV/water power fluctuates within/across slots (the normal case), that estimate is wrong and is subtracted from a *different* slot's load than the one it came from.
 - **Root-cause hypothesis:** CONFIRMED (code read; HA `include_start_time_state` behaviour). **Correction to the earlier draft:** EV/water is NOT systematically ~0 — it's a boundary snapshot, so it *is* subtracted, but the magnitude is assumed-constant and the slot label is off by one. So base-load disaggregation is **misaligned and noisy**, not absent: a device that switches near a boundary is mis-subtracted (base load over- or under-stated, occasionally clamped to 0). This feeds the load ML training set bad, time-shifted targets.
@@ -307,7 +307,7 @@
 ### Finding #26 — Base-load disaggregation subtracts a misaligned EV/water snapshot (consequence of #25)
 - **Severity:** S2
 - **Domain:** recorder-data
-- **Status:** open
+- **Status:** → recorder-ssot (change created 2026-06-07; resolved by fixing #25/#28 + D3 disaggregation)
 - **Location:** `backend/recorder.py:500-511` (`base_load_kwh = load_kwh − ev_charging_kwh − water_kwh`, applied when `used_cumulative_load or not disaggregator`)
 - **Symptom:** On the cumulative-load-sensor path (and the no-disaggregator power path), the EV/water values subtracted to isolate base load are the boundary-snapshot estimates from #25, taken from the *wrong* slot. So `base_load = total − snapshot_EV − snapshot_water` is correct only when EV/water power is steady across the boundary; whenever it fluctuates, base load is over- or under-stated (and clamped to 0 if it goes negative). The forecaster's "base_load = CLEAN" assumption is therefore violated by noisy, time-shifted subtraction.
 - **Root-cause hypothesis:** CONFIRMED (code read). The live-power disaggregator path (power snapshot, disaggregator present) subtracts live controllable power and is better-aligned; but the cumulative path depends entirely on the misaligned #25 estimate. Disaggregation is unreliable rather than absent.
@@ -317,7 +317,7 @@
 ### Finding #27 — Backfill does not disaggregate at all: it writes TOTAL load into the same column the forecaster reads as base load
 - **Severity:** S2
 - **Domain:** recorder-data
-- **Status:** open
+- **Status:** → recorder-ssot (change created 2026-06-07; addressed by D3 disaggregate-everywhere)
 - **Location:** backfill `backend/learning/backfill.py:139-145` (mapping has only import/export/pv/load/soc — **no EV/water sensors**) → `backend/learning/engine.py:238-244` (writes the raw cumulative `load` delta straight into `load_kwh`); gap logic `backfill.py:105-123` (fills from the last observation forward, so it only fills genuine gaps — it does **not** rewrite existing history); live path `backend/recorder.py:500-511`
 - **Symptom:** Every slot written by backfill stores `load_kwh` = full house consumption (EV + water **never subtracted**, because backfill never even fetches those sensors), whereas live rows subtract a (noisy, per #25) EV/water estimate. So the single `load_kwh` training column means *total* for gap-filled rows and *base* for live rows — and the forecaster treats them identically. This is the clearest "DB-is-SSOT" violation: the authoritative column has source-dependent meaning.
 - **Root-cause hypothesis:** CONFIRMED (code read). Disaggregation lives only in the live recorder; the backfill path has no EV/water mapping and no subtraction. (The earlier note that live rows "may also end up ≈total" is retracted — live rows *do* subtract a snapshot per #25; the inconsistency between backfill-total and live-base is the real problem.)
@@ -327,7 +327,7 @@
 ### Finding #28 — HA history energy uses an unweighted sample mean instead of time-weighted integration
 - **Severity:** S3
 - **Domain:** recorder-data
-- **Status:** open
+- **Status:** → recorder-ssot (change created 2026-06-07; addressed by D2 step-integration)
 - **Location:** `backend/core/ha_client.py:235-237` (`mean_kw = sum(kw_values)/len(kw_values)` then `× duration_hours`)
 - **Symptom:** EV/water (and any power-history) energy is biased whenever the sensor logs at irregular intervals — which is the norm in Home Assistant (state-change logging). A brief high-power spike with many samples dominates; long steady periods with few samples are under-weighted.
 - **Root-cause hypothesis:** CONFIRMED (code read). HA `/history/period` returns state-change events at non-uniform timestamps; correct energy is `Σ powerᵢ·Δtᵢ`, but the code averages the values ignoring how long each persisted. Magnitude is data-dependent. (Currently masked by #25 for the live path, but bites the gap-backfill path and any caller passing a real elapsed window.)
@@ -337,7 +337,7 @@
 ### Finding #29 — Observation UPSERT only overwrites when the new value is > 0, so it cannot correct an over-count down or store a true zero
 - **Severity:** S3
 - **Domain:** recorder-data
-- **Status:** open
+- **Status:** → recorder-ssot (change created 2026-06-07; addressed by D4 presence-based overwrite)
 - **Location:** `backend/learning/store.py:166-189` (`case((excluded.X > 0, excluded.X), else_=existing)` for import/export/pv/load/water/ev)
 - **Symptom:** Once a slot has a positive energy value, a later corrected record carrying a smaller or zero true value is silently dropped; a genuinely-zero slot can never overwrite an earlier non-zero value. The DB is therefore "first positive write wins," not self-healing.
 - **Root-cause hypothesis:** CONFIRMED (code read). Intentional anti-wipe guard (comment "REV F35: prevents backfill from wiping data"), but the side effect is that a wrongly-high value (e.g. from a spike or the #25 mislabel) cannot be repaired by re-recording, and legitimate zeros are unrepresentable.
@@ -465,7 +465,7 @@ These are the architecture decisions the diagnosis surfaces. They are intentiona
   - `load_kwh` means **total** for backfill-written rows but **base load** (EV/water subtracted) for live rows (#27) — the clearest SSOT violation.
   - `charge_kw` is grid-sourced only while a sibling field is total battery charge (#12); recorder rows are labelled one slot off (#25); and the UPSERT >0 guard prevents corrections/true-zeros (#29).
   - `slot_observations` has **two writers** across module boundaries: the recorder owns the energy/price columns (`backend/recorder.py`), while the **executor** writes `executed_action` into the same table via a raw `UPDATE` (`executor/history.py:155`).
-  - **Question:** define the canonical owner and meaning of each `slot_observations` column, and decide whether disaggregation should be unified across *all* writers (live recorder + backfill) so the ML training column has one consistent meaning. **Decision deferred** to the recorder/SSOT solution session.
+  - **Question:** define the canonical owner and meaning of each `slot_observations` column, and decide whether disaggregation should be unified across *all* writers (live recorder + backfill) so the ML training column has one consistent meaning. **RESOLVED → `recorder-ssot` (change created 2026-06-07):** D5 assigns one canonical owner per column (recorder = energy/price incl. `load_kwh`=base; executor = `executed_action`), and D3 unifies disaggregation across live + backfill so `load_kwh` has one meaning.
 
 **Batching note:** OQ1–OQ4 likely become one `fix-pv-forecast-safety` change (clamp + cold-start + toggle, with physics calibration optional); OQ5 is essentially closed by `pv-open-meteo-baseline` (only the NaN-fallback cleanup remains). OQ6 fits a `harden-executor-safety` change; OQ7 fits a `recorder-ssot` change alongside #25–#29.
 
@@ -573,7 +573,7 @@ Clusters of the 33 actionable findings, grouped by domain + shared blast radius.
 **1. `harden-ci-and-tests` — S4/S3 infra (batch).** Findings **#3, #5, #11, #37, #38.**
 The CI floor + runtime-robustness cluster: run all suites + pyright as merge gates (#3), add characterization tests for the untested `backend/` glue (#5), replace `print()` with the logger (#11), wire `ensure_wal_mode()` at startup (#37), move sync DB reads off the event loop / add busy-timeouts (#38). Ship **first** — it protects every other change. *Caveat:* #38 has the unverified training-orchestrator residual (see audit) — resolve before final scope.
 
-**2. `recorder-ssot` — S2/S3 data consistency (batch, tightly coupled).** Findings **#25, #26, #27, #28, #29** + **OQ7.**
+**2. `recorder-ssot` — S2/S3 data consistency (batch, tightly coupled). ✅ CHANGE CREATED 2026-06-07 (`openspec/changes/recorder-ssot/`, artifacts complete, not yet implemented).** Findings **#25, #26, #27, #28, #29** + **OQ7.**
 Must be designed as one unit — they are interdependent: #25 (slot-label off-by-one + snapshot vs. integration) is the root; #26 (base-load subtraction) and #27 (backfill writes total, not base) both depend on the #25/#28 fix; #28 (time-weighted integration) is the shared primitive; #29 (UPSERT >0 guard blocks corrections). OQ7 defines the canonical owner/meaning of each `slot_observations` column (incl. the recorder↔executor dual-write). Highest-value data cluster — four S2s feed bad, time-shifted targets into ML training.
 
 **3. `fix-ml-forecast-correctness` — S3/S4 ML pipeline (batch).** Findings **#9, #10, #15, #16, #17, #18.**
