@@ -450,7 +450,7 @@ class KeplerSolver:
                     else config.max_discharge_power_kw
                 ) * h
                 prob += grid_export[t] <= M_export * is_exporting[t]
-                prob += soc[t] >= (
+                prob += soc[t + 1] >= (
                     export_floor_kwh * is_exporting[t]
                     + min_soc_kwh * (1 - is_exporting[t])
                     - export_floor_violation[t]

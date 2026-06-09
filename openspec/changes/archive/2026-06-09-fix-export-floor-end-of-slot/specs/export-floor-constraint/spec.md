@@ -1,8 +1,4 @@
-## Purpose
-
-TBD — Export SoC floor constraint for the Kepler MILP solver.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Export SoC Floor Constraint in Kepler MILP
 The Kepler solver SHALL enforce an export-floor SoC constraint: grid export SHALL only be allowed in slot `t` when the **end-of-slot** SoC `soc[t+1]` (the SoC after that slot's discharge) is at or above `export_floor_kwh` (derived from `export_floor_soc_percent`). This SHALL be implemented as a soft constraint using a per-slot binary variable `is_exporting[t]` and a per-slot slack variable `export_floor_violation[t] >= 0`, penalized in the objective at `EXPORT_FLOOR_PENALTY` (1000 SEK/kWh).

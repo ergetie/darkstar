@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from planner.solver.kepler import KeplerSolver
-from planner.solver.types import KeplerConfig, KeplerInput, KeplerInputSlot
+from planner.solver.types import KeplerConfig, KeplerInput, KeplerInputSlot, KeplerResult
 
 
 def _make_slots(
@@ -58,6 +58,14 @@ def _base_config(
     )
 
 
+def _assert_exporting_slots_end_at_or_above_floor(
+    result: KeplerResult, floor_kwh: float
+) -> None:
+    for slot in result.slots:
+        if slot.grid_export_kwh > 0.01:
+            assert slot.soc_kwh >= floor_kwh - 0.01
+
+
 class TestExportFloorBlocksExportBelowFloor:
     def test_export_blocked_when_soc_below_floor(self):
         capacity = 34.2
@@ -75,6 +83,7 @@ class TestExportFloorBlocksExportBelowFloor:
         # but exporting 2.75 kWh earns only 13.75 SEK. Net loss, so no export.
         for s in result.slots:
             assert s.grid_export_kwh == pytest.approx(0.0, abs=0.01)
+        _assert_exporting_slots_end_at_or_above_floor(result, floor_kwh)
 
 
 class TestExportFloorAllowedAboveFloor:
@@ -83,7 +92,7 @@ class TestExportFloorAllowedAboveFloor:
         floor_pct = 20
         floor_kwh = capacity * floor_pct / 100.0  # 6.84
 
-        slots = _make_slots(2, export_price=5.0)
+        slots = _make_slots(2, import_price=10.0, export_price=5.0)
         input_data = KeplerInput(slots=slots, initial_soc_kwh=10.0)  # above floor
 
         config = _base_config(capacity=capacity, export_floor=floor_pct)
@@ -92,6 +101,67 @@ class TestExportFloorAllowedAboveFloor:
         assert result.is_optimal
         total_export = sum(s.grid_export_kwh for s in result.slots)
         assert total_export > 0.01
+        _assert_exporting_slots_end_at_or_above_floor(result, floor_kwh)
+
+
+class TestExportFloorBoundarySlot:
+    def test_partial_export_lands_at_floor(self):
+        capacity = 34.2
+        floor_pct = 20
+        floor_kwh = capacity * floor_pct / 100.0  # 6.84
+        initial_soc_kwh = floor_kwh + 1.0
+        max_export_kw = 11.0
+        full_slot_export_kwh = max_export_kw * 0.25
+
+        slots = _make_slots(1, import_price=10.0, export_price=5.0)
+        input_data = KeplerInput(slots=slots, initial_soc_kwh=initial_soc_kwh)
+
+        config = _base_config(
+            capacity=capacity,
+            export_floor=floor_pct,
+            max_export_kw=max_export_kw,
+            max_charge_kw=0.001,
+        )
+        result = KeplerSolver().solve(input_data, config)
+
+        assert result.is_optimal
+        slot = result.slots[0]
+        assert slot.grid_export_kwh == pytest.approx(1.0, abs=0.01)
+        assert 0.01 < slot.grid_export_kwh < full_slot_export_kwh - 0.01
+        assert slot.soc_kwh == pytest.approx(floor_kwh, abs=0.01)
+        _assert_exporting_slots_end_at_or_above_floor(result, floor_kwh)
+
+
+class TestExportFloorProductionRegression:
+    def test_high_power_export_does_not_overshoot_floor(self):
+        capacity = 66.0
+        floor_pct = 28.0
+        floor_kwh = capacity * floor_pct / 100.0  # 18.48
+        initial_soc_kwh = capacity * 0.283  # 28.3%, just above the floor
+        max_export_kw = 16.5
+        full_slot_export_kwh = max_export_kw * 0.25
+        allowable_export_kwh = initial_soc_kwh - floor_kwh
+
+        slots = _make_slots(1, import_price=10.0, export_price=5.0)
+        input_data = KeplerInput(slots=slots, initial_soc_kwh=initial_soc_kwh)
+
+        config = _base_config(
+            capacity=capacity,
+            export_floor=floor_pct,
+            max_export_kw=max_export_kw,
+            max_discharge_kw=max_export_kw,
+            max_charge_kw=0.001,
+        )
+        result = KeplerSolver().solve(input_data, config)
+
+        assert result.is_optimal
+        slot = result.slots[0]
+        assert slot.grid_export_kwh > 0.01
+        assert slot.grid_export_kwh == pytest.approx(allowable_export_kwh, abs=0.01)
+        assert slot.grid_export_kwh < full_slot_export_kwh - 0.01
+        assert slot.soc_kwh == pytest.approx(floor_kwh, abs=0.01)
+        assert slot.soc_kwh / capacity * 100.0 >= floor_pct - 0.01
+        _assert_exporting_slots_end_at_or_above_floor(result, floor_kwh)
 
 
 class TestExportFloorSoftViolation:
