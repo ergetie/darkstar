@@ -102,11 +102,13 @@ def _generate_baseline_forecasts(
         logger.warning("No history available for baseline computation.")
         return []
 
-    grouped = history.groupby("hour").agg(
-        load_kwh=("load_kwh", "mean"),
-        pv_kwh=("pv_kwh", "mean"),
-        temp_c=("temp_c", "mean") if "temp_c" in history.columns else ("load_kwh", "mean"),
-    )
+    agg_spec: dict[str, tuple[str, str]] = {
+        "load_kwh": ("load_kwh", "mean"),
+        "pv_kwh": ("pv_kwh", "mean"),
+    }
+    if "temp_c" in history.columns:
+        agg_spec["temp_c"] = ("temp_c", "mean")
+    grouped = history.groupby("hour").agg(**agg_spec)
 
     forecasts: list[dict[str, Any]] = []
     for _, row in df.iterrows():
@@ -141,45 +143,74 @@ def _predict_with_boosters(
     engine: LearningEngine,
     aurora_version: str,
 ) -> list[dict[str, Any]]:
-    """Generate AURORA forecasts given boosters and features."""
+    """Generate AURORA forecasts given boosters and features.
+
+    Mirrors the live inference pipeline:
+    - Always builds the same 11-feature set as forward.py
+    - PV uses residual mode: final = openmeteo_baseline + ml_residual
+    - Evaluates all quantiles (p10, p50, p90)
+    """
     if features.empty or observations.empty:
         return []
 
-    feature_cols = [
+    # Mirror inference: always build all 11 features (NaN-fill when absent)
+    load_feature_cols = [
         "hour",
         "day_of_week",
         "month",
         "is_weekend",
         "hour_sin",
         "hour_cos",
+        "temp_c",
+        "cloud_cover_pct",
+        "shortwave_radiation_w_m2",
+        "vacation_mode_flag",
+        "alarm_armed_flag",
     ]
-    if "temp_c" in features.columns:
-        feature_cols.append("temp_c")
-    if "cloud_cover_pct" in features.columns:
-        feature_cols.append("cloud_cover_pct")
-    if "shortwave_radiation_w_m2" in features.columns:
-        feature_cols.append("shortwave_radiation_w_m2")
-    if "vacation_mode_flag" in features.columns:
-        feature_cols.append("vacation_mode_flag")
-    if "alarm_armed_flag" in features.columns:
-        feature_cols.append("alarm_armed_flag")
+    for col in load_feature_cols:
+        if col not in features.columns:
+            features[col] = np.nan
+        features[col] = pd.to_numeric(features[col], errors="coerce")
 
-    for col in feature_cols:
-        if col in features.columns:
-            features[col] = pd.to_numeric(features[col], errors="coerce")
+    X_load = features[load_feature_cols]
 
-    X = features[feature_cols]
+    # PV feature set also includes physics_forecast_kwh (= openmeteo baseline)
+    pv_feature_cols = [*load_feature_cols, "physics_forecast_kwh"]
+    features_pv = features.copy()
+    if "openmeteo_pv_forecast_kwh" in observations.columns:
+        features_pv["physics_forecast_kwh"] = pd.to_numeric(
+            observations["openmeteo_pv_forecast_kwh"], errors="coerce"
+        )
+    else:
+        features_pv["physics_forecast_kwh"] = np.nan
+    X_pv = features_pv[pv_feature_cols]
 
-    load_pred: np.ndarray | None = None
-    pv_pred: np.ndarray | None = None
+    quantiles = ["p10", "p50", "p90"]
 
-    if boosters.get("load") is not None:
-        load_pred = cast("np.ndarray", boosters["load"].predict(X))  # type: ignore[arg-type]
-    if boosters.get("pv") is not None:
-        pv_pred = cast("np.ndarray", boosters["pv"].predict(X))  # type: ignore[arg-type]
+    load_preds: dict[str, np.ndarray] = {}
+    for q in quantiles:
+        key = f"load_{q}"
+        if boosters.get(key) is not None:
+            load_preds[q] = cast("np.ndarray", boosters[key].predict(X_load))  # type: ignore[arg-type]
+
+    # For PV: add Open-Meteo baseline back to residual prediction
+    openmeteo_baseline = np.zeros(len(observations))
+    if "openmeteo_pv_forecast_kwh" in observations.columns:
+        openmeteo_baseline = (
+            pd.to_numeric(observations["openmeteo_pv_forecast_kwh"], errors="coerce")
+            .fillna(0.0)
+            .values
+        )
+
+    pv_preds: dict[str, np.ndarray] = {}
+    for q in quantiles:
+        key = f"pv_{q}"
+        if boosters.get(key) is not None:
+            residual = cast("np.ndarray", boosters[key].predict(X_pv))  # type: ignore[arg-type]
+            pv_preds[q] = np.maximum(0.0, residual + openmeteo_baseline)
 
     forecasts: list[dict[str, Any]] = []
-    for idx, row in observations.iterrows():
+    for pos, (_idx, row) in enumerate(observations.iterrows()):
         slot_start = cast("pd.Timestamp", pd.to_datetime(row["slot_start"]))
         if slot_start.tzinfo is None:
             slot_start = engine.timezone.localize(slot_start)
@@ -188,16 +219,17 @@ def _predict_with_boosters(
 
         record: dict[str, Any] = {
             "slot_start": slot_start.isoformat(),
-            "pv_forecast_kwh": 0.0,
-            "load_forecast_kwh": 0.0,
+            "pv_forecast_kwh": float(pv_preds["p50"][pos]) if "p50" in pv_preds else 0.0,
+            "load_forecast_kwh": float(load_preds["p50"][pos]) if "p50" in load_preds else 0.0,
             "temp_c": row.get("temp_c"),
         }
 
-        pos = features.index.get_loc(idx)
-        if load_pred is not None:
-            record["load_forecast_kwh"] = float(max(load_pred[pos], 0.0))
-        if pv_pred is not None:
-            record["pv_forecast_kwh"] = float(max(pv_pred[pos], 0.0))
+        # Include all quantiles when available
+        for q in quantiles:
+            if q in load_preds:
+                record[f"load_{q}"] = float(max(load_preds[q][pos], 0.0))
+            if q in pv_preds:
+                record[f"pv_{q}"] = float(pv_preds[q][pos])
 
         forecasts.append(record)
     return forecasts
@@ -423,13 +455,19 @@ def main() -> None:
     # Build features consistent with training
     features: pd.DataFrame = _build_time_features(observations)
 
-    # Load trained models (as boosters)
-    load_model_path = cfg.models_dir / cfg.load_model_name
-    pv_model_path = cfg.models_dir / cfg.pv_model_name
-    boosters: dict[str, lgb.Booster | None] = {
-        "load": _load_model(load_model_path),
-        "pv": _load_model(pv_model_path),
-    }
+    # Load all quantile models; fall back to legacy p50 names when specific files absent
+    boosters: dict[str, lgb.Booster | None] = {}
+    for q in ("p10", "p50", "p90"):
+        suffix = f"_{q}"
+        load_path = cfg.models_dir / cfg.load_model_name.replace(".lgb", f"{suffix}.lgb")
+        if not load_path.exists() and q == "p50":
+            load_path = cfg.models_dir / cfg.load_model_name
+        boosters[f"load_{q}"] = _load_model(load_path)
+
+        pv_path = cfg.models_dir / cfg.pv_model_name.replace(".lgb", f"{suffix}.lgb")
+        if not pv_path.exists() and q == "p50":
+            pv_path = cfg.models_dir / cfg.pv_model_name
+        boosters[f"pv_{q}"] = _load_model(pv_path)
 
     # Generate and store baseline forecasts (simple 7-day average)
     baseline_forecasts = _generate_baseline_forecasts(observations, engine)
@@ -442,7 +480,7 @@ def main() -> None:
     else:
         print("Warning: No baseline forecasts generated.")
 
-    # Generate and store AURORA forecasts
+    # Generate and store AURORA forecasts (all quantiles, residual PV pipeline)
     aurora_forecasts = _predict_with_boosters(
         {k: v for k, v in boosters.items() if v is not None},
         features,

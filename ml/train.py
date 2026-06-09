@@ -227,6 +227,7 @@ def _load_slot_observations(
     )
     df = df.dropna(subset=["slot_start"])
     df["slot_start"] = df["slot_start"].dt.tz_convert(engine.timezone)
+    df = df.reset_index(drop=True)
 
     return df
 
@@ -285,11 +286,17 @@ def _train_regressor(
     return model
 
 
-def _save_model(model: lgb.LGBMRegressor, path: Path) -> None:
+def _save_model(
+    model: lgb.LGBMRegressor, path: Path, feature_names: list[str] | None = None
+) -> None:
     """Save a LightGBM model to disk in native format."""
+    import json
+
     path.parent.mkdir(parents=True, exist_ok=True)
     booster = model.booster_
     booster.save_model(str(path))
+    if feature_names is not None:
+        path.with_suffix(".features.json").write_text(json.dumps({"feature_names": feature_names}))
     print(f"Saved model to {path}")
 
 
@@ -338,8 +345,12 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
     # Basic cleaning
     observations = observations.sort_values("slot_start")
 
-    # Compute sample weights based on recency
-    sample_weights = _compute_sample_weights(observations, config=cfg)
+    # Compute sample weights based on recency; wrap in a Series indexed by observations.index
+    # so that label-safe .loc slicing works even if the index was reset
+    sample_weights = pd.Series(
+        _compute_sample_weights(observations, config=cfg),
+        index=observations.index,
+    )
 
     # Enrich with hourly weather where available
     weather_df = get_weather_series(obs_start, now, config=engine.config)
@@ -351,7 +362,8 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
             how="left",
         )
     else:
-        observations["temp_c"] = None
+        for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
+            observations[col] = np.nan
 
     # Ensure numeric dtypes for LightGBM
     for col in ("temp_c", "cloud_cover_pct", "shortwave_radiation_w_m2"):
@@ -414,8 +426,8 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
     if not load_df.empty:
         X_load = load_df[feature_cols]
         y_load = load_df["load_kwh"].astype(float)
-        # Extract sample weights for load training samples
-        load_weights = sample_weights[load_df.index]
+        # Extract sample weights for load training samples (label-safe .loc)
+        load_weights = sample_weights.loc[load_df.index].to_numpy()
         print(f"Training load models on {len(X_load)} samples...")
 
         for q_name, alpha in quantiles.items():
@@ -426,10 +438,12 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
             if model is not None:
                 suffix = f"_{q_name}"
                 filename = cfg.load_model_name.replace(".lgb", f"{suffix}.lgb")
-                _save_model(model, cfg.models_dir / filename)
+                _save_model(model, cfg.models_dir / filename, feature_names=feature_cols)
 
                 if q_name == "p50":
-                    _save_model(model, cfg.models_dir / cfg.load_model_name)
+                    _save_model(
+                        model, cfg.models_dir / cfg.load_model_name, feature_names=feature_cols
+                    )
     else:
         print("Warning: No valid load_kwh samples found; skipping load models.")
 
@@ -471,8 +485,8 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
 
             X_pv = pv_df[pv_feature_cols]
             y_pv = pv_df["pv_residual"].astype(float)
-            # Extract sample weights for PV training samples
-            pv_weights = sample_weights[pv_df.index]
+            # Extract sample weights for PV training samples (label-safe .loc)
+            pv_weights = sample_weights.loc[pv_df.index].to_numpy()
             print(f"Training PV models on {len(X_pv)} samples (residual mode)...")
 
             for q_name, alpha in quantiles.items():
@@ -483,10 +497,12 @@ def train_models(min_samples: int = 100, recency_half_life_days: float = 30.0) -
                 if model is not None:
                     suffix = f"_{q_name}"
                     filename = cfg.pv_model_name.replace(".lgb", f"{suffix}.lgb")
-                    _save_model(model, cfg.models_dir / filename)
+                    _save_model(model, cfg.models_dir / filename, feature_names=pv_feature_cols)
 
                     if q_name == "p50":
-                        _save_model(model, cfg.models_dir / cfg.pv_model_name)
+                        _save_model(
+                            model, cfg.models_dir / cfg.pv_model_name, feature_names=pv_feature_cols
+                        )
     else:
         print("Warning: No non-null pv_kwh samples found; skipping PV models.")
 

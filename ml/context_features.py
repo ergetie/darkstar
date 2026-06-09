@@ -4,6 +4,7 @@ Feature engineering for Darkstar/Aurora forecasting (Rev 76).
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ import yaml
 from backend.core.ha_client import make_ha_headers
 from backend.core.secrets import load_home_assistant_config
 from utils.time_utils import dst_safe_date_range
+
+logger = logging.getLogger(__name__)
 
 
 def _load_config(config_path: str = "config.yaml") -> dict[str, Any]:
@@ -62,7 +65,10 @@ def get_vacation_mode_series(
         resp = requests.get(api_url, headers=headers, params=params, timeout=20)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning(
+            "Failed to fetch HA context feature for %s: %s; using empty fallback", entity_id, exc
+        )
         return pd.Series(dtype="float32")
 
     if not data or not data[0]:
@@ -145,7 +151,10 @@ def get_alarm_armed_series(
         resp = requests.get(api_url, headers=headers, params=params, timeout=20)
         resp.raise_for_status()
         data = resp.json()
-    except Exception:
+    except (requests.RequestException, ValueError) as exc:
+        logger.warning(
+            "Failed to fetch HA context feature for %s: %s; using empty fallback", entity_id, exc
+        )
         return pd.Series(dtype="float32")
 
     if not data or not data[0]:

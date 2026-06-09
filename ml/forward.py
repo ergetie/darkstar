@@ -126,6 +126,22 @@ async def _fetch_openmeteo_baseline_series(
     return pd.Series(values[: len(slots)], index=slots.index)
 
 
+_EXPECTED_LOAD_FEATURES = [
+    "hour",
+    "day_of_week",
+    "month",
+    "is_weekend",
+    "hour_sin",
+    "hour_cos",
+    "temp_c",
+    "cloud_cover_pct",
+    "shortwave_radiation_w_m2",
+    "vacation_mode_flag",
+    "alarm_armed_flag",
+]
+_EXPECTED_PV_FEATURES = [*_EXPECTED_LOAD_FEATURES, "physics_forecast_kwh"]
+
+
 def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
     """Load trained LightGBM models for AURORA forward inference (Probabilistic).
 
@@ -133,7 +149,29 @@ def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
         dict mapping model names to Booster objects.
         Empty dict if no models could be loaded.
     """
+    import json
+    from pathlib import Path as _Path
+
     models: dict[str, lgb.Booster] = {}
+
+    def _validate_features(model_path: str, model_key: str) -> bool:
+        features_file = _Path(model_path).with_suffix(".features.json")
+        if not features_file.exists():
+            return True
+        try:
+            stored = json.loads(features_file.read_text()).get("feature_names", [])
+        except Exception:
+            return True
+        expected = _EXPECTED_PV_FEATURES if model_key.startswith("pv") else _EXPECTED_LOAD_FEATURES
+        if sorted(stored) != sorted(expected):
+            logger.warning(
+                "Feature mismatch for %s: stored=%s expected=%s; falling back to baseline",
+                model_path,
+                stored,
+                expected,
+            )
+            return False
+        return True
 
     # Quantiles to load
     quantiles = ["p10", "p50", "p90"]
@@ -142,13 +180,19 @@ def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
     for q in quantiles:
         # Try specific quantile file first
         path = f"{models_dir}/load_model_{q}.lgb"
+        model_key = f"load_{q}"
         try:
-            models[f"load_{q}"] = lgb.Booster(model_file=path)
+            booster = lgb.Booster(model_file=path)
+            if _validate_features(path, model_key):
+                models[model_key] = booster
         except Exception:
             # Fallback for p50: try legacy name
             if q == "p50":
+                fallback_path = f"{models_dir}/load_model.lgb"
                 try:
-                    models[f"load_{q}"] = lgb.Booster(model_file=f"{models_dir}/load_model.lgb")
+                    booster = lgb.Booster(model_file=fallback_path)
+                    if _validate_features(fallback_path, model_key):
+                        models[model_key] = booster
                 except Exception as exc:
                     logger.debug(f"Could not load load_model ({q}): {exc}")
             else:
@@ -157,12 +201,18 @@ def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
     # Load PV Models
     for q in quantiles:
         path = f"{models_dir}/pv_model_{q}.lgb"
+        model_key = f"pv_{q}"
         try:
-            models[f"pv_{q}"] = lgb.Booster(model_file=path)
+            booster = lgb.Booster(model_file=path)
+            if _validate_features(path, model_key):
+                models[model_key] = booster
         except Exception:
             if q == "p50":
+                fallback_path = f"{models_dir}/pv_model.lgb"
                 try:
-                    models[f"pv_{q}"] = lgb.Booster(model_file=f"{models_dir}/pv_model.lgb")
+                    booster = lgb.Booster(model_file=fallback_path)
+                    if _validate_features(fallback_path, model_key):
+                        models[model_key] = booster
                 except Exception as exc:
                     logger.debug(f"Could not load pv_model ({q}): {exc}")
             else:
@@ -382,16 +432,11 @@ async def generate_forward_slots(
 
     openmeteo_series = await _fetch_openmeteo_baseline_series(df["slot_start"], engine.config)
     openmeteo_series = pd.Series(list(openmeteo_series), index=df.index, dtype="float64")
-    baseline_series = pd.Series(
-        [
-            float(openmeteo_value)
-            if pd.notna(openmeteo_value)
-            else float(physics_series.iloc[pos_idx] or 0.0)
-            for pos_idx, openmeteo_value in enumerate(openmeteo_series)
-        ],
-        index=df.index,
-        dtype="float64",
-    )
+    # Fill interior NaN slots by linear interpolation from neighbouring valid slots.
+    # Leading/trailing NaN runs (no valid neighbour) fall back to 0, never the home-grown physics.
+    baseline_series: pd.Series = openmeteo_series.interpolate(
+        method="linear", limit_area="inside"
+    ).fillna(0.0)  # type: ignore[assignment]
     physical_ceiling_kwh = _pv_physical_ceiling_kwh(engine.config)
     personalization_weight, paired_days, ramp_days = await _pv_personalization_weight(engine)
     if physical_ceiling_kwh > 0.0:
@@ -516,24 +561,54 @@ async def generate_forward_slots(
 
             predictions[f"ml_residual_{q}"] = pd.Series(0.0, index=df.index)
 
+    # Repair applies only when all 3 quantile models were predicted (not default-zero placeholders)
+    _load_all_q = all(f"load_{q}" in models for q in quantiles)
+    _pv_all_q = all(f"pv_{q}" in models for q in quantiles)
+
     # --- STORE RESULTS ---
     forecasts: list[dict[str, Any]] = []
     for idx, row in df.iterrows():
+        # Repair: ensure p10 ≤ p50 ≤ p90 before storage (only when all 3 were predicted)
+        if _load_all_q:
+            load_p10_v, load_p50_v, load_p90_v = sorted(
+                [
+                    float(predictions["load_p10"][idx]),  # type: ignore[reportUnknownArgumentType]
+                    float(predictions["load_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
+                    float(predictions["load_p90"][idx]),  # type: ignore[reportUnknownArgumentType]
+                ]
+            )
+        else:
+            load_p10_v = float(predictions["load_p10"][idx])  # type: ignore[reportUnknownArgumentType]
+            load_p50_v = float(predictions["load_p50"][idx])  # type: ignore[reportUnknownArgumentType]
+            load_p90_v = float(predictions["load_p90"][idx])  # type: ignore[reportUnknownArgumentType]
+
+        if _pv_all_q:
+            pv_p10_v, pv_p50_v, pv_p90_v = sorted(
+                [
+                    float(predictions["pv_p10"][idx]),  # type: ignore[reportUnknownArgumentType]
+                    float(predictions["pv_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
+                    float(predictions["pv_p90"][idx]),  # type: ignore[reportUnknownArgumentType]
+                ]
+            )
+        else:
+            pv_p10_v = float(predictions["pv_p10"][idx])  # type: ignore[reportUnknownArgumentType]
+            pv_p50_v = float(predictions["pv_p50"][idx])  # type: ignore[reportUnknownArgumentType]
+            pv_p90_v = float(predictions["pv_p90"][idx])  # type: ignore[reportUnknownArgumentType]
         item = {
             "slot_start": row["slot_start"].isoformat(),
             "temp_c": row.get("temp_c"),
             # Primary (Legacy/p50)
-            "pv_forecast_kwh": float(predictions["pv_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
+            "pv_forecast_kwh": pv_p50_v,
             "openmeteo_pv_forecast_kwh": float(predictions["openmeteo_baseline_kwh"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "load_forecast_kwh": float(predictions["load_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "base_load_forecast_kwh": float(predictions["load_p50"][idx]),  # type: ignore[reportUnknownArgumentType]
-            # Probabilistic Bands
-            "pv_p10": float(predictions["pv_p10"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "pv_p90": float(predictions["pv_p90"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "load_p10": float(predictions["load_p10"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "load_p90": float(predictions["load_p90"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "base_load_p10": float(predictions["load_p10"][idx]),  # type: ignore[reportUnknownArgumentType]
-            "base_load_p90": float(predictions["load_p90"][idx]),  # type: ignore[reportUnknownArgumentType]
+            "load_forecast_kwh": load_p50_v,
+            "base_load_forecast_kwh": load_p50_v,
+            # Probabilistic Bands (monotonic after repair)
+            "pv_p10": pv_p10_v,
+            "pv_p90": pv_p90_v,
+            "load_p10": load_p10_v,
+            "load_p90": load_p90_v,
+            "base_load_p10": load_p10_v,
+            "base_load_p90": load_p90_v,
         }
         forecasts.append(item)
 

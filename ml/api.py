@@ -6,6 +6,7 @@ Supports hybrid PV forecasting with physics base + ML residual.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 import pandas as pd
@@ -16,6 +17,8 @@ from ml.weather import calculate_physics_pv, get_weather_series
 
 if TYPE_CHECKING:
     from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 def get_engine() -> LearningEngine:
@@ -32,7 +35,8 @@ def _load_config() -> dict[str, Any]:
     try:
         with Path("config.yaml").open(encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
-    except Exception:
+    except (FileNotFoundError, OSError, yaml.YAMLError) as exc:
+        logger.warning("Failed to load config.yaml: %s; using empty config", exc)
         return {}
 
 
@@ -138,6 +142,23 @@ async def get_forecast_slots(
         base_pv = openmeteo_pv if raw_openmeteo_pv is not None else physics_kwh
         ml_residual_kwh = final_pv - base_pv
 
+        # Repair monotonic quantile ordering on read (corrects any historical crossed rows)
+        if pv_p10_val is not None and pv_p90_val is not None:
+            _pv_sorted = sorted([float(pv_p10_val), final_pv, float(pv_p90_val)])
+            pv_p10_out: float | None = _pv_sorted[0]
+            pv_p90_out: float | None = _pv_sorted[2]
+        else:
+            pv_p10_out = float(pv_p10_val) if pv_p10_val is not None else None
+            pv_p90_out = float(pv_p90_val) if pv_p90_val is not None else None
+
+        if load_p10_val is not None and load_p90_val is not None:
+            _load_sorted = sorted([float(load_p10_val), base_load, float(load_p90_val)])
+            load_p10_out: float | None = _load_sorted[0]
+            load_p90_out: float | None = _load_sorted[2]
+        else:
+            load_p10_out = float(load_p10_val) if load_p10_val is not None else None
+            load_p90_out = float(load_p90_val) if load_p90_val is not None else None
+
         # Legacy Open-Meteo entry
         om_entry = open_meteo_data.get(slot_ts_str, {})
 
@@ -154,10 +175,10 @@ async def get_forecast_slots(
                 # Legacy fields (backward compatibility)
                 "base": {"pv_kwh": round(base_pv, 4), "load_kwh": round(base_load, 4)},
                 "probabilistic": {
-                    "pv_p10": float(pv_p10_val) if pv_p10_val is not None else None,
-                    "pv_p90": float(pv_p90_val) if pv_p90_val is not None else None,
-                    "load_p10": float(load_p10_val) if load_p10_val is not None else None,
-                    "load_p90": float(load_p90_val) if load_p90_val is not None else None,
+                    "pv_p10": pv_p10_out,
+                    "pv_p90": pv_p90_out,
+                    "load_p10": load_p10_out,
+                    "load_p90": load_p90_out,
                 },
                 "temp_c": row.get("temp_c"),
                 "forecast_version": row.get("forecast_version"),
