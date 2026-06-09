@@ -33,6 +33,14 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [Testing] Frontend Test Coverage Gap
+
+**Goal:** Establish meaningful automated test coverage for the frontend. Currently only ~2 tests exist for ~100 components.
+
+**Notes:** Flagged during the stabilization review (2026-06, finding #3). That review was scoped backend-only, so the gap was recorded but never actioned. The backend CI/test floor is being addressed by the `harden-ci-and-tests` change; the frontend remains a separate, unaddressed follow-up. Needs a decision on framework/scope before promotion (which critical components/flows to cover first).
+
+---
+
 #### [Price Forecast / S-Index] Calibrate `RISK_PRICE_KW_FRACTION` Against Real Price Data
 
 **Goal:** Revisit the risk-fraction constants `{1: 0.15, 2: 0.12, 3: 0.10, 4: 0.05, 5: 0.02}` in `planner/strategy/s_index.py` after Module 3 (price-forecasting-module-3) has been live in production for 2–4 weeks and a meaningful sample of real positive-spread events has been observed. Determine whether the resulting floor adjustments match expected behavior or need tuning.
@@ -105,34 +113,9 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-#### [Planner] Inverter AC Limit Constraint Overcounts PV-to-Battery Path
+#### ~~[Planner] Inverter AC Limit Constraint Overcounts PV-to-Battery Path~~ → PROMOTED
 
-**Goal:** Refine the inverter AC limit constraint in `planner/solver/kepler.py:324` to reflect the physical reality that PV is DC and can route to the battery (DC-to-DC) without crossing the AC inverter boundary. The current constraint `discharge[t] + s.pv_kwh <= inverter_ac_kwh` assumes 100% of PV passes through the AC inverter, which is not true for hybrid inverters with DC-coupled batteries.
-
-**Notes:** Discovered during investigation of planner infeasibility issues (2026-04-23, log `ace75461_darkstar-dev_2026-04-22T13-53-37.260Z.log`). Flagged as out of scope for the `planner-resilience-and-diagnostics` change because fixing it is a physical-model refactor, not a resilience/diagnostic concern.
-
-Correct model should distinguish between:
-- `pv_to_battery_kwh` — DC-coupled, bypasses AC inverter, limited by battery charge power and PV availability
-- `pv_to_ac_kwh` — passes through inverter to feed load / export
-- `battery_to_ac_kwh` (current `discharge[t]`) — passes through inverter to feed load / export
-
-The AC limit should apply to `pv_to_ac_kwh + battery_to_ac_kwh`, not `s.pv_kwh + discharge[t]`.
-
-Impact:
-- The current constraint is conservative (over-restrictive), so it does not cause infeasibility in typical configurations (PV rarely exceeds inverter AC limit in a 15-min slot alone), but it can suppress legitimate plans where PV > AC limit and the excess should route to the battery.
-- For users with inverters where the AC output is smaller than the peak PV production (e.g., 8 kW AC inverter with 12 kWp PV array), the planner may falsely mark slots as needing curtailment or refuse solutions that are physically valid.
-
-Design considerations:
-- Requires new variables `pv_to_battery[t]` and `pv_to_ac[t]` with `pv_to_battery[t] + pv_to_ac[t] + curtailment[t] == s.pv_kwh`.
-- `charge[t]` must be sourced from `pv_to_battery[t] + grid_import_to_battery[t]` (if grid charging is allowed) — need to decide whether to preserve simple `charge[t]` variable or split.
-- AC constraint becomes `pv_to_ac[t] + discharge[t] <= inverter_ac_kwh`.
-- DC charge path may have its own power limit distinct from AC inverter (check inverter specs: some hybrid inverters have separate DC charge power and AC output ratings).
-- Existing tests in `tests/planner/` will need updates to reflect the new decision variables.
-- Ramping, wear, and efficiency constraints should continue to operate on total charge/discharge, not per path.
-
-Pre-requisites:
-- Confirm the set of inverter topologies supported (DC-coupled hybrid vs AC-coupled with separate battery inverter). AC-coupled systems have different physics — battery charging from PV also crosses AC.
-- May warrant a per-inverter topology config flag (`inverter.topology: "dc_coupled" | "ac_coupled"`) to switch constraint behavior.
+Promoted to active change: `fix-inverter-ac-limit-pv-routing` (2026-06-09). Also tracked as stabilization-review finding #34. Full design (PV-routing split, DC- vs AC-coupled topology flag, test updates) lives in `openspec/changes/fix-inverter-ac-limit-pv-routing/`.
 
 ---
 
