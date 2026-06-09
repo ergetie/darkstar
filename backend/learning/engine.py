@@ -59,8 +59,10 @@ class LearningEngine:
     async def store_slot_prices(self, price_rows: Any) -> None:
         await self.store.store_slot_prices(price_rows)
 
-    async def store_slot_observations(self, observations_df: pd.DataFrame) -> None:
-        await self.store.store_slot_observations(observations_df)
+    async def store_slot_observations(
+        self, observations_df: pd.DataFrame, authoritative: bool = True
+    ) -> None:
+        await self.store.store_slot_observations(observations_df, authoritative=authoritative)
 
     async def store_forecasts(self, forecasts: list[dict[str, Any]], forecast_version: str) -> None:
         await self.store.store_forecasts(forecasts, forecast_version)
@@ -118,6 +120,7 @@ class LearningEngine:
             "cumulative_",
             "_kw",
             "_kwh",
+            "_power",
             "_current",
             "_production",
             "_consumption",
@@ -137,7 +140,7 @@ class LearningEngine:
         # REV F55: Handle battery_power and grid_power sensors
         if stripped in ("battery_power", "battery"):
             return "battery"
-        if stripped in ("grid_power",):
+        if stripped in ("grid_power", "grid"):
             return "grid"
 
         aliases = {
@@ -146,6 +149,7 @@ class LearningEngine:
             "pv": {"pv", "solar", "pvproduction", "production", "yield", "solar_yield"},
             "load": {"load", "consumption", "house", "usage", "load_consumption", "house_load"},
             "water": {"water", "vvb", "waterheater", "heater"},
+            "ev_charging": {"ev", "evcharging", "evcharger", "charger"},
             "soc": {"soc", "battery_soc", "socpercent"},
             "battery": {"battery"},  # REV F55: battery power sensors (not SoC)
         }
@@ -157,6 +161,7 @@ class LearningEngine:
     def etl_cumulative_to_slots(
         self,
         cumulative_data: dict[str, list[tuple[datetime, float]]],
+        controllable_power_data: dict[str, list[tuple[datetime, float]]] | None = None,
         resolution_minutes: int = 15,
     ) -> pd.DataFrame:
         """
@@ -242,6 +247,44 @@ class LearningEngine:
             # Use align to ensure values are correctly added to slots
             # deltas.iloc[1:] corresponds to the slots [slots[0]:slots[1]], [slots[1]:slots[2]], etc.
             slot_df[col_name] = slot_df[col_name] + deltas.iloc[1:].values
+
+        if controllable_power_data:
+            power_df = self.etl_power_to_slots(controllable_power_data, resolution_minutes)
+            if not power_df.empty:
+                merge_cols = [
+                    col
+                    for col in ("slot_start", "water_kwh", "ev_charging_kwh")
+                    if col in power_df.columns
+                ]
+                if len(merge_cols) > 1:
+                    slot_df = slot_df.merge(power_df[merge_cols], on="slot_start", how="left")
+                    for col in ("water_kwh", "ev_charging_kwh"):
+                        if col not in slot_df.columns:
+                            slot_df[col] = 0.0
+                        elif f"{col}_x" in slot_df.columns or f"{col}_y" in slot_df.columns:
+                            left = (
+                                slot_df[f"{col}_x"].fillna(0.0)
+                                if f"{col}_x" in slot_df.columns
+                                else 0.0
+                            )
+                            right = (
+                                slot_df[f"{col}_y"].fillna(0.0)
+                                if f"{col}_y" in slot_df.columns
+                                else 0.0
+                            )
+                            slot_df[col] = left + right
+                            slot_df = slot_df.drop(
+                                columns=[
+                                    c for c in (f"{col}_x", f"{col}_y") if c in slot_df.columns
+                                ]
+                            )
+
+        if "load_kwh" in slot_df.columns:
+            controllable_kwh = 0.0
+            for col in ("ev_charging_kwh", "water_kwh"):
+                if col in slot_df.columns:
+                    controllable_kwh = controllable_kwh + slot_df[col].fillna(0.0)
+            slot_df["load_kwh"] = (slot_df["load_kwh"] - controllable_kwh).clip(lower=0.0)
 
         if any(self._canonical_sensor_name(name) == "soc" for name in slot_records):
             soc_name = next(

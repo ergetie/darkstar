@@ -47,13 +47,19 @@ async def test_record_with_retry_succeeds_on_second_attempt():
 
 
 @pytest.mark.asyncio
-async def test_loop_runs_startup_backfills_then_records_and_sleeps():
+async def test_loop_runs_startup_backfills_then_sleeps_and_records():
     service = RecorderService()
     service._running = True
 
+    calls: list[str] = []
+
     async def record_once() -> bool:
+        calls.append("record")
         service._running = False
         return True
+
+    async def sleep_once() -> None:
+        calls.append("sleep")
 
     with (
         patch.object(service, "_load_config", return_value={"loaded": True}),
@@ -61,7 +67,7 @@ async def test_loop_runs_startup_backfills_then_records_and_sleeps():
         patch("backend.services.recorder_service.backfill_missing_prices", new_callable=AsyncMock) as price_backfill,
         patch("backend.services.recorder_service.LoadDisaggregator") as disaggregator_cls,
         patch.object(service, "_record_with_retry", new_callable=AsyncMock, side_effect=record_once) as record,
-        patch.object(service, "_sleep_until_next_quarter", new_callable=AsyncMock) as sleep_to_boundary,
+        patch.object(service, "_sleep_until_next_quarter", new_callable=AsyncMock, side_effect=sleep_once) as sleep_to_boundary,
     ):
         backfill_cls.return_value.run = AsyncMock()
         await service._loop()
@@ -71,3 +77,4 @@ async def test_loop_runs_startup_backfills_then_records_and_sleeps():
     disaggregator_cls.assert_called_once_with({"loaded": True})
     record.assert_awaited_once()
     sleep_to_boundary.assert_awaited_once()
+    assert calls == ["sleep", "record"]

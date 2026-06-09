@@ -1,3 +1,15 @@
+"""Slot observation recorder.
+
+Column ownership for ``slot_observations``:
+
+| Owner | Columns | Meaning |
+| --- | --- | --- |
+| Recorder | energy columns, price columns | Slot-aligned measurements; ``load_kwh`` is base load after EV/water subtraction. |
+| Executor | ``executed_action`` | Action summary for the slot, keyed by ``slot_start``. |
+
+No column is intentionally written by both owners.
+"""
+
 import asyncio
 import contextlib
 import json

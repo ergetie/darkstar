@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 import pytz
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
 
 from backend.learning.models import Base
 from executor.actions import ActionResult
@@ -196,6 +196,41 @@ class TestLogExecution:
 
         assert row_id is not None
         assert row_id > 0
+
+    def test_update_slot_observation_only_touches_executed_action(self, history):
+        slot_start = "2024-01-15T10:00:00+01:00"
+        with history.engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO slot_observations (
+                        slot_start, slot_end, import_kwh, export_kwh, pv_kwh, load_kwh,
+                        water_kwh, ev_charging_kwh, import_price_sek_kwh, export_price_sek_kwh
+                    ) VALUES (
+                        :slot_start, :slot_end, 1.0, 2.0, 3.0, 4.0, 0.5, 0.25, 1.5, 0.75
+                    )
+                    """
+                ),
+                {"slot_start": slot_start, "slot_end": "2024-01-15T10:15:00+01:00"},
+            )
+
+        history.update_slot_observation(slot_start, {"mode": "self_use"})
+
+        with history.engine.connect() as conn:
+            row = conn.execute(
+                text(
+                    """
+                    SELECT import_kwh, export_kwh, pv_kwh, load_kwh, water_kwh,
+                           ev_charging_kwh, import_price_sek_kwh, export_price_sek_kwh,
+                           executed_action
+                    FROM slot_observations WHERE slot_start = :slot_start
+                    """
+                ),
+                {"slot_start": slot_start},
+            ).fetchone()
+
+        assert row[:8] == pytest.approx((1.0, 2.0, 3.0, 4.0, 0.5, 0.25, 1.5, 0.75))
+        assert json.loads(row[8]) == {"mode": "self_use"}
 
     def test_log_full_execution(self, history):
         """Can log a full execution record with all fields."""

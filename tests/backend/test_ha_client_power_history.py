@@ -10,8 +10,14 @@ import pytz
 from backend.core.ha_client import get_energy_from_power_history
 
 
-def _make_state(state_val: str, unit: str = "kW") -> dict:
-    return {"state": state_val, "attributes": {"unit_of_measurement": unit}}
+def _make_state(state_val: str, unit: str = "kW", ts: datetime | None = None) -> dict:
+    if ts is None:
+        ts = START
+    return {
+        "state": state_val,
+        "last_changed": ts.isoformat(),
+        "attributes": {"unit_of_measurement": unit},
+    }
 
 
 def _make_ha_config(url: str = "http://ha.local", token: str = "tok") -> dict:
@@ -26,9 +32,12 @@ class TestGetEnergyFromPowerHistory:
     """Tests for get_energy_from_power_history."""
 
     @pytest.mark.asyncio
-    async def test_normal_data_15_points_averaging_5kw(self):
-        """15 points averaging 5 kW over 0.25h → 1.25 kWh."""
-        states = [_make_state("5.0") for _ in range(15)]
+    async def test_step_integration_over_irregular_updates(self):
+        """0 kW for 10 min, then 6 kW for 5 min -> 0.5 kWh."""
+        states = [
+            _make_state("0.0", ts=START),
+            _make_state("6.0", ts=START + timedelta(minutes=10)),
+        ]
         response_data = [states]
 
         with (
@@ -50,12 +59,12 @@ class TestGetEnergyFromPowerHistory:
 
             result = await get_energy_from_power_history("sensor.ev_power", START, END)
 
-        assert result == pytest.approx(1.25, abs=0.001)
+        assert result == pytest.approx(0.5, abs=0.001)
 
     @pytest.mark.asyncio
-    async def test_sparse_data_3_points(self):
-        """3 points averaging 8 kW over 0.25h → 2.0 kWh."""
-        states = [_make_state("8.0") for _ in range(3)]
+    async def test_single_sample_held_across_window(self):
+        """Single 4 kW sample at the start is held for the full 15-minute window."""
+        states = [_make_state("4.0", ts=START)]
 
         with (
             patch(
@@ -76,7 +85,36 @@ class TestGetEnergyFromPowerHistory:
 
             result = await get_energy_from_power_history("sensor.ev_power", START, END)
 
-        assert result == pytest.approx(2.0, abs=0.001)
+        assert result == pytest.approx(1.0, abs=0.001)
+
+    @pytest.mark.asyncio
+    async def test_pre_window_state_clipped_to_window(self):
+        """A state changed before the window is held from the window start."""
+        states = [
+            _make_state("2.0", ts=START - timedelta(minutes=2)),
+            _make_state("5.0", ts=START + timedelta(minutes=9)),
+        ]
+
+        with (
+            patch(
+                "backend.core.ha_client.secrets.load_home_assistant_config",
+                return_value=_make_ha_config(),
+            ),
+            patch("backend.core.ha_client.httpx.AsyncClient") as mock_client_cls,
+        ):
+            mock_response = MagicMock()
+            mock_response.raise_for_status = MagicMock()
+            mock_response.json.return_value = [states]
+
+            mock_client = AsyncMock()
+            mock_client.get = AsyncMock(return_value=mock_response)
+            mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+            mock_client.__aexit__ = AsyncMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            result = await get_energy_from_power_history("sensor.ev_power", START, END)
+
+        assert result == pytest.approx(0.8, abs=0.001)
 
     @pytest.mark.asyncio
     async def test_empty_response_returns_none(self):
@@ -144,8 +182,8 @@ class TestGetEnergyFromPowerHistory:
 
     @pytest.mark.asyncio
     async def test_w_to_kw_normalization(self):
-        """States in W are normalized to kW. 3000 W = 3 kW → 0.75 kWh over 0.25h."""
-        states = [_make_state("3000.0", unit="W") for _ in range(5)]
+        """States in W are normalized to kW. 3000 W = 3 kW -> 0.75 kWh over 0.25h."""
+        states = [_make_state("3000.0", unit="W", ts=START)]
 
         with (
             patch(
@@ -169,14 +207,13 @@ class TestGetEnergyFromPowerHistory:
         assert result == pytest.approx(0.75, abs=0.001)
 
     @pytest.mark.asyncio
-    async def test_mixed_unavailable_states_filtered(self):
-        """unavailable/unknown states filtered; only numeric values averaged."""
+    async def test_mixed_unavailable_states_hold_previous_valid_power(self):
+        """unavailable/unknown samples do not reset the previous held power."""
         states = [
-            _make_state("unavailable"),
-            _make_state("4.0"),
-            _make_state("unknown"),
-            _make_state("6.0"),
-            _make_state("unavailable"),
+            _make_state("4.0", ts=START),
+            _make_state("unknown", ts=START + timedelta(minutes=5)),
+            _make_state("6.0", ts=START + timedelta(minutes=10)),
+            _make_state("unavailable", ts=START + timedelta(minutes=12)),
         ]
 
         with (
@@ -198,8 +235,7 @@ class TestGetEnergyFromPowerHistory:
 
             result = await get_energy_from_power_history("sensor.ev_power", START, END)
 
-        # mean([4.0, 6.0]) = 5.0 kW x 0.25h = 1.25 kWh
-        assert result == pytest.approx(1.25, abs=0.001)
+        assert result == pytest.approx((4.0 * 10 / 60) + (6.0 * 5 / 60), abs=0.001)
 
     @pytest.mark.asyncio
     async def test_all_unavailable_returns_none(self):

@@ -1,3 +1,4 @@
+import json
 import logging
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
@@ -112,15 +113,49 @@ class LearningStore:
                 await session.execute(stmt)
             await session.commit()
 
-    async def store_slot_observations(self, observations_df: pd.DataFrame) -> None:
+    async def store_slot_observations(
+        self, observations_df: pd.DataFrame, authoritative: bool = True
+    ) -> None:
         """Store slot observations in database using Async SQLAlchemy."""
         if observations_df.empty:
             return
 
         async with self.AsyncSession() as session:
-            records = observations_df.to_dict("records")
+            records = type_cast("list[dict[str, Any]]", observations_df.to_dict("records"))
 
             for record in records:
+                source = "recorder" if authoritative else "backfill"
+
+                def has_measurement(key: str, current_record: dict[str, Any] = record) -> bool:
+                    return key in current_record and not pd.isna(current_record.get(key))
+
+                def measured_float(key: str, current_record: dict[str, Any] = record) -> float:
+                    if not has_measurement(key):
+                        return 0.0
+                    return float(current_record[key])
+
+                def quality_flags(
+                    current_record: dict[str, Any] = record, current_source: str = source
+                ) -> str:
+                    raw_flags = current_record.get("quality_flags", "{}")
+                    flags: dict[str, Any]
+                    if isinstance(raw_flags, str):
+                        try:
+                            parsed: Any = json.loads(raw_flags)
+                            flags = (
+                                type_cast("dict[str, Any]", parsed)
+                                if isinstance(parsed, dict)
+                                else {}
+                            )
+                        except json.JSONDecodeError:
+                            flags = {}
+                    elif isinstance(raw_flags, dict):
+                        flags = type_cast("dict[str, Any]", raw_flags)
+                    else:
+                        flags = {}
+                    flags["source"] = current_source
+                    return json.dumps(flags, sort_keys=True)
+
                 slot_start_raw: Any = record.get("slot_start")
                 slot_end_raw: Any = record.get("slot_end")
 
@@ -143,49 +178,49 @@ class LearningStore:
                 stmt = sqlite_insert(SlotObservation).values(
                     slot_start=slot_start,
                     slot_end=slot_end,
-                    import_kwh=float(record.get("import_kwh", 0.0) or 0.0),
-                    export_kwh=float(record.get("export_kwh", 0.0) or 0.0),
-                    pv_kwh=float(record.get("pv_kwh", 0.0) or 0.0),
-                    load_kwh=float(record.get("load_kwh", 0.0) or 0.0),
-                    water_kwh=float(record.get("water_kwh", 0.0) or 0.0),
-                    ev_charging_kwh=float(record.get("ev_charging_kwh", 0.0) or 0.0),
+                    import_kwh=measured_float("import_kwh"),
+                    export_kwh=measured_float("export_kwh"),
+                    pv_kwh=measured_float("pv_kwh"),
+                    load_kwh=measured_float("load_kwh"),
+                    water_kwh=measured_float("water_kwh"),
+                    ev_charging_kwh=measured_float("ev_charging_kwh"),
                     batt_charge_kwh=record.get("batt_charge_kwh"),
                     batt_discharge_kwh=record.get("batt_discharge_kwh"),
                     soc_start_percent=record.get("soc_start_percent"),
                     soc_end_percent=record.get("soc_end_percent"),
                     import_price_sek_kwh=record.get("import_price_sek_kwh"),
                     export_price_sek_kwh=record.get("export_price_sek_kwh"),
-                    quality_flags=record.get("quality_flags", "{}"),
+                    quality_flags=quality_flags(),
+                )
+
+                def energy_update(key: str, column: Any, current_stmt: Any = stmt) -> Any:
+                    incoming = getattr(current_stmt.excluded, column.name)
+                    if not has_measurement(key):
+                        return column
+                    if authoritative:
+                        return incoming
+                    return case(
+                        (SlotObservation.quality_flags.like('%"source": "recorder"%'), column),
+                        else_=incoming,
+                    )
+
+                quality_flags_update = (
+                    stmt.excluded.quality_flags
+                    if authoritative
+                    else func.coalesce(SlotObservation.quality_flags, stmt.excluded.quality_flags)
                 )
 
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["slot_start"],
                     set_={
                         "slot_end": func.coalesce(stmt.excluded.slot_end, SlotObservation.slot_end),
-                        # REV F35: Only overwrite energy if new value > 0 (prevents backfill from wiping data)
-                        "import_kwh": case(
-                            (stmt.excluded.import_kwh > 0, stmt.excluded.import_kwh),
-                            else_=SlotObservation.import_kwh,
-                        ),
-                        "export_kwh": case(
-                            (stmt.excluded.export_kwh > 0, stmt.excluded.export_kwh),
-                            else_=SlotObservation.export_kwh,
-                        ),
-                        "pv_kwh": case(
-                            (stmt.excluded.pv_kwh > 0, stmt.excluded.pv_kwh),
-                            else_=SlotObservation.pv_kwh,
-                        ),
-                        "load_kwh": case(
-                            (stmt.excluded.load_kwh > 0, stmt.excluded.load_kwh),
-                            else_=SlotObservation.load_kwh,
-                        ),
-                        "water_kwh": case(
-                            (stmt.excluded.water_kwh > 0, stmt.excluded.water_kwh),
-                            else_=SlotObservation.water_kwh,
-                        ),
-                        "ev_charging_kwh": case(
-                            (stmt.excluded.ev_charging_kwh > 0, stmt.excluded.ev_charging_kwh),
-                            else_=SlotObservation.ev_charging_kwh,
+                        "import_kwh": energy_update("import_kwh", SlotObservation.import_kwh),
+                        "export_kwh": energy_update("export_kwh", SlotObservation.export_kwh),
+                        "pv_kwh": energy_update("pv_kwh", SlotObservation.pv_kwh),
+                        "load_kwh": energy_update("load_kwh", SlotObservation.load_kwh),
+                        "water_kwh": energy_update("water_kwh", SlotObservation.water_kwh),
+                        "ev_charging_kwh": energy_update(
+                            "ev_charging_kwh", SlotObservation.ev_charging_kwh
                         ),
                         "batt_charge_kwh": func.coalesce(
                             stmt.excluded.batt_charge_kwh, SlotObservation.batt_charge_kwh
@@ -205,7 +240,7 @@ class LearningStore:
                         "export_price_sek_kwh": func.coalesce(
                             stmt.excluded.export_price_sek_kwh, SlotObservation.export_price_sek_kwh
                         ),
-                        "quality_flags": stmt.excluded.quality_flags,
+                        "quality_flags": quality_flags_update,
                     },
                 )
                 await session.execute(stmt)

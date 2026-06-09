@@ -156,7 +156,103 @@ async def test_store_training_episode(learning_engine):
         )
         row = cursor.fetchone()
         assert row is not None
-        assert json.loads(row[0]) == inputs
+    assert json.loads(row[0]) == inputs
+
+
+@pytest.mark.asyncio
+async def test_store_slot_observations_live_correction_and_true_zero(learning_engine):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    initial = pd.DataFrame(
+        [
+            {
+                "slot_start": slot_start,
+                "slot_end": slot_start + timedelta(minutes=15),
+                "pv_kwh": 8.0,
+                "ev_charging_kwh": 1.0,
+            }
+        ]
+    )
+    correction = pd.DataFrame(
+        [
+            {
+                "slot_start": slot_start,
+                "slot_end": slot_start + timedelta(minutes=15),
+                "pv_kwh": 2.0,
+                "ev_charging_kwh": 0.0,
+            }
+        ]
+    )
+
+    await learning_engine.store_slot_observations(initial)
+    await learning_engine.store_slot_observations(correction)
+
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        row = conn.execute(
+            "SELECT pv_kwh, ev_charging_kwh, quality_flags FROM slot_observations"
+        ).fetchone()
+
+    assert row[0] == pytest.approx(2.0)
+    assert row[1] == pytest.approx(0.0)
+    assert json.loads(row[2])["source"] == "recorder"
+
+
+@pytest.mark.asyncio
+async def test_store_slot_observations_backfill_does_not_overwrite_live(learning_engine):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    live = pd.DataFrame(
+        [
+            {
+                "slot_start": slot_start,
+                "slot_end": slot_start + timedelta(minutes=15),
+                "load_kwh": 3.0,
+                "pv_kwh": 1.0,
+            }
+        ]
+    )
+    backfill = pd.DataFrame(
+        [
+            {
+                "slot_start": slot_start,
+                "slot_end": slot_start + timedelta(minutes=15),
+                "load_kwh": 9.0,
+                "pv_kwh": 9.0,
+            }
+        ]
+    )
+
+    await learning_engine.store_slot_observations(live)
+    await learning_engine.store_slot_observations(backfill, authoritative=False)
+
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        row = conn.execute("SELECT load_kwh, pv_kwh FROM slot_observations").fetchone()
+
+    assert row == pytest.approx((3.0, 1.0))
+
+
+@pytest.mark.asyncio
+async def test_store_slot_observations_missing_measurement_keeps_existing(learning_engine):
+    slot_start = datetime.now(learning_engine.timezone).replace(minute=0, second=0, microsecond=0)
+    initial = pd.DataFrame(
+        [
+            {
+                "slot_start": slot_start,
+                "slot_end": slot_start + timedelta(minutes=15),
+                "load_kwh": 4.0,
+                "pv_kwh": 2.0,
+            }
+        ]
+    )
+    partial = pd.DataFrame(
+        [{"slot_start": slot_start, "slot_end": slot_start + timedelta(minutes=15), "pv_kwh": 1.5}]
+    )
+
+    await learning_engine.store_slot_observations(initial)
+    await learning_engine.store_slot_observations(partial)
+
+    with sqlite3.connect(learning_engine.db_path) as conn:
+        row = conn.execute("SELECT load_kwh, pv_kwh FROM slot_observations").fetchone()
+
+    assert row == pytest.approx((4.0, 1.5))
 
 
 def test_etl_cumulative_spike_filtering_with_config():
@@ -302,5 +398,84 @@ timezone: Europe/Stockholm
         # The exact values depend on resampling, but spikes should be gone
         pv_values = result["pv_kwh"].values
         assert all(v <= 4.0 for v in pv_values), f"Found values exceeding threshold: {pv_values}"
+    finally:
+        Path(config_path).unlink()
+
+
+def test_etl_cumulative_subtracts_controllable_loads_for_backfill():
+    from datetime import datetime, timedelta
+
+    import pytz
+
+    config_content = """
+system:
+  grid:
+    max_power_kw: 20.0
+learning:
+  sqlite_path: ":memory:"
+timezone: Europe/Stockholm
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(config_content)
+        config_path = f.name
+
+    try:
+        engine = LearningEngine(config_path)
+        engine.sensor_map["sensor.ev_power"] = "ev_charging"
+        tz = pytz.timezone("Europe/Stockholm")
+        start = tz.localize(datetime(2024, 1, 1, 12, 0))
+        cumulative_data = {
+            "sensor.load": [(start, 100.0), (start + timedelta(minutes=15), 105.0)]
+        }
+        controllable_power_data = {
+            "sensor.ev_power": [(start, 8.0), (start + timedelta(minutes=15), 8.0)],
+            "sensor.water_power": [(start, 2.0), (start + timedelta(minutes=15), 2.0)],
+        }
+
+        result = engine.etl_cumulative_to_slots(
+            cumulative_data, controllable_power_data, resolution_minutes=15
+        )
+
+        assert result.iloc[0]["load_kwh"] == pytest.approx(2.5)
+        assert result.iloc[0]["ev_charging_kwh"] == pytest.approx(2.0)
+        assert result.iloc[0]["water_kwh"] == pytest.approx(0.5)
+    finally:
+        Path(config_path).unlink()
+
+
+def test_etl_cumulative_clamps_negative_base_load():
+    from datetime import datetime, timedelta
+
+    import pytz
+
+    config_content = """
+system:
+  grid:
+    max_power_kw: 20.0
+learning:
+  sqlite_path: ":memory:"
+timezone: Europe/Stockholm
+"""
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        f.write(config_content)
+        config_path = f.name
+
+    try:
+        engine = LearningEngine(config_path)
+        engine.sensor_map["sensor.ev_power"] = "ev_charging"
+        tz = pytz.timezone("Europe/Stockholm")
+        start = tz.localize(datetime(2024, 1, 1, 12, 0))
+        cumulative_data = {
+            "sensor.load": [(start, 100.0), (start + timedelta(minutes=15), 101.0)]
+        }
+        controllable_power_data = {
+            "sensor.ev_power": [(start, 8.0), (start + timedelta(minutes=15), 8.0)]
+        }
+
+        result = engine.etl_cumulative_to_slots(
+            cumulative_data, controllable_power_data, resolution_minutes=15
+        )
+
+        assert result.iloc[0]["load_kwh"] == pytest.approx(0.0)
     finally:
         Path(config_path).unlink()

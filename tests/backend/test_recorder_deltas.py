@@ -149,6 +149,72 @@ class TestRecorderDeltaLogic:
         }
 
     @pytest.mark.asyncio
+    async def test_records_just_finished_slot_and_aligns_history_window(self):
+        tz = pytz.timezone("Europe/Stockholm")
+        fixed_now = tz.localize(datetime(2024, 1, 1, 12, 33, 4))
+        expected_slot_start = tz.localize(datetime(2024, 1, 1, 12, 15, 0))
+        expected_slot_end = tz.localize(datetime(2024, 1, 1, 12, 30, 0))
+
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is None:
+                    return fixed_now.replace(tzinfo=None)
+                return fixed_now.astimezone(tz)
+
+        config = {
+            "timezone": "Europe/Stockholm",
+            "learning": {"sqlite_path": ":memory:"},
+            "input_sensors": {
+                "pv_power": "sensor.pv_power",
+                "load_power": "sensor.load_power",
+                "grid_power": "sensor.grid_power",
+                "battery_power": "sensor.battery_power",
+            },
+            "system": {"grid_meter_type": "net", "has_water_heater": True},
+            "water_heaters": [{"id": "wh1", "enabled": True, "sensor": "sensor.water_power"}],
+            "ev_chargers": [],
+        }
+
+        async def mock_sensor_kw(entity):
+            return {
+                "sensor.pv_power": 4.0,
+                "sensor.load_power": 6.0,
+                "sensor.grid_power": 2.0,
+                "sensor.battery_power": 0.0,
+                "sensor.water_power": 1.0,
+            }.get(entity, 0.0)
+
+        history_windows = []
+
+        async def mock_history(entity_id, start, end):
+            history_windows.append((entity_id, start, end))
+            return 0.25
+
+        with (
+            patch("backend.recorder.datetime", FixedDateTime),
+            patch("backend.recorder.get_ha_sensor_kw_normalized", side_effect=mock_sensor_kw),
+            patch("backend.recorder.get_ha_sensor_float", return_value=None),
+            patch("backend.recorder.get_ha_entity_state", return_value=None),
+            patch("backend.recorder.get_current_slot_prices", return_value=None),
+            patch("backend.recorder.get_energy_from_power_history", side_effect=mock_history),
+        ):
+            mock_store = MagicMock()
+            mock_store.get_system_state = AsyncMock(return_value=None)
+            mock_store.set_system_state = AsyncMock()
+            mock_store.store_slot_observations = AsyncMock()
+            mock_store.close = AsyncMock()
+
+            with patch("backend.recorder.LearningStore", return_value=mock_store):
+                await record_observation_from_current_state(config=config, state_store=RecorderStateStore())
+
+        df = mock_store.store_slot_observations.call_args[0][0]
+        record = df.iloc[0].to_dict()
+        assert record["slot_start"] == expected_slot_start
+        assert record["slot_end"] == expected_slot_end
+        assert history_windows == [("sensor.water_power", expected_slot_start, expected_slot_end)]
+
+    @pytest.mark.asyncio
     async def test_uses_cumulative_sensors_when_available(self, mock_config):
         """Spec: Delta-based Energy Calculation - Scenario: Recorder calculates energy during a continuous run"""
         with tempfile.TemporaryDirectory() as tmpdir:

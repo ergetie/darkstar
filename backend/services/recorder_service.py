@@ -151,13 +151,12 @@ class RecorderService:
 
         while self._running:
             try:
-                # Record observation with retry logic
+                # Wake on the boundary, then record the completed slot.
+                await self._sleep_until_next_quarter()
+
                 success = await self._record_with_retry()
                 if not success:
                     logger.warning("Observation gap detected, will backfill on next tick")
-
-                # Sleep until next 15m boundary
-                await self._sleep_until_next_quarter()
 
             except asyncio.CancelledError:
                 break
