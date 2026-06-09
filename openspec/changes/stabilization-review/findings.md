@@ -122,7 +122,7 @@
 ### Finding #8 — EV charge current derived from worst-case voltage, not nominal
 - **Severity:** S3
 - **Domain:** executor
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `executor/controller.py:320` (`raw_current = (slot.charge_kw * 1000) / self.config.min_voltage_v`); config fields `executor/config.py:187–188` (`nominal_voltage_v=48.0`, `min_voltage_v=46.0`)
 - **Symptom:** When the charger is controlled in Amps (the default mode), Darkstar converts the planned kW to an Ampere setpoint using the *minimum* battery voltage instead of the *nominal* voltage. Lower voltage in the denominator yields a higher current, so it commands ~4% more current (48/46) than the plan intends — i.e. slightly more power than planned.
 - **Root-cause hypothesis:** CONFIRMED (code read). `nominal_voltage_v` exists in config but is never used in the kW→A conversion; `min_voltage_v` (a worst-case floor) is used instead. Direction is "overshoot," not conservative undershoot. May be deliberate (ensure target reached) or an oversight — hence not yet a definite bug.
@@ -162,7 +162,7 @@
 ### Finding #12 — Simulation SoC projection counts only grid-sourced battery charge, omitting PV charge
 - **Severity:** S4 (downgraded from S3 — display/dead-path only, see verification)
 - **Domain:** solver-economics
-- **Status:** confirmed → display-only (verified Phase 2b, 2026-06-06)
+- **Status:** confirmed → display-only → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `planner/solver/adapter.py:555` (`"charge_kw": min(s.charge_kwh, s.grid_import_kwh) / duration_h`); consumer `planner/simulation.py:51` (`charge_kw = float(row.get("charge_kw", 0.0))` → drives projected SoC at `simulation.py:55–58`)
 - **Symptom:** The `charge_kw` field written by the adapter is the *grid-sourced* charge only (`min(total charge, grid import)`), not total battery charge. `simulation.py` reads `charge_kw` to project battery SoC, so any battery charging that came from surplus PV is dropped from the simulated SoC curve — the projection would under-state SoC whenever the battery charges from PV.
 - **Root-cause hypothesis:** CONFIRMED (Phase 2b trace, 2026-06-06) — **but NOT decision-affecting; display/dead-path only.** `planner/simulation.py:simulate_schedule` is called from exactly ONE place: `backend/api/routers/schedule.py:540` (the `POST /api/simulate` diagnostic endpoint). The **live** plan does not use it: `planner/pipeline.py:784` builds the schedule via `kepler_result_to_dataframe`, whose `projected_soc_percent` comes from Kepler's true SoC state variable `s.soc_kwh` (`adapter.py:556-557`, `kepler.py:708`) — which already includes PV charge through the energy-balance constraints. The executor likewise reads `battery_charge_kw` (full charge), not the grid-only `charge_kw`. So the grid-only `charge_kw` feeds only (a) the `/api/simulate` endpoint and (b) a human-readable reason label — neither of which drives planning or the inverter. Blast radius: the `/api/simulate` SoC curve under-states SoC; nothing else. Latent footgun if `simulate_schedule` is ever wired into the live path.
@@ -172,7 +172,7 @@
 ### Finding #13 — Real-time error/status WebSocket push is swallowed silently
 - **Severity:** S4
 - **Domain:** executor
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `executor/engine.py:1439–1444` and `executor/engine.py:1527–1532` (`ws_manager.emit_sync(...)` wrapped in `except Exception: pass`)
 - **Symptom:** If the WebSocket manager raises, the executor's real-time error/status broadcast to the UI is dropped with no log. The underlying error data is still appended to `recent_errors` first (so it is persisted), but the live push to clients fails invisibly.
 - **Root-cause hypothesis:** CONFIRMED (code read). Intentional "best-effort" broadcast, but the blanket silent pass hides genuine WS faults. Low blast radius because the data is persisted before the emit.
@@ -182,7 +182,7 @@
 ### Finding #14 — Dead / no-op code cluster (smell)
 - **Severity:** S4
 - **Domain:** architecture
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `planner/simulation.py:30–31` (two `float(battery_config.get(...))` results discarded — `min_soc_percent`/`max_soc_percent` parsed then thrown away); `planner/output/soc_target.py:73` (`float(battery_config.get("capacity_kwh", 34.2))` result discarded); `executor/actions.py:787` (`if entity is None:` block is unreachable — the `_is_entity_configured` guard at `:776` already rejects None); `backend/ha_socket.py:687` (redundant trailing `pass` inside an `except` that already records the error)
 - **Symptom:** Several parsed-then-discarded values and an unreachable branch. No functional impact, but the discarded `min_soc_percent`/`max_soc_percent` in `simulation.py` suggests the simulator *intended* to clamp to the configured SoC band and silently does not (it clamps only to `[0, capacity]` at `:62`).
 - **Root-cause hypothesis:** CONFIRMED (code read). Refactoring residue. The `simulation.py` case is the one worth a second look — the parsed min/max SoC look like a dropped clamp, not just dead code.
@@ -236,7 +236,7 @@
 ### Finding #19 — Stale/misleading comments and dead duplication in the Kepler terminal-SoC block (no behavior bug)
 - **Severity:** S4 (documentation/debt — the behavior is intended; only the comments and a duplicate line are wrong)
 - **Domain:** solver-economics
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `planner/solver/kepler.py:484-487` (comment references a `terminal_value` term that no longer exists), `kepler.py:510-528` (the "BIDIRECTIONAL … penalize OVER target too" comment appears twice and `target_soc_kwh` is assigned twice, `512-514` and `518`)
 - **Symptom:** The code reads as if it values end-of-horizon battery energy (a "terminal value") and penalizes overshooting the target — but neither exists. Only the UNDER-target (safety-floor) penalty is implemented (`522`/`525`); the OVER branch is a `pass`. A future reader would be misled into thinking a safeguard is present.
 - **Root-cause hypothesis:** CONFIRMED (code read + grep). **Operator confirms this is intended behavior, not a bug:** the terminal-value term ("TVS") was deliberately scrapped earlier, and an over-target penalty is explicitly *unwanted* — punishing SoC above target would wrongly penalize the system for harvesting more PV than forecast. So the objective is correct; the comments and the duplicate `target_soc_kwh` assignment are just stale residue from the removed feature.
@@ -246,7 +246,7 @@
 ### Finding #20 — Reported plan cost uses raw export price while the objective uses the thresholded price
 - **Severity:** S4
 - **Domain:** solver-economics
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `planner/solver/kepler.py:473-476` (objective uses `export_price − export_threshold`) vs `kepler.py:751-752` (reported per-slot `cost_sek` / `final_total_cost` recompute uses raw `s.export_price_sek_kwh`)
 - **Symptom:** The `total_cost_sek` shown for a plan is not the quantity the optimizer actually minimized; the two differ by `export_threshold × grid_export` per slot.
 - **Root-cause hypothesis:** CONFIRMED (code read). The export threshold is applied only inside the objective, not in the reporting recompute. Decisions are correct (the optimizer is internally consistent); only the displayed cost is off. NOT a double-subtraction (the opposite — the threshold is omitted from the report).
@@ -256,7 +256,7 @@
 ### Finding #21 — `force_export` quick action is dead (no UI button) AND broken (caps export at 0 W)
 - **Severity:** S4 (downgraded from S2 — verified there is **no UI trigger**, so the broken behaviour is unreachable in practice)
 - **Domain:** executor
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09; remove the dead/broken path)
 - **Location:** `executor/controller.py:178-179` (`_apply_override` hardcodes `export_power_w=0.0`, `export_with_load_w=0.0`); backend trigger `executor/engine.py:1140-1141`, `:482`; **no frontend caller** — the only quick action wired in the UI is `force_charge` ("Top Up", `frontend/src/components/CommandBar.tsx:154`); `force_export` is reachable only via raw API.
 - **Symptom:** Two issues that compound to "nothing." (1) The `force_export` quick action is not exposed by any button in the app — the operator confirmed they couldn't find it. (2) Even if invoked via API, it puts the inverter into Export mode but writes the grid-export power limit to **0 W**, so the battery exports nothing.
 - **Root-cause hypothesis:** CONFIRMED (code read + frontend grep). The override path hardcodes `export_power_w=0.0` (the normal `_follow_plan` path correctly uses `slot.export_kw * 1000`, `controller.py:226`), and no UI surfaces the action. So it is dead, broken code.
@@ -287,7 +287,7 @@
 ### Finding #24 — Low-SoC water-boost cancellation notification is never sent (missing `await`)
 - **Severity:** S3
 - **Domain:** executor
-- **Status:** open
+- **Status:** → small-correctness-cleanup (change created 2026-06-09)
 - **Location:** `executor/engine.py:1179-1182` (`self.dispatcher._send_notification(...)` called without `await`); the function is `async` (`executor/actions.py:1215`), and is correctly awaited elsewhere (`engine.py:1237`, `actions.py:1213`)
 - **Symptom:** When a water boost is cancelled because SoC dropped below `min_soc + 10%`, the intended push notification is never delivered, and Python emits a "coroutine was never awaited" runtime warning.
 - **Root-cause hypothesis:** CONFIRMED (code read). The coroutine object is created and discarded unexecuted. Low blast radius (user simply isn't told their boost was cancelled).
