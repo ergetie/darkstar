@@ -206,12 +206,11 @@ async def record_observation_from_current_state(
         state_store = RecorderStateStore()
         state_store.load()
 
-    # Identify the just-finished slot (or current instant)
+    # Identify the just-finished 15-minute slot from the wall clock.
     now = datetime.now(tz)
-    # Round down to nearest 15 min
     minute_block = (now.minute // 15) * 15
-    slot_start = now.replace(minute=minute_block, second=0, microsecond=0)
-    slot_end = slot_start + timedelta(minutes=15)
+    slot_end = now.replace(minute=minute_block, second=0, microsecond=0)
+    slot_start = slot_end - timedelta(minutes=15)
 
     # Gather Data
     input_sensors = config.get("input_sensors", {})
@@ -685,7 +684,7 @@ async def backfill_missing_prices():
 
 async def main() -> int:
     """Background recorder loop: capture observations every 15 minutes."""
-    print("[recorder] Starting live observation recorder (15m cadence)")
+    logger.info("[recorder] Starting live observation recorder (15m cadence)")
 
     config = _load_config()
 
@@ -695,7 +694,7 @@ async def main() -> int:
         backfill = BackfillEngine()
         await backfill.run()
     except Exception as e:
-        print(f"[recorder] Backfill failed: {e}")
+        logger.warning("[recorder] Backfill failed: %s", e)
 
     # Run Price Backfill on startup
     await backfill_missing_prices()
@@ -707,7 +706,7 @@ async def main() -> int:
         try:
             await record_observation_from_current_state(config, disaggregator)
         except Exception as exc:  # pragma: no cover - defensive logging
-            print(f"[recorder] Error while recording observation: {exc}")
+            logger.warning("[recorder] Error while recording observation: %s", exc)
 
         await _sleep_until_next_quarter()
 

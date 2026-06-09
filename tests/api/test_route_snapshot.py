@@ -17,7 +17,10 @@ def app_client():
     app = create_app()
     fastapi_app = app.other_asgi_app if hasattr(app, "other_asgi_app") else app
     with (
-        patch("backend.main.LearningStore", return_value=MagicMock(close=AsyncMock())),
+        patch(
+            "backend.main.LearningStore",
+            return_value=MagicMock(ensure_wal_mode=AsyncMock(), close=AsyncMock()),
+        ),
         TestClient(fastapi_app),
     ):
         yield fastapi_app

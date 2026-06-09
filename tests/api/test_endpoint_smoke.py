@@ -27,6 +27,7 @@ def client():
 
     mock_store = MagicMock()
     mock_store.AsyncSession.return_value = mock_session_ctx
+    mock_store.ensure_wal_mode = AsyncMock()
     mock_store.close = AsyncMock()
 
     app = create_app()

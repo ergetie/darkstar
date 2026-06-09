@@ -65,7 +65,7 @@
 ### Finding #3 — CI runs only the API test subset; no type-check gate
 - **Severity:** S4
 - **Domain:** infra-tests
-- **Status:** confirmed
+- **Status:** → harden-ci-and-tests (2026-06-09; full-suite + pyright strict as merge gates, design D1/D2)
 - **Location:** `.github/workflows/ci.yml` (`test-api` runs only `tests/api/test_api_routes.py`); `pyright` configured strict in `pyproject.toml` but only enforced locally via `.pre-commit-config.yaml`, not in CI
 - **Symptom:** **1051 tests pass locally** (Phase 0 baseline) but CI gates the build on the API subset only (`tests/api/test_api_routes.py`); planner/executor/ML tests (~69 files) can regress silently. Pyright strict isn't a merge gate.
 - **Root-cause hypothesis:** CONFIRMED by reading the workflow and pyproject. Incomplete CI coverage; type-check enforcement is local-only.
@@ -87,7 +87,7 @@
 ### Finding #5 — `backend/` core infrastructure is the largest test blind spot in scope
 - **Severity:** S4
 - **Domain:** infra-tests
-- **Status:** confirmed
+- **Status:** → harden-ci-and-tests (2026-06-09; characterization tests for `ha_socket.py` + planner→executor service wrappers, spec `test-hygiene`)
 - **Location:** untested modules incl. `backend/ha_socket.py` (~855 lines), `backend/services/planner_service.py`, `backend/services/recorder_service.py`, `backend/events.py`, `backend/notify.py`, `backend/core/websockets.py`, `backend/core/secrets.py`, `backend/battery_cost.py`, `backend/strategy/analyst.py`, `backend/strategy/voice.py`
 - **Symptom:** planner/ml/executor are test-dense (29/23/17 test files), but `backend/` core infra (54 src files, 9 backend-specific test files) has ~22 modules with no dedicated tests — including the HA WebSocket client and the async service wrappers that bridge planner→executor.
 - **Root-cause hypothesis:** CONFIRMED by file inventory. Historical: infra/glue code was added without unit isolation. These modules are prime hiding spots for runtime (not logic) bugs and should get extra scrutiny in Phase 2b (recorder/data) and Phase 3 (async/threading).
@@ -152,7 +152,7 @@
 ### Finding #11 — `print()` used instead of the logger for warnings in non-UI code
 - **Severity:** S4
 - **Domain:** infra-tests
-- **Status:** open
+- **Status:** → harden-ci-and-tests (2026-06-09; print→logger at both sites + ruff T201 lint guard, spec `test-hygiene`, tasks 5.1–5.2)
 - **Location:** `planner/inputs/weather.py:62` (`print("Warning: Failed to fetch temperature forecast: …")`); `ml/evaluate.py:100` (`print("Warning: No history available …")`)
 - **Symptom:** Operational warnings are emitted via `print()` rather than the structured logger, so they bypass log levels/handlers and won't appear in normal log capture or alerting.
 - **Root-cause hypothesis:** CONFIRMED (code read). Leftover debug-style prints in library/service code.
@@ -409,7 +409,7 @@
 ### Finding #36 — `executor/engine.py` is a confirmed god object; `actions.py` is a co-location file, not a god object
 - **Severity:** S4
 - **Domain:** architecture
-- **Status:** open
+- **Status:** open → deferred to `executor-refactor` (roadmap change #7, LAST; **not yet created** — intentionally sequenced after the executor behavior fixes #22/#23/#24/#35 land so the extraction happens over corrected code)
 - **Location:** `executor/engine.py` (2035 lines) — class `ExecutorEngine` with ~34 instance attributes (5 dedicated to EV state), ~18 external collaborators (several lazy-imported inside methods to dodge circular imports), and `_tick` at `engine.py:1013-1535` (**~522 lines** — the single highest-risk method, mixing pause/toggle checks, slot load, state gather, override branching, the inline EV source-isolation+failure block `:1249-1354`, water/EV/excess-PV control, dispatch, error capture, history + slot-observation writes, battery-cost update, and WS broadcasts); `executor/actions.py` (1244 lines) — two small-state classes (`HAClient` 6 attrs, `ActionDispatcher` 4 attrs) plus ~430 lines of near-duplicated device-writer boilerplate (`set_water_temp`/`set_custom_entity`/`_set_max_export_power`/`set_ev_charger_switch`, `:760-1193`)
 - **Symptom:** Risk and change-surface are concentrated in one class and one 522-line method that issues every physical command. A single shared `threading.Lock` (`engine.py:165`) guards quick-action, pause, water-boost, status, and config-reload state at once; `self.dispatcher` and `self._background_tasks` are touched by pause, water-boost, and EV code — so any test or change reverberates widely. The engine reaches into `dispatcher._send_notification(...)` (protected access) at `:670/:686/:1179`.
 - **Root-cause hypothesis:** CONFIRMED (read both files in full via subagent + spot-verified `_tick` boundaries 1013-1535, file sizes, and the `slot_observations` cross-write at `history.py:155`). engine.py accreted ~9 responsibilities (lifecycle/threading, config reload, tick orchestration, status/metrics, quick-action, pause, water-boost, notifications, slot/state/cost/EV I/O). actions.py's problem is method-level duplication + three concerns co-located, not state concentration.
@@ -419,7 +419,7 @@
 ### Finding #37 — WAL mode on `planner_learning.db` is enabled only as a side-effect of executor init, never at startup; `ensure_wal_mode()` is test-only
 - **Severity:** S3
 - **Domain:** infra-tests
-- **Status:** open
+- **Status:** → harden-ci-and-tests (2026-06-09; `ensure_wal_mode()` wired into the `main.py` lifespan, independent of the executor)
 - **Location:** `backend/learning/store.py:43-45` (comment: "WAL mode will be enabled on first connection … we rely on the sync ExecutorHistory or migration script") + `:56-59` (`ensure_wal_mode`, **callers are only tests** — `tests/backend/test_pipeline_spike_filtering.py`, `test_recorder_deltas.py`); production WAL is set only by `executor/history.py:96-98` (`PRAGMA journal_mode=WAL`), which runs only when the executor is instantiated, and that is gated on `executor.config.enabled` (`backend/main.py:115`); the lifespan never calls `store.ensure_wal_mode()` (`main.py:136-148`)
 - **Symptom:** On a fresh DB, or on an install where the executor is disabled, `planner_learning.db` can run in default rollback-journal mode, where **any writer blocks all readers**. The recorder (every 15 min), planner, and ML training all share this one file; without WAL, concurrent access is far more likely to raise `database is locked`. WAL is a persistent DB property, so once *any* run with the executor enabled sets it, it sticks — which masks the gap on most installs but leaves executor-disabled / freshly-migrated DBs exposed.
 - **Root-cause hypothesis:** CONFIRMED (code read + grep for callers). The async `LearningStore` (the canonical, always-constructed accessor) explicitly defers WAL to a collaborator that may not run. The one-line guaranteed fix exists but is unwired.
@@ -429,7 +429,7 @@
 ### Finding #38 — Synchronous SQLite/ORM reads run on the FastAPI event loop in several API routes (price + executor history), some with the 5 s default busy-timeout
 - **Severity:** S4
 - **Domain:** infra-tests
-- **Status:** open
+- **Status:** → harden-ci-and-tests (2026-06-09; offload sync DB reads via `to_thread` + add `timeout=30` busy-timeout). **Residual:** the unverified `ml/training_orchestrator.train_all_models` offload question (see root-cause) should be checked during implementation.
 - **Location:** `backend/api/routers/price_forecast.py:99` (and the sibling routes at `:155`, `:233`, `:281`) call blocking `sqlite3.connect` + synchronous `cursor.execute/fetchall` inside `async def` handlers with no `to_thread`/`run_in_executor`; same pattern in `backend/core/price_outlook.py:46`/`:194`; `backend/api/routers/executor.py` history/stats routes call the sync SQLAlchemy `ExecutionHistory` on the loop; the price connections omit `timeout=`, so they use SQLite's ~5 s default busy-timeout (vs the 30 s configured elsewhere) and don't set WAL
 - **Symptom:** Each such request stalls the entire FastAPI event loop for the query duration (all other requests wait), and the short-busy-timeout price connections are the most likely to raise `database is locked` when they race the recorder/planner/ML writers — especially during the daily price-forecast generation.
 - **Root-cause hypothesis:** CONFIRMED for the blocking pattern (read `price_forecast.py:90-124`). **Refuted lead (verified):** the heavy MILP solve does NOT block the loop — `planner/pipeline.py:765` wraps `solver.solve` in `await asyncio.to_thread(...)`. **Unverified residual:** whether `ml/training_orchestrator.train_all_models` (awaited on the main loop from `scheduler_service`) offloads its sync `sqlite3`/sklearn/`requests` work — flagged for a later look, not confirmed here.

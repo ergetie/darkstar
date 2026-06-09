@@ -65,8 +65,11 @@ async def get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
     token = ha_config.get("token")
 
     if not url or not token or not entity_id:
-        print(
-            f"[get_ha_entity_state] Missing config: url={bool(url)}, token={bool(token)}, entity={entity_id}"
+        logger.warning(
+            "[get_ha_entity_state] Missing config: url=%s, token=%s, entity=%s",
+            bool(url),
+            bool(token),
+            entity_id,
         )
         return None
 
@@ -78,7 +81,7 @@ async def get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
             data = response.json()
             return data
     except Exception as exc:
-        print(f"Warning: Could not fetch HA entity {entity_id}: {exc}")
+        logger.warning("Could not fetch HA entity %s: %s", entity_id, exc)
         return None
 
 
@@ -176,7 +179,7 @@ async def get_energy_from_power_history(
     start: datetime,
     end: datetime,
 ) -> float | None:
-    """Fetch power sensor history and compute energy via average power x time.
+    """Fetch power sensor history and compute energy via step integration.
 
     Returns energy in kWh, or None if history unavailable.
     """
@@ -205,10 +208,34 @@ async def get_energy_from_power_history(
             return None
 
         states = data[0]
-        kw_values: list[float] = []
-        unit: str | None = None
+        valid_points = 0
+        energy_kwh = 0.0
+        current_kw: float | None = None
+        cursor = start
 
-        for state in states:
+        def state_timestamp(state: dict[str, Any]) -> datetime | None:
+            for key in ("last_changed", "last_updated"):
+                raw = state.get(key)
+                if raw:
+                    try:
+                        return datetime.fromisoformat(str(raw))
+                    except (TypeError, ValueError):
+                        continue
+            return None
+
+        def normalize_kw(value: float, state: dict[str, Any]) -> float:
+            attributes = state.get("attributes", {})
+            unit = str(attributes.get("unit_of_measurement", "")).upper()
+            if unit == "W":
+                return value / 1000.0
+            if unit == "MW":
+                return value * 1000.0
+            return value
+
+        for state in sorted(states, key=lambda item: state_timestamp(item) or start):
+            ts = state_timestamp(state)
+            if ts is None:
+                continue
             state_val = state.get("state", "")
             if state_val in ("unknown", "unavailable", "", None):
                 continue
@@ -218,23 +245,32 @@ async def get_energy_from_power_history(
             except (TypeError, ValueError):
                 continue
 
-            if unit is None:
-                attributes = state.get("attributes", {})
-                unit = str(attributes.get("unit_of_measurement", "")).upper()
+            value_kw = normalize_kw(value, state)
+            valid_points += 1
 
-            if unit == "W":
-                kw_values.append(value / 1000.0)
-            elif unit == "MW":
-                kw_values.append(value * 1000.0)
-            else:
-                kw_values.append(value)  # Assume kW
+            if ts <= start:
+                current_kw = value_kw
+                cursor = start
+                continue
 
-        if not kw_values:
+            if ts >= end:
+                if current_kw is not None and cursor < end:
+                    energy_kwh += current_kw * ((end - cursor).total_seconds() / 3600.0)
+                break
+
+            if current_kw is not None and cursor < ts:
+                energy_kwh += current_kw * ((ts - cursor).total_seconds() / 3600.0)
+
+            current_kw = value_kw
+            cursor = ts
+
+        if valid_points == 0:
             return None
 
-        mean_kw = sum(kw_values) / len(kw_values)
-        duration_hours = (end - start).total_seconds() / 3600.0
-        return mean_kw * duration_hours
+        if current_kw is not None and cursor < end:
+            energy_kwh += current_kw * ((end - cursor).total_seconds() / 3600.0)
+
+        return energy_kwh
 
     except Exception as exc:
         logger.warning("get_energy_from_power_history(%s): %s", entity_id, exc)
@@ -252,7 +288,7 @@ async def get_ha_bool(entity_id: str) -> bool:
     true_states = {"on", "true", "yes", "1", "armed_away", "armed_home", "armed_night"}
     is_true = raw in true_states
     if is_true and "vacation" in entity_id:
-        print(f"DEBUG: Vacation mode detected TRUE. Raw state: '{raw}' from entity '{entity_id}'")
+        logger.debug("Vacation mode detected TRUE. Raw state: %r from entity %r", raw, entity_id)
     return is_true
 
 
@@ -415,7 +451,7 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     )
 
     if not all([url, token, entity_id]):
-        print("Warning: Missing Home Assistant configuration for load profile")
+        logger.warning("Missing Home Assistant configuration for load profile")
         return get_dummy_load_profile(config)
 
     headers = make_ha_headers(token)
@@ -432,19 +468,19 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
     }
 
     try:
-        print(f"Fetching {entity_id} data from Home Assistant...")
+        logger.info("Fetching %s data from Home Assistant", entity_id)
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(api_url, headers=headers, params=params)
             response.raise_for_status()
 
             data = response.json()
         if not data or not data[0]:
-            print(f"Warning: No data received from Home Assistant for {entity_id}")
+            logger.warning("No data received from Home Assistant for %s", entity_id)
             return get_dummy_load_profile(config)
 
         states = data[0]
         if len(states) < 2:
-            print(f"Warning: Insufficient data points from Home Assistant for {entity_id}")
+            logger.warning("Insufficient data points from Home Assistant for %s", entity_id)
             return get_dummy_load_profile(config)
 
         # Convert to local timezone for processing
@@ -524,7 +560,7 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 prev_time = current_time
 
             except (ValueError, TypeError, KeyError) as e:
-                print(f"Warning: Skipping invalid state data for {entity_id}: {e}")
+                logger.warning("Skipping invalid state data for %s: %s", entity_id, e)
                 continue
 
         # Create average daily profile from the 7 days of data (divide by 7 days)
@@ -540,15 +576,17 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         # Validate and clean the profile
         total_daily = sum(daily_profile)
         if total_daily > 500:
-            print(
-                f"Warning: Daily total {total_daily:.1f} kWh/day for {entity_id} exceeds 500 kWh sanity bound, using dummy profile"
+            logger.warning(
+                "Daily total %.1f kWh/day for %s exceeds 500 kWh sanity bound, using dummy profile",
+                total_daily,
+                entity_id,
             )
             return get_dummy_load_profile(config)
         if total_daily <= 0:
-            print(f"Warning: No valid energy consumption data found for {entity_id}")
+            logger.warning("No valid energy consumption data found for %s", entity_id)
             return get_dummy_load_profile(config)
 
-        print(f"Successfully loaded HA data: {total_daily:.2f} kWh/day average")
+        logger.info("Successfully loaded HA data: %.2f kWh/day average", total_daily)
 
         # Ensure all values are positive and reasonable
         for i in range(96):
@@ -560,10 +598,10 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         return daily_profile
 
     except (httpx.HTTPStatusError, httpx.RequestError) as e:
-        print(f"Warning: Failed to fetch data from Home Assistant for {entity_id}: {e}")
+        logger.warning("Failed to fetch data from Home Assistant for %s: %s", entity_id, e)
         return get_dummy_load_profile(config)
     except Exception as e:
-        print(f"Warning: Error processing Home Assistant data for {entity_id}: {e}")
+        logger.warning("Error processing Home Assistant data for %s: %s", entity_id, e)
         return get_dummy_load_profile(config)
 
 

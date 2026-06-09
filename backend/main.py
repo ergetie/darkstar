@@ -144,6 +144,7 @@ async def lifespan(app: FastAPI):
         import pytz
 
         store = LearningStore(db_path, pytz.timezone(tz_name))
+        await store.ensure_wal_mode()
         app.state.learning_store = store
         logger.info(f"✅ LearningStore initialized (Async) at {db_path}")
 

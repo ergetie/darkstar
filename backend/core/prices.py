@@ -115,11 +115,12 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
                                 "value": fc.get("spot_p50", 0) * 1000,  # Convert SEK/kWh to SEK/MWh
                             }
                         )
-                    print(
-                        f"[get_nordpool_data] Using D+1 price forecast fallback ({len(forecast_fallback)} slots)"
+                    logger.info(
+                        "[get_nordpool_data] Using D+1 price forecast fallback (%d slots)",
+                        len(forecast_fallback),
                     )
             except Exception as exc:
-                print(f"Warning: Failed to get D+1 price forecast fallback: {exc}")
+                logger.warning("Failed to get D+1 price forecast fallback: %s", exc)
 
         if not all_entries:
             return []
@@ -128,13 +129,10 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
         cache_sync.set(cache_key, processed, ttl_seconds=3600.0)
         return processed
     except TimeoutError:
-        print("Warning: Nordpool price fetch timed out after 10 seconds, returning empty data")
+        logger.warning("Nordpool price fetch timed out after 10 seconds, returning empty data")
         return []
     except Exception as exc:
-        print(f"Warning: Failed to fetch Nordpool prices: {exc}")
-        import traceback
-
-        traceback.print_exc()
+        logger.warning("Failed to fetch Nordpool prices: %s", exc, exc_info=True)
         return []
 
 
@@ -258,5 +256,5 @@ async def get_current_slot_prices(config: dict[str, Any]) -> dict[str, float] | 
                 }
         return None
     except Exception as exc:
-        print(f"Warning: Failed to get current slot prices: {exc}")
+        logger.warning("Failed to get current slot prices: %s", exc)
         return None

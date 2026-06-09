@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import json
+import logging
 import math
 import time
 from pathlib import Path
@@ -18,6 +19,8 @@ import requests
 import yaml
 
 from utils.time_utils import dst_safe_localize
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -367,7 +370,7 @@ def get_weather_series(
         response.raise_for_status()
         payload: dict[str, Any] = response.json()  # type: ignore[assignment]
     except Exception as exc:  # pragma: no cover - defensive logging
-        print(f"Warning: Failed to fetch weather data from Open-Meteo: {exc}")
+        logger.warning("Failed to fetch weather data from Open-Meteo: %s", exc)
         return pd.DataFrame(dtype="float64")
 
     hourly: dict[str, Any] = payload.get("hourly") or {}
@@ -633,7 +636,7 @@ def load_regions_config(regions_path: str = "ml/regions.json") -> dict[str, Any]
     except FileNotFoundError:
         return {}
     except json.JSONDecodeError:
-        print(f"Warning: Invalid JSON in {regions_path}")
+        logger.warning("Invalid JSON in %s", regions_path)
         return {}
 
 
@@ -671,8 +674,10 @@ def get_regional_weather(
 
     # Check if price_area exists in regions
     if price_area not in regions:
-        print(
-            f"Warning: Price area '{price_area}' not found in {regions_path}, falling back to home coordinates"
+        logger.warning(
+            "Price area %r not found in %s, falling back to home coordinates",
+            price_area,
+            regions_path,
         )
         # Fetch weather for home coordinates only
         df = get_weather_series(
@@ -711,15 +716,16 @@ def get_regional_weather(
             if not df.empty:
                 results[coord_key] = df
             else:
-                print(f"Warning: No weather data for {price_area}/{coord_key}")
+                logger.warning("No weather data for %s/%s", price_area, coord_key)
 
         except Exception as exc:
-            print(f"Warning: Failed to fetch weather for {price_area}/{coord_key}: {exc}")
+            logger.warning("Failed to fetch weather for %s/%s: %s", price_area, coord_key, exc)
 
     # If no coordinates succeeded, fall back to home coordinates
     if not results:
-        print(
-            f"Warning: All regional weather fetches failed for {price_area}, falling back to home coordinates"
+        logger.warning(
+            "All regional weather fetches failed for %s, falling back to home coordinates",
+            price_area,
         )
         df = get_weather_series(
             start_time,
@@ -761,7 +767,7 @@ def compute_regional_wind_index(
                 break
 
         if wind_col is None:
-            print(f"Warning: No wind speed column found for coordinate {coord_key}")
+            logger.warning("No wind speed column found for coordinate %s", coord_key)
             continue
 
         wind_series = df[wind_col].copy()

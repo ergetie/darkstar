@@ -5,7 +5,9 @@ Provides endpoints to retrieve 7-day price forecasts (p10/p50/p90) when
 price forecasting is enabled and models are trained.
 """
 
+import asyncio
 import logging
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +21,89 @@ from ml.price_forecast import derive_consumer_prices, get_price_forecasts_from_d
 
 logger = logging.getLogger("darkstar.api.price_forecast")
 router = APIRouter(prefix="/api/price-forecast", tags=["price-forecast"])
+
+
+def _fetch_forecasts_with_actuals(db_path: str) -> list[dict[str, Any]]:
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT slot_start, issue_timestamp, days_ahead, spot_p10, spot_p50, spot_p90,
+                   wind_index, temperature_c, cloud_cover, radiation_wm2
+            FROM price_forecasts
+            WHERE slot_start >= datetime('now', '-7 days')
+            ORDER BY slot_start ASC
+        """)
+        rows = cursor.fetchall()
+
+        forecasts = [
+            {
+                "slot_start": r["slot_start"],
+                "issue_timestamp": r["issue_timestamp"],
+                "days_ahead": r["days_ahead"],
+                "spot_p10": r["spot_p10"],
+                "spot_p50": r["spot_p50"],
+                "spot_p90": r["spot_p90"],
+                "wind_index": r["wind_index"],
+                "temperature_c": r["temperature_c"],
+                "cloud_cover": r["cloud_cover"],
+                "radiation_wm2": r["radiation_wm2"],
+            }
+            for r in rows
+        ]
+
+        # Deduplicate by slot_start, keeping the row with highest days_ahead
+        seen: dict[str, dict[str, Any]] = {}
+        for f in forecasts:
+            key = f["slot_start"]
+            if key not in seen or f["days_ahead"] > seen[key]["days_ahead"]:
+                seen[key] = f
+        forecasts = list(seen.values())
+        forecasts.sort(key=lambda x: x["slot_start"])
+        return forecasts
+    finally:
+        conn.close()
+
+
+def _fetch_actuals_map(db_path: str) -> dict[str, float | None]:
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT slot_start, export_price_sek_kwh FROM slot_observations WHERE export_price_sek_kwh IS NOT NULL"
+        )
+        return {row[0]: float(row[1]) for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
+def _fetch_training_samples_count(db_path: str) -> int:
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        count = conn.execute("SELECT COUNT(*) FROM price_forecasts").fetchone()
+        return count[0] if count else 0
+    finally:
+        conn.close()
+
+
+def _fetch_accuracy_rows(db_path: str) -> list[sqlite3.Row]:
+    conn = sqlite3.connect(db_path, timeout=30)
+    try:
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT pf.slot_start, pf.spot_p50, so.export_price_sek_kwh
+            FROM price_forecasts pf
+            JOIN slot_observations so ON so.slot_start = pf.slot_start
+            WHERE pf.days_ahead = 1
+              AND pf.spot_p50 IS NOT NULL
+              AND so.export_price_sek_kwh IS NOT NULL
+              AND pf.slot_start >= datetime('now', '-7 days')
+        """)
+        return list(cursor.fetchall())
+    finally:
+        conn.close()
 
 
 class PriceForecastResponse(BaseModel):
@@ -94,47 +179,7 @@ async def get_price_forecasts(
         db_path = "data/planner_learning.db"
 
     if include_actuals:
-        import sqlite3
-
-        conn = sqlite3.connect(db_path)
-        try:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT slot_start, issue_timestamp, days_ahead, spot_p10, spot_p50, spot_p90,
-                       wind_index, temperature_c, cloud_cover, radiation_wm2
-                FROM price_forecasts
-                WHERE slot_start >= datetime('now', '-7 days')
-                ORDER BY slot_start ASC
-            """)
-            rows = cursor.fetchall()
-
-            forecasts = [
-                {
-                    "slot_start": r["slot_start"],
-                    "issue_timestamp": r["issue_timestamp"],
-                    "days_ahead": r["days_ahead"],
-                    "spot_p10": r["spot_p10"],
-                    "spot_p50": r["spot_p50"],
-                    "spot_p90": r["spot_p90"],
-                    "wind_index": r["wind_index"],
-                    "temperature_c": r["temperature_c"],
-                    "cloud_cover": r["cloud_cover"],
-                    "radiation_wm2": r["radiation_wm2"],
-                }
-                for r in rows
-            ]
-
-            # Deduplicate by slot_start, keeping the row with highest days_ahead
-            seen: dict[str, dict[str, Any]] = {}
-            for f in forecasts:
-                key = f["slot_start"]
-                if key not in seen or f["days_ahead"] > seen[key]["days_ahead"]:
-                    seen[key] = f
-            forecasts = list(seen.values())
-            forecasts.sort(key=lambda x: x["slot_start"])
-        finally:
-            conn.close()
+        forecasts = await asyncio.to_thread(_fetch_forecasts_with_actuals, db_path)
     else:
         forecasts = await get_price_forecasts_from_db(db_path=db_path, limit=1000)
 
@@ -150,18 +195,7 @@ async def get_price_forecasts(
 
     actuals_map: dict[str, float | None] = {}
     if include_actuals:
-        import sqlite3
-
-        conn = sqlite3.connect(db_path)
-        try:
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT slot_start, export_price_sek_kwh FROM slot_observations WHERE export_price_sek_kwh IS NOT NULL"
-            )
-            for row in cursor.fetchall():
-                actuals_map[row[0]] = float(row[1])
-        finally:
-            conn.close()
+        actuals_map = await asyncio.to_thread(_fetch_actuals_map, db_path)
 
     for forecast in forecasts:
         consumer_prices = derive_consumer_prices(
@@ -228,14 +262,7 @@ async def get_price_forecast_status(request: Request) -> dict[str, Any]:
     try:
         engine = get_learning_engine()
         db_path = str(engine.db_path)
-        import sqlite3
-
-        conn = sqlite3.connect(db_path)
-        try:
-            count = conn.execute("SELECT COUNT(*) FROM price_forecasts").fetchone()
-            training_samples_count = count[0] if count else 0
-        finally:
-            conn.close()
+        training_samples_count = await asyncio.to_thread(_fetch_training_samples_count, db_path)
     except Exception:
         pass
 
@@ -276,25 +303,7 @@ async def get_price_forecast_accuracy(request: Request) -> dict[str, Any]:
     except Exception:
         db_path = "data/planner_learning.db"
 
-    import sqlite3
-
-    conn = sqlite3.connect(db_path)
-    try:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        cursor.execute("""
-            SELECT pf.slot_start, pf.spot_p50, so.export_price_sek_kwh
-            FROM price_forecasts pf
-            JOIN slot_observations so ON so.slot_start = pf.slot_start
-            WHERE pf.days_ahead = 1
-              AND pf.spot_p50 IS NOT NULL
-              AND so.export_price_sek_kwh IS NOT NULL
-              AND pf.slot_start >= datetime('now', '-7 days')
-        """)
-        rows = cursor.fetchall()
-    finally:
-        conn.close()
+    rows = await asyncio.to_thread(_fetch_accuracy_rows, db_path)
 
     errors = [abs(float(r["spot_p50"]) - float(r["export_price_sek_kwh"])) for r in rows]
     biases = [float(r["spot_p50"]) - float(r["export_price_sek_kwh"]) for r in rows]
@@ -342,18 +351,18 @@ async def get_price_outlook(request: Request) -> dict[str, Any]:
     # Get the forecast database path
     from backend.core.forecasts import get_forecast_db_path
     from backend.core.price_outlook import (
+        async_get_daily_outlook,
+        async_get_trailing_avg,
         build_outlook_response,
-        get_daily_outlook,
-        get_trailing_avg,
     )
 
     db_path = get_forecast_db_path()
 
     # Fetch daily outlook data
-    daily_outlook = get_daily_outlook(db_path)
+    daily_outlook = await async_get_daily_outlook(db_path)
 
     # Fetch trailing average reference
-    reference_avg = get_trailing_avg(db_path)
+    reference_avg = await async_get_trailing_avg(db_path)
 
     # Build and return the response with classifications
     return build_outlook_response(daily_outlook, reference_avg, enabled=True)

@@ -18,7 +18,7 @@ def load_home_assistant_config() -> dict[str, Any]:
     except FileNotFoundError:
         return {}
     except Exception as exc:  # pragma: no cover - defensive logging
-        print(f"Warning: Could not load secrets.yaml: {exc}")
+        logger.warning("Could not load secrets.yaml: %s", exc)
         return {}
 
     ha_config: Any = secrets.get("home_assistant")
@@ -38,7 +38,7 @@ def load_notifications_config() -> dict[str, Any]:
     except FileNotFoundError:
         return {}
     except Exception as exc:  # pragma: no cover - defensive logging
-        print(f"Warning: Could not load secrets.yaml: {exc}")
+        logger.warning("Could not load secrets.yaml: %s", exc)
         return {}
 
     notif_secrets: Any = secrets.get("notifications")

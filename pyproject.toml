@@ -33,6 +33,7 @@ select = [
     "C4",     # flake8-comprehensions
     "UP",     # pyupgrade
     "SIM",    # flake8-simplify
+    "T201",   # flake8-print
     "TCH",    # flake8-type-checking
     "PTH",    # flake8-use-pathlib
     "RUF",    # Ruff-specific rules
@@ -47,6 +48,18 @@ ignore = [
 # Allow autofix for all enabled rules
 fixable = ["ALL"]
 unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"bin/**/*.py" = ["T201"]
+"backend/learning/reflex.py" = ["T201"]
+"ml/data_activator.py" = ["T201"]
+"ml/evaluate.py" = ["T201"]
+"ml/forward.py" = ["T201"]
+"ml/pipeline.py" = ["T201"]
+"ml/price_train.py" = ["T201"]
+"ml/train.py" = ["T201"]
+"ml/training_orchestrator.py" = ["T201"]
+"scripts/**/*.py" = ["T201"]
 
 [tool.ruff.lint.isort]
 # Import sorting compatible with previous conventions

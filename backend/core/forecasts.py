@@ -150,7 +150,7 @@ def _interpolate_small_gaps(
                     result[j]["pv_forecast_kwh"] = prev_pv + fraction * (next_pv - prev_pv)
                     result[j]["load_forecast_kwh"] = prev_load + fraction * (next_load - prev_load)
 
-                print(f"Info: Interpolated {gap_size} slot gap at index {gap_start}")
+                logger.info("Interpolated %d slot gap at index %d", gap_size, gap_start)
 
             i = gap_end
         else:
@@ -201,7 +201,7 @@ async def _get_forecast_data_aurora(
 
     forecast_data: list[dict[str, Any]] = []
     if db_slots:
-        print("Info: Using AURORA forecasts from learning DB (aurora).")
+        logger.info("Using AURORA forecasts from learning DB (aurora).")
         for slot_idx, (slot, db_slot) in enumerate(zip(price_slots, db_slots, strict=False)):
             # Map slot time to 15-min index (0-95)
             # Localize to Stockholm/configured TZ to match profile
@@ -241,7 +241,7 @@ async def _get_forecast_data_aurora(
                 }
             )
     else:
-        print("Warning: AURORA slots missing for price horizon. Returning empty slots.")
+        logger.warning("AURORA slots missing for price horizon. Returning empty slots.")
 
     # 2. Build DAILY totals for the extended horizon required by S-index
     daily_pv_forecast: dict[str, float] = {}
@@ -541,7 +541,7 @@ async def _get_forecast_data_async(
     try:
         load_profile = await ha_client.get_load_profile_from_ha(config)
     except Exception as exc:
-        print(f"Warning: Failed to get HA load profile, using dummy: {exc}")
+        logger.warning("Failed to get HA load profile, using dummy: %s", exc)
         load_profile = ha_client.get_dummy_load_profile(config)
 
     daily_load_total = sum(load_profile)
@@ -611,7 +611,7 @@ async def get_all_input_data(
         or _forecasting_flag(forecasting_cfg, "aurora_pv_enabled")
     ):
         try:
-            print("🧠 Running AURORA ML Inference Pipeline (base + correction)...")
+            logger.info("Running AURORA ML Inference Pipeline (base + correction)...")
             from ml.pipeline import run_inference
 
             # Rev 2.4.13: Respect configured horizon (default 2 days / 48h)
@@ -622,7 +622,7 @@ async def get_all_input_data(
 
             await run_inference(horizon_hours=hours, forecast_version="aurora")
         except Exception as e:
-            print(f"⚠️ AURORA Inference Pipeline Failed: {e}")
+            logger.warning("AURORA Inference Pipeline failed: %s", e)
 
     # --- FETCH CONTEXT (New in Rev 19, extended in Rev 58) ---
     sensors = config.get("input_sensors", {})
@@ -753,8 +753,8 @@ async def build_db_forecast_for_slots(
 
             if fallback_ts is not None:
                 rec = indexed[fallback_ts]
-                print(
-                    f"Warning: No exact forecast match for {ts}, using fallback from {fallback_ts}"
+                logger.warning(
+                    "No exact forecast match for %s, using fallback from %s", ts, fallback_ts
                 )
 
         if rec is not None:

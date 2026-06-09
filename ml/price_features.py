@@ -7,6 +7,7 @@ forecasting model, including calendar features, price lags, and weather inputs.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -16,6 +17,8 @@ from dateutil.easter import easter
 
 from backend.learning.models import SlotObservation
 from utils.time_utils import dst_safe_date_range
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -221,7 +224,7 @@ def _get_price_lags(
 
     except Exception as exc:
         # Log error but return NaN values
-        print(f"Warning: Error querying price lags: {exc}")
+        logger.warning("Error querying price lags: %s", exc)
 
     return lags
 

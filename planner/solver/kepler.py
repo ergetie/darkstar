@@ -682,7 +682,7 @@ class KeplerSolver:
 
         if not is_optimal:
             prob.writeLP("kepler_debug.lp")  # type: ignore[reportUnknownMemberType]
-            print(f"Solver failed: {status}. LP written to kepler_debug.lp")
+            logger.warning("Solver failed: %s. LP written to kepler_debug.lp", status)
 
             # Map PuLP status to structured PlannerError
             details = {"solver_status": status, "solve_duration_s": round(solve_duration, 3)}

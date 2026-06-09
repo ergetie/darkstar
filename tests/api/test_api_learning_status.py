@@ -19,7 +19,10 @@ def client():
     # close() is called with await on shutdown so it must be an AsyncMock.
     # get_learning_engine is patched globally by the autouse fixture in conftest.py.
     with (
-        patch("backend.main.LearningStore", return_value=MagicMock(close=AsyncMock())),
+        patch(
+            "backend.main.LearningStore",
+            return_value=MagicMock(ensure_wal_mode=AsyncMock(), close=AsyncMock()),
+        ),
         TestClient(fastapi_app) as client,
     ):
         yield client

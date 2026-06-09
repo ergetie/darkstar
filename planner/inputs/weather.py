@@ -4,10 +4,13 @@ Weather Input
 Functions for fetching weather forecasts (temperature, etc.).
 """
 
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 async def fetch_temperature_forecast(
@@ -59,7 +62,7 @@ async def fetch_temperature_forecast(
         response.raise_for_status()
         payload = response.json()
     except httpx.HTTPError as exc:
-        print(f"Warning: Failed to fetch temperature forecast: {exc}")
+        logger.warning("Failed to fetch temperature forecast: %s", exc)
         return {}
 
     daily = payload.get("daily", {})

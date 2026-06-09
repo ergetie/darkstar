@@ -1,9 +1,12 @@
 import json
+import logging
 from datetime import UTC, datetime
 from typing import Any
 
 from backend.learning import get_learning_engine
 from backend.learning.models import PlannerDebug
+
+logger = logging.getLogger(__name__)
 
 
 # ensure_learning_schema is no longer needed as Alembic handles schema.
@@ -40,5 +43,4 @@ async def record_debug_payload(payload: dict[str, Any], learning_config: dict[st
             await session.commit()
 
     except Exception as e:
-        # Use simple print as fallback if logger not available/configured
-        print(f"[observability] Failed to record debug payload: {e}")
+        logger.warning("[observability] Failed to record debug payload: %s", e)

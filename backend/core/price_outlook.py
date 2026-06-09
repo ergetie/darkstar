@@ -5,6 +5,7 @@ Provides aggregation functions to convert per-slot forecasts into daily summarie
 suitable for the Weekly Outlook UI widget.
 """
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -43,7 +44,7 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
         db_path = get_forecast_db_path()
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
@@ -191,7 +192,7 @@ def get_trailing_avg(db_path: str | None = None) -> float | None:
         db_path = get_forecast_db_path()
 
     try:
-        conn = sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path, timeout=30)
         cursor = conn.cursor()
 
         # Get the most recent 14 days of daily average prices
@@ -227,6 +228,14 @@ def get_trailing_avg(db_path: str | None = None) -> float | None:
     except Exception as e:
         logger.warning(f"Error in get_trailing_avg: {e}")
         return None
+
+
+async def async_get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
+    return await asyncio.to_thread(get_daily_outlook, db_path)
+
+
+async def async_get_trailing_avg(db_path: str | None = None) -> float | None:
+    return await asyncio.to_thread(get_trailing_avg, db_path)
 
 
 def classify_level(avg_spot_p50: float, reference_avg: float | None) -> str:

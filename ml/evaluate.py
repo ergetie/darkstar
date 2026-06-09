@@ -5,6 +5,7 @@ General evaluation framework for Aurora models.
 from __future__ import annotations
 
 import argparse
+import logging
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -27,6 +28,7 @@ from utils.time_utils import dst_safe_localize
 
 AURORA_VERSION = "aurora"
 BASELINE_VERSION = "baseline_7_day_avg"
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -97,7 +99,7 @@ def _generate_baseline_forecasts(
         "pd.DataFrame", df[(df["slot_start"] >= start_time) & (df["slot_start"] < end_time)]
     )
     if history.empty:
-        print("Warning: No history available for baseline computation.")
+        logger.warning("No history available for baseline computation.")
         return []
 
     grouped = history.groupby("hour").agg(

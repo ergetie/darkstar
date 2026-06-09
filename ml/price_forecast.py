@@ -105,8 +105,10 @@ async def generate_price_forecasts(
     has_model = True
     for quantile, path in [("p10", model_p10_path), ("p50", model_path), ("p90", model_p90_path)]:
         if not path.exists():
-            print(
-                f"Price model for {quantile} not found at {path}, will continue with weather-only rows"
+            logger.warning(
+                "Price model for %s not found at %s, will continue with weather-only rows",
+                quantile,
+                path,
             )
             has_model = False
             break
@@ -118,9 +120,9 @@ async def generate_price_forecasts(
                 ("p90", model_p90_path),
             ]:
                 models[quantile_load] = lgb.Booster(model_file=str(path_load))
-                print(f"Loaded price model {quantile_load} from {path_load}")
+                logger.info("Loaded price model %s from %s", quantile_load, path_load)
         except Exception as exc:
-            print(f"Failed to load price model: {exc}")
+            logger.warning("Failed to load price model: %s", exc)
             has_model = False
 
     # Get timezone
@@ -150,14 +152,14 @@ async def generate_price_forecasts(
             )
 
             if not regional_weather:
-                print(f"Warning: No regional weather data for {forecast_date}")
+                logger.warning("No regional weather data for %s", forecast_date)
                 continue
 
             # Compute wind index
             wind_index = compute_regional_wind_index(regional_weather)
 
             if wind_index.empty:
-                print(f"Warning: Could not compute wind index for {forecast_date}")
+                logger.warning("Could not compute wind index for %s", forecast_date)
                 continue
 
             # Build weather DataFrame with all features
@@ -184,7 +186,7 @@ async def generate_price_forecasts(
             )
 
             if feature_df.empty:
-                print(f"Warning: No features generated for {forecast_date}")
+                logger.warning("No features generated for %s", forecast_date)
                 continue
 
             # Run inference (only if we have models)
@@ -249,13 +251,13 @@ async def generate_price_forecasts(
                 all_forecasts.append(forecast_record)
 
         except Exception as exc:
-            print(f"Error generating forecast for {forecast_date}: {exc}")
+            logger.error("Error generating forecast for %s: %s", forecast_date, exc)
             continue
 
     # Persist forecasts to database
     if all_forecasts:
         _persist_forecasts(all_forecasts, db_path)
-        print(f"Generated and persisted {len(all_forecasts)} price forecasts")
+        logger.info("Generated and persisted %d price forecasts", len(all_forecasts))
 
     return all_forecasts
 
@@ -286,7 +288,7 @@ def _persist_forecasts(forecasts: list[dict[str, Any]], db_path: str) -> None:
         session.close()
 
     except Exception as exc:
-        print(f"Error persisting forecasts: {exc}")
+        logger.error("Error persisting forecasts: %s", exc)
 
 
 def cleanup_price_forecast_duplicates(
@@ -415,7 +417,7 @@ async def get_price_forecasts_from_db(
         return list(best_by_slot.values())
 
     except Exception as exc:
-        print(f"Error retrieving forecasts: {exc}")
+        logger.error("Error retrieving forecasts: %s", exc)
         return []
 
 
@@ -490,5 +492,5 @@ async def get_d1_price_forecast_fallback(
         return valid_forecasts
 
     except Exception as exc:
-        print(f"Error getting D+1 fallback: {exc}")
+        logger.error("Error getting D+1 fallback: %s", exc)
         return None

@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import threading
 from pathlib import Path
@@ -245,7 +246,8 @@ async def get_history(
         if success_only is not None:
             success = success_only.lower() in ("true", "1", "yes")
 
-        records = executor.history.get_history(
+        records = await asyncio.to_thread(
+            executor.history.get_history,
             limit=limit,
             offset=offset,
             slot_start=slot_start,
@@ -280,7 +282,8 @@ async def download_history(
         if success_only is not None:
             success = success_only.lower() in ("true", "1", "yes")
 
-        csv_data = executor.history.get_history_csv(
+        csv_data = await asyncio.to_thread(
+            executor.history.get_history_csv,
             start_date=start_date,
             end_date=end_date,
             success_only=success,
@@ -309,7 +312,7 @@ async def get_stats(days: int = 7) -> dict[str, Any]:
     executor = get_executor_instance()
     if not executor:
         return {}
-    return executor.get_stats(days=days)
+    return await asyncio.to_thread(executor.get_stats, days=days)
 
 
 @router.get(
