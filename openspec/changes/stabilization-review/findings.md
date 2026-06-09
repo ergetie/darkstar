@@ -132,7 +132,7 @@
 ### Finding #9 — Baseline forecast fills `temp_c` with load values when the temperature column is missing
 - **Severity:** S3
 - **Domain:** forecasting
-- **Status:** open
+- **Status:** → fix-ml-forecast-correctness (2026-06-07; task 1.1)
 - **Location:** `ml/evaluate.py:106` (`temp_c=("temp_c", "mean") if "temp_c" in history.columns else ("load_kwh", "mean")`)
 - **Symptom:** In the `baseline_7_day_avg` forecast path, if history has no `temp_c` column the aggregation silently substitutes the mean of `load_kwh` into the `temp_c` field — so the baseline forecast carries load values disguised as temperatures.
 - **Root-cause hypothesis:** CONFIRMED (code read). A copy-paste fallback aggregation key; the intent was presumably a neutral default (NaN/0), not "reuse load_kwh." Bounded: only the baseline forecast version, only when `temp_c` is absent.
@@ -142,7 +142,7 @@
 ### Finding #10 — ML input fetches swallow failures and return empty/default silently
 - **Severity:** S4
 - **Domain:** forecasting
-- **Status:** open
+- **Status:** → fix-ml-forecast-correctness (2026-06-07; tasks 1.2–1.3)
 - **Location:** `ml/api.py:32–36` (config load → `except Exception: return {}`); `ml/context_features.py:61–66` and `ml/context_features.py:144–149` (HA history fetch → `except Exception: return pd.Series(...)`)
 - **Symptom:** A failed `config.yaml` read returns an empty config (silently falling back to defaults), and failed Home-Assistant history fetches for context features (e.g. presence/alarm) return an empty series — both with no log line. The ML forecast then runs on missing inputs without any signal that data was lost.
 - **Root-cause hypothesis:** CONFIRMED (code read). Broad `except Exception` with a silent default; no `logger.warning`. Degrades forecast quality invisibly rather than surfacing the failure.
@@ -196,7 +196,7 @@
 ### Finding #15 — Recency sample-weights can misalign or crash training when an observation has an un-parseable timestamp
 - **Severity:** S3
 - **Domain:** forecasting
-- **Status:** open
+- **Status:** → fix-ml-forecast-correctness (2026-06-07; tasks 2.1–2.2)
 - **Location:** `ml/train.py:103` (`return weights.values` — a bare positional array), `ml/train.py:228` (`dropna(subset=["slot_start"])` gaps the index), `ml/train.py:418` (`load_weights = sample_weights[load_df.index]`), `ml/train.py:475` (`pv_weights = sample_weights[pv_df.index]`)
 - **Symptom:** The exponential recency weights get attached to the wrong training rows, or training aborts with `IndexError`, whenever the `slot_observations` table contains a row whose `slot_start` fails to parse as ISO8601.
 - **Root-cause hypothesis:** CONFIRMED (code read + empirical test). `_compute_sample_weights` returns `.values` — a positional numpy array ordered 0..N-1. But it is indexed with `load_df.index` / `pv_df.index`, which are the *original pandas labels*. NumPy treats those labels as positions. In normal operation the SQL query (`ORDER BY slot_start ASC`) gives a clean contiguous `RangeIndex`, so label == position and there is no bug. But `dropna(subset=["slot_start"])` at line 228 (triggered by `errors="coerce"` turning a bad timestamp into `NaT`) **gaps** the index (e.g. `[0,2,3]`), and the subsequent left-merges preserve that gapped index (verified empirically). Indexing a length-N array with a label ≥ N raises `IndexError`; with gapped labels < N it silently picks the wrong weights. So a single malformed timestamp row either crashes the nightly training or corrupts recency weighting.
@@ -206,7 +206,7 @@
 ### Finding #16 — Train vs inference feature-count asymmetry when weather is unavailable during training
 - **Severity:** S3
 - **Domain:** forecasting
-- **Status:** open
+- **Status:** → fix-ml-forecast-correctness (2026-06-07; tasks 3.1–3.2)
 - **Location:** `ml/train.py:353-354` (only `temp_c` added when `weather_df` empty) + `ml/train.py:405-407` (optional features added *conditionally*) vs `ml/forward.py:232-235` + `267-279` (inference always forces all 3 weather columns and a fixed 11-feature list)
 - **Symptom:** A model trained during an Open-Meteo outage learns on 9 features (no `cloud_cover_pct` / `shortwave_radiation_w_m2`), but every forecast feeds it an 11-column matrix. The next forecast then either raises a LightGBM feature-mismatch error or mis-maps columns.
 - **Root-cause hypothesis:** CONFIRMED (code read). Inference was deliberately hardened to always create the 3 weather columns (comment at `forward.py:231` "to match trained model feature count"), but the training side was *not* made symmetric — when `weather_df` is empty it adds only `temp_c`, so the other two columns never enter `feature_cols`. Conditional: only bites when a model is (re)trained while weather fetch is failing. No feature-name validation at model load (`_load_models`) to catch it.
@@ -216,7 +216,7 @@
 ### Finding #17 — No quantile-crossing guard: p10/p50/p90 are independent models and the bands can invert
 - **Severity:** S3
 - **Domain:** forecasting
-- **Status:** open
+- **Status:** → fix-ml-forecast-correctness (2026-06-07; tasks 4.1–4.3)
 - **Location:** load `ml/forward.py:300-309`; PV `ml/forward.py:415-504`; no sort before persistence (`forward.py:531-536`) or on read (`ml/api.py:156-161`); daily aggregation sums p10/p90 independently (`backend/core/forecasts.py:325-340`)
 - **Symptom:** For a given slot the stored `pv_p10`/`load_p10` can exceed its `p50`/`p90`, yielding an inverted or zero-width uncertainty band that feeds the planner's risk logic.
 - **Root-cause hypothesis:** CONFIRMED (code read). The three quantiles are *separately trained* LightGBM quantile regressors with no monotonic constraint, and each is predicted/clipped/smoothed independently with no `p10 ≤ p50 ≤ p90` reconciliation anywhere before storage or use. Quantile crossing is a well-known property of independently fit quantile models; nothing here prevents it.
@@ -226,7 +226,7 @@
 ### Finding #18 — `ml/evaluate.py` scores the PV model as if it were absolute, with the wrong feature set
 - **Severity:** S3
 - **Domain:** forecasting
-- **Status:** open
+- **Status:** → fix-ml-forecast-correctness (2026-06-07; tasks 5.1–5.2)
 - **Location:** `ml/evaluate.py:67-73` / `425-430` (loads only the legacy `pv_model.lgb` p50 alias), `ml/evaluate.py:135-201` (`_predict_with_boosters`, builds feature_cols without `physics_forecast_kwh`, treats output as absolute PV)
 - **Symptom:** The MAE/quality numbers used to judge the Aurora PV model are meaningless — the evaluator feeds the residual model the wrong feature count and never adds the Open-Meteo baseline back, so it scores `actual − openmeteo` predictions as if they were absolute PV.
 - **Root-cause hypothesis:** CONFIRMED (code read). Post `pv-open-meteo-baseline`, `pv_model.lgb` is a *residual* model trained with an extra `physics_forecast_kwh` feature (`train.py:455-489`). `evaluate.py` neither appends that feature nor adds the baseline back, and only evaluates p50. The "PV forecast quality" the user sees is therefore computed on an inconsistent basis.
@@ -266,7 +266,7 @@
 ### Finding #22 — "Manual override" HA entity still writes idle-mode settings to the inverter (contradicts its own "will not change settings")
 - **Severity:** S2 (only for users who configure the entity — see scope)
 - **Domain:** executor
-- **Status:** open
+- **Status:** → harden-executor-safety (2026-06-07)
 - **Scope / what this is:** NOT the pause button. "Manual override" here is an **optional Home-Assistant entity** the user can name in `executor.manual_override_entity` (`executor/config.py:212`); when that entity reads `"on"`, `state.manual_override_active` is set (`engine.py:1723-1767`). It's meant as an external "hands off, I'm controlling the inverter myself" switch. If no such entity is configured (the common case), the read is skipped and this bug never triggers. The **pause button is a separate mechanism and works correctly** — `pause()` (`engine.py:539`) short-circuits the whole tick (`engine.py:1045-1056`), so during pause nothing is written.
 - **Location:** `executor/override.py:136-143` (MANUAL_OVERRIDE returns `override_needed=True`, `actions={}`, reason "executor will not change settings"); `executor/controller.py:119-189` (`_apply_override` leaves `mode_intent="idle"`); executed unconditionally at `executor/engine.py:1415`. No early-return guard for manual override (unlike pause).
 - **Symptom:** While the configured `manual_override_entity` is `on`, the executor still pushes a full **idle** mode profile to the inverter every tick (Deye: `work_mode→"Zero Export To CT"`, `grid_charging→off`, `max_discharge_current→15`, `max_charge_current`, `soc_target`), overwriting the user's manual settings — the opposite of the feature's promise.
@@ -277,7 +277,7 @@
 ### Finding #23 — EV charger control ignores manual override and the `force_stop` quick action
 - **Severity:** S3
 - **Domain:** executor
-- **Status:** open
+- **Status:** → harden-executor-safety (2026-06-07)
 - **Location:** `executor/engine.py:1370-1371` (`_control_ev_charger` is called gated only on `_has_ev_charger`, never on override/quick-action); function body `engine.py:1922-2036` reads only `original_slot.ev_charger_plans`; `force_stop` quick action sets only `soc_target`/`water_temp` (`engine.py:1142-1146`)
 - **Symptom:** While manual override is `on`, or while a `force_stop` quick action is active, a plan-scheduled EV charge keeps running — the user cannot stop the car charging via manual control or the stop button. (Pause *does* stop it, because pause skips the whole tick.)
 - **Root-cause hypothesis:** CONFIRMED (code read). EV switch control is a separate code path from the battery `decision` and never inspects `override` or `quick_action`. The battery is handled correctly during `force_stop` (soc_target=10), but the EV switch is missed. Bounded to EV-equipped homes with an active EV plan.
@@ -357,7 +357,7 @@
 ### Finding #31 — UI "Save Configuration" writes config non-atomically with no backup, bypassing the atomic `_write_config` helper
 - **Severity:** S2
 - **Domain:** config-migration
-- **Status:** open
+- **Status:** → config-migration-hardening (change created 2026-06-07; spec `durable-config-write`)
 - **Location:** `backend/api/routers/config.py:301-302` (plain `config_path.open("w")` + `dump` — truncate-in-place); contrast `backend/config_migration.py:879-927` (`_write_config`: timestamped backup → `.bak` → temp file → `os.replace` → bind-mount fallback → restore-on-failure)
 - **Symptom:** A crash, container kill, or disk-full during the UI save leaves `config.yaml` truncated/empty, with no backup to recover from. The migration module already has a correct atomic writer one import away, but the most-used write path doesn't use it.
 - **Root-cause hypothesis:** CONFIRMED (code read). The router opens the real file in `"w"` mode (immediate truncate) and dumps directly; no temp-then-rename, no backup. Severity reasoning: not autonomous and requires an ill-timed crash, but the SSOT config can be lost with no recovery point.
@@ -367,7 +367,7 @@
 ### Finding #32 — Atomic-write bind-mount fallback uses a non-atomic `shutil.copy2`
 - **Severity:** S3
 - **Domain:** config-migration
-- **Status:** open
+- **Status:** → config-migration-hardening (change created 2026-06-07; spec `durable-config-write`)
 - **Location:** `backend/config_migration.py:908-916` (on `EBUSY`/`EXDEV`/`ETXTBSY`, falls back to `shutil.copy2(temp_path, path)`)
 - **Symptom:** On a Docker bind mount (where `os.replace` across devices fails), the "atomic" write degrades to a truncate-then-stream copy of the live `config.yaml`; a crash mid-copy yields a partial/truncated config — the exact failure the atomic rename was meant to prevent.
 - **Root-cause hypothesis:** CONFIRMED (code read). Mitigated by the `.bak` created at `:894` and restore at `:920-922`, but the restore is itself a non-atomic copy and only runs on a Python exception (a hard process kill skips it). Lower severity than #31 because a backup exists.
@@ -377,7 +377,7 @@
 ### Finding #33 — `config_version` is never set by migration; ARC15 code paths silently disable if the template merge is skipped
 - **Severity:** S3
 - **Domain:** config-migration
-- **Status:** open
+- **Status:** → config-migration-hardening (change created 2026-06-07; modifies spec `config-migration`)
 - **Location:** `backend/config_migration.py` (no write of `config_version` anywhere — only positional validation at `:523-528`); the value is injected only via the template merge from `config.default.yaml`; consumers gate on `>= 2`: `loads/service.py:33`, `api/routers/config.py:347`, `planner/solver/adapter.py:27-29`
 - **Symptom:** If the template merge is skipped — default file missing (`:782-786`) or user config fails structure validation (`:740-744`) — `config_version` is never bumped to 2, so the ARC15 entity-centric arrays are silently ignored by the planner/executor/loads.
 - **Root-cause hypothesis:** CONFIRMED (code read). No explicit "set config_version = 2" migration step exists; correctness depends entirely on the template merge succeeding. In the normal path the merge injects it, so this only bites the error/skip paths — hence conditional.
@@ -387,7 +387,7 @@
 ### Finding #34 — Inverter AC limit only caps battery discharge, not PV-to-AC (load + export)
 - **Severity:** S4
 - **Domain:** solver-economics
-- **Status:** open
+- **Status:** open — de-scoped from harden-executor-safety (2026-06-07). Per the OQ6 decision the **planner** owns export limits (no execution-time export clamp), so this planner-side cap is deferred to planner work (e.g. alongside the #19/#20 kepler cleanup), not the executor change.
 - **Location:** `planner/solver/kepler.py:431-434` (`discharge[t] <= max(0.0, inverter_ac_kwh - s.pv_kwh)`)
 - **Symptom:** In a slot where forecast PV exceeds the inverter's AC rating, the model still lets all of `s.pv_kwh` flow to AC load/export, while only battery discharge is throttled. So a plan can assume grid export above what the inverter can physically push out its AC side.
 - **Root-cause hypothesis:** CONFIRMED mechanism (code read). The constraint correctly enforces `pv + discharge ≤ AC_limit` for the battery, but PV-to-AC (load + export) is not independently capped — when `s.pv_kwh > inverter_ac_kwh`, discharge is forced to 0 (fine) yet PV can still route unbounded to export/load. Real-world impact is **conditional and small**: only matters when per-slot PV exceeds the inverter AC rating, and depends on DC- vs AC-coupled topology; also the whole constraint is skipped when `max_inverter_ac_kw` is unset (default), in which case nothing is AC-capped. Hardware clips the real export anyway, so the effect is an over-optimistic export estimate in peak-PV slots.
@@ -399,7 +399,7 @@
 ### Finding #35 — Executor follows the plan verbatim with no independent safety clamp; `min_soc_floor` is dead plumbing after the Emergency-Charge removal
 - **Severity:** S4
 - **Domain:** executor
-- **Status:** open
+- **Status:** → harden-executor-safety (2026-06-07) — scope per OQ6: add the stale-schedule freshness check (warn + hold) and **remove** the dead `min_soc_floor` plumbing. **No** execution-time SoC clamp is added (battery safety stays with planner + BMS).
 - **Location:** `executor/override.py:115-169` (`min_soc_floor` stored at `:122` but **never read** in `evaluate()`); explicit comments `override.py:51`, `:110-112` ("Emergency charge override was removed in REV E6 … min_soc_percent is a planning/optimization target, not a safety floor"); `executor/controller.py:338-346` (`_calculate_discharge_limit` "ALWAYS return MAX"); `controller.py:238`/`:268` (`soc_target` taken verbatim from `slot.soc_target`); `executor/engine.py:1207` (passes `min_soc_floor` into the evaluator); no schedule-freshness check in `_load_current_slot` (`engine.py:1536-1597`)
 - **Symptom:** Nothing in the executor independently bounds what it sends to the inverter. The kW→A/W conversions clamp to the *configured* charge/discharge limits, but the **SoC target and export power are passed straight through from the plan**, discharge is always commanded at max, and the once-present low-SoC emergency charge is gone. If the planner emits a bad `soc_target` or export figure (bad forecast → bad plan, a solver infeasibility fallback, a misconfigured `min_soc`, or a stale-but-still-covering schedule), the executor transmits it; the only backstop is the **inverter BMS hard cutoff**. The `min_soc_floor` parameter — the natural home for a runtime floor — is plumbed all the way in and then never used.
 - **Root-cause hypothesis:** CONFIRMED (code read). This is **partly by design**: the operator deliberately removed Emergency Charge (REV E6) and the comments state that deep-discharge protection is delegated to the BMS, which sits below Darkstar's soft planning limit. What protects the system today: (a) Kepler's planning-time SoC/power constraints, (b) the slot-failure fallback (`override.py:145-160`: when no valid slot exists → `grid_charging=False`, `soc_target=current SoC` → hold), (c) the inverter BMS. The **gap** is defense-in-depth: there is no execution-time validation that the plan is sane, and `min_soc_floor` is now confirmed dead code (a smell that signals the absent clamp). Note a stale-but-still-covering schedule (planner died, yesterday's 48h plan still spans `now`) is followed verbatim with stale prices — SoC-safe (the stale plan is internally consistent) but economically wrong, with no freshness guard.
@@ -457,9 +457,9 @@ These are the architecture decisions the diagnosis surfaces. They are intentiona
   - In inference (`ml/forward.py:383-394`) the baseline is the per-slot Open-Meteo value, **falling back to the legacy home-grown physics only when Open-Meteo is NaN for that slot**. The baseline is clipped to a physical ceiling (`_pv_physical_ceiling_kwh`, `:79-91`, `:397-398`).
   - The ML residual is bounded to ±`pv_residual_bound_fraction` (default 25 %) of the baseline and scaled by a data-volume personalization ramp (`:425-427`); the **final value is re-clamped to the physical ceiling** (`:449-450`) and smoothed. So "which is truth" = Open-Meteo baseline; "should one clamp the other" = **yes, and it now does** (ceiling on both baseline and final; residual bounded). This closes the original OQ5.
   - **Disable toggle exists:** `aurora_pv_enabled=false` makes the hybrid path return the raw Open-Meteo value (`forecasts.py:193-229`, `:283`).
-  - **Remaining narrow question:** the retired home-grown physics still survives as (a) the per-slot NaN-fallback baseline and (b) a diagnostic feature. Given the Data Confirmation showed it over-produces ~2.5× (capped now only by the physical ceiling), should the NaN-fallback be retired entirely (e.g. last-good Open-Meteo instead of physics)? Minor; carry into the PV solution session.
+  - **Remaining narrow question — RESOLVED 2026-06-07 → fix-ml-forecast-correctness (task 6.1, decision D7):** the retired home-grown physics survived as (a) the per-slot NaN-fallback baseline and (b) a "diagnostic feature." (b) is moot — the model feature `physics_forecast_kwh` already equals the Open-Meteo baseline (`forward.py:406`), so only the raw `physics_kwh` display output uses physics. (a) is now decided: a single missing Open-Meteo slot within a good fetch will be **interpolated from neighbouring valid slots** (0 when no neighbour), not back-filled from the over-producing physics. Whole-fetch outages remain handled upstream by reusing the last successful stored fetch.
 
-- OQ6 — **Execution-time safety clamp vs full BMS delegation (Phase 3 / task 4.4; see #34, #35):** the executor transmits the plan's `soc_target` and export power verbatim and always commands max discharge; deep-discharge and over-power protection are delegated to the inverter BMS / hardware (the operator deliberately removed Emergency Charge in REV E6, and `min_soc` is explicitly "not a safety floor"). Should Darkstar add a thin execution-time defense-in-depth clamp — refuse to command `soc_target` below configured `min_soc`, refuse export above a configured grid limit, and/or refuse to act on a stale schedule (freshness check) — or is full delegation to the BMS the intended design? The dead `min_soc_floor` parameter (#35) is the natural home for such a clamp. **Decision deferred.**
+- OQ6 — **Execution-time safety clamp vs full BMS delegation (Phase 3 / task 4.4; see #34, #35):** the executor transmits the plan's `soc_target` and export power verbatim and always commands max discharge; deep-discharge and over-power protection are delegated to the inverter BMS / hardware (the operator deliberately removed Emergency Charge in REV E6, and `min_soc` is explicitly "not a safety floor"). Should Darkstar add a thin execution-time defense-in-depth clamp — refuse to command `soc_target` below configured `min_soc`, refuse export above a configured grid limit, and/or refuse to act on a stale schedule (freshness check) — or is full delegation to the BMS the intended design? The dead `min_soc_floor` parameter (#35) is the natural home for such a clamp. **DECIDED (2026-06-07) → `harden-executor-safety`:** add the **stale-schedule freshness check** (warn via SystemAlert + fall back to hold) only; **no execution-time SoC clamp** and **no execution-time export clamp** — battery-SoC safety stays delegated to planner + BMS (Emergency-Charge removal stands), and export limits stay owned by the planner. The dead `min_soc_floor` plumbing is **removed**, not wired. Consequence: #34 (planner-side PV-to-AC export cap) is deferred to planner work, not the executor change.
 
 - OQ7 — **Energy-data SSOT & module boundaries (Phase 3 / task 4.5; see #12, #25, #26, #27, #29):** the "DB is SSOT" claim has source-dependent column meanings and a shared-table boundary that need a canonical definition:
   - `load_kwh` means **total** for backfill-written rows but **base load** (EV/water subtracted) for live rows (#27) — the clearest SSOT violation.
@@ -582,8 +582,8 @@ The residual ML-pipeline hygiene that `pv-open-meteo-baseline` did *not* cover: 
 **4. `config-migration-hardening` — S2/S3 (batch).** Findings **#31, #32, #33.**
 Atomic config writes: route UI "Save" through `_write_config` (#31), fix the bind-mount `copy2` fallback to rename-within-mount (#32), set `config_version` explicitly in migration (#33). Self-contained in `config_migration.py` + `api/routers/config.py`. **#30 (S1) is wontfix — excluded.**
 
-**5. `harden-executor-safety` — S2/S3/S4 (batch, but gated on a decision).** Findings **#22, #23, #34, #35** + **OQ6.**
-The override/safety-clamp theme: manual-override entity still writes idle settings (#22), EV control ignores override/`force_stop` (#23), PV-to-AC inverter cap (#34), and the absent execution-time clamp / dead `min_soc_floor` (#35). **OQ6 is the gating architecture call** — does Darkstar add a thin runtime defense-in-depth clamp, or is full BMS delegation intended? #22/#23 are concrete bugs that can ship regardless; #34/#35 depend on the OQ6 answer.
+**5. `harden-executor-safety` — S2/S3/S4 (batch). CREATED 2026-06-07; OQ6 DECIDED.** Findings **#22, #23, #35** + **OQ6.**
+The override/safety theme: manual-override entity still writes idle settings (#22), EV control ignores override/`force_stop` (#23), and the stale-plan + dead-`min_soc_floor` gap (#35). **OQ6 was decided** (see OQ6 entry): add only the stale-schedule freshness check (warn + hold), keep battery-SoC and export safety delegated to planner + BMS, and remove the dead `min_soc_floor` plumbing — **no** execution-time clamps. **#34 was de-scoped** from this change to planner work (the planner owns export limits per OQ6).
 
 **6. `small-correctness-cleanup` — S3/S4 standalone one-liners (batch or individual).** Findings **#8, #12, #13, #14, #19, #20, #21, #24.**
 Low-risk, independent fixes with no shared coupling: EV current from nominal not min voltage (#8), simulation SoC display field (#12), silent WS emit (#13), dead-code cluster + dropped SoC-band clamp (#14), stale Kepler comments + duplicate assignment (#19), reported-cost vs. objective price (#20), dead+broken `force_export` — recommend *remove* (#21), missing `await` on cancellation notice (#24). Can be one cleanup PR or folded opportunistically. Several (#19, #20, #34) touch `kepler.py` — see conflict note.
