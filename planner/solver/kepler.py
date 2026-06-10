@@ -483,7 +483,7 @@ class KeplerSolver:
 
             # NOTE: Rev K20 stored_energy_cost was removed - it incorrectly made
             # charging unprofitable by adding cost on discharge without offsetting
-            # credit on charge. The terminal_value and wear_cost are sufficient
+            # credit on charge. wear_cost and the SoC target penalty are sufficient
             # for arbitrage decisions.
 
             slot_ev_cost: float = 0.0  # EV incentive handled in aggregate objective below
@@ -512,10 +512,6 @@ class KeplerSolver:
         target_soc_kwh: float = (
             config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
         )
-
-        # Terminal SoC Target (BIDIRECTIONAL soft constraint)
-        # Penalize both being UNDER target (risk) AND OVER target (missed discharge opportunity)
-        target_soc_kwh = config.target_soc_kwh if config.target_soc_kwh is not None else min_soc_kwh
 
         if config.target_soc_kwh is not None:
             # Under target: soc[T] >= target - under_violation
@@ -748,8 +744,13 @@ class KeplerSolver:
                     if c_val is not None and d_val is not None
                     else 0.0
                 )
+                effective_export_price_result: float = (
+                    s.export_price_sek_kwh - config.export_threshold_sek_per_kwh
+                )
                 cost: float = (
-                    (i_val * s.import_price_sek_kwh) - (e_val * s.export_price_sek_kwh) + wear
+                    (i_val * s.import_price_sek_kwh)
+                    - (e_val * effective_export_price_result)
+                    + wear
                     if i_val is not None and e_val is not None
                     else 0.0
                 )

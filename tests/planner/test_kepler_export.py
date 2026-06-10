@@ -132,3 +132,70 @@ def test_export_threshold_prevents_unprofitable_export():
         f"> export price ({slots[0].export_price_sek_kwh}). "
         f"Exported: {result.slots[0].grid_export_kwh} kWh"
     )
+
+
+def test_reported_cost_uses_effective_export_price():
+    """
+    total_cost_sek must use (export_price − threshold) for export revenue,
+    matching what the optimizer actually minimised.
+    With threshold=0 the reported cost is unchanged; with threshold>0 it is higher
+    (less revenue credited) while the schedule is identical.
+    """
+    start = datetime(2025, 1, 1, 12, 0)
+    slots = [
+        KeplerInputSlot(
+            start_time=start + timedelta(minutes=15 * i),
+            end_time=start + timedelta(minutes=15 * (i + 1)),
+            load_kwh=0.0,
+            pv_kwh=0.0,
+            import_price_sek_kwh=3.0,
+            export_price_sek_kwh=1.0,
+        )
+        for i in range(2)
+    ]
+
+    base_config = KeplerConfig(
+        capacity_kwh=10.0,
+        min_soc_percent=0,
+        max_soc_percent=100,
+        max_charge_power_kw=10,
+        max_discharge_power_kw=10,
+        charge_efficiency=1.0,
+        discharge_efficiency=1.0,
+        wear_cost_sek_per_kwh=0.0,
+        export_threshold_sek_per_kwh=0.0,
+    )
+    threshold_config = KeplerConfig(
+        capacity_kwh=10.0,
+        min_soc_percent=0,
+        max_soc_percent=100,
+        max_charge_power_kw=10,
+        max_discharge_power_kw=10,
+        charge_efficiency=1.0,
+        discharge_efficiency=1.0,
+        wear_cost_sek_per_kwh=0.0,
+        export_threshold_sek_per_kwh=0.3,
+    )
+
+    input_data = KeplerInput(slots=slots, initial_soc_kwh=5.0)
+
+    result_base = KeplerSolver().solve(input_data, base_config)
+    result_threshold = KeplerSolver().solve(input_data, threshold_config)
+
+    assert result_base.is_optimal
+    assert result_threshold.is_optimal
+
+    # Both solvers should produce the same export schedule
+    for s_base, s_thresh in zip(result_base.slots, result_threshold.slots):
+        assert s_base.grid_export_kwh == pytest.approx(s_thresh.grid_export_kwh, abs=0.01)
+
+    total_export = sum(s.grid_export_kwh for s in result_base.slots)
+
+    # With threshold=0 the reported cost equals raw-price cost (unchanged)
+    # With threshold=0.3 the reported cost = base_cost + threshold * total_export
+    assert result_threshold.total_cost_sek == pytest.approx(
+        result_base.total_cost_sek + 0.3 * total_export, abs=1e-4
+    ), (
+        f"Expected cost with threshold to be higher by {0.3 * total_export:.4f} SEK; "
+        f"base={result_base.total_cost_sek:.4f}, threshold={result_threshold.total_cost_sek:.4f}"
+    )

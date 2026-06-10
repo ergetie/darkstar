@@ -784,16 +784,7 @@ class ActionDispatcher:
                 error_details=None,
             )
 
-        if entity is None:
-            return ActionResult(
-                action_type="water_temp",
-                success=False,
-                message="Entity is None after validation",
-                skipped=True,
-                duration_ms=int((time.time() - start) * 1000),
-                error_details=None,
-            )
-
+        assert entity is not None  # guaranteed by _is_entity_configured guard above
         current = await self.ha.get_state_value(entity)
         try:
             current_val = int(float(current)) if current else None

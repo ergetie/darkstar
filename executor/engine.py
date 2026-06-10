@@ -476,14 +476,14 @@ class ExecutorEngine:
         Set a time-limited quick action override.
 
         Args:
-            action_type: One of 'force_charge', 'force_export', 'force_stop'
+            action_type: One of 'force_charge', 'force_stop'
             duration_minutes: How long the override should last (15, 30, 60)
             params: Optional parameters (e.g., {'target_soc': 80})
 
         Returns:
             Status dict with expires_at
         """
-        valid_types = ["force_charge", "force_export", "force_stop", "force_heat"]
+        valid_types = ["force_charge", "force_stop", "force_heat"]
         if action_type not in valid_types:
             raise ValueError(f"Invalid action type: {action_type}. Must be one of {valid_types}")
 
@@ -1153,8 +1153,6 @@ class ExecutorEngine:
                     actions = {
                         "soc_target": int(target_soc),
                     }
-                elif action_type == "force_export":
-                    actions = {}
                 elif action_type == "force_stop":
                     actions = {
                         "soc_target": 10,
@@ -1192,7 +1190,7 @@ class ExecutorEngine:
                         self._water_boost_until = None
                     # Send notification
                     if self.dispatcher:
-                        self.dispatcher._send_notification(  # type: ignore[protected-access]
+                        await self.dispatcher._send_notification(  # type: ignore[protected-access]
                             f"Water boost cancelled - battery too low ({state.current_soc_percent:.0f}% < {min_boost_soc:.0f}%)",
                             title="Darkstar Water Boost",
                         )
@@ -1455,8 +1453,8 @@ class ExecutorEngine:
                             from backend.core.websockets import ws_manager
 
                             ws_manager.emit_sync("executor_error", error_data)
-                        except Exception:
-                            pass  # Silently fail if WebSocket not available
+                        except Exception as ws_err:
+                            logger.debug("WebSocket broadcast failed: %s", ws_err)
 
                 result["actions"] = [
                     {
@@ -1543,8 +1541,8 @@ class ExecutorEngine:
                 from backend.core.websockets import ws_manager
 
                 ws_manager.emit_sync("executor_error", error_data)
-            except Exception:
-                pass  # Silently fail if WebSocket not available
+            except Exception as ws_err:
+                logger.debug("WebSocket broadcast failed: %s", ws_err)
 
         return result
 

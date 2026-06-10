@@ -684,7 +684,6 @@ class HAWebSocketClient:
             # Keep only last 5
             if len(self.stats["errors"]) > 5:
                 self.stats["errors"].pop(0)
-            pass
 
         finally:
             self.stats["events_processed"] += 1

@@ -130,8 +130,6 @@ class Controller:
 
         if override.override_type.value == "force_charge":
             mode_intent = "charge"
-        elif override.override_type.value == "force_export":
-            mode_intent = "export"
 
         # For overrides, we typically don't actively charge/discharge
         # unless specifically requested
@@ -148,15 +146,6 @@ class Controller:
             else:
                 charge_value = self.config.max_charge_a
             write_charge = True
-
-        # Handle quick action exporting
-        if override.override_type.value == "force_export":
-            # Force export - allow max discharge
-            if self.inverter_config.control_unit == "W":
-                discharge_value = self.config.max_discharge_w
-            else:
-                discharge_value = self.config.max_discharge_a
-            write_discharge = True
 
         # Get SoC target and water temp from override
         soc_target = int(actions.get("soc_target", 10))
@@ -317,7 +306,7 @@ class Controller:
         else:
             # Amps Logic (Default)
             # kW to Amps: I = P * 1000 / V
-            raw_current = (slot.charge_kw * 1000) / self.config.min_voltage_v
+            raw_current = (slot.charge_kw * 1000) / self.config.nominal_voltage_v
 
             # Round to step
             round_step_a = (

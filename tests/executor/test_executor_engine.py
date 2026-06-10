@@ -302,12 +302,12 @@ class TestQuickActions:
 
     def test_get_active_quick_action(self, engine):
         """Can retrieve active quick action."""
-        engine.set_quick_action("force_export", 60)
+        engine.set_quick_action("force_charge", 60)
 
         action = engine.get_active_quick_action()
 
         assert action is not None
-        assert action["type"] == "force_export"
+        assert action["type"] == "force_charge"
         assert action["remaining_minutes"] > 0
 
     def test_clear_quick_action(self, engine):
@@ -589,6 +589,36 @@ class TestRunOnce:
         engine.dispatcher.set_water_temp.assert_not_called()
         # Assert no water_temp action in results
         assert not any(a.get("type") == "water_temp" for a in result["actions"])
+
+    async def test_ws_broadcast_failure_logs_and_record_persisted(self, engine, temp_schedule):
+        """When ws_manager.emit_sync raises, error is logged and record stays in recent_errors."""
+        from unittest.mock import AsyncMock, patch
+
+        from executor.actions import ActionResult
+
+        tz = pytz.timezone("Europe/Stockholm")
+        now = datetime.now(tz)
+        slot_start = now - timedelta(minutes=5)
+
+        schedule = make_schedule([make_slot(slot_start)])
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
+            json.dump(schedule, f)
+
+        # Make a dispatcher action fail so an error record is created
+        failing_result = ActionResult(
+            action_type="test_action",
+            success=False,
+            message="Forced failure for test",
+            skipped=False,
+        )
+        engine.dispatcher.execute = AsyncMock(return_value=[failing_result])
+
+        with patch("backend.core.websockets.ws_manager") as mock_ws:
+            mock_ws.emit_sync.side_effect = RuntimeError("WS unavailable")
+            result = await engine.run_once()
+
+        # Record must still be persisted even when broadcast fails
+        assert any(r["type"] == "test_action" for r in engine.recent_errors)
 
 
 class TestGetStatusModeIntent:
@@ -1503,3 +1533,76 @@ executor:
                 mock_update.assert_called_once()
                 call_args = mock_update.call_args
                 assert call_args.kwargs["import_price_sek"] == 0.5
+
+
+@pytest.mark.asyncio
+class TestWaterBoostCancellationNotification:
+    """Test that the boost-cancellation notification is awaited (#24)."""
+
+    @pytest.fixture
+    def engine(self, temp_schedule, temp_db):
+        """Create an engine with a real HA mock."""
+        with patch("executor.engine.load_executor_config") as mock_config:
+            config = ExecutorConfig(
+                enabled=True,
+                schedule_path=temp_schedule,
+                timezone="Europe/Stockholm",
+                automation_toggle_entity="input_boolean.automation",
+                inverter=InverterConfig(),
+                water_heater=WaterHeaterConfig(),
+                notifications=NotificationConfig(),
+                controller=ControllerConfig(),
+            )
+            mock_config.return_value = config
+
+            with patch("executor.engine.load_yaml") as mock_yaml:
+                mock_yaml.return_value = {"input_sensors": {}, "battery": {"min_soc_percent": 10.0}}
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
+                    engine = ExecutorEngine("config.yaml")
+
+                    mock_ha = MagicMock(spec=HAClient)
+                    mock_ha.get_state_value.return_value = "on"
+                    mock_ha.set_select_option.return_value = True
+                    mock_ha.set_switch.return_value = True
+                    mock_ha.set_number.return_value = True
+                    mock_ha.set_input_number.return_value = True
+                    engine.ha_client = mock_ha
+
+                    from executor.actions import ActionDispatcher
+
+                    engine.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
+
+                    yield engine
+
+    async def test_boost_cancelled_notification_is_awaited(self, engine, temp_schedule):
+        """Notification is sent (and awaited) when boost is cancelled due to low SoC."""
+        from datetime import timedelta
+        from unittest.mock import AsyncMock
+
+        import pytz
+
+        tz = pytz.timezone("Europe/Stockholm")
+
+        # Activate a water boost
+        engine.set_water_boost(60)
+        assert engine.get_water_boost_status() is not None
+
+        # SoC = 5% < min_soc(10) + 10 = 20% → boost should be cancelled
+        from executor.engine import SystemState
+
+        low_soc_state = SystemState(current_soc_percent=5.0)
+        engine._full_config["battery"] = {"min_soc_percent": 10.0}
+
+        mock_notify = AsyncMock()
+        engine.dispatcher._send_notification = mock_notify  # type: ignore[attr-defined]
+
+        with patch.object(engine, "_gather_system_state", new=AsyncMock(return_value=low_soc_state)):
+            with Path(temp_schedule).open("w", encoding="utf-8") as f:
+                json.dump({"schedule": []}, f)
+
+            await engine.run_once()
+
+        # Notification must have been awaited (not just called)
+        mock_notify.assert_awaited_once()
+        # Boost should be cleared
+        assert engine.get_water_boost_status() is None

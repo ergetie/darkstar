@@ -24,7 +24,6 @@ class OverrideType(Enum):
     MANUAL_OVERRIDE = "manual_override"
     # User-initiated quick actions
     FORCE_CHARGE = "force_charge"
-    FORCE_EXPORT = "force_export"
     FORCE_STOP = "force_stop"
     FORCE_HEAT = "force_heat"
 

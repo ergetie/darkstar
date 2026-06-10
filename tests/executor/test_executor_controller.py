@@ -282,8 +282,8 @@ class TestControllerFollowPlan:
 
         decision = controller.decide(slot, state)
 
-        # 2kW at default 46V ≈ 43.47A -> rounds to 45A with default 5A step
-        expected_amps = 45.0
+        # 2kW at default nominal 48V ≈ 41.67A -> rounds to 40A with default 5A step
+        expected_amps = 40.0
 
         assert decision.mode_intent == "self_consumption"
         assert decision.charge_value == expected_amps
@@ -348,22 +348,6 @@ class TestControllerApplyOverride:
         assert decision.charge_value == controller.config.max_charge_a
         assert decision.write_charge_current is True
 
-    def test_force_export_sets_max_discharge(self, controller):
-        """Force export override sets max discharge current."""
-        slot = SlotPlan()
-        state = SystemState()
-        override = OverrideResult(
-            override_needed=True,
-            override_type=OverrideType.FORCE_EXPORT,
-            actions={},
-        )
-
-        decision = controller.decide(slot, state, override)
-
-        assert decision.mode_intent == "export"
-        assert decision.discharge_value == controller.config.max_discharge_a
-        assert decision.write_discharge_current is True
-
     def test_no_override_follows_plan(self, controller):
         """When no override, decision follows plan."""
         # Battery export requires both export_kw > 0 AND discharge_kw > 0
@@ -392,21 +376,46 @@ class TestCalculateChargeCurrent:
         assert should_write is False
 
     def test_kw_to_amps_conversion(self):
-        """Correctly converts kW to Amps."""
+        """Correctly converts kW to Amps using nominal_voltage_v."""
         config = ControllerConfig(
+            nominal_voltage_v=48.0,
             min_voltage_v=46.0,
             round_step_a=5.0,
             min_charge_a=10.0,
             max_charge_a=185.0,
         )
         controller = Controller(config, InverterConfig())
-        # 5 kW at 46V = 5000/46 ≈ 108.7A → rounds to 110A
+        # 5 kW at 48V = 5000/48 ≈ 104.2A → rounds to 105A
         slot = SlotPlan(charge_kw=5.0)
         state = SystemState()
 
         current, _ = controller._calculate_charge_limit(slot, state)
 
-        assert current == 110.0  # Rounded to step
+        assert current == 105.0  # Rounded to step
+
+    def test_kw_to_amps_uses_nominal_not_min_voltage(self):
+        """Conversion uses nominal_voltage_v; max_charge_a clamp still applies."""
+        config = ControllerConfig(
+            nominal_voltage_v=48.0,
+            min_voltage_v=46.0,
+            round_step_a=1.0,
+            min_charge_a=1.0,
+            max_charge_a=185.0,
+        )
+        controller = Controller(config, InverterConfig())
+        # 4.8 kW at nominal 48 V = 100 A exactly
+        slot = SlotPlan(charge_kw=4.8)
+        state = SystemState()
+
+        current, should_write = controller._calculate_charge_limit(slot, state)
+
+        assert current == 100.0
+        assert should_write is True
+
+        # Clamping still works: 20 kW → well above max_charge_a
+        slot_high = SlotPlan(charge_kw=20.0)
+        clamped, _ = controller._calculate_charge_limit(slot_high, state)
+        assert clamped == 185.0
 
     def test_respects_min_limit(self):
         """Current is clamped to minimum."""

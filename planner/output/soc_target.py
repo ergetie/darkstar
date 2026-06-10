@@ -70,7 +70,6 @@ def apply_soc_target_percent(
     battery_config = config.get("battery", {})
     min_soc_percent = float(battery_config.get("min_soc_percent", 12.0))
     max_soc_percent = float(battery_config.get("max_soc_percent", 100.0))
-    float(battery_config.get("capacity_kwh", 34.2))
 
     # Manual planning configuration
     manual_cfg: dict[str, Any] = config.get("manual_planning", {}) or {}

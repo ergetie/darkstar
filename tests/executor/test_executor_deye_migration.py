@@ -87,8 +87,7 @@ class TestDeyeMigration:
             slot_charge, state, config=ctrl_cfg, inverter_config=inv_cfg, profile=deye_profile
         )
 
-        # Expected: 1000W / 46V = 21.7A -> rounded to 20A (step 5)
-        # Note: legacy code uses config.min_voltage_v (46V)
+        # Expected: 1000W / 48V (nominal) = 20.83A -> rounded to 20A (step 5)
         assert decision.charge_value == 20.0
         assert decision.write_charge_current is True
 

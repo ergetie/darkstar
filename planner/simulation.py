@@ -27,8 +27,10 @@ def simulate_schedule(
 
     battery_config = config.get("battery", {})
     capacity_kwh = float(battery_config.get("capacity_kwh", 0.0))
-    float(battery_config.get("min_soc_percent", 10.0))
-    float(battery_config.get("max_soc_percent", 100.0))
+    min_soc_percent = float(battery_config.get("min_soc_percent", 10.0))
+    max_soc_percent = float(battery_config.get("max_soc_percent", 100.0))
+    min_soc_kwh = (min_soc_percent / 100.0) * capacity_kwh
+    max_soc_kwh = (max_soc_percent / 100.0) * capacity_kwh
 
     # Efficiency
     roundtrip = float(battery_config.get("roundtrip_efficiency_percent", 95.0))
@@ -48,7 +50,7 @@ def simulate_schedule(
         duration_h = (row["end_time"] - idx).total_seconds() / 3600.0 if "end_time" in row else 0.25
         # Default 15 min
 
-        charge_kw = float(row.get("charge_kw", 0.0))
+        charge_kw = float(row.get("battery_charge_kw", row.get("charge_kw", 0.0)))
         discharge_kw = float(row.get("discharge_kw", 0.0))
 
         # Apply efficiency
@@ -57,9 +59,7 @@ def simulate_schedule(
 
         current_soc_kwh += energy_in - energy_out
 
-        # Clamp (though simulation should probably show if it violates?)
-        # Legacy planner clamps in _pass_6.
-        current_soc_kwh = max(0.0, min(current_soc_kwh, capacity_kwh))
+        current_soc_kwh = max(min_soc_kwh, min(current_soc_kwh, max_soc_kwh))
 
         pct = (current_soc_kwh / capacity_kwh * 100.0) if capacity_kwh > 0 else 0.0
 
