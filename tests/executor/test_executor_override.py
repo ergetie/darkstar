@@ -199,7 +199,7 @@ class TestOverrideEvaluatorExcessPVHeatingRemoved:
             current_load_kw=2.0,
         )
 
-        result = evaluate_overrides(state, config={"min_soc_floor": 10.0})
+        result = evaluate_overrides(state)
 
         assert result.override_needed is False
 
@@ -253,9 +253,9 @@ class TestEvaluateOverridesConvenienceFunction:
         assert result.override_needed is False
 
     def test_with_custom_config(self):
-        """Works with custom config values."""
+        """Works with custom water-heater config values."""
         state = SystemState(current_soc_percent=5.0)
-        config = {"min_soc_floor": 10.0}
+        config = {"water_temp_off": 40}
 
         result = evaluate_overrides(state, config=config)
 

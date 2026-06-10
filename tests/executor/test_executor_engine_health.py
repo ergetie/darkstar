@@ -58,7 +58,8 @@ async def test_executor_engine_captures_action_errors(engine):
     # _load_config is SYNC, so use MagicMock
     # _gather_system_state is ASYNC, so use AsyncMock
     engine._load_config = MagicMock()
-    engine._gather_system_state = AsyncMock()
+    from executor.override import SystemState
+    engine._gather_system_state = AsyncMock(return_value=SystemState())
 
     await engine._tick()
 

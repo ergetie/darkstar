@@ -114,12 +114,10 @@ class OverrideEvaluator:
 
     def __init__(
         self,
-        min_soc_floor: float = 10.0,
         water_temp_boost: int = 70,
         water_temp_max: int = 85,
         water_temp_off: int = 40,
     ):
-        self.min_soc_floor = min_soc_floor
         self.water_temp_boost = water_temp_boost
         self.water_temp_max = water_temp_max
         self.water_temp_off = water_temp_off
@@ -187,7 +185,6 @@ def evaluate_overrides(
     """
     config = config or {}
     evaluator = OverrideEvaluator(
-        min_soc_floor=config.get("min_soc_floor", 10.0),
         water_temp_boost=config.get("water_temp_boost", 70),
         water_temp_max=config.get("water_temp_max", 85),
         water_temp_off=config.get("water_temp_off", 40),

@@ -179,6 +179,10 @@ class ExecutorEngine:
         # Override notification deduplication (Issue 3 fix)
         self._last_override_type: str | None = None
 
+        # D3: Stale-schedule alert pending (set by _load_current_slot, consumed in _tick)
+        self._stale_schedule_warning: str | None = None
+        self._stale_schedule_alerted: bool = False  # dedup: fire once per fresh→stale transition
+
         # Cached system state for get_status() mode_intent computation
         self._last_system_state: SystemState | None = None
 
@@ -1091,8 +1095,17 @@ class ExecutorEngine:
 
             if slot:
                 self.status.current_slot = slot_start
+                self._stale_schedule_alerted = (
+                    False  # schedule is fresh again; re-arm for next stale event
+                )
             else:
-                logger.warning("No valid slot found for current time")
+                if self._stale_schedule_warning:
+                    if not self._stale_schedule_alerted:
+                        if self.dispatcher:
+                            await self.dispatcher.notify_error(self._stale_schedule_warning)
+                        self._stale_schedule_alerted = True
+                else:
+                    logger.warning("No valid slot found for current time")
 
             # 3. Gather system state
             state = await self._gather_system_state()
@@ -1120,6 +1133,9 @@ class ExecutorEngine:
             # Update state with slot validity
             state.slot_exists = slot is not None
             state.slot_valid = slot is not None
+
+            # D1: Honor manual override — skip all writes but keep telemetry
+            skip_writes = state.manual_override_active
 
             # 4. Check for active Quick Action OR Water Boost
             quick_action = self._get_quick_action_status()
@@ -1203,8 +1219,6 @@ class ExecutorEngine:
                     state,
                     slot,
                     config={
-                        # min_soc_floor: triggers emergency charge when SoC drops BELOW this
-                        "min_soc_floor": float(battery_cfg.get("min_soc_percent", 10.0)),
                         "water_temp_boost": self.config.water_heater.temp_boost,
                         "water_temp_max": self.config.water_heater.temp_max,
                         "water_temp_off": self.config.water_heater.temp_off,
@@ -1367,12 +1381,13 @@ class ExecutorEngine:
             self.status.last_action = decision.reason
 
             # Control EV Charger Switch (per-device)
-            if self._has_ev_charger and self.config.ev_chargers:
-                await self._control_ev_charger(original_slot, now)
+            if self._has_ev_charger and self.config.ev_chargers and not skip_writes:
+                force_stop_ev = bool(quick_action and quick_action.get("type") == "force_stop")
+                await self._control_ev_charger(original_slot, now, force_stop=force_stop_ev)
 
-            # 6. Execute actions
+            # 6. Execute actions (skipped when manual_override_active — no inverter/EV/water writes)
             action_results: list[ActionResult] = []
-            if self.dispatcher:
+            if self.dispatcher and not skip_writes:
                 # REV UI11 Phase 7: Execute async actions
                 try:
                     # Control Water Heater Temperature (per-device)
@@ -1546,7 +1561,7 @@ class ExecutorEngine:
 
         try:
             with Path(schedule_path).open(encoding="utf-8") as f:
-                payload = json.load(f)
+                payload: dict[str, Any] = json.load(f)
             schedule = payload.get("schedule", [])
         except Exception as e:
             logger.error("Failed to load schedule: %s", e)
@@ -1556,6 +1571,35 @@ class ExecutorEngine:
             return None, None
 
         tz = pytz.timezone(self.config.timezone)
+
+        # D3: Reject stale schedules — planner may be down
+        self._stale_schedule_warning = None
+        meta: dict[str, Any] = {}
+        raw_meta = payload.get("meta")
+        if isinstance(raw_meta, dict):
+            meta = cast("dict[str, Any]", raw_meta)
+        generated_at_str: str = str(meta.get("generated_at", "")) if meta else ""
+        if generated_at_str:
+            try:
+                generated_at = datetime.fromisoformat(str(generated_at_str).replace("Z", "+00:00"))
+                generated_at = (
+                    tz.localize(generated_at)
+                    if generated_at.tzinfo is None
+                    else generated_at.astimezone(tz)
+                )
+                max_age = timedelta(hours=self.config.max_schedule_age_hours)
+                age = now - generated_at
+                if age > max_age:
+                    age_hours = age.total_seconds() / 3600
+                    msg = (
+                        f"Schedule is stale ({age_hours:.1f}h old, "
+                        f"max {self.config.max_schedule_age_hours}h) — holding"
+                    )
+                    logger.warning(msg)
+                    self._stale_schedule_warning = msg
+                    return None, None
+            except Exception as e:
+                logger.debug("Could not parse schedule generated_at: %s", e)
 
         # Find the slot that contains the current time
         for slot_data in schedule:
@@ -1919,12 +1963,16 @@ class ExecutorEngine:
         except Exception as e:
             logger.debug("Battery cost update skipped: %s", e)
 
-    async def _control_ev_charger(self, slot: "SlotPlan | None", now: datetime) -> None:
+    async def _control_ev_charger(
+        self, slot: "SlotPlan | None", now: datetime, force_stop: bool = False
+    ) -> None:
         """
         Control all configured EV charger switches per-device.
 
         Each charger gets independent switch control and safety timeout based
         on its per-device plan from slot.ev_charger_plans.
+
+        force_stop: when True, commands all chargers off regardless of the plan.
         """
         if not self.dispatcher or not self.ha_client:
             return
@@ -1937,6 +1985,10 @@ class ExecutorEngine:
             charger_id = charger_cfg.id
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
             should_charge = charger_plan_kw > 0.1
+
+            # D2: force_stop quick action overrides the plan
+            if force_stop:
+                should_charge = False
 
             # Get or create per-device state
             if charger_id not in self._ev_charger_states:
