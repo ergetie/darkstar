@@ -436,6 +436,7 @@ def config_to_kepler_config(
             if system.get("inverter", {}).get("max_ac_power_kw")
             else None
         ),
+        inverter_topology=str(system.get("inverter", {}).get("topology", "dc_coupled")),
         ramping_cost_sek_per_kw=float(
             planner_config.get("kepler", {}).get(
                 "ramping_cost_sek_per_kw", get_val("ramping_cost_sek_per_kw", 0.05)

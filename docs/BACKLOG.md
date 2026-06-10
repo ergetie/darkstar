@@ -113,12 +113,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ---
 
-#### ~~[Planner] Inverter AC Limit Constraint Overcounts PV-to-Battery Path~~ → PROMOTED
-
-Promoted to active change: `fix-inverter-ac-limit-pv-routing` (2026-06-09). Also tracked as stabilization-review finding #34. Full design (PV-routing split, DC- vs AC-coupled topology flag, test updates) lives in `openspec/changes/fix-inverter-ac-limit-pv-routing/`.
-
----
-
 ### 💡 Future Ideas (Brainstorming)
 
 #### [S-Index] `max_safety_buffer_pct` Cap Suppresses Risk-Level Differentiation

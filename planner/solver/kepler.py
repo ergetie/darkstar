@@ -8,7 +8,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 import logging
 from collections import defaultdict
 from datetime import timedelta  # Rev WH2
-from typing import Any
+from typing import Any, cast
 
 import pulp  # type: ignore[import,no-redef]
 
@@ -188,6 +188,24 @@ class KeplerSolver:
         else:
             is_exporting = dict.fromkeys(range(T), 0)
             export_floor_violation = dict.fromkeys(range(T), 0)
+
+        # PV routing variables — only created when an AC limit is configured
+        pv_routing_active: bool = config.max_inverter_ac_kw is not None
+        pv_to_battery: dict[int, Any] = {}
+        pv_to_ac: dict[int, Any] = {}
+        if pv_routing_active:
+            pv_to_battery = cast(
+                dict[int, Any],
+                pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                    "pv_to_battery_kwh", range(T), lowBound=0.0
+                ),
+            )
+            pv_to_ac = cast(
+                dict[int, Any],
+                pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                    "pv_to_ac_kwh", range(T), lowBound=0.0
+                ),
+            )
 
         # Discomfort variable removed.
         # Per-device "Block Overshoot" variables (soft penalty for massive blocks)
@@ -428,10 +446,19 @@ class KeplerSolver:
             if config.max_import_power_kw is not None:
                 prob += grid_import[t] <= config.max_import_power_kw * h
 
-            # Inverter AC output limit (PV + battery discharge combined)
-            if config.max_inverter_ac_kw is not None:
-                inverter_ac_kwh = config.max_inverter_ac_kw * h
-                prob += discharge[t] <= max(0.0, inverter_ac_kwh - s.pv_kwh)
+            # Inverter AC output limit with PV routing (dc_coupled / ac_coupled)
+            if pv_routing_active:
+                inverter_ac_kwh: float = cast(float, config.max_inverter_ac_kw) * h
+                # PV balance: all forecast PV routes to battery (DC), AC, or curtailment
+                prob += pv_to_battery[t] + pv_to_ac[t] + curtailment[t] == s.pv_kwh
+                # pv_to_battery is a sub-flow of total charge (can't exceed what the battery accepts)
+                prob += pv_to_battery[t] <= charge[t]
+                if config.inverter_topology == "ac_coupled":
+                    # Battery charging also crosses the AC inverter
+                    prob += pv_to_ac[t] + pv_to_battery[t] + discharge[t] <= inverter_ac_kwh
+                else:
+                    # DC-coupled (default): PV-to-battery bypasses the AC stage
+                    prob += pv_to_ac[t] + discharge[t] <= inverter_ac_kwh
 
             # Soft Grid Import Limit
             if config.grid_import_limit_kw is not None:

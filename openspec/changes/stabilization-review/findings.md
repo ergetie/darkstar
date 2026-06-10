@@ -384,14 +384,13 @@
 - **Candidate remedies:** set `config_version` explicitly in a migration step (independent of the template merge).
 - **Phase / session:** Phase 2b, task 3.5 (2026-06-06)
 
-### Finding #34 — Inverter AC limit only caps battery discharge, not PV-to-AC (load + export)
+### Finding #34 — Inverter AC limit only caps battery discharge, not PV-to-AC (load + export) ✅ RESOLVED
 - **Severity:** S4
 - **Domain:** solver-economics
-- **Status:** open → promoted (2026-06-09). De-scoped from harden-executor-safety (2026-06-07; per OQ6 the **planner** owns export limits). Superseded by the fuller `docs/BACKLOG.md` item "[Planner] Inverter AC Limit Constraint Overcounts PV-to-Battery Path" — **promoted to its own planner change** rather than folded into a stabilization cluster.
+- **Status:** RESOLVED (2026-06-10) — shipped in change `fix-inverter-ac-limit-pv-routing`. PV now splits per-slot into `pv_to_battery[t]` (DC path, bypasses AC inverter) and `pv_to_ac[t]` (crosses inverter), with balance constraint `pv_to_battery + pv_to_ac + curtailment = pv_kwh`. AC limit is `pv_to_ac + discharge ≤ inverter_ac_kwh` (dc_coupled) or `pv_to_ac + pv_to_battery + discharge ≤ inverter_ac_kwh` (ac_coupled). Config field `system.inverter.topology` added with migration default `dc_coupled`.
 - **Location:** `planner/solver/kepler.py:431-434` (`discharge[t] <= max(0.0, inverter_ac_kwh - s.pv_kwh)`)
 - **Symptom:** In a slot where forecast PV exceeds the inverter's AC rating, the model still lets all of `s.pv_kwh` flow to AC load/export, while only battery discharge is throttled. So a plan can assume grid export above what the inverter can physically push out its AC side.
 - **Root-cause hypothesis:** CONFIRMED mechanism (code read). The constraint correctly enforces `pv + discharge ≤ AC_limit` for the battery, but PV-to-AC (load + export) is not independently capped — when `s.pv_kwh > inverter_ac_kwh`, discharge is forced to 0 (fine) yet PV can still route unbounded to export/load. Real-world impact is **conditional and small**: only matters when per-slot PV exceeds the inverter AC rating, and depends on DC- vs AC-coupled topology; also the whole constraint is skipped when `max_inverter_ac_kw` is unset (default), in which case nothing is AC-capped. Hardware clips the real export anyway, so the effect is an over-optimistic export estimate in peak-PV slots.
-- **Candidate remedies:** add `pv_to_ac[t] = pv_kwh − pv_to_battery_charge[t]` and constrain `pv_to_ac + discharge ≤ inverter_ac_kwh` (DC-coupled), or document that the AC limit only governs battery discharge. Low priority.
 - **Phase / session:** Phase 2b, task 3.2 (2026-06-06); promoted from an unverified lead after operator request to verify (2026-06-06)
 
 <!-- Phase 3 findings (#35–#38) appended below — architecture review. -->

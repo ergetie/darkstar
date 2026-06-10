@@ -58,9 +58,8 @@ class KeplerConfig:
     # Optional export limits (if any)
     max_export_power_kw: float | None = None
     max_import_power_kw: float | None = None
-    max_inverter_ac_kw: float | None = (
-        None  # Inverter AC output limit (PV + battery discharge combined)
-    )
+    max_inverter_ac_kw: float | None = None  # Inverter AC output limit
+    inverter_topology: str = "dc_coupled"  # "dc_coupled" | "ac_coupled"
     target_soc_kwh: float | None = None  # Minimum SoC at end of horizon
     target_soc_penalty_sek: float = 0.0  # Set by pipeline (Safety Floor penalty)
     curtailment_penalty_sek: float = 0.0  # Penalty for wasting available solar power

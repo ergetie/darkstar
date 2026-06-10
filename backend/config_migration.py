@@ -313,6 +313,33 @@ def _migrate_ev_charger_fields(config: dict[str, Any]) -> tuple[dict[str, Any], 
     return config, changed
 
 
+def _migrate_inverter_topology(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Add inverter.topology = dc_coupled for configs that have max_ac_power_kw but no topology.
+
+    Configs written before this field was added have an implicit dc_coupled topology.
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    changed = False
+    system_raw: Any = config.get("system", {})
+    if not isinstance(system_raw, dict):
+        return config, changed
+    system = cast("dict[str, Any]", system_raw)
+
+    inverter_raw: Any = system.get("inverter", {})
+    if not isinstance(inverter_raw, dict):
+        return config, changed
+    inverter = cast("dict[str, Any]", inverter_raw)
+
+    if inverter.get("max_ac_power_kw") is not None and "topology" not in inverter:
+        inverter["topology"] = "dc_coupled"
+        logger.info("🔄 Added system.inverter.topology = dc_coupled (default for existing configs)")
+        changed = True
+
+    return config, changed
+
+
 def _migrate_inverter_keys(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Migrate legacy system.inverter.max_power_kw to system.inverter.max_ac_power_kw.
 
@@ -756,6 +783,11 @@ async def migrate_config(
     # 2.1b Migrate inverter config keys (must run before remove_deprecated_keys)
     user_config, inverter_migration_changes = _migrate_inverter_keys(user_config)
     if inverter_migration_changes:
+        pre_merge_changes = True
+
+    # 2.1c Add inverter.topology default for configs that have max_ac_power_kw but no topology
+    user_config, topology_migration_changes = _migrate_inverter_topology(user_config)
+    if topology_migration_changes:
         pre_merge_changes = True
 
     # 2.2 Sweep deprecated keys from user config

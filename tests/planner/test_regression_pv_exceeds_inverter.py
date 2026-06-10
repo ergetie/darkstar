@@ -6,10 +6,10 @@ from planner.solver.types import KeplerConfig, KeplerInput, KeplerInputSlot
 
 
 def test_pv_exceeds_inverter_ac_capacity_returns_optimal():
-    """When pv_kwh > inverter_ac_kwh, solver should return Optimal with discharge=0.
+    """dc_coupled: when pv_kwh > inverter_ac_kwh, surplus routes to battery — solver stays Optimal.
 
     Before fix: LP infeasible (discharge + pv <= inverter_ac becomes discharge <= negative).
-    After fix: discharge <= max(0, inverter_ac - pv) = 0, which is satisfiable.
+    After fix (dc_coupled): surplus PV can bypass the AC stage via pv_to_battery; always feasible.
     """
     start = datetime(2025, 6, 1, 12, 0)
     slots = []
@@ -38,6 +38,8 @@ def test_pv_exceeds_inverter_ac_capacity_returns_optimal():
         max_soc_percent=100,
         wear_cost_sek_per_kwh=0.01,
         max_inverter_ac_kw=8.0,  # 8kW * 0.25h = 2.0 kWh per slot
+        inverter_topology="dc_coupled",
+        curtailment_penalty_sek=0.5,  # incentivise routing surplus to battery over curtailment
         enable_export=True,
     )
 
@@ -46,7 +48,8 @@ def test_pv_exceeds_inverter_ac_capacity_returns_optimal():
 
     assert result.is_optimal, f"Expected Optimal, got {result.status_msg}"
 
-    for s in result.slots:
-        assert s.discharge_kwh <= 0.001, (
-            f"Expected discharge=0 when PV exceeds inverter capacity, got {s.discharge_kwh}"
-        )
+    # Surplus PV (0.1177 kWh/slot) should route to battery, not be lost
+    total_charge = sum(s.charge_kwh for s in result.slots)
+    assert total_charge > 0.3, (
+        f"Expected surplus PV to charge battery (>=0.3 kWh total), got {total_charge}"
+    )
