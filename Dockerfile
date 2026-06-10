@@ -27,8 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     make \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pnpm globally
-RUN npm install -g pnpm
+# Install pnpm globally. Pinned to v9 to match CI (pnpm/action-setup version: 9)
+# and frontend/pnpm-lock.yaml. pnpm 10 requires Node 22's `node:sqlite` builtin,
+# which the Debian Node in this image does not provide.
+RUN npm install -g pnpm@9
 
 # Install Python dependencies
 COPY requirements.txt ./

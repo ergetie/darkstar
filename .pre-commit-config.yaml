@@ -1,10 +1,21 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.9.2
+  # Ruff runs from the project's pinned install (requirements-dev.txt) via
+  # `uv run`, NOT a separately-versioned pre-commit mirror. This guarantees the
+  # ruff used on commit is byte-identical to the ruff CI runs — no version skew.
+  - repo: local
     hooks:
       - id: ruff
-        args: [ --fix ]
+        name: ruff (lint, autofix)
+        entry: uv run ruff check --fix --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
       - id: ruff-format
+        name: ruff (format)
+        entry: uv run ruff format --force-exclude
+        language: system
+        types_or: [python, pyi]
+        require_serial: true
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
     hooks:
@@ -34,3 +45,12 @@ repos:
         files: ^profiles/.*\.yaml$
         exclude: ^profiles/schema\.yaml$
         pass_filenames: true
+      # Full CI gate, runs on `git push` (not every commit). Mirrors the GitHub
+      # Actions CI exactly so a green push locally means a green push in CI.
+      - id: ci-gate
+        name: CI gate (ruff + pyright + tests + openapi)
+        entry: scripts/ci_local.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

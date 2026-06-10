@@ -128,7 +128,7 @@ jobs:
 
       - name: Export and validate OpenAPI schema
         run: |
-          python -c "
+          uv run python -c "
           import json
           import sys
           sys.path.insert(0, '.')

@@ -195,13 +195,13 @@ class KeplerSolver:
         pv_to_ac: dict[int, Any] = {}
         if pv_routing_active:
             pv_to_battery = cast(
-                dict[int, Any],
+                "dict[int, Any]",
                 pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                     "pv_to_battery_kwh", range(T), lowBound=0.0
                 ),
             )
             pv_to_ac = cast(
-                dict[int, Any],
+                "dict[int, Any]",
                 pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                     "pv_to_ac_kwh", range(T), lowBound=0.0
                 ),
@@ -448,7 +448,7 @@ class KeplerSolver:
 
             # Inverter AC output limit with PV routing (dc_coupled / ac_coupled)
             if pv_routing_active:
-                inverter_ac_kwh: float = cast(float, config.max_inverter_ac_kw) * h
+                inverter_ac_kwh: float = cast("float", config.max_inverter_ac_kw) * h
                 # PV balance: all forecast PV routes to battery (DC), AC, or curtailment
                 prob += pv_to_battery[t] + pv_to_ac[t] + curtailment[t] == s.pv_kwh
                 # pv_to_battery is a sub-flow of total charge (can't exceed what the battery accepts)
