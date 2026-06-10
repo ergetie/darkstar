@@ -21,6 +21,7 @@ import collections
 import contextlib
 import json
 import logging
+import os
 import threading
 import time
 from dataclasses import dataclass
@@ -221,8 +222,10 @@ class ExecutorEngine:
 
     def _get_db_path(self) -> str:
         """Get the path to the learning database."""
-        # Use the same database as the learning engine
-        return str(Path("data") / "planner_learning.db")
+        # Use the same database as the learning engine. Honour DB_PATH so it
+        # stays consistent with main.py / Alembic (and lets tests redirect to a
+        # throwaway DB), falling back to the shared default.
+        return os.getenv("DB_PATH") or str(Path("data") / "planner_learning.db")
 
     def init_ha_client(self) -> bool:
         """Initialize the Home Assistant client."""

@@ -169,7 +169,13 @@ async def test_get_ha_entity_state_uses_async_context_manager():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("httpx.AsyncClient") as mock_async_client:
+    with (
+        patch("httpx.AsyncClient") as mock_async_client,
+        patch(
+            "backend.core.secrets.load_home_assistant_config",
+            return_value={"url": "http://test", "token": "test_token"},
+        ),
+    ):
         mock_async_client.return_value = mock_client
 
         # Call the function
@@ -200,7 +206,13 @@ async def test_get_ha_entity_state_closes_client_on_exception():
     mock_client.__aenter__ = AsyncMock(return_value=mock_client)
     mock_client.__aexit__ = AsyncMock(return_value=None)
 
-    with patch("httpx.AsyncClient") as mock_async_client:
+    with (
+        patch("httpx.AsyncClient") as mock_async_client,
+        patch(
+            "backend.core.secrets.load_home_assistant_config",
+            return_value={"url": "http://test", "token": "test_token"},
+        ),
+    ):
         mock_async_client.return_value = mock_client
 
         # Call the function - should not raise, should return None

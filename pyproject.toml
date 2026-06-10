@@ -20,6 +20,7 @@ exclude = [
     "reference",
     "backend/static",  # Built frontend assets
     "tests",  # Test files use pytest patterns not compatible with strict pyright
+    "typings",  # Hand-written .pyi stubs for untyped deps; pyright stubPath, not source
 ]
 
 [tool.ruff.lint]

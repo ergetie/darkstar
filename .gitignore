@@ -5,7 +5,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .ruff_cache/
-typings/
+# NOTE: typings/ holds hand-written .pyi stubs for untyped deps (nordpool, pulp,
+# socketio). They are committed on purpose — pyright's stubPath points here, and
+# without them CI strict-mode pyright fails on imports that pass locally.
 
 
 # Secrets and user config (DO NOT COMMIT)
