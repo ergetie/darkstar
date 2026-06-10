@@ -24,6 +24,7 @@ logger = logging.getLogger("darkstar.config_migration")
 
 BACKUP_DIR_ENV = "BACKUP_DIR"
 HOST_BACKUP_DIR = Path("/host_backups")
+CURRENT_CONFIG_VERSION = 2
 
 
 def _get_persistent_backup_dir(config_path: Path) -> Path:
@@ -777,6 +778,14 @@ async def migrate_config(
     if energy_sensor_changes:
         pre_merge_changes = True
 
+    # 2.8 Ensure config_version is at least CURRENT_CONFIG_VERSION.
+    # Runs independently of the template merge so the version is always set.
+    # Never downgrades a version that is already higher.
+    current_version = user_config.get("config_version")
+    if not isinstance(current_version, int) or current_version < CURRENT_CONFIG_VERSION:
+        user_config["config_version"] = CURRENT_CONFIG_VERSION
+        pre_merge_changes = True
+
     # 3. Load Default Config (The Template)
     def_path_obj = Path(default_path)
     if not def_path_obj.exists():
@@ -876,17 +885,28 @@ def create_timestamped_backup(path: Path, max_backups: int = 30) -> Path | None:
         return None
 
 
+def write_config(
+    path: Path, config: Any, yaml_instance: Any, strict_validation: bool = True
+) -> bool:
+    """Public wrapper for the shared config writer."""
+    return _write_config(path, config, yaml_instance, strict_validation=strict_validation)
+
+
 def _write_config(
     path: Path, config: Any, yaml_instance: Any, strict_validation: bool = True
-) -> None:
-    """Validate and atomically write config to disk with timestamped backup."""
+) -> bool:
+    """Validate and atomically write config to disk with timestamped backup.
+
+    Returns True if the write succeeded, False if aborted or failed.
+    """
     if not validate_config_for_write(config, strict=strict_validation):
         logger.error(f"❌ Aborting write to {path} - validation failed.")
-        return
+        return False
 
     temp_path = path.with_name(path.name + ".tmp")
     legacy_backup_path = path.with_name(path.name + ".bak")
     log_prefix = "[CONTAINER]" if Path("/.dockerenv").exists() else "[HOST]"
+    success = False
 
     try:
         if path.exists():
@@ -903,15 +923,36 @@ def _write_config(
             logger.info(f"✅ {log_prefix} Successfully updated {path} (Atomic)")
 
             # Post-write validation - verify written file is valid
-            _verify_written_config(path, yaml_instance)
+            success = _verify_written_config(path, yaml_instance)
 
         except OSError as e:
-            # Fallback for bind mounts
+            # Fallback for bind mounts (EBUSY/EXDEV/ETXTBSY).
+            # temp_path is already in path's directory (path.with_name), so retry
+            # os.replace within the same mount first — keeps the rename atomic.
             if e.errno in (errno.EBUSY, errno.EXDEV, errno.ETXTBSY):
-                logger.info(f"{log_prefix} Bind mount detected, using direct write.")
-                shutil.copy2(temp_path, path)
-                logger.info(f"✅ {log_prefix} Successfully updated {path} (Direct Copy)")
-                _verify_written_config(path, yaml_instance)
+                logger.info(
+                    f"{log_prefix} Bind mount detected, retrying atomic replace within directory."
+                )
+                try:
+                    temp_path.replace(path)
+                    logger.info(f"✅ {log_prefix} Successfully updated {path} (Atomic retry)")
+                    success = _verify_written_config(path, yaml_instance)
+                except OSError:
+                    # Last resort: fsync before and after the streaming copy so a
+                    # partial copy is at least durable if the process dies mid-copy.
+                    logger.warning(
+                        f"⚠️ {log_prefix} Atomic replace not possible on this mount, "
+                        f"falling back to direct copy (last resort)."
+                    )
+                    with temp_path.open("rb") as _f:
+                        os.fsync(_f.fileno())
+                    shutil.copy2(temp_path, path)
+                    with path.open("rb") as _f:
+                        os.fsync(_f.fileno())
+                    logger.info(
+                        f"✅ {log_prefix} Successfully updated {path} (Direct Copy, fsynced)"
+                    )
+                    success = _verify_written_config(path, yaml_instance)
             else:
                 raise
 
@@ -924,6 +965,8 @@ def _write_config(
         with contextlib.suppress(Exception):
             if temp_path.exists():
                 temp_path.unlink()
+
+    return success
 
 
 def _verify_written_config(path: Path, yaml_instance: Any) -> bool:

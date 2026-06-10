@@ -583,3 +583,544 @@ class TestMigrateEvChargerFields:
         _, changed = _migrate_ev_charger_fields(config)
 
         assert changed is False
+
+
+# ===========================================================================
+# Tests 4.1 – 4.7: config-migration-hardening
+# ===========================================================================
+
+
+class TestUISaveRoutesAtomicWriter:
+    """4.1 – UI save uses _write_config; never opens config.yaml in truncating 'w' mode."""
+
+    @pytest.mark.asyncio
+    async def test_save_calls_write_config_not_open_w(self, tmp_path, monkeypatch):
+        from pathlib import Path as _Path
+
+        from ruamel.yaml import YAML
+
+        import backend.api.routers.config as config_router
+
+        yaml_loader = YAML()
+
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+
+        base_config = {
+            "config_version": 2,
+            "timezone": "Europe/London",
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": False,
+            },
+            "battery": {},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        with config_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+
+        write_config_calls: list = []
+        # Track whether config.yaml is opened in raw "w" mode *before* _write_config is reached.
+        # We spy on Path.open; _write_config is mocked out so the only "w" opens that
+        # could happen are from the old direct-write code path that must no longer exist.
+        raw_open_w_calls: list = []
+        real_open = _Path.open
+
+        def spy_open(self, mode="r", **kwargs):
+            # Flag any "w" mode open on the config file that is NOT from our mock.
+            if mode == "w" and self == config_file:
+                # Check call stack: if _write_config mock hasn't been called yet but a "w"
+                # open happens, that means the old direct-write path is being used.
+                if not write_config_calls:
+                    raw_open_w_calls.append(self)
+            return real_open(self, mode, **kwargs)
+
+        monkeypatch.setattr(_Path, "open", spy_open)
+
+        def mock_write_config(path, data, yaml_instance, **kwargs):
+            write_config_calls.append((path, data))
+            return True
+
+        monkeypatch.setattr(
+            config_router,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
+        )
+        monkeypatch.setattr(config_router, "write_config", mock_write_config)
+        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x: [])
+
+        await config_router.save_config({"timezone": "Europe/Stockholm"})
+
+        assert len(write_config_calls) == 1, "_write_config should have been called exactly once"
+        assert len(raw_open_w_calls) == 0, (
+            "config.yaml must not be opened in truncating 'w' mode before _write_config is called"
+        )
+
+
+class TestUISaveCreatesBackup:
+    """4.2 – UI save triggers a timestamped backup before writing."""
+
+    @pytest.mark.asyncio
+    async def test_save_calls_create_timestamped_backup(self, tmp_path, monkeypatch):
+        from pathlib import Path as _Path
+
+        from ruamel.yaml import YAML
+
+        import backend.api.routers.config as config_router
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+
+        base_config = {
+            "config_version": 2,
+            "timezone": "Europe/London",
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": False,
+            },
+            "battery": {},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        with config_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+
+        backup_calls: list = []
+
+        real_create_backup = cm.create_timestamped_backup
+
+        def mock_backup(path, **kwargs):
+            backup_calls.append(path)
+            return real_create_backup(path, **kwargs)
+
+        monkeypatch.setattr(cm, "create_timestamped_backup", mock_backup)
+        # config_router imports write_config from cm at module load time, so patch cm directly.
+        # _write_config calls create_timestamped_backup via the cm module namespace.
+
+        monkeypatch.setattr(
+            config_router,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
+        )
+        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x: [])
+
+        await config_router.save_config({"timezone": "Europe/Stockholm"})
+
+        assert len(backup_calls) >= 1, "create_timestamped_backup should be called during save"
+
+
+class TestUISaveAbortedReturns500:
+    """4.3 – If _write_config returns False (aborted), HTTP 500 is returned.
+
+    The critical scenario: _write_config aborts silently (validation failure),
+    the old non-empty config.yaml stays on disk unchanged, but the endpoint must
+    still return an error — not success. This tests the return-value check, not a
+    file-size check.
+    """
+
+    @pytest.mark.asyncio
+    async def test_silent_write_abort_returns_500(self, tmp_path, monkeypatch):
+        from pathlib import Path as _Path
+
+        from fastapi import HTTPException
+        from ruamel.yaml import YAML
+
+        import backend.api.routers.config as config_router
+
+        yaml_loader = YAML()
+
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+
+        base_config = {
+            "config_version": 2,
+            "timezone": "Europe/London",
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": False,
+            },
+            "battery": {},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        with config_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+
+        def aborted_write_config(path, data, yaml_instance, **kwargs):
+            # Simulate _write_config aborting (e.g. internal validation failure):
+            # the file is NOT updated and the old non-empty file remains in place.
+            # Return False so the caller detects the abort via the return value.
+            return False
+
+        monkeypatch.setattr(
+            config_router,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
+        )
+        monkeypatch.setattr(config_router, "write_config", aborted_write_config)
+        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x: [])
+
+        with pytest.raises(HTTPException) as exc_info:
+            await config_router.save_config({"timezone": "Europe/Stockholm"})
+
+        assert exc_info.value.status_code == 500
+        # The old file must still be intact — abort must not truncate it.
+        assert config_file.stat().st_size > 0
+
+
+class TestBindMountExdevPath:
+    """4.4 – EXDEV on first replace is retried atomically; shutil.copy2 is NOT called."""
+
+    def test_exdev_retry_does_not_call_copy2(self, tmp_path, monkeypatch):
+        import errno as _errno
+        import shutil as _shutil
+
+        from ruamel.yaml import YAML
+
+        from backend.config_migration import _write_config
+
+        yaml_instance = YAML()
+        yaml_instance.preserve_quotes = True
+        yaml_instance.width = 4096
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("system:\n  inverter_profile: test\n", encoding="utf-8")
+
+        config_data = {
+            "config_version": 2,
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": False,
+            },
+            "battery": {},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        replace_call_count = [0]
+        real_replace = config_file.__class__.replace
+
+        def patched_replace(self, target):
+            replace_call_count[0] += 1
+            if replace_call_count[0] == 1:
+                raise OSError(_errno.EXDEV, "cross-device link")
+            return real_replace(self, target)
+
+        copy2_calls: list = []
+        real_copy2 = _shutil.copy2
+
+        def spy_copy2(src, dst, **kwargs):
+            copy2_calls.append((src, dst))
+            return real_copy2(src, dst, **kwargs)
+
+        import backend.config_migration as cm
+
+        monkeypatch.setattr(cm.Path, "replace", patched_replace)
+        monkeypatch.setattr(cm.shutil, "copy2", spy_copy2)
+
+        _write_config(config_file, config_data, yaml_instance, strict_validation=False)
+
+        # The retry should have succeeded atomically — copy2 must NOT have been called
+        # for the config itself (it may be called for the .bak backup, so filter by target).
+        config_copy2_calls = [
+            call for call in copy2_calls if str(call[1]) == str(config_file)
+        ]
+        assert len(config_copy2_calls) == 0, (
+            "shutil.copy2 should not be used when atomic replace succeeds on retry"
+        )
+
+
+class TestMigrateConfigVersionSet:
+    """4.5 – migrate_config() sets config_version: 2 when the key is absent, even without template."""
+
+    @pytest.mark.asyncio
+    async def test_config_version_set_when_missing_no_template(self, tmp_path, monkeypatch):
+        from pathlib import Path as _Path
+
+        from ruamel.yaml import YAML
+
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+
+        # Minimal config with no config_version key and no deprecated keys.
+        # strict_validation=False so structure check passes without full schema.
+        config_without_version = {
+            "system": {"system_id": "test", "inverter_profile": "test"},
+            "battery": {},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        with config_file.open("w") as f:
+            yaml_loader.dump(config_without_version, f)
+
+        # Do NOT create config.default.yaml so the template-merge branch is skipped.
+        monkeypatch.setattr(
+            cm,
+            "Path",
+            lambda p: tmp_path / p
+            if p in ["config.yaml", "config.default.yaml"]
+            else _Path(p),
+        )
+
+        written_configs: list = []
+
+        def capture_write(path, data, yaml_instance, **kwargs):
+            written_configs.append(dict(data))
+
+        monkeypatch.setattr(cm, "_write_config", capture_write)
+
+        await cm.migrate_config(strict_validation=False)
+
+        assert len(written_configs) == 1, "_write_config should be called once (version was set)"
+        assert written_configs[0].get("config_version") == cm.CURRENT_CONFIG_VERSION, (
+            f"Expected config_version={cm.CURRENT_CONFIG_VERSION}, "
+            f"got {written_configs[0].get('config_version')}"
+        )
+
+
+class TestConfigVersionNotDowngraded:
+    """4.6 – migrate_config() never downgrades a config_version that is already higher."""
+
+    @pytest.mark.asyncio
+    async def test_higher_version_preserved(self, tmp_path, monkeypatch):
+        from pathlib import Path as _Path
+
+        from ruamel.yaml import YAML
+
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+
+        future_version = 99
+        config_v99 = {
+            "config_version": future_version,
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": True,
+            },
+            "battery": {"min_soc_percent": 20},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        with config_file.open("w") as f:
+            yaml_loader.dump(config_v99, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(config_v99, f)
+
+        monkeypatch.setattr(
+            cm,
+            "Path",
+            lambda p: tmp_path / p
+            if p in ["config.yaml", "config.default.yaml"]
+            else _Path(p),
+        )
+
+        written_configs: list = []
+
+        def capture_write(path, data, yaml_instance, **kwargs):
+            written_configs.append(dict(data))
+
+        monkeypatch.setattr(cm, "_write_config", capture_write)
+
+        await cm.migrate_config(strict_validation=False)
+
+        # Whether or not _write_config is called (structure may or may not change),
+        # config_version must never be reduced to CURRENT_CONFIG_VERSION.
+        for written in written_configs:
+            assert written.get("config_version") == future_version, (
+                f"config_version was downgraded: expected {future_version}, "
+                f"got {written.get('config_version')}"
+            )
+
+        # Also verify the in-memory value was not downgraded by reading it from the file
+        # or confirming that if nothing was written, the file still has version 99.
+        if not written_configs:
+            with config_file.open() as f:
+                saved = yaml_loader.load(f)
+            assert saved["config_version"] == future_version
+
+
+class TestMigrateConfigIdempotentV2:
+    """4.7 – A clean v2 config produces no file write (idempotency)."""
+
+    @pytest.mark.asyncio
+    async def test_clean_v2_no_write(self, tmp_path, monkeypatch):
+        """config_version=2 with no deprecated keys must not trigger _write_config."""
+        from pathlib import Path as _Path
+
+        from ruamel.yaml import YAML
+
+        import backend.config_migration as cm
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+        default_file = tmp_path / "config.default.yaml"
+
+        clean_v2 = {
+            "config_version": 2,
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": True,
+            },
+            "battery": {"min_soc_percent": 20},
+            "executor": {},
+            "input_sensors": {},
+        }
+
+        with config_file.open("w") as f:
+            yaml_loader.dump(clean_v2, f)
+        with default_file.open("w") as f:
+            yaml_loader.dump(clean_v2, f)
+
+        monkeypatch.setattr(
+            cm,
+            "Path",
+            lambda p: tmp_path / p
+            if p in ["config.yaml", "config.default.yaml"]
+            else _Path(p),
+        )
+
+        write_calls: list = []
+
+        def mock_write(*args, **kwargs):
+            write_calls.append(args)
+
+        monkeypatch.setattr(cm, "_write_config", mock_write)
+
+        await cm.migrate_config(strict_validation=False)
+
+        assert len(write_calls) == 0, (
+            f"_write_config was called {len(write_calls)} time(s) for a clean v2 config "
+            f"with no deprecated keys — it should be idempotent"
+        )
+
+
+class TestPostWriteVerificationFailureReturns500:
+    """post-write verify: _verify_written_config returning False propagates as HTTP 500."""
+
+    @pytest.mark.asyncio
+    async def test_verify_failure_returns_500(self, tmp_path, monkeypatch):
+        """If _verify_written_config returns False, _write_config returns False,
+        and save_config() must raise HTTPException(500)."""
+        from pathlib import Path as _Path
+
+        from fastapi import HTTPException
+        from ruamel.yaml import YAML
+
+        import backend.api.routers.config as config_router
+
+        yaml_loader = YAML()
+        config_file = tmp_path / "config.yaml"
+
+        base_config = {
+            "config_version": 2,
+            "timezone": "Europe/London",
+            "system": {
+                "system_id": "test",
+                "inverter_profile": "test",
+                "has_solar": False,
+                "has_battery": False,
+            },
+            "battery": {},
+            "executor": {},
+            "input_sensors": {},
+        }
+        with config_file.open("w") as f:
+            yaml_loader.dump(base_config, f)
+
+        def failing_write_config(path, data, yaml_instance, **kwargs):
+            # Simulate _write_config returning False because post-write verification failed.
+            return False
+
+        monkeypatch.setattr(
+            config_router,
+            "Path",
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
+        )
+        monkeypatch.setattr(config_router, "write_config", failing_write_config)
+        monkeypatch.setattr(config_router, "get_executor_instance", lambda: None)
+        monkeypatch.setattr(config_router, "_validate_config_for_save", lambda x: [])
+
+        with pytest.raises(HTTPException) as exc_info:
+            await config_router.save_config({"timezone": "Europe/Stockholm"})
+
+        assert exc_info.value.status_code == 500
+
+
+class TestBackupRetentionPruning:
+    """Backups are retention-pruned: oldest files beyond max_backups are removed."""
+
+    def test_old_backups_pruned(self, tmp_path):
+        """create_timestamped_backup prunes files beyond max_backups, keeping the newest."""
+        import time
+
+        from backend.config_migration import create_timestamped_backup
+
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("content: original\n")
+
+        backup_dir = tmp_path / ".darkstar_backups"
+        backup_dir.mkdir()
+
+        # Pre-seed 5 old backup files with distinct mtimes so ordering is deterministic.
+        import os as _os
+
+        old_backups = []
+        for i in range(5):
+            b = backup_dir / f"config.yaml_2024010{i}_120000.bak"
+            b.write_text(f"old backup {i}")
+            # Stagger mtime so oldest has the smallest mtime.
+            _os.utime(b, (1_000_000 + i, 1_000_000 + i))
+            old_backups.append(b)
+
+        import backend.config_migration as cm
+
+        # Patch _get_persistent_backup_dir to return our tmp backup_dir.
+        monkeypatch = None  # use direct patch via attribute swap
+        original_fn = cm._get_persistent_backup_dir
+        cm._get_persistent_backup_dir = lambda _path: backup_dir
+        try:
+            create_timestamped_backup(config_file, max_backups=4)
+        finally:
+            cm._get_persistent_backup_dir = original_fn
+
+        remaining = sorted(backup_dir.glob("config.yaml_*.bak"))
+        assert len(remaining) == 4, f"Expected 4 backups after pruning, got {len(remaining)}"
+        # The oldest backup (index 0, lowest mtime) must have been removed.
+        assert not old_backups[0].exists(), "Oldest backup should have been pruned"
+        # The newest pre-seeded backup and the new one must survive.
+        assert old_backups[-1].exists(), "Most recent old backup should survive"

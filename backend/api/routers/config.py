@@ -10,6 +10,7 @@ from backend.api.routers.executor import get_executor_instance
 from backend.config_migration import (
     remove_deprecated_keys,
     template_aware_merge,
+    write_config,
 )
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
 from executor.profiles import get_profile_from_config
@@ -297,9 +298,14 @@ async def save_config(
                 },
             )
 
-        # Save the config (even if warnings exist)
-        with config_path.open("w", encoding="utf-8") as f:
-            yaml_handler.dump(data, f)  # type: ignore
+        # Save the config through the atomic writer (even if warnings exist).
+        # write_config writes to a .tmp sibling then atomically replaces the target,
+        # creating a timestamped backup first. Returns False if aborted or failed.
+        if not write_config(config_path, data, yaml_handler):
+            raise HTTPException(
+                500,
+                detail={"message": "Config save aborted - post-write validation failed"},
+            )
 
         # REV F53: Notify executor to reload config after successful save
         try:
