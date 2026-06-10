@@ -23,9 +23,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Install pnpm and build frontend
+# Install pnpm and build frontend. pnpm pinned to v9 to match CI and the
+# lockfile; pnpm 10 needs Node 22's node:sqlite builtin, absent in this image.
 COPY frontend/package.json frontend/pnpm-lock.yaml ./frontend/
-RUN npm install -g pnpm && cd frontend && pnpm install --frozen-lockfile
+RUN npm install -g pnpm@9 && cd frontend && pnpm install --frozen-lockfile
 
 # Install Python dependencies
 COPY requirements.txt ./
