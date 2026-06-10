@@ -33,6 +33,14 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [Tooling] Deliberate Dependency Upgrade + Tight Pinning Pass
+
+**Goal:** Bring all dependencies up to current versions in a controlled pass, then pin them so CI and local always resolve identically. Covers: runtime deps (`requirements.txt`, currently loose `>=` pins), dev tools (`pyright` is held at 1.1.408 — one behind latest; `ruff` at 0.15.5; `pytest` et al. still loose), `pnpm` (pinned to 9 in the Dockerfile to dodge pnpm 10's Node-22 `node:sqlite` requirement), and the Node version in the add-on `Dockerfile`.
+
+**Notes:** Carved out of the `harden-ci-and-tests` work (2026-06-10). That change pinned only the tools that were actively breaking CI (`ruff`, `pyright`) and matched `pnpm`/Node to the known-good versions — it intentionally did NOT chase "latest everywhere," because the bug was *version mismatch between local and CI*, not staleness. A real upgrade is its own change: bump deliberately, run `scripts/ci_local.sh` after each step, and fix anything newer/stricter versions flag (especially pyright in strict mode). Consider upgrading the add-on Node so `pnpm` can move to 10. Decide whether to keep `requirements*.txt` or migrate deps into `pyproject.toml` + a real `uv.lock` (the current lock is empty) for first-class locking.
+
+---
+
 #### [Testing] Frontend Test Coverage Gap
 
 **Goal:** Establish meaningful automated test coverage for the frontend. Currently only ~2 tests exist for ~100 components.
