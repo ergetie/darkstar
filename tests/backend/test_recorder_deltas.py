@@ -1599,7 +1599,7 @@ class TestLoadIsolationFromDeferrableLoads:
                 }.get(entity)
 
             async def mock_history(entity_id, start, end):
-                return 0.7
+                return 0.75
 
             with (
                 patch(
@@ -1625,9 +1625,135 @@ class TestLoadIsolationFromDeferrableLoads:
                     df = mock_store.store_slot_observations.call_args[0][0]
                     record = df.iloc[0].to_dict()
 
-                    assert record["water_kwh"] == pytest.approx(0.7, abs=0.01)
-                    # Load 2.0 - water 0.7 = 1.3
-                    assert record["load_kwh"] == pytest.approx(1.3, abs=0.01)
+                    assert record["water_kwh"] == pytest.approx(0.75, abs=0.01)
+                    # Load 2.0 - water 0.75 = 1.25
+                    assert record["load_kwh"] == pytest.approx(1.25, abs=0.01)
+
+    @pytest.mark.asyncio
+    async def test_water_power_history_w_series_end_to_end(self, base_config):
+        """End-to-end: a raw-watt sensor series (unit only on the first state) flows
+        through the *real* get_energy_from_power_history and is recorded at the correct
+        magnitude (~0.78 kWh), not the ~780 kWh spike that the validation guard zeroes.
+
+        Unlike test_water_power_history_recording (which mocks the conversion result),
+        this exercises the recorder -> real conversion -> HTTP path so the first-state
+        W-unit propagation is verified through the recorder, closing that seam.
+        """
+        config = base_config.copy()
+        config["water_heaters"] = [{"id": "wh1", "sensor": "sensor.water_power", "enabled": True}]
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "recorder_state.json"
+            state_store = RecorderStateStore(state_file)
+            state_store.load()
+            now = datetime.now(pytz.timezone("Europe/Stockholm"))
+            prev_time = now - timedelta(minutes=15)
+            state_store._state = {
+                "pv_total": {"value": 100.0, "timestamp": prev_time.isoformat()},
+                "load_total": {"value": 50.0, "timestamp": prev_time.isoformat()},
+            }
+            state_store.save()
+
+            async def mock_get_ha_sensor_kw_normalized(entity):
+                return {
+                    "sensor.pv_power": 5.0,
+                    "sensor.load_power": 5.0,
+                    "sensor.grid_power": 2.0,
+                    "sensor.battery_power": 0.0,
+                    "sensor.water_power": 3.0,
+                }.get(entity, 0.0)
+
+            async def mock_get_ha_sensor_float(entity):
+                if entity == "sensor.battery_soc":
+                    return 50.0
+                return None
+
+            async def mock_get_ha_entity_state(entity):
+                return {
+                    "sensor.total_pv_production": {
+                        "state": "101.25",
+                        "attributes": {"unit_of_measurement": "kWh"},
+                        "last_updated": now.isoformat(),
+                    },
+                    "sensor.total_load_consumption": {
+                        "state": "52.0",
+                        "attributes": {"unit_of_measurement": "kWh"},
+                        "last_updated": now.isoformat(),
+                    },
+                }.get(entity)
+
+            # Build the HA history response dynamically, anchored to the slot_start the
+            # recorder actually requests (embedded in the api_url), so the result is
+            # independent of wall-clock slot boundaries. Reproduces the real
+            # sensor.vvb_power series: unit "W" only on the first state, {} thereafter.
+            async def mock_http_get(api_url, headers=None, params=None):
+                slot_start = datetime.fromisoformat(api_url.rsplit("/", 1)[1])
+                states = [
+                    {
+                        "state": "3164",
+                        "last_changed": slot_start.isoformat(),
+                        "attributes": {"unit_of_measurement": "W"},
+                    },
+                    {
+                        "state": "3124",
+                        "last_changed": (slot_start + timedelta(minutes=5)).isoformat(),
+                        "attributes": {},
+                    },
+                    {
+                        "state": "3147",
+                        "last_changed": (slot_start + timedelta(minutes=10)).isoformat(),
+                        "attributes": {},
+                    },
+                    {
+                        "state": "0",
+                        "last_changed": (slot_start + timedelta(minutes=15)).isoformat(),
+                        "attributes": {},
+                    },
+                ]
+                response = MagicMock()
+                response.raise_for_status = MagicMock()
+                response.json.return_value = [states]
+                return response
+
+            with (
+                patch(
+                    "backend.recorder.get_ha_sensor_kw_normalized",
+                    side_effect=mock_get_ha_sensor_kw_normalized,
+                ),
+                patch("backend.recorder.get_ha_sensor_float", side_effect=mock_get_ha_sensor_float),
+                patch("backend.recorder.get_ha_entity_state", side_effect=mock_get_ha_entity_state),
+                patch("backend.recorder.get_current_slot_prices", return_value=None),
+                # NOTE: get_energy_from_power_history is intentionally NOT patched — the
+                # real conversion runs against the mocked HTTP layer below.
+                patch(
+                    "backend.core.ha_client.secrets.load_home_assistant_config",
+                    return_value={"url": "http://ha.local", "token": "tok"},
+                ),
+                patch("backend.core.ha_client.httpx.AsyncClient") as mock_client_cls,
+            ):
+                mock_client = AsyncMock()
+                mock_client.get = AsyncMock(side_effect=mock_http_get)
+                mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+                mock_client.__aexit__ = AsyncMock(return_value=False)
+                mock_client_cls.return_value = mock_client
+
+                mock_store = MagicMock()
+                mock_store.get_system_state = AsyncMock(return_value=None)
+                mock_store.set_system_state = AsyncMock()
+                mock_store.store_slot_observations = AsyncMock()
+                mock_store.close = AsyncMock()
+
+                with patch("backend.recorder.LearningStore", return_value=mock_store):
+                    await record_observation_from_current_state(
+                        config=config, state_store=state_store
+                    )
+
+                    df = mock_store.store_slot_observations.call_args[0][0]
+                    record = df.iloc[0].to_dict()
+
+                    # 3164/3124/3147 W held 5 min each -> ~0.786 kWh, NOT ~786 kWh.
+                    assert record["water_kwh"] == pytest.approx(0.786, abs=0.01)
+                    assert record["water_kwh"] < 4.0  # below the spike guard, not zeroed
 
     @pytest.mark.asyncio
     async def test_snapshot_fallback_when_history_returns_none(self, base_config):

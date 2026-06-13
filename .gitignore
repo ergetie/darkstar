@@ -121,3 +121,6 @@ config.yaml.bak_test
 .claude/skills/openspec-onboard/SKILL.md
 .claude/skills/openspec-sync-specs/SKILL.md
 .claude/skills/openspec-verify-change/SKILL.md
+data/test_planner.db-shm
+.gitignore
+data/test_planner.db-wal

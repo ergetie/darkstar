@@ -223,15 +223,15 @@ async def get_energy_from_power_history(
                         continue
             return None
 
-        def normalize_kw(value: float, state: dict[str, Any]) -> float:
-            attributes = state.get("attributes", {})
-            unit = str(attributes.get("unit_of_measurement", "")).upper()
+        def normalize_kw(value: float, unit: str | None) -> float:
+            unit = str(unit or "").upper()
             if unit == "W":
                 return value / 1000.0
             if unit == "MW":
                 return value * 1000.0
             return value
 
+        cached_unit: str | None = None
         for state in sorted(states, key=lambda item: state_timestamp(item) or start):
             ts = state_timestamp(state)
             if ts is None:
@@ -245,7 +245,14 @@ async def get_energy_from_power_history(
             except (TypeError, ValueError):
                 continue
 
-            value_kw = normalize_kw(value, state)
+            attributes = state.get("attributes", {})
+            unit = attributes.get("unit_of_measurement")
+            if unit is not None and unit != "":
+                cached_unit = unit
+            if unit is None or unit == "":
+                unit = cached_unit
+
+            value_kw = normalize_kw(value, unit)
             valid_points += 1
 
             if ts <= start:
@@ -256,6 +263,7 @@ async def get_energy_from_power_history(
             if ts >= end:
                 if current_kw is not None and cursor < end:
                     energy_kwh += current_kw * ((end - cursor).total_seconds() / 3600.0)
+                cursor = end
                 break
 
             if current_kw is not None and cursor < ts:

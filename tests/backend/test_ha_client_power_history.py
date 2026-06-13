@@ -10,18 +10,48 @@ import pytz
 from backend.core.ha_client import get_energy_from_power_history
 
 
-def _make_state(state_val: str, unit: str = "kW", ts: datetime | None = None) -> dict:
+def _make_state(
+    state_val: str,
+    unit: str | None = "kW",
+    ts: datetime | None = None,
+    attributes: dict | None = None,
+) -> dict:
     if ts is None:
         ts = START
-    return {
+    state = {
         "state": state_val,
         "last_changed": ts.isoformat(),
-        "attributes": {"unit_of_measurement": unit},
     }
+    if attributes is not None:
+        state["attributes"] = attributes
+    elif unit is not None:
+        state["attributes"] = {"unit_of_measurement": unit}
+    return state
 
 
 def _make_ha_config(url: str = "http://ha.local", token: str = "tok") -> dict:
     return {"url": url, "token": token}
+
+
+async def _get_energy_for_states(states: list[dict]) -> float | None:
+    with (
+        patch(
+            "backend.core.ha_client.secrets.load_home_assistant_config",
+            return_value=_make_ha_config(),
+        ),
+        patch("backend.core.ha_client.httpx.AsyncClient") as mock_client_cls,
+    ):
+        mock_response = MagicMock()
+        mock_response.raise_for_status = MagicMock()
+        mock_response.json.return_value = [states]
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        return await get_energy_from_power_history("sensor.ev_power", START, END)
 
 
 START = datetime(2024, 1, 1, 10, 0, tzinfo=pytz.UTC)
@@ -205,6 +235,44 @@ class TestGetEnergyFromPowerHistory:
             result = await get_energy_from_power_history("sensor.ev_power", START, END)
 
         assert result == pytest.approx(0.75, abs=0.001)
+
+    @pytest.mark.asyncio
+    async def test_first_state_w_unit_propagates_to_attribute_less_states(self):
+        """HA history can include unit_of_measurement only on the first state."""
+        states = [
+            _make_state("3164", unit="W", ts=START),
+            _make_state("3124", ts=START + timedelta(minutes=5), attributes={}),
+            _make_state("3147", ts=START + timedelta(minutes=10), attributes={}),
+            _make_state("0", ts=END, attributes={}),
+        ]
+
+        result = await _get_energy_for_states(states)
+
+        assert result == pytest.approx(0.786, abs=0.001)
+
+    @pytest.mark.asyncio
+    async def test_no_unit_anywhere_assumes_kw(self):
+        """When HA history has no unit on any state, values are treated as kW."""
+        states = [
+            _make_state("3", ts=START, attributes={}),
+            _make_state("6", ts=START + timedelta(minutes=10), attributes={}),
+        ]
+
+        result = await _get_energy_for_states(states)
+
+        assert result == pytest.approx(1.0, abs=0.001)
+
+    @pytest.mark.asyncio
+    async def test_mid_series_unit_change_is_adopted(self):
+        """A new non-empty unit applies from that state onward."""
+        states = [
+            _make_state("3000", unit="W", ts=START),
+            _make_state("6", unit="kW", ts=START + timedelta(minutes=10)),
+        ]
+
+        result = await _get_energy_for_states(states)
+
+        assert result == pytest.approx(1.0, abs=0.001)
 
     @pytest.mark.asyncio
     async def test_mixed_unavailable_states_hold_previous_valid_power(self):
