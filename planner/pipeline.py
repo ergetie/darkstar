@@ -11,7 +11,7 @@ import asyncio
 import copy
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import pandas as pd
 import pytz
@@ -442,9 +442,11 @@ class PlannerPipeline:
             from planner.inputs.data_prep import build_forecast_dataframe
 
             price_horizon_end = df.index[-1] if len(df) > 0 else None
-            full_forecast_df = build_forecast_dataframe(
-                input_data.get("forecast_data") or [], timezone_name
+            full_forecast_data = cast(
+                "list[dict[str, Any]]",
+                input_data.get("extended_forecast_data") or input_data.get("forecast_data") or [],
             )
+            full_forecast_df = build_forecast_dataframe(full_forecast_data, timezone_name)
 
             soc_debug: dict[str, Any] = {}
             target_soc_kwh, soc_debug = calculate_safety_floor(

@@ -244,6 +244,7 @@ async def _get_forecast_data_aurora(
         logger.warning("AURORA slots missing for price horizon. Returning empty slots.")
 
     # 2. Build DAILY totals for the extended horizon required by S-index
+    extended_slots: list[dict[str, Any]] = []
     daily_pv_forecast: dict[str, float] = {}
     daily_load_forecast: dict[str, float] = {}
     daily_pv_p10: dict[str, float] = {}
@@ -272,7 +273,8 @@ async def _get_forecast_data_aurora(
                 ts = datetime.fromisoformat(ts)
             if ts.tzinfo is None:
                 ts = pytz.UTC.localize(ts)
-            date_key = ts.astimezone(local_tz).date().isoformat()
+            ts_local = ts.astimezone(local_tz)
+            date_key = ts_local.date().isoformat()
 
             # Use new nested structure from ml/api.py get_forecast_slots()
             base_pv = float(rec["final"]["pv_kwh"])
@@ -284,13 +286,11 @@ async def _get_forecast_data_aurora(
 
             # Fallback for Load if 0.0
             if not aurora_load_enabled:
-                ts_local = ts.astimezone(local_tz)
                 idx = int((ts_local.hour * 60 + ts_local.minute) // 15) % 96
                 load_val = ha_profile[idx]
             elif base_load <= 0.001:
                 # Calculate 15-min slot index (0-95)
                 # ts is already localized or UTC, let's ensure local time for index match
-                ts_local = ts.astimezone(local_tz)
                 idx = int((ts_local.hour * 60 + ts_local.minute) // 15) % 96
 
                 # Lazy load HA profile if needed (optimization)
@@ -322,25 +322,39 @@ async def _get_forecast_data_aurora(
             daily_pv_forecast[date_key] = daily_pv_forecast.get(date_key, 0.0) + pv_val
             daily_load_forecast[date_key] = daily_load_forecast.get(date_key, 0.0) + load_val
 
-            if rec.get("probabilistic", {}).get("pv_p10") is not None:
+            probabilistic = rec.get("probabilistic", {})
+            extended_slots.append(
+                {
+                    "start_time": ts_local,
+                    "pv_forecast_kwh": pv_val,
+                    "load_forecast_kwh": load_val,
+                    "pv_p10": probabilistic.get("pv_p10"),
+                    "pv_p90": probabilistic.get("pv_p90"),
+                    "load_p10": probabilistic.get("load_p10"),
+                    "load_p90": probabilistic.get("load_p90"),
+                }
+            )
+
+            if probabilistic.get("pv_p10") is not None:
                 daily_pv_p10[date_key] = daily_pv_p10.get(date_key, 0.0) + float(
-                    rec["probabilistic"]["pv_p10"]
+                    probabilistic["pv_p10"]
                 )
-            if rec.get("probabilistic", {}).get("pv_p90") is not None:
+            if probabilistic.get("pv_p90") is not None:
                 daily_pv_p90[date_key] = daily_pv_p90.get(date_key, 0.0) + float(
-                    rec["probabilistic"]["pv_p90"]
+                    probabilistic["pv_p90"]
                 )
-            if rec.get("probabilistic", {}).get("load_p10") is not None:
+            if probabilistic.get("load_p10") is not None:
                 daily_load_p10[date_key] = daily_load_p10.get(date_key, 0.0) + float(
-                    rec["probabilistic"]["load_p10"]
+                    probabilistic["load_p10"]
                 )
-            if rec.get("probabilistic", {}).get("load_p90") is not None:
+            if probabilistic.get("load_p90") is not None:
                 daily_load_p90[date_key] = daily_load_p90.get(date_key, 0.0) + float(
-                    rec["probabilistic"]["load_p90"]
+                    probabilistic["load_p90"]
                 )
 
     return {
         "slots": forecast_data,
+        "extended_slots": extended_slots,
         "daily_pv_forecast": daily_pv_forecast,
         "daily_load_forecast": daily_load_forecast,
         "daily_probabilistic": {
@@ -652,6 +666,7 @@ async def get_all_input_data(
 
     forecast_result = await get_forecast_data(price_data, config)
     forecast_data = forecast_result.get("slots", [])
+    extended_forecast_data = forecast_result.get("extended_slots", [])
     initial_state = await ha_client.get_initial_state(
         config_path,
         ev_plugged_in_override=ev_plugged_in_override,
@@ -661,6 +676,7 @@ async def get_all_input_data(
     return {
         "price_data": price_data,
         "forecast_data": forecast_data,
+        "extended_forecast_data": extended_forecast_data,
         "initial_state": initial_state,
         "daily_pv_forecast": forecast_result.get("daily_pv_forecast", {}),
         "daily_load_forecast": forecast_result.get("daily_load_forecast", {}),

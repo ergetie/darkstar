@@ -1,5 +1,5 @@
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -202,6 +202,94 @@ class TestForecastAggregation(unittest.IsolatedAsyncioTestCase):
         both_off = await run_case(load_enabled=False, pv_enabled=False)
         assert both_off["slots"][0]["load_forecast_kwh"] == 0.4
         assert both_off["slots"][0]["pv_forecast_kwh"] == 0.6
+
+    async def test_aurora_returns_extended_slots_from_existing_records(self):
+        price_slots = [
+            {"start_time": datetime(2024, 1, 1, 0, 0, tzinfo=UTC)},
+            {"start_time": datetime(2024, 1, 1, 0, 15, tzinfo=UTC)},
+        ]
+        db_slots = [
+            {"pv_forecast_kwh": 0.1, "base_load_forecast_kwh": 0.2},
+            {"pv_forecast_kwh": 0.2, "base_load_forecast_kwh": 0.3},
+        ]
+        extended_records = []
+        for idx in range(100):
+            slot_start = datetime(2024, 1, 1, 0, 0, tzinfo=UTC) + timedelta(minutes=15 * idx)
+            extended_records.append(
+                {
+                    "slot_start": slot_start,
+                    "final": {"pv_kwh": 0.05 + idx, "load_kwh": 0.1 + idx},
+                    "base": {"pv_kwh": 0.04 + idx},
+                    "probabilistic": {
+                        "pv_p10": 0.01 + idx,
+                        "pv_p90": 0.09 + idx,
+                        "load_p10": 0.02 + idx,
+                        "load_p90": 0.12 + idx,
+                    },
+                }
+            )
+
+        config = {
+            "timezone": "UTC",
+            "forecasting": {
+                "active_forecast_version": "aurora",
+                "aurora_load_enabled": True,
+                "aurora_pv_enabled": True,
+            },
+        }
+
+        with (
+            patch("backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=db_slots)),
+            patch(
+                "backend.core.forecasts.get_forecast_slots",
+                new=AsyncMock(return_value=extended_records),
+            ) as mock_extended_fetch,
+            patch("backend.core.ha_client.get_load_profile_from_ha", new=AsyncMock(return_value=[0.4] * 96)),
+        ):
+            result = await get_forecast_data(price_slots, config)
+
+        assert mock_extended_fetch.await_count == 1
+        assert len(result["slots"]) == len(price_slots)
+        assert len(result["extended_slots"]) == len(extended_records)
+        assert result["extended_slots"][-1]["start_time"] >= price_slots[-1]["start_time"] + timedelta(
+            hours=24
+        )
+        assert result["extended_slots"][0]["pv_forecast_kwh"] == 0.05
+        assert result["extended_slots"][0]["load_forecast_kwh"] == 0.1
+        assert result["extended_slots"][0]["pv_p10"] == 0.01
+        assert result["extended_slots"][0]["pv_p90"] == 0.09
+        assert result["extended_slots"][0]["load_p10"] == 0.02
+        assert result["extended_slots"][0]["load_p90"] == 0.12
+
+    async def test_aurora_extended_slots_use_load_fallback(self):
+        price_slots = [{"start_time": datetime(2024, 1, 1, 0, 0, tzinfo=UTC)}]
+        extended_records = [
+            {
+                "slot_start": datetime(2024, 1, 1, 1, 0, tzinfo=UTC),
+                "final": {"pv_kwh": 0.0, "load_kwh": 0.0},
+                "base": {"pv_kwh": 0.0},
+                "probabilistic": {},
+            }
+        ]
+        config = {
+            "timezone": "UTC",
+            "forecasting": {
+                "active_forecast_version": "aurora",
+                "aurora_load_enabled": True,
+                "aurora_pv_enabled": True,
+            },
+        }
+        ha_profile = [float(idx) for idx in range(96)]
+
+        with (
+            patch("backend.core.forecasts.build_db_forecast_for_slots", new=AsyncMock(return_value=[])),
+            patch("backend.core.forecasts.get_forecast_slots", new=AsyncMock(return_value=extended_records)),
+            patch("backend.core.ha_client.get_load_profile_from_ha", new=AsyncMock(return_value=ha_profile)),
+        ):
+            result = await get_forecast_data(price_slots, config)
+
+        assert result["extended_slots"][0]["load_forecast_kwh"] == ha_profile[4]
+        assert result["daily_load_forecast"]["2024-01-01"] == ha_profile[4]
 
 
 if __name__ == "__main__":

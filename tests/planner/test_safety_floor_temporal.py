@@ -5,6 +5,7 @@ Tests the new temporal deficit approach to safety floor calculation.
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -197,7 +198,7 @@ class TestCalculateSafetyFloor:
         # Gambler mode: 0% margin, 0% minimum buffer
         assert floor_kwh == pytest.approx(min_soc_kwh, abs=0.01)
 
-    def test_safety_floor_with_extended_forecast(self):
+    def test_safety_floor_with_extended_forecast(self, caplog):
         """Extended forecast beyond price horizon should be used."""
         # Price horizon: first 24h
         price_df = build_test_df(load_kwh=20.0, pv_kwh=10.0, days=1)
@@ -210,6 +211,7 @@ class TestCalculateSafetyFloor:
         battery_cfg = {"capacity_kwh": 34.2, "min_soc_percent": 12.0}
         s_index_cfg = {"risk_appetite": 3, "max_safety_buffer_percent": 20.0}
 
+        caplog.set_level(logging.WARNING, logger="darkstar.planner")
         _floor_kwh, debug = calculate_safety_floor(
             price_df,
             battery_cfg,
@@ -222,8 +224,9 @@ class TestCalculateSafetyFloor:
         # Should be using extended data
         assert debug["using_extended_data"] is True
         assert debug["temporal_deficit_kwh"] > 0
+        assert "Extended forecast data unavailable or insufficient" not in caplog.text
 
-    def test_safety_floor_fallback_warning(self):
+    def test_safety_floor_fallback_warning(self, caplog):
         """Missing extended forecast should trigger fallback with warning."""
         df = build_test_df(load_kwh=30.0, pv_kwh=10.0, days=1)
 
@@ -233,6 +236,7 @@ class TestCalculateSafetyFloor:
         price_horizon_end = df.index[-1]
 
         # Don't provide full_forecast_df - should trigger fallback
+        caplog.set_level(logging.WARNING, logger="darkstar.planner")
         _floor_kwh, debug = calculate_safety_floor(
             df,
             battery_cfg,
@@ -244,6 +248,49 @@ class TestCalculateSafetyFloor:
 
         assert debug["fallback_warning"] is True
         assert debug["using_extended_data"] is False
+        assert "Extended forecast data unavailable or insufficient" in caplog.text
+
+    def test_safety_floor_short_horizon_winter_extended_deficit_capped(self):
+        """Short price horizon should reserve overnight deficit, capped by max buffer."""
+        tz = pytz.timezone("Europe/Stockholm")
+        today = datetime.now(tz).date()
+        price_start = tz.localize(datetime(today.year, today.month, today.day, 12, 0))
+        price_index = pd.date_range(start=price_start, periods=4, freq="15min")
+        price_df = pd.DataFrame(
+            {
+                "load_forecast_kwh": [0.1] * len(price_index),
+                "pv_forecast_kwh": [0.0] * len(price_index),
+            },
+            index=price_index,
+        )
+
+        full_index = pd.date_range(start=price_start, periods=4 + 96, freq="15min")
+        full_forecast_df = pd.DataFrame(
+            {
+                "load_forecast_kwh": [0.4] * len(full_index),
+                "pv_forecast_kwh": [0.0] * len(full_index),
+                "temperature_c": [-12.0] * len(full_index),
+            },
+            index=full_index,
+        )
+        battery_cfg = {"capacity_kwh": 34.2, "min_soc_percent": 12.0}
+        s_index_cfg = {"risk_appetite": 1, "max_safety_buffer_percent": 10.0}
+        price_horizon_end = price_df.index[-1]
+
+        floor_kwh, debug = calculate_safety_floor(
+            price_df,
+            battery_cfg,
+            s_index_cfg,
+            "Europe/Stockholm",
+            full_forecast_df=full_forecast_df,
+            price_horizon_end=price_horizon_end,
+        )
+
+        min_soc_kwh = 0.12 * 34.2
+        max_allowed = min_soc_kwh + (0.10 * 34.2)
+        assert debug["using_extended_data"] is True
+        assert debug["temporal_deficit_kwh"] > 30.0
+        assert floor_kwh == pytest.approx(max_allowed, abs=0.01)
 
     def test_safety_floor_max_buffer_cap(self):
         """max_safety_buffer_pct should cap the safety floor."""
