@@ -20,7 +20,7 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pytz
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine, func, tuple_
 from sqlalchemy.orm import sessionmaker
 
 from backend.core.prices import calculate_import_export_prices
@@ -264,10 +264,19 @@ async def generate_price_forecasts(
 
 def _persist_forecasts(forecasts: list[dict[str, Any]], db_path: str) -> None:
     """Persist forecast records to the database."""
+    session = None
     try:
         engine = create_engine(f"sqlite:///{db_path}")
         SessionLocal = sessionmaker(bind=engine)
         session = SessionLocal()
+
+        forecast_pairs = {
+            (forecast["slot_start"], forecast["days_ahead"]) for forecast in forecasts
+        }
+        if forecast_pairs:
+            session.query(PriceForecast).filter(
+                tuple_(PriceForecast.slot_start, PriceForecast.days_ahead).in_(forecast_pairs)
+            ).delete(synchronize_session=False)
 
         for forecast in forecasts:
             pf = PriceForecast(
@@ -285,10 +294,14 @@ def _persist_forecasts(forecasts: list[dict[str, Any]], db_path: str) -> None:
             session.add(pf)
 
         session.commit()
-        session.close()
 
     except Exception as exc:
+        if session is not None:
+            session.rollback()
         logger.error("Error persisting forecasts: %s", exc)
+    finally:
+        if session is not None:
+            session.close()
 
 
 def cleanup_price_forecast_duplicates(

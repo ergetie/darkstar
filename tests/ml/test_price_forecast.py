@@ -10,6 +10,7 @@ from sqlalchemy import create_engine, select
 
 from backend.learning.models import Base, PriceForecast
 from ml.price_forecast import (
+    _persist_forecasts,
     generate_price_forecasts,
     get_d1_price_forecast_fallback,
     get_price_forecasts_from_db,
@@ -193,6 +194,197 @@ def _insert_forecasts(engine, rows: list[dict]):
         session.add(PriceForecast(**row))
     session.commit()
     session.close()
+
+
+def _fetch_persisted_forecasts(engine) -> list[PriceForecast]:
+    """Fetch price forecast rows ordered by natural key."""
+    from sqlalchemy.orm import sessionmaker
+
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    rows = (
+        session.query(PriceForecast)
+        .order_by(PriceForecast.slot_start, PriceForecast.days_ahead)
+        .all()
+    )
+    session.close()
+    return rows
+
+
+def test_persist_forecasts_overwrites_same_slot_and_horizon(tmp_db):
+    """Persisting the same pairs twice stores only the later issue."""
+    db_path, engine = tmp_db
+    run1 = [
+        {
+            "slot_start": "2026-04-10T00:00:00+02:00",
+            "issue_timestamp": "2026-04-09T06:00:00+02:00",
+            "days_ahead": 1,
+            "spot_p10": 0.4,
+            "spot_p50": 0.5,
+            "spot_p90": 0.6,
+            "wind_index": 1.0,
+            "temperature_c": 5.0,
+            "cloud_cover": 50.0,
+            "radiation_wm2": 100.0,
+        },
+        {
+            "slot_start": "2026-04-10T00:30:00+02:00",
+            "issue_timestamp": "2026-04-09T06:00:00+02:00",
+            "days_ahead": 1,
+            "spot_p10": 0.7,
+            "spot_p50": 0.8,
+            "spot_p90": 0.9,
+            "wind_index": 1.1,
+            "temperature_c": 5.5,
+            "cloud_cover": 55.0,
+            "radiation_wm2": 105.0,
+        },
+    ]
+    run2 = [
+        {
+            **forecast,
+            "issue_timestamp": "2026-04-09T14:00:00+02:00",
+            "spot_p10": forecast["spot_p10"] + 0.05,
+            "spot_p50": forecast["spot_p50"] + 0.05,
+            "spot_p90": forecast["spot_p90"] + 0.05,
+            "wind_index": forecast["wind_index"] + 0.2,
+        }
+        for forecast in run1
+    ]
+
+    _persist_forecasts(run1, db_path)
+    _persist_forecasts(run2, db_path)
+
+    rows = _fetch_persisted_forecasts(engine)
+    assert len(rows) == 2
+    assert {(row.slot_start, row.days_ahead) for row in rows} == {
+        (forecast["slot_start"], forecast["days_ahead"]) for forecast in run2
+    }
+    for row in rows:
+        assert row.issue_timestamp == "2026-04-09T14:00:00+02:00"
+        assert row.spot_p50 in {0.55, 0.8500000000000001}
+        assert row.wind_index in {1.2, 1.3}
+
+
+def test_persist_forecasts_keeps_distinct_horizons_for_same_slot(tmp_db):
+    """Rows for the same slot but different days_ahead are distinct."""
+    db_path, engine = tmp_db
+    slot_start = "2026-04-10T00:00:00+02:00"
+    rows = [
+        {
+            "slot_start": slot_start,
+            "issue_timestamp": "2026-04-03T06:00:00+02:00",
+            "days_ahead": 7,
+            "spot_p10": 0.4,
+            "spot_p50": 0.5,
+            "spot_p90": 0.6,
+            "wind_index": 1.0,
+        },
+        {
+            "slot_start": slot_start,
+            "issue_timestamp": "2026-04-09T06:00:00+02:00",
+            "days_ahead": 1,
+            "spot_p10": 0.7,
+            "spot_p50": 0.8,
+            "spot_p90": 0.9,
+            "wind_index": 1.2,
+        },
+    ]
+
+    _persist_forecasts([rows[0]], db_path)
+    _persist_forecasts([rows[1]], db_path)
+
+    persisted = _fetch_persisted_forecasts(engine)
+    assert len(persisted) == 2
+    assert {(row.slot_start, row.days_ahead) for row in persisted} == {
+        (slot_start, 1),
+        (slot_start, 7),
+    }
+
+
+def test_persist_forecasts_weather_only_overwrites_prior_spot_row(tmp_db):
+    """Weather-only rows replace previous spot values for the same pair."""
+    db_path, engine = tmp_db
+    spot_row = {
+        "slot_start": "2026-04-10T00:00:00+02:00",
+        "issue_timestamp": "2026-04-09T06:00:00+02:00",
+        "days_ahead": 1,
+        "spot_p10": 0.4,
+        "spot_p50": 0.5,
+        "spot_p90": 0.6,
+        "wind_index": 1.0,
+        "temperature_c": 5.0,
+        "cloud_cover": 50.0,
+        "radiation_wm2": 100.0,
+    }
+    weather_only_row = {
+        **spot_row,
+        "issue_timestamp": "2026-04-09T14:00:00+02:00",
+        "spot_p10": None,
+        "spot_p50": None,
+        "spot_p90": None,
+        "wind_index": 1.5,
+        "temperature_c": 6.0,
+        "cloud_cover": 60.0,
+        "radiation_wm2": 110.0,
+    }
+
+    _persist_forecasts([spot_row], db_path)
+    _persist_forecasts([weather_only_row], db_path)
+
+    rows = _fetch_persisted_forecasts(engine)
+    assert len(rows) == 1
+    assert rows[0].issue_timestamp == "2026-04-09T14:00:00+02:00"
+    assert rows[0].spot_p10 is None
+    assert rows[0].spot_p50 is None
+    assert rows[0].spot_p90 is None
+    assert rows[0].wind_index == 1.5
+
+
+@pytest.mark.asyncio
+async def test_generate_price_forecasts_repeated_runs_do_not_grow_rows(tmp_db, price_config):
+    """Two generation runs should keep one row per overlapping natural key."""
+    db_path, engine = tmp_db
+
+    def build_features(start_time, end_time, days_ahead, weather_df):
+        return pd.DataFrame(
+            {
+                "hour": [start_time.hour],
+                "day_of_week": [start_time.weekday()],
+                "month": [start_time.month],
+                "is_weekend": [False],
+                "is_holiday": [False],
+                "days_ahead": [days_ahead],
+                "price_lag_1d": [0.5],
+                "price_lag_7d": [0.5],
+                "price_lag_24h_avg": [0.5],
+                "wind_index": [1.0],
+                "temperature_c": [5.0],
+                "cloud_cover": [50.0],
+                "radiation_wm2": [100.0],
+            },
+            index=pd.DatetimeIndex([start_time]),
+        )
+
+    with (
+        patch("pathlib.Path.exists", return_value=False),
+        patch("ml.price_forecast.get_regional_weather") as mock_weather,
+        patch("ml.price_forecast.compute_regional_wind_index") as mock_wind_index,
+        patch("ml.price_forecast.build_price_features_batch") as mock_build_features,
+    ):
+        mock_weather.return_value = {"coord1": pd.DataFrame({"temp_c": [5.0]})}
+        mock_wind_index.return_value = pd.Series([1.0])
+        mock_build_features.side_effect = build_features
+
+        run1 = await generate_price_forecasts(price_config, db_path=db_path)
+        run2 = await generate_price_forecasts(price_config, db_path=db_path)
+
+    rows = _fetch_persisted_forecasts(engine)
+    assert len(run1) == 7
+    assert len(run2) == 7
+    assert len(rows) == 7
+    assert len({(row.slot_start, row.days_ahead) for row in rows}) == 7
+    assert {row.issue_timestamp for row in rows} == {run2[0]["issue_timestamp"]}
 
 
 @pytest.mark.asyncio
