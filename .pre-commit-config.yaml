@@ -45,6 +45,12 @@ repos:
         files: ^profiles/.*\.yaml$
         exclude: ^profiles/schema\.yaml$
         pass_filenames: true
+      - id: eslint-frontend
+        name: ESLint + Prettier (frontend)
+        entry: bash -c 'cd frontend && npx eslint --fix --max-warnings 0 --no-warn-ignored "${@#frontend/}"' --
+        language: system
+        files: ^frontend/.*\.[jt]sx?$
+        exclude: ^frontend/node_modules/
       # Full CI gate, runs on `git push` (not every commit). Mirrors the GitHub
       # Actions CI exactly so a green push locally means a green push in CI.
       - id: ci-gate

@@ -71,6 +71,8 @@ async def get_energy_today(
     ev_kwh = range_data.get("ev_charging_kwh", 0.0)
     water_kwh = range_data.get("water_heating_kwh", 0.0)
     net_cost = range_data.get("net_cost_sek", 0.0)
+    battery_wear_cost = range_data.get("battery_wear_cost_sek", 0.0)
+    net_cost_incl_wear = range_data.get("net_cost_incl_wear_sek", 0.0)
 
     # Calculate battery cycles
     config = load_yaml("config.yaml")
@@ -94,6 +96,8 @@ async def get_energy_today(
         "ev_charging_kwh": round(ev_kwh, 2),
         "water_heating_kwh": round(water_kwh, 2),
         "net_cost_sek": round(net_cost, 2),
+        "battery_wear_cost_sek": round(battery_wear_cost, 2),
+        "net_cost_incl_wear_sek": round(net_cost_incl_wear, 2),
         "battery_cycles": round(battery_cycles, 2),
         # Legacy aliases (for backwards compatibility during transition)
         "solar": round(pv_kwh, 2),
@@ -234,6 +238,12 @@ async def get_energy_range(
 
         net_cost = import_cost - export_rev
 
+        battery_cycle_cost_kwh = float(
+            config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
+        )
+        battery_wear_cost_sek = (batt_chg_kwh + batt_dis_kwh) * battery_cycle_cost_kwh * 0.5
+        net_cost_incl_wear_sek = net_cost + battery_wear_cost_sek
+
         # NOTE: No longer overlaying HA sensor values - using DB-only data
         # This ensures consistency with the recorder's isolation logic
 
@@ -254,6 +264,8 @@ async def get_energy_range(
             "grid_charge_cost_sek": round(grid_charge_cost, 2),
             "self_consumption_savings_sek": round(self_cons_savings, 2),
             "net_cost_sek": round(net_cost, 2),
+            "battery_wear_cost_sek": round(battery_wear_cost_sek, 2),
+            "net_cost_incl_wear_sek": round(net_cost_incl_wear_sek, 2),
             "slot_count": slot_count,
         }
     except Exception as e:
@@ -275,6 +287,8 @@ async def get_energy_range(
             "grid_charge_cost_sek": 0.0,
             "self_consumption_savings_sek": 0.0,
             "net_cost_sek": 0.0,
+            "battery_wear_cost_sek": 0.0,
+            "net_cost_incl_wear_sek": 0.0,
             "slot_count": 0,
             "error": str(e),
         }

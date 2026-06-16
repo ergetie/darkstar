@@ -391,6 +391,8 @@ export type EnergyRangeResponse = {
     grid_charge_cost_sek: number
     self_consumption_savings_sek: number
     net_cost_sek: number
+    battery_wear_cost_sek: number
+    net_cost_incl_wear_sek: number
     slot_count: number
     error?: string
 }

@@ -188,13 +188,13 @@ automation:
 # Learning Engine Configuration
 # The learning system has two main components:
 # 1. Telemetry: Records planner decisions, forecasts, and actual outcomes to SQLite
-# 2. Reflex: Tunes physical/policy parameters (S-Index, PV confidence, battery cost) based on safety/ROI analysis
+# 2. Reflex: Tunes physical/policy parameters (S-Index, PV confidence, capacity) based on safety/confidence/capacity analysis
 learning:
   enable: true                         # Master switch: enables telemetry storage and learning features
   sqlite_path: "data/planner_learning.db"  # Database path for storing planner telemetry (observations, forecasts, plans, metrics)
   horizon_days: 3                      # Number of days of Aurora ML forecasts to generate (2-7 days, affects CPU usage)
   min_improvement_threshold: 0.015     # Minimum improvement (0-1 scale) required before applying learned adjustments (prevents noise)
-  reflex_enabled: true                 # Enable Reflex: tunes physical/policy parameters (S-Index, PV confidence, battery cost, capacity) based on safety/confidence/ROI/capacity analysis
+  reflex_enabled: true                 # Enable Reflex: tunes physical/policy parameters (S-Index, PV confidence, capacity) based on safety/confidence/capacity analysis
   min_sample_threshold: 2              # Minimum data points required before applying learned adjustments (prevents premature tuning with insufficient data)
 
   # Rate Limits for Aurora Reflex Parameter Tuning

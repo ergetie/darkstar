@@ -19,14 +19,12 @@ logger = logging.getLogger("AuroraReflex")
 BOUNDS = {
     "s_index.base_factor": (1.0, 1.3),
     "forecasting.pv_confidence_percent": (70, 120),
-    "battery_economics.battery_cycle_cost_kwh": (0.1, 0.5),
     "battery.capacity_kwh": (0, None),  # Only decrease, min 0, max is nameplate
 }
 
 MAX_DAILY_CHANGE = {
     "s_index.base_factor": 0.02,
     "forecasting.pv_confidence_percent": 5.0,
-    "battery_economics.battery_cycle_cost_kwh": 0.05,
     "battery.capacity_kwh": 0.5,
 }
 
@@ -40,11 +38,6 @@ SAFETY_RELAXATION_DAYS = 60  # No events for this long to trigger decrease
 CONFIDENCE_BIAS_THRESHOLD = 0.5  # kWh/slot avg bias to trigger adjustment
 CONFIDENCE_MIN_SAMPLES = 100  # Minimum data points for reliable bias calculation
 CONFIDENCE_LOOKBACK_DAYS = 14  # Days to analyze for bias
-
-# ROI analyzer thresholds
-ROI_LOOKBACK_DAYS = 30  # Days to analyze for arbitrage
-ROI_MIN_CYCLES = 5  # Minimum cycles for reliable analysis
-ROI_ADJUSTMENT_FACTOR = 0.3  # How much of the gap to close per adjustment
 
 # Capacity analyzer thresholds
 CAPACITY_LOOKBACK_DAYS = 30  # Days to analyze
@@ -95,13 +88,7 @@ class AuroraReflex:
         if conf_update:
             updates.update(conf_update)
 
-        # 3. Analyze ROI (Battery Cycle Cost)
-        roi_update, roi_msg = await self.analyze_roi()
-        report.append(roi_msg)
-        if roi_update:
-            updates.update(roi_update)
-
-        # 4. Analyze Capacity (Battery Capacity)
+        # 3. Analyze Capacity (Battery Capacity)
         cap_update, cap_msg = await self.analyze_capacity()
         report.append(cap_msg)
         if cap_update:
@@ -319,76 +306,6 @@ class AuroraReflex:
         return (
             {},
             f"Confidence: Stable (bias={mean_bias:.2f} kWh, MAE={mae:.2f} kWh, {len(df)} samples)",
-        )
-
-    async def analyze_roi(self) -> tuple[dict[str, Any], str]:
-        """
-        Analyze battery ROI by comparing realized profit per cycle vs configured cost.
-
-        If profit/cycle >> battery_cycle_cost, we're being too conservative (holding back arbitrage).
-        If profit/cycle << battery_cycle_cost, we're cycling too aggressively.
-
-        Target: battery_economics.battery_cycle_cost_kwh
-        """
-        param_path = "battery_economics.battery_cycle_cost_kwh"
-
-        # Check rate limit
-        if not await self._can_update(param_path):
-            return {}, "ROI: Rate limited (changed today already)"
-
-        # Get arbitrage stats
-        stats = await self.store.get_arbitrage_stats(days_back=ROI_LOOKBACK_DAYS)
-
-        total_charge = stats.get("total_charge_kwh", 0)
-        net_profit = stats.get("net_profit", 0)
-
-        # Get battery capacity for cycle calculation
-        battery_capacity = self.config.get("battery", {}).get("capacity_kwh", 34.0)
-
-        if battery_capacity <= 0:
-            return {}, "ROI: Invalid battery capacity"
-
-        cycles = total_charge / battery_capacity
-
-        if cycles < ROI_MIN_CYCLES:
-            return (
-                {},
-                f"ROI: Insufficient cycles ({cycles:.1f} < {ROI_MIN_CYCLES})",
-            )
-
-        # Calculate realized profit per cycle
-        # net_profit / cycles if cycles > 0 else 0
-
-        current_cost = self.config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.2)
-        # _min_val, _max_val = BOUNDS[param_path]
-        # MAX_DAILY_CHANGE[param_path]
-
-        # Compare profit per kWh charged vs current cost
-        profit_per_kwh = net_profit / total_charge if total_charge > 0 else 0
-
-        # If profit per kWh is significantly different from current cost estimate
-        gap = profit_per_kwh - current_cost
-
-        if abs(gap) > 0.1:  # Significant gap (0.1 SEK/kWh)
-            # Move toward the realized value, but only by adjustment factor
-            proposed = current_cost + (gap * ROI_ADJUSTMENT_FACTOR)
-            new_value = self._clamp_value(param_path, current_cost, proposed)
-
-            if abs(new_value - current_cost) > 0.001:
-                direction = "up" if new_value > current_cost else "down"
-                logger.info(
-                    f"ROI: Realized {profit_per_kwh:.2f} SEK/kWh vs current {current_cost:.2f} → "
-                    f"adjusting {direction} to {new_value:.2f}"
-                )
-                return (
-                    {param_path: round(new_value, 2)},
-                    f"ROI: Realized {profit_per_kwh:.2f} SEK/kWh ({cycles:.1f} cycles) → "
-                    f"cost {current_cost:.2f} → {new_value:.2f}",
-                )
-
-        return (
-            {},
-            f"ROI: Stable (profit={profit_per_kwh:.2f} SEK/kWh, {cycles:.1f} cycles, cost={current_cost:.2f})",
         )
 
     async def analyze_capacity(self) -> tuple[dict[str, Any], str]:

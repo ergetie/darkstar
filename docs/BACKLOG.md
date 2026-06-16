@@ -33,6 +33,14 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [Planner/API] `/api/simulate` Fails with `'dict' object has no attribute 'iterrows'`
+
+**Goal:** Fix the `POST /api/simulate` endpoint, which currently returns `{"status":"error","message":"'dict' object has no attribute 'iterrows'"}` instead of running a simulation. Something passes a plain `dict` where a pandas DataFrame is expected (`.iterrows()` called on it).
+
+**Notes:** Discovered 2026-06-16 during verification of the `battery-cycle-cost-floor` change. Pre-existing and unrelated to that change — the simulate path is not touched by it, and the main planner cycle runs fine (full Kepler plan succeeds at startup). Scope is `/api/simulate` only. Start by tracing where the simulate handler builds/forwards its input data and find the spot that should be a DataFrame but is a dict.
+
+---
+
 #### [Tooling] Deliberate Dependency Upgrade + Tight Pinning Pass
 
 **Goal:** Bring all dependencies up to current versions in a controlled pass, then pin them so CI and local always resolve identically. Covers: runtime deps (`requirements.txt`, currently loose `>=` pins), dev tools (`pyright` is held at 1.1.408 — one behind latest; `ruff` at 0.15.5; `pytest` et al. still loose), `pnpm` (pinned to 9 in the Dockerfile to dodge pnpm 10's Node-22 `node:sqlite` requirement), and the Node version in the add-on `Dockerfile`.

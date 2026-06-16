@@ -689,49 +689,6 @@ class LearningStore:
             # Return as DataFrame
             return pd.DataFrame([row._asdict() for row in rows])  # type: ignore
 
-    async def get_arbitrage_stats(self, days_back: int = 30) -> dict[str, Any]:
-        """
-        Calculate arbitrage statistics for ROI analysis using Async SQLAlchemy.
-        """
-        cutoff_date = (datetime.now(self.timezone) - timedelta(days=days_back)).date().isoformat()
-
-        async with self.AsyncSession() as session:
-            stmt = select(
-                func.sum(SlotObservation.export_kwh * SlotObservation.export_price_sek_kwh),
-                func.sum(SlotObservation.import_kwh * SlotObservation.import_price_sek_kwh),
-                func.sum(SlotObservation.batt_charge_kwh),
-                func.sum(SlotObservation.batt_discharge_kwh),
-            ).where(
-                func.date(SlotObservation.slot_start) >= cutoff_date,
-                SlotObservation.export_price_sek_kwh.is_not(None),
-                SlotObservation.import_price_sek_kwh.is_not(None),
-            )
-
-            result = await session.execute(stmt)
-            row = result.fetchone()
-
-            if row is None:
-                return {
-                    "total_export_revenue": 0.0,
-                    "total_import_cost": 0.0,
-                    "total_charge_kwh": 0.0,
-                    "total_discharge_kwh": 0.0,
-                    "net_profit": 0.0,
-                }
-
-            export_revenue = row[0] or 0.0
-            import_cost = row[1] or 0.0
-            total_charge = row[2] or 0.0
-            total_discharge = row[3] or 0.0
-
-            return {
-                "total_export_revenue": round(export_revenue, 2),
-                "total_import_cost": round(import_cost, 2),
-                "total_charge_kwh": round(total_charge, 2),
-                "total_discharge_kwh": round(total_discharge, 2),
-                "net_profit": round(export_revenue - import_cost, 2),
-            }
-
     async def get_capacity_estimate(self, days_back: int = 30) -> float | None:
         """
         Estimate effective battery capacity from discharge observations using Async SQLAlchemy.

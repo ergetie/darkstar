@@ -393,6 +393,10 @@ def config_to_kepler_config(
     capacity = float(battery.get("capacity_kwh", 13.5))
     charge_eff = float(battery.get("charge_efficiency", 0.95))
     discharge_eff = float(battery.get("discharge_efficiency", 0.95))
+    battery_cycle_cost_kwh = float(
+        planner_config.get("battery_economics", {}).get("battery_cycle_cost_kwh", 0.0)
+    )
+    resolved_wear_cost = get_val("wear_cost_sek_per_kwh", battery_cycle_cost_kwh)
 
     # Dynamic Power Limits (Rev F17)
     # Hardware limits (Amps or Watts) drive the Optimizer limits (kW)
@@ -416,11 +420,7 @@ def config_to_kepler_config(
         max_discharge_power_kw=max_discharge_kw,
         charge_efficiency=charge_eff,
         discharge_efficiency=discharge_eff,
-        wear_cost_sek_per_kwh=float(
-            planner_config.get("battery_economics", {}).get(
-                "battery_cycle_cost_kwh", get_val("wear_cost_sek_per_kwh", 0.0)
-            )
-        ),
+        wear_cost_sek_per_kwh=max(battery_cycle_cost_kwh, resolved_wear_cost),
         max_export_power_kw=(
             float(system.get("grid", {}).get("max_power_kw"))
             if system.get("grid", {}).get("max_power_kw")

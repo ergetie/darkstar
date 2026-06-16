@@ -443,6 +443,64 @@ class TestKeplerConfigWithARC15:
             f"max_inverter_ac_kw should be None when not configured, got {kepler_cfg.max_inverter_ac_kw}"
         )
 
+    def test_wear_cost_override_is_clamped_to_cycle_cost_floor(self):
+        config = {
+            "config_version": 2,
+            "system": {},
+            "battery": {
+                "capacity_kwh": 10.0,
+                "max_charge_a": 100.0,
+                "max_discharge_a": 100.0,
+                "nominal_voltage_v": 48.0,
+            },
+            "battery_economics": {"battery_cycle_cost_kwh": 0.2},
+        }
+
+        kepler_cfg = config_to_kepler_config(
+            config,
+            overrides={"kepler": {"wear_cost_sek_per_kwh": 0.0}},
+        )
+
+        assert kepler_cfg.wear_cost_sek_per_kwh == 0.2
+
+    def test_wear_cost_override_above_cycle_cost_floor_is_preserved(self):
+        config = {
+            "config_version": 2,
+            "system": {},
+            "battery": {
+                "capacity_kwh": 10.0,
+                "max_charge_a": 100.0,
+                "max_discharge_a": 100.0,
+                "nominal_voltage_v": 48.0,
+            },
+            "battery_economics": {"battery_cycle_cost_kwh": 0.2},
+        }
+
+        kepler_cfg = config_to_kepler_config(
+            config,
+            overrides={"kepler": {"wear_cost_sek_per_kwh": 1.0}},
+        )
+
+        assert kepler_cfg.wear_cost_sek_per_kwh == 1.0
+
+    def test_wear_cost_floor_applies_to_root_level_config_value(self):
+        config = {
+            "config_version": 2,
+            "system": {},
+            "battery": {
+                "capacity_kwh": 10.0,
+                "max_charge_a": 100.0,
+                "max_discharge_a": 100.0,
+                "nominal_voltage_v": 48.0,
+            },
+            "battery_economics": {"battery_cycle_cost_kwh": 0.2},
+            "wear_cost_sek_per_kwh": 0.05,
+        }
+
+        kepler_cfg = config_to_kepler_config(config)
+
+        assert kepler_cfg.wear_cost_sek_per_kwh >= config["battery_economics"]["battery_cycle_cost_kwh"]
+
 
 class TestKeplerInputConversion:
     """Test planner_to_kepler_input function."""

@@ -63,6 +63,8 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
         grid_charge_cost_sek: number
         self_consumption_savings_sek: number
         net_cost_sek: number
+        battery_wear_cost_sek: number
+        net_cost_incl_wear_sek: number
         grid_import_kwh: number
         grid_export_kwh: number
         slot_count: number
@@ -162,6 +164,8 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                         grid_charge_cost_sek: data.grid_charge_cost_sek,
                         self_consumption_savings_sek: data.self_consumption_savings_sek,
                         net_cost_sek: data.net_cost_sek,
+                        battery_wear_cost_sek: data.battery_wear_cost_sek,
+                        net_cost_incl_wear_sek: data.net_cost_incl_wear_sek,
                         grid_import_kwh: data.grid_import_kwh,
                         grid_export_kwh: data.grid_export_kwh,
                         slot_count: data.slot_count,
@@ -296,6 +300,17 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                     </span>
                     <span className="text-xs text-muted">kr</span>
                 </div>
+                {rangeData != null && (
+                    <div className="flex items-baseline gap-1 mt-0.5">
+                        <span
+                            className={`text-sm font-medium ${rangeData.net_cost_incl_wear_sek <= 0 ? 'text-good' : 'text-bad'} opacity-70`}
+                        >
+                            {rangeData.net_cost_incl_wear_sek > 0 ? '-' : '+'}
+                            {Math.abs(rangeData.net_cost_incl_wear_sek).toFixed(2)}
+                        </span>
+                        <span className="text-[9px] text-muted">kr incl. battery wear</span>
+                    </div>
+                )}
             </div>
 
             {/* Financial Breakdown */}
@@ -318,6 +333,10 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
                         <span className="text-accent font-medium">
                             {rangeData.self_consumption_savings_sek.toFixed(1)} kr
                         </span>
+                    </div>
+                    <div className="flex justify-between p-1.5 rounded bg-surface2/30">
+                        <span className="text-muted">Battery Wear</span>
+                        <span className="text-bad font-medium">-{rangeData.battery_wear_cost_sek.toFixed(1)} kr</span>
                     </div>
                 </div>
             )}

@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).parent.parent.parent))
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -590,148 +590,33 @@ class TestConstants:
         assert min_val == 70
         assert max_val == 120
 
-    def test_bounds_for_cycle_cost(self):
-        """battery_cycle_cost_kwh bounds should be 0.1 to 0.5."""
-        min_val, max_val = BOUNDS["battery_economics.battery_cycle_cost_kwh"]
-        assert min_val == 0.1
-        assert max_val == 0.5
+    def test_cycle_cost_is_not_reflex_tunable(self):
+        """battery_cycle_cost_kwh should be owned by config, not Reflex."""
+        param = "battery_economics.battery_cycle_cost_kwh"
+        assert param not in BOUNDS
+        assert param not in MAX_DAILY_CHANGE
 
 
-class TestArbitrageStats:
-    """Test the get_arbitrage_stats query method."""
-
+class TestReflexRunIntegrity:
     @pytest.mark.asyncio
-    async def test_empty_returns_zeros(self, temp_db):
-        """Empty database should return zeros."""
-        _db_path, store, _tz = temp_db
-
-        stats = await store.get_arbitrage_stats(days_back=30)
-        assert stats["total_export_revenue"] == 0.0
-        assert stats["total_import_cost"] == 0.0
-        assert stats["total_charge_kwh"] == 0.0
-
-    @pytest.mark.asyncio
-    async def test_calculates_profit(self, temp_db):
-        """Should calculate profit from export and import."""
-        db_path, store, tz = temp_db
-
-        now = datetime.now(tz)
-        slot_time = now.replace(hour=12, minute=0, second=0, microsecond=0)
-
-        with sqlite3.connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO slot_observations
-                    (slot_start, slot_end, export_kwh, import_kwh,
-                     export_price_sek_kwh, import_price_sek_kwh,
-                     batt_charge_kwh, batt_discharge_kwh)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    slot_time.isoformat(),
-                    (slot_time + timedelta(minutes=15)).isoformat(),
-                    5.0,
-                    2.0,
-                    1.5,
-                    0.5,
-                    2.0,
-                    5.0,
-                ),
+    async def test_run_never_proposes_cycle_cost_update(self, mock_config):
+        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
+            reflex = AuroraReflex.__new__(AuroraReflex)
+            reflex.config = mock_config
+            reflex.analyze_safety = AsyncMock(return_value=({}, "Safety: Stable"))
+            reflex.analyze_confidence = AsyncMock(return_value=({}, "Confidence: Stable"))
+            reflex.analyze_capacity = AsyncMock(
+                return_value=({"battery.capacity_kwh": 33.7}, "Capacity: Fade detected")
             )
-            conn.commit()
+            reflex.update_config = AsyncMock()
 
-        stats = await store.get_arbitrage_stats(days_back=30)
+            report = await reflex.run(dry_run=True)
 
-        # export_revenue = 5.0 * 1.5 = 7.5
-        # import_cost = 2.0 * 0.5 = 1.0
-        # net_profit = 7.5 - 1.0 = 6.5
-        assert stats["total_export_revenue"] == 7.5
-        assert stats["total_import_cost"] == 1.0
-        assert stats["net_profit"] == 6.5
-        assert stats["total_charge_kwh"] == 2.0
-
-
-class TestAnalyzeROI:
-    """Test the analyze_roi analyzer logic."""
-
-    def _insert_arbitrage_data(self, conn, tz, total_charge, net_profit):
-        """Helper to insert arbitrage data."""
-        now = datetime.now(tz)
-        slot_time = now.replace(hour=12, minute=0, second=0, microsecond=0)
-
-        # Calculate values to achieve desired totals
-        export_kwh = net_profit / 1.5 + 1.0  # At 1.5 SEK/kWh, get net_profit
-        import_kwh = 1.0
-
-        conn.execute(
-            """
-            INSERT INTO slot_observations
-                (slot_start, slot_end, export_kwh, import_kwh,
-                 export_price_sek_kwh, import_price_sek_kwh,
-                 batt_charge_kwh, batt_discharge_kwh)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                slot_time.isoformat(),
-                (slot_time + timedelta(minutes=15)).isoformat(),
-                export_kwh,
-                import_kwh,
-                1.5,
-                0.5,
-                total_charge,
-                export_kwh,
-            ),
-        )
-        conn.commit()
-
-    @pytest.mark.asyncio
-    async def test_insufficient_cycles(self, temp_db, mock_config):
-        """With too few cycles, should not make changes."""
-        db_path, store, tz = temp_db
-
-        # Insert small amount of data (< 5 cycles at 34 kWh)
-        with sqlite3.connect(db_path) as conn:
-            self._insert_arbitrage_data(conn, tz, 50, 10)  # ~1.5 cycles
-
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, msg = await reflex.analyze_roi()
-
-            assert updates == {}
-            assert "Insufficient cycles" in msg
-
-    @pytest.mark.asyncio
-    async def test_high_profit_increases_cost(self, temp_db, mock_config):
-        """High profit per kWh should increase cycle cost estimate."""
-        db_path, store, tz = temp_db
-
-        # Set current cost low
-        mock_config["battery_economics"]["battery_cycle_cost_kwh"] = 0.2
-
-        # Insert data with high profit per kWh (> 0.1 gap)
-        # cycles = 200 / 34.2 ≈ 5.8
-        # profit_per_kwh = 100 / 200 = 0.5 SEK/kWh
-        # gap = 0.5 - 0.2 = 0.3
-        with sqlite3.connect(db_path) as conn:
-            self._insert_arbitrage_data(conn, tz, 200, 100)
-
-        with patch.object(AuroraReflex, "__init__", lambda self, path: None):
-            reflex = AuroraReflex.__new__(AuroraReflex)
-            reflex.config = mock_config
-            reflex.store = store
-            reflex.timezone = tz
-            reflex.learning_engine = MagicMock()
-
-            updates, _msg = await reflex.analyze_roi()
-
-            # Should propose increase
-            if "battery_economics.battery_cycle_cost_kwh" in updates:
-                assert updates["battery_economics.battery_cycle_cost_kwh"] > 0.2
+            assert not hasattr(reflex, "analyze_roi")
+            reflex.update_config.assert_awaited_once()
+            updates = reflex.update_config.await_args.args[0]
+            assert "battery_economics.battery_cycle_cost_kwh" not in updates
+            assert all("ROI" not in message for message in report)
 
 
 class TestCapacityEstimate:
