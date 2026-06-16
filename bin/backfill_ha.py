@@ -37,6 +37,25 @@ def load_secrets():
     return cast("dict[str, Any]", raw_data) if isinstance(raw_data, dict) else {}
 
 
+def update_slot_observations(
+    conn: sqlite3.Connection, db_rows: list[tuple[float, float, float, float, float, float, str]]
+) -> None:
+    conn.executemany(
+        """
+        UPDATE slot_observations
+        SET
+            load_kwh = max(0.0, ? - COALESCE(ev_charging_kwh, 0.0) - COALESCE(water_kwh, 0.0)),
+            pv_kwh = ?,
+            import_kwh = ?,
+            export_kwh = ?,
+            batt_charge_kwh = ?,
+            batt_discharge_kwh = ?
+        WHERE slot_start = ?
+    """,
+        db_rows,
+    )
+
+
 async def fetch_and_backfill(start_str: str, end_str: str) -> None:
     config = load_config()
     secrets = load_secrets()
@@ -172,20 +191,7 @@ async def fetch_and_backfill(start_str: str, end_str: str) -> None:
 
             if db_rows:
                 with sqlite3.connect(db_path) as conn:
-                    conn.executemany(
-                        """
-                        UPDATE slot_observations
-                        SET
-                            load_kwh = ?,
-                            pv_kwh = ?,
-                            import_kwh = ?,
-                            export_kwh = ?,
-                            batt_charge_kwh = ?,
-                            batt_discharge_kwh = ?
-                        WHERE slot_start = ?
-                    """,
-                        db_rows,
-                    )
+                    update_slot_observations(conn, db_rows)
                     conn.commit()
                 total_slots += len(db_rows)
 

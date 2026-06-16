@@ -122,6 +122,34 @@ class TestRecorderStateStore:
             result = store.get_last_timestamp("nonexistent")
             assert result is None
 
+    def test_single_live_recorder_prevents_second_zero_delta_from_becoming_stored(self):
+        """Spec: Single Live Recorder Instance - duplicate shared-state cycles zero real data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "recorder_state.json"
+            previous = datetime(2026, 6, 16, 10, 15, 0)
+            slot_time = datetime(2026, 6, 16, 10, 30, 0)
+
+            first_recorder = RecorderStateStore(state_file)
+            first_recorder._state = {
+                "pv_total": {"value": 100.0, "timestamp": previous.isoformat()}
+            }
+            first_recorder.save()
+
+            first_delta, first_valid = first_recorder.get_delta("pv_total", 100.45, slot_time)
+
+            second_recorder = RecorderStateStore(state_file)
+            second_recorder.load()
+            second_delta, second_valid = second_recorder.get_delta("pv_total", 100.45, slot_time)
+
+            # A duplicate process sharing data/recorder_state.json computes zero for the same slot.
+            assert first_delta == pytest.approx(0.45)
+            assert first_valid is True
+            assert second_delta == pytest.approx(0.0)
+            assert second_valid is True
+
+            stored_pv_kwh = first_delta
+            assert stored_pv_kwh != second_delta
+
 
 class TestRecorderDeltaLogic:
     """Test suite for recorder delta-based calculation logic."""
