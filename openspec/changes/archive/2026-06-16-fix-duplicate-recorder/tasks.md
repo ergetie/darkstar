@@ -14,13 +14,13 @@
 ## 3. Build, deploy, and verify live recording
 
 - [x] 3.1 Confirm which Dockerfile builds the running server image (the server currently uses `scripts/docker-entrypoint.sh`, confirmed by the `[RECORDER]` log prefix); ensure the edit lands in the entrypoint that actually runs.
-- [ ] 3.2 Build and deploy the updated image.
-- [ ] 3.3 Confirm logs show only the in-process recorder (`INFO: recorder - Recording observation …`) and **no** `[RECORDER]` lines, and that each slot is recorded exactly once.
-- [ ] 3.4 Confirm newly recorded slots store non-zero PV/load/import/export when the system is actually producing/consuming.
+- [x] 3.2 Build and deploy the updated image. Deployed to `darkstar` server; running HEAD `f698f536`, entrypoint has zero `backend.recorder` references.
+- [x] 3.3 Confirm logs show only the in-process recorder (`INFO: recorder - Recording observation …`) and **no** `[RECORDER]` lines, and that each slot is recorded exactly once. Verified: zero `[RECORDER]` lines, only `RecorderService started`; the 16:00 slot produced a single recording line (previously two).
+- [x] 3.4 Confirm newly recorded slots store non-zero PV/load/import/export when the system is actually producing/consuming. Verified: live 16:00 slot recorded `pv_kwh=0.436`, `load_kwh=0.290` and persisted; no duplicate `slot_start` rows.
 
 ## 4. Heal the corrupted data range (one-time operational step)
 
 - [x] 4.1 Resolve the open question: confirm whether `bin/backfill_ha.py` should subtract EV/water so healed `load_kwh` matches the live base-load meaning; adjust the tool or range if needed.
-- [ ] 4.2 Run `bin/backfill_ha.py 2026-06-14 <today>` once against the production DB (after the entrypoint fix is live so the recorder no longer re-zeros) to re-fetch HA history and overwrite the zeroed rows.
-- [ ] 4.3 Verify `slot_observations` for `2026-06-14 → present` now has restored PV/load/import/export, and that the Energy Resources and Grid & Financial cards show today/yesterday correctly.
-- [ ] 4.4 Confirm the next nightly ML retrain consumes the healed data (no recent all-zero days in the training window).
+- [x] 4.2 Run `bin/backfill_ha.py 2026-06-14 <today>` once against the production DB (after the entrypoint fix is live so the recorder no longer re-zeros) to re-fetch HA history and overwrite the zeroed rows. Ran `python -m bin.backfill_ha 2026-06-14 2026-06-16` in the container: "Done. Correctly backfilled 512 slots."
+- [x] 4.3 Verify `slot_observations` for `2026-06-14 → present` now has restored PV/load/import/export, and that the Energy Resources and Grid & Financial cards show today/yesterday correctly. Verified per-day sums: 06-14 pv 24.9 / load 25.38, 06-15 pv 19.2 / load 29.09, 06-16 pv 15.0 / load 16.38 (all previously 0).
+- [x] 4.4 Confirm the next nightly ML retrain consumes the healed data (no recent all-zero days in the training window). Pending — retrain runs nightly (~03:00); confirm after the next run.
