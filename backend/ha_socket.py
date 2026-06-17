@@ -45,9 +45,9 @@ class HAWebSocketClient:
 
         # Early validation with logging
         if not self.token:
-            logger.warning("⚠️ No HA token configured - WebSocket will not connect")
+            logger.warning("No HA token configured - WebSocket will not connect")
         if not self.url or self.url == "/api/websocket":
-            logger.warning("⚠️ No HA URL configured - WebSocket will not connect")
+            logger.warning("No HA URL configured - WebSocket will not connect")
         else:
             logger.debug(f"HA WebSocket URL: {self.url}")
 
@@ -58,7 +58,7 @@ class HAWebSocketClient:
             base_url = self.config.get("url", "")
 
             if not base_url:
-                logger.error("❌ No HA URL found in secrets.yaml - WebSocket cannot connect")
+                logger.error("No HA URL found in secrets.yaml - WebSocket cannot connect")
                 self.url = "/api/websocket"  # Invalid URL to prevent connection
                 self.token = None
                 return
@@ -71,13 +71,13 @@ class HAWebSocketClient:
             self.token = self.config.get("token")
 
             if not self.token:
-                logger.error("❌ No HA token found in secrets.yaml - WebSocket cannot authenticate")
+                logger.error("No HA token found in secrets.yaml - WebSocket cannot authenticate")
             else:
                 # Log token length for verification without exposing the actual token
                 logger.info(f"✅ HA config loaded: URL={base_url}, token_len={len(self.token)}")
 
         except Exception as e:
-            logger.error(f"❌ Failed to load HA configuration: {e}", exc_info=True)
+            logger.error(f"Failed to load HA configuration: {e}", exc_info=True)
             self.url = "/api/websocket"
             self.token = None
 
@@ -188,7 +188,7 @@ class HAWebSocketClient:
                 )
             return mapping
         except Exception as e:
-            logger.error(f"❌ Failed to load monitored entities: {e}", exc_info=True)
+            logger.error(f"Failed to load monitored entities: {e}", exc_info=True)
             return {}
 
     async def connect(self):
@@ -701,7 +701,7 @@ class HAWebSocketClient:
             try:
                 asyncio.run(self.connect())
             except Exception as e:
-                logger.error(f"❌ HA WebSocket thread crashed: {e}", exc_info=True)
+                logger.error(f"HA WebSocket thread crashed: {e}", exc_info=True)
 
         logger.info(f"🔗 Connecting to HA WebSocket: {self.url}")
         threading.Thread(target=_run_ws, daemon=True, name="HA-WebSocket").start()
@@ -819,7 +819,7 @@ def start_ha_socket_client():
             _ha_client.start()
             logger.info("✅ HA WebSocket client initialized")
         except Exception as e:
-            logger.error(f"❌ Failed to start HA WebSocket client: {e}", exc_info=True)
+            logger.error(f"Failed to start HA WebSocket client: {e}", exc_info=True)
 
 
 def reload_ha_socket_client():

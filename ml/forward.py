@@ -221,7 +221,7 @@ def _load_models(models_dir: str = "data/ml/models") -> dict[str, lgb.Booster]:
     # REV PERS2: Log CRITICAL if no models loaded (planner will fail silently otherwise)
     if not models:
         logger.critical(
-            "❌ NO ML MODELS LOADED from %s! "
+            "NO ML MODELS LOADED from %s! "
             "Forecasting will use fallback (Open-Meteo for PV, baseline avg for Load). "
             "Train models or ensure baseline models are deployed.",
             models_dir,
@@ -363,7 +363,7 @@ async def generate_forward_slots(
         # Fallback: Write 0.0 to DB so inputs.py applies HA 7-day profile fallback
         # Only use 0.5 flat as last resort when even HA fetch fails
         logger.warning(
-            "⚠️ Load models not available, using 0.0 (inputs.py will apply HA profile fallback)"
+            "Load models not available, using 0.0 (inputs.py will apply HA profile fallback)"
         )
 
         # REV F65 Phase 5e: Distinguish new setup vs ML failure
@@ -400,7 +400,7 @@ async def generate_forward_slots(
         lon: float = location_cfg.get("longitude", 18.0686)
         sun_calc = SunCalculator(latitude=lat, longitude=lon, timezone=str(tz))
     except Exception as e:
-        logger.warning(f"⚠️ Astro init failed: {e}")
+        logger.warning(f"Astro init failed: {e}")
 
     # Get solar arrays config for physics calculation
     system_config: dict[str, Any] = engine.config.get("system", {})
@@ -526,7 +526,7 @@ async def generate_forward_slots(
     else:
         # BASELINE-ONLY MODE: No ML models, use Open-Meteo directly.
         if aurora_pv_enabled:
-            logger.warning("⚠️ PV models not available, using Open-Meteo baseline-only mode")
+            logger.warning("PV models not available, using Open-Meteo baseline-only mode")
         else:
             logger.info("PV Aurora forecasting disabled; using Open-Meteo baseline-only mode")
         for q in quantiles:

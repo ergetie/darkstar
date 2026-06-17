@@ -509,7 +509,7 @@ def validate_config_for_write(config: dict[str, Any], strict: bool = True) -> bo
         # Check root-level deprecated keys
         for key in DEPRECATED_KEYS:
             if key in config:
-                logger.error(f"❌ Validation failed: Deprecated key '{key}' still present")
+                logger.error(f"Validation failed: Deprecated key '{key}' still present")
                 return False
 
         # Check nested deprecated keys
@@ -528,7 +528,7 @@ def validate_config_for_write(config: dict[str, Any], strict: bool = True) -> bo
                     for key in keys:
                         if key in obj:
                             logger.error(
-                                f"❌ Validation failed: Deprecated nested key '{path}.{key}' still present"
+                                f"Validation failed: Deprecated nested key '{path}.{key}' still present"
                             )
                             return False
         return True
@@ -538,13 +538,13 @@ def validate_config_for_write(config: dict[str, Any], strict: bool = True) -> bo
     required_sections = ["system", "battery", "executor", "input_sensors"]
     for section in required_sections:
         if section not in config:
-            logger.error(f"❌ Validation failed: Missing required section '{section}'")
+            logger.error(f"Validation failed: Missing required section '{section}'")
             return False
 
     # 2. Deprecated Keys (MUST be gone)
     for key in DEPRECATED_KEYS:
         if key in config:
-            logger.error(f"❌ Validation failed: Deprecated key '{key}' still present")
+            logger.error(f"Validation failed: Deprecated key '{key}' still present")
             return False
 
     # 3. Version Position
@@ -553,7 +553,7 @@ def validate_config_for_write(config: dict[str, Any], strict: bool = True) -> bo
     if "config_version" in keys:
         idx = keys.index("config_version")
         if idx > 10:
-            logger.error(f"❌ Validation failed: 'config_version' at index {idx} (too deep)")
+            logger.error(f"Validation failed: 'config_version' at index {idx} (too deep)")
             return False
 
     return True
@@ -716,7 +716,7 @@ def _validate_critical_values_preserved(before: dict[str, Any], after: dict[str,
             issues.append(f"{key}: {before_val} -> {after_val}")
 
     if issues:
-        logger.error(f"❌ CRITICAL VALUES LOST DURING MIGRATION: {', '.join(issues)}")
+        logger.error(f"CRITICAL VALUES LOST DURING MIGRATION: {', '.join(issues)}")
         return False
 
     return True
@@ -759,7 +759,7 @@ async def migrate_config(
             user_config_raw = yaml.load(f)  # type: ignore[reportUnknownMemberType]
 
         if user_config_raw is None or not isinstance(user_config_raw, dict):
-            logger.error(f"❌ Config {config_path} is invalid or empty.")
+            logger.error(f"Config {config_path} is invalid or empty.")
             return
         user_config: dict[str, Any] = cast("dict[str, Any]", user_config_raw)
 
@@ -767,12 +767,12 @@ async def migrate_config(
         # This prevents merging an empty/corrupted config with defaults
         if not _validate_config_structure(user_config, strict=strict_validation):
             logger.error(
-                f"❌ Config {config_path} failed structure validation. Aborting migration to prevent data loss."
+                f"Config {config_path} failed structure validation. Aborting migration to prevent data loss."
             )
             return
 
     except Exception as e:
-        logger.error(f"❌ Failed to read user config: {e}")
+        logger.error(f"Failed to read user config: {e}")
         return
 
     # 2. Migrate fields that read deprecated keys BEFORE removing them
@@ -830,13 +830,13 @@ async def migrate_config(
         with def_path_obj.open("r", encoding="utf-8") as f:
             default_config_raw = yaml.load(f)  # type: ignore[reportUnknownMemberType]
         if default_config_raw is None or not isinstance(default_config_raw, dict):
-            logger.error(f"❌ Default config {default_path} is invalid or empty.")
+            logger.error(f"Default config {default_path} is invalid or empty.")
             if pre_merge_changes:
                 _write_config(path, user_config, yaml, strict_validation=strict_validation)
             return
         default_config: dict[str, Any] = cast("dict[str, Any]", default_config_raw)
     except Exception as e:
-        logger.error(f"❌ Failed to read default config: {e}")
+        logger.error(f"Failed to read default config: {e}")
         if pre_merge_changes:
             _write_config(path, user_config, yaml, strict_validation=strict_validation)
         return
@@ -867,7 +867,7 @@ async def migrate_config(
         logger.debug(f"Critical values after merge: {critical_after}")
 
         if not _validate_critical_values_preserved(critical_before, critical_after):
-            logger.error("❌ CRITICAL CONFIG VALUES WOULD BE LOST! Aborting migration.")
+            logger.error("CRITICAL CONFIG VALUES WOULD BE LOST! Aborting migration.")
             logger.error("This usually means the user config failed to load properly.")
             logger.error(f"Please check {config_path} for corruption or file locks.")
             return
@@ -881,7 +881,7 @@ async def migrate_config(
             _write_config(path, final_config, yaml, strict_validation=strict_validation)
 
     except Exception as e:
-        logger.error(f"❌ Template merge failed: {e}", exc_info=True)
+        logger.error(f"Template merge failed: {e}", exc_info=True)
 
 
 def create_timestamped_backup(path: Path, max_backups: int = 30) -> Path | None:
@@ -913,7 +913,7 @@ def create_timestamped_backup(path: Path, max_backups: int = 30) -> Path | None:
 
         return backup_path
     except Exception as e:
-        logger.error(f"❌ Failed to create backup: {e}")
+        logger.error(f"Failed to create backup: {e}")
         return None
 
 
@@ -932,7 +932,7 @@ def _write_config(
     Returns True if the write succeeded, False if aborted or failed.
     """
     if not validate_config_for_write(config, strict=strict_validation):
-        logger.error(f"❌ Aborting write to {path} - validation failed.")
+        logger.error(f"Aborting write to {path} - validation failed.")
         return False
 
     temp_path = path.with_name(path.name + ".tmp")
@@ -973,7 +973,7 @@ def _write_config(
                     # Last resort: fsync before and after the streaming copy so a
                     # partial copy is at least durable if the process dies mid-copy.
                     logger.warning(
-                        f"⚠️ {log_prefix} Atomic replace not possible on this mount, "
+                        f"{log_prefix} Atomic replace not possible on this mount, "
                         f"falling back to direct copy (last resort)."
                     )
                     with temp_path.open("rb") as _f:
@@ -989,9 +989,9 @@ def _write_config(
                 raise
 
     except Exception as e:
-        logger.error(f"❌ Write failed: {e}")
+        logger.error(f"Write failed: {e}")
         if legacy_backup_path.exists():
-            logger.warning(f"🔄 Restoring {path} from legacy backup...")
+            logger.warning(f"Restoring {path} from legacy backup...")
             shutil.copy2(legacy_backup_path, path)
     finally:
         with contextlib.suppress(Exception):
@@ -1008,13 +1008,13 @@ def _verify_written_config(path: Path, yaml_instance: Any) -> bool:
             loaded = yaml_instance.load(f)
 
         if loaded is None or not isinstance(loaded, dict):
-            logger.error("❌ Post-write validation failed: config is empty or not a dict")
+            logger.error("Post-write validation failed: config is empty or not a dict")
             return False
         loaded_dict: dict[str, Any] = cast("dict[str, Any]", loaded)
 
         # Check for basic expected structure
         if "system" not in loaded_dict:
-            logger.error("❌ Post-write validation failed: missing 'system' section")
+            logger.error("Post-write validation failed: missing 'system' section")
             return False
 
         # Check inverter_profile is in correct location
@@ -1022,17 +1022,17 @@ def _verify_written_config(path: Path, yaml_instance: Any) -> bool:
         if "inverter_profile" not in system:
             if "inverter_profile" in loaded:
                 logger.warning(
-                    "⚠️  Post-write: 'inverter_profile' found at root level, "
+                    "Post-write: 'inverter_profile' found at root level, "
                     "should be under 'system'. This may cause issues."
                 )
             else:
-                logger.warning("⚠️  Post-write: 'inverter_profile' not found in config")
+                logger.warning("Post-write: 'inverter_profile' not found in config")
 
         logger.debug("✅ Post-write config validation passed")
         return True
 
     except Exception as e:
-        logger.error(f"❌ Post-write validation failed: {e}")
+        logger.error(f"Post-write validation failed: {e}")
         return False
 
 

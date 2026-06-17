@@ -100,7 +100,7 @@ def set_load_forecast_status(status: str, reason: str = "") -> None:
         _load_forecast_reason = reason
 
     if status == "degraded":
-        logger.warning(f"⚠️ Load forecast degraded: {reason}")
+        logger.warning(f"Load forecast degraded: {reason}")
 
 
 def get_load_forecast_status() -> dict[str, Any]:

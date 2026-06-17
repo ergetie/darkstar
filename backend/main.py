@@ -60,7 +60,7 @@ async def lifespan(app: FastAPI):
 
         ensure_active_models()
     except Exception as e:
-        logger.error(f"❌ Model bootstrap failed: {e}")
+        logger.error(f"Model bootstrap failed: {e}")
 
     # 1. Container/Environment Debugging (Task 4)
     import os
@@ -89,11 +89,11 @@ async def lifespan(app: FastAPI):
     try:
         db_path = os.getenv("DB_PATH", "data/planner_learning.db")
         if not Path(db_path).exists():
-            logger.warning(f"⚠️  Database file not found at {db_path}. Migration may have skipped.")
+            logger.warning(f"Database file not found at {db_path}. Migration may have skipped.")
         else:
             logger.info(f"✅ Database found at {db_path}")
     except Exception as e:
-        logger.error(f"❌ Error during startup check: {e}")
+        logger.error(f"Error during startup check: {e}")
 
     loop = asyncio.get_running_loop()
     ws_manager.set_loop(loop)
@@ -122,9 +122,9 @@ async def lifespan(app: FastAPI):
             else:
                 logger.info("⏸️  Executor initialized but disabled in config")
         else:
-            logger.warning("⚠️  Executor could not be initialized (check logs)")
+            logger.warning("Executor could not be initialized (check logs)")
     except Exception as e:
-        logger.error("❌ Failed to initialize executor: %s", e, exc_info=True)
+        logger.error("Failed to initialize executor: %s", e, exc_info=True)
         # Don't crash the app if executor fails - other services can still run
         executor_instance = None
 
@@ -154,7 +154,7 @@ async def lifespan(app: FastAPI):
         if deleted > 0:
             logger.info(f"🧹 Cleaned up {deleted} duplicate price forecast rows")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize LearningStore: {e}")
+        logger.error(f"Failed to initialize LearningStore: {e}")
         # We can't easily fail here without breaking the app, but partial functionality might work?
         # For now, let's allow it but semantic routes will 500.
         app.state.learning_store = None

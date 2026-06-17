@@ -34,6 +34,42 @@ class RingBufferHandler(logging.Handler):
         return list(self._buffer)
 
 
+class EmojiFormatter(logging.Formatter):
+    """Logging formatter that prepends level-based emojis to log records."""
+
+    def _starts_with_emoji(self, s: str) -> bool:
+        if not s:
+            return False
+        s_stripped = s.lstrip()
+        if not s_stripped:
+            return False
+        first_char = s_stripped[0]
+        cp = ord(first_char)
+        # Check code point ranges for common emojis and symbols
+        return (0x2600 <= cp <= 0x27BF) or (0x2300 <= cp <= 0x23FF) or (0x1F000 <= cp <= 0x1FBF9)
+
+    def format(self, record: logging.LogRecord) -> str:
+        # Get standard formatted message/record line
+        formatted = super().format(record)
+
+        # Only WARNING and above get an emoji prefix
+        if record.levelno < logging.WARNING:
+            return formatted
+
+        # Check if the message already starts with an emoji
+        msg = record.message if hasattr(record, "message") else record.getMessage()
+        if self._starts_with_emoji(msg):
+            return formatted
+
+        # Prepend the level-based emoji
+        if record.levelno == logging.WARNING:
+            return "⚠️ " + formatted
+        elif record.levelno >= logging.ERROR:
+            return "🚨 " + formatted
+
+        return formatted
+
+
 # Global instances
 _ring_buffer_handler = RingBufferHandler(maxlen=1000)
 
@@ -51,7 +87,7 @@ def setup_logging():
 
     # 1. Console Handler (Simple format)
     console_handler = logging.StreamHandler()
-    console_formatter = logging.Formatter("%(levelname)s:\t%(name)s - %(message)s")
+    console_formatter = EmojiFormatter("%(levelname)s:\t%(name)s - %(message)s")
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
