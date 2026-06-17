@@ -33,6 +33,14 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [HA/Performance] Slim Down Home Assistant History Fetches
+
+**Goal:** Reduce the latency of `/api/ha/average` (and related HA history reads), which still takes ~1.3s on a cache miss. The cost is the HTTP round-trip to Home Assistant's `/api/history/period` plus parsing a large, maximal-detail response — not CPU on our side.
+
+**Notes:** Discovered 2026-06-17 while verifying `dashboard-performance-pass` (which targeted CPU-bound work and correctly did not change this I/O-bound path). The history requests fetch maximal detail: `backend/api/routers/ha.py:_fetch_ha_history_avg` (lines 39-40) and `backend/core/ha_client.py:get_load_profile_from_ha` both set `significant_changes_only: False` and `minimal_response: False`. Options to try: (a) set `minimal_response: True` and/or `no_attributes: True` to shrink the payload, (b) set `significant_changes_only: True` where attribute precision isn't needed, (c) lengthen/tune the existing 60s cache. Validate that the averaging/step-integration math still produces correct results with the reduced data before/after. Low priority — it has a 60s cache and no longer blocks the dashboard (the CPU serialization that did is fixed).
+
+---
+
 #### [Specs] Fix 5 Pre-Existing OpenSpec Validation Failures
 
 **Goal:** Make `openspec validate --specs` pass cleanly. Five spec files fail format validation (independent of any feature work — the capabilities are implemented; only the spec docs don't conform). Fix each by adding the missing normative `SHALL`/`MUST` wording and/or at least one `#### Scenario:` block per requirement:
