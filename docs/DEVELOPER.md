@@ -460,6 +460,49 @@ We support a "Dev on Main" workflow to allow rapid iteration without spamming th
 ### Local Development
 If you are developing locally on a different architecture (e.g., Apple Silicon), it is recommended to test the standard `darkstar/` build or run via `pnpm run dev` directly as described in the Quick Start.
 
+## Live Profiling (py-spy)
+
+To debug CPU hotspots or GIL serialization latency in production or during runtime, you can run `py-spy` against the containerized Python processes.
+
+### Prerequisites
+1. Ensure the `darkstar` container has the `SYS_PTRACE` capability enabled in your `docker-compose.yml`:
+   ```yaml
+   cap_add:
+     - SYS_PTRACE
+   ```
+2. Restart the container if you modified `docker-compose.yml`:
+   ```bash
+   docker compose down && docker compose up -d
+   ```
+
+### Profiling Steps
+1. Exec into the running container as root:
+   ```bash
+   docker exec -it --user root darkstar bash
+   ```
+2. Install `py-spy` inside the container:
+   ```bash
+   pip install py-spy
+   ```
+3. Locate the Python process ID:
+   ```bash
+   ps aux | grep python
+   ```
+4. Record a profile or dump call stacks:
+   * **Stack Dump** (shows what all threads are currently doing):
+     ```bash
+     py-spy dump --pid <PID>
+     ```
+   * **Live Top** (like top command for Python functions):
+     ```bash
+     py-spy top --pid <PID>
+     ```
+   * **Generate Flame Graph** (records 30 seconds of activity to an SVG):
+     ```bash
+     py-spy record -o /app/profile.svg --pid <PID> --duration 30
+     ```
+     The output SVG will be generated in `/app/` (which maps to your workspace directory on the host if bind-mounted) for easy viewing.
+
 ## License
 
 Licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.

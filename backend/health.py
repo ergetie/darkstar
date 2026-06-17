@@ -18,6 +18,7 @@ import httpx
 import pytz
 import yaml
 
+from backend.core.secrets import load_yaml
 from backend.exceptions import PVForecastError
 
 logger = logging.getLogger(__name__)
@@ -264,10 +265,7 @@ class HealthChecker:
         issues: list[HealthIssue] = []
 
         # Load config
-        try:
-            with self.config_path.open(encoding="utf-8") as f:
-                self._config = yaml.safe_load(f) or {}
-        except FileNotFoundError:
+        if not self.config_path.exists():
             issues.append(
                 HealthIssue(
                     category="config",
@@ -280,6 +278,9 @@ class HealthChecker:
                 )
             )
             return issues
+
+        try:
+            self._config = load_yaml(str(self.config_path)) or {}
         except yaml.YAMLError as e:
             issues.append(
                 HealthIssue(
@@ -295,10 +296,8 @@ class HealthChecker:
             return issues
 
         # Load secrets
-        try:
-            with Path("secrets.yaml").open(encoding="utf-8") as f:
-                self._secrets = yaml.safe_load(f) or {}
-        except FileNotFoundError:
+        secrets_path = Path("secrets.yaml")
+        if not secrets_path.exists():
             issues.append(
                 HealthIssue(
                     category="config",
@@ -310,15 +309,18 @@ class HealthChecker:
                     ),
                 )
             )
-        except yaml.YAMLError as e:
-            issues.append(
-                HealthIssue(
-                    category="config",
-                    severity="critical",
-                    message=f"Invalid YAML syntax in secrets file: {e}",
-                    guidance="Fix the YAML syntax error in secrets.yaml.",
+        else:
+            try:
+                self._secrets = load_yaml("secrets.yaml") or {}
+            except yaml.YAMLError as e:
+                issues.append(
+                    HealthIssue(
+                        category="config",
+                        severity="critical",
+                        message=f"Invalid YAML syntax in secrets file: {e}",
+                        guidance="Fix the YAML syntax error in secrets.yaml.",
+                    )
                 )
-            )
 
         # Validate required config sections
         issues.extend(self._validate_config_structure())
@@ -485,11 +487,14 @@ class HealthChecker:
             return issues  # Already reported in config check
 
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(
-                    f"{url}/api/",
-                    headers={"Authorization": f"Bearer {token}"},
-                )
+            from backend.core.ha_client import get_ha_http_client
+
+            client = get_ha_http_client()
+            response = await client.get(
+                f"{url}/api/",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10.0,
+            )
 
             if response.status_code == 401:
                 issues.append(
@@ -723,11 +728,14 @@ class HealthChecker:
             """Check a single entity and return a HealthIssue if there's a problem."""
             entity_id, config_key, is_required = entity_data
             try:
-                async with httpx.AsyncClient(timeout=5.0) as client:
-                    response = await client.get(
-                        f"{url}/api/states/{entity_id}",
-                        headers=headers,
-                    )
+                from backend.core.ha_client import get_ha_http_client
+
+                client = get_ha_http_client()
+                response = await client.get(
+                    f"{url}/api/states/{entity_id}",
+                    headers=headers,
+                    timeout=5.0,
+                )
 
                 if response.status_code == 404:
                     # Downgrade severity if not a hard requirement

@@ -1,19 +1,49 @@
 import asyncio
 import logging
 import re
+import threading
 from collections.abc import Callable, Coroutine
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any, cast
 
 import httpx
 import pytz
-import yaml
 
 from backend.core import secrets
 from backend.health import set_load_forecast_status
 
 logger = logging.getLogger("darkstar.core.ha_client")
+
+# Shared Home Assistant HTTP clients, one per running event loop.
+# Keyed by event loop so the executor's background loop and the main server loop
+# never share a client (sharing raises "Future ... bound to a different event loop").
+_ha_http_clients: dict[asyncio.AbstractEventLoop, httpx.AsyncClient] = {}
+_ha_http_clients_lock = threading.Lock()
+
+
+def get_ha_http_client() -> httpx.AsyncClient:
+    """Return a shared httpx.AsyncClient bound to the CURRENT running event loop.
+
+    A separate client is kept per event loop so the executor's background loop and the
+    main server loop never share a client (which would raise 'bound to a different event loop').
+    """
+    loop = asyncio.get_running_loop()
+    with _ha_http_clients_lock:
+        client = _ha_http_clients.get(loop)
+        if client is None or client.is_closed:
+            client = httpx.AsyncClient()
+            _ha_http_clients[loop] = client
+        return client
+
+
+async def close_ha_http_client() -> None:
+    """Close and forget the shared client for the CURRENT running event loop."""
+    loop = asyncio.get_running_loop()
+    with _ha_http_clients_lock:
+        client = _ha_http_clients.pop(loop, None)
+    if client is not None and not client.is_closed:
+        await client.aclose()
+        logger.info("Closed shared Home Assistant HTTP client for current event loop")
 
 
 def make_ha_headers(token: str) -> dict[str, str]:
@@ -75,11 +105,11 @@ async def get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
 
     endpoint = f"{url.rstrip('/')}/api/states/{entity_id}"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.get(endpoint, headers=make_ha_headers(token))
-            response.raise_for_status()
-            data = response.json()
-            return data
+        client = get_ha_http_client()
+        response = await client.get(endpoint, headers=make_ha_headers(token), timeout=10.0)
+        response.raise_for_status()
+        data = response.json()
+        return data
     except Exception as exc:
         logger.warning("Could not fetch HA entity %s: %s", entity_id, exc)
         return None
@@ -199,10 +229,12 @@ async def get_energy_from_power_history(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=12.0) as client:
-            response = await client.get(api_url, headers=make_ha_headers(token), params=params)
-            response.raise_for_status()
-            data = response.json()
+        client = get_ha_http_client()
+        response = await client.get(
+            api_url, headers=make_ha_headers(token), params=params, timeout=12.0
+        )
+        response.raise_for_status()
+        data = response.json()
 
         if not data or not data[0]:
             return None
@@ -316,8 +348,7 @@ async def get_initial_state(
             If None and ev_plugged_in_override is set, applies to the first enabled charger
             (legacy behaviour). With per-device replans, this should always be set.
     """
-    with Path(config_path).open() as f:
-        config = yaml.safe_load(f)
+    config = secrets.load_yaml(config_path)
 
     # Use system.battery if available, otherwise fall back to battery
     battery_config = config.get("system", {}).get("battery", config.get("battery", {}))
@@ -477,11 +508,11 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
 
     try:
         logger.info("Fetching %s data from Home Assistant", entity_id)
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(api_url, headers=headers, params=params)
-            response.raise_for_status()
+        client = get_ha_http_client()
+        response = await client.get(api_url, headers=headers, params=params, timeout=30.0)
+        response.raise_for_status()
 
-            data = response.json()
+        data = response.json()
         if not data or not data[0]:
             logger.warning("No data received from Home Assistant for %s", entity_id)
             return get_dummy_load_profile(config)

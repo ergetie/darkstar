@@ -18,6 +18,8 @@ services:
     environment:
       - TZ=Europe/Stockholm
     restart: unless-stopped
+    cap_add:
+      - SYS_PTRACE
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:5000/api/status" ]
       interval: 30s

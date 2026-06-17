@@ -84,21 +84,26 @@ Async HTTP clients SHALL NOT be shared across different event loops to prevent e
 - **AND** neither SHALL interfere with the other's event loop
 - **AND** both SHALL receive correct responses from Home Assistant
 
-### Requirement: Resource management for async HTTP clients
+### Requirement: Home Assistant HTTP client is shared within an event loop
 
-Async HTTP clients SHALL use context managers (`async with`) to ensure proper resource cleanup and prevent connection pool leaks.
+The application SHALL maintain one `httpx.AsyncClient` per running event loop for Home Assistant requests: created lazily on first use within that loop, reused for all subsequent requests in the same loop so that connections are pooled and the TLS/CA trust context is loaded only once, and closed when the application shuts down. The client SHALL NOT be shared across different event loops — the main server loop and any background executor loop SHALL each own a separate client instance, satisfying the event-loop isolation requirement above.
 
-#### Scenario: Proper resource cleanup on success
-- **WHEN** an async HTTP request completes successfully
-- **THEN** the client SHALL be properly closed via context manager (`async with`)
-- **AND** all sockets and connection pool resources SHALL be released
+#### Scenario: Repeated reads reuse one client within a loop
+- **WHEN** an endpoint performs multiple Home Assistant entity reads within the same event loop (e.g. the health check reads many entities in one request)
+- **THEN** all reads use the same shared client instance for that loop
+- **AND** the TLS/CA trust store is not reloaded per read
+- **AND** connections to the Home Assistant host are reused from the pool
 
-#### Scenario: Proper resource cleanup on exception
-- **WHEN** an async HTTP request raises an exception
-- **THEN** the client SHALL still be properly closed via context manager
-- **AND** no resource leaks SHALL occur even in error conditions
+#### Scenario: Client created on first use
+- **WHEN** the first Home Assistant request is made in a given event loop after startup
+- **THEN** the per-loop client is created and cached for subsequent use within that loop
 
-#### Scenario: No singleton pattern for clients
-- **WHEN** async HTTP clients are created
-- **THEN** they SHALL NOT use singleton pattern that prevents proper cleanup
-- **AND** each request SHALL create a fresh client with guaranteed cleanup
+#### Scenario: Client closed on shutdown
+- **WHEN** the application shuts down
+- **THEN** each per-loop client SHALL be closed and its connection-pool resources released
+- **AND** no connection-pool leak SHALL occur
+
+#### Scenario: Per-call behavior preserved
+- **WHEN** a request is made through the shared per-loop client
+- **THEN** existing timeout and error-handling behavior is unchanged
+- **AND** the same Home Assistant URL and token from configuration are used

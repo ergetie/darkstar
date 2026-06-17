@@ -96,3 +96,12 @@ def setup_test_env():
             db_path.unlink()
     except Exception:
         pass
+
+
+@pytest.fixture(autouse=True)
+def reset_ha_http_client():
+    """Reset the Home Assistant shared HTTP client dict between tests to prevent test contamination."""
+    from backend.core import ha_client
+    ha_client._ha_http_clients.clear()
+    yield
+    ha_client._ha_http_clients.clear()

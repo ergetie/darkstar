@@ -86,19 +86,7 @@ class TestGatherSensorReads:
 
 @pytest.mark.asyncio
 async def test_ev_soc_fallback_logging_no_crash():
-    """Verify that EV SoC fallback logging with '0%%' does not crash due to formatting.
-
-    This is a regression test for the ValueError: incomplete format bug where
-    the logging statement in get_initial_state() contained an unescaped percent sign.
-
-    The fix: Escape the percent sign as '0%%' so Python's logging percent-formatting
-    interprets it as a literal '%' character.
-
-    Scenario: Logging EV SoC fallback
-    WHEN EV SoC sensor returns no data
-    THEN the system logs a warning with the literal "0%" without crashing
-    """
-
+    """Verify that EV SoC fallback logging with '0%%' does not crash due to formatting."""
     from backend.core.ha_client import get_initial_state
 
     # Config with EV charger enabled but sensor returns no data
@@ -121,7 +109,7 @@ async def test_ev_soc_fallback_logging_no_crash():
         return test_config
 
     with (
-        patch("yaml.safe_load", side_effect=mock_yaml_load),
+        patch("backend.core.secrets.load_yaml", side_effect=mock_yaml_load),
         patch("backend.core.ha_client.get_ha_sensor_float") as mock_get_sensor,
         patch("backend.core.ha_client.logger") as mock_logger,
     ):
@@ -147,15 +135,8 @@ async def test_ev_soc_fallback_logging_no_crash():
 
 
 @pytest.mark.asyncio
-async def test_get_ha_entity_state_uses_async_context_manager():
-    """Verify that get_ha_entity_state() uses async with for proper resource cleanup.
-
-    This is a regression test for the resource leak bug where httpx.AsyncClient
-    instances were created but never closed, causing socket/connection pool leaks.
-
-    The fix: Use `async with httpx.AsyncClient() as client:` to ensure
-    automatic cleanup via context manager.
-    """
+async def test_get_ha_entity_state_uses_shared_client():
+    """Verify that get_ha_entity_state() uses the shared HTTP client."""
     from backend.core.ha_client import get_ha_entity_state
 
     # Mock the response
@@ -163,28 +144,22 @@ async def test_get_ha_entity_state_uses_async_context_manager():
     mock_response.json.return_value = {"state": "10.5", "attributes": {}}
     mock_response.raise_for_status = MagicMock()
 
-    # Mock the client context manager
+    # Mock the client
     mock_client = AsyncMock()
     mock_client.get.return_value = mock_response
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with (
-        patch("httpx.AsyncClient") as mock_async_client,
+        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client) as mock_get_client,
         patch(
             "backend.core.secrets.load_home_assistant_config",
             return_value={"url": "http://test", "token": "test_token"},
         ),
     ):
-        mock_async_client.return_value = mock_client
-
         # Call the function
         result = await get_ha_entity_state("sensor.test")
 
-        # Verify AsyncClient was created with context manager
-        mock_async_client.assert_called_once()
-        mock_client.__aenter__.assert_called_once()
-        mock_client.__aexit__.assert_called_once()
+        # Verify shared client was obtained and requested
+        mock_get_client.assert_called_once()
         mock_client.get.assert_called_once()
 
         # Verify response was processed
@@ -194,44 +169,32 @@ async def test_get_ha_entity_state_uses_async_context_manager():
 
 @pytest.mark.asyncio
 async def test_get_ha_entity_state_closes_client_on_exception():
-    """Verify that client is closed even when exceptions occur.
-
-    This ensures resource cleanup happens in both success and error cases.
-    """
+    """Verify that exceptions are handled in get_ha_entity_state."""
     from backend.core.ha_client import get_ha_entity_state
 
     # Mock the client that raises an exception
     mock_client = AsyncMock()
     mock_client.get.side_effect = Exception("Connection refused")
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
 
     with (
-        patch("httpx.AsyncClient") as mock_async_client,
+        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client) as mock_get_client,
         patch(
             "backend.core.secrets.load_home_assistant_config",
             return_value={"url": "http://test", "token": "test_token"},
         ),
     ):
-        mock_async_client.return_value = mock_client
-
         # Call the function - should not raise, should return None
         result = await get_ha_entity_state("sensor.test")
 
-        # Verify context manager was used even on exception
-        mock_client.__aenter__.assert_called_once()
-        mock_client.__aexit__.assert_called_once()
+        mock_get_client.assert_called_once()
 
         # Function should return None on error
         assert result is None
 
 
 @pytest.mark.asyncio
-async def test_get_load_profile_from_ha_uses_async_context_manager():
-    """Verify that get_load_profile_from_ha() uses async with for proper resource cleanup.
-
-    This function fetches historical load data and also needs proper client cleanup.
-    """
+async def test_get_load_profile_from_ha_uses_shared_client():
+    """Verify that get_load_profile_from_ha() uses the shared client."""
     from backend.core.ha_client import get_load_profile_from_ha
 
     # Mock the response with empty data (will trigger fallback)
@@ -241,8 +204,6 @@ async def test_get_load_profile_from_ha_uses_async_context_manager():
 
     mock_client = AsyncMock()
     mock_client.get.return_value = mock_response
-    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_client.__aexit__ = AsyncMock(return_value=None)
 
     # Mock config
     config = {
@@ -251,10 +212,9 @@ async def test_get_load_profile_from_ha_uses_async_context_manager():
     }
 
     with (
-        patch("httpx.AsyncClient") as mock_async_client,
+        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client) as mock_get_client,
         patch("backend.core.secrets.load_home_assistant_config") as mock_load_config,
     ):
-        mock_async_client.return_value = mock_client
         mock_load_config.return_value = {
             "url": "http://homeassistant:8123",
             "token": "test_token",
@@ -264,10 +224,8 @@ async def test_get_load_profile_from_ha_uses_async_context_manager():
         # Call the function
         result = await get_load_profile_from_ha(config)
 
-        # Verify AsyncClient was used with context manager
-        mock_async_client.assert_called_once()
-        mock_client.__aenter__.assert_called_once()
-        mock_client.__aexit__.assert_called_once()
+        # Verify shared client was used
+        mock_get_client.assert_called_once()
 
         # Should return a list of 96 values
         assert isinstance(result, list)
@@ -341,10 +299,7 @@ class TestGatherSensorReadsBatchExecution:
         }
 
         with (
-            patch("yaml.safe_load", return_value=test_config),
-            patch(
-                "builtins.open", new_callable=lambda: lambda *a, **k: __import__("io").StringIO("")
-            ),
+            patch("backend.core.secrets.load_yaml", return_value=test_config),
             patch("backend.core.ha_client.get_ha_sensor_float") as mock_sensor,
             patch("backend.core.ha_client.get_ha_bool", new_callable=AsyncMock, return_value=False),
             patch("backend.core.secrets.load_home_assistant_config", return_value={}),

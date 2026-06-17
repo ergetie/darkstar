@@ -58,6 +58,10 @@ docker compose up -d
 - This usually happens when the battery constraints are impossible (e.g., `min_soc` > `max_soc`).
 - Check your settings for logical errors in the battery section.
 
+### Performance Hotspots / High CPU
+If the system is experiencing performance degradation or CPU spikes, you can profile the running Python process inside the docker container using `py-spy`.
+For detailed commands, see the **Live Profiling** section in [DEVELOPER.md](DEVELOPER.md#live-profiling-py-spy).
+
 ---
 
 ## ⚡ Controls and Overrides

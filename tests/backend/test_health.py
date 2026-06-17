@@ -102,17 +102,15 @@ async def test_check_entities_uses_concurrent_gather():
         await original_sleep(0.1)  # Small delay to simulate network
         return None  # No issue
 
-    with patch("httpx.AsyncClient") as mock_client_class:
+    with patch("backend.core.ha_client.get_ha_http_client") as mock_get_client:
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
 
         # Mock successful responses
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {"state": "10.5", "attributes": {}}
         mock_client.get = AsyncMock(return_value=mock_response)
-        mock_client_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         # Run the check
         start = asyncio.get_event_loop().time()
@@ -165,10 +163,8 @@ async def test_check_entities_handles_individual_failures():
 
     call_count = 0
 
-    with patch("httpx.AsyncClient") as mock_client_class:
+    with patch("backend.core.ha_client.get_ha_http_client") as mock_get_client:
         mock_client = AsyncMock()
-        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
-        mock_client.__aexit__ = AsyncMock(return_value=None)
 
         async def mock_get(*args, **kwargs):
             nonlocal call_count
@@ -185,7 +181,7 @@ async def test_check_entities_handles_individual_failures():
             return mock_response
 
         mock_client.get = mock_get
-        mock_client_class.return_value = mock_client
+        mock_get_client.return_value = mock_client
 
         # Should complete without raising
         await checker.check_entities()

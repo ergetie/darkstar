@@ -33,6 +33,19 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [Specs] Fix 5 Pre-Existing OpenSpec Validation Failures
+
+**Goal:** Make `openspec validate --specs` pass cleanly. Five spec files fail format validation (independent of any feature work — the capabilities are implemented; only the spec docs don't conform). Fix each by adding the missing normative `SHALL`/`MUST` wording and/or at least one `#### Scenario:` block per requirement:
+- `startup-wizard` — all 5 requirements lack a `SHALL`/`MUST` keyword; Purpose section is too brief (<50 chars).
+- `sensor-configuration` — requirements #4 and #5 lack a `SHALL`/`MUST` keyword.
+- `aurora-corrector` — requirement #1 lacks both a `SHALL`/`MUST` keyword and a scenario.
+- `executor` — requirements #2 and #3 have no `#### Scenario:` block.
+- `planner` — requirement #5 has no `#### Scenario:` block.
+
+**Notes:** Discovered 2026-06-17 during verification of the `dashboard-performance-pass` change. Pre-existing failures, unrelated to that change (not in its diff). These are hard errors (they fail even without `--strict`), but they are documentation/lint issues only — no code is broken. Files live in `openspec/specs/<name>/spec.md`. Each requirement needs a `### Requirement:` line containing SHALL/MUST plus ≥1 `#### Scenario:` (level-4 header) with WHEN/THEN bullets.
+
+---
+
 #### [Planner/API] `/api/simulate` Fails with `'dict' object has no attribute 'iterrows'`
 
 **Goal:** Fix the `POST /api/simulate` endpoint, which currently returns `{"status":"error","message":"'dict' object has no attribute 'iterrows'"}` instead of running a simulation. Something passes a plain `dict` where a pandas DataFrame is expected (`.iterrows()` called on it).

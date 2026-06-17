@@ -48,11 +48,12 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Query all price forecasts ordered by slot_start
+        # Query price forecasts from the latest forecast run
         cursor.execute("""
             SELECT slot_start, days_ahead, spot_p10, spot_p50, spot_p90
             FROM price_forecasts
             WHERE days_ahead BETWEEN 1 AND 7
+              AND issue_timestamp = (SELECT MAX(issue_timestamp) FROM price_forecasts)
             ORDER BY slot_start
         """)
 

@@ -1714,7 +1714,7 @@ class TestLoadIsolationFromDeferrableLoads:
             # recorder actually requests (embedded in the api_url), so the result is
             # independent of wall-clock slot boundaries. Reproduces the real
             # sensor.vvb_power series: unit "W" only on the first state, {} thereafter.
-            async def mock_http_get(api_url, headers=None, params=None):
+            async def mock_http_get(api_url, headers=None, params=None, **kwargs):
                 slot_start = datetime.fromisoformat(api_url.rsplit("/", 1)[1])
                 states = [
                     {

@@ -37,6 +37,7 @@ class TestGetDailyOutlook(unittest.TestCase):
         cursor.execute("""
             CREATE TABLE price_forecasts (
                 slot_start TEXT,
+                issue_timestamp TEXT,
                 days_ahead INTEGER,
                 spot_p10 REAL,
                 spot_p50 REAL,
@@ -57,13 +58,14 @@ class TestGetDailyOutlook(unittest.TestCase):
                 spot_p50 = 0.4 + (day_offset * 0.05)  # Increasing prices
                 spot_p10 = spot_p50 * 0.8
                 spot_p90 = spot_p50 * 1.2
+                issue_timestamp = "2026-03-30T12:00:00Z"
 
                 cursor.execute(
                     """
-                    INSERT INTO price_forecasts (slot_start, days_ahead, spot_p10, spot_p50, spot_p90)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO price_forecasts (slot_start, issue_timestamp, days_ahead, spot_p10, spot_p50, spot_p90)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                    (slot_start, day_offset, spot_p10, spot_p50, spot_p90),
+                    (slot_start, issue_timestamp, day_offset, spot_p10, spot_p50, spot_p90),
                 )
 
         conn.commit()
@@ -126,6 +128,42 @@ class TestGetDailyOutlook(unittest.TestCase):
         self.assertEqual(sorted(days_ahead_values), [1, 2, 3, 4, 5, 6, 7])
 
         print("✓ Results cover D+1 through D+7")
+
+    def test_only_latest_run_loaded(self):
+        """Test that get_daily_outlook only reads from the latest forecast run."""
+        print("\n--- Testing Only Latest Run Loaded ---")
+
+        # Insert a older run with very high prices
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        from datetime import datetime, timedelta
+        base_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+
+        # Older run (earlier issue_timestamp)
+        for day_offset in range(1, 8):
+            current_date = base_date + timedelta(days=day_offset)
+            date = current_date.strftime("%Y-%m-%d")
+            for hour in range(24):
+                slot_start = f"{date}T{hour:02d}:00:00"
+                cursor.execute(
+                    """
+                    INSERT INTO price_forecasts (slot_start, issue_timestamp, days_ahead, spot_p10, spot_p50, spot_p90)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                    (slot_start, "2026-03-30T11:00:00Z", day_offset, 10.0, 10.0, 10.0),
+                )
+
+        conn.commit()
+        conn.close()
+
+        # The output should be identical to the setUp latest run (prices around 0.45-0.75, NOT 10.0)
+        result = get_daily_outlook(self.db_path)
+        self.assertEqual(len(result), 7)
+        self.assertLess(result[0]["avg_spot_p50"], 1.0)
+        self.assertAlmostEqual(result[0]["avg_spot_p50"], 0.45, places=2)
+        print("✓ Only latest run loaded successfully")
+
 
 
 class TestGetTrailingAvg(unittest.TestCase):

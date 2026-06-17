@@ -1,11 +1,8 @@
 import logging
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Any
 
-import httpx
 import pytz
-import yaml
 
 from backend.learning import get_learning_engine
 
@@ -31,18 +28,14 @@ class BackfillEngine:
         self.secrets = self._load_secrets()
 
     def _load_config(self, path: str) -> dict[str, Any]:
-        try:
-            with Path(path).open(encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except FileNotFoundError:
-            return {}
+        from backend.core.secrets import load_yaml
+
+        return load_yaml(path) or {}
 
     def _load_secrets(self) -> dict[str, Any]:
-        try:
-            with Path("secrets.yaml").open(encoding="utf-8") as f:
-                return yaml.safe_load(f) or {}
-        except FileNotFoundError:
-            return {}
+        from backend.core.secrets import load_yaml
+
+        return load_yaml("secrets.yaml") or {}
 
     def _load_ha_config(self) -> dict[str, Any]:
         """Load HA config from secrets.yaml"""
@@ -75,10 +68,14 @@ class BackfillEngine:
         }
 
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                response = await client.get(api_url, headers=self._make_ha_headers(), params=params)
-                response.raise_for_status()
-                data = response.json()
+            from backend.core.ha_client import get_ha_http_client
+
+            client = get_ha_http_client()
+            response = await client.get(
+                api_url, headers=self._make_ha_headers(), params=params, timeout=60.0
+            )
+            response.raise_for_status()
+            data = response.json()
 
             if not data or not data[0]:
                 return []
