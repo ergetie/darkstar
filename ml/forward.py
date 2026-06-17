@@ -81,13 +81,21 @@ def _pv_physical_ceiling_kwh(config: dict[str, Any], slot_hours: float = 0.25) -
     total_kwp = _total_solar_kwp(config)
     system_cfg: dict[str, Any] = config.get("system", {}) or {}
     inverter_cfg: dict[str, Any] = system_cfg.get("inverter", {}) or {}
-    ac_limit_kw = float(inverter_cfg.get("max_ac_power_kw", 0.0) or 0.0)
     dc_limit_kw = float(inverter_cfg.get("max_dc_input_kw", 0.0) or 0.0)
-    power_limit_kw = total_kwp * ceiling_efficiency
-    if dc_limit_kw > 0:
-        power_limit_kw = min(power_limit_kw, dc_limit_kw)
-    if ac_limit_kw > 0:
-        power_limit_kw = min(power_limit_kw, ac_limit_kw)
+    panel_limit_kw = total_kwp * ceiling_efficiency
+    if dc_limit_kw > 0.0 and dc_limit_kw < panel_limit_kw:
+        power_limit_kw = dc_limit_kw
+        binding = "dc_input"
+    else:
+        power_limit_kw = panel_limit_kw
+        binding = "panel_capacity"
+    logger.info(
+        "PV generation ceiling: %.2f kW (bound by %s; %.2f kWp panels, DC limit %.2f kW)",
+        power_limit_kw,
+        binding,
+        total_kwp,
+        dc_limit_kw,
+    )
     return max(0.0, power_limit_kw * slot_hours)
 
 
@@ -242,6 +250,7 @@ async def generate_forward_slots(
     """
     engine = get_learning_engine()
     assert isinstance(engine, LearningEngine)
+    engine.reload_config_if_changed()
 
     tz = engine.timezone
     now = datetime.now(tz)

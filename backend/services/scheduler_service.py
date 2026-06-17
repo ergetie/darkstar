@@ -346,6 +346,7 @@ class SchedulerService:
             from backend.learning import get_learning_engine
 
             engine = get_learning_engine()
+            engine.reload_config_if_changed()
 
             forecasts = await generate_price_forecasts(
                 config=engine.config,

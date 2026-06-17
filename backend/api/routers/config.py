@@ -317,6 +317,15 @@ async def save_config(
             # Log but don't fail the save if executor reload fails
             logger.warning("Failed to reload executor config after save: %s", e)
 
+        # Refresh LearningEngine singleton so next forecast uses saved values
+        try:
+            from backend.learning import get_learning_engine
+
+            get_learning_engine().refresh_config()
+            logger.info("LearningEngine config refreshed after config save")
+        except Exception as e:
+            logger.warning("Failed to refresh LearningEngine config after save: %s", e)
+
         # Clear planner retry suspension so planning resumes after config fix
         try:
             from backend.services.planner_service import planner_service

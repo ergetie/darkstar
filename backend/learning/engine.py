@@ -23,7 +23,9 @@ class LearningEngine:
     """
 
     def __init__(self, config_path: str = "config.yaml"):
+        self._config_path: str = config_path
         self.config: dict[str, Any] = self._load_config(config_path)
+        self._config_mtime: float = self._get_config_mtime()
         self.learning_config: dict[str, Any] = self.config.get("learning", {})
         self.db_path = self.learning_config.get("sqlite_path", "data/planner_learning.db")
         self.timezone = pytz.timezone(self.config.get("timezone", "Europe/Stockholm"))
@@ -45,15 +47,39 @@ class LearningEngine:
             "grid": input_sensors.get("grid_power_inverted", False),
         }
 
+    def _get_config_mtime(self) -> float:
+        try:
+            return Path(self._config_path).stat().st_mtime
+        except OSError:
+            return 0.0
+
     def _load_config(self, config_path: str) -> dict[str, Any]:
         """Load configuration from YAML file"""
         try:
             with Path(config_path).open(encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except FileNotFoundError:
-            # Fallback to default config
-            with Path("config.default.yaml").open(encoding="utf-8") as f:
+            self._config_path = "config.default.yaml"
+            with Path(self._config_path).open(encoding="utf-8") as f:
                 return yaml.safe_load(f)
+
+    def reload_config_if_changed(self) -> None:
+        """Re-parse config only when its mtime has changed; no-op otherwise."""
+        try:
+            current_mtime = Path(self._config_path).stat().st_mtime
+        except OSError:
+            return
+        if current_mtime == self._config_mtime:
+            return
+        self.config = self._load_config(self._config_path)
+        self._config_mtime = self._get_config_mtime()
+        logger.info("Config reloaded (mtime changed): %s", self._config_path)
+
+    def refresh_config(self) -> None:
+        """Force re-read of config (called after a config save)."""
+        self.config = self._load_config(self._config_path)
+        self._config_mtime = self._get_config_mtime()
+        logger.info("Config refreshed: %s", self._config_path)
 
     # Delegate storage methods to store (Async)
     async def store_slot_prices(self, price_rows: Any) -> None:
