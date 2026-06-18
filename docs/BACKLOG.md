@@ -68,6 +68,8 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** Carved out of the `harden-ci-and-tests` work (2026-06-10). That change pinned only the tools that were actively breaking CI (`ruff`, `pyright`) and matched `pnpm`/Node to the known-good versions — it intentionally did NOT chase "latest everywhere," because the bug was *version mismatch between local and CI*, not staleness. A real upgrade is its own change: bump deliberately, run `scripts/ci_local.sh` after each step, and fix anything newer/stricter versions flag (especially pyright in strict mode). Consider upgrading the add-on Node so `pnpm` can move to 10. Decide whether to keep `requirements*.txt` or migrate deps into `pyproject.toml` + a real `uv.lock` (the current lock is empty) for first-class locking.
 
+**PuLP 4.0 watch (added 2026-06-18):** `pulp` is pinned to `<4.0.0` in `requirements.txt` because PuLP 3.x already emits deprecation warnings that `prob.constraints` dict access is removed in 4.0 — multiple planner files use this pattern. When PuLP 4.0 releases, this upgrade pass must include migrating all `prob.constraints[name]` dict usages to the new `prob.constraints()` list API before lifting the ceiling.
+
 ---
 
 #### [Testing] Frontend Test Coverage Gap
