@@ -1,5 +1,5 @@
 import Card from './Card'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
     Chart as ChartJS,
     ChartConfiguration,
@@ -17,6 +17,21 @@ import type { ScheduleSlot } from '../lib/types'
 import { formatHour, DaySel, isToday, isTomorrow } from '../lib/time'
 // Note: We use a custom plugin for the NOW marker to support zooming.
 // CSS overlays don't work well with pan/zoom.
+
+// Hook: returns true when viewport is below Tailwind's `md` breakpoint (768px)
+function useIsMobile(): boolean {
+    const [isMobile, setIsMobile] = useState(() => {
+        if (typeof window === 'undefined') return false
+        return window.matchMedia('(max-width: 767px)').matches
+    })
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 767px)')
+        const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches)
+        mq.addEventListener('change', handler)
+        return () => mq.removeEventListener('change', handler)
+    }, [])
+    return isMobile
+}
 
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
@@ -721,6 +736,56 @@ const nowLinePlugin: Plugin = {
     },
 }
 
+// Mobile tap-to-select: vertical band drawn at selected slot's x-position.
+// Per-instance plugin options are used (chart.options.plugins.selectionBand)
+// so there is no module-level mutable state and multiple ChartCard instances
+// never bleed into each other.
+const selectionBandPlugin: Plugin = {
+    id: 'selectionBand',
+    beforeDatasetsDraw(chart) {
+        // Read per-instance options set by the component
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const opts = (chart.options.plugins as any)?.selectionBand as
+            | { mobile?: boolean; index?: number | null }
+            | undefined
+        if (!opts?.mobile) return
+        const idx = opts.index
+        if (idx === null || idx === undefined) return
+
+        const {
+            ctx,
+            chartArea: { top, bottom },
+            scales: { x },
+        } = chart
+
+        if (!x) return
+
+        const xPos = x.getPixelForValue(idx)
+        if (xPos < x.left || xPos > x.right) return
+
+        // Width of one slot in pixels for the band
+        const slotWidth =
+            chart.data.labels && chart.data.labels.length > 1
+                ? Math.abs(x.getPixelForValue(1) - x.getPixelForValue(0))
+                : 8
+
+        ctx.save()
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)'
+        ctx.fillRect(xPos - slotWidth / 2, top, slotWidth, bottom - top)
+
+        // Vertical accent line at centre of selected slot
+        ctx.beginPath()
+        ctx.strokeStyle = 'rgba(255, 206, 89, 0.7)' // --color-accent at 70%
+        ctx.lineWidth = 1.5
+        ctx.shadowColor = 'rgba(255, 206, 89, 0.5)'
+        ctx.shadowBlur = 6
+        ctx.moveTo(xPos, top)
+        ctx.lineTo(xPos, bottom)
+        ctx.stroke()
+        ctx.restore()
+    },
+}
+
 // Production-grade dot grid plugin - aligns with data slots, zoom-adaptive
 const dotGridPlugin: Plugin = {
     id: 'dotGrid',
@@ -833,15 +898,96 @@ export default function ChartCard({
     slotsOverride,
     useHistoryForToday = false,
 }: ChartCardProps) {
+    const isMobile = useIsMobile()
     const [hasNoDataMessage, setHasNoDataMessage] = useState(false)
     const [hasRealData, setHasRealData] = useState(false) // Track when real data has been loaded
     const currentDay = day || 'today'
     const ref = useRef<HTMLCanvasElement | null>(null)
     const chartRef = useRef<Chart | null>(null)
+    const cardRef = useRef<HTMLDivElement | null>(null)
     const userHasZoomedRef = useRef(false) // Track if user has manually zoomed/panned
     const lastHadTomorrowPricesRef = useRef<boolean | null>(null) // Track tomorrow prices availability
     const [isZoomed, setIsZoomed] = useState(false) // UI state for reset button visibility
     const [themeColors, setThemeColors] = useState<Record<string, string>>({})
+    // Mobile tap-to-select state
+    const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+    // Snapshot of the latest chart data pushed to the chart instance — used by the
+    // selection panel memo so it reads stable React state rather than a mutating ref (S2b)
+    const [liveChartData, setLiveChartData] = useState<ExtendedChartData | null>(null)
+    // Per-instance ref for current mobile state — kept in sync so the baked-in onClick
+    // handler always reads the live value even after viewport crosses 768px (N1)
+    const isMobileRef = useRef(isMobile)
+    useEffect(() => {
+        isMobileRef.current = isMobile
+    }, [isMobile])
+
+    // Click-away handler: tapping outside the card clears selection (mobile only)
+    useEffect(() => {
+        if (!isMobile) return
+        const handler = (e: MouseEvent) => {
+            if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+                setSelectedIndex(null)
+            }
+        }
+        document.addEventListener('click', handler, true)
+        return () => document.removeEventListener('click', handler, true)
+    }, [isMobile])
+
+    // Build formatted slot data for the selection panel from stable React state (S2b).
+    // Keyed on liveChartData (updated whenever chart data is swapped) + selectedIndex + isMobile,
+    // so the panel never reads a mutating ref mid-render.
+    const selectedSlotPanel = useMemo(() => {
+        if (!isMobile || selectedIndex === null || !liveChartData) return null
+        const data = liveChartData
+        if (!data.labels || selectedIndex >= data.labels.length) return null
+
+        const label = data.labels[selectedIndex] as string
+        const pricing = data.pricingConfig
+
+        const rows: { label: string; value: string; color: string }[] = []
+
+        for (const ds of data.datasets) {
+            if (ds.hidden) continue
+            const raw = ds.data[selectedIndex]
+            if (raw === null || raw === undefined) continue
+            const value = typeof raw === 'number' ? raw : null
+            if (value === null) continue
+
+            const dsLabel = ds.label || ''
+            let formattedValue = value.toFixed(2)
+            let unit = ''
+            let extra: string | null = null
+
+            if (dsLabel.includes('SEK/kWh')) {
+                formattedValue = value.toFixed(2)
+                unit = ' SEK/kWh'
+                if (pricing) {
+                    const vatMul = 1 + pricing.vat / 100
+                    const basePrice = vatMul > 0 ? value / vatMul : value
+                    const spot = Math.max(0, basePrice - pricing.fees)
+                    const feesAndVat = value - spot
+                    extra = `Spot: ${spot.toFixed(2)} + Tax/Fees: ${feesAndVat.toFixed(2)}`
+                }
+            } else if (dsLabel.includes('kW')) {
+                formattedValue = value.toFixed(1)
+                unit = ' kW'
+            } else if (dsLabel.includes('kWh')) {
+                formattedValue = value.toFixed(2)
+                unit = ' kWh'
+            } else if (dsLabel.includes('%')) {
+                formattedValue = value.toFixed(1)
+                unit = '%'
+            }
+
+            const color = typeof ds.borderColor === 'string' ? ds.borderColor : '#e6e9ef'
+            rows.push({ label: dsLabel, value: `${formattedValue}${unit}`, color })
+            if (extra) {
+                rows.push({ label: '', value: extra, color: 'transparent' })
+            }
+        }
+
+        return { label, rows }
+    }, [isMobile, selectedIndex, liveChartData])
     const [overlays, setOverlays] = useState(() => {
         // Load from localStorage if available, otherwise use defaults
         const STORAGE_KEY = 'darkstar-chart-overlays'
@@ -1038,8 +1184,13 @@ export default function ChartCard({
             ),
             options: {
                 ...chartOptions,
+                // On mobile: disable built-in floating tooltip (replaced by tap-panel below)
                 plugins: {
                     ...chartOptions?.plugins,
+                    tooltip: {
+                        ...chartOptions?.plugins?.tooltip,
+                        enabled: !isMobile,
+                    },
                     zoom: {
                         ...chartOptions?.plugins?.zoom,
                         zoom: {
@@ -1057,6 +1208,19 @@ export default function ChartCard({
                             },
                         },
                     },
+                    // Per-instance plugin options for the selection band (B1/S1)
+                    selectionBand: { mobile: isMobile, index: null as number | null },
+                },
+                // Always register onClick but guard on isMobileRef so crossing 768px mid-session
+                // works without recreating the chart (N1).
+                onClick: (_event, elements) => {
+                    if (!isMobileRef.current) return
+                    if (elements && elements.length > 0) {
+                        const idx = elements[0].index
+                        setSelectedIndex((prev) => (prev === idx ? null : idx))
+                    } else {
+                        setSelectedIndex(null)
+                    }
                 },
                 scales: {
                     ...chartOptions?.scales,
@@ -1074,7 +1238,7 @@ export default function ChartCard({
                     },
                 },
             },
-            plugins: [dotGridPlugin, nowLinePlugin, glowPlugin],
+            plugins: [dotGridPlugin, nowLinePlugin, selectionBandPlugin, glowPlugin],
         }
         chartRef.current = new ChartJS(ref.current, cfg)
 
@@ -1084,7 +1248,46 @@ export default function ChartCard({
                 chartRef.current = null
             }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [themeColors, pricingConfig, hasRealData, scaling.gridMaxKw, scaling.inverterMaxKw, scaling.solarKwp]) // Re-create chart only for initial creation or theme/pricing changes (but not after real data loads)
+
+    // Mobile: push current selection into per-instance plugin options and redraw (B1/S1/S3).
+    // Dependency array is [selectedIndex] so it only runs when selection actually changes.
+    useEffect(() => {
+        if (!chartRef.current) return
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pluginsOpts = chartRef.current.options.plugins as any
+        if (pluginsOpts) {
+            pluginsOpts.selectionBand = {
+                mobile: isMobileRef.current,
+                index: selectedIndex,
+            }
+        }
+        chartRef.current.draw()
+    }, [selectedIndex])
+
+    // Mobile: update chart tooltip enabled state when viewport changes.
+    // Also updates the per-instance selectionBand plugin option so the band is
+    // disabled the moment the viewport crosses to desktop (N1/S1).
+    useEffect(() => {
+        if (!chartRef.current) return
+        if (chartRef.current.options?.plugins?.tooltip) {
+            chartRef.current.options.plugins.tooltip.enabled = !isMobile
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const pluginsOpts = chartRef.current.options.plugins as any
+        if (pluginsOpts) {
+            pluginsOpts.selectionBand = {
+                mobile: isMobile,
+                index: selectedIndex,
+            }
+        }
+        chartRef.current.update('none')
+        if (!isMobile) {
+            // Clearing selection when switching to desktop
+            setSelectedIndex(null)
+        }
+    }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Dynamically update chart scales when scaling configuration changes
     // This prevents chart re-initialization and preserves loaded data
@@ -1154,6 +1357,10 @@ export default function ChartCard({
             try {
                 if (chartRef.current) {
                     chartRef.current.data = liveData
+                    // Reset selection and snapshot the new data so the panel memo
+                    // reads stable React state (not a mutating ref) (S2a/S2b)
+                    setSelectedIndex(null)
+                    setLiveChartData(liveData)
                     chartRef.current.update()
 
                     // Check if tomorrow prices just became available
@@ -1217,98 +1424,130 @@ export default function ChartCard({
 
     // Memoize theme colors to prevent unnecessary re-computations
     return (
-        <Card className="p-4 md:p-6 h-[380px]">
-            <div className="flex items-baseline justify-between pb-2">
-                <div className="text-sm text-muted">Schedule Overview</div>
-                <div className="flex items-center gap-2">
-                    {isZoomed && (
+        // Outer wrapper holds ref for click-away detection (clears selection when tapping outside card on mobile)
+        <div ref={cardRef}>
+            <Card className={`p-4 md:p-6 ${isMobile && !!selectedSlotPanel ? '' : 'h-[380px]'}`}>
+                <div className="flex items-baseline justify-between pb-2">
+                    <div className="text-sm text-muted">Schedule Overview</div>
+                    <div className="flex items-center gap-2">
+                        {isZoomed && (
+                            <button
+                                className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
+                                onClick={() => {
+                                    if (chartRef.current) {
+                                        chartRef.current.resetZoom()
+                                        userHasZoomedRef.current = false
+                                        setIsZoomed(false)
+                                    }
+                                }}
+                            >
+                                Reset Zoom
+                            </button>
+                        )}
                         <button
                             className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
-                            onClick={() => {
-                                if (chartRef.current) {
-                                    chartRef.current.resetZoom()
-                                    userHasZoomedRef.current = false
-                                    setIsZoomed(false)
-                                }
-                            }}
+                            onClick={() => setShowOverlayMenu((v) => !v)}
                         >
-                            Reset Zoom
+                            Overlays
                         </button>
-                    )}
-                    <button
-                        className="rounded-pill px-3 py-1 text-[11px] font-semibold uppercase tracking-wide border border-line/60 text-muted hover:border-accent hover:text-accent transition"
-                        onClick={() => setShowOverlayMenu((v) => !v)}
-                    >
-                        Overlays
-                    </button>
-                </div>
-            </div>
-            {showOverlayMenu && (
-                <div className="mt-2 flex items-center justify-between gap-4">
-                    {/* Main overlay toggles  */}
-                    <div className="flex flex-wrap gap-1.5 text-[10px]">
-                        {(
-                            [
-                                ['Price', 'price', 'bg-grid/20 border-grid'],
-                                ['PV', 'pv', 'bg-accent/20 border-accent'],
-                                ['Load', 'load', 'bg-house/20 border-house'],
-                                ['Charge', 'charge', 'bg-bad/20 border-bad'],
-                                ['Discharge', 'discharge', 'bg-peak/20 border-peak'],
-                                ['EV', 'ev', 'bg-ai/20 border-ai'],
-                                ['Export', 'export', 'bg-good/20 border-good'],
-                                ['Water', 'water', 'bg-water/20 border-water'],
-                                ['Excess PV', 'excessPvSink', 'bg-bad/20 border-good'],
-                                ['SoC Target', 'socTarget', 'bg-night/20 border-night'],
-                                ['SoC Proj', 'socProjected', 'bg-night/20 border-night'],
-                                ['SoC Act', 'socActual', 'bg-night/20 border-night'],
-                            ] as const
-                        ).map(([label, key, activeClass]) => (
-                            <button
-                                key={key}
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
-                                }}
-                                className={`rounded-full px-2.5 py-0.5 border transition-all duration-150 font-medium ${
-                                    overlays[key as keyof typeof overlays]
-                                        ? `${activeClass} shadow-sm`
-                                        : 'border-line/40 text-muted/60 hover:border-line hover:text-muted'
-                                }`}
-                            >
-                                {label}
-                            </button>
-                        ))}
                     </div>
-                    {/* Show Actual toggle - separated on right */}
-                    <button
-                        onClick={(e) => {
-                            e.preventDefault()
-                            setOverlays((o) => ({ ...o, showActual: !o.showActual }))
-                        }}
-                        className={`rounded-full px-3 py-1 border text-[10px] font-semibold transition-all duration-150 whitespace-nowrap ${
-                            overlays.showActual
-                                ? 'bg-accent text-canvas border-accent shadow-md shadow-accent/30'
-                                : 'border-line/40 text-muted/60 hover:border-accent hover:text-accent'
-                        }`}
-                    >
-                        📊 Actual
-                    </button>
                 </div>
-            )}
-            <div className="h-[310px] relative mt-1">
-                {hasNoDataMessage && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
-                        <div className="text-center">
-                            <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
-                            <div className="text-sm text-muted">
-                                Schedule data not available yet. Check back later for prices.
+                {showOverlayMenu && (
+                    <div className="mt-2 flex items-center justify-between gap-4">
+                        {/* Main overlay toggles  */}
+                        <div className="flex flex-wrap gap-1.5 text-[10px]">
+                            {(
+                                [
+                                    ['Price', 'price', 'bg-grid/20 border-grid'],
+                                    ['PV', 'pv', 'bg-accent/20 border-accent'],
+                                    ['Load', 'load', 'bg-house/20 border-house'],
+                                    ['Charge', 'charge', 'bg-bad/20 border-bad'],
+                                    ['Discharge', 'discharge', 'bg-peak/20 border-peak'],
+                                    ['EV', 'ev', 'bg-ai/20 border-ai'],
+                                    ['Export', 'export', 'bg-good/20 border-good'],
+                                    ['Water', 'water', 'bg-water/20 border-water'],
+                                    ['Excess PV', 'excessPvSink', 'bg-bad/20 border-good'],
+                                    ['SoC Target', 'socTarget', 'bg-night/20 border-night'],
+                                    ['SoC Proj', 'socProjected', 'bg-night/20 border-night'],
+                                    ['SoC Act', 'socActual', 'bg-night/20 border-night'],
+                                ] as const
+                            ).map(([label, key, activeClass]) => (
+                                <button
+                                    key={key}
+                                    onClick={(e) => {
+                                        e.preventDefault()
+                                        setOverlays((o) => ({ ...o, [key]: !o[key as keyof typeof o] }))
+                                    }}
+                                    className={`rounded-full px-2.5 py-0.5 border transition-all duration-150 font-medium ${
+                                        overlays[key as keyof typeof overlays]
+                                            ? `${activeClass} shadow-sm`
+                                            : 'border-line/40 text-muted/60 hover:border-line hover:text-muted'
+                                    }`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                        {/* Show Actual toggle - separated on right */}
+                        <button
+                            onClick={(e) => {
+                                e.preventDefault()
+                                setOverlays((o) => ({ ...o, showActual: !o.showActual }))
+                            }}
+                            className={`rounded-full px-3 py-1 border text-[10px] font-semibold transition-all duration-150 whitespace-nowrap ${
+                                overlays.showActual
+                                    ? 'bg-accent text-canvas border-accent shadow-md shadow-accent/30'
+                                    : 'border-line/40 text-muted/60 hover:border-accent hover:text-accent'
+                            }`}
+                        >
+                            📊 Actual
+                        </button>
+                    </div>
+                )}
+                <div className="h-[310px] relative mt-1">
+                    {hasNoDataMessage && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-surface/90 rounded-lg">
+                            <div className="text-center">
+                                <div className="text-lg font-semibold text-accent mb-2">No Price Data</div>
+                                <div className="text-sm text-muted">
+                                    Schedule data not available yet. Check back later for prices.
+                                </div>
                             </div>
+                        </div>
+                    )}
+                    <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }} />
+                </div>
+                {/* Mobile tap-to-select info panel — only rendered when a slot is selected on mobile */}
+                {isMobile && selectedSlotPanel && (
+                    <div
+                        className="mt-2 rounded-xl border border-line/50 bg-surface2 px-3 py-2.5 shadow-inner"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="text-[11px] font-semibold text-accent font-mono mb-1.5">
+                            {selectedSlotPanel.label}
+                        </div>
+                        <div className="flex flex-col gap-0.5">
+                            {selectedSlotPanel.rows.map((row, i) => (
+                                <div key={i} className="flex items-baseline gap-1.5 text-[11px]">
+                                    {row.label ? (
+                                        <>
+                                            <span
+                                                className="inline-block w-2 h-2 rounded-sm flex-shrink-0 mt-0.5"
+                                                style={{ backgroundColor: row.color }}
+                                            />
+                                            <span className="text-muted flex-1 truncate">{row.label}:</span>
+                                            <span className="text-text font-mono">{row.value}</span>
+                                        </>
+                                    ) : (
+                                        <span className="text-muted/70 font-mono pl-3.5 text-[10px]">{row.value}</span>
+                                    )}
+                                </div>
+                            ))}
                         </div>
                     </div>
                 )}
-                <canvas ref={ref} style={{ display: hasNoDataMessage ? 'none' : 'block' }} />
-            </div>
-        </Card>
+            </Card>
+        </div>
     )
 }
 
