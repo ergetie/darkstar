@@ -108,6 +108,15 @@ async def lifespan(app: FastAPI):
 
     await recorder_service.start()
 
+    # Start runtime invariant monitors (stabilization-review-2, read-only)
+    try:
+        from backend.monitors import invariant_monitors
+
+        await invariant_monitors.start()
+    except Exception as e:
+        # fail-open: monitors must never block startup (design D4)
+        logger.error("Failed to start invariant monitors: %s", e)
+
     executor_instance = None
     try:
         executor_instance = get_executor_instance()
@@ -190,6 +199,13 @@ async def lifespan(app: FastAPI):
     from backend.services.recorder_service import recorder_service
 
     await recorder_service.stop()
+
+    try:
+        from backend.monitors import invariant_monitors
+
+        await invariant_monitors.stop()
+    except Exception as e:
+        logger.error("Failed to stop invariant monitors: %s", e)
 
     from backend.ha_socket import stop_ha_socket_client
 

@@ -199,6 +199,22 @@ async def clear_logs():
 
 
 @router.get(
+    "/api/system/monitors",
+    summary="Get Runtime Invariant Monitor Status",
+    description=(
+        "Latest evaluation result for each runtime invariant (slot continuity, "
+        "energy balance, SoC bounds, plan freshness, command success, forecast "
+        "sanity, data quality), active violation episodes, and monitor health."
+    ),
+)
+async def get_invariant_monitors() -> dict[str, Any]:
+    """Expose runtime invariant monitor status (stabilization-review-2)."""
+    from backend.monitors import invariant_monitors
+
+    return invariant_monitors.get_status()
+
+
+@router.get(
     "/api/system/health",
     summary="Get System Health",
     description="Returns comprehensive system health metrics (learning, database, planner).",

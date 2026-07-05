@@ -254,11 +254,35 @@ class HealthChecker:
         # Check planner health (error codes + retry policy)
         issues.extend(self.check_planner())
 
+        # Runtime invariant monitors (stabilization-review-2) — fail-open
+        issues.extend(self.check_monitors())
+
         # Determine overall health
         has_critical = any(i.severity == "critical" for i in issues)
         healthy = not has_critical
 
         return HealthStatus(healthy=healthy, issues=issues)
+
+    def check_monitors(self) -> list[HealthIssue]:
+        """Surface active invariant violations from the runtime monitors."""
+        issues: list[HealthIssue] = []
+        try:
+            from backend.monitors import invariant_monitors
+
+            for d in invariant_monitors.health_issues():
+                issues.append(
+                    HealthIssue(
+                        category=d["category"],
+                        severity=d["severity"],
+                        message=d["message"],
+                        guidance=d["guidance"],
+                        code=d.get("code"),
+                        details=d.get("details"),
+                    )
+                )
+        except Exception as e:
+            logger.debug("Could not check invariant monitors: %s", e)
+        return issues
 
     def check_config_validity(self) -> list[HealthIssue]:
         """Validate config.yaml exists and has required structure."""

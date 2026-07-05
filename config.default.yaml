@@ -379,3 +379,12 @@ dashboard:
 ui:
   theme: "Material Design Colors"      # Color theme name
   theme_accent_index: 3                # Accent color index (0-based)
+
+# =============================================================================
+# Runtime Invariant Monitors
+# =============================================================================
+# Read-only monitors that continuously verify system invariants (slot
+# continuity, energy balance, SoC bounds, plan freshness, command success,
+# forecast sanity, data quality) and raise a system alert on violation.
+monitoring:
+  interval_minutes: 15                 # Evaluation cadence (min 1; default = recorder cadence)

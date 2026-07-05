@@ -154,6 +154,23 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ### 💡 Future Ideas (Brainstorming)
 
+#### [Executor/Balancing] Battery-Assist for Load Balancing (Considered & Deferred 2026-07-05)
+
+**Goal:** During a main-fuse stress event, command a short house-battery discharge burst to shave the grid import peak *before* (or instead of) throttling the EV charge current — so the EV keeps charging at full speed while e.g. sauna/oven peaks pass.
+
+**Notes:** Explicitly considered and **deferred** during planning of the universal load balancing + EV current control changes (2026-07-05). Do not implement unless a revisit trigger fires. Context for a fresh session:
+
+- **Depends on:** the universal load balancing change (per-phase fuse guard in the executor, `system.grid.main_fuse_a`, EV variable current control) and the excess-PV priority dispatch change being live in production first.
+- **Why deferred:**
+  1. The user's Deye inverter in "Zero Export To CT" mode already ramps battery discharge to cover house load automatically within ~1–2 s at firmware level — implicit battery assist already exists whenever Darkstar has the battery in a discharge-allowed mode.
+  2. The one case where it does NOT happen is deliberate: the executor's EV "source isolation" rule forces `discharge_kw=0` while the EV charges, because the user does not want the house battery (indirectly) feeding the EV. Battery-assist would poke a hole in that rule.
+  3. Fuse protection doesn't need it: with 5 s grid sensors and a 5 s executor tick, the EV throttles within ~10 s, and fuses tolerate modest overloads for minutes.
+  4. Phase physics: fuse stress is usually one overloaded phase; a 3-phase inverter discharge spreads relief across all phases, so only ~1/3 of the discharge helps the stressed phase.
+- **Strongest genuine use case if revisited:** when per-phase headroom drops just below the EV's 6 A minimum, a small battery burst could hold the EV at 6 A and avoid pause/resume cycling (anti-flap timers from the load balancing change mitigate this already).
+- **Revisit triggers:** (a) Sweden's effekttariff returns (peak shaving gains direct monetary value, feature changes character entirely), or (b) production experience after the two changes shows EV charging being throttled/paused annoyingly often. Reopen with real data (execution logs showing balancer interventions), and decide battery-vs-EV priority + source-isolation exception rules at that point.
+
+---
+
 #### [S-Index] `max_safety_buffer_pct` Cap Suppresses Risk-Level Differentiation
 
 **Goal:** Make `max_safety_buffer_pct` risk-level-aware so that Risk 1 (Safety) users genuinely get a higher safety floor ceiling than Risk 3 (Neutral) users during high-deficit periods.
