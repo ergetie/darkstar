@@ -137,6 +137,11 @@ class LearningStore:
                 def quality_flags(
                     current_record: dict[str, Any] = record, current_source: str = source
                 ) -> str:
+                    # quality_flags is a JSON object; today the recorder only sets
+                    # "source". A separate "exclude": true key (added out-of-band by
+                    # scripts/flag_january_bad_slots.py, never by this writer) marks a
+                    # row as bad for ML training — see ml/train.py's exclusion filter.
+                    # It must be preserved, not overwritten, whenever this key merges in.
                     raw_flags = current_record.get("quality_flags", "{}")
                     flags: dict[str, Any]
                     if isinstance(raw_flags, str):

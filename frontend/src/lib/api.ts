@@ -557,6 +557,23 @@ export type SystemHealthResponse = {
     }
 }
 
+export type MonitorStatus = {
+    running: boolean
+    healthy: boolean
+    last_cycle_at: string | null
+    last_error: string | null
+    invariants: Record<
+        string,
+        {
+            name: string
+            status: 'pass' | 'violation' | 'skipped'
+            detail: string
+            evaluated_at: string
+        }
+    >
+    active_violations: { invariant: string; first_detected_at: string; detail: string }[]
+}
+
 export type TrainingStatusResponse = {
     is_training: boolean
     lock_age_seconds: number | null
@@ -760,6 +777,7 @@ export const Api = {
     // Log management
     logInfo: () => getJSON<LogInfoResponse>('/api/system/log-info'),
     systemHealth: () => getJSON<SystemHealthResponse>('/api/system/health'),
+    monitors: () => getJSON<MonitorStatus>('/api/system/monitors'),
     clearLogs: () => getJSON<{ status: string }>('/api/system/logs', 'DELETE'),
     // Load Disaggregation Debug (Rev ARC12)
     loadsDebug: () => getJSON<LoadsDebugResponse>('/api/loads/debug'),

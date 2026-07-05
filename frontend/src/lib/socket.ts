@@ -3,6 +3,23 @@ import { Manager, Socket } from 'socket.io-client'
 // Singleton socket instance
 let socket: Socket | null = null
 
+// Connection-state store: lets the rest of the app know live vs. stale
+// without threading callbacks through getSocket().
+let connected = false
+const connectionListeners = new Set<(v: boolean) => void>()
+
+const setConnected = (value: boolean) => {
+    connected = value
+    connectionListeners.forEach((listener) => listener(value))
+}
+
+export const getConnectionState = () => connected
+
+export const subscribeConnection = (listener: (v: boolean) => void) => {
+    connectionListeners.add(listener)
+    return () => connectionListeners.delete(listener)
+}
+
 export const getSocket = () => {
     if (!socket) {
         // REV F11: Fix Socket.IO connection for HA Ingress
@@ -62,7 +79,7 @@ export const getSocket = () => {
             reconnection: true,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,
-            reconnectionAttempts: 10,
+            reconnectionAttempts: Infinity,
         })
 
         // 2. Create the Socket: Handles the application protocol (Namespace)
@@ -112,10 +129,12 @@ export const getSocket = () => {
 
         socket.on('connect', () => {
             debugLog('✅ Socket.IO CONNECTED! SID:', socket?.id)
+            setConnected(true)
         })
 
         socket.on('disconnect', (reason: string) => {
             console.warn('🔌 Socket.IO DISCONNECTED:', reason)
+            setConnected(false)
         })
 
         socket.on('connect_error', (error: Error) => {

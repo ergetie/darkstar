@@ -216,7 +216,8 @@ class TestSpikeFiltering(unittest.TestCase):
                     CREATE TABLE slot_observations (
                         slot_start TEXT PRIMARY KEY,
                         load_kwh REAL,
-                        pv_kwh REAL
+                        pv_kwh REAL,
+                        quality_flags TEXT
                     )
                 """)
 
@@ -232,7 +233,8 @@ class TestSpikeFiltering(unittest.TestCase):
 
                 for slot_start, load_kwh, pv_kwh in test_data:
                     conn.execute(
-                        "INSERT INTO slot_observations VALUES (?, ?, ?)",
+                        "INSERT INTO slot_observations "
+                        "(slot_start, load_kwh, pv_kwh) VALUES (?, ?, ?)",
                         (slot_start, load_kwh, pv_kwh),
                     )
                 conn.commit()

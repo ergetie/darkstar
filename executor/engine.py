@@ -51,6 +51,10 @@ logger = logging.getLogger(__name__)
 
 EXECUTOR_VERSION = "1.0.0"
 
+# Consecutive-tick threshold before a command-failure push; deterministic
+# rejections, so lower than the EV zero-power threshold (5).
+ACTION_FAILURE_NOTIFY_STREAK = 3
+
 
 @dataclass
 class EVChargerState:
@@ -206,6 +210,10 @@ class ExecutorEngine:
         # EV charge failure detection
         self._ev_zero_power_ticks: int = 0
         self._ev_failure_notified: bool = False
+
+        # Command-failure streak tracking, per action type
+        self._action_fail_counts: dict[str, int] = {}
+        self._action_fail_notified: set[str] = set()
 
         # Recent errors tracking (Phase 3)
         self.recent_errors: collections.deque[dict[str, Any]] = collections.deque(maxlen=10)
@@ -1459,6 +1467,27 @@ class ExecutorEngine:
                         except Exception as ws_err:
                             logger.debug("WebSocket broadcast failed: %s", ws_err)
 
+                        # Command-failure streak notification (mirrors EV pattern)
+                        count = self._action_fail_counts.get(r.action_type, 0) + 1
+                        self._action_fail_counts[r.action_type] = count
+                        if (
+                            count >= ACTION_FAILURE_NOTIFY_STREAK
+                            and r.action_type not in self._action_fail_notified
+                        ):
+                            fail_msg = (
+                                f"Command failure: {r.action_type} failed {count}x — {r.message}"
+                            )
+                            if self.dispatcher:
+                                await self.dispatcher.notify_error(fail_msg)
+                            self._action_fail_notified.add(r.action_type)
+
+                # Reset the failure streak for action types that succeeded (or were
+                # skipped) this tick, so a future streak can notify again.
+                for r in action_results:
+                    if r.success or r.skipped:
+                        self._action_fail_counts.pop(r.action_type, None)
+                        self._action_fail_notified.discard(r.action_type)
+
                 result["actions"] = [
                     {
                         "type": r.action_type,
@@ -1830,6 +1859,12 @@ class ExecutorEngine:
         ev_isolation_reason: str | None = None,
     ) -> ExecutionRecord:
         """Create an execution record for logging."""
+        error_message: str | None = None
+        if not success:
+            failed = [r for r in action_results if not r.success and not r.skipped]
+            if failed:
+                error_message = "; ".join(f"{r.action_type}: {r.message}" for r in failed)[:500]
+
         return ExecutionRecord(
             executed_at=now_iso,
             slot_start=slot_start or now_iso,
@@ -1879,6 +1914,7 @@ class ExecutorEngine:
             ],
             # Result
             success=1 if success else 0,
+            error_message=error_message,
             duration_ms=duration_ms,
             source="native",
             executor_version=EXECUTOR_VERSION,

@@ -1596,7 +1596,9 @@ class TestWaterBoostCancellationNotification:
         mock_notify = AsyncMock()
         engine.dispatcher._send_notification = mock_notify  # type: ignore[attr-defined]
 
-        with patch.object(engine, "_gather_system_state", new=AsyncMock(return_value=low_soc_state)):
+        with patch.object(
+            engine, "_gather_system_state", new=AsyncMock(return_value=low_soc_state)
+        ):
             with Path(temp_schedule).open("w", encoding="utf-8") as f:
                 json.dump({"schedule": []}, f)
 
@@ -1606,3 +1608,69 @@ class TestWaterBoostCancellationNotification:
         mock_notify.assert_awaited_once()
         # Boost should be cleared
         assert engine.get_water_boost_status() is None
+
+
+class TestCreateExecutionRecordErrorMessage:
+    """Fix-observability-gaps #3: execution_log.error_message is populated at write time."""
+
+    @pytest.fixture
+    def engine(self, temp_db):
+        with patch("executor.engine.load_executor_config") as mock_config:
+            mock_config.return_value = ExecutorConfig(
+                schedule_path="schedule.json",
+                timezone="Europe/Stockholm",
+            )
+            with patch("executor.engine.load_yaml") as mock_yaml:
+                mock_yaml.return_value = {}
+                with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
+                    return ExecutorEngine("config.yaml")
+
+    def _make_record(self, engine, action_results, success):
+        from executor.controller import ControllerDecision
+        from executor.override import OverrideResult, SystemState
+
+        return engine._create_execution_record(
+            now_iso="2026-01-15T10:00:00+01:00",
+            slot=SlotPlan(),
+            slot_start="2026-01-15T10:00:00+01:00",
+            state=SystemState(),
+            decision=ControllerDecision(
+                mode_intent="idle", charge_value=0, discharge_value=0, soc_target=50, water_temp=50
+            ),
+            override=OverrideResult(),
+            action_results=action_results,
+            success=success,
+            duration_ms=10,
+        )
+
+    def test_failed_tick_persists_non_null_error_message(self, engine):
+        from executor.actions import ActionResult
+
+        action_results = [
+            ActionResult(
+                action_type="water_heat_start", success=False, message="HA rejected command"
+            ),
+            ActionResult(action_type="inverter_mode", success=True, message="OK"),
+        ]
+        record = self._make_record(engine, action_results, success=False)
+
+        row_id = engine.history.log_execution(record)
+        persisted = engine.history.get_history(limit=1)[0]
+
+        assert row_id > 0
+        assert persisted["error_message"] is not None
+        assert "water_heat_start" in persisted["error_message"]
+        assert "inverter_mode" not in persisted["error_message"]
+
+    def test_successful_tick_has_null_error_message(self, engine):
+        from executor.actions import ActionResult
+
+        action_results = [
+            ActionResult(action_type="water_heat_start", success=True, message="OK"),
+        ]
+        record = self._make_record(engine, action_results, success=True)
+
+        engine.history.log_execution(record)
+        persisted = engine.history.get_history(limit=1)[0]
+
+        assert persisted["error_message"] is None

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import { Terminal, Activity, Download, Trash2, RefreshCw } from 'lucide-react'
+import { Terminal, Activity, Download, Trash2, RefreshCw, ShieldCheck } from 'lucide-react'
 import Card from '../components/Card'
+import MonitorStatusCard from '../components/MonitorStatusCard'
 import { Api, type DebugLogsResponse, type LogInfoResponse, type LoadsDebugResponse } from '../lib/api'
 
 type LogLevelFilter = 'all' | 'warn_error' | 'error'
@@ -380,7 +381,7 @@ function LoadDisaggregationView() {
 }
 
 export function DebugContent({ className }: { className?: string }) {
-    const [activeTab, setActiveTab] = useState<'logs' | 'loads'>('logs')
+    const [activeTab, setActiveTab] = useState<'logs' | 'loads' | 'monitors'>('logs')
     const [logs, setLogs] = useState<DebugLogsResponse['logs']>([])
     const [logsLoading, setLogsLoading] = useState(false)
     const [logsError, setLogsError] = useState<string | null>(null)
@@ -470,6 +471,17 @@ export function DebugContent({ className }: { className?: string }) {
                         <Activity size={14} />
                         Load Disaggregation
                     </button>
+                    <button
+                        onClick={() => setActiveTab('monitors')}
+                        className={`flex items-center gap-2 px-4 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-all ${
+                            activeTab === 'monitors'
+                                ? 'bg-accent text-[#100f0e] shadow-lg shadow-accent/20'
+                                : 'text-muted hover:text-white hover:bg-surface3/40'
+                        }`}
+                    >
+                        <ShieldCheck size={14} />
+                        Monitors
+                    </button>
                 </div>
             </div>
 
@@ -488,8 +500,10 @@ export function DebugContent({ className }: { className?: string }) {
                     loadLogs={loadLogs}
                     clearLogs={clearLogs}
                 />
-            ) : (
+            ) : activeTab === 'loads' ? (
                 <LoadDisaggregationView />
+            ) : (
+                <MonitorStatusCard />
             )}
         </div>
     )

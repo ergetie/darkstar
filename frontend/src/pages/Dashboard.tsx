@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import { Flame, BatteryCharging } from 'lucide-react'
@@ -12,7 +12,8 @@ import PowerFlowCard from '../components/PowerFlowCard'
 import CommandBar from '../components/CommandBar'
 import BatteryStrategyCard from '../components/BatteryStrategyCard'
 import { GridDomain, ResourcesDomain } from '../components/CommandDomains'
-import { useSocket } from '../lib/hooks'
+import { useSocket, useSocketStatus } from '../lib/hooks'
+import { Badge } from '../components/ui/Banner'
 import { useToast } from '../lib/useToast'
 
 type PlannerMeta = {
@@ -443,6 +444,18 @@ export default function Dashboard() {
         fetchAllData()
     }, [fetchAllData])
 
+    const socketConnected = useSocketStatus()
+    const wasConnectedBefore = useRef(false)
+    useEffect(() => {
+        if (socketConnected) {
+            if (wasConnectedBefore.current) {
+                // Reconnect after a drop (not the initial mount connect) — refetch.
+                fetchAllData()
+            }
+            wasConnectedBefore.current = true
+        }
+    }, [socketConnected, fetchAllData])
+
     const toggleAutomationScheduler = async () => {
         if (automationSaving) return
         const current = automationConfig?.enable_scheduler ?? false
@@ -531,6 +544,13 @@ export default function Dashboard() {
 
     return (
         <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 lg:pt-8 space-y-4">
+            {/* Connection liveness indicator */}
+            <div className="flex justify-end">
+                <Badge variant={socketConnected ? 'good' : 'bad'}>
+                    {socketConnected ? '● Live' : '● Reconnecting…'}
+                </Badge>
+            </div>
+
             {/* Banners */}
             {lastError && (
                 <motion.div

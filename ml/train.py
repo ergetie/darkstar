@@ -112,6 +112,11 @@ def _load_slot_observations(
 
     If start_time is None, loads all available data from the earliest record.
     If end_time is None, loads up to the current time.
+
+    Rows whose quality_flags JSON contains "exclude": true (set out-of-band by
+    scripts/flag_january_bad_slots.py, e.g. for the January 2026 corruption
+    cluster) are excluded from every branch below — see backend/learning/store.py
+    for how the flag is preserved alongside "source".
     """
     max_kwh = get_max_energy_per_slot(engine.config)
 
@@ -131,6 +136,7 @@ def _load_slot_observations(
             WHERE o.load_kwh > 0.001
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
+              AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
             ORDER BY o.slot_start ASC
         """
         params = (max_kwh, max_kwh)
@@ -151,6 +157,7 @@ def _load_slot_observations(
               AND o.load_kwh > 0.001
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
+              AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
             ORDER BY o.slot_start ASC
         """
         params = (end_time.isoformat(), max_kwh, max_kwh)
@@ -172,6 +179,7 @@ def _load_slot_observations(
               AND o.load_kwh > 0.001
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
+              AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
             ORDER BY o.slot_start ASC
         """
         params = (start_time.isoformat(), now.isoformat(), max_kwh, max_kwh)
@@ -192,6 +200,7 @@ def _load_slot_observations(
               AND o.load_kwh > 0.001
               AND o.load_kwh <= ?
               AND o.pv_kwh <= ?
+              AND (o.quality_flags IS NULL OR o.quality_flags NOT LIKE '%"exclude": true%')
             ORDER BY o.slot_start ASC
         """
         params = (start_time.isoformat(), end_time.isoformat(), max_kwh, max_kwh)

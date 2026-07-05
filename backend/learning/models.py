@@ -280,21 +280,6 @@ class SystemState(Base):
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
 
-class DataQualityDaily(Base):
-    __tablename__ = "data_quality_daily"
-
-    date: Mapped[str] = mapped_column(String, primary_key=True)
-    status: Mapped[str] = mapped_column(String)
-    bad_hours_load: Mapped[int] = mapped_column(Integer, default=0)
-    bad_hours_pv: Mapped[int] = mapped_column(Integer, default=0)
-    bad_hours_import: Mapped[int] = mapped_column(Integer, default=0)
-    bad_hours_export: Mapped[int] = mapped_column(Integer, default=0)
-    bad_hours_batt: Mapped[int] = mapped_column(Integer, default=0)
-    missing_slots: Mapped[int] = mapped_column(Integer, default=0)
-    soc_issues: Mapped[int] = mapped_column(Integer, default=0)
-    metadata_json: Mapped[str | None] = mapped_column(Text)
-
-
 class ExecutionLog(Base):
     __tablename__ = "execution_log"
 
