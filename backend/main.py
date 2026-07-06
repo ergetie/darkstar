@@ -121,6 +121,10 @@ async def lifespan(app: FastAPI):
     try:
         executor_instance = get_executor_instance()
         if executor_instance:
+            from executor.config import check_mock_entities
+
+            check_mock_entities(executor_instance.config)
+
             if executor_instance.config.enabled:
                 executor_instance.start()
                 logger.info(

@@ -49,8 +49,13 @@ class RecorderStateStore:
     deltas between 15-minute observation slots.
     """
 
-    def __init__(self, state_file: Path | str = "data/recorder_state.json"):
+    def __init__(
+        self,
+        state_file: Path | str = "data/recorder_state.json",
+        max_meter_delta_kwh: float = 50.0,
+    ):
         self.state_file = Path(state_file)
+        self.max_meter_delta_kwh = max_meter_delta_kwh
         self._state: dict[str, Any] = {}
         self._ensure_directory()
 
@@ -170,6 +175,18 @@ class RecorderStateStore:
             except (ValueError, TypeError):
                 pass  # keep raw delta on parse errors
 
+        # Reject physically-implausible spikes (e.g. sensor glitch) instead of
+        # recording them as energy. Mirrors the negative-delta path: advance
+        # the baseline so the next reading computes a correct delta.
+        if delta > self.max_meter_delta_kwh:
+            logger.warning(
+                f"Implausible meter delta for {key}: {delta:.1f} kWh > ceiling "
+                f"({self.max_meter_delta_kwh:.1f} kWh)"
+            )
+            self._state[key] = new_entry
+            self.save()
+            return None, False
+
         self._state[key] = new_entry
         self.save()
 
@@ -215,7 +232,8 @@ async def record_observation_from_current_state(
 
     # Initialize state store for cumulative energy tracking
     if state_store is None:
-        state_store = RecorderStateStore()
+        max_meter_delta_kwh = float(config.get("recorder", {}).get("max_meter_delta_kwh", 50.0))
+        state_store = RecorderStateStore(max_meter_delta_kwh=max_meter_delta_kwh)
         state_store.load()
 
     # Identify the just-finished 15-minute slot from the wall clock.

@@ -61,15 +61,12 @@ class TestCumulativeMeterAnomalies:
 
     def test_unit_outlier_spike_is_recorded_raw(self, tmp_path):
         """A 500 kWh jump in one 15-min slot (~2 MW — physically impossible for
-        this site) currently passes straight through RecorderStateStore: there is no
-        plausibility ceiling on cumulative-meter deltas. This test documents
-        the absent guard (upper bounds belong in a follow-up fix change and in
-        the runtime energy-balance monitor). If a guard is added, tighten this
-        assertion to expect rejection/flagging."""
+        this site) is now rejected by RecorderStateStore's plausibility ceiling
+        (recorder.max_meter_delta_kwh, default 50 kWh) instead of being recorded
+        raw. The baseline still advances so the next reading computes correctly."""
         m = primed_meter(tmp_path)
         delta, valid = m.get_delta(
             "import", 1500.0, datetime.now(TZ), sensor_timestamp=datetime.now(TZ)
         )
-        assert valid is True  # current behavior: accepted
-        assert delta is not None
-        assert abs(delta - 500.0) < 0.1  # current behavior: recorded raw (no clamp)
+        assert valid is False
+        assert delta is None

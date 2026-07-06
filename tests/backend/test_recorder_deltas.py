@@ -151,6 +151,82 @@ class TestRecorderStateStore:
             assert stored_pv_kwh != second_delta
 
 
+class TestRecorderMeterDeltaCeiling:
+    """Test suite for the plausibility ceiling on cumulative meter deltas."""
+
+    def test_implausible_spike_rejected(self):
+        """A delta above the ceiling is rejected, not recorded."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            store = RecorderStateStore(state_file, max_meter_delta_kwh=50.0)
+            store.load()
+
+            now = datetime(2024, 1, 1, 12, 0, 0)
+            store.get_delta("pv_total", 100.0, now)
+
+            later = datetime(2024, 1, 1, 12, 15, 0)
+            delta, is_valid = store.get_delta("pv_total", 600.0, later)  # +500 kWh spike
+
+            assert delta is None
+            assert is_valid is False
+            # Baseline still advances to the current reading
+            assert store._state["pv_total"]["value"] == 600.0
+
+    def test_spike_then_normal_reading_no_double_count(self):
+        """After a rejected spike, the next normal reading computes a correct delta."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            store = RecorderStateStore(state_file, max_meter_delta_kwh=50.0)
+            store.load()
+
+            t0 = datetime(2024, 1, 1, 12, 0, 0)
+            store.get_delta("pv_total", 100.0, t0)
+
+            t1 = datetime(2024, 1, 1, 12, 15, 0)
+            spike_delta, spike_valid = store.get_delta("pv_total", 600.0, t1)
+            assert spike_delta is None
+            assert spike_valid is False
+
+            t2 = datetime(2024, 1, 1, 12, 30, 0)
+            next_delta, next_valid = store.get_delta("pv_total", 601.5, t2)
+
+            # Delta computed from the advanced baseline (600.0), not the pre-spike value
+            assert next_delta == pytest.approx(1.5)
+            assert next_valid is True
+
+    def test_delta_within_ceiling_unaffected(self):
+        """A normal delta within the ceiling is returned unchanged."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            store = RecorderStateStore(state_file, max_meter_delta_kwh=50.0)
+            store.load()
+
+            now = datetime(2024, 1, 1, 12, 0, 0)
+            store.get_delta("pv_total", 100.0, now)
+
+            later = datetime(2024, 1, 1, 12, 15, 0)
+            delta, is_valid = store.get_delta("pv_total", 140.0, later)
+
+            assert delta == 40.0
+            assert is_valid is True
+
+    def test_default_ceiling_is_50_kwh(self):
+        """Default ceiling applies when not explicitly configured."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_file = Path(tmpdir) / "state.json"
+            store = RecorderStateStore(state_file)
+            store.load()
+
+            now = datetime(2024, 1, 1, 12, 0, 0)
+            store.get_delta("pv_total", 100.0, now)
+
+            later = datetime(2024, 1, 1, 12, 15, 0)
+            delta, is_valid = store.get_delta("pv_total", 151.0, later)  # +51 kWh, over default
+
+            assert delta is None
+            assert is_valid is False
+
+
 class TestRecorderDeltaLogic:
     """Test suite for recorder delta-based calculation logic."""
 

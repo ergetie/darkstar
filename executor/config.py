@@ -525,7 +525,9 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             str(ctrl_data.get("write_threshold_w", ControllerConfig.write_threshold_w))
         ),
         charge_efficiency=float(
-            str(ctrl_data.get("charge_efficiency", ControllerConfig.charge_efficiency))
+            str(
+                get_fb("charge_efficiency", "charge_efficiency", ControllerConfig.charge_efficiency)
+            )
         ),
     )
 
@@ -582,3 +584,68 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         has_water_heater=has_water_heater,
         inverter_profile=inverter_profile,
     )
+
+
+_MOCK_ENTITY_PATTERNS = ("mock", "test")
+
+
+def _is_mock_entity(entity: str | None) -> bool:
+    if not entity:
+        return False
+    lowered = entity.lower()
+    return any(pattern in lowered for pattern in _MOCK_ENTITY_PATTERNS)
+
+
+def check_mock_entities(config: ExecutorConfig) -> list[str]:
+    """Warn (non-blocking) when an enabled device targets a mock/test entity id.
+
+    A production instance should never silently plan capacity around a phantom
+    device; the operator's local mock setup is legitimate but should be visible.
+    """
+    warnings: list[str] = []
+
+    for heater in config.water_heater_devices:
+        if _is_mock_entity(heater.target_entity):
+            warnings.append(
+                f"Water heater '{heater.name}' is ENABLED but targets a mock/test "
+                f"entity: {heater.target_entity}"
+            )
+
+    for charger in config.ev_chargers:
+        if _is_mock_entity(charger.switch_entity):
+            warnings.append(
+                f"EV charger '{charger.id}' is ENABLED but targets a mock/test "
+                f"entity: {charger.switch_entity}"
+            )
+
+    if config.has_battery:
+        inverter_entities = {
+            "work_mode": config.inverter.work_mode,
+            "soc_target": config.inverter.soc_target,
+            "grid_charging_enable": config.inverter.grid_charging_enable,
+            "grid_charge_power": config.inverter.grid_charge_power,
+            "minimum_reserve": config.inverter.minimum_reserve,
+            "grid_max_export_power": config.inverter.grid_max_export_power,
+            "max_charge_current": config.inverter.max_charge_current,
+            "max_discharge_current": config.inverter.max_discharge_current,
+            "max_charge_power": config.inverter.max_charge_power,
+            "max_discharge_power": config.inverter.max_discharge_power,
+        }
+        mock_field = next(
+            (
+                field_name
+                for field_name, entity in inverter_entities.items()
+                if _is_mock_entity(entity)
+            ),
+            None,
+        )
+        if mock_field:
+            warnings.append(
+                f"Inverter is ENABLED but targets a mock/test entity "
+                f"({mock_field}): {inverter_entities[mock_field]}"
+            )
+
+    for warning in warnings:
+        logger.warning(warning)
+
+    return warnings

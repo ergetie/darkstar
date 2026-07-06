@@ -156,15 +156,6 @@ class TrainingEpisode(Base):
     config_overrides_json: Mapped[str | None] = mapped_column(Text)
 
 
-class SchedulePlanned(Base):
-    __tablename__ = "schedule_planned"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    date: Mapped[str] = mapped_column(String, index=True)
-    planned_kwh: Mapped[float] = mapped_column(Float)
-    created_at: Mapped[str] = mapped_column(String)
-
-
 class RealizedEnergy(Base):
     __tablename__ = "realized_energy"
 

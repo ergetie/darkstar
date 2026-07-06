@@ -39,3 +39,17 @@ SQLite connections opened by the price-forecast read paths SHALL set an explicit
 - **WHEN** a price-forecast or price-outlook route opens a `sqlite3` connection
 - **THEN** the connection is opened with an explicit busy-timeout of 30 seconds
 - **AND** it does not rely on SQLite's ~5 second default
+
+### Requirement: Executor history engine uses per-thread connections
+
+The executor history SQLite engine SHALL use a per-thread connection pool rather than a single shared connection, so that the executor tick thread and FastAPI worker threads cannot interleave transactions on one connection's state.
+
+#### Scenario: History engine does not use a single shared connection
+- **WHEN** the executor history engine is created
+- **THEN** it does not use `StaticPool` (a single shared connection)
+- **AND** it opens a connection per thread while retaining `check_same_thread=False`, a 30 s busy-timeout, and idempotent WAL mode
+
+#### Scenario: Concurrent tick write and API read do not corrupt state
+- **WHEN** the executor tick thread writes execution history while an API worker thread reads it
+- **THEN** each thread uses its own connection
+- **AND** neither operation observes the other's partial transaction

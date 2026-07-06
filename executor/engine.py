@@ -1041,6 +1041,8 @@ class ExecutorEngine:
         start_time = time.time()
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
+        # execution_log.executed_at is local ISO with offset (this tz), unlike
+        # slot_plans.created_at (naive UTC) — compare only after converting to a common tz.
         now_iso = now.isoformat()
 
         logger.info("Executor tick started at %s", now_iso)
@@ -1609,6 +1611,7 @@ class ExecutorEngine:
         if isinstance(raw_meta, dict):
             meta = cast("dict[str, Any]", raw_meta)
         generated_at_str: str = str(meta.get("generated_at", "")) if meta else ""
+        generated_at: datetime | None = None
         if generated_at_str:
             try:
                 generated_at = datetime.fromisoformat(str(generated_at_str).replace("Z", "+00:00"))
@@ -1617,19 +1620,27 @@ class ExecutorEngine:
                     if generated_at.tzinfo is None
                     else generated_at.astimezone(tz)
                 )
-                max_age = timedelta(hours=self.config.max_schedule_age_hours)
-                age = now - generated_at
-                if age > max_age:
-                    age_hours = age.total_seconds() / 3600
-                    msg = (
-                        f"Schedule is stale ({age_hours:.1f}h old, "
-                        f"max {self.config.max_schedule_age_hours}h) — holding"
-                    )
-                    logger.warning(msg)
-                    self._stale_schedule_warning = msg
-                    return None, None
             except Exception as e:
                 logger.debug("Could not parse schedule generated_at: %s", e)
+                generated_at = None
+
+        if generated_at is None:
+            msg = "Schedule has no generated_at — holding"
+            logger.warning(msg)
+            self._stale_schedule_warning = msg
+            return None, None
+
+        max_age = timedelta(hours=self.config.max_schedule_age_hours)
+        age = now - generated_at
+        if age > max_age:
+            age_hours = age.total_seconds() / 3600
+            msg = (
+                f"Schedule is stale ({age_hours:.1f}h old, "
+                f"max {self.config.max_schedule_age_hours}h) — holding"
+            )
+            logger.warning(msg)
+            self._stale_schedule_warning = msg
+            return None, None
 
         # Find the slot that contains the current time
         for slot_data in schedule:

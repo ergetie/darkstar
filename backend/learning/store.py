@@ -322,6 +322,8 @@ class LearningStore:
                 if not slot_start_raw:
                     continue
 
+                # slot_start is local ISO with offset (self.timezone), unlike
+                # created_at below (naive UTC) — compare only after converting to a common tz.
                 slot_start: str
                 if isinstance(slot_start_raw, datetime | pd.Timestamp):
                     slot_start = slot_start_raw.astimezone(self.timezone).isoformat()
@@ -361,6 +363,9 @@ class LearningStore:
                         "planned_export_kwh": stmt.excluded.planned_export_kwh,
                         "planned_water_heating_kwh": stmt.excluded.planned_water_heating_kwh,
                         "planned_cost_sek": stmt.excluded.planned_cost_sek,
+                        # created_at is naive UTC (SQLite CURRENT_TIMESTAMP), unlike
+                        # slot_start above (local ISO with offset) — compare only after
+                        # converting to a common tz.
                         "created_at": func.current_timestamp(),
                     },
                 )

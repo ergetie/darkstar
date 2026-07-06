@@ -14,7 +14,6 @@ from typing import Any
 import pytz
 from sqlalchemy import create_engine, delete, desc, func, select, text
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 
 from backend.learning.models import ExecutionLog
 
@@ -89,7 +88,6 @@ class ExecutionHistory:
         self.engine = create_engine(
             f"sqlite:///{db_path}",
             connect_args=connect_args,
-            poolclass=StaticPool,  # Reuse single connection
         )
 
         # ARC12: Enable WAL mode for concurrent read/write access

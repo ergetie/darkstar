@@ -177,6 +177,12 @@ automation:
     run_days: [1, 4]                   # Days of week to train (0=Mon, 6=Sun)
     run_time: "03:00"                  # Time of day to run training (HH:MM)
 
+# Recorder (slot_observations meter reading)
+recorder:
+  # reject cumulative-meter deltas above this per-slot ceiling (~200 kW sustained);
+  # physically impossible spikes are dropped, not recorded.
+  max_meter_delta_kwh: 50.0
+
 # Learning Engine (Aurora Reflex)
 # Learning Engine Configuration
 # The learning system has two main components:

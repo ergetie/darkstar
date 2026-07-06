@@ -77,11 +77,15 @@ async def save_schedule_to_json(
     final_forecast_meta = forecast_meta.copy()
 
     version = get_git_version()
+    planned_at = datetime.now().isoformat()
 
     output = {
         "schedule": merged_schedule,
         "meta": {
-            "planned_at": datetime.now().isoformat(),
+            # generated_at is the executor's freshness check (engine.py _load_current_slot);
+            # it must always be stamped so the executor never rejects its own output as stale.
+            "generated_at": planned_at,
+            "planned_at": planned_at,
             "planner_version": version,
             "forecast": final_forecast_meta,
             "s_index": s_index_debug or {},

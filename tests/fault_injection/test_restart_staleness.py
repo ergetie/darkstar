@@ -32,17 +32,16 @@ class TestStaleSchedule:
         assert fi_engine._stale_schedule_warning is None
 
     def test_schedule_without_generated_at_bypasses_age_check(self, fi_engine, temp_schedule):
-        """Documents current behavior (findings.md #7.7 caveat): a schedule with no
-        meta.generated_at silently skips the freshness check and is executed.
-        If this starts failing because the executor begins holding, the caveat
-        was fixed — update findings.md and flip the assertion."""
+        """A schedule with no meta.generated_at is now treated as stale (safe side)
+        and held instead of dispatched (findings.md #7.7 caveat, now fixed)."""
         now = datetime.now(TZ)
         start = now.replace(minute=(now.minute // 15) * 15, second=0, microsecond=0)
         write_schedule(temp_schedule, [make_slot(start)], include_meta=False)
 
         slot, _ = fi_engine._load_current_slot(now)
 
-        assert slot is not None  # current (lenient) behavior
+        assert slot is None  # missing generated_at -> held as stale
+        assert fi_engine._stale_schedule_warning is not None
 
     def test_corrupt_schedule_json_returns_none(self, fi_engine, temp_schedule):
         Path(temp_schedule).write_text("{not valid json", encoding="utf-8")
