@@ -14,4 +14,4 @@ echo "   Press Ctrl+C to stop."
 
 # Start FastAPI app (React frontend + backend APIs)
 export PORT=${PORT:-5000}
-uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --log-level info
+uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --reload-dir backend --reload-dir planner --reload-dir executor --log-level info

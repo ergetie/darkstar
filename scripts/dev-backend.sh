@@ -21,7 +21,7 @@ if command -v uv >/dev/null 2>&1; then
     uv run alembic upgrade head
 
     # uv run automatically handles venv and environment
-    uv run uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --log-level info
+    uv run uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --reload-dir backend --reload-dir planner --reload-dir executor --log-level info
 else
     # Legacy / Standard Python Fallback
     echo "🐢 Starting Backend with standard python..."
@@ -45,5 +45,5 @@ else
     echo "Running database migrations..."
     alembic upgrade head
 
-    uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --log-level info
+    uvicorn backend.main:app --host 0.0.0.0 --port $PORT --reload --reload-dir backend --reload-dir planner --reload-dir executor --log-level info
 fi
