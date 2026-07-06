@@ -44,6 +44,40 @@ class TestDeprecatedKeyRemoval:
         assert "work_mode_entity" not in result["executor"]["inverter"]
         assert "soc_target_entity" not in result["executor"]["inverter"]
 
+    def test_remove_fictional_water_penalty_keys(self):
+        """fix-water-comfort-truthfulness: the four global water_heating penalty
+        keys were never read by the solver and must be stripped on migration,
+        while the real controls are preserved."""
+        from backend.config_migration import remove_deprecated_keys
+
+        config = {
+            "water_heating": {
+                "comfort_level": 3,
+                "defer_up_to_hours": 6,
+                "enable_top_ups": True,
+                "vacation_mode": {"enabled": False},
+                "reliability_penalty_sek": 1000.0,  # fictional
+                "block_penalty_sek": 0.5,  # fictional
+                "spacing_penalty_sek": 0.20,  # fictional
+                "block_start_penalty_sek": 3.0,  # fictional
+            }
+        }
+        result, changed = remove_deprecated_keys(config)
+        wh = result["water_heating"]
+        assert changed
+        for dead in (
+            "reliability_penalty_sek",
+            "block_penalty_sek",
+            "spacing_penalty_sek",
+            "block_start_penalty_sek",
+        ):
+            assert dead not in wh
+        # Real controls preserved
+        assert wh["comfort_level"] == 3
+        assert wh["defer_up_to_hours"] == 6
+        assert wh["enable_top_ups"] is True
+        assert wh["vacation_mode"] == {"enabled": False}
+
 
 class TestInverterKeyMigration:
     """Test migration of system.inverter.max_power_kw to max_ac_power_kw."""

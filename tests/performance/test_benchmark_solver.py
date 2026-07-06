@@ -71,7 +71,6 @@ def test_benchmark_solver_48h():
             )
         ],
         water_heating_max_gap_hours=12.0,
-        water_comfort_penalty_sek=10.0,
     )
 
     print("\n--- BENCHMARK START (192 slots) ---")

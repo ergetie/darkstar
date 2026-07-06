@@ -275,42 +275,45 @@ def _comfort_level_to_penalty(
     #   Smaller values = more frequent heating = more stable temperature.
 
     COMFORT_MAP = {
-        # Level: {reliability, block_start, block, max_block_hours}
+        # Level: {reliability, block_start, block, gap_penalty, max_block_hours}
         1: {
             "water_reliability_penalty_sek": 2.0,
             "water_block_start_penalty_sek": 1.5,
             "water_block_penalty_sek": 0.5,
+            "water_gap_penalty_sek": 0.5,
             "max_block_hours": max_block_hours,
         },  # Economy
         2: {
             "water_reliability_penalty_sek": 7.0,
             "water_block_start_penalty_sek": 2.25,
             "water_block_penalty_sek": 1.0,
+            "water_gap_penalty_sek": 2.0,
             "max_block_hours": max_block_hours,
         },  # Balanced
         3: {
             "water_reliability_penalty_sek": 15.0,
             "water_block_start_penalty_sek": 3.0,
             "water_block_penalty_sek": 2.0,
+            "water_gap_penalty_sek": 5.0,
             "max_block_hours": max_block_hours,
         },  # Neutral
         4: {
             "water_reliability_penalty_sek": 30.0,
             "water_block_start_penalty_sek": 4.5,
             "water_block_penalty_sek": 5.0,
+            "water_gap_penalty_sek": 15.0,
             "max_block_hours": max_block_hours,
         },  # Priority
         5: {
             "water_reliability_penalty_sek": 300.0,
             "water_block_start_penalty_sek": 1.0,
             "water_block_penalty_sek": 10.0,
+            "water_gap_penalty_sek": 50.0,
             "max_block_hours": max_block_hours,
         },  # Maximum
     }
     # Default to Level 3 (Neutral) if invalid
     params = COMFORT_MAP.get(comfort_level, COMFORT_MAP[3]).copy()
-    # Explicitly disable legacy gap penalty
-    params["water_comfort_penalty_sek"] = 0.0
     return params
 
 

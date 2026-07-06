@@ -71,7 +71,7 @@ class KeplerConfig:
 
     # Global water heating settings (apply to all heaters)
     water_heating_max_gap_hours: float = 0.0  # Threshold for gap penalty (0 = disabled)
-    water_comfort_penalty_sek: float = 0.50  # Penalty per hour beyond gap threshold (deprecated)
+    water_gap_penalty_sek: float = 0.0  # Penalty per hour of gap beyond water_heating_max_gap_hours (0 = disabled); scaled by comfort_level
     water_block_penalty_sek: float = 0.0  # Penalty per slot for overshooting block window
     water_reliability_penalty_sek: float = 0.0  # Penalty per day for missing daily minimum
     max_block_hours: float = 2.0  # Rev K24: Dynamic window size per comfort level (global)

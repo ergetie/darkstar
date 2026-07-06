@@ -60,3 +60,31 @@ def test_config_mapping(default_config):
 
     # 9. Ramping Cost
     assert k_config.ramping_cost_sek_per_kw == raw_config["kepler"]["ramping_cost_sek_per_kw"]
+
+
+def test_config_loading_ignores_removed_water_penalty_keys(default_config):
+    """The four water_heating.* keys removed in fix-water-comfort-truthfulness
+    (#15) were never read by the adapter. A user config.yaml that still has
+    them (pre-upgrade) must load without error and produce an identical
+    KeplerConfig to one without them — no migration required."""
+    raw_config = default_config
+    baseline = config_to_kepler_config(raw_config)
+
+    stale_config = dict(raw_config)
+    stale_config["water_heating"] = {
+        **raw_config["water_heating"],
+        "block_start_penalty_sek": 3.0,
+        "spacing_penalty_sek": 0.20,
+        "reliability_penalty_sek": 1000.0,
+        "block_penalty_sek": 0.50,
+    }
+
+    with_stale_keys = config_to_kepler_config(stale_config)
+
+    assert with_stale_keys.water_reliability_penalty_sek == baseline.water_reliability_penalty_sek
+    assert with_stale_keys.water_block_penalty_sek == baseline.water_block_penalty_sek
+    assert (
+        with_stale_keys.water_block_start_penalty_sek
+        == baseline.water_block_start_penalty_sek
+    )
+    assert with_stale_keys.water_gap_penalty_sek == baseline.water_gap_penalty_sek

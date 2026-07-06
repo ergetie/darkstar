@@ -60,9 +60,7 @@ battery_economics:
 # Per-device settings (power, min_kwh_per_day, spacing) are now in water_heaters[] array below
 water_heating:
   defer_up_to_hours: 6             # Allow deferring "today's" heating into early tomorrow morning (up to N hours) if cheaper
-  block_start_penalty_sek: 3.0     # Penalty per heating start (higher = more consolidated bulk heating)
-  comfort_level: 3                 # 1-5 (Economy→Maximum) - controls gap penalty
-  spacing_penalty_sek: 0.20        # Soft penalty for frequent starts
+  comfort_level: 3                 # 1-5 (Economy→Maximum) - controls water heating comfort incl. gap penalty
   enable_top_ups: true             # Enable spaced top-up heating blocks (vs bulk heating only)
 
 
@@ -73,11 +71,6 @@ water_heating:
     anti_legionella_interval_days: 7  # Run cycle every N days
     anti_legionella_duration_hours: 3.0  # Duration at power_kw (e.g., 3h * 3kW = 9kWh)
     end_date: ""                      # Vacation mode end date (set by UI/Automation)
-
-  # Advanced Water Heating Tuning (Rev K17)
-  # Controls how the solver prioritizes water heating comfort and blocking.
-  reliability_penalty_sek: 1000.0   # "Must Have" penalty (missing daily min_kwh)
-  block_penalty_sek: 0.50           # "Block Breaker" penalty (discouragues long continuous runs)
 
 # =============================================================================
 # Entity-Centric Device Configuration (ARC15)

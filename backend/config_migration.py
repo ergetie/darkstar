@@ -117,6 +117,12 @@ DEPRECATED_NESTED_KEYS = {
         "temperature_sensor_entity",
         "daily_consumption_entity",
         "max_price_per_kwh",
+        # fix-water-comfort-truthfulness: fictional penalty keys, never read by the
+        # solver — all water penalties are derived from comfort_level via COMFORT_MAP.
+        "reliability_penalty_sek",
+        "block_penalty_sek",
+        "spacing_penalty_sek",
+        "block_start_penalty_sek",
     ],
     "executor.override": [
         "low_soc_export_floor",  # Moved to export.export_floor_soc_percent

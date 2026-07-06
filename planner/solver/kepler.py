@@ -81,6 +81,9 @@ class KeplerSolver:
         # Per-device boost variables: water_boost[device_id][t]
         water_boost: dict[str, dict[int, Any]] = {}
         boost_enabled = config.excess_pv_sink == "water_heater_boost"
+        # Per-device gap-comfort variables: discomfort[device_id][t], gap_over[device_id][t]
+        discomfort: dict[str, dict[int, Any]] = {}
+        gap_over: dict[str, dict[int, Any]] = {}
         if water_enabled:
             for heater in water_heaters:
                 d = heater.id
@@ -99,6 +102,12 @@ class KeplerSolver:
                     water_start[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                         f"water_start_{safe_d}", range(T), cat="Binary"
                     )
+                discomfort[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                    f"discomfort_{safe_d}", range(T), lowBound=0.0
+                )
+                gap_over[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
+                    f"gap_over_{safe_d}", range(T), lowBound=0.0
+                )
 
         # EV Charging as deferrable load (per-device, multi-charger support)
         # Only create variables for plugged-in chargers
@@ -504,7 +513,16 @@ class KeplerSolver:
             slot_ramping_cost: Any = (
                 (ramp_up[t] + ramp_down[t]) / h
             ) * config.ramping_cost_sek_per_kw
-            slot_curtailment_cost: Any = curtailment[t] * curtailment_penalty
+            # Decision 6 (#16): prefer curtailment over loss-making export — when
+            # exporting would cost money (effective_export_price <= 0), curtailing
+            # is free so the solver never pays the grid to export. Only relevant
+            # when export is actually possible; otherwise curtailment cost keeps
+            # steering surplus PV toward battery/EV/water use as before.
+            slot_curtailment_cost: Any = (
+                curtailment[t] * curtailment_penalty
+                if not config.enable_export or effective_export_price > 0
+                else 0.0
+            )
             slot_shedding_cost: Any = load_shedding[t] * LOAD_SHEDDING_PENALTY
             slot_import_breach_cost: Any = import_breach[t] * IMPORT_BREACH_PENALTY
 
@@ -554,8 +572,10 @@ class KeplerSolver:
         # Replaced by Incentive Buckets in the objective function.
 
         # Water Heating Constraints — per-device (tasks 2.4-2.6)
-        gap_violation_penalty: float = 0.0
         sorted_days: list[Any] = []  # Initialize to avoid unbound error
+        gap_penalty_active: bool = (
+            config.water_heating_max_gap_hours > 0 and config.water_gap_penalty_sek > 0
+        )
         if water_enabled:
             avg_slot_hours: float = sum(slot_hours) / len(slot_hours) if slot_hours else 0.25
 
@@ -614,6 +634,24 @@ class KeplerSolver:
                             <= M
                         )
 
+                # Constraint 4: Per-device gap-comfort deadband (Decision 1)
+                if gap_penalty_active:
+                    gap_m: float = 100.0
+                    for t in range(T):
+                        duration: float = slot_hours[t]
+                        if t == 0:
+                            prob += (  # type: ignore[operator]
+                                discomfort[d][t] >= duration - water_heat[d][t] * gap_m
+                            )
+                        else:
+                            prob += (  # type: ignore[operator]
+                                discomfort[d][t]
+                                >= discomfort[d][t - 1] + duration - water_heat[d][t] * gap_m
+                            )
+                        prob += (  # type: ignore[operator]
+                            gap_over[d][t] >= discomfort[d][t] - config.water_heating_max_gap_hours
+                        )
+
         # Terminal SoC Target (BIDIRECTIONAL soft constraint)
         # - min_soc violation: HARD penalty (1000 SEK/kWh)
         # - target violation: SOFT penalty (from config, derived from risk_appetite)
@@ -629,8 +667,13 @@ class KeplerSolver:
                 if export_floor_active
                 else 0.0
             )
-            + gap_violation_penalty  # Deprecated in K16 (0.0)
-            + gap_violation_penalty  # Deprecated in K16 (0.0)
+            # Per-device gap-comfort penalty (Decision 1)
+            + (
+                pulp.lpSum(gap_over[d][t] for d in gap_over for t in range(T))
+                * config.water_gap_penalty_sek
+                if water_enabled and gap_penalty_active
+                else 0.0
+            )
             # Per-device block overshoot penalty (task 2.9)
             + (
                 pulp.lpSum(block_overshoot[d][t] for d in block_overshoot for t in range(T))
