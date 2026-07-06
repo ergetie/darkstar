@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from executor.config import ControllerConfig, InverterConfig
+from executor.config import ControllerConfig, EVChargerDeviceConfig, InverterConfig
 from executor.engine import ExecutorEngine
 from executor.load_balancer import EVBalancerOutput, LoadBalancerStatus, ShedLoadOutput
 
@@ -97,6 +97,7 @@ class TestEnabledPayload:
             assert len(payload["ev"]) == 1
             ev = payload["ev"][0]
             assert ev["charger_id"] == "goe"
+            assert ev["charger_name"] == "goe"  # no configured name -> falls back to id
             assert ev["setpoint_a"] == 10
             assert ev["planned_target_a"] == 16
             assert ev["state"] == state
@@ -107,3 +108,21 @@ class TestEnabledPayload:
             assert shed["load_id"] == "wh"
             assert shed["device_type"] == "water_heater"
             assert shed["shed"] == (state == "shedding")
+
+    def test_charger_name_resolved_from_config(self, engine):
+        engine.config.ev_chargers = [
+            EVChargerDeviceConfig(id="goe", name="Garage EV", type="current")
+        ]
+        engine._last_balancer_status = LoadBalancerStatus(
+            enabled=True,
+            state="throttling",
+            reason="reason",
+            main_fuse_a=20,
+            phase_current_a={1: 18.0, 2: 5.0, 3: 5.0},
+            phase_headroom_a={1: 2.0, 2: 15.0, 3: 15.0},
+            ev_outputs=[EVBalancerOutput("goe", target_a=10, state="throttling", reason="")],
+        )
+        engine._last_balancer_planned_targets = {"goe": 16}
+
+        payload = engine.get_load_balancer_status()
+        assert payload["ev"][0]["charger_name"] == "Garage EV"

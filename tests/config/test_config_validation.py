@@ -426,6 +426,111 @@ class TestLoadBalancingValidation:
         assert not any("load_balancing" in e["message"] or "grid_current" in e["message"] or "main_fuse_a" in e["message"] for e in errors)
 
 
+class TestLoadBalancingPowerSensorValidation:
+    """load-balancing-power-sensors: unit recognition, type: current rejection
+    from loads[], dynamically-throttled charger satisfying the "at least one
+    balanced load" rule, and charger_priority reference validation."""
+
+    def _base_config(self, load_balancing, **extra):
+        config = {
+            "config_version": 2,
+            "system": {
+                "has_battery": False,
+                "has_water_heater": False,
+                "has_ev_charger": False,
+                "grid": {"main_fuse_a": 20},
+            },
+            "input_sensors": {
+                "grid_current_l1": "sensor.l1",
+                "grid_current_l2": "sensor.l2",
+                "grid_current_l3": "sensor.l3",
+            },
+            "load_balancing": load_balancing,
+        }
+        config.update(extra)
+        return config
+
+    def test_unrecognized_unit_is_error(self):
+        config = self._base_config({"enabled": True, "loads": []})
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        phase_units = {"sensor.l1": {"unit_of_measurement": "lux", "device_class": ""}}
+        issues = _validate_config_for_save(config, phase_units)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any(
+            "grid_current_l1" in e["message"] and "lux" in e["message"] for e in errors
+        )
+
+    def test_recognized_power_unit_is_not_an_error(self):
+        config = self._base_config({"enabled": True, "loads": []})
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        phase_units = {
+            "sensor.l1": {"unit_of_measurement": "W", "device_class": "power"},
+            "sensor.l2": {"unit_of_measurement": "A", "device_class": "current"},
+            "sensor.l3": {"unit_of_measurement": "kW", "device_class": "power"},
+        }
+        issues = _validate_config_for_save(config, phase_units)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert not any("unrecognized unit" in e["message"] for e in errors)
+
+    def test_no_phase_sensor_units_available_skips_unit_check(self):
+        # Simulates HA being unreachable at validation time (best-effort check).
+        config = self._base_config({"enabled": True, "loads": []})
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        issues = _validate_config_for_save(config, {})
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert not any("unrecognized unit" in e["message"] for e in errors)
+
+    def test_type_current_charger_in_loads_is_error(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "ev_charger", "device_id": "goe", "phases": [1]}],
+            }
+        )
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any(
+            "type: current" in e["message"] and "goe" in e["message"] for e in errors
+        )
+
+    def test_type_binary_charger_in_loads_is_still_allowed(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "ev_charger", "device_id": "goe", "phases": [1]}],
+            }
+        )
+        config["ev_chargers"] = [{"id": "goe", "type": "binary"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert not any("type: current" in e["message"] for e in errors)
+
+    def test_dynamically_throttled_charger_alone_satisfies_at_least_one_load(self):
+        config = self._base_config({"enabled": True, "loads": []})
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert not any("load_balancing.loads is empty" in e["message"] for e in errors)
+
+    def test_empty_loads_and_no_current_charger_is_still_error(self):
+        config = self._base_config({"enabled": True, "loads": []})
+        config["ev_chargers"] = [{"id": "goe", "type": "binary"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("load_balancing.loads is empty" in e["message"] for e in errors)
+
+    def test_charger_priority_referencing_non_current_charger_is_warning(self):
+        config = self._base_config(
+            {"enabled": True, "loads": [], "charger_priority": {"goe": 1, "ghost": 2}}
+        )
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        assert any("ghost" in w["message"] for w in warnings)
+        assert not any("goe" in w["message"] for w in warnings)
+
+
 class TestBackwardCompatibility:
     """Test backward compatibility (ARC15)."""
 

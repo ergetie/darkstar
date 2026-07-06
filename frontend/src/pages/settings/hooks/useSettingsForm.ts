@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Api, ConfigResponse } from '../../../lib/api'
 import { useToast } from '../../../lib/useToast'
-import { BaseField, InverterProfile, standardInverterKeys } from '../types'
+import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
 import { buildFormState, buildPatch } from '../utils'
 
 export interface UseSettingsFormReturn {
@@ -12,7 +12,7 @@ export interface UseSettingsFormReturn {
     saving: boolean
     statusMessage: string | null
     isDirty: boolean
-    haEntities: { entity_id: string; friendly_name: string; domain: string }[]
+    haEntities: HaEntity[]
     haLoading: boolean
     handleChange: (key: string, value: string) => void
     save: (extraPatch?: Record<string, unknown>) => Promise<boolean>
@@ -30,7 +30,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     const [formInitialized, setFormInitialized] = useState(false)
     const [saving, setSaving] = useState(false)
     const [statusMessage, setStatusMessage] = useState<string | null>(null)
-    const [haEntities, setHaEntities] = useState<{ entity_id: string; friendly_name: string; domain: string }[]>([])
+    const [haEntities, setHaEntities] = useState<HaEntity[]>([])
     const [haLoading, setHaLoading] = useState(false)
 
     // Compute dynamic field list including profile-specific entity fields.

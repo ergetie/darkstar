@@ -256,10 +256,15 @@ grid:
 
 # Load Balancing (real-time per-phase main fuse protection)
 # Requires system.grid.main_fuse_a and input_sensors.grid_current_l1/l2/l3 to be set,
-# plus at least one entry in loads[]. Disabled and inert until all three are configured.
-# EV chargers with ev_chargers[].type=current get dedicated ampere throttling automatically
-# (no loads[] entry needed); loads[] is for on/off shedding (water heaters, custom entities,
-# and any binary-type EV charger you want the balancer to be able to shed as a last resort).
+# plus at least one entry in loads[] or one ev_chargers[] entry with type: current.
+# Each grid_current_l* sensor may report current (A) or power (W/kW) — auto-detected
+# from the entity's unit, no toggle needed; power-mode phases are converted to current
+# via the matching grid_voltage_l* entity if configured, else nominal_voltage_v below.
+# EV chargers with ev_chargers[].type=current get dedicated ampere throttling automatically,
+# always ordered by charger_priority (no loads[] entry needed, and they may not be listed
+# there); loads[] is for on/off shedding (water heaters, custom entities, and any
+# binary-type EV charger) that only activates once every dynamically-throttled charger
+# is already at its floor or paused.
 #
 # SAFETY: this is a software, best-effort control loop, not a certified protection
 # device — it reacts on the next executor tick (governed by executor.interval_seconds),
@@ -274,14 +279,18 @@ load_balancing:
   resume_margin_percent: 90            # Only resume/increase when phase current is below this % of main_fuse_a
   increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
   sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
-  loads: []                            # Balanced on/off loads, e.g.:
-    # - device_type: water_heater          # ev_charger | water_heater | custom_entity
+  nominal_voltage_v: 220                # Fallback voltage (V) used to convert a power-mode phase to current when that phase has no configured grid_voltage_l* entity. Deliberately biased low vs. 230V nominal so a fixed value never under-reports current during a sag.
+  loads: []                            # On/off loads shed as a last resort, e.g.:
+    # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, see charger_priority below)
     #   device_id: main_tank                # matches an id in water_heaters[]/ev_chargers[], or a free-form label for custom_entity
     #   phases: [2]                         # phase(s) this load is physically wired to
     #   priority: 1                         # lower priority sheds first, restores last
     #   entity: ""                          # custom_entity only: HA entity to write on/off values to
     #   on_value: "1"                       # custom_entity only
     #   off_value: "0"                      # custom_entity only
+  charger_priority: {}                 # Priority among type: current EV chargers (always dynamically throttled, no loads[] entry needed), e.g.:
+    # main_ev: 1                          # lower priority number throttles toward its floor first when sharing an overloaded phase
+    # garage_ev: 2                        # a charger with no entry here defaults to its position in ev_chargers[]
 
 # Kepler Solver (MILP optimizer settings)
 kepler:
@@ -306,9 +315,12 @@ input_sensors:
   grid_power: ""         # Current grid power (+ import, - export) (Used if meter_type=net)
   grid_import_power: ""    # Current grid import power (W/kW) (Used if meter_type=dual)
   grid_export_power: ""    # Current grid export power (W/kW) (Used if meter_type=dual)
-  grid_current_l1: ""       # Per-phase grid current, phase L1 (A) — required for load_balancing
-  grid_current_l2: ""       # Per-phase grid current, phase L2 (A) — required for load_balancing
-  grid_current_l3: ""       # Per-phase grid current, phase L3 (A) — required for load_balancing
+  grid_current_l1: ""       # Per-phase grid current OR power, phase L1 (A or W/kW, auto-detected) — required for load_balancing
+  grid_current_l2: ""       # Per-phase grid current OR power, phase L2 (A or W/kW, auto-detected) — required for load_balancing
+  grid_current_l3: ""       # Per-phase grid current OR power, phase L3 (A or W/kW, auto-detected) — required for load_balancing
+  # grid_voltage_l1: ""     # Optional per-phase grid voltage, phase L1 (V) — only used when the L1 sensor above resolves to power-mode; falls back to load_balancing.nominal_voltage_v if unset
+  # grid_voltage_l2: ""     # Optional per-phase grid voltage, phase L2 (V) — see grid_voltage_l1
+  # grid_voltage_l3: ""     # Optional per-phase grid voltage, phase L3 (V) — see grid_voltage_l1
 
   # Cumulative energy sensors (totals)
   total_battery_charge: ""      # Cumulative battery charge (kWh)

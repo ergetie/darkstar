@@ -66,8 +66,10 @@ export const BalancedLoadsEditor: React.FC<BalancedLoadsEditorProps> = ({
             return heaters.map((h) => ({ id: h.id, name: h.name || h.id }))
         }
         if (type === 'ev_charger') {
-            const chargers = (config?.ev_chargers as { id: string; name?: string }[] | undefined) || []
-            return chargers.map((c) => ({ id: c.id, name: c.name || c.id }))
+            const chargers = (config?.ev_chargers as { id: string; name?: string; type?: string }[] | undefined) || []
+            // type: current chargers are always dynamically throttled (see the
+            // group above) and must not be shed on/off here.
+            return chargers.filter((c) => c.type !== 'current').map((c) => ({ id: c.id, name: c.name || c.id }))
         }
         return []
     }
@@ -96,9 +98,9 @@ export const BalancedLoadsEditor: React.FC<BalancedLoadsEditorProps> = ({
             <div className="flex items-start justify-between gap-4 bg-surface2/30 rounded-xl border border-line/20 p-3">
                 <p className="text-[11px] text-muted leading-relaxed">
                     Phase assignment must match your home&apos;s physical wiring — the balancer can only protect a phase
-                    it knows a load sits on. EV chargers with a variable-current setpoint (configured in the EV tab) are
-                    throttled automatically and don&apos;t need an entry here; add an EV charger here only if it&apos;s
-                    a binary on/off charger you want the balancer able to shed as a last resort.
+                    it knows a load sits on. This group only activates once every charger in Dynamically Throttled
+                    Chargers above is at its floor or paused. Chargers with a variable-current setpoint are throttled
+                    automatically up there and can&apos;t be added here — only binary on/off EV chargers are offered.
                 </p>
                 {!disabled && (
                     <button

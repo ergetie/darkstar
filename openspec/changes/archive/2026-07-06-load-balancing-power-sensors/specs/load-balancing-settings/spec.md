@@ -1,10 +1,4 @@
-# Spec: Load Balancing Settings
-
-## Purpose
-
-Defines the configuration schema, startup validation, settings UI, and live status surface for the phase load balancing feature.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Load balancing configuration schema
 The config SHALL support: `system.grid.main_fuse_a` (positive integer, per-phase fuse rating in ampere); `input_sensors.grid_current_l1/l2/l3` (HA entity IDs for per-phase grid current or power at the connection point — the value SHALL be auto-detected as a current or power sensor per the `phase-load-balancing` capability, and the config key names remain `grid_current_l*` for backward compatibility even when a power sensor is configured); `input_sensors.grid_voltage_l1/l2/l3` (optional HA entity IDs for per-phase grid voltage, used only to convert a power-mode phase to current); and a `load_balancing` section with `enabled` (bool, default false), `resume_delay_s` (default 120), `resume_margin_percent` (default 90), `increase_step_a` (default 1), `sensor_stale_after_s` (default 30), `nominal_voltage_v` (default 220, used to convert a power-mode phase to current when that phase has no configured voltage entity), and `loads[]` (each entry: device reference to a water heater, custom entity, or `type: binary` EV charger — `type: current` EV chargers SHALL NOT be referenced here, see the dynamically-throttled group below; `phases` list; `priority` integer). Every `type: current` EV charger SHALL automatically be a member of a separate, always-populated dynamically-throttled group, independent of `loads[]`. Its priority SHALL be stored in a new `load_balancing.charger_priority` map (charger id → priority integer); a charger with no entry in this map SHALL default to a priority derived from its position in `ev_chargers[]`. This keeps the new field entirely within the `load_balancing` schema rather than modifying the `ev_chargers[]` entry structure owned by the `per-device-ev-scheduling` capability. `system.grid.max_power_kw` SHALL remain unchanged in meaning and use.

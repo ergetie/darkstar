@@ -1,4 +1,18 @@
-import { BaseField } from './types'
+import { BaseField, HaEntity } from './types'
+
+const CURRENT_UNITS = new Set(['a', 'amp', 'amps', 'ampere', 'amperes'])
+const POWER_UNITS = new Set(['w', 'watt', 'watts', 'kw', 'kilowatt', 'kilowatts'])
+
+/** Mirrors executor.load_balancer.classify_phase_sensor_unit for the settings UI. */
+export function isPowerModeEntity(entityId: string | undefined, entities: HaEntity[]): boolean {
+    if (!entityId) return false
+    const entity = entities.find((e) => e.entity_id === entityId)
+    if (!entity) return false
+    const unit = (entity.unit_of_measurement || '').trim().toLowerCase()
+    if (CURRENT_UNITS.has(unit)) return false
+    if (POWER_UNITS.has(unit)) return true
+    return (entity.device_class || '').trim().toLowerCase() === 'power'
+}
 
 export const shouldRenderField = (
     field: BaseField,

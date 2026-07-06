@@ -12,7 +12,9 @@ from backend.config_migration import (
     template_aware_merge,
     write_config,
 )
+from backend.core.ha_client import get_ha_entity_state
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
+from executor.load_balancer import classify_phase_sensor_unit
 from executor.profiles import get_profile_from_config
 
 logger = logging.getLogger("darkstar.api.config")
@@ -66,7 +68,8 @@ async def validate_config() -> dict[str, Any]:
     """Validate current config and return warnings (no save)."""
     try:
         conf: dict[str, Any] = load_yaml("config.yaml") or {}
-        validation_issues = _validate_config_for_save(conf)
+        phase_sensor_units = await _phase_sensor_units_for_config(conf)
+        validation_issues = _validate_config_for_save(conf, phase_sensor_units)
         warnings = [i for i in validation_issues if i["severity"] == "warning"]
         return {"status": "success", "warnings": warnings}
     except Exception as e:
@@ -283,7 +286,8 @@ async def save_config(
         data = template_config
 
         # REV LCL01: Validate config before saving and collect warnings/errors
-        validation_issues = _validate_config_for_save(data)
+        phase_sensor_units = await _phase_sensor_units_for_config(data)
+        validation_issues = _validate_config_for_save(data, phase_sensor_units)
         errors = [i for i in validation_issues if i["severity"] == "error"]
         warnings = [i for i in validation_issues if i["severity"] == "warning"]
 
@@ -345,8 +349,50 @@ async def save_config(
         raise HTTPException(500, str(e)) from e
 
 
+async def _fetch_phase_sensor_units(entity_ids: list[str]) -> dict[str, dict[str, str]]:
+    """Best-effort fetch of unit_of_measurement/device_class for the given
+    phase sensor entity ids, for unit-recognition validation.
+
+    Never raises — if Home Assistant isn't configured or unreachable, the
+    unit-recognition check is simply skipped for this validation pass rather
+    than blocking a config save on a network hiccup.
+    """
+    if not entity_ids:
+        return {}
+    ha_config = load_home_assistant_config()
+    if not ha_config.get("url") or not ha_config.get("token"):
+        return {}
+
+    result: dict[str, dict[str, str]] = {}
+    for entity_id in entity_ids:
+        state = await get_ha_entity_state(entity_id)
+        if state is None:
+            continue
+        attrs = cast("dict[str, Any]", state.get("attributes") or {})
+        result[entity_id] = {
+            "unit_of_measurement": str(attrs.get("unit_of_measurement") or ""),
+            "device_class": str(attrs.get("device_class") or ""),
+        }
+    return result
+
+
+async def _phase_sensor_units_for_config(config: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Resolve unit metadata for the configured grid_current_l* entities, if
+    load balancing is enabled (skipped otherwise since it's not needed)."""
+    if not config.get("load_balancing", {}).get("enabled", False):
+        return {}
+    input_sensors = config.get("input_sensors", {})
+    entity_ids = [
+        input_sensors[k]
+        for k in ("grid_current_l1", "grid_current_l2", "grid_current_l3")
+        if input_sensors.get(k)
+    ]
+    return await _fetch_phase_sensor_units(entity_ids)
+
+
 def _validate_config_for_save(
     config: dict[str, Any],
+    phase_sensor_units: dict[str, dict[str, str]] | None = None,
 ) -> list[dict[str, str]]:
     """Validate config and return list of issues.
 
@@ -904,17 +950,44 @@ def _validate_config_for_save(
 
         lb_input_sensors = config.get("input_sensors", {})
         for phase_key in ("grid_current_l1", "grid_current_l2", "grid_current_l3"):
-            if not lb_input_sensors.get(phase_key):
+            entity_id = lb_input_sensors.get(phase_key)
+            if not entity_id:
                 issues.append(
                     {
                         "severity": "error",
                         "message": f"load_balancing.enabled but input_sensors.{phase_key} is not configured",
-                        "guidance": f"Set input_sensors.{phase_key} to the HA entity reporting that phase's grid current (A).",
+                        "guidance": f"Set input_sensors.{phase_key} to the HA entity reporting that phase's grid current or power.",
                     }
                 )
+                continue
+
+            entity_attrs = (phase_sensor_units or {}).get(entity_id)
+            if entity_attrs is not None:
+                kind = classify_phase_sensor_unit(
+                    entity_attrs.get("unit_of_measurement"), entity_attrs.get("device_class")
+                )
+                if kind == "unrecognized":
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": (
+                                f"input_sensors.{phase_key} ('{entity_id}') has an unrecognized "
+                                f"unit: '{entity_attrs.get('unit_of_measurement', '')}'"
+                            ),
+                            "guidance": (
+                                "This sensor must report current (A) or power (W/kW) to be "
+                                "used for load balancing."
+                            ),
+                        }
+                    )
+
+        known_ev_chargers = {ev.get("id"): ev for ev in config.get("ev_chargers", [])}
+        current_type_ev_ids = {
+            ev_id for ev_id, ev in known_ev_chargers.items() if ev.get("type") == "current"
+        }
 
         lb_loads = lb_cfg.get("loads", [])
-        if not lb_loads:
+        if not lb_loads and not current_type_ev_ids:
             issues.append(
                 {
                     "severity": "error",
@@ -923,12 +996,26 @@ def _validate_config_for_save(
                 }
             )
         else:
-            known_ev_ids = {ev.get("id") for ev in config.get("ev_chargers", [])}
             known_wh_ids = {wh.get("id") for wh in config.get("water_heaters", [])}
             for i, load in enumerate(lb_loads):
                 device_type = load.get("device_type", "")
                 device_id = load.get("device_id", "")
-                if device_type == "ev_charger" and device_id not in known_ev_ids:
+                if device_type == "ev_charger" and device_id in current_type_ev_ids:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": (
+                                f"load_balancing.loads[{i}] references EV charger '{device_id}', "
+                                "which has type: current"
+                            ),
+                            "guidance": (
+                                "type: current chargers are already balanced automatically "
+                                "(dynamically throttled) and must not be listed in "
+                                "load_balancing.loads — remove this entry."
+                            ),
+                        }
+                    )
+                elif device_type == "ev_charger" and device_id not in known_ev_chargers:
                     issues.append(
                         {
                             "severity": "error",
@@ -950,6 +1037,24 @@ def _validate_config_for_save(
                             "severity": "error",
                             "message": f"load_balancing.loads[{i}] ('{device_id}') has an empty phases list",
                             "guidance": "Set load_balancing.loads[].phases to the phase number(s) this load is wired to, e.g. [1] or [1, 2, 3].",
+                        }
+                    )
+
+        charger_priority = lb_cfg.get("charger_priority", {})
+        if isinstance(charger_priority, dict):
+            for charger_id in cast("dict[str, Any]", charger_priority):
+                if charger_id not in current_type_ev_ids:
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "message": (
+                                f"load_balancing.charger_priority references '{charger_id}', "
+                                "which is not a type: current EV charger"
+                            ),
+                            "guidance": (
+                                "This entry has no effect and can be removed — it likely "
+                                "refers to a charger that was removed or changed type."
+                            ),
                         }
                     )
 

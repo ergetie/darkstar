@@ -144,6 +144,7 @@ class EVChargerDeviceConfig:
     """Per-device EV charger configuration."""
 
     id: str = ""
+    name: str = ""
     switch_entity: str | None = None
     max_power_kw: float = 7.4
     battery_capacity_kwh: float | None = None
@@ -203,7 +204,14 @@ class LoadBalancingConfig:
     resume_margin_percent: float = 90.0
     increase_step_a: int = 1
     sensor_stale_after_s: int = 30
+    # Fallback voltage (V) for converting a power-mode phase to current when
+    # that phase has no configured grid_voltage_l* entity. Unrelated to
+    # ControllerConfig.nominal_voltage_v (DC battery voltage).
+    nominal_voltage_v: float = 220.0
     loads: list[BalancedLoadConfig] = field(default_factory=lambda: [])
+    # type="current" EV charger id -> priority (lower gives way first). A
+    # charger with no entry here defaults to its position in ev_chargers[].
+    charger_priority: dict[str, int] = field(default_factory=lambda: {})
 
 
 @dataclass
@@ -342,6 +350,19 @@ def _parse_load_balancing_config(
                 )
             )
 
+    charger_priority_raw = lb_data.get("charger_priority", {})
+    charger_priority: dict[str, int] = {}
+    if isinstance(charger_priority_raw, dict):
+        for charger_id, priority_raw in cast("dict[str, Any]", charger_priority_raw).items():
+            try:
+                charger_priority[str(charger_id)] = int(priority_raw)
+            except (TypeError, ValueError):
+                logger.warning(
+                    "load_balancing.charger_priority: invalid priority %r for %r, skipping",
+                    priority_raw,
+                    charger_id,
+                )
+
     return LoadBalancingConfig(
         enabled=bool(lb_data.get("enabled", False)),
         main_fuse_a=main_fuse_a,
@@ -353,7 +374,11 @@ def _parse_load_balancing_config(
         sensor_stale_after_s=int(
             lb_data.get("sensor_stale_after_s", LoadBalancingConfig.sensor_stale_after_s)
         ),
+        nominal_voltage_v=float(
+            lb_data.get("nominal_voltage_v", LoadBalancingConfig.nominal_voltage_v)
+        ),
         loads=loads,
+        charger_priority=charger_priority,
     )
 
 
@@ -522,6 +547,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         ev_chargers_list.append(
             EVChargerDeviceConfig(
                 id=charger_id,
+                name=str(charger.get("name") or charger_id),
                 switch_entity=_str_or_none(charger.get("switch_entity")),
                 max_power_kw=float(
                     charger.get("max_power_kw") or EVChargerDeviceConfig.max_power_kw

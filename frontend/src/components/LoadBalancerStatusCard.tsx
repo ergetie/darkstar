@@ -22,25 +22,32 @@ const STATE_COLORS: Record<string, string> = {
     stale_fallback: 'text-bad',
 }
 
+const EV_STATE_LABELS: Record<string, string> = {
+    idle: 'Idle',
+    throttling: 'Throttling',
+    paused: 'Paused',
+    stale_fallback: 'Sensor Stale',
+}
+
+const EV_STATE_DOTS: Record<string, string> = {
+    idle: 'bg-good',
+    throttling: 'bg-accent',
+    paused: 'bg-bad',
+    stale_fallback: 'bg-bad',
+}
+
 function phaseColor(currentA: number, fuseA: number, marginPercent: number): string {
     if (currentA > fuseA) return 'bg-bad'
     if (currentA >= (fuseA * marginPercent) / 100) return 'bg-accent'
     return 'bg-good'
 }
 
-function limitationReason(status: LoadBalancerStatusResponse): string | null {
-    const limited = status.ev.find(
-        (ev) => ev.setpoint_a !== null && ev.planned_target_a !== null && ev.setpoint_a < ev.planned_target_a,
-    )
-    if (!limited) return null
-
-    // Name the phase with the least headroom as "the reason"
-    const worstPhase = Object.entries(status.phase_headroom_a).sort((a, b) => a[1] - b[1])[0]
-    const phaseLabel = worstPhase ? `L${worstPhase[0]}` : null
-
-    return phaseLabel
-        ? `EV limited to ${limited.setpoint_a}A (planned ${limited.planned_target_a}A) because of ${phaseLabel}`
-        : `EV limited to ${limited.setpoint_a}A (planned ${limited.planned_target_a}A)`
+function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]): string {
+    if (ev.setpoint_a === null) return 'Paused'
+    if (ev.planned_target_a !== null && ev.planned_target_a !== ev.setpoint_a) {
+        return `${ev.setpoint_a}A (planned ${ev.planned_target_a}A)`
+    }
+    return `${ev.setpoint_a}A`
 }
 
 export default function LoadBalancerStatusCard() {
@@ -93,9 +100,7 @@ export default function LoadBalancerStatusCard() {
 
     const fuseA = status.main_fuse_a ?? 0
     const margin = status.resume_margin_percent ?? 90
-    const reason = limitationReason(status)
     const shedLoads = status.shed.filter((s) => s.shed)
-    const pausedEv = status.ev.find((ev) => ev.state === 'paused')
     const stateColor = STATE_COLORS[status.state] || 'text-muted'
     const StateIcon = status.state === 'idle' ? ShieldCheck : status.state === 'paused' ? PauseCircle : ShieldAlert
 
@@ -140,15 +145,30 @@ export default function LoadBalancerStatusCard() {
                 })}
             </div>
 
-            {reason && (
-                <div className="text-[11px] rounded-lg bg-accent/10 border border-accent/30 text-accent px-3 py-2">
-                    {reason}
-                </div>
-            )}
-
-            {pausedEv && (
-                <div className="text-[11px] rounded-lg bg-bad/10 border border-bad/30 text-bad px-3 py-2">
-                    EV charging paused: {pausedEv.reason}
+            {status.ev.length > 0 && (
+                <div className="space-y-1.5">
+                    {status.ev.map((ev) => (
+                        <div
+                            key={ev.charger_id}
+                            className="flex items-start justify-between gap-3 text-[11px] rounded-lg bg-surface2/50 border border-line/20 px-3 py-2"
+                        >
+                            <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${EV_STATE_DOTS[ev.state] || 'bg-muted'}`}
+                                />
+                                <div className="min-w-0">
+                                    <div className="font-semibold text-text truncate">{ev.charger_name}</div>
+                                    {ev.reason && <div className="text-muted text-[10px] mt-0.5">{ev.reason}</div>}
+                                </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                                <div className="font-mono text-text">{chargerSetpointText(ev)}</div>
+                                <div className="text-[9px] font-bold uppercase tracking-wide text-muted">
+                                    {EV_STATE_LABELS[ev.state] || ev.state}
+                                </div>
+                            </div>
+                        </div>
+                    ))}
                 </div>
             )}
 
@@ -158,7 +178,7 @@ export default function LoadBalancerStatusCard() {
                 </div>
             )}
 
-            {!reason && !pausedEv && shedLoads.length === 0 && status.state === 'idle' && (
+            {status.ev.length === 0 && shedLoads.length === 0 && status.state === 'idle' && (
                 <p className="text-[11px] text-muted">All phases within limits.</p>
             )}
         </Card>

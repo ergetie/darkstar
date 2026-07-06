@@ -7,10 +7,48 @@ via the existing ActionDispatcher paths (executor/actions.py).
 """
 
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
 from .config import LoadBalancingConfig
+
+_CURRENT_UNITS = {"a", "amp", "amps", "ampere", "amperes"}
+_POWER_W_UNITS = {"w", "watt", "watts"}
+_POWER_KW_UNITS = {"kw", "kilowatt", "kilowatts"}
+
+
+def classify_phase_sensor_unit(unit: str | None, device_class: str | None = None) -> str:
+    """Classify a phase grid sensor's reading as current or power.
+
+    Primary signal is `unit_of_measurement` (ground truth for what the entity
+    actually reports); `device_class` is only consulted when the unit itself
+    is missing or unrecognized. Returns one of "current", "power_w",
+    "power_kw", or "unrecognized" — callers must treat "unrecognized" as a
+    hard validation error, never a silent guess (fuse-protection input).
+    """
+    normalized_unit = (unit or "").strip().lower()
+    if normalized_unit in _CURRENT_UNITS:
+        return "current"
+    if normalized_unit in _POWER_W_UNITS:
+        return "power_w"
+    if normalized_unit in _POWER_KW_UNITS:
+        return "power_kw"
+
+    normalized_class = (device_class or "").strip().lower()
+    if normalized_class == "current":
+        return "current"
+    if normalized_class == "power":
+        return "power_w"
+
+    return "unrecognized"
+
+
+def power_to_current_a(power_w: float, voltage_v: float) -> float:
+    """Convert a power reading (W) to current (A) assuming ~unity power factor."""
+    if voltage_v <= 0:
+        return 0.0
+    return power_w / voltage_v
 
 
 def planned_kw_to_amps(
@@ -48,6 +86,10 @@ class EVBalancerInput:
     planner_target_a: int | None  # None = plan does not want this charger charging
     min_current_a: int
     max_current_a: int
+    # Lower number gives way first when multiple dynamically-throttled
+    # chargers share an overloaded phase. Resolved by the caller from
+    # load_balancing.charger_priority (default: position in ev_chargers[]).
+    priority: int = 0
 
 
 @dataclass
@@ -101,11 +143,15 @@ class LoadBalancer:
     Holds anti-flap state (pause timestamps, stale timers, shed order) between
     ticks. `tick()` is pure — it takes a snapshot of measured phase currents
     plus the intended EV/load state and returns capped setpoints and shed
-    decisions; it never calls Home Assistant itself. Multiple EV chargers are
-    processed independently against the same per-tick headroom snapshot (no
-    inter-EV negotiation) — correct for the common single-EV-charger setup
-    this feature targets; a shared-phase multi-EV rig would need a more
-    elaborate allocation scheme, which is out of scope for v1.
+    decisions; it never calls Home Assistant itself. Multiple EV chargers
+    sharing a phase are resolved by priority-ordered sequential allocation
+    (see `_resolve_ev`): the lowest-priority-number charger is evaluated
+    first against the raw headroom, and its resulting draw change is folded
+    into a running headroom pool before the next-priority charger is
+    evaluated — so a charger further down the priority order only gives way
+    for whatever deficit remains after every charger ahead of it is already
+    at its floor or paused. A single-charger setup sees no observable change
+    (there is no "next" charger to consult the pool).
     """
 
     def __init__(self, config: LoadBalancingConfig):
@@ -131,6 +177,192 @@ class LoadBalancer:
             return True
         return (now - updated_at).total_seconds() > self.config.sensor_stale_after_s
 
+    def _resolve_ev(
+        self,
+        ev: EVBalancerInput,
+        binding_phases: list[int],
+        now: datetime,
+        phase_current: dict[int, float],
+        updated_at: dict[int, datetime],
+        pool_headroom: dict[int, float],
+        main_fuse_a: int,
+        margin_ok: Callable[[list[int]], bool],
+    ) -> tuple[EVBalancerOutput, bool, bool, bool]:
+        """Resolve one EV charger's decision against the current headroom pool.
+
+        Returns (output, is_stale, is_paused, is_throttling) — the three
+        flags feed the tick-level `any_*` aggregates that drive the overall
+        balancer state.
+        """
+        stale_phases = [
+            p for p in binding_phases if self._is_stale(p, phase_current, updated_at, now)
+        ]
+
+        if stale_phases:
+            stale_since = self._ev_stale_since.setdefault(ev.charger_id, now)
+            stale_elapsed = (now - stale_since).total_seconds()
+            if stale_elapsed >= self.config.resume_delay_s:
+                # Escalating stale_fallback -> a full pause: record the pause
+                # start (if not already paused) so that once the sensor comes
+                # back fresh, recovery falls through to the same
+                # resume-delay + margin gate as an overload pause, instead of
+                # resuming immediately (setdefault: don't reset an
+                # already-running pause clock on every stale tick).
+                self._ev_paused_at.setdefault(ev.charger_id, now)
+                return (
+                    EVBalancerOutput(
+                        ev.charger_id,
+                        None,
+                        "paused",
+                        f"Phase sensor(s) {stale_phases} stale for "
+                        f"{int(stale_elapsed)}s — charging paused",
+                    ),
+                    True,
+                    True,
+                    False,
+                )
+            return (
+                EVBalancerOutput(
+                    ev.charger_id,
+                    ev.min_current_a,
+                    "stale_fallback",
+                    f"Phase sensor(s) {stale_phases} stale — forcing {ev.min_current_a}A",
+                ),
+                True,
+                False,
+                False,
+            )
+
+        self._ev_stale_since.pop(ev.charger_id, None)
+        binding_headroom = min(pool_headroom.get(p, main_fuse_a) for p in binding_phases)
+
+        if ev.current_setpoint_a is None:
+            if ev.planner_target_a is None:
+                self._ev_paused_at.pop(ev.charger_id, None)
+                return EVBalancerOutput(ev.charger_id, None, "idle"), False, False, False
+
+            paused_at = self._ev_paused_at.get(ev.charger_id)
+            if paused_at is not None:
+                elapsed = (now - paused_at).total_seconds()
+                resume_ok = (
+                    elapsed >= self.config.resume_delay_s
+                    and margin_ok(binding_phases)
+                    and binding_headroom >= ev.min_current_a
+                )
+                if not resume_ok:
+                    return (
+                        EVBalancerOutput(
+                            ev.charger_id,
+                            None,
+                            "paused",
+                            f"Waiting to resume (headroom {binding_headroom:.1f}A, "
+                            f"paused {int(elapsed)}s ago)",
+                        ),
+                        False,
+                        True,
+                        False,
+                    )
+                self._ev_paused_at.pop(ev.charger_id, None)
+            elif binding_headroom < ev.min_current_a:
+                self._ev_paused_at[ev.charger_id] = now
+                return (
+                    EVBalancerOutput(
+                        ev.charger_id,
+                        None,
+                        "paused",
+                        f"Insufficient headroom to start charging "
+                        f"({binding_headroom:.1f}A < {ev.min_current_a}A floor)",
+                    ),
+                    False,
+                    True,
+                    False,
+                )
+
+            return (
+                EVBalancerOutput(
+                    ev.charger_id, ev.min_current_a, "throttling", "Resuming at floor"
+                ),
+                False,
+                False,
+                True,
+            )
+
+        # Currently charging at ev.current_setpoint_a
+        setpoint = ev.current_setpoint_a
+        if binding_headroom < 0:
+            new_target = math.floor(setpoint + binding_headroom)
+            if new_target < ev.min_current_a:
+                self._ev_paused_at[ev.charger_id] = now
+                return (
+                    EVBalancerOutput(
+                        ev.charger_id,
+                        None,
+                        "paused",
+                        f"Headroom {binding_headroom:.1f}A insufficient to sustain "
+                        f"{ev.min_current_a}A floor — pausing",
+                    ),
+                    False,
+                    True,
+                    False,
+                )
+            return (
+                EVBalancerOutput(
+                    ev.charger_id,
+                    new_target,
+                    "throttling",
+                    f"Reduced {setpoint}A -> {new_target}A (headroom {binding_headroom:.1f}A)",
+                ),
+                False,
+                False,
+                True,
+            )
+
+        if ev.planner_target_a is None:
+            self._ev_paused_at.pop(ev.charger_id, None)
+            return (
+                EVBalancerOutput(ev.charger_id, None, "idle", "Plan ended"),
+                False,
+                False,
+                False,
+            )
+
+        ceiling = min(ev.max_current_a, ev.planner_target_a)
+        if setpoint >= ceiling:
+            return (
+                EVBalancerOutput(ev.charger_id, ceiling, "idle", "At target"),
+                False,
+                False,
+                False,
+            )
+
+        if margin_ok(binding_phases):
+            new_target = min(setpoint + self.config.increase_step_a, ceiling)
+            at_target = new_target >= ceiling
+            return (
+                EVBalancerOutput(
+                    ev.charger_id,
+                    new_target,
+                    "idle" if at_target else "throttling",
+                    f"Ramping {setpoint}A -> {new_target}A toward {ev.planner_target_a}A",
+                ),
+                False,
+                False,
+                not at_target,
+            )
+
+        return (
+            EVBalancerOutput(
+                ev.charger_id,
+                setpoint,
+                "throttling",
+                f"Holding {setpoint}A — phase near margin, waiting to ramp "
+                f"toward {ev.planner_target_a}A",
+            ),
+            False,
+            False,
+            True,
+        )
+
     def tick(
         self,
         now: datetime,
@@ -153,170 +385,52 @@ class LoadBalancer:
         phase_current = grid_current_a or {}
         updated_at = grid_current_updated_at or {}
         headroom = {p: main_fuse_a - phase_current[p] for p in phase_current}
+        # Running headroom pool consumed/replenished as each charger is
+        # resolved in priority order (see class docstring); kept separate
+        # from `headroom` (raw, used for shedding below) so single-charger
+        # behavior is unaffected by this bookkeeping.
+        pool_headroom = dict(headroom)
         margin_threshold = main_fuse_a * self.config.resume_margin_percent / 100.0
         min_current_by_id = {ev.charger_id: ev.min_current_a for ev in ev_inputs}
 
         def margin_ok(phases: list[int]) -> bool:
             return all(phase_current.get(p, main_fuse_a) < margin_threshold for p in phases)
 
-        ev_outputs: list[EVBalancerOutput] = []
+        outputs_by_id: dict[str, EVBalancerOutput] = {}
         any_stale_fallback = False
         any_paused = False
         any_throttling = False
 
-        for ev in ev_inputs:
+        ordered_evs = sorted(ev_inputs, key=lambda ev: (ev.priority, ev.charger_id))
+        for ev in ordered_evs:
             binding_phases = ev.phases or [1, 2, 3]
-            stale_phases = [
-                p for p in binding_phases if self._is_stale(p, phase_current, updated_at, now)
-            ]
+            output, is_stale, is_paused, is_throttling = self._resolve_ev(
+                ev,
+                binding_phases,
+                now,
+                phase_current,
+                updated_at,
+                pool_headroom,
+                main_fuse_a,
+                margin_ok,
+            )
+            any_stale_fallback = any_stale_fallback or is_stale
+            any_paused = any_paused or is_paused
+            any_throttling = any_throttling or is_throttling
+            outputs_by_id[ev.charger_id] = output
 
-            if stale_phases:
-                any_stale_fallback = True
-                stale_since = self._ev_stale_since.setdefault(ev.charger_id, now)
-                stale_elapsed = (now - stale_since).total_seconds()
-                if stale_elapsed >= self.config.resume_delay_s:
-                    any_paused = True
-                    # Escalating stale_fallback -> a full pause: record the pause
-                    # start (if not already paused) so that once the sensor comes
-                    # back fresh, recovery falls through to the same
-                    # resume-delay + margin gate as an overload pause, instead of
-                    # resuming immediately (setdefault: don't reset an
-                    # already-running pause clock on every stale tick).
-                    self._ev_paused_at.setdefault(ev.charger_id, now)
-                    ev_outputs.append(
-                        EVBalancerOutput(
-                            ev.charger_id,
-                            None,
-                            "paused",
-                            f"Phase sensor(s) {stale_phases} stale for "
-                            f"{int(stale_elapsed)}s — charging paused",
-                        )
-                    )
-                else:
-                    ev_outputs.append(
-                        EVBalancerOutput(
-                            ev.charger_id,
-                            ev.min_current_a,
-                            "stale_fallback",
-                            f"Phase sensor(s) {stale_phases} stale — forcing {ev.min_current_a}A",
-                        )
-                    )
-                continue
+            # Fold this charger's resulting draw change into the pool so the
+            # next-priority charger sees the deficit that actually remains.
+            previous_draw = ev.current_setpoint_a or 0
+            new_draw = output.target_a or 0
+            delta = previous_draw - new_draw
+            if delta:
+                for p in binding_phases:
+                    pool_headroom[p] = pool_headroom.get(p, main_fuse_a) + delta
 
-            self._ev_stale_since.pop(ev.charger_id, None)
-            binding_headroom = min(headroom.get(p, main_fuse_a) for p in binding_phases)
-
-            if ev.current_setpoint_a is None:
-                if ev.planner_target_a is None:
-                    self._ev_paused_at.pop(ev.charger_id, None)
-                    ev_outputs.append(EVBalancerOutput(ev.charger_id, None, "idle"))
-                    continue
-
-                paused_at = self._ev_paused_at.get(ev.charger_id)
-                if paused_at is not None:
-                    elapsed = (now - paused_at).total_seconds()
-                    resume_ok = (
-                        elapsed >= self.config.resume_delay_s
-                        and margin_ok(binding_phases)
-                        and binding_headroom >= ev.min_current_a
-                    )
-                    if not resume_ok:
-                        any_paused = True
-                        ev_outputs.append(
-                            EVBalancerOutput(
-                                ev.charger_id,
-                                None,
-                                "paused",
-                                f"Waiting to resume (headroom {binding_headroom:.1f}A, "
-                                f"paused {int(elapsed)}s ago)",
-                            )
-                        )
-                        continue
-                    self._ev_paused_at.pop(ev.charger_id, None)
-                elif binding_headroom < ev.min_current_a:
-                    self._ev_paused_at[ev.charger_id] = now
-                    any_paused = True
-                    ev_outputs.append(
-                        EVBalancerOutput(
-                            ev.charger_id,
-                            None,
-                            "paused",
-                            f"Insufficient headroom to start charging "
-                            f"({binding_headroom:.1f}A < {ev.min_current_a}A floor)",
-                        )
-                    )
-                    continue
-
-                any_throttling = True
-                ev_outputs.append(
-                    EVBalancerOutput(
-                        ev.charger_id, ev.min_current_a, "throttling", "Resuming at floor"
-                    )
-                )
-                continue
-
-            # Currently charging at ev.current_setpoint_a
-            setpoint = ev.current_setpoint_a
-            if binding_headroom < 0:
-                new_target = math.floor(setpoint + binding_headroom)
-                if new_target < ev.min_current_a:
-                    self._ev_paused_at[ev.charger_id] = now
-                    any_paused = True
-                    ev_outputs.append(
-                        EVBalancerOutput(
-                            ev.charger_id,
-                            None,
-                            "paused",
-                            f"Headroom {binding_headroom:.1f}A insufficient to sustain "
-                            f"{ev.min_current_a}A floor — pausing",
-                        )
-                    )
-                else:
-                    any_throttling = True
-                    ev_outputs.append(
-                        EVBalancerOutput(
-                            ev.charger_id,
-                            new_target,
-                            "throttling",
-                            f"Reduced {setpoint}A -> {new_target}A "
-                            f"(headroom {binding_headroom:.1f}A)",
-                        )
-                    )
-                continue
-
-            if ev.planner_target_a is None:
-                self._ev_paused_at.pop(ev.charger_id, None)
-                ev_outputs.append(EVBalancerOutput(ev.charger_id, None, "idle", "Plan ended"))
-                continue
-
-            ceiling = min(ev.max_current_a, ev.planner_target_a)
-            if setpoint >= ceiling:
-                ev_outputs.append(EVBalancerOutput(ev.charger_id, ceiling, "idle", "At target"))
-                continue
-
-            if margin_ok(binding_phases):
-                new_target = min(setpoint + self.config.increase_step_a, ceiling)
-                at_target = new_target >= ceiling
-                any_throttling = any_throttling or not at_target
-                ev_outputs.append(
-                    EVBalancerOutput(
-                        ev.charger_id,
-                        new_target,
-                        "idle" if at_target else "throttling",
-                        f"Ramping {setpoint}A -> {new_target}A toward {ev.planner_target_a}A",
-                    )
-                )
-            else:
-                any_throttling = True
-                ev_outputs.append(
-                    EVBalancerOutput(
-                        ev.charger_id,
-                        setpoint,
-                        "throttling",
-                        f"Holding {setpoint}A — phase near margin, waiting to ramp "
-                        f"toward {ev.planner_target_a}A",
-                    )
-                )
+        # Preserve caller's input order for the status surface — priority only
+        # governs allocation order, not display/reporting order.
+        ev_outputs = [outputs_by_id[ev.charger_id] for ev in ev_inputs]
 
         # Shedding: only when every EV is already at its floor, paused, or
         # stale-limited (simplified single-pool gate — see class docstring).

@@ -222,11 +222,14 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
                         "alarm_control_panel.",
                     )
                 ):
+                    attrs = s.get("attributes", {})
                     entities.append(
                         {
                             "entity_id": eid,
-                            "friendly_name": str(s.get("attributes", {}).get("friendly_name", eid)),
+                            "friendly_name": str(attrs.get("friendly_name", eid)),
                             "domain": eid.split(".")[0],
+                            "unit_of_measurement": str(attrs.get("unit_of_measurement", "")),
+                            "device_class": str(attrs.get("device_class", "")),
                         }
                     )
             return {"entities": entities}

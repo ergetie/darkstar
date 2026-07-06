@@ -15,6 +15,7 @@ import { SolarArraysEditor } from './SolarArraysEditor'
 import { PenaltyLevelsEditor } from './PenaltyLevelsEditor'
 import { EntityArrayEditor } from './EntityArrayEditor'
 import { BalancedLoadsEditor } from './BalancedLoadsEditor'
+import { ChargerPriorityEditor } from './ChargerPriorityEditor'
 import { NumberInput } from '../../../components/ui/NumberInput'
 
 interface SettingsFieldProps {
@@ -197,6 +198,15 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         config={config}
                         haEntities={haEntities}
                         haLoading={haLoading}
+                    />
+                )
+            case 'charger_priority':
+                return (
+                    <ChargerPriorityEditor
+                        value={value}
+                        onChange={(priorities) => onChange(field.key, JSON.stringify(priorities))}
+                        disabled={isDisabled}
+                        config={config}
                     />
                 )
             case 'info':

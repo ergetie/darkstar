@@ -47,4 +47,24 @@ describe('BalancedLoadsEditor', () => {
         expect(screen.getByText('On Value')).toBeInTheDocument()
         expect(screen.getByText('Off Value')).toBeInTheDocument()
     })
+
+    it('excludes type: current chargers from the EV charger device picker', () => {
+        const onChange = vi.fn()
+        const loads = [{ device_type: 'ev_charger' as const, device_id: '', phases: [1], priority: 1 }]
+        render(
+            <BalancedLoadsEditor
+                value={loads}
+                onChange={onChange}
+                config={{
+                    ev_chargers: [
+                        { id: 'throttled_ev', name: 'Throttled EV', type: 'current' },
+                        { id: 'binary_ev', name: 'Binary EV', type: 'binary' },
+                    ],
+                }}
+            />,
+        )
+
+        expect(screen.queryByRole('option', { name: 'Throttled EV' })).not.toBeInTheDocument()
+        expect(screen.getByRole('option', { name: 'Binary EV' })).toBeInTheDocument()
+    })
 })

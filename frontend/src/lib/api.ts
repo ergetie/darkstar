@@ -338,6 +338,7 @@ export type ExecutorStatusResponse = {
 
 export type LoadBalancerEvStatus = {
     charger_id: string
+    charger_name: string
     setpoint_a: number | null
     planned_target_a: number | null
     state: string
@@ -694,7 +695,15 @@ export const Api = {
     haTest: (payload: { url: string; token: string }) =>
         getJSON<{ status?: string; success?: boolean; message: string }>('/api/ha/test', 'POST', payload),
     haEntities: () =>
-        getJSON<{ entities: { entity_id: string; friendly_name: string; domain: string }[] }>('/api/ha/entities'),
+        getJSON<{
+            entities: {
+                entity_id: string
+                friendly_name: string
+                domain: string
+                unit_of_measurement?: string
+                device_class?: string
+            }[]
+        }>('/api/ha/entities'),
     haServices: () => getJSON<{ services: string[] }>('/api/ha/services'),
     haEntityState: (entityId: string) =>
         getJSON<{ entity_id: string; state: string; attributes: Record<string, unknown> }>(

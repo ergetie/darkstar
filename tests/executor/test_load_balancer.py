@@ -5,8 +5,48 @@ from executor.load_balancer import (
     EVBalancerInput,
     LoadBalancer,
     ShedLoadInput,
+    classify_phase_sensor_unit,
     planned_kw_to_amps,
+    power_to_current_a,
 )
+
+
+class TestClassifyPhaseSensorUnit:
+    """load-balancing-power-sensors 2.2: unit -> current/power classification."""
+
+    def test_amps_is_current(self):
+        assert classify_phase_sensor_unit("A") == "current"
+        assert classify_phase_sensor_unit("a") == "current"
+        assert classify_phase_sensor_unit("amps") == "current"
+
+    def test_watts_is_power_w(self):
+        assert classify_phase_sensor_unit("W") == "power_w"
+        assert classify_phase_sensor_unit("watt") == "power_w"
+
+    def test_kilowatts_is_power_kw(self):
+        assert classify_phase_sensor_unit("kW") == "power_kw"
+        assert classify_phase_sensor_unit("kilowatts") == "power_kw"
+
+    def test_unrecognized_unit_falls_back_to_device_class(self):
+        assert classify_phase_sensor_unit("", "current") == "current"
+        assert classify_phase_sensor_unit(None, "power") == "power_w"
+
+    def test_truly_unrecognized_is_unrecognized(self):
+        assert classify_phase_sensor_unit("lux", "illuminance") == "unrecognized"
+        assert classify_phase_sensor_unit(None, None) == "unrecognized"
+
+
+class TestPowerToCurrentA:
+    """load-balancing-power-sensors 2.4: I = P / V conversion."""
+
+    def test_basic_conversion(self):
+        assert power_to_current_a(2760, 230) == 12.0
+
+    def test_nominal_fallback_voltage(self):
+        assert round(power_to_current_a(1610, 220), 1) == 7.3
+
+    def test_zero_voltage_does_not_divide_by_zero(self):
+        assert power_to_current_a(1000, 0) == 0.0
 
 
 class TestPlannedKwToAmps:
@@ -272,6 +312,66 @@ class TestFeatureGating:
 
         assert status.state == "disabled"
         assert status.ev_outputs == []
+
+
+class TestPriorityOrderedAllocation:
+    """load-balancing-power-sensors 4.2/4.3: priority-ordered sequential
+    allocation across dynamically-throttled chargers sharing a phase."""
+
+    def test_single_charger_is_unaffected_by_priority(self):
+        """4.3 regression: priority=0 (default) must decide byte-identically
+        to the pre-priority single-charger behavior."""
+        lb = make_lb()
+        ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
+        grid = {1: 26.0, 2: 5.0, 3: 5.0}
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+
+        out = status.ev_outputs[0]
+        assert out.target_a == 10
+        assert out.state == "throttling"
+
+    def test_lower_priority_number_gives_way_first_and_fully_resolves_deficit(self):
+        lb = make_lb()
+        # Both chargers draw on L1 only; L1 headroom = 20-30 = -10.
+        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16, priority=1)
+        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16, priority=2)
+        grid = {1: 30.0, 2: 5.0, 3: 5.0}
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_a, charger_b], [])
+
+        out_a = next(o for o in status.ev_outputs if o.charger_id == "a")
+        out_b = next(o for o in status.ev_outputs if o.charger_id == "b")
+        # A absorbs the full -10A deficit (16-10=6, exactly its floor).
+        assert out_a.target_a == 6
+        assert out_a.state == "throttling"
+        # A's reduction (10A) fully cancels the deficit -> B is untouched.
+        assert out_b.target_a == 16
+        assert out_b.state == "idle"
+
+    def test_lower_priority_alone_insufficient_shares_remainder_with_next(self):
+        lb = make_lb()
+        # L1 headroom = 20-44 = -24; even A pausing fully (max possible 16A
+        # relief) leaves -8A, which B must then absorb.
+        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16, priority=1)
+        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16, priority=2)
+        grid = {1: 44.0, 2: 5.0, 3: 5.0}
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_a, charger_b], [])
+
+        out_a = next(o for o in status.ev_outputs if o.charger_id == "a")
+        out_b = next(o for o in status.ev_outputs if o.charger_id == "b")
+        # A pauses entirely: -24 + 16 = -8 < floor 6.
+        assert out_a.target_a is None
+        assert out_a.state == "paused"
+        # Remaining -8A deficit (after A's full 16A relief) is absorbed by B.
+        assert out_b.target_a == 8
+        assert out_b.state == "throttling"
+
+    def test_output_order_matches_input_order_not_priority_order(self):
+        lb = make_lb()
+        charger_a = EVBalancerInput("a", [1], 10, 10, min_current_a=6, max_current_a=16, priority=2)
+        charger_b = EVBalancerInput("b", [1], 10, 10, min_current_a=6, max_current_a=16, priority=1)
+        status = lb.tick(BASE, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3), [charger_a, charger_b], [])
+
+        assert [o.charger_id for o in status.ev_outputs] == ["a", "b"]
 
     def test_missing_main_fuse_a_returns_disabled(self):
         cfg = LoadBalancingConfig(enabled=True, main_fuse_a=None)

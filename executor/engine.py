@@ -45,7 +45,9 @@ from .load_balancer import (
     LoadBalancer,
     LoadBalancerStatus,
     ShedLoadInput,
+    classify_phase_sensor_unit,
     planned_kw_to_amps,
+    power_to_current_a,
 )
 from .override import (
     OverrideResult,
@@ -86,6 +88,15 @@ _EV_PHASE_ACTIVE_THRESHOLD_W = 100.0
 # Sentinel: no load-balancer override present for this charger this tick —
 # _control_ev_charger_current computes its own target from the plan.
 _NO_BALANCER_OVERRIDE = object()
+
+
+def _parse_ha_timestamp(raw: str | None) -> datetime | None:
+    """Parse a `last_updated`/`last_changed` HA state timestamp, if present."""
+    if not raw:
+        return None
+    with contextlib.suppress(ValueError):
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    return None
 
 
 @dataclass
@@ -1910,14 +1921,27 @@ class ExecutorEngine:
             override_entity = self.config.manual_override_entity
             reads.append(("manual_override", lambda e=override_entity: ha.get_state_value(e)))
 
-        # Per-phase grid current sensors (universal-load-balancing). Read full
-        # state (not just value) so staleness can be judged from last_updated.
+        # Per-phase grid current/power sensors (universal-load-balancing,
+        # load-balancing-power-sensors). Read full state (not just value) so
+        # unit/device_class can be inspected and staleness judged from
+        # last_updated.
         phase_entities: dict[int, str] = {}
         for phase, key in ((1, "grid_current_l1"), (2, "grid_current_l2"), (3, "grid_current_l3")):
             entity = input_sensors.get(key)
             if entity:
                 phase_entities[phase] = entity
                 reads.append((f"grid_current_l{phase}", lambda e=entity: ha.get_state(e)))
+
+        voltage_entities: dict[int, str] = {}
+        for phase, key in (
+            (1, "grid_voltage_l1"),
+            (2, "grid_voltage_l2"),
+            (3, "grid_voltage_l3"),
+        ):
+            entity = input_sensors.get(key)
+            if entity:
+                voltage_entities[phase] = entity
+                reads.append((f"grid_voltage_l{phase}", lambda e=entity: ha.get_state(e)))
 
         try:
             results = await gather_sensor_reads(reads, context="executor_state")
@@ -1962,6 +1986,7 @@ class ExecutorEngine:
                 state.manual_override_active = manual == "on"
 
             if phase_entities:
+                nominal_voltage_v = self.config.load_balancing.nominal_voltage_v
                 grid_current_a: dict[int, float] = {}
                 grid_current_updated_at: dict[int, datetime] = {}
                 for phase in phase_entities:
@@ -1973,15 +1998,70 @@ class ExecutorEngine:
                     if value_str is None or value_str in ("unknown", "unavailable"):
                         continue
                     try:
-                        grid_current_a[phase] = abs(float(value_str))
+                        raw_value = abs(float(value_str))
                     except (TypeError, ValueError):
                         continue
-                    updated_str = phase_state.get("last_updated") or phase_state.get("last_changed")
-                    if updated_str:
-                        with contextlib.suppress(ValueError):
-                            grid_current_updated_at[phase] = datetime.fromisoformat(
-                                str(updated_str).replace("Z", "+00:00")
-                            )
+
+                    attributes = cast("dict[str, Any]", phase_state.get("attributes") or {})
+                    unit_of_measurement = cast("str | None", attributes.get("unit_of_measurement"))
+                    device_class = cast("str | None", attributes.get("device_class"))
+                    kind = classify_phase_sensor_unit(unit_of_measurement, device_class)
+                    power_updated_at = _parse_ha_timestamp(
+                        phase_state.get("last_updated") or phase_state.get("last_changed")
+                    )
+
+                    if kind == "current":
+                        grid_current_a[phase] = raw_value
+                        if power_updated_at is not None:
+                            grid_current_updated_at[phase] = power_updated_at
+                        continue
+
+                    if kind not in ("power_w", "power_kw"):
+                        logger.warning(
+                            "Phase L%d sensor %s has unrecognized unit %r; skipping reading",
+                            phase,
+                            phase_entities[phase],
+                            unit_of_measurement,
+                        )
+                        continue
+
+                    power_w = raw_value * 1000 if kind == "power_kw" else raw_value
+                    voltage_entity = voltage_entities.get(phase)
+                    if voltage_entity:
+                        voltage_state = results.get(f"grid_voltage_l{phase}")
+                        if not isinstance(voltage_state, dict):
+                            # Configured-but-missing voltage entity: skip this phase
+                            # entirely (no grid_current_a entry) so the balancer's
+                            # _is_stale treats it as missing → stale fail-safe fires
+                            # (force min_current_a, then pause). Never substitute the
+                            # nominal voltage for a configured-but-unreadable sensor.
+                            continue
+                        voltage_state = cast("dict[str, Any]", voltage_state)
+                        v_value_str = voltage_state.get("state")
+                        if v_value_str is None or v_value_str in ("unknown", "unavailable"):
+                            continue
+                        try:
+                            voltage_v = float(v_value_str)
+                        except (TypeError, ValueError):
+                            continue
+                        voltage_updated_at = _parse_ha_timestamp(
+                            voltage_state.get("last_updated") or voltage_state.get("last_changed")
+                        )
+                        if power_updated_at is None or voltage_updated_at is None:
+                            reading_updated_at = None
+                        else:
+                            reading_updated_at = min(power_updated_at, voltage_updated_at)
+                    else:
+                        voltage_v = nominal_voltage_v
+                        reading_updated_at = power_updated_at
+
+                    if voltage_v <= 0:
+                        continue
+
+                    grid_current_a[phase] = power_to_current_a(power_w, voltage_v)
+                    if reading_updated_at is not None:
+                        grid_current_updated_at[phase] = reading_updated_at
+
                 state.grid_current_a = grid_current_a or None
                 state.grid_current_updated_at = grid_current_updated_at or None
 
@@ -2206,11 +2286,18 @@ class ExecutorEngine:
         moment later before actuation.
         """
         ev_inputs: list[EVBalancerInput] = []
+        current_type_index = 0
         for charger_cfg in self.config.ev_chargers:
             if charger_cfg.type != "current":
                 continue
 
             charger_id = charger_cfg.id
+            # Priority: explicit load_balancing.charger_priority entry, else
+            # this charger's position among type="current" chargers.
+            priority = self.config.load_balancing.charger_priority.get(
+                charger_id, current_type_index
+            )
+            current_type_index += 1
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
             should_charge = charger_plan_kw > 0.1
             dev_state = self._ev_charger_states.get(charger_id)
@@ -2235,6 +2322,7 @@ class ExecutorEngine:
                     planner_target_a=planner_target_a,
                     min_current_a=charger_cfg.min_current_a,
                     max_current_a=max_current_a,
+                    priority=priority,
                 )
             )
 
@@ -2279,6 +2367,7 @@ class ExecutorEngine:
             }
 
         planned = getattr(self, "_last_balancer_planned_targets", {})
+        charger_names = {ev.id: (ev.name or ev.id) for ev in self.config.ev_chargers}
         return {
             "enabled": True,
             "state": status.state,
@@ -2290,6 +2379,7 @@ class ExecutorEngine:
             "ev": [
                 {
                     "charger_id": o.charger_id,
+                    "charger_name": charger_names.get(o.charger_id, o.charger_id),
                     "setpoint_a": o.target_a,
                     "planned_target_a": planned.get(o.charger_id),
                     "state": o.state,

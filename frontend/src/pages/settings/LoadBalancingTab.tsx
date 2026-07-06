@@ -4,7 +4,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { loadBalancingFieldList, loadBalancingSections } from './types'
-import { shouldRenderField } from './logic'
+import { isPowerModeEntity, shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
 import { UnsavedChangesBanner } from './components/UnsavedChangesBanner'
@@ -29,6 +29,14 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
 
     const blocker = useUnsavedChangesGuard(isDirty)
     const hasHiddenSections = loadBalancingSections.some((s) => s.fields.every((f) => f.isAdvanced))
+
+    const anyPhasePowerMode = ['l1', 'l2', 'l3'].some((phase) =>
+        isPowerModeEntity(form[`input_sensors.grid_current_${phase}`], haEntities),
+    )
+    const formWithComputed = {
+        ...form,
+        '_computed.any_phase_power_mode': anyPhasePowerMode ? 'true' : 'false',
+    }
 
     if (loading) {
         return <Card className="p-6 text-sm text-muted">Loading load balancing configuration…</Card>
@@ -68,7 +76,13 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
                                 </div>
                                 <div className="grid grid-cols-1 gap-4 p-6 md:grid-cols-2">
                                     {section.fields.map((field) => {
-                                        if (!shouldRenderField(field, form, config as Record<string, unknown>))
+                                        if (
+                                            !shouldRenderField(
+                                                field,
+                                                formWithComputed,
+                                                config as Record<string, unknown>,
+                                            )
+                                        )
                                             return null
                                         return (
                                             <SettingsField
@@ -79,7 +93,7 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
                                                 error={fieldErrors[field.key]}
                                                 haEntities={haEntities}
                                                 haLoading={haLoading}
-                                                fullForm={form}
+                                                fullForm={formWithComputed}
                                                 config={config as Record<string, unknown>}
                                             />
                                         )

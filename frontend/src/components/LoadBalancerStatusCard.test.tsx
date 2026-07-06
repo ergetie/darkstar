@@ -57,6 +57,7 @@ describe('LoadBalancerStatusCard', () => {
             ev: [
                 {
                     charger_id: 'goe',
+                    charger_name: 'Garage EV',
                     setpoint_a: 10,
                     planned_target_a: 16,
                     state: 'throttling',
@@ -68,9 +69,47 @@ describe('LoadBalancerStatusCard', () => {
 
         renderCard()
 
-        expect(await screen.findByText('Throttling')).toBeInTheDocument()
-        expect(screen.getByText('EV limited to 10A (planned 16A) because of L1')).toBeInTheDocument()
+        expect((await screen.findAllByText('Throttling')).length).toBeGreaterThan(0)
+        expect(screen.getByText('Garage EV')).toBeInTheDocument()
+        expect(screen.getByText('10A (planned 16A)')).toBeInTheDocument()
+        expect(screen.getByText('Reduced 16A -> 10A (headroom -6.0A)')).toBeInTheDocument()
         expect(screen.getByText('26.0A / 20A')).toBeInTheDocument()
+    })
+
+    it('renders a distinct row per dynamically-throttled charger', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue({
+            enabled: true,
+            state: 'throttling',
+            reason: 'Reduced 16A -> 10A (headroom -6.0A)',
+            main_fuse_a: 20,
+            phase_current_a: { '1': 20, '2': 5, '3': 5 },
+            phase_headroom_a: { '1': 0, '2': 15, '3': 15 },
+            ev: [
+                {
+                    charger_id: 'goe',
+                    charger_name: 'Garage EV',
+                    setpoint_a: 10,
+                    planned_target_a: 16,
+                    state: 'throttling',
+                    reason: 'Reduced 16A -> 10A (headroom -6.0A)',
+                },
+                {
+                    charger_id: 'main_ev',
+                    charger_name: 'Driveway EV',
+                    setpoint_a: 16,
+                    planned_target_a: 16,
+                    state: 'idle',
+                    reason: '',
+                },
+            ],
+            shed: [],
+        } as LoadBalancerStatusResponse)
+
+        renderCard()
+
+        expect(await screen.findByText('Garage EV')).toBeInTheDocument()
+        expect(screen.getByText('Driveway EV')).toBeInTheDocument()
+        expect(screen.getByText('16A')).toBeInTheDocument()
     })
 
     it('shows shed loads when the balancer is shedding', async () => {

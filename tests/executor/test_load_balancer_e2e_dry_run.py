@@ -285,3 +285,139 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
 
         assert engine._last_balancer_status.state == "paused"
         assert goe_calls() == [0.0]  # stale beyond resume_delay_s -> stopped
+
+
+@pytest.mark.asyncio
+async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
+    """load-balancing-power-sensors 8.6: a phase configured with a power
+    sensor (+ voltage entity) converts to current via I = P / V and drives
+    the same throttle/stale-fail-safe behavior as a native current sensor —
+    including the rule that a stale *voltage* entity must trigger the
+    fail-safe rather than silently falling back to the nominal voltage.
+    """
+    charger = EVChargerDeviceConfig(
+        id="goe",
+        type="current",
+        current_entity="number.goe_current",
+        min_current_a=6,
+        max_current_a=16,
+        phases=[1, 2, 3],
+    )
+    load_balancing = LoadBalancingConfig(
+        enabled=True,
+        main_fuse_a=20,
+        resume_delay_s=120,
+        resume_margin_percent=90,
+        increase_step_a=1,
+        sensor_stale_after_s=30,
+        nominal_voltage_v=220,
+        loads=[],
+    )
+    config = ExecutorConfig(
+        enabled=True,
+        schedule_path=temp_schedule,
+        timezone="Europe/Stockholm",
+        inverter=InverterConfig(),
+        water_heater=WaterHeaterConfig(),
+        notifications=NotificationConfig(),
+        controller=ControllerConfig(),
+        ev_chargers=[charger],
+        load_balancing=load_balancing,
+    )
+
+    t0 = TZ.localize(datetime(2026, 6, 1, 12, 0, 0))
+    _FakeDateTime._current = t0
+
+    with patch("executor.engine.load_executor_config", return_value=config):
+        with patch(
+            "executor.engine.load_yaml",
+            return_value={
+                "input_sensors": {
+                    "grid_current_l1": "sensor.grid_l1_power",
+                    "grid_voltage_l1": "sensor.grid_l1_voltage",
+                    "grid_current_l2": "sensor.grid_l2",
+                    "grid_current_l3": "sensor.grid_l3",
+                },
+                "system": {},
+            },
+        ):
+            with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
+                engine = ExecutorEngine("config.yaml")
+
+    engine._has_ev_charger = True
+
+    # 5980W / 230V = 26A -> same overload as the native-current-sensor stove
+    # spike scenario above (headroom 20-26 = -6).
+    l1_power = {"value": 5980.0, "updated_at": t0}
+    l1_voltage = {"value": 230.0, "updated_at": t0}
+
+    async def fake_get_state(entity_id):
+        if entity_id == "sensor.grid_l1_power":
+            return {
+                "state": str(l1_power["value"]),
+                "attributes": {"unit_of_measurement": "W", "device_class": "power"},
+                "last_updated": l1_power["updated_at"].isoformat(),
+            }
+        if entity_id == "sensor.grid_l1_voltage":
+            return {
+                "state": str(l1_voltage["value"]),
+                "attributes": {"unit_of_measurement": "V", "device_class": "voltage"},
+                "last_updated": l1_voltage["updated_at"].isoformat(),
+            }
+        if entity_id in ("sensor.grid_l2", "sensor.grid_l3"):
+            return {
+                "state": "5.0",
+                "attributes": {"unit_of_measurement": "A"},
+                "last_updated": _FakeDateTime._current.isoformat(),
+            }
+        return None
+
+    async def fake_get_state_value(entity_id):
+        if entity_id == "number.goe_current":
+            return "99"
+        return "0"
+
+    mock_ha = MagicMock(spec=HAClient)
+    mock_ha.get_state = AsyncMock(side_effect=fake_get_state)
+    mock_ha.get_state_value = AsyncMock(side_effect=fake_get_state_value)
+    mock_ha.set_number = AsyncMock(return_value=True)
+    mock_ha.set_switch = AsyncMock(return_value=True)
+    mock_ha.set_select_option = AsyncMock(return_value=True)
+    mock_ha.set_input_number = AsyncMock(return_value=True)
+    engine.ha_client = mock_ha
+    engine.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
+
+    slot_start = t0 - timedelta(minutes=5)
+    with Path(temp_schedule).open("w", encoding="utf-8") as f:
+        json.dump(make_schedule([make_slot(slot_start, 11.0)]), f)
+
+    def goe_calls() -> list[float]:
+        return [
+            c.args[1]
+            for c in mock_ha.set_number.call_args_list
+            if c.args[0] == "number.goe_current"
+        ]
+
+    with patch("executor.engine.datetime", _FakeDateTime):
+        # --- Stage 1: power+voltage sensor resolves to the same 26A overload ---
+        engine._ev_charger_states["goe"] = EVChargerState(
+            charging_active=True, current_setpoint_a=16, charging_started_at=t0
+        )
+        await engine.run_once()
+
+        assert engine._last_balancer_status.phase_current_a[1] == pytest.approx(26.0, abs=0.01)
+        assert goe_calls(), "expected an EV setpoint write on the power-sensor-derived overload"
+        assert goe_calls()[-1] <= 10.0
+        assert engine._last_balancer_status.state == "throttling"
+
+        # --- Stage 2: voltage entity goes stale, power reading stays fresh ---
+        # Must trigger the stale fail-safe, NOT silently substitute
+        # nominal_voltage_v in place of the stale voltage entity.
+        mock_ha.set_number.reset_mock()
+        _FakeDateTime._current = t0 + timedelta(seconds=40)  # > sensor_stale_after_s=30
+        l1_power["updated_at"] = _FakeDateTime._current  # power itself is fresh
+        # l1_voltage["updated_at"] intentionally left at t0 (now 40s old)
+        await engine.run_once()
+
+        assert engine._last_balancer_status.state == "stale_fallback"
+        assert goe_calls()[-1] == 6.0  # forced to floor, not a plausible nominal-voltage guess

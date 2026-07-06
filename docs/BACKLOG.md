@@ -164,6 +164,16 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 
 ### 💡 Future Ideas (Brainstorming)
 
+#### [Executor/Balancing] Unified Priority List for All Balanced Loads (Considered & Deferred 2026-07-06)
+
+**Goal:** Replace the two-tier balancing structure — all dynamically-throttled current-type EV chargers always give way (throttle to floor) before any shed-list load is even considered — with a single flat priority list mixing EV chargers, water heaters, and custom entities together. This would let a user configure things like "shed the water heater before throttling my EV's charge rate," which isn't possible today: throttling a continuous EV charger always happens first, unconditionally, no matter its configured priority relative to shed items.
+
+**Notes:** Considered and deferred during design of the `load-balancing-power-sensors` change (2026-07-06), in favor of a simpler two-tier model shipped in that change: dynamically-throttled chargers reduce to floor first, ranked only against each other by a priority field; the existing on/off shed list (water heater, custom entity, binary-type EV chargers) only activates once every throttled charger is already at floor or paused, ranked by its own existing priority field. That ships now with the two groups clearly labeled in the UI so the fixed ordering is visible instead of implicit.
+
+Deferred because unifying the two tiers requires redefining how a continuous throttle-step and a full on/off shed compare when ranked in one list (e.g., does a lower-priority EV throttle fully to its floor before a higher-priority shed item is touched, or do they interleave more granularly?), and reworking `executor/load_balancer.py`'s `tick()` give-way order from a fixed two-tier gate (`ev_at_floor_or_paused`) into a single interleaved priority resolver — a materially bigger rewrite than the sensor/UI work shipped alongside it. Revisit if users want the ability to protect a specific load (e.g. water heater) above a specific EV charger's rate, or if the two-tier model produces surprising results in practice with multiple EVs and shed loads mixed on the same phase.
+
+---
+
 #### [Executor/Balancing] Battery-Assist for Load Balancing (Considered & Deferred 2026-07-05)
 
 **Goal:** During a main-fuse stress event, command a short house-battery discharge burst to shave the grid import peak *before* (or instead of) throttling the EV charge current — so the EV keeps charging at full speed while e.g. sauna/oven peaks pass.
