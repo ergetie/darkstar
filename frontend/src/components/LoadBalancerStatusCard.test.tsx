@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import LoadBalancerStatusCard from './LoadBalancerStatusCard'
@@ -129,5 +129,66 @@ describe('LoadBalancerStatusCard', () => {
         await waitFor(() => {
             expect(screen.getByText(/Shed: main_tank/)).toBeInTheDocument()
         })
+    })
+})
+
+describe('LoadBalancerStatusCard freshness indicator (load-balancing-completion 8.3)', () => {
+    function enabledStatus(): LoadBalancerStatusResponse {
+        return {
+            enabled: true,
+            state: 'idle',
+            reason: 'Within limits',
+            main_fuse_a: 20,
+            tick_interval_s: 5,
+            phase_current_a: { '1': 0.237, '2': 0.1, '3': 0.05 },
+            phase_headroom_a: { '1': 19.8, '2': 19.9, '3': 19.95 },
+            ev: [],
+            shed: [],
+        } as LoadBalancerStatusResponse
+    }
+
+    it('shows "updated Xs ago" and keeps it ticking', async () => {
+        vi.useFakeTimers()
+        try {
+            vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue(enabledStatus())
+            renderCard()
+            await act(async () => {
+                await Promise.resolve()
+            })
+            expect(screen.getByTestId('lb-freshness')).toHaveTextContent('updated 0s ago')
+
+            act(() => {
+                vi.advanceTimersByTime(3000)
+            })
+            expect(screen.getByTestId('lb-freshness')).toHaveTextContent('updated 3s ago')
+            expect(screen.getByTestId('lb-freshness')).not.toHaveTextContent(/stale/)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('flags staleness once the payload age materially exceeds the tick interval', async () => {
+        vi.useFakeTimers()
+        try {
+            vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue(enabledStatus())
+            renderCard()
+            await act(async () => {
+                await Promise.resolve()
+            })
+            // tick_interval_s = 5 -> stale threshold max(3*5, 15) = 15s
+            act(() => {
+                vi.advanceTimersByTime(20000)
+            })
+            expect(screen.getByTestId('lb-freshness')).toHaveTextContent(/stale — last update 20s ago/)
+        } finally {
+            vi.useRealTimers()
+        }
+    })
+
+    it('shows the raw per-phase reading as secondary text so near-zero homes read as live', async () => {
+        vi.mocked(Api.executor.loadBalancerStatus).mockResolvedValue(enabledStatus())
+        renderCard()
+        expect(await screen.findByTestId('lb-raw-l1')).toHaveTextContent('0.237A')
+        expect(screen.getByTestId('lb-raw-l2')).toHaveTextContent('0.100A')
     })
 })

@@ -341,17 +341,19 @@ class TestLoadBalancingConfig:
                         "device_type": "water_heater",
                         "device_id": "main_tank",
                         "phases": [2],
-                        "priority": 1,
                     },
                     {
                         "device_type": "custom_entity",
                         "device_id": "pool_pump",
                         "phases": [3],
-                        "priority": 2,
                         "entity": "switch.pool_pump",
                         "on_value": "1",
                         "off_value": "0",
                     },
+                ],
+                "give_way_order": [
+                    {"kind": "shed", "id": "pool_pump"},
+                    {"kind": "shed", "id": "main_tank"},
                 ],
             },
         }
@@ -373,13 +375,18 @@ class TestLoadBalancingConfig:
         assert wh_load.device_type == BalancedLoadType.WATER_HEATER
         assert wh_load.device_id == "main_tank"
         assert wh_load.phases == [2]
-        assert wh_load.priority == 1
 
         custom_load = lb.loads[1]
         assert custom_load.device_type == BalancedLoadType.CUSTOM_ENTITY
         assert custom_load.entity == "switch.pool_pump"
         assert custom_load.on_value == "1"
         assert custom_load.off_value == "0"
+
+        # User-specified order is preserved on load (no self-heal changes needed)
+        assert [(e.kind, e.id) for e in lb.give_way_order] == [
+            ("shed", "pool_pump"),
+            ("shed", "main_tank"),
+        ]
 
     def test_unknown_device_type_skipped(self, tmp_path):
         config_file = tmp_path / "config.yaml"

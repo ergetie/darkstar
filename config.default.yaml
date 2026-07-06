@@ -260,15 +260,16 @@ grid:
 # Each grid_current_l* sensor may report current (A) or power (W/kW) — auto-detected
 # from the entity's unit, no toggle needed; power-mode phases are converted to current
 # via the matching grid_voltage_l* entity if configured, else nominal_voltage_v below.
-# EV chargers with ev_chargers[].type=current get dedicated ampere throttling automatically,
-# always ordered by charger_priority (no loads[] entry needed, and they may not be listed
-# there); loads[] is for on/off shedding (water heaters, custom entities, and any
-# binary-type EV charger) that only activates once every dynamically-throttled charger
-# is already at its floor or paused.
+# Give-way ordering is one flat list (give_way_order below) mixing dynamically-throttled
+# chargers and on/off shed loads — the top entry gives way first. EV chargers with
+# ev_chargers[].type=current appear in that list automatically (no loads[] entry needed,
+# and they may not be listed there); loads[] holds the on/off shed definitions
+# (water heaters, custom entities, and any binary-type EV charger).
 #
 # SAFETY: this is a software, best-effort control loop, not a certified protection
 # device — it reacts on the next executor tick (governed by executor.interval_seconds),
-# so a fast transient can still trip your fuse before Darkstar catches it. If your
+# so a fast transient can still trip your fuse before Darkstar catches it. Keep
+# executor.interval_seconds at 15 s or less (5 s typical) when this is enabled. If your
 # charger has its own load-management/fallback setting (e.g. go-e's dynamic load
 # balancing / current fallback), configure that too as the last-resort hardware
 # protection; Darkstar's balancer keeps day-to-day charging fast without needing it,
@@ -280,17 +281,20 @@ load_balancing:
   increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
   sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
   nominal_voltage_v: 220                # Fallback voltage (V) used to convert a power-mode phase to current when that phase has no configured grid_voltage_l* entity. Deliberately biased low vs. 230V nominal so a fixed value never under-reports current during a sag.
-  loads: []                            # On/off loads shed as a last resort, e.g.:
-    # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, see charger_priority below)
+  notify_interventions: false          # Send a notification (HA notify, Discord fallback) when a load is shed, a charger is paused, or the stale-sensor fail-safe engages. Routine throttle adjustments never notify.
+  replan_after_throttled_s: 600        # Trigger one early replan after a charger has been held below its planner target (or paused) this long, continuously; at most one balancer-triggered replan per planner interval
+  loads: []                            # On/off shed load definitions (ordering lives in give_way_order), e.g.:
+    # - device_type: water_heater          # water_heater | custom_entity | ev_charger (type: binary only — type: current chargers are never listed here, they join give_way_order automatically)
     #   device_id: main_tank                # matches an id in water_heaters[]/ev_chargers[], or a free-form label for custom_entity
     #   phases: [2]                         # phase(s) this load is physically wired to
-    #   priority: 1                         # lower priority sheds first, restores last
     #   entity: ""                          # custom_entity only: HA entity to write on/off values to
     #   on_value: "1"                       # custom_entity only
     #   off_value: "0"                      # custom_entity only
-  charger_priority: {}                 # Priority among type: current EV chargers (always dynamically throttled, no loads[] entry needed), e.g.:
-    # main_ev: 1                          # lower priority number throttles toward its floor first when sharing an overloaded phase
-    # garage_ev: 2                        # a charger with no entry here defaults to its position in ev_chargers[]
+  give_way_order: []                   # Unified give-way order — TOP GIVES WAY FIRST; restore happens in exact reverse order. Self-heals on startup (missing chargers/loads are appended, dangling entries dropped), e.g.:
+    # - kind: charger                       # a type: current EV charger — throttles toward its floor, then pauses
+    #   id: main_ev                         # matches an id in ev_chargers[]
+    # - kind: shed                          # an on/off load from loads[] — switches off
+    #   id: main_tank                       # matches a loads[].device_id
 
 # Kepler Solver (MILP optimizer settings)
 kepler:

@@ -76,20 +76,13 @@ export function parseFieldInput(field: BaseField, raw: string): unknown {
         field.type === 'solar_arrays' ||
         field.type === 'penalty_levels' ||
         field.type === 'entity_array' ||
-        field.type === 'balanced_loads'
+        field.type === 'balanced_loads' ||
+        field.type === 'give_way_list'
     ) {
         try {
             return JSON.parse(raw)
         } catch {
             return []
-        }
-    }
-    if (field.type === 'charger_priority') {
-        try {
-            const parsed: unknown = JSON.parse(raw)
-            return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {}
-        } catch {
-            return {}
         }
     }
     return trimmed
@@ -118,7 +111,8 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
             field.type === 'solar_arrays' ||
             field.type === 'penalty_levels' ||
             field.type === 'entity_array' ||
-            field.type === 'balanced_loads'
+            field.type === 'balanced_loads' ||
+            field.type === 'give_way_list'
         ) {
             // Handle complex array/object types - stringify if array/object, default to empty array
             if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
@@ -126,11 +120,6 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
             } else {
                 state[field.key] = JSON.stringify([])
             }
-        } else if (field.type === 'charger_priority') {
-            state[field.key] =
-                value !== null && typeof value === 'object' && !Array.isArray(value)
-                    ? JSON.stringify(value)
-                    : JSON.stringify({})
         } else if (value !== null && typeof value === 'object') {
             // Handle other objects (like dashboard.overlay_defaults) by stringifying them as JSON
             state[field.key] = JSON.stringify(value)
@@ -175,7 +164,7 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         type !== 'penalty_levels' &&
         type !== 'entity_array' &&
         type !== 'balanced_loads' &&
-        type !== 'charger_priority'
+        type !== 'give_way_list'
     ) {
         const strA = a !== null && a !== undefined ? String(a).trim() : ''
         const strB = b !== null && b !== undefined ? String(b).trim() : ''
@@ -192,18 +181,16 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         return arrA.every((val, i) => val === arrB[i])
     }
 
-    if (type === 'solar_arrays' || type === 'penalty_levels' || type === 'entity_array' || type === 'balanced_loads') {
+    if (
+        type === 'solar_arrays' ||
+        type === 'penalty_levels' ||
+        type === 'entity_array' ||
+        type === 'balanced_loads' ||
+        type === 'give_way_list'
+    ) {
         // Treat undefined as equivalent to empty array for array/object types
         const normalize = (v: unknown) => {
             if (v === undefined || v === null) return '[]'
-            return JSON.stringify(v)
-        }
-        return normalize(a) === normalize(b)
-    }
-
-    if (type === 'charger_priority') {
-        const normalize = (v: unknown) => {
-            if (v === undefined || v === null) return '{}'
             return JSON.stringify(v)
         }
         return normalize(a) === normalize(b)

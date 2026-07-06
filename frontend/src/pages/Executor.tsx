@@ -842,6 +842,26 @@ export default function Executor() {
 
             {/* Execution History */}
             <Card className="p-4 md:p-5 flex-1 flex flex-col overflow-hidden">
+                {/* Recording-policy explainer: a sparse history is a quiet system, not a dead one */}
+                <div
+                    data-testid="history-explainer"
+                    className="mb-3 rounded-lg border border-line/20 bg-surface2/30 px-3 py-2 text-[10px] text-muted"
+                >
+                    {status?.last_run_at ? (
+                        <>
+                            Last executor tick {formatTime(status.last_run_at)} —{' '}
+                            <span className={status.last_run_status === 'success' ? 'text-good' : 'text-bad'}>
+                                {String(status.last_run_status ?? 'unknown')}
+                            </span>
+                            {status.last_action ? `: ${String(status.last_action)}` : ''}
+                            {'. '}
+                        </>
+                    ) : (
+                        'No executor tick recorded yet. '
+                    )}
+                    Only changes (mode, dispatched actions, overrides, load-balancer transitions) plus one heartbeat per
+                    15-minute slot are recorded — most ticks produce no row by design.
+                </div>
                 <div className="flex items-center justify-between mb-4">
                     <div className="flex flex-col md:flex-row md:items-center gap-4">
                         <div className="flex items-center gap-2">

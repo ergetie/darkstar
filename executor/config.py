@@ -180,16 +180,28 @@ class BalancedLoadConfig:
     EV chargers configured with type="current" get dedicated ampere throttling
     (see EVChargerDeviceConfig) and do not need an entry here; this is for
     on/off shedding (water heaters, custom entities, and binary-type chargers).
+    Give-way ordering lives in LoadBalancingConfig.give_way_order, not here.
     """
 
     device_type: BalancedLoadType = BalancedLoadType.WATER_HEATER
     device_id: str = ""
     phases: list[int] = field(default_factory=lambda: [])
-    priority: int = 0
     # Custom entity actuation (only used when device_type == CUSTOM_ENTITY)
     entity: str | None = None
     on_value: str = "1"
     off_value: str = "0"
+
+
+@dataclass
+class GiveWayOrderEntry:
+    """One entry in the unified give-way order (top gives way first).
+
+    kind="charger" references a type="current" ev_chargers[].id (throttle to
+    floor, then pause); kind="shed" references a loads[].device_id (switch off).
+    """
+
+    kind: str = "shed"  # "charger" | "shed"
+    id: str = ""
 
 
 @dataclass
@@ -209,9 +221,15 @@ class LoadBalancingConfig:
     # ControllerConfig.nominal_voltage_v (DC battery voltage).
     nominal_voltage_v: float = 220.0
     loads: list[BalancedLoadConfig] = field(default_factory=lambda: [])
-    # type="current" EV charger id -> priority (lower gives way first). A
-    # charger with no entry here defaults to its position in ev_chargers[].
-    charger_priority: dict[str, int] = field(default_factory=lambda: {})
+    # Unified give-way order across chargers and shed loads; the top entry
+    # gives way first. Self-healed on load (see heal_give_way_order).
+    give_way_order: list[GiveWayOrderEntry] = field(default_factory=lambda: [])
+    # Notify (HA notify / Discord fallback) on shed, pause, and stale-fallback
+    # transitions. Routine throttle/ramp adjustments never notify.
+    notify_interventions: bool = False
+    # Trigger one replan (via the plug/unplug replan path) after a charger has
+    # been held below its planner target (or paused) this long, continuously.
+    replan_after_throttled_s: int = 600
 
 
 @dataclass
@@ -343,25 +361,27 @@ def _parse_load_balancing_config(
                     device_type=device_type,
                     device_id=str(load_item.get("device_id", "")),
                     phases=phases,
-                    priority=int(load_item.get("priority", 0)),
                     entity=_str_or_none(load_item.get("entity")),
                     on_value=str(load_item.get("on_value", "1")),
                     off_value=str(load_item.get("off_value", "0")),
                 )
             )
 
-    charger_priority_raw = lb_data.get("charger_priority", {})
-    charger_priority: dict[str, int] = {}
-    if isinstance(charger_priority_raw, dict):
-        for charger_id, priority_raw in cast("dict[str, Any]", charger_priority_raw).items():
-            try:
-                charger_priority[str(charger_id)] = int(priority_raw)
-            except (TypeError, ValueError):
+    give_way_raw = lb_data.get("give_way_order", [])
+    give_way_order: list[GiveWayOrderEntry] = []
+    if isinstance(give_way_raw, list):
+        for item in cast("list[Any]", give_way_raw):
+            if not isinstance(item, dict):
+                continue
+            entry_item = cast("dict[str, Any]", item)
+            kind = str(entry_item.get("kind", "")).lower()
+            entry_id = str(entry_item.get("id", ""))
+            if kind not in ("charger", "shed") or not entry_id:
                 logger.warning(
-                    "load_balancing.charger_priority: invalid priority %r for %r, skipping",
-                    priority_raw,
-                    charger_id,
+                    "load_balancing.give_way_order: invalid entry %r, skipping", entry_item
                 )
+                continue
+            give_way_order.append(GiveWayOrderEntry(kind=kind, id=entry_id))
 
     return LoadBalancingConfig(
         enabled=bool(lb_data.get("enabled", False)),
@@ -378,8 +398,57 @@ def _parse_load_balancing_config(
             lb_data.get("nominal_voltage_v", LoadBalancingConfig.nominal_voltage_v)
         ),
         loads=loads,
-        charger_priority=charger_priority,
+        give_way_order=give_way_order,
+        notify_interventions=bool(lb_data.get("notify_interventions", False)),
+        replan_after_throttled_s=int(
+            lb_data.get("replan_after_throttled_s", LoadBalancingConfig.replan_after_throttled_s)
+        ),
     )
+
+
+def heal_give_way_order(lb: LoadBalancingConfig, current_type_charger_ids: list[str]) -> None:
+    """Self-heal load_balancing.give_way_order on config load (in place).
+
+    - Drops entries referencing devices that no longer exist, or chargers no
+      longer type="current" (logged warning).
+    - Appends current-type chargers missing from the list after the last
+      charger entry (at the top when there is none).
+    - Appends loads[] entries missing from the list at the end.
+    """
+    shed_ids = [ld.device_id for ld in lb.loads if ld.device_id]
+
+    healed: list[GiveWayOrderEntry] = []
+    for entry in lb.give_way_order:
+        if (entry.kind == "charger" and entry.id in current_type_charger_ids) or (
+            entry.kind == "shed" and entry.id in shed_ids
+        ):
+            healed.append(entry)
+        else:
+            logger.warning(
+                "load_balancing.give_way_order: dropping %s entry '%s' — no matching "
+                "%s (device removed or charger no longer type: current)",
+                entry.kind,
+                entry.id,
+                "type: current EV charger" if entry.kind == "charger" else "loads[] entry",
+            )
+
+    listed_chargers = {e.id for e in healed if e.kind == "charger"}
+    missing_chargers = [c for c in current_type_charger_ids if c not in listed_chargers]
+    if missing_chargers:
+        last_charger_idx = max((i for i, e in enumerate(healed) if e.kind == "charger"), default=-1)
+        for offset, charger_id in enumerate(missing_chargers):
+            healed.insert(
+                last_charger_idx + 1 + offset, GiveWayOrderEntry(kind="charger", id=charger_id)
+            )
+            logger.info("load_balancing.give_way_order: appended missing charger '%s'", charger_id)
+
+    listed_sheds = {e.id for e in healed if e.kind == "shed"}
+    for shed_id in shed_ids:
+        if shed_id not in listed_sheds:
+            healed.append(GiveWayOrderEntry(kind="shed", id=shed_id))
+            logger.info("load_balancing.give_way_order: appended missing shed load '%s'", shed_id)
+
+    lb.give_way_order = healed
 
 
 def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
@@ -416,6 +485,22 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
 
     # Load balancing config (top-level key, independent of the executor: section)
     load_balancing = _parse_load_balancing_config(data, system_data)
+
+    # Self-heal give_way_order against the enabled type="current" chargers,
+    # before the executor-section branch so both return paths are covered.
+    ev_chargers_raw = data.get("ev_chargers", [])
+    current_type_charger_ids: list[str] = []
+    if isinstance(ev_chargers_raw, list):
+        for idx, item in enumerate(cast("list[Any]", ev_chargers_raw)):
+            if not isinstance(item, dict):
+                continue
+            charger_item = cast("dict[str, Any]", item)
+            if not charger_item.get("enabled", True):
+                continue
+            if str(charger_item.get("type", "binary")).lower() != "current":
+                continue
+            current_type_charger_ids.append(str(charger_item.get("id", f"ev_charger_{idx}")))
+    heal_give_way_order(load_balancing, current_type_charger_ids)
 
     executor_data: dict[str, Any] = (
         data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}

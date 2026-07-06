@@ -1009,9 +1009,9 @@ def _validate_config_for_save(
                                 "which has type: current"
                             ),
                             "guidance": (
-                                "type: current chargers are already balanced automatically "
-                                "(dynamically throttled) and must not be listed in "
-                                "load_balancing.loads — remove this entry."
+                                "type: current chargers appear in the give-way list "
+                                "(load_balancing.give_way_order) automatically and must not "
+                                "be listed in load_balancing.loads — remove this entry."
                             ),
                         }
                     )
@@ -1040,23 +1040,99 @@ def _validate_config_for_save(
                         }
                     )
 
-        charger_priority = lb_cfg.get("charger_priority", {})
-        if isinstance(charger_priority, dict):
-            for charger_id in cast("dict[str, Any]", charger_priority):
-                if charger_id not in current_type_ev_ids:
+        # give_way_order reference validation (load-balancing-completion 2.1):
+        # dangling entries are self-healed away at load time, so these are
+        # warnings, not errors.
+        give_way_order = lb_cfg.get("give_way_order", [])
+        known_load_ids = {
+            str(cast("dict[str, Any]", load).get("device_id", ""))
+            for load in cast("list[Any]", lb_loads)
+            if isinstance(load, dict)
+        }
+        if isinstance(give_way_order, list):
+            for i, entry_raw in enumerate(cast("list[Any]", give_way_order)):
+                if not isinstance(entry_raw, dict):
+                    continue
+                entry = cast("dict[str, Any]", entry_raw)
+                kind = str(entry.get("kind", ""))
+                entry_id = str(entry.get("id", ""))
+                if kind == "charger" and entry_id not in current_type_ev_ids:
                     issues.append(
                         {
                             "severity": "warning",
                             "message": (
-                                f"load_balancing.charger_priority references '{charger_id}', "
-                                "which is not a type: current EV charger"
+                                f"load_balancing.give_way_order[{i}] references charger "
+                                f"'{entry_id}', which is not a type: current EV charger"
                             ),
                             "guidance": (
-                                "This entry has no effect and can be removed — it likely "
-                                "refers to a charger that was removed or changed type."
+                                "The entry will be dropped automatically — it likely refers "
+                                "to a charger that was removed or changed type."
                             ),
                         }
                     )
+                elif kind == "shed" and entry_id not in known_load_ids:
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "message": (
+                                f"load_balancing.give_way_order[{i}] references shed load "
+                                f"'{entry_id}', which has no matching load_balancing.loads entry"
+                            ),
+                            "guidance": (
+                                "The entry will be dropped automatically — add a matching "
+                                "loads[] entry or remove it from the give-way list."
+                            ),
+                        }
+                    )
+
+        # Slow executor tick makes fuse protection nearly useless (2.2) —
+        # non-blocking: shadow-mode/test setups legitimately run slow.
+        interval_seconds = executor_cfg.get("interval_seconds", 300)
+        try:
+            interval_seconds = int(interval_seconds)
+        except (TypeError, ValueError):
+            interval_seconds = 300
+        if interval_seconds > 15:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "message": (
+                        f"load_balancing.enabled but executor.interval_seconds is "
+                        f"{interval_seconds} s — the balancer reacts and reports only once "
+                        "per tick"
+                    ),
+                    "guidance": (
+                        "Set executor.interval_seconds to 15 or less (5 s typical) so the "
+                        "load balancer can protect the main fuse in time."
+                    ),
+                }
+            )
+
+    # type: current charger without a SoC sensor (2.3) — plan-time SoC silently
+    # assumes 0%, so charging progress and throttling shortfall are untrackable.
+    # Warned regardless of load_balancing.enabled: it affects planning too.
+    for ev_raw in cast("list[Any]", config.get("ev_chargers", [])):
+        if not isinstance(ev_raw, dict):
+            continue
+        ev = cast("dict[str, Any]", ev_raw)
+        if not ev.get("enabled", True):
+            continue
+        if ev.get("type") == "current" and not ev.get("soc_sensor"):
+            charger_name = str(ev.get("name") or ev.get("id", "unknown"))
+            issues.append(
+                {
+                    "severity": "warning",
+                    "message": (
+                        f"EV charger '{charger_name}' uses dynamic current control but has "
+                        "no soc_sensor configured"
+                    ),
+                    "guidance": (
+                        "Darkstar cannot track this car's charging progress or recover "
+                        "throttling shortfall (plan-time SoC is assumed 0%). Set the "
+                        "charger's SoC sensor in the EV tab."
+                    ),
+                }
+            )
 
     return issues
 

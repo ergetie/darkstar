@@ -102,7 +102,7 @@ class TestHeadroomComputation:
     def test_unbalanced_load_scenario(self):
         lb = make_lb()
         grid = {1: 18.0, 2: 5.0, 3: 5.0}
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [])
 
         assert status.phase_headroom_a == {1: 2.0, 2: 15.0, 3: 15.0}
         binding_headroom = min(status.phase_headroom_a[p] for p in (1, 2, 3))
@@ -113,7 +113,7 @@ class TestHeadroomComputation:
         lb = make_lb()
         ev = EVBalancerInput("goe", [1, 2, 3], 10, 10, min_current_a=6, max_current_a=16)
         grid = {1: 22.0, 2: 2.0, 3: 2.0}  # modest total, but L1 > 20A fuse
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a is not None
@@ -127,7 +127,7 @@ class TestEVDecreaseSide:
         lb = make_lb()
         ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
         grid = {1: 26.0, 2: 5.0, 3: 5.0}  # headroom on L1 = 20-26 = -6
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a is not None
@@ -138,7 +138,7 @@ class TestEVDecreaseSide:
         lb = make_lb()
         ev = EVBalancerInput("goe", [1], 10, 16, min_current_a=6, max_current_a=16)
         grid = {1: 27.0, 2: 5.0, 3: 5.0}  # headroom = -7 -> 10-7=3 < floor(6) -> pause
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a is None
@@ -152,7 +152,7 @@ class TestEVIncreaseSide:
         lb = make_lb()  # margin 90% of 20A = 18A
         ev = EVBalancerInput("goe", [1], 10, 16, min_current_a=6, max_current_a=16)
         grid = {1: 19.0, 2: 5.0, 3: 5.0}  # 95% of fuse
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a == 10  # unchanged
@@ -161,7 +161,7 @@ class TestEVIncreaseSide:
         lb = make_lb()
         ev = EVBalancerInput("goe", [1], 10, 16, min_current_a=6, max_current_a=16)
         grid = {1: 5.0, 2: 5.0, 3: 5.0}
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a == 11  # +1A step
@@ -170,7 +170,7 @@ class TestEVIncreaseSide:
         lb = make_lb()
         ev = EVBalancerInput("goe", [1], 10, 10, min_current_a=6, max_current_a=16)
         grid = {1: 2.0, 2: 2.0, 3: 2.0}
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a == 10
@@ -183,7 +183,7 @@ class TestPauseResumeAntiFlap:
         lb = make_lb()
         ev_charging = EVBalancerInput("goe", [1], 10, 16, min_current_a=6, max_current_a=16)
 
-        status0 = lb.tick(BASE, {1: 27.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3), [ev_charging], [])
+        status0 = lb.tick(BASE, {1: 27.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3), [ev_charging])
         assert status0.ev_outputs[0].target_a is None
         assert status0.state == "paused"
 
@@ -191,41 +191,41 @@ class TestPauseResumeAntiFlap:
         ev_stopped = EVBalancerInput("goe", [1], None, 16, min_current_a=6, max_current_a=16)
 
         t_dip = BASE + timedelta(seconds=30)
-        status1 = lb.tick(t_dip, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3, at=t_dip), [ev_stopped], [])
+        status1 = lb.tick(t_dip, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3, at=t_dip), [ev_stopped])
         assert status1.ev_outputs[0].target_a is None  # still paused, only 30s elapsed
 
         t_resume = BASE + timedelta(seconds=130)
         status2 = lb.tick(
-            t_resume, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3, at=t_resume), [ev_stopped], []
+            t_resume, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3, at=t_resume), [ev_stopped]
         )
         assert status2.ev_outputs[0].target_a == 6  # resumes at floor after 120s + margin
 
 
 class TestShedding:
-    """4.5: shed lowest priority first, restore in reverse order."""
+    """4.5: shed in list order (top first), restore in exact reverse order."""
 
     def test_shed_then_restore_reverse_order(self):
         lb = make_lb()
-        wh = ShedLoadInput("wh", "water_heater", [1], priority=1)
-        pump = ShedLoadInput("pump", "custom_entity", [1], priority=2)
-        loads = [wh, pump]
+        wh = ShedLoadInput("wh", "water_heater", [1])
+        pump = ShedLoadInput("pump", "custom_entity", [1])
+        entries = [wh, pump]  # wh listed first -> gives way first
 
         grid_over = {1: 25.0, 2: 5.0, 3: 5.0}
         t0 = BASE
-        status0 = lb.tick(t0, grid_over, fresh_ts(1, 2, 3, at=t0), [], loads)
+        status0 = lb.tick(t0, grid_over, fresh_ts(1, 2, 3, at=t0), entries)
         assert {o.load_id for o in status0.shed_outputs if o.shed} == {"wh"}
 
         t1 = t0 + timedelta(seconds=5)
-        status1 = lb.tick(t1, grid_over, fresh_ts(1, 2, 3, at=t1), [], loads)
+        status1 = lb.tick(t1, grid_over, fresh_ts(1, 2, 3, at=t1), entries)
         assert {o.load_id for o in status1.shed_outputs if o.shed} == {"wh", "pump"}
 
         grid_ok = {1: 5.0, 2: 5.0, 3: 5.0}
         t2 = t1 + timedelta(seconds=125)
-        status2 = lb.tick(t2, grid_ok, fresh_ts(1, 2, 3, at=t2), [], loads)
+        status2 = lb.tick(t2, grid_ok, fresh_ts(1, 2, 3, at=t2), entries)
         assert {o.load_id for o in status2.shed_outputs if o.shed} == {"wh"}  # pump restored first
 
         t3 = t2 + timedelta(seconds=125)
-        status3 = lb.tick(t3, grid_ok, fresh_ts(1, 2, 3, at=t3), [], loads)
+        status3 = lb.tick(t3, grid_ok, fresh_ts(1, 2, 3, at=t3), entries)
         assert {o.load_id for o in status3.shed_outputs if o.shed} == set()  # wh restored too
 
 
@@ -238,13 +238,13 @@ class TestStaleSensorFailSafe:
 
         t0 = BASE
         stale_ts = {1: t0 - timedelta(seconds=40)}  # older than sensor_stale_after_s=30
-        status0 = lb.tick(t0, {1: 10.0}, stale_ts, [ev], [])
+        status0 = lb.tick(t0, {1: 10.0}, stale_ts, [ev])
         out0 = status0.ev_outputs[0]
         assert out0.target_a == 6
         assert out0.state == "stale_fallback"
 
         t1 = t0 + timedelta(seconds=125)  # >= resume_delay_s since staleness first observed
-        status1 = lb.tick(t1, {1: 10.0}, stale_ts, [ev], [])
+        status1 = lb.tick(t1, {1: 10.0}, stale_ts, [ev])
         out1 = status1.ev_outputs[0]
         assert out1.target_a is None
         assert out1.state == "paused"
@@ -252,7 +252,7 @@ class TestStaleSensorFailSafe:
     def test_missing_phase_reading_is_treated_as_stale(self):
         lb = make_lb()
         ev = EVBalancerInput("goe", [1], 16, 16, min_current_a=6, max_current_a=16)
-        status = lb.tick(BASE, {}, {}, [ev], [])
+        status = lb.tick(BASE, {}, {}, [ev])
         assert status.ev_outputs[0].target_a == 6
         assert status.ev_outputs[0].state == "stale_fallback"
 
@@ -267,12 +267,12 @@ class TestStaleSensorFailSafe:
 
         t0 = BASE
         stale_ts = {1: t0 - timedelta(seconds=40)}  # older than sensor_stale_after_s=30
-        status0 = lb.tick(t0, {1: 10.0}, stale_ts, [ev], [])
+        status0 = lb.tick(t0, {1: 10.0}, stale_ts, [ev])
         assert status0.ev_outputs[0].state == "stale_fallback"
 
         # Sensor stays stale past resume_delay_s -> escalates to a full pause.
         t1 = t0 + timedelta(seconds=125)
-        status1 = lb.tick(t1, {1: 10.0}, stale_ts, [ev], [])
+        status1 = lb.tick(t1, {1: 10.0}, stale_ts, [ev])
         out1 = status1.ev_outputs[0]
         assert out1.state == "paused"
         assert out1.target_a is None
@@ -282,20 +282,20 @@ class TestStaleSensorFailSafe:
         # wants it charging.
         ev_stopped = EVBalancerInput("goe", [1], None, 16, min_current_a=6, max_current_a=16)
         t2 = t1 + timedelta(seconds=1)
-        status2 = lb.tick(t2, {1: 5.0}, fresh_ts(1, at=t2), [ev_stopped], [])
+        status2 = lb.tick(t2, {1: 5.0}, fresh_ts(1, at=t2), [ev_stopped])
         out2 = status2.ev_outputs[0]
         assert out2.state == "paused"
         assert out2.target_a is None
 
         # Just short of resume_delay_s since the pause began: still paused.
         t3 = t1 + timedelta(seconds=119)
-        status3 = lb.tick(t3, {1: 5.0}, fresh_ts(1, at=t3), [ev_stopped], [])
+        status3 = lb.tick(t3, {1: 5.0}, fresh_ts(1, at=t3), [ev_stopped])
         assert status3.ev_outputs[0].state == "paused"
 
         # Once resume_delay_s has elapsed since the pause began (and
         # margin/headroom are fine), charging resumes at the floor.
         t4 = t1 + timedelta(seconds=121)
-        status4 = lb.tick(t4, {1: 5.0}, fresh_ts(1, at=t4), [ev_stopped], [])
+        status4 = lb.tick(t4, {1: 5.0}, fresh_ts(1, at=t4), [ev_stopped])
         out4 = status4.ev_outputs[0]
         assert out4.state == "throttling"
         assert out4.target_a == 6
@@ -308,53 +308,54 @@ class TestFeatureGating:
         cfg = LoadBalancingConfig(enabled=False)
         lb = LoadBalancer(cfg)
         ev = EVBalancerInput("goe", [1], 16, 16, min_current_a=6, max_current_a=16)
-        status = lb.tick(BASE, {1: 100.0}, fresh_ts(1), [ev], [])
+        status = lb.tick(BASE, {1: 100.0}, fresh_ts(1), [ev])
 
         assert status.state == "disabled"
         assert status.ev_outputs == []
 
 
-class TestPriorityOrderedAllocation:
-    """load-balancing-power-sensors 4.2/4.3: priority-ordered sequential
-    allocation across dynamically-throttled chargers sharing a phase."""
+class TestPositionOrderedAllocation:
+    """load-balancing-completion 3.1: give-way-order sequential allocation
+    across dynamically-throttled chargers sharing a phase — list position
+    (top first) decides, not a numeric priority."""
 
-    def test_single_charger_is_unaffected_by_priority(self):
-        """4.3 regression: priority=0 (default) must decide byte-identically
-        to the pre-priority single-charger behavior."""
+    def test_single_charger_is_unaffected_by_ordering(self):
+        """Spec scenario: a single charger behaves byte-identically to the
+        pre-ordering behavior regardless of its position."""
         lb = make_lb()
         ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
         grid = {1: 26.0, 2: 5.0, 3: 5.0}
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev])
 
         out = status.ev_outputs[0]
         assert out.target_a == 10
         assert out.state == "throttling"
 
-    def test_lower_priority_number_gives_way_first_and_fully_resolves_deficit(self):
+    def test_higher_listed_charger_gives_way_first_and_fully_resolves_deficit(self):
         lb = make_lb()
         # Both chargers draw on L1 only; L1 headroom = 20-30 = -10.
-        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16, priority=1)
-        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16, priority=2)
+        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16)
+        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16)
         grid = {1: 30.0, 2: 5.0, 3: 5.0}
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_a, charger_b], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_a, charger_b])
 
         out_a = next(o for o in status.ev_outputs if o.charger_id == "a")
         out_b = next(o for o in status.ev_outputs if o.charger_id == "b")
-        # A absorbs the full -10A deficit (16-10=6, exactly its floor).
+        # A (listed first) absorbs the full -10A deficit (16-10=6, exactly its floor).
         assert out_a.target_a == 6
         assert out_a.state == "throttling"
         # A's reduction (10A) fully cancels the deficit -> B is untouched.
         assert out_b.target_a == 16
         assert out_b.state == "idle"
 
-    def test_lower_priority_alone_insufficient_shares_remainder_with_next(self):
+    def test_higher_listed_alone_insufficient_shares_remainder_with_next(self):
         lb = make_lb()
         # L1 headroom = 20-44 = -24; even A pausing fully (max possible 16A
         # relief) leaves -8A, which B must then absorb.
-        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16, priority=1)
-        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16, priority=2)
+        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16)
+        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16)
         grid = {1: 44.0, 2: 5.0, 3: 5.0}
-        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_a, charger_b], [])
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_a, charger_b])
 
         out_a = next(o for o in status.ev_outputs if o.charger_id == "a")
         out_b = next(o for o in status.ev_outputs if o.charger_id == "b")
@@ -365,16 +366,172 @@ class TestPriorityOrderedAllocation:
         assert out_b.target_a == 8
         assert out_b.state == "throttling"
 
-    def test_output_order_matches_input_order_not_priority_order(self):
+    def test_list_order_reversal_swaps_who_gives_way(self):
+        """Multi-charger ordering follows list position: with B listed first,
+        B gives way and A is untouched (mirror of the test above)."""
         lb = make_lb()
-        charger_a = EVBalancerInput("a", [1], 10, 10, min_current_a=6, max_current_a=16, priority=2)
-        charger_b = EVBalancerInput("b", [1], 10, 10, min_current_a=6, max_current_a=16, priority=1)
-        status = lb.tick(BASE, {1: 5.0, 2: 5.0, 3: 5.0}, fresh_ts(1, 2, 3), [charger_a, charger_b], [])
+        charger_a = EVBalancerInput("a", [1], 16, 16, min_current_a=6, max_current_a=16)
+        charger_b = EVBalancerInput("b", [1], 16, 16, min_current_a=6, max_current_a=16)
+        grid = {1: 30.0, 2: 5.0, 3: 5.0}
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [charger_b, charger_a])
 
-        assert [o.charger_id for o in status.ev_outputs] == ["a", "b"]
+        out_a = next(o for o in status.ev_outputs if o.charger_id == "a")
+        out_b = next(o for o in status.ev_outputs if o.charger_id == "b")
+        assert out_b.target_a == 6
+        assert out_b.state == "throttling"
+        assert out_a.target_a == 16
+        assert out_a.state == "idle"
 
     def test_missing_main_fuse_a_returns_disabled(self):
         cfg = LoadBalancingConfig(enabled=True, main_fuse_a=None)
         lb = LoadBalancer(cfg)
-        status = lb.tick(BASE, {}, {}, [], [])
+        status = lb.tick(BASE, {}, {}, [])
         assert status.state == "disabled"
+
+
+class TestInterleavedGiveWayOrder:
+    """load-balancing-completion 3.1/3.2: shed loads and chargers interleave
+    in one user-ordered list — top gives way first, restore in exact reverse
+    order, pausing is position-aware."""
+
+    def test_shed_above_charger_gives_way_before_charger_slows(self):
+        """Spec scenario: water heater listed above the charger on the same
+        phase is shed first; the charger is only reduced if the deficit
+        persists after the shed."""
+        lb = make_lb()
+        wh = ShedLoadInput("wh", "water_heater", [2])
+        ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
+
+        grid = {1: 5.0, 2: 26.0, 3: 5.0}  # L2 headroom = -6
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
+
+        # The water heater sheds; the charger holds its setpoint this tick.
+        assert [o.load_id for o in status.shed_outputs if o.shed] == ["wh"]
+        out = status.ev_outputs[0]
+        assert out.target_a == 16
+
+        # Next tick the shed relieved L2 fully -> charger still untouched.
+        t1 = BASE + timedelta(seconds=5)
+        grid_ok = {1: 5.0, 2: 10.0, 3: 5.0}
+        status1 = lb.tick(t1, grid_ok, fresh_ts(1, 2, 3, at=t1), [wh, ev])
+        assert status1.ev_outputs[0].target_a == 16
+
+    def test_charger_reduces_when_deficit_persists_after_shed(self):
+        lb = make_lb()
+        wh = ShedLoadInput("wh", "water_heater", [2])
+        ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
+
+        grid = {1: 5.0, 2: 30.0, 3: 5.0}  # L2 headroom = -10
+        lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])  # wh sheds, ev holds
+
+        # Shed only relieved 4A -> deficit persists; wh is exhausted, so the
+        # charger now gives way.
+        t1 = BASE + timedelta(seconds=5)
+        grid1 = {1: 5.0, 2: 26.0, 3: 5.0}  # still -6
+        status1 = lb.tick(t1, grid1, fresh_ts(1, 2, 3, at=t1), [wh, ev])
+        out = status1.ev_outputs[0]
+        assert out.target_a == 10  # 16 + (-6)
+        assert out.state == "throttling"
+
+    def test_charger_not_paused_while_higher_listed_shed_can_give_way(self):
+        """Spec scenario: charger at its floor, phase overloaded, unshed load
+        listed above it -> the load sheds, the charger is NOT paused."""
+        lb = make_lb()
+        wh = ShedLoadInput("wh", "water_heater", [1])
+        ev = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
+
+        grid = {1: 24.0, 2: 5.0, 3: 5.0}  # -4: at floor, would pause without wh
+        status = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])
+
+        assert [o.load_id for o in status.shed_outputs if o.shed] == ["wh"]
+        out = status.ev_outputs[0]
+        assert out.target_a == 6  # held at floor, not paused
+        assert out.state != "paused"
+
+    def test_charger_pauses_once_higher_listed_shed_is_exhausted(self):
+        lb = make_lb()
+        wh = ShedLoadInput("wh", "water_heater", [1])
+        ev = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
+
+        grid = {1: 24.0, 2: 5.0, 3: 5.0}
+        lb.tick(BASE, grid, fresh_ts(1, 2, 3), [wh, ev])  # wh sheds
+
+        # Deficit persists next tick; wh exhausted -> charger pauses now.
+        t1 = BASE + timedelta(seconds=5)
+        status1 = lb.tick(t1, grid, fresh_ts(1, 2, 3, at=t1), [wh, ev])
+        out = status1.ev_outputs[0]
+        assert out.target_a is None
+        assert out.state == "paused"
+
+    def test_restore_is_exact_reverse_order_across_kinds(self):
+        """The charger (below the shed load, gave way last) resumes first;
+        the shed load above it only restores afterwards."""
+        lb = make_lb()
+        wh = ShedLoadInput("wh", "water_heater", [1])
+        ev_charging = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
+
+        grid = {1: 24.0, 2: 5.0, 3: 5.0}
+        t0 = BASE
+        lb.tick(t0, grid, fresh_ts(1, 2, 3, at=t0), [wh, ev_charging])  # wh sheds
+        t1 = t0 + timedelta(seconds=5)
+        lb.tick(t1, grid, fresh_ts(1, 2, 3, at=t1), [wh, ev_charging])  # ev pauses
+
+        # Recovery, past resume_delay_s for both.
+        ev_stopped = EVBalancerInput("goe", [1], None, 16, min_current_a=6, max_current_a=16)
+        grid_ok = {1: 5.0, 2: 5.0, 3: 5.0}
+        t2 = t1 + timedelta(seconds=125)
+        status2 = lb.tick(t2, grid_ok, fresh_ts(1, 2, 3, at=t2), [wh, ev_stopped])
+        # Charger (gave way last) resumes first; wh stays shed this tick.
+        assert status2.ev_outputs[0].target_a == 6
+        assert [o.load_id for o in status2.shed_outputs if o.shed] == ["wh"]
+
+        # Next tick the wh (nothing below it still given way) restores.
+        ev_resumed = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
+        t3 = t2 + timedelta(seconds=5)
+        status3 = lb.tick(t3, grid_ok, fresh_ts(1, 2, 3, at=t3), [wh, ev_resumed])
+        assert not any(o.shed for o in status3.shed_outputs)
+
+    def test_shed_restore_blocked_while_lower_listed_charger_paused(self):
+        """A paused charger below the shed load blocks its restore (reverse
+        order), even when the shed load's own conditions are satisfied."""
+        lb = make_lb()
+        wh = ShedLoadInput("wh", "water_heater", [1])
+        ev_charging = EVBalancerInput("goe", [1], 6, 16, min_current_a=6, max_current_a=16)
+
+        grid = {1: 24.0, 2: 5.0, 3: 5.0}
+        t0 = BASE
+        lb.tick(t0, grid, fresh_ts(1, 2, 3, at=t0), [wh, ev_charging])  # wh sheds
+        t1 = t0 + timedelta(seconds=5)
+        lb.tick(t1, grid, fresh_ts(1, 2, 3, at=t1), [wh, ev_charging])  # ev pauses
+
+        # Healthy again but only 60s since the charger paused: charger still
+        # waiting out its resume delay -> wh must NOT restore before it.
+        ev_stopped = EVBalancerInput("goe", [1], None, 16, min_current_a=6, max_current_a=16)
+        grid_ok = {1: 5.0, 2: 5.0, 3: 5.0}
+        t2 = t1 + timedelta(seconds=60)
+        status2 = lb.tick(t2, grid_ok, fresh_ts(1, 2, 3, at=t2), [wh, ev_stopped])
+        assert status2.ev_outputs[0].target_a is None
+        assert [o.load_id for o in status2.shed_outputs if o.shed] == ["wh"]
+
+    def test_default_order_reproduces_two_tier_behavior(self):
+        """Migrated default (all chargers before all shed loads): charger
+        throttles to floor and pauses, shed activates only then — tick-for-
+        tick like the old two-tier gate."""
+        lb = make_lb()
+        ev = EVBalancerInput("goe", [1, 2, 3], 16, 16, min_current_a=6, max_current_a=16)
+        wh = ShedLoadInput("wh", "water_heater", [2])
+
+        # Tick 1: modest L2 overload -> charger throttles, wh untouched.
+        grid = {1: 5.0, 2: 26.0, 3: 5.0}
+        status0 = lb.tick(BASE, grid, fresh_ts(1, 2, 3), [ev, wh])
+        assert status0.ev_outputs[0].target_a == 10
+        assert not any(o.shed for o in status0.shed_outputs)
+
+        # Tick 2: deep overload -> charger pauses AND wh sheds the same tick
+        # (charger relief alone cannot cover the deficit).
+        ev_10 = EVBalancerInput("goe", [1, 2, 3], 10, 16, min_current_a=6, max_current_a=16)
+        t1 = BASE + timedelta(seconds=5)
+        grid_deep = {1: 5.0, 2: 40.0, 3: 5.0}
+        status1 = lb.tick(t1, grid_deep, fresh_ts(1, 2, 3, at=t1), [ev_10, wh])
+        assert status1.ev_outputs[0].target_a is None
+        assert [o.load_id for o in status1.shed_outputs if o.shed] == ["wh"]

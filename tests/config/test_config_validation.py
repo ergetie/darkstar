@@ -429,7 +429,7 @@ class TestLoadBalancingValidation:
 class TestLoadBalancingPowerSensorValidation:
     """load-balancing-power-sensors: unit recognition, type: current rejection
     from loads[], dynamically-throttled charger satisfying the "at least one
-    balanced load" rule, and charger_priority reference validation."""
+    balanced load" rule, and give_way_order reference validation."""
 
     def _base_config(self, load_balancing, **extra):
         config = {
@@ -520,15 +520,138 @@ class TestLoadBalancingPowerSensorValidation:
         errors = [i for i in issues if i["severity"] == "error"]
         assert any("load_balancing.loads is empty" in e["message"] for e in errors)
 
-    def test_charger_priority_referencing_non_current_charger_is_warning(self):
+    def test_type_current_in_loads_error_points_to_give_way_list(self):
+        """load-balancing-completion 2.1: the error guidance names the give-way list."""
         config = self._base_config(
-            {"enabled": True, "loads": [], "charger_priority": {"goe": 1, "ghost": 2}}
+            {
+                "enabled": True,
+                "loads": [{"device_type": "ev_charger", "device_id": "goe", "phases": [1]}],
+            }
+        )
+        config["ev_chargers"] = [{"id": "goe", "type": "current"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any(
+            "goe" in e["message"] and "give-way" in e["guidance"] for e in errors
+        )
+
+    def test_give_way_order_dangling_charger_reference_is_warning(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [],
+                "give_way_order": [
+                    {"kind": "charger", "id": "goe"},
+                    {"kind": "charger", "id": "ghost"},
+                ],
+            }
         )
         config["ev_chargers"] = [{"id": "goe", "type": "current"}]
         issues = _validate_config_for_save(config)
         warnings = [i for i in issues if i["severity"] == "warning"]
-        assert any("ghost" in w["message"] for w in warnings)
-        assert not any("goe" in w["message"] for w in warnings)
+        assert any("ghost" in w["message"] and "give_way_order" in w["message"] for w in warnings)
+        assert not any(
+            "goe" in w["message"] and "give_way_order" in w["message"] for w in warnings
+        )
+
+    def test_give_way_order_dangling_shed_reference_is_warning(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "custom_entity", "device_id": "pump", "phases": [1]}],
+                "give_way_order": [
+                    {"kind": "shed", "id": "pump"},
+                    {"kind": "shed", "id": "gone"},
+                ],
+            }
+        )
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        assert any("gone" in w["message"] and "give_way_order" in w["message"] for w in warnings)
+
+
+class TestLoadBalancingCompletionWarnings:
+    """load-balancing-completion 2.2/2.3: slow-tick and no-SoC-sensor warnings."""
+
+    def _base_config(self, **extra):
+        config = {
+            "config_version": 2,
+            "system": {
+                "has_battery": False,
+                "has_water_heater": False,
+                "has_ev_charger": False,
+                "grid": {"main_fuse_a": 20},
+            },
+            "input_sensors": {
+                "grid_current_l1": "sensor.l1",
+                "grid_current_l2": "sensor.l2",
+                "grid_current_l3": "sensor.l3",
+            },
+            "load_balancing": {"enabled": True, "loads": []},
+            "ev_chargers": [
+                {
+                    "id": "goe",
+                    "type": "current",
+                    "current_entity": "number.goe_current",
+                    "max_current_a": 16,
+                    "soc_sensor": "sensor.ev_soc",
+                }
+            ],
+        }
+        config.update(extra)
+        return config
+
+    def test_slow_tick_with_balancing_enabled_is_warning_not_error(self):
+        config = self._base_config(executor={"interval_seconds": 300})
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        matching = [
+            w
+            for w in warnings
+            if "executor.interval_seconds" in w["message"] and "load_balancing" in w["message"]
+        ]
+        assert matching
+        assert "15" in matching[0]["guidance"]
+        assert not any(
+            "executor.interval_seconds" in e["message"]
+            for e in issues
+            if e["severity"] == "error"
+        )
+
+    def test_fast_tick_produces_no_slow_tick_warning(self):
+        config = self._base_config(executor={"interval_seconds": 5})
+        issues = _validate_config_for_save(config)
+        assert not any("executor.interval_seconds" in i["message"] for i in issues)
+
+    def test_slow_tick_without_balancing_produces_no_warning(self):
+        config = self._base_config(executor={"interval_seconds": 300})
+        config["load_balancing"]["enabled"] = False
+        issues = _validate_config_for_save(config)
+        assert not any("executor.interval_seconds" in i["message"] for i in issues)
+
+    def test_current_charger_without_soc_sensor_warns(self):
+        config = self._base_config()
+        del config["ev_chargers"][0]["soc_sensor"]
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        matching = [w for w in warnings if "soc_sensor" in w["message"]]
+        assert matching
+        assert "goe" in matching[0]["message"]
+        assert "progress" in matching[0]["guidance"]
+
+    def test_current_charger_with_soc_sensor_does_not_warn(self):
+        config = self._base_config()
+        issues = _validate_config_for_save(config)
+        assert not any("soc_sensor" in i["message"] for i in issues)
+
+    def test_binary_charger_without_soc_sensor_does_not_warn(self):
+        config = self._base_config()
+        config["ev_chargers"] = [{"id": "goe", "type": "binary"}]
+        config["load_balancing"]["loads"] = [
+            {"device_type": "ev_charger", "device_id": "goe", "phases": [1]}
+        ]
+        issues = _validate_config_for_save(config)
+        assert not any("soc_sensor" in i["message"] for i in issues)
 
 
 class TestBackwardCompatibility:

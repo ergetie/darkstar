@@ -27,6 +27,7 @@ from executor.config import (
     ControllerConfig,
     EVChargerDeviceConfig,
     ExecutorConfig,
+    GiveWayOrderEntry,
     InverterConfig,
     LoadBalancingConfig,
     NotificationConfig,
@@ -113,9 +114,11 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
                 device_type=BalancedLoadType.WATER_HEATER,
                 device_id="main_tank",
                 phases=[2],
-                priority=1,
             )
         ],
+        # No give_way_order set: the engine self-heals it to the default
+        # order (chargers first, then shed loads) — the migrated two-tier
+        # equivalent this test proves unchanged behavior for.
     )
     config = ExecutorConfig(
         enabled=True,
@@ -421,3 +424,151 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
 
         assert engine._last_balancer_status.state == "stale_fallback"
         assert goe_calls()[-1] == 6.0  # forced to floor, not a plausible nominal-voltage guess
+
+
+@pytest.mark.asyncio
+async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
+    """load-balancing-completion 3.5: a shed entry ordered above the charger
+    gives way first — the water heater is switched off while the charger's
+    setpoint is held, and the charger only slows if the deficit persists
+    after the shed is exhausted.
+    """
+    charger = EVChargerDeviceConfig(
+        id="goe",
+        type="current",
+        current_entity="number.goe_current",
+        min_current_a=6,
+        max_current_a=16,
+        phases=[1, 2, 3],
+    )
+    water_heater = WaterHeaterDeviceConfig(
+        id="main_tank", name="Main Tank", target_entity="input_number.water_heater_target"
+    )
+    load_balancing = LoadBalancingConfig(
+        enabled=True,
+        main_fuse_a=20,
+        resume_delay_s=120,
+        resume_margin_percent=90,
+        increase_step_a=1,
+        sensor_stale_after_s=30,
+        loads=[
+            BalancedLoadConfig(
+                device_type=BalancedLoadType.WATER_HEATER,
+                device_id="main_tank",
+                phases=[2],
+            )
+        ],
+        give_way_order=[
+            GiveWayOrderEntry(kind="shed", id="main_tank"),
+            GiveWayOrderEntry(kind="charger", id="goe"),
+        ],
+    )
+    config = ExecutorConfig(
+        enabled=True,
+        schedule_path=temp_schedule,
+        timezone="Europe/Stockholm",
+        inverter=InverterConfig(),
+        water_heater=WaterHeaterConfig(),
+        water_heater_devices=[water_heater],
+        notifications=NotificationConfig(),
+        controller=ControllerConfig(),
+        ev_chargers=[charger],
+        load_balancing=load_balancing,
+        has_water_heater=True,
+    )
+
+    t0 = TZ.localize(datetime(2026, 6, 1, 12, 0, 0))
+    _FakeDateTime._current = t0
+
+    with patch("executor.engine.load_executor_config", return_value=config):
+        with patch(
+            "executor.engine.load_yaml",
+            return_value={
+                "input_sensors": {
+                    "grid_current_l1": "sensor.grid_l1",
+                    "grid_current_l2": "sensor.grid_l2",
+                    "grid_current_l3": "sensor.grid_l3",
+                },
+                "system": {"has_water_heater": True},
+            },
+        ):
+            with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
+                engine = ExecutorEngine("config.yaml")
+
+    engine._has_ev_charger = True
+    engine._has_water_heater = True
+
+    grid = {"1": 5.0, "2": 26.0, "3": 5.0}  # L2 headroom = -6, WH's phase
+
+    async def fake_get_state(entity_id):
+        mapping = {"sensor.grid_l1": "1", "sensor.grid_l2": "2", "sensor.grid_l3": "3"}
+        phase = mapping.get(entity_id)
+        if phase is None:
+            return None
+        return {
+            "state": str(grid[phase]),
+            "attributes": {"unit_of_measurement": "A"},
+            "last_updated": _FakeDateTime._current.isoformat(),
+        }
+
+    async def fake_get_state_value(entity_id):
+        if "water_heater_target" in entity_id:
+            return "60"
+        if entity_id == "number.goe_current":
+            return "99"
+        return "0"
+
+    mock_ha = MagicMock(spec=HAClient)
+    mock_ha.get_state = AsyncMock(side_effect=fake_get_state)
+    mock_ha.get_state_value = AsyncMock(side_effect=fake_get_state_value)
+    mock_ha.set_number = AsyncMock(return_value=True)
+    mock_ha.set_input_number = AsyncMock(return_value=True)
+    mock_ha.set_switch = AsyncMock(return_value=True)
+    mock_ha.set_select_option = AsyncMock(return_value=True)
+    engine.ha_client = mock_ha
+    engine.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
+
+    slot_start = t0 - timedelta(minutes=5)
+    with Path(temp_schedule).open("w", encoding="utf-8") as f:
+        json.dump(make_schedule([make_slot(slot_start, 11.0)]), f)
+
+    def goe_calls() -> list[float]:
+        return [
+            c.args[1]
+            for c in mock_ha.set_number.call_args_list
+            if c.args[0] == "number.goe_current"
+        ]
+
+    def water_heater_writes() -> list[float]:
+        return [
+            c.args[1]
+            for c in mock_ha.set_input_number.call_args_list
+            if c.args[0] == "input_number.water_heater_target"
+        ]
+
+    with patch("executor.engine.datetime", _FakeDateTime):
+        # --- Tick 1: L2 overloaded, WH listed above the charger -> WH sheds,
+        # charger holds its 16A setpoint (never slowed, never stopped) ---
+        engine._ev_charger_states["goe"] = EVChargerState(
+            charging_active=True, current_setpoint_a=16, charging_started_at=t0
+        )
+        await engine.run_once()
+
+        assert water_heater_writes() == [40.0]  # temp_off: WH shed first
+        status = engine._last_balancer_status
+        assert any(o.shed for o in status.shed_outputs)
+        ev_out = status.ev_outputs[0]
+        # Held at the planned level (11kW/3ph -> 15A), not reduced below it
+        assert ev_out.target_a == 15
+        assert 0.0 not in goe_calls()  # never commanded to stop
+
+        # --- Tick 2: shed relieved L2 -> charger still untouched at 16A ---
+        grid["2"] = 10.0
+        _FakeDateTime._current = t0 + timedelta(seconds=5)
+        mock_ha.set_number.reset_mock()
+        await engine.run_once()
+
+        status = engine._last_balancer_status
+        assert any(o.shed for o in status.shed_outputs)  # WH stays shed (anti-flap)
+        assert status.ev_outputs[0].target_a == 15
+        assert 0.0 not in goe_calls()

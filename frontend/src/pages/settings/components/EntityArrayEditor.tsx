@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Badge } from '../../../components/ui/Badge'
@@ -400,7 +401,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                         {!isWaterHeater && (
                                             <div className="sm:col-span-2">
                                                 <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    SoC Sensor (HA Entity)
+                                                    SoC Sensor
                                                 </label>
                                                 <EntitySelect
                                                     entities={haEntities}
@@ -424,7 +425,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                         {!isWaterHeater && (
                                             <div className="sm:col-span-2">
                                                 <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Plug Sensor (HA Entity)
+                                                    Plug Sensor
                                                 </label>
                                                 <EntitySelect
                                                     entities={haEntities}
@@ -449,7 +450,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                         {!isWaterHeater && (
                                             <div className="sm:col-span-2">
                                                 <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Switch Entity (HA Entity)
+                                                    Switch Entity
                                                 </label>
                                                 <EntitySelect
                                                     entities={haEntities}
@@ -539,10 +540,47 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                 ) : (
                                                     <>
                                                         <option value="binary">Binary (On/Off)</option>
-                                                        <option value="current">Current (dynamic amps)</option>
+                                                        <option value="current">Dynamic</option>
                                                     </>
                                                 )}
                                             </select>
+                                            {!isWaterHeater && (entity as EVChargerEntity).type === 'current' && (
+                                                <details className="mt-2 text-[11px] text-muted">
+                                                    <summary className="font-semibold text-accent hover:underline cursor-pointer select-none outline-none">
+                                                        Choosing dynamic current means:
+                                                    </summary>
+                                                    <div className="mt-1.5 rounded-lg border border-ai/20 bg-ai/5 p-2.5 leading-relaxed">
+                                                        <ul className="list-disc space-y-0.5 pl-4">
+                                                            <li>The planner sets the charge current for every slot.</li>
+                                                            <li>
+                                                                The charger is automatically load-balanced — it appears
+                                                                in the give-way list in the{' '}
+                                                                <Link
+                                                                    to="/settings?tab=load-balancing"
+                                                                    className="font-semibold text-accent hover:underline"
+                                                                >
+                                                                    Load Balancing tab
+                                                                </Link>
+                                                                .
+                                                            </li>
+                                                            <li>It becomes eligible for PV-surplus charging.</li>
+                                                        </ul>
+                                                    </div>
+                                                </details>
+                                            )}
+                                            {!isWaterHeater &&
+                                                (entity as EVChargerEntity).type === 'current' &&
+                                                !(entity as EVChargerEntity).soc_sensor && (
+                                                    <div
+                                                        role="alert"
+                                                        className="mt-2 rounded-lg border border-accent/40 bg-accent/10 p-2.5 text-[11px] leading-relaxed text-text"
+                                                    >
+                                                        <span className="font-semibold">No SoC sensor configured:</span>{' '}
+                                                        Darkstar cannot track this car&apos;s charging progress or
+                                                        recover load-balancer throttling shortfall — plans assume the
+                                                        battery starts at 0%. Set the SoC sensor above.
+                                                    </div>
+                                                )}
                                         </div>
 
                                         {/* Replan on Unplug (EV only) */}
@@ -616,7 +654,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                     <>
                                                         <div className="sm:col-span-2">
                                                             <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                                Current Entity (HA Entity) *
+                                                                Current Entity
                                                             </label>
                                                             <EntitySelect
                                                                 entities={haEntities}
@@ -631,8 +669,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                 disabled={disabled}
                                                             />
                                                             <p className="text-[10px] text-muted mt-1">
-                                                                HA number entity that sets charge current in amps (e.g.
-                                                                number.goe_current)
+                                                                HA number entity that sets charge current (A)
                                                             </p>
                                                         </div>
 
@@ -674,39 +711,42 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                             <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
                                                                 Phases
                                                             </label>
-                                                            <div className="flex gap-3">
+                                                            <div className="flex gap-2">
                                                                 {[1, 2, 3].map((phase) => {
                                                                     const phases = (entity as EVChargerEntity)
                                                                         .phases ?? [1, 2, 3]
                                                                     const checked = phases.includes(phase)
                                                                     return (
-                                                                        <label
+                                                                        <button
                                                                             key={phase}
-                                                                            className="flex items-center gap-1.5 text-xs font-semibold text-text"
+                                                                            type="button"
+                                                                            disabled={disabled}
+                                                                            onClick={() => {
+                                                                                const nextPhases = checked
+                                                                                    ? phases.filter((p) => p !== phase)
+                                                                                    : [...phases, phase].sort(
+                                                                                          (a, b) => a - b,
+                                                                                      )
+                                                                                updateEntity(index, {
+                                                                                    phases: nextPhases,
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }}
+                                                                            className={`
+                                                                                px-3.5 py-1.5 rounded-lg text-xs font-semibold border transition-all duration-200
+                                                                                ${
+                                                                                    checked
+                                                                                        ? 'bg-accent/20 border-accent/50 text-accent shadow-[0_0_10px_rgba(var(--accent-rgb),0.05)] font-bold'
+                                                                                        : 'bg-surface2 border-line/50 text-muted hover:border-accent/40 hover:text-text'
+                                                                                }
+                                                                                disabled:opacity-40 disabled:cursor-not-allowed
+                                                                            `}
                                                                         >
-                                                                            <input
-                                                                                type="checkbox"
-                                                                                checked={checked}
-                                                                                disabled={disabled}
-                                                                                onChange={() => {
-                                                                                    const nextPhases = checked
-                                                                                        ? phases.filter(
-                                                                                              (p) => p !== phase,
-                                                                                          )
-                                                                                        : [...phases, phase].sort(
-                                                                                              (a, b) => a - b,
-                                                                                          )
-                                                                                    updateEntity(index, {
-                                                                                        phases: nextPhases,
-                                                                                    } as Partial<EVChargerEntity>)
-                                                                                }}
-                                                                            />
                                                                             L{phase}
-                                                                        </label>
+                                                                        </button>
                                                                     )
                                                                 })}
                                                             </div>
-                                                            <p className="text-[10px] text-muted mt-1">
+                                                            <p className="text-[10px] text-muted mt-1.5">
                                                                 Phases this charger draws current on.
                                                             </p>
                                                         </div>

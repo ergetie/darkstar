@@ -1369,6 +1369,48 @@ class ActionDispatcher:
         except Exception as e:
             logger.warning("Failed to send notification: %s", e)
 
+    async def notify_balancer_intervention(self, message: str) -> None:
+        """Balancer intervention notification (load-balancing-completion 5.1).
+
+        HA notify via the configured service first; falls back to the Discord
+        webhook from secrets.yaml when HA delivery fails or no service is set.
+        Gating (notify_interventions, once per transition) is the engine's job.
+        """
+        title = "Darkstar Load Balancer"
+        if self.shadow_mode:
+            logger.info("[SHADOW] Would send balancer notification: %s", message)
+            return
+
+        sent = False
+        try:
+            sent = await self.ha.send_notification(
+                self.config.notifications.service, title, message
+            )
+        except Exception as e:
+            logger.warning("Balancer HA notification failed: %s", e)
+
+        if not sent:
+            try:
+                from backend.core.secrets import load_notifications_config
+                from backend.notify import send_critical_notification
+
+                webhook = load_notifications_config().get("discord_webhook_url")
+                if webhook:
+                    await asyncio.to_thread(
+                        send_critical_notification,
+                        title,
+                        message,
+                        discord_webhook_url=webhook,
+                    )
+                else:
+                    logger.warning(
+                        "Balancer notification undeliverable (no HA service, "
+                        "no Discord webhook): %s",
+                        message,
+                    )
+            except Exception as e:
+                logger.warning("Balancer Discord fallback failed: %s", e)
+
     async def notify_override(self, override_type: str, reason: str) -> None:
         """Send notification about an override activation."""
         if self.config.notifications.on_override_activated:

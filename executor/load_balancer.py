@@ -78,7 +78,11 @@ def planned_kw_to_amps(
 
 @dataclass
 class EVBalancerInput:
-    """Per-tick balancer input for one type="current" EV charger."""
+    """Per-tick balancer input for one type="current" EV charger.
+
+    Give-way position is the entry's index in the ordered list passed to
+    `tick()` (built from load_balancing.give_way_order — top gives way first).
+    """
 
     charger_id: str
     phases: list[int]
@@ -86,10 +90,6 @@ class EVBalancerInput:
     planner_target_a: int | None  # None = plan does not want this charger charging
     min_current_a: int
     max_current_a: int
-    # Lower number gives way first when multiple dynamically-throttled
-    # chargers share an overloaded phase. Resolved by the caller from
-    # load_balancing.charger_priority (default: position in ev_chargers[]).
-    priority: int = 0
 
 
 @dataclass
@@ -105,12 +105,12 @@ class EVBalancerOutput:
 @dataclass
 class ShedLoadInput:
     """A configured on/off balanced load (water heater, custom entity, or a
-    binary-type EV charger declared in load_balancing.loads)."""
+    binary-type EV charger declared in load_balancing.loads). Give-way position
+    is the entry's index in the ordered list passed to `tick()`."""
 
     load_id: str
     device_type: str
     phases: list[int]
-    priority: int
 
 
 @dataclass
@@ -140,28 +140,36 @@ class LoadBalancerStatus:
 class LoadBalancer:
     """Real-time per-phase fuse protection guard.
 
-    Holds anti-flap state (pause timestamps, stale timers, shed order) between
+    Holds anti-flap state (pause timestamps, stale timers, shed times) between
     ticks. `tick()` is pure — it takes a snapshot of measured phase currents
-    plus the intended EV/load state and returns capped setpoints and shed
-    decisions; it never calls Home Assistant itself. Multiple EV chargers
-    sharing a phase are resolved by priority-ordered sequential allocation
-    (see `_resolve_ev`): the lowest-priority-number charger is evaluated
-    first against the raw headroom, and its resulting draw change is folded
-    into a running headroom pool before the next-priority charger is
-    evaluated — so a charger further down the priority order only gives way
-    for whatever deficit remains after every charger ahead of it is already
-    at its floor or paused. A single-charger setup sees no observable change
-    (there is no "next" charger to consult the pool).
+    plus an ordered list of give-way entries (built from
+    load_balancing.give_way_order — top gives way first) and returns capped
+    setpoints and shed decisions; it never calls Home Assistant itself.
+
+    Give-way resolution is a single top-down pass: each entry drawing on an
+    overloaded phase gives way fully before the next entry is touched. A
+    charger entry gives way by immediate setpoint reduction toward its floor
+    (its draw change is folded into a running headroom pool, so an entry
+    further down only gives way for whatever deficit remains), then pauses —
+    pausing is position-aware: it only happens once no entry above the charger
+    on that phase can still give way. A shed entry gives way by switching off;
+    its relief is measured on subsequent ticks, so entries below it on the
+    same phase(s) hold for one tick rather than over-reacting.
+
+    Restore runs in exact reverse list order (the last entry to give way is
+    restored first), gated per entry by the unchanged resume delay + margin
+    rules; at most one shed load is reconnected per tick so each restore's
+    load is measured before the next.
     """
 
     def __init__(self, config: LoadBalancingConfig):
         self.config = config
         self._ev_paused_at: dict[str, datetime] = {}
         self._ev_stale_since: dict[str, datetime] = {}
-        # Shed stack: append on shed, pop from the end to restore (LIFO — most
-        # recently shed load is restored first, per the reverse-order spec).
-        self._shed_stack: list[str] = []
+        # Currently-shed loads: load_id -> shed timestamp (+ human reason).
+        # Restore order comes from reverse list position, not insertion order.
         self._shed_at: dict[str, datetime] = {}
+        self._shed_reason: dict[str, str] = {}
 
     def _is_stale(
         self,
@@ -187,8 +195,16 @@ class LoadBalancer:
         pool_headroom: dict[int, float],
         main_fuse_a: int,
         margin_ok: Callable[[list[int]], bool],
+        resume_blocked: bool = False,
+        hold_for_relief: bool = False,
     ) -> tuple[EVBalancerOutput, bool, bool, bool]:
         """Resolve one EV charger's decision against the current headroom pool.
+
+        resume_blocked: a give-way entry below this charger is still paused or
+        shed — restore happens in exact reverse list order, so this charger
+        may not resume yet. hold_for_relief: a shed entry above this charger
+        gave way this tick on a shared phase; its relief is unmeasured, so
+        hold the current setpoint instead of reducing or pausing.
 
         Returns (output, is_stale, is_paused, is_throttling) — the three
         flags feed the tick-level `any_*` aggregates that drive the overall
@@ -246,24 +262,39 @@ class LoadBalancer:
                 elapsed = (now - paused_at).total_seconds()
                 resume_ok = (
                     elapsed >= self.config.resume_delay_s
+                    and not resume_blocked
                     and margin_ok(binding_phases)
                     and binding_headroom >= ev.min_current_a
                 )
                 if not resume_ok:
+                    reason = (
+                        "Waiting to resume — a lower-listed give-way entry must restore first"
+                        if resume_blocked and elapsed >= self.config.resume_delay_s
+                        else f"Waiting to resume (headroom {binding_headroom:.1f}A, "
+                        f"paused {int(elapsed)}s ago)"
+                    )
                     return (
-                        EVBalancerOutput(
-                            ev.charger_id,
-                            None,
-                            "paused",
-                            f"Waiting to resume (headroom {binding_headroom:.1f}A, "
-                            f"paused {int(elapsed)}s ago)",
-                        ),
+                        EVBalancerOutput(ev.charger_id, None, "paused", reason),
                         False,
                         True,
                         False,
                     )
                 self._ev_paused_at.pop(ev.charger_id, None)
             elif binding_headroom < ev.min_current_a:
+                if hold_for_relief:
+                    # A higher-listed shed entry gave way this tick; don't
+                    # start the pause clock before its relief is measured.
+                    return (
+                        EVBalancerOutput(
+                            ev.charger_id,
+                            None,
+                            "paused",
+                            "Waiting for shed relief before starting to charge",
+                        ),
+                        False,
+                        True,
+                        False,
+                    )
                 self._ev_paused_at[ev.charger_id] = now
                 return (
                     EVBalancerOutput(
@@ -290,6 +321,28 @@ class LoadBalancer:
         # Currently charging at ev.current_setpoint_a
         setpoint = ev.current_setpoint_a
         if binding_headroom < 0:
+            if hold_for_relief:
+                # A higher-listed shed entry gave way this tick on a shared
+                # phase — hold the setpoint until its relief is measured
+                # instead of reducing (or pausing) below it. Still never
+                # above the planned charging level.
+                hold_ceiling = (
+                    min(ev.max_current_a, ev.planner_target_a)
+                    if ev.planner_target_a is not None
+                    else setpoint
+                )
+                hold_target = min(setpoint, hold_ceiling)
+                return (
+                    EVBalancerOutput(
+                        ev.charger_id,
+                        hold_target,
+                        "throttling",
+                        f"Holding {hold_target}A — waiting for shed relief on overloaded phase(s)",
+                    ),
+                    False,
+                    False,
+                    True,
+                )
             new_target = math.floor(setpoint + binding_headroom)
             if new_target < ev.min_current_a:
                 self._ev_paused_at[ev.charger_id] = now
@@ -368,9 +421,9 @@ class LoadBalancer:
         now: datetime,
         grid_current_a: dict[int, float] | None,
         grid_current_updated_at: dict[int, datetime] | None,
-        ev_inputs: list[EVBalancerInput],
-        loads: list[ShedLoadInput],
+        entries: list[EVBalancerInput | ShedLoadInput],
     ) -> LoadBalancerStatus:
+        """Run one balancer tick over the ordered give-way entries (top first)."""
         main_fuse_a = self.config.main_fuse_a
         if not self.config.enabled or main_fuse_a is None:
             return LoadBalancerStatus(
@@ -386,96 +439,124 @@ class LoadBalancer:
         updated_at = grid_current_updated_at or {}
         headroom = {p: main_fuse_a - phase_current[p] for p in phase_current}
         # Running headroom pool consumed/replenished as each charger is
-        # resolved in priority order (see class docstring); kept separate
-        # from `headroom` (raw, used for shedding below) so single-charger
+        # resolved top-down (see class docstring); kept separate from
+        # `headroom` (raw, used for restore checks) so single-charger
         # behavior is unaffected by this bookkeeping.
         pool_headroom = dict(headroom)
         margin_threshold = main_fuse_a * self.config.resume_margin_percent / 100.0
-        min_current_by_id = {ev.charger_id: ev.min_current_a for ev in ev_inputs}
 
         def margin_ok(phases: list[int]) -> bool:
             return all(phase_current.get(p, main_fuse_a) < margin_threshold for p in phases)
 
+        # Drop shed state for loads no longer configured (order self-heals at
+        # config load; a dangling id here would block restores forever).
+        valid_shed_ids = {e.load_id for e in entries if isinstance(e, ShedLoadInput)}
+        for shed_id in list(self._shed_at):
+            if shed_id not in valid_shed_ids:
+                self._shed_at.pop(shed_id, None)
+                self._shed_reason.pop(shed_id, None)
+
+        def has_given_way(entry: EVBalancerInput | ShedLoadInput) -> bool:
+            if isinstance(entry, EVBalancerInput):
+                return entry.charger_id in self._ev_paused_at
+            return entry.load_id in self._shed_at
+
+        # --- Restore pass: exact reverse list order — the last entry to give
+        # way restores first. Runs before the give-way pass so a charger can
+        # resume in the same tick its lower-listed shed load reconnects. At
+        # most one shed load reconnects per tick (each restore's real draw is
+        # measured before the next); a still-given-way entry blocks every
+        # restore above it.
+        shed_restore_done = False
+        for entry in reversed(entries):
+            if not has_given_way(entry):
+                continue
+            if isinstance(entry, EVBalancerInput):
+                # Charger resume is decided in the give-way pass (per-charger
+                # delay + margin gating); until it resumes it blocks restores
+                # of entries above it.
+                break
+            if shed_restore_done:
+                break
+            shed_at = self._shed_at[entry.load_id]
+            elapsed = (now - shed_at).total_seconds()
+            healthy = all(headroom.get(p, main_fuse_a) >= 0 for p in entry.phases)
+            if elapsed >= self.config.resume_delay_s and healthy and margin_ok(entry.phases):
+                self._shed_at.pop(entry.load_id, None)
+                self._shed_reason.pop(entry.load_id, None)
+                shed_restore_done = True
+            else:
+                break
+
+        # --- Give-way pass: top-down; each entry gives way fully before the
+        # next is touched. Chargers fold their draw change into the pool
+        # (known relief); a shed action marks its phases pending so entries
+        # below hold one tick while its relief is measured.
         outputs_by_id: dict[str, EVBalancerOutput] = {}
+        pending_relief_phases: set[int] = set()
         any_stale_fallback = False
         any_paused = False
         any_throttling = False
 
-        ordered_evs = sorted(ev_inputs, key=lambda ev: (ev.priority, ev.charger_id))
-        for ev in ordered_evs:
-            binding_phases = ev.phases or [1, 2, 3]
-            output, is_stale, is_paused, is_throttling = self._resolve_ev(
-                ev,
-                binding_phases,
-                now,
-                phase_current,
-                updated_at,
-                pool_headroom,
-                main_fuse_a,
-                margin_ok,
-            )
-            any_stale_fallback = any_stale_fallback or is_stale
-            any_paused = any_paused or is_paused
-            any_throttling = any_throttling or is_throttling
-            outputs_by_id[ev.charger_id] = output
+        for idx, entry in enumerate(entries):
+            if isinstance(entry, EVBalancerInput):
+                binding_phases = entry.phases or [1, 2, 3]
+                resume_blocked = any(has_given_way(e) for e in entries[idx + 1 :])
+                hold_for_relief = bool(set(binding_phases) & pending_relief_phases)
+                output, is_stale, is_paused, is_throttling = self._resolve_ev(
+                    entry,
+                    binding_phases,
+                    now,
+                    phase_current,
+                    updated_at,
+                    pool_headroom,
+                    main_fuse_a,
+                    margin_ok,
+                    resume_blocked=resume_blocked,
+                    hold_for_relief=hold_for_relief,
+                )
+                any_stale_fallback = any_stale_fallback or is_stale
+                any_paused = any_paused or is_paused
+                any_throttling = any_throttling or is_throttling
+                outputs_by_id[entry.charger_id] = output
 
-            # Fold this charger's resulting draw change into the pool so the
-            # next-priority charger sees the deficit that actually remains.
-            previous_draw = ev.current_setpoint_a or 0
-            new_draw = output.target_a or 0
-            delta = previous_draw - new_draw
-            if delta:
-                for p in binding_phases:
-                    pool_headroom[p] = pool_headroom.get(p, main_fuse_a) + delta
+                # Fold this charger's resulting draw change into the pool so
+                # the next entry sees the deficit that actually remains.
+                previous_draw = entry.current_setpoint_a or 0
+                new_draw = output.target_a or 0
+                delta = previous_draw - new_draw
+                if delta:
+                    for p in binding_phases:
+                        pool_headroom[p] = pool_headroom.get(p, main_fuse_a) + delta
+                continue
 
-        # Preserve caller's input order for the status surface — priority only
-        # governs allocation order, not display/reporting order.
-        ev_outputs = [outputs_by_id[ev.charger_id] for ev in ev_inputs]
+            # Shed entry
+            if entry.load_id in self._shed_at or not entry.phases:
+                continue  # already given way (exhausted) / not actionable
+            overloaded = [p for p in entry.phases if pool_headroom.get(p, main_fuse_a) < 0]
+            if overloaded and not (set(entry.phases) & pending_relief_phases):
+                self._shed_at[entry.load_id] = now
+                self._shed_reason[entry.load_id] = (
+                    f"Shed: phase(s) {overloaded} overloaded, every higher give-way entry exhausted"
+                )
+                pending_relief_phases |= set(entry.phases)
 
-        # Shedding: only when every EV is already at its floor, paused, or
-        # stale-limited (simplified single-pool gate — see class docstring).
-        ev_at_floor_or_paused = all(
-            out.target_a is None or out.target_a <= min_current_by_id.get(out.charger_id, 0)
-            for out in ev_outputs
-        )
-
-        if ev_at_floor_or_paused:
-            shed_ids = set(self._shed_stack)
-            candidates = sorted(
-                (ld for ld in loads if ld.load_id not in shed_ids),
-                key=lambda ld: ld.priority,
-            )
-            for ld in candidates:
-                if any(headroom.get(p, main_fuse_a) < 0 for p in ld.phases):
-                    self._shed_stack.append(ld.load_id)
-                    self._shed_at[ld.load_id] = now
-                    break  # one shed action per tick
-
-        if self._shed_stack:
-            top_id = self._shed_stack[-1]
-            top_load = next((ld for ld in loads if ld.load_id == top_id), None)
-            shed_at = self._shed_at.get(top_id)
-            if top_load is not None and shed_at is not None:
-                elapsed = (now - shed_at).total_seconds()
-                healthy = all(headroom.get(p, main_fuse_a) >= 0 for p in top_load.phases)
-                if elapsed >= self.config.resume_delay_s and healthy and margin_ok(top_load.phases):
-                    self._shed_stack.pop()
-                    self._shed_at.pop(top_id, None)
-
-        shed_id_set = set(self._shed_stack)
+        ev_inputs = [e for e in entries if isinstance(e, EVBalancerInput)]
+        ev_outputs = [outputs_by_id[e.charger_id] for e in ev_inputs]
         shed_outputs = [
             ShedLoadOutput(
-                ld.load_id,
-                ld.device_type,
-                ld.load_id in shed_id_set,
-                reason=("Shed: phase overloaded, EV at floor" if ld.load_id in shed_id_set else ""),
+                e.load_id,
+                e.device_type,
+                e.load_id in self._shed_at,
+                reason=self._shed_reason.get(e.load_id, ""),
             )
-            for ld in loads
+            for e in entries
+            if isinstance(e, ShedLoadInput)
         ]
 
         if any_paused:
             state = "paused"
-        elif self._shed_stack:
+        elif self._shed_at:
             state = "shedding"
         elif any_stale_fallback:
             state = "stale_fallback"

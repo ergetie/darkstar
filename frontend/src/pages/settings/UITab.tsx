@@ -87,7 +87,7 @@ export const UITab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) =>
                                                             animate="animate"
                                                             exit="exit"
                                                             transition={{ duration: 0.2, ease: 'easeOut' }}
-                                                            className="overflow-visible pb-4"
+                                                            className={`overflow-visible pb-4 ${field.className || ''}`}
                                                         >
                                                             <SettingsField
                                                                 field={field}

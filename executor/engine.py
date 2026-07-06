@@ -37,7 +37,13 @@ from backend.core.secrets import load_home_assistant_config
 from backend.loads.service import LoadDisaggregator
 
 from .actions import ActionDispatcher, ActionResult, HAClient
-from .config import BalancedLoadType, EVChargerDeviceConfig, load_executor_config, load_yaml
+from .config import (
+    BalancedLoadType,
+    EVChargerDeviceConfig,
+    heal_give_way_order,
+    load_executor_config,
+    load_yaml,
+)
 from .controller import ControllerDecision, make_decision
 from .history import ExecutionHistory, ExecutionRecord
 from .load_balancer import (
@@ -239,6 +245,17 @@ class ExecutorEngine:
         self._load_balancer = LoadBalancer(self.config.load_balancing)
         self._last_balancer_status: LoadBalancerStatus | None = None
         self._last_balancer_planned_targets: dict[str, int | None] = {}
+
+        # Sustained-throttle early replan (load-balancing-completion 4.x):
+        # per-charger start of the continuous balancer-constrained period,
+        # and the last balancer-triggered replan (global rate limit).
+        self._balancer_throttled_since: dict[str, datetime] = {}
+        self._last_balancer_replan_at: datetime | None = None
+
+        # Intervention notifications (load-balancing-completion 5.x): previous
+        # per-device balancer states, to notify once per qualifying transition.
+        self._notified_ev_states: dict[str, str] = {}
+        self._notified_shed_states: dict[str, bool] = {}
 
         # Execution-log throttling state (5.2): log only on change or once per
         # 15-min slot heartbeat, so high-frequency ticks don't flood the DB.
@@ -1401,6 +1418,11 @@ class ExecutorEngine:
             balancer_status = self._run_load_balancer(state, original_slot, now)
             self._last_balancer_status = balancer_status
 
+            # Sustained-throttle early replan + intervention notifications
+            # (load-balancing-completion 4.x/5.x)
+            self._track_balancer_throttling(balancer_status, now)
+            await self._notify_balancer_interventions(balancer_status)
+
             # Emit live metrics for UI sparklines (Rev E1) + balancer status (6.1)
             try:
                 from backend.events import emit_live_metrics
@@ -2278,26 +2300,25 @@ class ExecutorEngine:
     def _run_load_balancer(
         self, state: SystemState, slot: "SlotPlan | None", now: datetime
     ) -> LoadBalancerStatus:
-        """Build balancer inputs from current state/plan and run one tick (4.7).
+        """Build ordered balancer inputs from give_way_order and run one tick.
 
         Uses each EV's active_phases as measured as of the *start* of this
         tick (last tick's reading) rather than re-fetching from HA here, to
         avoid a duplicate sensor read — _control_ev_charger refreshes it a
         moment later before actuation.
         """
-        ev_inputs: list[EVBalancerInput] = []
-        current_type_index = 0
+        lb_cfg = self.config.load_balancing
+        # Idempotent runtime self-heal: guarantees every current-type charger
+        # and every loads[] entry has a position even if the config object was
+        # built without give_way_order (tests, partial reloads).
+        heal_give_way_order(lb_cfg, [c.id for c in self.config.ev_chargers if c.type == "current"])
+
+        ev_inputs_by_id: dict[str, EVBalancerInput] = {}
         for charger_cfg in self.config.ev_chargers:
             if charger_cfg.type != "current":
                 continue
 
             charger_id = charger_cfg.id
-            # Priority: explicit load_balancing.charger_priority entry, else
-            # this charger's position among type="current" chargers.
-            priority = self.config.load_balancing.charger_priority.get(
-                charger_id, current_type_index
-            )
-            current_type_index += 1
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
             should_charge = charger_plan_kw > 0.1
             dev_state = self._ev_charger_states.get(charger_id)
@@ -2314,41 +2335,159 @@ class ExecutorEngine:
                 if should_charge
                 else None
             )
-            ev_inputs.append(
-                EVBalancerInput(
-                    charger_id=charger_id,
-                    phases=phases,
-                    current_setpoint_a=dev_state.current_setpoint_a if dev_state else None,
-                    planner_target_a=planner_target_a,
-                    min_current_a=charger_cfg.min_current_a,
-                    max_current_a=max_current_a,
-                    priority=priority,
-                )
+            ev_inputs_by_id[charger_id] = EVBalancerInput(
+                charger_id=charger_id,
+                phases=phases,
+                current_setpoint_a=dev_state.current_setpoint_a if dev_state else None,
+                planner_target_a=planner_target_a,
+                min_current_a=charger_cfg.min_current_a,
+                max_current_a=max_current_a,
             )
 
-        shed_inputs = [
-            ShedLoadInput(
+        shed_inputs_by_id = {
+            ld.device_id: ShedLoadInput(
                 load_id=ld.device_id,
                 device_type=ld.device_type.value,
                 phases=ld.phases,
-                priority=ld.priority,
             )
-            for ld in self.config.load_balancing.loads
-        ]
+            for ld in lb_cfg.loads
+        }
+
+        entries: list[EVBalancerInput | ShedLoadInput] = []
+        for order_entry in lb_cfg.give_way_order:
+            if order_entry.kind == "charger" and order_entry.id in ev_inputs_by_id:
+                entries.append(ev_inputs_by_id[order_entry.id])
+            elif order_entry.kind == "shed" and order_entry.id in shed_inputs_by_id:
+                entries.append(shed_inputs_by_id[order_entry.id])
 
         # Stashed for the status surface (6.1): planned target per charger,
         # to report "setpoint vs planned target" alongside the final decision.
         self._last_balancer_planned_targets = {
-            ev.charger_id: ev.planner_target_a for ev in ev_inputs
+            ev.charger_id: ev.planner_target_a for ev in ev_inputs_by_id.values()
         }
 
         return self._load_balancer.tick(
             now,
             state.grid_current_a,
             state.grid_current_updated_at,
-            ev_inputs,
-            shed_inputs,
+            entries,
         )
+
+    def _track_balancer_throttling(self, status: LoadBalancerStatus, now: datetime) -> None:
+        """Sustained-throttle early replan (load-balancing-completion 4.1/4.2).
+
+        Tracks, per charger, the continuous duration the balancer holds the
+        setpoint below the planner target (or paused) while the slot plans
+        charging. Planner-intended low targets never count: the comparison is
+        against the planner-derived target itself. Fires one replan when the
+        duration exceeds replan_after_throttled_s, rate-limited to one
+        balancer-triggered replan per planner interval.
+        """
+        if not status.enabled:
+            self._balancer_throttled_since.clear()
+            return
+
+        threshold = self.config.load_balancing.replan_after_throttled_s
+        for out in status.ev_outputs:
+            planner_target = self._last_balancer_planned_targets.get(out.charger_id)
+            if planner_target is None:
+                # Slot doesn't plan charging for this charger — reset.
+                self._balancer_throttled_since.pop(out.charger_id, None)
+                continue
+            constrained = out.target_a is None or out.target_a < planner_target
+            if not constrained:
+                # Target reached — reset.
+                self._balancer_throttled_since.pop(out.charger_id, None)
+                continue
+            since = self._balancer_throttled_since.setdefault(out.charger_id, now)
+            if (now - since).total_seconds() >= threshold:
+                self._maybe_fire_balancer_replan(out.charger_id, now)
+
+    def _maybe_fire_balancer_replan(self, charger_id: str, now: datetime) -> None:
+        """Fire one balancer-triggered replan, at most one per planner interval."""
+        automation_raw: Any = self._full_config.get("automation", {})
+        automation_cfg: dict[str, Any] = (
+            cast("dict[str, Any]", automation_raw) if isinstance(automation_raw, dict) else {}
+        )
+        schedule_raw: Any = automation_cfg.get("schedule", {})
+        schedule_cfg: dict[str, Any] = (
+            cast("dict[str, Any]", schedule_raw) if isinstance(schedule_raw, dict) else {}
+        )
+        try:
+            interval_minutes = int(schedule_cfg.get("every_minutes", 60))
+        except (TypeError, ValueError):
+            interval_minutes = 60
+
+        last = self._last_balancer_replan_at
+        if last is not None and (now - last).total_seconds() < interval_minutes * 60:
+            return  # rate limit: keep the tracker running, retry when rearmed
+
+        self._last_balancer_replan_at = now
+        self._balancer_throttled_since.pop(charger_id, None)  # reset on fire
+        logger.info(
+            "Load balancer has constrained charger '%s' for over %ss — requesting one early replan",
+            charger_id,
+            self.config.load_balancing.replan_after_throttled_s,
+        )
+        self._request_balancer_replan()
+
+    def _request_balancer_replan(self) -> None:
+        """Request a planner run via the same mechanism as the plug/unplug triggers."""
+        try:
+            from backend.services.scheduler_service import scheduler_service
+
+            task = asyncio.create_task(scheduler_service.trigger_now())
+            self._background_tasks.add(task)
+
+            def _on_done(t: "asyncio.Task[Any]") -> None:
+                self._background_tasks.discard(t)
+                try:
+                    t.result()
+                except Exception as exc:
+                    logger.error("Balancer-triggered replan failed: %s", exc)
+
+            task.add_done_callback(_on_done)
+        except Exception as e:
+            logger.error("Failed to request balancer-triggered replan: %s", e)
+
+    async def _notify_balancer_interventions(self, status: LoadBalancerStatus) -> None:
+        """Intervention notifications (load-balancing-completion 5.1).
+
+        Notifies once per qualifying transition — a load is shed, a charger is
+        paused, or the stale-sensor fail-safe engages — with the same
+        human-readable reason as the execution log. Routine throttle/ramp
+        adjustments never notify. State maps update even while the toggle is
+        off, so enabling it later doesn't fire for pre-existing states.
+        """
+        if not status.enabled:
+            self._notified_ev_states.clear()
+            self._notified_shed_states.clear()
+            return
+
+        dispatcher = self.dispatcher if self.config.load_balancing.notify_interventions else None
+        charger_names = {ev.id: (ev.name or ev.id) for ev in self.config.ev_chargers}
+
+        for out in status.ev_outputs:
+            prev = self._notified_ev_states.get(out.charger_id)
+            if (
+                out.state in ("paused", "stale_fallback")
+                and out.state != prev
+                and dispatcher is not None
+            ):
+                label = (
+                    "charging paused" if out.state == "paused" else "stale-sensor fail-safe engaged"
+                )
+                name = charger_names.get(out.charger_id, out.charger_id)
+                await dispatcher.notify_balancer_intervention(f"{name}: {label} — {out.reason}")
+            self._notified_ev_states[out.charger_id] = out.state
+
+        for shed_out in status.shed_outputs:
+            prev_shed = self._notified_shed_states.get(shed_out.load_id, False)
+            if shed_out.shed and not prev_shed and dispatcher is not None:
+                await dispatcher.notify_balancer_intervention(
+                    f"Load '{shed_out.load_id}' switched off — {shed_out.reason}"
+                )
+            self._notified_shed_states[shed_out.load_id] = shed_out.shed
 
     def get_load_balancer_status(self) -> dict[str, Any]:
         """Serialize the latest balancer tick for the status surface (6.1/6.2)."""
@@ -2360,6 +2499,7 @@ class ExecutorEngine:
                 "reason": status.reason if status else "Load balancing disabled or unconfigured",
                 "main_fuse_a": status.main_fuse_a if status else None,
                 "resume_margin_percent": self.config.load_balancing.resume_margin_percent,
+                "tick_interval_s": self.config.interval_seconds,
                 "phase_current_a": {},
                 "phase_headroom_a": {},
                 "ev": [],
@@ -2374,6 +2514,7 @@ class ExecutorEngine:
             "reason": status.reason,
             "main_fuse_a": status.main_fuse_a,
             "resume_margin_percent": self.config.load_balancing.resume_margin_percent,
+            "tick_interval_s": self.config.interval_seconds,
             "phase_current_a": status.phase_current_a,
             "phase_headroom_a": status.phase_headroom_a,
             "ev": [

@@ -50,20 +50,42 @@ function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]): stri
     return `${ev.setpoint_a}A`
 }
 
+function formatAge(ageSeconds: number): string {
+    if (ageSeconds < 60) return `${Math.max(0, Math.round(ageSeconds))}s ago`
+    if (ageSeconds < 3600) return `${Math.floor(ageSeconds / 60)}m ago`
+    return `${Math.floor(ageSeconds / 3600)}h ago`
+}
+
 export default function LoadBalancerStatusCard() {
     const [status, setStatus] = useState<LoadBalancerStatusResponse | null>(null)
+    // Timestamp (ms epoch) of the latest received payload, for "updated Xs ago"
+    const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null)
+    const [nowMs, setNowMs] = useState<number>(() => Date.now())
 
     useEffect(() => {
         Api.executor
             .loadBalancerStatus()
-            .then(setStatus)
+            .then((s) => {
+                setStatus(s)
+                setLastUpdatedAt(Date.now())
+            })
             .catch((err) => console.error('Failed to load load-balancer status', err))
     }, [])
 
     useSocket('live_metrics', (data: unknown) => {
-        const payload = data as { load_balancing?: LoadBalancerStatusResponse }
-        if (payload.load_balancing) setStatus(payload.load_balancing)
+        const payload = data as { load_balancing?: LoadBalancerStatusResponse; timestamp?: string }
+        if (payload.load_balancing) {
+            setStatus(payload.load_balancing)
+            const ts = payload.timestamp ? Date.parse(payload.timestamp) : NaN
+            setLastUpdatedAt(Number.isNaN(ts) ? Date.now() : ts)
+        }
     })
+
+    // Keep the freshness indicator ticking continuously.
+    useEffect(() => {
+        const timer = setInterval(() => setNowMs(Date.now()), 1000)
+        return () => clearInterval(timer)
+    }, [])
 
     if (!status) {
         return (
@@ -104,12 +126,30 @@ export default function LoadBalancerStatusCard() {
     const stateColor = STATE_COLORS[status.state] || 'text-muted'
     const StateIcon = status.state === 'idle' ? ShieldCheck : status.state === 'paused' ? PauseCircle : ShieldAlert
 
+    // Freshness: quiet near-zero bars must stay distinguishable from a dead
+    // feed. Stale once the payload age materially exceeds the tick interval.
+    const tickIntervalS = status.tick_interval_s ?? 300
+    const ageSeconds = lastUpdatedAt !== null ? (nowMs - lastUpdatedAt) / 1000 : null
+    const isStale = ageSeconds !== null && ageSeconds > Math.max(3 * tickIntervalS, 15)
+
     return (
         <Card className="p-4 md:p-5 space-y-4">
             <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                     <Gauge size={16} className="text-muted" />
                     <span className="text-xs font-bold uppercase tracking-wider text-muted">Load Balancing</span>
+                    {ageSeconds !== null && (
+                        <span
+                            data-testid="lb-freshness"
+                            className={`text-[10px] font-medium ${
+                                isStale ? 'rounded bg-bad/10 px-1.5 py-0.5 font-bold text-bad' : 'text-muted'
+                            }`}
+                        >
+                            {isStale
+                                ? `stale — last update ${formatAge(ageSeconds)}`
+                                : `updated ${formatAge(ageSeconds)}`}
+                        </span>
+                    )}
                 </div>
                 <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide ${stateColor}`}>
                     <StateIcon size={14} />
@@ -126,7 +166,13 @@ export default function LoadBalancerStatusCard() {
                             <div className="flex items-center justify-between text-[10px] text-muted mb-1">
                                 <span className="font-bold">L{phase}</span>
                                 <span className="font-mono">
-                                    {currentA.toFixed(1)}A / {fuseA}A
+                                    {/* Raw reading as secondary text: near-zero homes see life in the numbers */}
+                                    <span className="mr-1.5 text-muted/60" data-testid={`lb-raw-l${phase}`}>
+                                        {currentA.toFixed(3)}A
+                                    </span>
+                                    <span>
+                                        {currentA.toFixed(1)}A / {fuseA}A
+                                    </span>
                                 </span>
                             </div>
                             <div className="relative h-2 rounded-full bg-surface2 overflow-hidden">

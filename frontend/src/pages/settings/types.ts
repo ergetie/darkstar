@@ -12,7 +12,7 @@ export type FieldType =
     | 'penalty_levels'
     | 'entity_array'
     | 'balanced_loads'
-    | 'charger_priority'
+    | 'give_way_list'
     | 'info'
 
 export interface HaEntity {
@@ -708,6 +708,7 @@ export const uiSections: SettingsSection[] = [
                 helper: 'e.g. notify.mobile_app_iphone',
                 path: ['executor', 'notifications', 'service'],
                 type: 'service',
+                className: 'col-span-2',
             },
             {
                 key: 'executor.notifications.on_charge_start',
@@ -762,6 +763,13 @@ export const uiSections: SettingsSection[] = [
                 label: 'On error',
                 path: ['executor', 'notifications', 'on_error'],
                 type: 'boolean',
+            },
+            {
+                key: 'load_balancing.notify_interventions',
+                label: 'Notify on load balancer interventions',
+                path: ['load_balancing', 'notify_interventions'],
+                type: 'boolean',
+                helper: 'Send a notification when a load is shed, a charger is paused, or the stale-sensor fail-safe engages. Routine throttle adjustments never notify.',
             },
         ],
     },
@@ -1182,20 +1190,6 @@ export const loadBalancingSections: SettingsSection[] = [
                 helper: 'Home Assistant sensor reporting phase L1 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
             },
             {
-                key: 'input_sensors.grid_current_l2',
-                label: 'Grid Current/Power sensor — L2',
-                path: ['input_sensors', 'grid_current_l2'],
-                type: 'entity',
-                helper: 'Home Assistant sensor reporting phase L2 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
-            },
-            {
-                key: 'input_sensors.grid_current_l3',
-                label: 'Grid Current/Power sensor — L3',
-                path: ['input_sensors', 'grid_current_l3'],
-                type: 'entity',
-                helper: 'Home Assistant sensor reporting phase L3 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
-            },
-            {
                 key: 'input_sensors.grid_voltage_l1',
                 label: 'Grid voltage sensor — L1',
                 path: ['input_sensors', 'grid_voltage_l1'],
@@ -1204,12 +1198,26 @@ export const loadBalancingSections: SettingsSection[] = [
                 helper: 'Optional. Used to convert L1 to current when it’s a power sensor. Falls back to the nominal voltage below if left blank.',
             },
             {
+                key: 'input_sensors.grid_current_l2',
+                label: 'Grid Current/Power sensor — L2',
+                path: ['input_sensors', 'grid_current_l2'],
+                type: 'entity',
+                helper: 'Home Assistant sensor reporting phase L2 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
+            },
+            {
                 key: 'input_sensors.grid_voltage_l2',
                 label: 'Grid voltage sensor — L2',
                 path: ['input_sensors', 'grid_voltage_l2'],
                 type: 'entity',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
                 helper: 'Optional. Used to convert L2 to current when it’s a power sensor. Falls back to the nominal voltage below if left blank.',
+            },
+            {
+                key: 'input_sensors.grid_current_l3',
+                label: 'Grid Current/Power sensor — L3',
+                path: ['input_sensors', 'grid_current_l3'],
+                type: 'entity',
+                helper: 'Home Assistant sensor reporting phase L3 current (A) or power (W/kW) at the grid connection point — the kind is auto-detected from the entity’s unit.',
             },
             {
                 key: 'input_sensors.grid_voltage_l3',
@@ -1224,35 +1232,22 @@ export const loadBalancingSections: SettingsSection[] = [
                 label: 'Nominal voltage (V)',
                 path: ['load_balancing', 'nominal_voltage_v'],
                 type: 'number',
+                className: 'col-span-2',
                 showIf: { configKey: '_computed.any_phase_power_mode', value: true },
                 helper: 'Fallback voltage for converting a power sensor to current when that phase has no voltage sensor set above. Deliberately biased below 230V so a fixed value never under-reports current during a sag.',
             },
         ],
     },
     {
-        title: 'Dynamically Throttled Chargers',
+        title: 'Give-Way Order',
         description:
-            'Every EV charger configured with a variable-current setpoint (type: current, set in the EV tab) is always in this group and throttled continuously in real time — it never needs to be added manually. When several such chargers share an overloaded phase, priority decides the order: the charger with the lowest number is reduced toward its floor first, fully, before the next one is touched at all.',
+            'Everything the balancer can act on, in one ordered list — the top entry gives way first when a phase overloads, and entries recover in exact reverse order. Drag rows (or use the arrow buttons) to match your household preference, e.g. shed the water heater before slowing the car.',
         fields: [
             {
-                key: 'load_balancing.charger_priority',
-                label: 'Charger priority',
-                path: ['load_balancing', 'charger_priority'],
-                type: 'charger_priority',
-                className: 'col-span-2',
-            },
-        ],
-    },
-    {
-        title: 'Shed as Last Resort',
-        description:
-            "Loads the balancer can shed as a last resort, once every dynamically throttled charger above is already at its floor or paused. Phase assignment must match your home's actual wiring — the balancer can only protect a phase it knows a load sits on.",
-        fields: [
-            {
-                key: 'load_balancing.loads',
-                label: 'Balanced loads',
-                path: ['load_balancing', 'loads'],
-                type: 'balanced_loads',
+                key: 'load_balancing.give_way_order',
+                label: 'Give-way order',
+                path: ['load_balancing', 'give_way_order'],
+                type: 'give_way_list',
                 className: 'col-span-2',
             },
         ],
@@ -1527,7 +1522,20 @@ export const evFieldList = evSections.flatMap((section) => section.fields)
 export const waterFieldList = waterSections.flatMap((section) => section.fields)
 export const uiFieldList = uiSections.flatMap((section) => section.fields)
 export const advancedFieldList = advancedSections.flatMap((section) => section.fields)
-export const loadBalancingFieldList = loadBalancingSections.flatMap((section) => section.fields)
+// load_balancing.loads holds the shed-load definitions; it has no section of
+// its own — the give-way list editor renders and edits it alongside the order.
+const loadBalancingHiddenFields: BaseField[] = [
+    {
+        key: 'load_balancing.loads',
+        label: 'Balanced loads',
+        path: ['load_balancing', 'loads'],
+        type: 'balanced_loads',
+    },
+]
+export const loadBalancingFieldList = [
+    ...loadBalancingSections.flatMap((section) => section.fields),
+    ...loadBalancingHiddenFields,
+]
 
 export const allFields = [
     ...systemFieldList,

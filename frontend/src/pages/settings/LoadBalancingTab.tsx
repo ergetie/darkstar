@@ -38,6 +38,14 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
         '_computed.any_phase_power_mode': anyPhasePowerMode ? 'true' : 'false',
     }
 
+    // Slow-tick warning (load-balancing-completion 6.4): the balancer reacts
+    // and reports only once per executor tick.
+    const executorIntervalSeconds = Number(
+        ((config as Record<string, unknown> | null)?.executor as Record<string, unknown> | undefined)
+            ?.interval_seconds ?? 300,
+    )
+    const showSlowTickWarning = form['load_balancing.enabled'] === 'true' && executorIntervalSeconds > 15
+
     if (loading) {
         return <Card className="p-6 text-sm text-muted">Loading load balancing configuration…</Card>
     }
@@ -51,6 +59,16 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
     return (
         <div className="space-y-4">
             <UnsavedChangesBanner visible={isDirty} onSave={() => save()} saving={saving} />
+
+            {showSlowTickWarning && (
+                <div role="alert" className="rounded-xl border border-accent/40 bg-accent/10 p-3 text-sm text-text">
+                    <span className="font-semibold">Executor tick is too slow for load balancing:</span>{' '}
+                    <code className="text-xs">executor.interval_seconds</code> is {executorIntervalSeconds} s, so the
+                    balancer reacts to an overload (and updates its status) only once every {executorIntervalSeconds}{' '}
+                    seconds. With <code className="text-xs">load_balancing.enabled</code> on, set the executor interval
+                    to 15 s or less (5 s typical) in the Advanced tab.
+                </div>
+            )}
 
             {loadBalancingSections.map((section) => {
                 const isEntirelyAdvanced = section.fields.every((f) => f.isAdvanced)

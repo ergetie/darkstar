@@ -360,8 +360,16 @@ export type LoadBalancerStatusResponse = {
     phase_current_a: Record<string, number>
     phase_headroom_a: Record<string, number>
     resume_margin_percent?: number
+    /** Executor tick interval (s) — the balancer reacts and reports once per tick. */
+    tick_interval_s?: number
     ev: LoadBalancerEvStatus[]
     shed: LoadBalancerShedStatus[]
+}
+
+/** One entry in load_balancing.give_way_order (top gives way first). */
+export type GiveWayOrderEntry = {
+    kind: 'charger' | 'shed'
+    id: string
 }
 
 export type ExecutorHealthResponse = {

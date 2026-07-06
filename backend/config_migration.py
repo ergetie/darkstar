@@ -129,6 +129,12 @@ DEPRECATED_NESTED_KEYS = {
         "low_soc_export_floor",  # Moved to export.export_floor_soc_percent
         "excess_pv_threshold_kw",  # Removed: excess PV now handled by planner
     ],
+    "load_balancing": [
+        # load-balancing-completion: replaced (together with loads[].priority)
+        # by the ordered give_way_order[] list. _migrate_give_way_order() reads
+        # it first to build the new order.
+        "charger_priority",
+    ],
 }
 
 
@@ -343,6 +349,107 @@ def _migrate_ev_charger_fields(config: dict[str, Any]) -> tuple[dict[str, Any], 
             "🔄 Migrated executor.ev_charger.control_mode 'current' -> ev_chargers[0].type: current"
         )
         changed = True
+
+    return config, changed
+
+
+def _migrate_give_way_order(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Migrate load_balancing.charger_priority + loads[].priority to give_way_order[].
+
+    Order: type="current" chargers sorted by their old charger_priority value
+    (fallback: position among current-type ev_chargers[] entries — the old
+    runtime default), followed by loads[] entries sorted by their old priority
+    ascending (lower gave way first in both old lists). Both old keys are then
+    dropped. Idempotent: a config without the old keys is left untouched.
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    changed = False
+
+    lb_raw: Any = config.get("load_balancing", {})
+    if not isinstance(lb_raw, dict):
+        return config, changed
+    lb = cast("dict[str, Any]", lb_raw)
+
+    loads_raw: Any = lb.get("loads", [])
+    loads: list[dict[str, Any]] = (
+        [
+            cast("dict[str, Any]", item)
+            for item in cast("list[Any]", loads_raw)
+            if isinstance(item, dict)
+        ]
+        if isinstance(loads_raw, list)
+        else []
+    )
+
+    has_charger_priority = "charger_priority" in lb
+    has_load_priority = any("priority" in load for load in loads)
+    if not has_charger_priority and not has_load_priority:
+        return config, changed
+
+    if "give_way_order" not in lb:
+        charger_priority_raw: Any = lb.get("charger_priority", {})
+        charger_priority: dict[str, int] = {}
+        if isinstance(charger_priority_raw, dict):
+            for cid, pr in cast("dict[str, Any]", charger_priority_raw).items():
+                try:
+                    charger_priority[str(cid)] = int(pr)
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "Migration: ignoring invalid charger_priority %r for %r", pr, cid
+                    )
+
+        ev_chargers_raw: Any = config.get("ev_chargers", [])
+        current_type_ids: list[str] = []
+        if isinstance(ev_chargers_raw, list):
+            for idx, item in enumerate(cast("list[Any]", ev_chargers_raw)):
+                if not isinstance(item, dict):
+                    continue
+                ev = cast("dict[str, Any]", item)
+                if not ev.get("enabled", True):
+                    continue
+                if str(ev.get("type", "binary")).lower() != "current":
+                    continue
+                current_type_ids.append(str(ev.get("id", f"ev_charger_{idx}")))
+
+        # Mirror the old runtime default: explicit priority, else position
+        # among current-type chargers; stable on ties.
+        ordered_chargers = sorted(
+            enumerate(current_type_ids),
+            key=lambda item: (charger_priority.get(item[1], item[0]), item[0]),
+        )
+
+        def load_priority(item: tuple[int, dict[str, Any]]) -> tuple[int, int]:
+            idx, load = item
+            try:
+                pr = int(load.get("priority", 0))
+            except (TypeError, ValueError):
+                pr = 0
+            return (pr, idx)
+
+        ordered_loads = sorted(enumerate(loads), key=load_priority)
+
+        give_way_order: list[dict[str, str]] = [
+            {"kind": "charger", "id": cid} for _, cid in ordered_chargers
+        ] + [{"kind": "shed", "id": str(load.get("device_id", ""))} for _, load in ordered_loads]
+        lb["give_way_order"] = give_way_order
+        logger.info(
+            "🔄 Migrated load_balancing.charger_priority + loads[].priority -> "
+            f"give_way_order ({len(give_way_order)} entries)"
+        )
+        changed = True
+
+    if "charger_priority" in lb:
+        del lb["charger_priority"]
+        logger.info("✂️  Removed deprecated key: 'load_balancing.charger_priority'")
+        changed = True
+
+    for load in loads:
+        if "priority" in load:
+            del load["priority"]
+            logger.info("✂️  Removed deprecated key: 'load_balancing.loads[].priority'")
+            changed = True
 
     return config, changed
 
@@ -822,6 +929,12 @@ async def migrate_config(
     # 2.1c Add inverter.topology default for configs that have max_ac_power_kw but no topology
     user_config, topology_migration_changes = _migrate_inverter_topology(user_config)
     if topology_migration_changes:
+        pre_merge_changes = True
+
+    # 2.1d Migrate load-balancing priorities to give_way_order (must run before
+    # remove_deprecated_keys, which sweeps load_balancing.charger_priority)
+    user_config, give_way_changes = _migrate_give_way_order(user_config)
+    if give_way_changes:
         pre_merge_changes = True
 
     # 2.2 Sweep deprecated keys from user config

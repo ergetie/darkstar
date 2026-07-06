@@ -33,6 +33,38 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [UI] Notification Connection Test Button
+
+**Goal:** Add a "Send Test Notification" button next to the "HA Notify Service" configuration field in the Settings UI tab.
+
+**Notes:** Allows immediate verification that HA notify and Discord fallbacks are working without having to wait for a real load-balancing or error event.
+
+---
+
+#### [UI] Unsaved Changes Diff Preview
+
+**Goal:** Show a summary list of the changed field values in the Navigation Blocker dialog.
+
+**Notes:** Helps the user see exactly what changes they will discard before navigating away from a tab with unsaved dirty form states.
+
+---
+
+#### [UI] Settings Search / Command Palette (Ctrl+K)
+
+**Goal:** Implement a global quick search bar or keyboard command palette at the top of the settings page.
+
+**Notes:** Allows users to jump directly to any configuration field (e.g. "Main Fuse") across the System, EV, Water, Load Balancing, UI, and Advanced tabs without manual navigation.
+
+---
+
+#### [UI] Live Load-Balancer Status Overlay on Dashboard
+
+**Goal:** Display a live phase current (L1, L2, L3) bar graph and overload status overlay on the main dashboard.
+
+**Notes:** Highlights active load shedding, EV charger throttling, or stale-sensor fallback alerts, including a one-click manual bypass/override control.
+
+---
+
 #### [Testing] Flaky Test: `test_executor_ev_switch_not_opened_without_schedule`
 
 **Goal:** Make `tests/ev/test_ev_charging_replan.py::TestExecutorEVSwitchGating::test_executor_ev_switch_not_opened_without_schedule` deterministic. It fails intermittently (~1 in 5-8) only in a full `tests/` suite run — 5/5 clean when run standalone or scoped to `tests/ev/` alone (repeated runs, no ordering plugin installed: no `pytest-randomly`/`xdist`, so collection order is fixed file/class/def order). Reproduced once during investigation (`FAILED ...test_executor_ev_switch_not_opened_without_schedule`, `1 failed, 1334 passed` in a full-suite run); did not manage to capture the assertion/traceback detail before being asked to stop repeated full-suite reproduction (each run takes ~60s).
@@ -164,7 +196,25 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 
 ### 💡 Future Ideas (Brainstorming)
 
-#### [Executor/Balancing] Unified Priority List for All Balanced Loads (Considered & Deferred 2026-07-06)
+#### [Planner/Balancing] Planner Awareness of Sustained Phase Overload (Considered & Deferred 2026-07-06)
+
+**Goal:** Make the planner aware that the load balancer is persistently capping an EV charger below its planned amps, so plans stop assuming energy the hardware keeps refusing. Today the planner has no concept of the per-phase fuse constraint: under a *sustained* phase overload, every replan asks for full amps again, the balancer throttles it again every tick, and the two never converge — the car is delivered undercharged with the planner none the wiser (the only feedback is the eventual lower SoC read on the next planner run).
+
+**Notes:** Considered and deferred during the load-balancing UX/reconciliation discussion (2026-07-06). Deferred because feeding a dynamic constraint into a 30-min-horizon plan is inherently shaky: any average of "recent available headroom" goes stale the moment the household load changes (dinner ends → full 16 A is available again 5 minutes later), so a naive feed would under-plan as often as it helps. The shipped mitigation is (a) live SoC re-read every planner run and (b) an early-replan trigger after sustained throttling (part of the load-balancing completion change). Revisit only if real-world execution logs show chronic, long-lived phase congestion that the SoC feedback loop demonstrably fails to absorb. If revisited, candidate designs: a decaying per-charger "achievable amps" estimate fed as a solver cap, or planning only the *committed* portion of EV energy against observed headroom percentiles.
+
+---
+
+#### [EV] Full Support for Chargers Without a SoC Sensor (Deferred 2026-07-06)
+
+**Goal:** Make EV charge planning work honestly for chargers/cars with no SoC sensor. Today `soc_percent` silently defaults to `0.0` when unconfigured (`backend/core/ha_client.py`), so the planner sees the same assumed SoC every run — it can never detect charging progress or a balancer-throttling shortfall. Worse, with `battery_capacity_kwh` also defaulting to `0.0`, the solver's incentive buckets collapse and no charging is scheduled at all.
+
+**Notes:** Deferred during the load-balancing completion discussion (2026-07-06) — modern EVs generally expose SoC, so the config-time warning shipped in that change ("Darkstar can't track charging progress for this car") covers the realistic case of a *forgotten* sensor rather than a truly absent one. If full support is ever wanted: energy-counted sessions (integrate delivered kWh from the charger's energy sensor against a user-stated target kWh) would substitute for SoC-based need tracking. Delivered per-session energy is already recorded (`slot_observations.ev_charging_kwh`), so the data foundation exists.
+
+---
+
+#### [Executor/Balancing] Unified Priority List for All Balanced Loads (Promoted 2026-07-06)
+
+**Status:** ✅ **Promoted to the `load-balancing-completion` change (2026-07-06)** — implemented as the flat, user-ordered `load_balancing.give_way_order` list (drag-ordered in the Load Balancing tab). The resolver processes the list top-down (charger entries throttle to floor then pause, shed entries switch off), restores in exact reverse order, and migrates the old `charger_priority` + `loads[].priority` fields automatically. The notes below are kept for the original design context.
 
 **Goal:** Replace the two-tier balancing structure — all dynamically-throttled current-type EV chargers always give way (throttle to floor) before any shed-list load is even considered — with a single flat priority list mixing EV chargers, water heaters, and custom entities together. This would let a user configure things like "shed the water heater before throttling my EV's charge rate," which isn't possible today: throttling a continuous EV charger always happens first, unconditionally, no matter its configured priority relative to shed items.
 
