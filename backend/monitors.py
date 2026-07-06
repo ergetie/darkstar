@@ -246,6 +246,17 @@ class InvariantMonitors:
         return InvariantResult("plan_freshness", "pass", f"last plan write {age_h:.1f} h ago")
 
     def _eval_command_success(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
+        # universal-load-balancing 5.3: execution_log is throttled (one row per
+        # change or 15-min heartbeat, not one row per tick), so `total` here is
+        # "logged ticks" rather than "all ticks". A record with success=0 is
+        # never throttled away (see engine._should_log_execution, which always
+        # logs when record_success is false — this covers both a genuinely
+        # failed/non-skipped action_result and cases like ev_charge_failed,
+        # which sets success=0 without producing one), so a real problem still
+        # shows up immediately; a sustained failure streak logs every tick
+        # while healthy ticks log once per slot, which only ever makes this
+        # ratio look worse than reality, never better — a safe bias for a
+        # violation check.
         start = now - timedelta(hours=24)
         row = con.execute(
             "SELECT COUNT(*), SUM(success = 1) FROM execution_log WHERE executed_at >= ?",

@@ -33,6 +33,16 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 <!-- Add new bugs/requests here. AI should wipe the item after processing into a OpenSpec change. -->
 
+#### [Testing] Flaky Test: `test_executor_ev_switch_not_opened_without_schedule`
+
+**Goal:** Make `tests/ev/test_ev_charging_replan.py::TestExecutorEVSwitchGating::test_executor_ev_switch_not_opened_without_schedule` deterministic. It fails intermittently (~1 in 5-8) only in a full `tests/` suite run — 5/5 clean when run standalone or scoped to `tests/ev/` alone (repeated runs, no ordering plugin installed: no `pytest-randomly`/`xdist`, so collection order is fixed file/class/def order). Reproduced once during investigation (`FAILED ...test_executor_ev_switch_not_opened_without_schedule`, `1 failed, 1334 passed` in a full-suite run); did not manage to capture the assertion/traceback detail before being asked to stop repeated full-suite reproduction (each run takes ~60s).
+
+**Notes:** Investigated as part of `universal-load-balancing` (2026-07-06) because that change modified this test file. The change's only edit to this test was removing a dead line: `engine.config.ev_charger = EVChargerConfig(switch_entity="switch.test_ev")  # legacy` — confirmed via `grep` that no production code reads `.config.ev_charger` (singular) anymore (only `.ev_chargers`, the per-device list, is used), so this removal is inert and does not explain the flake. The test class fixture and body are otherwise clean: each test gets its own `tmp_path` config file, all `unittest.mock.patch` context managers are scoped/torn down properly, and the relevant dataclasses (`SlotPlan`, `EVChargerDeviceConfig`, `LoadBalancingConfig`) all use `field(default_factory=...)` for mutable defaults (no shared-mutable-default bug).
+
+Because the flake only appears in a full-suite run and never in `tests/ev/` alone, the most likely mechanism is cross-module shared state pulled in from elsewhere in the suite — prime suspect is the session-scoped `autouse` fixture `setup_test_env` in `tests/conftest.py`, which pins **all** tests in the process to one shared on-disk SQLite file (`data/test_planner.db` via the `DB_PATH` env var) for the entire session. `ExecutorEngine.__init__` (`executor/engine.py:177`, `_get_db_path` at line 260) opens `ExecutionHistory` against that same shared file. This fixture predates `universal-load-balancing` and is untouched by it — so this is pre-existing test infrastructure, not something this change introduced. Recommend someone with time to do several full-suite reruns pin down whether it's DB contention (e.g. a transient "database is locked" swallowed by a broad `except Exception` somewhere in `_tick`) vs. something else, then either give `ExecutorEngine`-instantiating tests their own per-test DB (monkeypatch `DB_PATH`/`_get_db_path` to a `tmp_path` file) or fix the underlying contention.
+
+---
+
 #### [HA/Performance] Slim Down Home Assistant History Fetches
 
 **Goal:** Reduce the latency of `/api/ha/average` (and related HA history reads), which still takes ~1.3s on a cache miss. The cost is the HTTP round-trip to Home Assistant's `/api/history/period` plus parsing a large, maximal-detail response — not CPU on our side.

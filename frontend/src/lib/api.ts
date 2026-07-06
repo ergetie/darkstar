@@ -336,6 +336,33 @@ export type ExecutorStatusResponse = {
     [key: string]: unknown
 }
 
+export type LoadBalancerEvStatus = {
+    charger_id: string
+    setpoint_a: number | null
+    planned_target_a: number | null
+    state: string
+    reason: string
+}
+
+export type LoadBalancerShedStatus = {
+    load_id: string
+    device_type: string
+    shed: boolean
+    reason: string
+}
+
+export type LoadBalancerStatusResponse = {
+    enabled: boolean
+    state: 'disabled' | 'idle' | 'throttling' | 'shedding' | 'paused' | 'stale_fallback' | string
+    reason: string
+    main_fuse_a: number | null
+    phase_current_a: Record<string, number>
+    phase_headroom_a: Record<string, number>
+    resume_margin_percent?: number
+    ev: LoadBalancerEvStatus[]
+    shed: LoadBalancerShedStatus[]
+}
+
 export type ExecutorHealthResponse = {
     status: 'healthy' | 'error' | 'warning'
     is_running: boolean
@@ -747,6 +774,7 @@ export const Api = {
             clear: () => getJSON<unknown>('/api/executor/quick-action', 'DELETE'),
         },
         health: () => getJSON<ExecutorHealthResponse>('/api/executor/health'),
+        loadBalancerStatus: () => getJSON<LoadBalancerStatusResponse>('/api/executor/load-balancer/status'),
     },
     waterBoost: {
         status: () =>

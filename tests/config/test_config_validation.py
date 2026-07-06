@@ -235,6 +235,197 @@ class TestEVChargerValidation:
             assert len(errors) == 1
 
 
+class TestEVChargerCurrentTypeValidation:
+    """universal-load-balancing 1.6: type: current field validation replaces the
+    old blanket 'not yet implemented' warning."""
+
+    def _base_config(self, ev_overrides):
+        ev = {
+            "id": "goe",
+            "name": "go-e Gemini",
+            "max_power_kw": 11.0,
+            "battery_capacity_kwh": 82.0,
+        }
+        ev.update(ev_overrides)
+        return {
+            "config_version": 2,
+            "system": {"has_ev_charger": True, "has_battery": False, "has_water_heater": False},
+            "ev_chargers": [ev],
+        }
+
+    def test_valid_current_type_no_warning(self):
+        config = self._base_config(
+            {
+                "type": "current",
+                "current_entity": "number.goe_current",
+                "min_current_a": 6,
+                "max_current_a": 16,
+            }
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("uses unsupported type" in i["message"] for i in issues)
+        assert not any("current_entity" in i["message"] for i in issues)
+        assert not any("max_current_a" in i["message"] for i in issues)
+
+    def test_current_type_without_current_entity_is_error(self):
+        config = self._base_config({"type": "current", "max_current_a": 16})
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("current_entity" in e["message"] for e in errors)
+
+    def test_current_type_without_max_current_a_is_error(self):
+        config = self._base_config(
+            {"type": "current", "current_entity": "number.goe_current"}
+        )
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("max_current_a" in e["message"] for e in errors)
+
+    def test_current_type_invalid_min_current_a_is_error(self):
+        config = self._base_config(
+            {
+                "type": "current",
+                "current_entity": "number.goe_current",
+                "max_current_a": 16,
+                "min_current_a": 0,
+            }
+        )
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("min_current_a" in e["message"] for e in errors)
+
+    def test_unknown_type_still_warns(self):
+        config = self._base_config({"type": "power"})
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        assert any("uses unsupported type" in w["message"] for w in warnings)
+
+
+class TestLoadBalancingValidation:
+    """universal-load-balancing 1.5: startup validation with actionable errors."""
+
+    def _base_config(self, load_balancing, **extra):
+        config = {
+            "config_version": 2,
+            "system": {"has_battery": False, "has_water_heater": False, "has_ev_charger": False},
+            "load_balancing": load_balancing,
+        }
+        config.update(extra)
+        return config
+
+    def test_disabled_produces_no_load_balancing_issues(self):
+        config = self._base_config({"enabled": False})
+        issues = _validate_config_for_save(config)
+        assert not any("load_balancing" in i["message"] for i in issues)
+
+    def test_missing_main_fuse_a_is_error(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "custom_entity", "device_id": "pump", "phases": [1]}],
+            }
+        )
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l2": "sensor.l2",
+            "grid_current_l3": "sensor.l3",
+        }
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("system.grid.main_fuse_a" in e["message"] for e in errors)
+
+    def test_main_fuse_a_too_large_is_error(self):
+        config = self._base_config({"enabled": True, "loads": []})
+        config["system"]["grid"] = {"main_fuse_a": 200}
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("system.grid.main_fuse_a" in e["message"] for e in errors)
+
+    def test_missing_phase_sensor_is_error(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "custom_entity", "device_id": "pump", "phases": [1]}],
+            }
+        )
+        config["system"]["grid"] = {"main_fuse_a": 20}
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l3": "sensor.l3",
+        }
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("input_sensors.grid_current_l2" in e["message"] for e in errors)
+
+    def test_empty_loads_is_error(self):
+        config = self._base_config({"enabled": True, "loads": []})
+        config["system"]["grid"] = {"main_fuse_a": 20}
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l2": "sensor.l2",
+            "grid_current_l3": "sensor.l3",
+        }
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("load_balancing.loads" in e["message"] for e in errors)
+
+    def test_load_references_unknown_ev_charger_is_error(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "ev_charger", "device_id": "ghost", "phases": [1]}],
+            }
+        )
+        config["system"]["grid"] = {"main_fuse_a": 20}
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l2": "sensor.l2",
+            "grid_current_l3": "sensor.l3",
+        }
+        config["ev_chargers"] = [{"id": "real_ev"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any(
+            "references unknown EV charger id" in e["message"] and "ghost" in e["message"]
+            for e in errors
+        )
+
+    def test_load_with_empty_phases_is_error(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "custom_entity", "device_id": "pump", "phases": []}],
+            }
+        )
+        config["system"]["grid"] = {"main_fuse_a": 20}
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l2": "sensor.l2",
+            "grid_current_l3": "sensor.l3",
+        }
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("empty phases list" in e["message"] for e in errors)
+
+    def test_fully_valid_config_has_no_load_balancing_errors(self):
+        config = self._base_config(
+            {
+                "enabled": True,
+                "loads": [{"device_type": "water_heater", "device_id": "main_tank", "phases": [2]}],
+            }
+        )
+        config["system"]["grid"] = {"main_fuse_a": 20}
+        config["input_sensors"] = {
+            "grid_current_l1": "sensor.l1",
+            "grid_current_l2": "sensor.l2",
+            "grid_current_l3": "sensor.l3",
+        }
+        config["water_heaters"] = [{"id": "main_tank"}]
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert not any("load_balancing" in e["message"] or "grid_current" in e["message"] or "main_fuse_a" in e["message"] for e in errors)
+
+
 class TestBackwardCompatibility:
     """Test backward compatibility (ARC15)."""
 

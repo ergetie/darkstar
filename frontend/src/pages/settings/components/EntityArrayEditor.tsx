@@ -2,7 +2,6 @@ import React, { useState } from 'react'
 import { Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Badge } from '../../../components/ui/Badge'
-import { Banner } from '../../../components/ui/Banner'
 import Switch from '../../../components/ui/Switch'
 import EntitySelect from '../../../components/EntitySelect'
 import { NumberInput } from '../../../components/ui/NumberInput'
@@ -32,13 +31,20 @@ export interface EVChargerEntity {
     sensor: string
     soc_sensor: string
     plug_sensor: string
-    type: 'binary' | 'variable' | 'constant'
+    type: 'binary' | 'current'
     nominal_power_kw: number
     penalty_levels?: Array<{ max_soc: number; penalty_sek: number }>
     departure_time?: string
     switch_entity?: string
     replan_on_plugin?: boolean
     replan_on_unplug?: boolean
+    current_entity?: string
+    min_current_a?: number
+    max_current_a?: number
+    phases?: number[]
+    phase_sensor_l1?: string
+    phase_sensor_l2?: string
+    phase_sensor_l3?: string
 }
 
 type EntityType = 'water_heater' | 'ev_charger'
@@ -74,7 +80,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     sensor: '',
     soc_sensor: '',
     plug_sensor: '',
-    type: 'variable',
+    type: 'binary',
     nominal_power_kw: 11.0,
     penalty_levels: [
         { max_soc: 50, penalty_sek: 0.5 },
@@ -85,6 +91,9 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     switch_entity: '',
     replan_on_plugin: true,
     replan_on_unplug: false,
+    current_entity: '',
+    min_current_a: 6,
+    phases: [1, 2, 3],
 })
 
 export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
@@ -516,7 +525,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                 value={entity.type}
                                                 onChange={(e) =>
                                                     updateEntity(index, {
-                                                        type: e.target.value as 'binary' | 'modulating',
+                                                        type: e.target.value as 'binary' | 'modulating' | 'current',
                                                     })
                                                 }
                                                 disabled={disabled}
@@ -529,22 +538,11 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                     </>
                                                 ) : (
                                                     <>
-                                                        {entity.type !== 'binary' && (
-                                                            <option value="">-- Select Type --</option>
-                                                        )}
                                                         <option value="binary">Binary (On/Off)</option>
+                                                        <option value="current">Current (dynamic amps)</option>
                                                     </>
                                                 )}
                                             </select>
-
-                                            {/* REV F77: Warning for deprecated EV charger types */}
-                                            {!isWaterHeater && entity.type !== 'binary' && (
-                                                <Banner variant="warning" className="mt-2 text-xs">
-                                                    Variable power control is not yet implemented. Current
-                                                    implementation uses binary ON/OFF control at max_power_kw. Change
-                                                    type to 'binary' to suppress this warning.
-                                                </Banner>
-                                            )}
                                         </div>
 
                                         {/* Replan on Unplug (EV only) */}
@@ -613,6 +611,108 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                         {/* EV Charger Specific Fields */}
                                         {!isWaterHeater && (
                                             <>
+                                                {/* Current Control Fields (type: current) */}
+                                                {(entity as EVChargerEntity).type === 'current' && (
+                                                    <>
+                                                        <div className="sm:col-span-2">
+                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                Current Entity (HA Entity) *
+                                                            </label>
+                                                            <EntitySelect
+                                                                entities={haEntities}
+                                                                value={(entity as EVChargerEntity).current_entity || ''}
+                                                                onChange={(val) =>
+                                                                    updateEntity(index, {
+                                                                        current_entity: val,
+                                                                    } as Partial<EVChargerEntity>)
+                                                                }
+                                                                loading={haLoading}
+                                                                placeholder="Select Home Assistant current control entity..."
+                                                                disabled={disabled}
+                                                            />
+                                                            <p className="text-[10px] text-muted mt-1">
+                                                                HA number entity that sets charge current in amps (e.g.
+                                                                number.goe_current)
+                                                            </p>
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                Min Current (A)
+                                                            </label>
+                                                            <NumberInput
+                                                                value={(entity as EVChargerEntity).min_current_a ?? 6}
+                                                                onChange={(val) =>
+                                                                    updateEntity(index, {
+                                                                        min_current_a: Number(val),
+                                                                    } as Partial<EVChargerEntity>)
+                                                                }
+                                                                disabled={disabled}
+                                                                step={1}
+                                                                min={0}
+                                                            />
+                                                        </div>
+
+                                                        <div>
+                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                Max Current (A)
+                                                            </label>
+                                                            <NumberInput
+                                                                value={(entity as EVChargerEntity).max_current_a ?? ''}
+                                                                onChange={(val) =>
+                                                                    updateEntity(index, {
+                                                                        max_current_a: Number(val),
+                                                                    } as Partial<EVChargerEntity>)
+                                                                }
+                                                                disabled={disabled}
+                                                                step={1}
+                                                                min={(entity as EVChargerEntity).min_current_a ?? 6}
+                                                            />
+                                                        </div>
+
+                                                        <div className="sm:col-span-2">
+                                                            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                Phases
+                                                            </label>
+                                                            <div className="flex gap-3">
+                                                                {[1, 2, 3].map((phase) => {
+                                                                    const phases = (entity as EVChargerEntity)
+                                                                        .phases ?? [1, 2, 3]
+                                                                    const checked = phases.includes(phase)
+                                                                    return (
+                                                                        <label
+                                                                            key={phase}
+                                                                            className="flex items-center gap-1.5 text-xs font-semibold text-text"
+                                                                        >
+                                                                            <input
+                                                                                type="checkbox"
+                                                                                checked={checked}
+                                                                                disabled={disabled}
+                                                                                onChange={() => {
+                                                                                    const nextPhases = checked
+                                                                                        ? phases.filter(
+                                                                                              (p) => p !== phase,
+                                                                                          )
+                                                                                        : [...phases, phase].sort(
+                                                                                              (a, b) => a - b,
+                                                                                          )
+                                                                                    updateEntity(index, {
+                                                                                        phases: nextPhases,
+                                                                                    } as Partial<EVChargerEntity>)
+                                                                                }}
+                                                                            />
+                                                                            L{phase}
+                                                                        </label>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                            <p className="text-[10px] text-muted mt-1">
+                                                                Phases this charger draws current on.
+                                                            </p>
+                                                        </div>
+                                                    </>
+                                                )}
+
                                                 {/* Penalty Levels Section */}
                                                 <div className="sm:col-span-2">
                                                     <div className="bg-surface2/30 rounded-lg p-4 border border-line/20">

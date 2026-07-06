@@ -14,6 +14,7 @@ import configHelp from '../../../config-help.json'
 import { SolarArraysEditor } from './SolarArraysEditor'
 import { PenaltyLevelsEditor } from './PenaltyLevelsEditor'
 import { EntityArrayEditor } from './EntityArrayEditor'
+import { BalancedLoadsEditor } from './BalancedLoadsEditor'
 import { NumberInput } from '../../../components/ui/NumberInput'
 
 interface SettingsFieldProps {
@@ -187,6 +188,17 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     />
                 )
             }
+            case 'balanced_loads':
+                return (
+                    <BalancedLoadsEditor
+                        value={value}
+                        onChange={(loads) => onChange(field.key, JSON.stringify(loads))}
+                        disabled={isDisabled}
+                        config={config}
+                        haEntities={haEntities}
+                        haLoading={haLoading}
+                    />
+                )
             case 'info':
                 return (
                     <div className="flex items-start gap-3 p-4 bg-ai/5 border border-ai/20 rounded-2xl">

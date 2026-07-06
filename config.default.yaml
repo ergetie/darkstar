@@ -22,7 +22,8 @@ system:
   grid_meter_type: net    # Meter type: net (single +/- sensor) | dual (separate import/export)
 
   grid:
-    max_power_kw: 8                    # HARD limit: max grid import (cannot be exceeded)
+    max_power_kw: 8                    # HARD limit: total grid import (kW) — the planner's import budget. Independent of main_fuse_a below: a balanced total can still overload a single phase.
+    # main_fuse_a: 20                  # Per-phase main fuse rating (A), physical hardware limit. Required (and must be user-set) for load_balancing to be enabled. Not a substitute for max_power_kw, and vice versa — they protect different things.
   inverter:
     max_ac_power_kw: 10.0              # Maximum inverter AC power output (PV + battery discharge)
     topology: dc_coupled               # Inverter topology: dc_coupled | ac_coupled
@@ -117,10 +118,17 @@ ev_chargers:
     sensor: ""                       # Home Assistant entity for power reading
     soc_sensor: ""                   # EV battery state of charge (%) - Required for smart charging
     plug_sensor: ""                  # EV plug status sensor - Required for smart charging
-    type: binary                     # Load type: binary (ON/OFF) only. Variable power control not yet implemented
+    type: binary                     # Control type: binary (ON/OFF switch) or current (variable ampere setpoint)
     nominal_power_kw: 11.0           # Nominal power for load calculations
     departure_time: ""               # Daily departure time "HH:MM" (24-hour). Car must be ready by this time.
-    switch_entity: ""                # HA entity to enable/disable smart charging (e.g. switch.ev_charger)
+    switch_entity: ""                # HA entity to enable/disable smart charging (e.g. switch.ev_charger). Used when type=binary
+    current_entity: ""               # HA number entity for the ampere setpoint. Required when type=current
+    min_current_a: 6                 # Minimum charging current (A) — below this, charging pauses instead. Used when type=current
+    max_current_a: 16                # Maximum charging current (A). Required when type=current
+    phases: [1, 2, 3]                # Phases this charger is wired to (used for kW->A math and load balancing until actual per-phase draw is measured)
+    phase_sensor_l1: ""              # Optional: charger's own L1 power/current sensor, for measuring actual active phases (1/2/3-phase cars on a 3-phase charger)
+    phase_sensor_l2: ""              # Optional: charger's own L2 power/current sensor
+    phase_sensor_l3: ""              # Optional: charger's own L3 power/current sensor
     replan_on_plugin: true           # Re-run planner immediately when this EV plugs in
     replan_on_unplug: false          # Re-run planner immediately when this EV unplugs
 
@@ -246,6 +254,35 @@ forecasting:
 grid:
   import_limit_kw: 11.0                # Soft limit for effekttariff (breached with high penalty)
 
+# Load Balancing (real-time per-phase main fuse protection)
+# Requires system.grid.main_fuse_a and input_sensors.grid_current_l1/l2/l3 to be set,
+# plus at least one entry in loads[]. Disabled and inert until all three are configured.
+# EV chargers with ev_chargers[].type=current get dedicated ampere throttling automatically
+# (no loads[] entry needed); loads[] is for on/off shedding (water heaters, custom entities,
+# and any binary-type EV charger you want the balancer to be able to shed as a last resort).
+#
+# SAFETY: this is a software, best-effort control loop, not a certified protection
+# device — it reacts on the next executor tick (governed by executor.interval_seconds),
+# so a fast transient can still trip your fuse before Darkstar catches it. If your
+# charger has its own load-management/fallback setting (e.g. go-e's dynamic load
+# balancing / current fallback), configure that too as the last-resort hardware
+# protection; Darkstar's balancer keeps day-to-day charging fast without needing it,
+# it does not replace it.
+load_balancing:
+  enabled: false                       # Master switch — feature is opt-in and a no-op until true
+  resume_delay_s: 120                  # Seconds a recovered phase must stay healthy before resuming/restoring a throttled or shed load (anti-flap)
+  resume_margin_percent: 90            # Only resume/increase when phase current is below this % of main_fuse_a
+  increase_step_a: 1                   # Max ampere increase per tick when ramping EV charging back up
+  sensor_stale_after_s: 30             # Treat phase current sensors as stale after this many seconds without an update
+  loads: []                            # Balanced on/off loads, e.g.:
+    # - device_type: water_heater          # ev_charger | water_heater | custom_entity
+    #   device_id: main_tank                # matches an id in water_heaters[]/ev_chargers[], or a free-form label for custom_entity
+    #   phases: [2]                         # phase(s) this load is physically wired to
+    #   priority: 1                         # lower priority sheds first, restores last
+    #   entity: ""                          # custom_entity only: HA entity to write on/off values to
+    #   on_value: "1"                       # custom_entity only
+    #   off_value: "0"                      # custom_entity only
+
 # Kepler Solver (MILP optimizer settings)
 kepler:
   ramping_cost_sek_per_kw: 0.01        # Penalty for power changes between slots (reduces sawtooth)
@@ -269,6 +306,9 @@ input_sensors:
   grid_power: ""         # Current grid power (+ import, - export) (Used if meter_type=net)
   grid_import_power: ""    # Current grid import power (W/kW) (Used if meter_type=dual)
   grid_export_power: ""    # Current grid export power (W/kW) (Used if meter_type=dual)
+  grid_current_l1: ""       # Per-phase grid current, phase L1 (A) — required for load_balancing
+  grid_current_l2: ""       # Per-phase grid current, phase L2 (A) — required for load_balancing
+  grid_current_l3: ""       # Per-phase grid current, phase L3 (A) — required for load_balancing
 
   # Cumulative energy sensors (totals)
   total_battery_charge: ""      # Cumulative battery charge (kWh)

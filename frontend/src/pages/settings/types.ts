@@ -11,6 +11,7 @@ export type FieldType =
     | 'solar_arrays'
     | 'penalty_levels'
     | 'entity_array'
+    | 'balanced_loads'
     | 'info'
 
 export interface HaEntity {
@@ -1150,6 +1151,103 @@ export const waterSections: SettingsSection[] = [
     },
 ]
 
+export const loadBalancingSections: SettingsSection[] = [
+    {
+        title: 'Real-Time Load Balancing',
+        description:
+            'Protects your main fuse in real time by throttling EV charging — and, as a last resort, shedding other loads — based on live per-phase grid current. Stays completely inactive until the fuse rating, all three phase sensors, and at least one balanced load are configured below. This is a best-effort software control loop, not a certified protection device — if your charger has its own load-management/fallback setting, keep that configured too.',
+        fields: [
+            {
+                key: 'load_balancing.enabled',
+                label: 'Enable load balancing',
+                path: ['load_balancing', 'enabled'],
+                type: 'boolean',
+                helper: 'Master switch. No-op until the fuse rating, phase sensors, and at least one balanced load are set.',
+            },
+            {
+                key: 'system.grid.main_fuse_a',
+                label: 'Main fuse rating (A)',
+                path: ['system', 'grid', 'main_fuse_a'],
+                type: 'number',
+                helper: 'Per-phase physical fuse rating in amps (e.g. 20). Independent of the total grid import limit — a balanced total can still overload a single phase.',
+            },
+            {
+                key: 'input_sensors.grid_current_l1',
+                label: 'Grid current sensor — L1',
+                path: ['input_sensors', 'grid_current_l1'],
+                type: 'entity',
+                helper: 'Home Assistant sensor reporting phase L1 current (A) at the grid connection point.',
+            },
+            {
+                key: 'input_sensors.grid_current_l2',
+                label: 'Grid current sensor — L2',
+                path: ['input_sensors', 'grid_current_l2'],
+                type: 'entity',
+                helper: 'Home Assistant sensor reporting phase L2 current (A) at the grid connection point.',
+            },
+            {
+                key: 'input_sensors.grid_current_l3',
+                label: 'Grid current sensor — L3',
+                path: ['input_sensors', 'grid_current_l3'],
+                type: 'entity',
+                helper: 'Home Assistant sensor reporting phase L3 current (A) at the grid connection point.',
+            },
+        ],
+    },
+    {
+        title: 'Balanced Loads',
+        description:
+            "Loads the balancer can shed as a last resort once EV charging is already at its floor. Phase assignment must match your home's actual wiring — the balancer can only protect a phase it knows a load sits on.",
+        fields: [
+            {
+                key: 'load_balancing.loads',
+                label: 'Balanced loads',
+                path: ['load_balancing', 'loads'],
+                type: 'balanced_loads',
+                className: 'col-span-2',
+            },
+        ],
+    },
+    {
+        title: 'Anti-Flap Tuning',
+        description:
+            'Advanced timing parameters controlling how cautiously the balancer resumes or ramps back up after throttling.',
+        fields: [
+            {
+                key: 'load_balancing.resume_delay_s',
+                label: 'Resume delay (seconds)',
+                path: ['load_balancing', 'resume_delay_s'],
+                type: 'number',
+                isAdvanced: true,
+                helper: 'How long headroom must stay healthy before resuming a throttled/shed load.',
+            },
+            {
+                key: 'load_balancing.resume_margin_percent',
+                label: 'Resume margin (%)',
+                path: ['load_balancing', 'resume_margin_percent'],
+                type: 'number',
+                isAdvanced: true,
+                helper: 'Only resume/increase current when phase current is below this % of the fuse rating.',
+            },
+            {
+                key: 'load_balancing.increase_step_a',
+                label: 'Ramp-up step (A per tick)',
+                path: ['load_balancing', 'increase_step_a'],
+                type: 'number',
+                isAdvanced: true,
+            },
+            {
+                key: 'load_balancing.sensor_stale_after_s',
+                label: 'Sensor stale after (seconds)',
+                path: ['load_balancing', 'sensor_stale_after_s'],
+                type: 'number',
+                isAdvanced: true,
+                helper: 'Phase sensors older than this are treated as stale: EV is forced to its minimum current, then paused if it stays stale.',
+            },
+        ],
+    },
+]
+
 export const advancedSections: SettingsSection[] = [
     {
         title: 'Experimental Features',
@@ -1380,6 +1478,7 @@ export const evFieldList = evSections.flatMap((section) => section.fields)
 export const waterFieldList = waterSections.flatMap((section) => section.fields)
 export const uiFieldList = uiSections.flatMap((section) => section.fields)
 export const advancedFieldList = advancedSections.flatMap((section) => section.fields)
+export const loadBalancingFieldList = loadBalancingSections.flatMap((section) => section.fields)
 
 export const allFields = [
     ...systemFieldList,
@@ -1390,6 +1489,7 @@ export const allFields = [
     ...waterFieldList,
     ...uiFieldList,
     ...advancedFieldList,
+    ...loadBalancingFieldList,
     {
         key: 'dashboard.overlay_defaults',
         label: 'Overlay Defaults',

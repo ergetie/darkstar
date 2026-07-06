@@ -140,17 +140,6 @@ DEFAULT_PENALTY_LEVELS = {
 
 
 @dataclass
-class EVChargerConfig:
-    """EV charger control configuration (legacy single-charger)."""
-
-    switch_entity: str | None = None
-    max_power_kw: float = 7.4
-    battery_capacity_kwh: float | None = None
-    replan_on_plugin: bool = True
-    replan_on_unplug: bool = False
-
-
-@dataclass
 class EVChargerDeviceConfig:
     """Per-device EV charger configuration."""
 
@@ -161,6 +150,60 @@ class EVChargerDeviceConfig:
     replan_on_plugin: bool = True
     replan_on_unplug: bool = False
     departure_time: str | None = None
+
+    # Variable-current control (universal-load-balancing)
+    type: str = "binary"  # "binary" (switch) or "current" (ampere setpoint)
+    current_entity: str | None = None  # HA number entity for the ampere setpoint
+    min_current_a: int = 6  # Floor below which charging pauses instead
+    max_current_a: int | None = None
+    phases: list[int] = field(default_factory=lambda: [1, 2, 3])
+
+    # Per-phase draw measurement, used to derive active_phases (optional)
+    phase_sensor_l1: str | None = None
+    phase_sensor_l2: str | None = None
+    phase_sensor_l3: str | None = None
+
+
+class BalancedLoadType(Enum):
+    """Type of device a load-balancing entry refers to."""
+
+    EV_CHARGER = "ev_charger"
+    WATER_HEATER = "water_heater"
+    CUSTOM_ENTITY = "custom_entity"
+
+
+@dataclass
+class BalancedLoadConfig:
+    """A single shed-able on/off load managed by the real-time load balancer.
+
+    EV chargers configured with type="current" get dedicated ampere throttling
+    (see EVChargerDeviceConfig) and do not need an entry here; this is for
+    on/off shedding (water heaters, custom entities, and binary-type chargers).
+    """
+
+    device_type: BalancedLoadType = BalancedLoadType.WATER_HEATER
+    device_id: str = ""
+    phases: list[int] = field(default_factory=lambda: [])
+    priority: int = 0
+    # Custom entity actuation (only used when device_type == CUSTOM_ENTITY)
+    entity: str | None = None
+    on_value: str = "1"
+    off_value: str = "0"
+
+
+@dataclass
+class LoadBalancingConfig:
+    """Real-time per-phase load balancing (fuse protection) configuration."""
+
+    enabled: bool = False
+    # Sourced from system.grid.main_fuse_a in YAML; folded in here for convenience
+    # since it is always consumed alongside the rest of this config as a unit.
+    main_fuse_a: int | None = None
+    resume_delay_s: int = 120
+    resume_margin_percent: float = 90.0
+    increase_step_a: int = 1
+    sensor_stale_after_s: int = 30
+    loads: list[BalancedLoadConfig] = field(default_factory=lambda: [])
 
 
 @dataclass
@@ -214,11 +257,11 @@ class ExecutorConfig:
     inverter: InverterConfig = field(default_factory=InverterConfig)
     water_heater: WaterHeaterGlobalConfig = field(default_factory=WaterHeaterGlobalConfig)
     water_heater_devices: list[WaterHeaterDeviceConfig] = field(default_factory=lambda: [])
-    ev_charger: EVChargerConfig = field(default_factory=EVChargerConfig)  # legacy compat
     ev_chargers: list[EVChargerDeviceConfig] = field(default_factory=lambda: [])
     notifications: NotificationConfig = field(default_factory=NotificationConfig)
     controller: ControllerConfig = field(default_factory=ControllerConfig)
     excess_pv: ExcessPVConfig = field(default_factory=ExcessPVConfig)
+    load_balancing: LoadBalancingConfig = field(default_factory=LoadBalancingConfig)
 
     history_retention_days: int = 30
     schedule_path: str = "data/schedule.json"
@@ -245,6 +288,73 @@ def load_yaml(path: str) -> dict[str, Any]:
     except Exception as e:
         logger.error("Failed to load YAML %s: %s", path, e)
         return {}
+
+
+def _parse_load_balancing_config(
+    data: dict[str, Any], system_data: dict[str, Any]
+) -> LoadBalancingConfig:
+    """Parse system.grid.main_fuse_a and the top-level load_balancing: section."""
+    grid_data: dict[str, Any] = (
+        system_data.get("grid", {}) if isinstance(system_data.get("grid"), dict) else {}
+    )
+    main_fuse_a_raw = grid_data.get("main_fuse_a")
+    main_fuse_a: int | None
+    try:
+        main_fuse_a = int(main_fuse_a_raw) if main_fuse_a_raw is not None else None
+    except (TypeError, ValueError):
+        logger.warning("Invalid system.grid.main_fuse_a value: %r", main_fuse_a_raw)
+        main_fuse_a = None
+
+    lb_data: dict[str, Any] = (
+        data.get("load_balancing", {}) if isinstance(data.get("load_balancing"), dict) else {}
+    )
+
+    loads_raw = lb_data.get("loads", [])
+    loads: list[BalancedLoadConfig] = []
+    if isinstance(loads_raw, list):
+        for item in cast("list[Any]", loads_raw):
+            if not isinstance(item, dict):
+                continue
+            load_item = cast("dict[str, Any]", item)
+            type_raw = str(load_item.get("device_type", "water_heater")).lower()
+            try:
+                device_type = BalancedLoadType(type_raw)
+            except ValueError:
+                logger.warning(
+                    "load_balancing.loads: unknown device_type %r, skipping entry", type_raw
+                )
+                continue
+            phases_raw = load_item.get("phases", [])
+            phases = (
+                [int(p) for p in cast("list[Any]", phases_raw)]
+                if isinstance(phases_raw, list)
+                else []
+            )
+            loads.append(
+                BalancedLoadConfig(
+                    device_type=device_type,
+                    device_id=str(load_item.get("device_id", "")),
+                    phases=phases,
+                    priority=int(load_item.get("priority", 0)),
+                    entity=_str_or_none(load_item.get("entity")),
+                    on_value=str(load_item.get("on_value", "1")),
+                    off_value=str(load_item.get("off_value", "0")),
+                )
+            )
+
+    return LoadBalancingConfig(
+        enabled=bool(lb_data.get("enabled", False)),
+        main_fuse_a=main_fuse_a,
+        resume_delay_s=int(lb_data.get("resume_delay_s", LoadBalancingConfig.resume_delay_s)),
+        resume_margin_percent=float(
+            lb_data.get("resume_margin_percent", LoadBalancingConfig.resume_margin_percent)
+        ),
+        increase_step_a=int(lb_data.get("increase_step_a", LoadBalancingConfig.increase_step_a)),
+        sensor_stale_after_s=int(
+            lb_data.get("sensor_stale_after_s", LoadBalancingConfig.sensor_stale_after_s)
+        ),
+        loads=loads,
+    )
 
 
 def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
@@ -279,12 +389,15 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     has_water_heater = bool(system_data.get("has_water_heater", True))
     inverter_profile = str(system_data.get("inverter_profile", "generic"))
 
+    # Load balancing config (top-level key, independent of the executor: section)
+    load_balancing = _parse_load_balancing_config(data, system_data)
+
     executor_data: dict[str, Any] = (
         data.get("executor", {}) if isinstance(data.get("executor"), dict) else {}
     )
     if not executor_data:
         logger.info("No executor section in config, using defaults")
-        return ExecutorConfig(timezone=timezone)
+        return ExecutorConfig(timezone=timezone, load_balancing=load_balancing)
 
     # Parse nested configs
     inverter_data: dict[str, Any] = (
@@ -393,20 +506,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             )
         )
 
-    # EV Charger config (REV K25 Phase 5)
-    ev_data: dict[str, Any] = (
-        executor_data.get("ev_charger", {})
-        if isinstance(executor_data.get("ev_charger"), dict)
-        else {}
-    )
-    ev_charger = EVChargerConfig(
-        switch_entity=_str_or_none(ev_data.get("switch_entity")),
-        max_power_kw=float(ev_data.get("max_power_kw", EVChargerConfig.max_power_kw)),
-        battery_capacity_kwh=ev_data.get("battery_capacity_kwh"),
-        replan_on_plugin=bool(ev_data.get("replan_on_plugin", EVChargerConfig.replan_on_plugin)),
-        replan_on_unplug=bool(ev_data.get("replan_on_unplug", EVChargerConfig.replan_on_unplug)),
-    )
-
     # Per-device EV charger config (multi-device support)
     ev_chargers_array = data.get("ev_chargers", [])
     ev_chargers_list: list[EVChargerDeviceConfig] = []
@@ -414,6 +513,12 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         if not charger.get("enabled", True):
             continue
         charger_id = str(charger.get("id", f"ev_charger_{idx}"))
+        charger_phases_raw = charger.get("phases")
+        charger_phases = (
+            [int(p) for p in cast("list[Any]", charger_phases_raw)]
+            if isinstance(charger_phases_raw, list)
+            else [1, 2, 3]
+        )
         ev_chargers_list.append(
             EVChargerDeviceConfig(
                 id=charger_id,
@@ -429,6 +534,20 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
                 departure_time=_parse_departure_time(charger.get("departure_time")),
+                type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),
+                current_entity=_str_or_none(charger.get("current_entity")),
+                min_current_a=int(
+                    charger.get("min_current_a", EVChargerDeviceConfig.min_current_a)
+                ),
+                max_current_a=(
+                    int(charger["max_current_a"])
+                    if charger.get("max_current_a") is not None
+                    else None
+                ),
+                phases=charger_phases,
+                phase_sensor_l1=_str_or_none(charger.get("phase_sensor_l1")),
+                phase_sensor_l2=_str_or_none(charger.get("phase_sensor_l2")),
+                phase_sensor_l3=_str_or_none(charger.get("phase_sensor_l3")),
             )
         )
 
@@ -569,11 +688,11 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         inverter=inverter,
         water_heater=water_heater,
         water_heater_devices=water_heater_devices_list,
-        ev_charger=ev_charger,
         ev_chargers=ev_chargers_list,
         notifications=notifications,
         controller=controller,
         excess_pv=excess_pv,
+        load_balancing=load_balancing,
         history_retention_days=int(executor_data.get("history_retention_days", 30)),
         schedule_path=str(executor_data.get("schedule_path", "data/schedule.json")),
         timezone=timezone,

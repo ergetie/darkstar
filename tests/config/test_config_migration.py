@@ -619,6 +619,77 @@ class TestMigrateEvChargerFields:
         assert changed is False
 
 
+class TestMigrateLegacyEvChargerCurrentStub:
+    """universal-load-balancing 1.4: executor.ev_charger (control_entity/control_mode/
+    max_current_a/enabled_entity) is mapped onto ev_chargers[0] and the whole
+    block is removed."""
+
+    def test_stub_present_migrates_and_is_removed(self):
+        from backend.config_migration import _migrate_ev_charger_fields, remove_deprecated_keys
+
+        config = {
+            "ev_chargers": [{"id": "main", "enabled": True, "name": "My EV"}],
+            "executor": {
+                "ev_charger": {
+                    "control_entity": "number.goe_current",
+                    "control_mode": "current",
+                    "max_current_a": 32,
+                    "enabled_entity": "binary_sensor.goe_enabled",
+                }
+            },
+        }
+
+        config, migrated = _migrate_ev_charger_fields(config)
+        assert migrated is True
+        assert config["ev_chargers"][0]["current_entity"] == "number.goe_current"
+        assert config["ev_chargers"][0]["max_current_a"] == 32
+        assert config["ev_chargers"][0]["type"] == "current"
+
+        config, removed = remove_deprecated_keys(config)
+        assert removed is True
+        assert "ev_charger" not in config["executor"]
+
+    def test_stub_absent_no_changes(self):
+        from backend.config_migration import _migrate_ev_charger_fields, remove_deprecated_keys
+
+        config = {
+            "ev_chargers": [{"id": "main", "enabled": True, "name": "My EV"}],
+            "executor": {"enabled": True},
+        }
+
+        config, migrated = _migrate_ev_charger_fields(config)
+        assert migrated is False
+
+        config, removed = remove_deprecated_keys(config)
+        assert removed is False
+        assert "ev_charger" not in config["executor"]
+
+    def test_does_not_overwrite_already_configured_current_entity(self):
+        from backend.config_migration import _migrate_ev_charger_fields
+
+        config = {
+            "ev_chargers": [
+                {
+                    "id": "main",
+                    "enabled": True,
+                    "current_entity": "number.new_current",
+                    "max_current_a": 16,
+                }
+            ],
+            "executor": {
+                "ev_charger": {
+                    "control_entity": "number.legacy_current",
+                    "max_current_a": 32,
+                }
+            },
+        }
+
+        config, _ = _migrate_ev_charger_fields(config)
+
+        assert config["ev_chargers"][0]["current_entity"] == "number.new_current"
+        assert config["ev_chargers"][0]["max_current_a"] == 16
+
+
 # ===========================================================================
 # Tests 4.1 – 4.7: config-migration-hardening
 # ===========================================================================

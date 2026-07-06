@@ -20,6 +20,7 @@ import {
     Layers,
 } from 'lucide-react'
 import Card from '../components/Card'
+import LoadBalancerStatusCard from '../components/LoadBalancerStatusCard'
 
 import { useSocket } from '../lib/hooks'
 
@@ -835,6 +836,9 @@ export default function Executor() {
                     )}
                 </Card>
             </div>
+
+            {/* Load Balancer Status */}
+            <LoadBalancerStatusCard />
 
             {/* Execution History */}
             <Card className="p-4 md:p-5 flex-1 flex flex-col overflow-hidden">

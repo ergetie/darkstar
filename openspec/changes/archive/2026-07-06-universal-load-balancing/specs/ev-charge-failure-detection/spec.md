@@ -1,8 +1,6 @@
-## Purpose
+# Delta Spec: EV Charge Failure Detection
 
-Detect when an EV charger silently fails to deliver scheduled power — for example, when a wallbox rejects a charge command — and surface the failure through the error notification path so it does not go unnoticed.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Executor detects EV charge failure when actual power stays zero
 

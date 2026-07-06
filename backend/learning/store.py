@@ -1073,7 +1073,11 @@ class LearningStore:
                 # Last entry for SoC (representing end of slot state as it progresses)
                 last_entry = entries[-1]
 
-                # Average power for the slot (ExecutionLog records every minute)
+                # Average planned power for the slot. universal-load-balancing 5.3:
+                # ExecutionLog is now throttled (one row per change or 15-min
+                # heartbeat, not one per tick) — averaging still holds because
+                # planned_*_kw is the slot's static schedule value, identical
+                # across every row within a slot regardless of row count.
                 avg_charge_kw = sum((e.planned_charge_kw or 0.0) for e in entries) / len(entries)
                 avg_discharge_kw = sum((e.planned_discharge_kw or 0.0) for e in entries) / len(
                     entries

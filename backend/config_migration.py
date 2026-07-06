@@ -82,10 +82,11 @@ DEPRECATED_KEYS = {
 
 # Nested deprecated keys (path.to.key format)
 DEPRECATED_NESTED_KEYS = {
-    "executor.ev_charger": [
-        "switch_entity",  # Moved into ev_chargers[].switch_entity
-        "replan_on_plugin",  # Moved into ev_chargers[].replan_on_plugin
-        "replan_on_unplug",  # Moved into ev_chargers[].replan_on_unplug
+    "executor": [
+        # universal-load-balancing: legacy singular stub, fully replaced by
+        # per-device ev_chargers[] (switch_entity/current_entity/max_current_a/type).
+        # _migrate_ev_charger_fields() copies its values onto ev_chargers[0] first.
+        "ev_charger",
     ],
     "executor.inverter": [
         # Old _entity suffix keys replaced by standardized names
@@ -313,6 +314,33 @@ def _migrate_ev_charger_fields(config: dict[str, Any]) -> tuple[dict[str, Any], 
         first_enabled["replan_on_unplug"] = bool(ev_charger_exec["replan_on_unplug"])
         logger.info(
             f"🔄 Migrated executor.ev_charger.replan_on_unplug -> ev_chargers[0].replan_on_unplug: {first_enabled['replan_on_unplug']}"
+        )
+        changed = True
+
+    # control_entity -> current_entity (universal-load-balancing: legacy stub removal)
+    old_control_entity: Any = ev_charger_exec.get("control_entity", "")
+    if old_control_entity and not first_enabled.get("current_entity"):
+        first_enabled["current_entity"] = old_control_entity
+        logger.info(
+            f"🔄 Migrated executor.ev_charger.control_entity -> ev_chargers[0].current_entity: {old_control_entity}"
+        )
+        changed = True
+
+    # max_current_a (only migrate if absent in first_enabled)
+    old_max_current: Any = ev_charger_exec.get("max_current_a")
+    if old_max_current is not None and first_enabled.get("max_current_a") is None:
+        first_enabled["max_current_a"] = old_max_current
+        logger.info(
+            f"🔄 Migrated executor.ev_charger.max_current_a -> ev_chargers[0].max_current_a: {old_max_current}"
+        )
+        changed = True
+
+    # control_mode "current" -> type "current"
+    old_control_mode: Any = ev_charger_exec.get("control_mode", "")
+    if old_control_mode == "current" and first_enabled.get("type") != "current":
+        first_enabled["type"] = "current"
+        logger.info(
+            "🔄 Migrated executor.ev_charger.control_mode 'current' -> ev_chargers[0].type: current"
         )
         changed = True
 

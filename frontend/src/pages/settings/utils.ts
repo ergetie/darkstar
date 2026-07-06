@@ -72,7 +72,12 @@ export function parseFieldInput(field: BaseField, raw: string): unknown {
                 return Number.isNaN(num) ? value : num
             })
     }
-    if (field.type === 'solar_arrays' || field.type === 'penalty_levels' || field.type === 'entity_array') {
+    if (
+        field.type === 'solar_arrays' ||
+        field.type === 'penalty_levels' ||
+        field.type === 'entity_array' ||
+        field.type === 'balanced_loads'
+    ) {
         try {
             return JSON.parse(raw)
         } catch {
@@ -101,7 +106,12 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
             state[field.key] = value === true ? 'true' : 'false'
         } else if (field.type === 'array' && Array.isArray(value)) {
             state[field.key] = value.join(', ')
-        } else if (field.type === 'solar_arrays' || field.type === 'penalty_levels' || field.type === 'entity_array') {
+        } else if (
+            field.type === 'solar_arrays' ||
+            field.type === 'penalty_levels' ||
+            field.type === 'entity_array' ||
+            field.type === 'balanced_loads'
+        ) {
             // Handle complex array/object types - stringify if array/object, default to empty array
             if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
                 state[field.key] = JSON.stringify(value)
@@ -150,7 +160,8 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         type !== 'array' &&
         type !== 'solar_arrays' &&
         type !== 'penalty_levels' &&
-        type !== 'entity_array'
+        type !== 'entity_array' &&
+        type !== 'balanced_loads'
     ) {
         const strA = a !== null && a !== undefined ? String(a).trim() : ''
         const strB = b !== null && b !== undefined ? String(b).trim() : ''
@@ -167,7 +178,7 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         return arrA.every((val, i) => val === arrB[i])
     }
 
-    if (type === 'solar_arrays' || type === 'penalty_levels' || type === 'entity_array') {
+    if (type === 'solar_arrays' || type === 'penalty_levels' || type === 'entity_array' || type === 'balanced_loads') {
         // Treat undefined as equivalent to empty array for array/object types
         const normalize = (v: unknown) => {
             if (v === undefined || v === null) return '[]'

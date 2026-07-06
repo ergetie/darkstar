@@ -561,16 +561,47 @@ def _validate_config_for_save(
                         }
                     )
 
-                # REV F77: Validate EV charger type
-                ev_type = ev.get("type", "")
-                if ev_type and ev_type != "binary":
+                # REV F77 / universal-load-balancing 1.6: Validate EV charger type
+                ev_type = ev.get("type", "binary") or "binary"
+                if ev_type not in ("binary", "current"):
                     issues.append(
                         {
                             "severity": "warning",
                             "message": f"EV charger '{ev.get('id', i + 1)}' uses unsupported type: '{ev_type}'",
-                            "guidance": "Variable power control is not yet implemented. Current implementation uses binary ON/OFF control at max_power_kw. Change type to 'binary' to suppress this warning.",
+                            "guidance": "type must be 'binary' (ON/OFF switch) or 'current' (variable ampere setpoint).",
                         }
                     )
+                elif ev_type == "current":
+                    if not ev.get("current_entity"):
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{ev.get('id', i + 1)}' has type 'current' but no current_entity",
+                                "guidance": "Set ev_chargers[].current_entity to the HA number entity that controls charge current (A).",
+                            }
+                        )
+                    max_current = ev.get("max_current_a")
+                    if (
+                        max_current is None
+                        or not isinstance(max_current, int | float)
+                        or max_current <= 0
+                    ):
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{ev.get('id', i + 1)}' has type 'current' but invalid max_current_a: {max_current}",
+                                "guidance": "Set ev_chargers[].max_current_a to your charger's maximum current (e.g., 16).",
+                            }
+                        )
+                    min_current = ev.get("min_current_a", 6)
+                    if not isinstance(min_current, int | float) or min_current <= 0:
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{ev.get('id', i + 1)}' has invalid min_current_a: {min_current}",
+                                "guidance": "min_current_a must be a positive number (e.g., 6).",
+                            }
+                        )
 
                 # Validate per-device departure_time format
                 dev_departure = str(ev.get("departure_time", "") or "")
@@ -848,6 +879,79 @@ def _validate_config_for_save(
                     "guidance": "Set export.export_floor_soc_percent to a valid percentage.",
                 }
             )
+
+    # Load balancing: ERROR on any missing prerequisite when enabled (universal-load-balancing 1.5)
+    lb_cfg = config.get("load_balancing", {})
+    if lb_cfg.get("enabled", False):
+        grid_cfg = system_cfg.get("grid", {})
+        main_fuse_a = grid_cfg.get("main_fuse_a")
+        if main_fuse_a is None or not isinstance(main_fuse_a, int | float) or main_fuse_a <= 0:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"load_balancing.enabled but system.grid.main_fuse_a is missing or invalid: {main_fuse_a}",
+                    "guidance": "Set system.grid.main_fuse_a to your per-phase main fuse rating in ampere (e.g., 20).",
+                }
+            )
+        elif main_fuse_a > 125:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"system.grid.main_fuse_a is implausibly large: {main_fuse_a}",
+                    "guidance": "system.grid.main_fuse_a must be 125 A or less.",
+                }
+            )
+
+        lb_input_sensors = config.get("input_sensors", {})
+        for phase_key in ("grid_current_l1", "grid_current_l2", "grid_current_l3"):
+            if not lb_input_sensors.get(phase_key):
+                issues.append(
+                    {
+                        "severity": "error",
+                        "message": f"load_balancing.enabled but input_sensors.{phase_key} is not configured",
+                        "guidance": f"Set input_sensors.{phase_key} to the HA entity reporting that phase's grid current (A).",
+                    }
+                )
+
+        lb_loads = lb_cfg.get("loads", [])
+        if not lb_loads:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": "load_balancing.enabled but load_balancing.loads is empty",
+                    "guidance": "Add at least one entry to load_balancing.loads, or an ev_chargers[] device with type: current.",
+                }
+            )
+        else:
+            known_ev_ids = {ev.get("id") for ev in config.get("ev_chargers", [])}
+            known_wh_ids = {wh.get("id") for wh in config.get("water_heaters", [])}
+            for i, load in enumerate(lb_loads):
+                device_type = load.get("device_type", "")
+                device_id = load.get("device_id", "")
+                if device_type == "ev_charger" and device_id not in known_ev_ids:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": f"load_balancing.loads[{i}] references unknown EV charger id: '{device_id}'",
+                            "guidance": "device_id must match an id in ev_chargers[].",
+                        }
+                    )
+                elif device_type == "water_heater" and device_id not in known_wh_ids:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": f"load_balancing.loads[{i}] references unknown water heater id: '{device_id}'",
+                            "guidance": "device_id must match an id in water_heaters[].",
+                        }
+                    )
+                if not load.get("phases"):
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": f"load_balancing.loads[{i}] ('{device_id}') has an empty phases list",
+                            "guidance": "Set load_balancing.loads[].phases to the phase number(s) this load is wired to, e.g. [1] or [1, 2, 3].",
+                        }
+                    )
 
     return issues
 

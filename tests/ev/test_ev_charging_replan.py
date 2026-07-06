@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 import yaml
 
-from executor.config import EVChargerConfig, EVChargerDeviceConfig
+from executor.config import EVChargerDeviceConfig
 from executor.engine import ExecutorEngine
 
 
@@ -317,7 +317,6 @@ class TestExecutorEVSwitchGating:
         # Mock the dependencies
         engine._has_ev_charger = True
         engine._has_battery = True
-        engine.config.ev_charger = EVChargerConfig(switch_entity="switch.test_ev")  # legacy
         engine.config.ev_chargers = [
             EVChargerDeviceConfig(id="main", switch_entity="switch.test_ev")
         ]

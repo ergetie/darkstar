@@ -523,3 +523,78 @@ class TestSetWaterTemp:
 
         # Assert HA write was attempted
         ha_client.set_input_number.assert_called_once_with("input_number.water_heater_target", 50.0)
+
+
+class TestSetEvChargerCurrent:
+    """universal-load-balancing 3.1: ActionDispatcher.set_ev_charger_current()."""
+
+    @pytest.fixture
+    def base_config(self):
+        from executor.config import ControllerConfig, ExecutorConfig, InverterConfig, NotificationConfig
+
+        return ExecutorConfig(
+            inverter=InverterConfig(),
+            controller=ControllerConfig(),
+            notifications=NotificationConfig(),
+        )
+
+    @pytest.mark.asyncio
+    async def test_writes_new_setpoint(self, base_config):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from executor.actions import ActionDispatcher
+
+        ha_client = MagicMock()
+        ha_client.get_state_value = AsyncMock(side_effect=["6", "10"])  # before, then verify
+        ha_client.set_number = AsyncMock(return_value=True)
+
+        dispatcher = ActionDispatcher(ha_client=ha_client, config=base_config, shadow_mode=False)
+
+        result = await dispatcher.set_ev_charger_current("number.goe_current", 10)
+
+        assert result.success is True
+        assert result.skipped is False
+        assert result.action_type == "ev_charge_current"
+        assert result.previous_value == "6"
+        assert result.new_value == 10
+        assert result.verified_value == "10"
+        assert result.verification_success is True
+        ha_client.set_number.assert_called_once_with("number.goe_current", 10.0)
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_at_target(self, base_config):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from executor.actions import ActionDispatcher
+
+        ha_client = MagicMock()
+        ha_client.get_state_value = AsyncMock(return_value="10")
+        ha_client.set_number = AsyncMock(return_value=True)
+
+        dispatcher = ActionDispatcher(ha_client=ha_client, config=base_config, shadow_mode=False)
+
+        result = await dispatcher.set_ev_charger_current("number.goe_current", 10)
+
+        assert result.success is True
+        assert result.skipped is True
+        assert "already 10A" in result.message
+        ha_client.set_number.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_shadow_mode_does_not_write(self, base_config):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from executor.actions import ActionDispatcher
+
+        ha_client = MagicMock()
+        ha_client.get_state_value = AsyncMock(return_value="6")
+        ha_client.set_number = AsyncMock(return_value=True)
+
+        dispatcher = ActionDispatcher(ha_client=ha_client, config=base_config, shadow_mode=True)
+
+        result = await dispatcher.set_ev_charger_current("number.goe_current", 10)
+
+        assert result.success is True
+        assert result.skipped is True
+        assert "[SHADOW]" in result.message
+        ha_client.set_number.assert_not_called()

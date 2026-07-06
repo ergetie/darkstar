@@ -957,6 +957,74 @@ class ActionDispatcher:
             error_details=error_details,
         )
 
+    async def set_balanced_entity(self, entity_id: str, value: str) -> ActionResult:
+        """Write an on/off value to a load-balancing custom-entity load (shed/restore).
+
+        Generic counterpart to set_custom_entity, parametrized by entity_id
+        since load_balancing.loads[] custom entities are distinct from the
+        excess_pv custom entity sink.
+        """
+        start = time.time()
+        current = await self.ha.get_state_value(entity_id)
+
+        if self._values_match(current, value):
+            return ActionResult(
+                action_type="balanced_load_entity",
+                success=True,
+                message=f"Already at {value}",
+                previous_value=current,
+                new_value=value,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
+        if self.shadow_mode:
+            logger.info(
+                "[SHADOW] Would set balanced load entity %s to %s (current: %s)",
+                entity_id,
+                value,
+                current,
+            )
+            return ActionResult(
+                action_type="balanced_load_entity",
+                success=True,
+                message=f"[SHADOW] Would change {current} -> {value}",
+                previous_value=current,
+                new_value=value,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
+        error_details = None
+        try:
+            domain = entity_id.split(".", 1)[0] if "." in entity_id else "switch"
+            success = await self._write_entity(entity_id, value, domain)
+        except HACallError as e:
+            success = False
+            error_details = str(e)
+            logger.error("Failed to set balanced load entity %s: %s", entity_id, error_details)
+
+        duration = int((time.time() - start) * 1000)
+
+        return ActionResult(
+            action_type="balanced_load_entity",
+            success=success,
+            message=(
+                f"Set {entity_id} to {value}"
+                if success
+                else f"Failed: {error_details}"
+                if error_details
+                else "Failed to set balanced load entity"
+            ),
+            previous_value=current,
+            new_value=value,
+            entity_id=entity_id,
+            duration_ms=duration,
+            error_details=error_details,
+        )
+
     async def _set_max_export_power(self, watts: float) -> ActionResult | None:
         """Set max grid export power."""
         start = time.time()
@@ -1176,6 +1244,89 @@ class ActionDispatcher:
             else f"Failed to turn {action_label} EV charger",
             previous_value=current_state,
             new_value=turn_on,
+            entity_id=entity_id,
+            verified_value=verified_value,
+            verification_success=verification_success,
+            duration_ms=duration,
+            error_details=error_details,
+        )
+
+    async def set_ev_charger_current(self, entity_id: str, amps: int) -> ActionResult:
+        """
+        Set an EV charger's ampere setpoint (variable-current control).
+
+        Args:
+            entity_id: HA number entity controlling charge current (A)
+            amps: Target ampere setpoint
+
+        Returns:
+            ActionResult with details of the action
+        """
+        start = time.time()
+
+        current_state = await self.ha.get_state_value(entity_id)
+
+        # Idempotent skip
+        if self._values_match(current_state, amps):
+            return ActionResult(
+                action_type="ev_charge_current",
+                success=True,
+                message=f"EV charger current already {amps}A",
+                previous_value=current_state,
+                new_value=amps,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+                error_details=None,
+            )
+
+        if self.shadow_mode:
+            logger.info(
+                "[SHADOW] EV Charger: Would set current to %sA (current: %s)",
+                amps,
+                current_state,
+            )
+            return ActionResult(
+                action_type="ev_charge_current",
+                success=True,
+                message=f"[SHADOW] Would change {current_state} -> {amps}A",
+                previous_value=current_state,
+                new_value=amps,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+                error_details=None,
+            )
+
+        error_details = None
+        try:
+            await self.ha.set_number(entity_id, float(amps))
+            success = True
+        except HACallError as e:
+            success = False
+            error_details = str(e)
+            logger.error("Failed to set EV charger current %s: %s", entity_id, error_details)
+
+        # Verification
+        verified_value = None
+        verification_success = None
+        if success:
+            verified_value, verification_success = await self._verify_action(entity_id, amps)
+
+        duration = int((time.time() - start) * 1000)
+
+        return ActionResult(
+            action_type="ev_charge_current",
+            success=success,
+            message=(
+                f"EV charger current set to {amps}A"
+                if success
+                else f"Failed: {error_details}"
+                if error_details
+                else "Failed to set EV charger current"
+            ),
+            previous_value=current_state,
+            new_value=amps,
             entity_id=entity_id,
             verified_value=verified_value,
             verification_success=verification_success,

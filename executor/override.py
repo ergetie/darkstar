@@ -10,6 +10,7 @@ conditions require immediate action (e.g., low SoC protection).
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -80,6 +81,11 @@ class SystemState:
 
     # Manual override toggle
     manual_override_active: bool = False
+
+    # Per-phase grid current (A, magnitude), phase number -> amps. None when
+    # load balancing sensors are unconfigured. universal-load-balancing
+    grid_current_a: dict[int, float] | None = None
+    grid_current_updated_at: dict[int, datetime] | None = None
 
 
 @dataclass
