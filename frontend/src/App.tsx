@@ -21,6 +21,7 @@ import { Api, HealthResponse, ConfigSaveResponse } from './lib/api'
 import { SystemAlert } from './components/SystemAlert'
 import { ToastProvider } from './components/ui/Toast'
 import { StartupWizard } from './components/startup/StartupWizard'
+import { getSocket } from './lib/socket'
 
 function RootLayout() {
     const [backendOffline, setBackendOffline] = useState(false)
@@ -29,6 +30,11 @@ function RootLayout() {
     const [showWizard, setShowWizard] = useState(false)
     const [missingProfile, setMissingProfile] = useState(false)
     const [configLoaded, setConfigLoaded] = useState(false)
+
+    // Eagerly initialize the Socket.IO singleton so connection state is meaningful on every route
+    useEffect(() => {
+        getSocket()
+    }, [])
 
     // Check config validation on mount and detect if wizard is needed
     useEffect(() => {

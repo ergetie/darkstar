@@ -1,26 +1,4 @@
-## Purpose
-
-Ensure the dashboard's WebSocket connection recovers reliably from outages — reconnecting indefinitely, reconciling any state missed during the drop, and visibly signaling connection liveness — so a frozen tab is never mistaken for live data.
-
-## Requirements
-
-### Requirement: Dashboard reconnects indefinitely
-
-The dashboard WebSocket client SHALL attempt to reconnect indefinitely after a lost connection, rather than giving up after a fixed number of attempts. Reconnection backoff SHALL remain bounded (delay capped) so reconnection storms are avoided.
-
-#### Scenario: Backend unavailable longer than the old attempt limit
-
-- **WHEN** the backend is unreachable for longer than the previous ~50 s / 10-attempt limit while a dashboard tab is open
-- **THEN** the client keeps retrying and reconnects automatically once the backend returns, without a manual page reload
-
-### Requirement: Dashboard refetches state on reconnect
-
-When the WebSocket reconnects after a drop, the dashboard SHALL refetch the full state bundle so any events missed during the outage are reconciled.
-
-#### Scenario: Reconnect after a drop
-
-- **WHEN** the socket fires a reconnect/connect event after having been disconnected
-- **THEN** the dashboard re-runs the full state fetch (the same bundle loaded on initial mount), replacing any values that went stale during the outage
+## ADDED Requirements
 
 ### Requirement: Socket is eagerly initialized at app boot
 
@@ -54,6 +32,16 @@ The connection state SHALL escalate from `connecting` to `offline` when the sock
 - **WHEN** the socket disconnects, reconnects briefly, and disconnects again
 - **THEN** the 10-second escalation timer SHALL restart on each `disconnect` event
 - **AND** the state SHALL not carry over a stale timer from a prior disconnection
+
+## REMOVED Requirements
+
+### Requirement: Dashboard shows connection liveness
+
+**Reason**: The liveness indicator is moving from the Dashboard page to the Sidebar so it is visible on every route, not only when the Dashboard is open. The state model is also expanding from a boolean (live/stale) to a tri-state (connecting/connected/offline) with a 10-second sustained-failure escalation, so the requirement's contract changes substantively.
+
+**Migration**: Replaced by "Sidebar shows connection liveness" below, which covers the same user need (a frozen tab is never mistaken for live data) with the broader visibility and richer state model.
+
+## ADDED Requirements
 
 ### Requirement: Sidebar shows connection liveness
 

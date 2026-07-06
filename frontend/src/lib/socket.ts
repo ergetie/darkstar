@@ -5,17 +5,29 @@ let socket: Socket | null = null
 
 // Connection-state store: lets the rest of the app know live vs. stale
 // without threading callbacks through getSocket().
-let connected = false
-const connectionListeners = new Set<(v: boolean) => void>()
+export type ConnectionState = 'connecting' | 'connected' | 'offline'
 
-const setConnected = (value: boolean) => {
-    connected = value
+const OFFLINE_ESCALATION_MS = 10_000
+
+let connectionState: ConnectionState = 'connecting'
+let escalationTimer: ReturnType<typeof setTimeout> | null = null
+const connectionListeners = new Set<(v: ConnectionState) => void>()
+
+const clearEscalationTimer = () => {
+    if (escalationTimer !== null) {
+        clearTimeout(escalationTimer)
+        escalationTimer = null
+    }
+}
+
+const setConnectionState = (value: ConnectionState) => {
+    connectionState = value
     connectionListeners.forEach((listener) => listener(value))
 }
 
-export const getConnectionState = () => connected
+export const getConnectionState = (): ConnectionState => connectionState
 
-export const subscribeConnection = (listener: (v: boolean) => void) => {
+export const subscribeConnection = (listener: (v: ConnectionState) => void) => {
     connectionListeners.add(listener)
     return () => connectionListeners.delete(listener)
 }
@@ -129,12 +141,17 @@ export const getSocket = () => {
 
         socket.on('connect', () => {
             debugLog('✅ Socket.IO CONNECTED! SID:', socket?.id)
-            setConnected(true)
+            clearEscalationTimer()
+            setConnectionState('connected')
         })
 
         socket.on('disconnect', (reason: string) => {
             console.warn('🔌 Socket.IO DISCONNECTED:', reason)
-            setConnected(false)
+            clearEscalationTimer()
+            setConnectionState('connecting')
+            escalationTimer = setTimeout(() => {
+                setConnectionState('offline')
+            }, OFFLINE_ESCALATION_MS)
         })
 
         socket.on('connect_error', (error: Error) => {

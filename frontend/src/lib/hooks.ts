@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getConnectionState, getSocket, subscribeConnection } from './socket'
+import { ConnectionState, getConnectionState, getSocket, subscribeConnection } from './socket'
 
 export const useSocket = (event: string, callback: (data: unknown) => void) => {
     // Store the latest callback in a ref so we don't have to re-subscribe on every render
@@ -28,12 +28,14 @@ export const useSocket = (event: string, callback: (data: unknown) => void) => {
     }, [event]) // Only re-subscribe if the event name itself changes
 }
 
-export const useSocketStatus = (): boolean => {
-    const [status, setStatus] = useState(getConnectionState())
+export const useSocketStatus = (): ConnectionState => {
+    const [status, setStatus] = useState<ConnectionState>(getConnectionState())
 
     useEffect(() => {
         const unsubscribe = subscribeConnection(setStatus)
-        return unsubscribe
+        return () => {
+            unsubscribe()
+        }
     }, [])
 
     return status
