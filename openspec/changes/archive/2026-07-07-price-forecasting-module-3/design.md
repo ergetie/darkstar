@@ -44,23 +44,32 @@ Module 1 (price-forecasting-core) delivers a `price_forecasts` DB table and `GET
 
 **Alternative considered:** Adding a price component to the sigma scaling in `calculate_probabilistic_s_index()`. Rejected because sigma scaling is designed around PV/load uncertainty bounds, and adding price would conflate two different risk types.
 
-### 2. Price signal: absolute spread (SEK/kWh), not ratio
+### 2. Price signal: absolute spread (SEK/kWh), proximity-weighted, not ratio
 
-**Choice:** Compute `price_spread_sek = peak_upcoming_daily_spot - trailing_14day_avg_spot`, both in SEK/kWh. The "upcoming" value is the **peak** daily average across D+1 through D+7. The "trailing" is the 14-day historical average from `slot_observations.export_price_sek_kwh`.
+**Choice:** For each forecast day D+1 through D+7, compute that day's spread against the trailing average — `spread_d = avg_spot_p50_d - trailing_14day_avg_spot`, both in SEK/kWh — then scale it by a **time-proximity weight** that decays exponentially with distance (half-life: 2 days). The price signal is the **maximum weighted spread** across the seven days. The "trailing" reference is the 14-day historical average from `slot_observations.export_price_sek_kwh`.
 
 **Why:** A ratio-based signal (`upcoming / trailing`) breaks at low absolute prices. A jump from 0.10 to 0.50 SEK/kWh is a 400% ratio spike but both prices are practically free — the system should barely react. A jump from 1.00 to 6.00 SEK/kWh is a 500% ratio but represents enormous real economic opportunity — the system should react strongly. Absolute spread in SEK/kWh correctly distinguishes these cases. Both price values are pure Nordpool spot prices (no grid fees or VAT), making the comparison unit-consistent.
 
 **Note on field naming:** the historical column `slot_observations.export_price_sek_kwh` *is* the raw Nordpool spot price despite the misleading name. Only the *import* price has VAT and grid fees added in this codebase; the export price is stored as pure spot. Comparing forecast `spot_p50` to trailing `export_price_sek_kwh` is therefore a valid apples-to-apples comparison, no normalisation required.
 
-**Why peak, not average:** A single very expensive day in an otherwise normal week creates real economic incentive to stockpile. Averaging D+1-D+7 dilutes this signal. The peak daily average captures the worst upcoming day regardless of when it falls and is what the system is economically hedging against.
+**Why peak, not average:** A single very expensive day in an otherwise normal week creates real economic incentive to stockpile. Averaging D+1-D+7 dilutes this signal. Taking the maximum (weighted) daily spread captures the worst upcoming day and is what the system is economically hedging against.
+
+**Why proximity-weighted:** The battery realistically bridges 1–2 days of load — it will never "hold" energy for 7 days. An expensive day at D+7 does not justify hoarding today: doing so sacrifices daily arbitrage flexibility for days with no benefit, and D+5–D+7 forecasts are the least accurate. The exponential decay (half-life 2 days) matches the battery's realistic bridging horizon: a spike counts fully when 1 day away, half at D+3, and ~13% at D+7. A useful emergent behavior: as an expensive day approaches, its weight grows each day, so the floor **ramps up gradually** — the battery fills over several cheap nights instead of hoarding a full week early.
+
+**Proximity weight table** (`weight(d) = 0.5^((d−1)/2)`, `PRICE_PROXIMITY_HALF_LIFE_DAYS = 2.0`):
+
+| Days ahead | D+1 | D+2 | D+3 | D+4 | D+5 | D+6 | D+7 |
+|---|---|---|---|---|---|---|---|
+| Weight | 1.00 | 0.71 | 0.50 | 0.35 | 0.25 | 0.18 | 0.13 |
 
 **Formula:**
 ```
-peak_upcoming_sek = max(avg_spot_p50 per day, for D+1 through D+7)
-price_spread_sek  = peak_upcoming_sek - trailing_14day_avg_sek
+spread_d            = avg_spot_p50_d - trailing_14day_avg_sek     (for d = 1..7)
+weight(d)           = 0.5^((d − 1) / 2)
+weighted_spread_sek = max(spread_d × weight(d), for d = 1..7)
 ```
 
-Positive spread → prices are rising → increase floor. Negative spread → cheap period ahead → decrease floor.
+The day that produces the maximum is the **driving day** (recorded in debug output). Positive weighted spread → expensive period near enough to matter → increase floor. Negative weighted spread → cheap period ahead → no effect (see Decision 3).
 
 ### 3. Two-tier architecture: price addon applied after the existing 20% cap, asymmetric (additive only)
 
@@ -70,10 +79,11 @@ Positive spread → prices are rising → increase floor. Negative spread → ch
 Layer 1 (existing, unchanged):
   safety_floor_kwh = min(raw_floor, min_soc_kwh + 0.20 × capacity_kwh)
 
-Layer 2 (new, price signal — additive only):
+Layer 2 (new, price signal — additive only, proximity-weighted):
   RISK_PRICE_KW_FRACTION = {1: 0.15, 2: 0.12, 3: 0.10, 4: 0.05, 5: 0.02}
-  risk_fraction     = RISK_PRICE_KW_FRACTION[risk_appetite]
-  price_addon_kwh   = capacity_kwh × price_spread_sek × risk_fraction
+  risk_fraction       = RISK_PRICE_KW_FRACTION[risk_appetite]
+  weighted_spread_sek = max(spread_d × 0.5^((d−1)/2), for d = 1..7)   # Decision 2
+  price_addon_kwh     = capacity_kwh × weighted_spread_sek × risk_fraction
 
   final_floor_kwh   = clamp(
                         safety_floor_kwh + price_addon_kwh,
@@ -92,12 +102,14 @@ Layer 2 (new, price signal — additive only):
 
 **Concrete examples (risk 3, fraction 0.10):**
 
-| Scenario | Spread | Computed addon | Effective change | Final floor |
-|---|---|---|---|---|
-| Normal week | 0.0 SEK | 0 kWh | none | unchanged |
-| Prices rise +1.5 SEK/kWh | +1.5 | +capacity×0.15 | applied | base + 15% capacity |
-| Prices rise +5.0 SEK/kWh | +5.0 | +capacity×0.50 | applied (clamped at 80%) | 80% capacity |
-| Cheap week ahead | −0.8 SEK | −capacity×0.08 | **clamped to zero — floor unchanged** | unchanged |
+| Scenario | Raw spread | Weight | Weighted spread | Computed addon | Effective change |
+|---|---|---|---|---|---|
+| Normal week | 0.0 SEK | — | 0.0 | 0 kWh | none |
+| +1.5 SEK/kWh spike at D+1 | +1.5 | 1.00 | +1.50 | +capacity×0.15 | applied |
+| +1.5 SEK/kWh spike at D+6 | +1.5 | 0.18 | +0.27 | +capacity×0.027 | applied (small — spike is far out) |
+| +5.0 SEK/kWh spike at D+1 | +5.0 | 1.00 | +5.00 | +capacity×0.50 | applied (clamped at 80% capacity) |
+| +5.0 SEK/kWh spike at D+7 | +5.0 | 0.13 | +0.63 | +capacity×0.063 | applied (ramps up as the day nears) |
+| Cheap week ahead | −0.8 SEK | 1.00 (D+1) | −0.80 | −capacity×0.08 | **clamped to zero — floor unchanged** |
 
 ### 4. Risk-level scaling via internal constant table
 
@@ -121,8 +133,8 @@ Layer 2 (new, price signal — additive only):
 
 **Why:** Consistent with how PV/load forecast data and temperature data are already passed to S-Index functions. Keeps the strategy module testable (pass mock data in tests). The pipeline is already the orchestration layer that gathers inputs.
 
-**Data fetched:**
-- Daily average `spot_p50` per day from `price_forecasts` table (D+1 through D+7)
+**Data fetched** (by a new self-contained helper, `fetch_price_floor_inputs()` — the existing Aurora forecast retrieval is not touched):
+- Daily average `spot_p50` per day from `price_forecasts` table (D+1 through D+7), keyed by days-ahead offset (int) so the proximity weighting receives correct distances
 - 14-day trailing average `export_price_sek_kwh` from `slot_observations`
 
 ### 6. Use daily p50 averages from price forecasts
@@ -142,6 +154,6 @@ Layer 2 (new, price signal — additive only):
 - **[Sustained expensive periods]** → If prices are elevated for many days, the trailing 14-day average slowly rises to match, narrowing the spread and reducing the floor over time. This is correct long-run behavior: the system gradually normalises to the new price level. The 14-day lag is a feature, not a bug — it prevents permanent high floors if prices never come back down. During the first ~7 days of a sustained spike, the floor will be elevated and Kepler may import at "expensive" prices to maintain it. This is an acceptable trade-off: the user is storing energy that avoids even-more-expensive future imports.
 - **[Cold start — no price forecasts yet]** → When `price_forecast.enabled` is false or no forecast data exists, `price_addon_kwh = 0.0` and the final floor equals the existing safety floor. Zero risk of regression.
 - **[Interaction with risk_appetite]** → Risk appetite already controls the base safety floor via `RISK_CONFIG` margins and min_buffer_pct in Layer 1. The price addon (Layer 2) also scales with risk_appetite via `RISK_PRICE_KW_FRACTION`. A Risk 5 (Gambler) user gets a fraction of 0.02 — almost no price hoarding. A Risk 1 (Safety) user gets 0.15 — aggressive. These stack correctly.
-- **[Price forecast accuracy for D+5-D+7]** → Using the peak across all D+1-D+7 means a single inaccurate far-future day can inflate the signal. Mitigation: the 80% capacity upper bound prevents runaway floors. The trailing average as reference dampens the effect of single-day spikes that are far from historical norms. Acceptable given the economic stakes.
+- **[Price forecast accuracy for D+5-D+7]** → A single inaccurate far-future day could inflate the signal. Mitigation: the proximity weighting (Decision 2) damps far-out days heavily — D+5/D+6/D+7 count at only 25%/18%/13% — so a phantom spike a week out barely moves the floor, and its influence grows only if the forecast keeps predicting it as the day approaches. The 80% capacity upper bound additionally prevents runaway floors, and the trailing average as reference dampens single-day spikes far from historical norms.
 - **[Trailing average unavailable for new systems]** → If fewer than 2 days of historical prices exist, return `price_addon_kwh = 0.0`. Same pattern as Module 2's reference average fallback.
 - **[Risk fractions are initial estimates, not calibrated]** → The values in `RISK_PRICE_KW_FRACTION` (0.02 → 0.15) were chosen by reasoning about reasonable behavior, not measured against real Swedish price history. They could be too aggressive, too timid, or roughly right — we will not know until 2–4 weeks of production observation. Plan: revisit these constants after a meaningful sample of real spread events (see `docs/BACKLOG.md`). Until then, treat them as v1 defaults, not validated tuning.

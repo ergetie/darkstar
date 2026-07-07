@@ -82,10 +82,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     if (!unit) return null
                     const lower = unit.toLowerCase()
                     if (lower === 'a') {
-                        return { text: `Unit: ${unit}`, className: 'text-good/80' }
+                        return { text: `Detected Unit: ${unit}`, className: 'text-good/80' }
                     }
                     if (lower === 'w' || lower === 'kw') {
-                        return { text: `Unit: ${unit} (voltage required)`, className: 'text-accent/90' }
+                        return { text: `Detected Unit: ${unit}`, className: 'text-accent/90' }
                     }
                     return { text: `Unit: ${unit}`, className: 'text-muted/80' }
                 }

@@ -45,6 +45,124 @@ from planner.vacation_state import load_last_anti_legionella, save_last_anti_leg
 logger = logging.getLogger("darkstar.planner")
 
 
+def _fetch_price_floor_inputs_sync(
+    db_path: str, timezone_name: str
+) -> tuple[dict[int, float], float | None]:
+    """
+    Fetch price floor inputs for the S-Index from the learning DB (Module 3).
+
+    Returns:
+        Tuple of (upcoming_daily_avg_spots, trailing_avg_spot):
+        - upcoming_daily_avg_spots: days-ahead offset (int) -> daily avg spot_p50
+          for D+1..D+7. Computed from the latest issue per slot_start, grouped by
+          calendar date in the configured timezone.
+        - trailing_avg_spot: 14-day trailing average of export_price_sek_kwh from
+          slot_observations (>=2 distinct calendar days required); None if absent.
+    """
+    import sqlite3
+    from datetime import date, datetime, time, timedelta
+
+    tz = pytz.timezone(timezone_name)
+    today = datetime.now(tz).date()
+
+    upcoming: dict[int, float] = {}
+    trailing: float | None = None
+
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+    except Exception as exc:
+        logger.warning("Price floor inputs: cannot open DB: %s", exc)
+        return upcoming, trailing
+
+    try:
+        conn.row_factory = sqlite3.Row
+
+        # --- Upcoming daily avg spot p50 for D+1..D+7 ---
+        start_local = tz.localize(datetime.combine(today + timedelta(days=1), time.min))
+        end_local = tz.localize(datetime.combine(today + timedelta(days=8), time.min))
+        start_iso = start_local.isoformat()
+        end_iso = end_local.isoformat()
+
+        cursor = conn.execute(
+            """
+            SELECT slot_start, issue_timestamp, spot_p50
+            FROM price_forecasts
+            WHERE slot_start >= ? AND slot_start < ?
+              AND spot_p50 IS NOT NULL
+            ORDER BY slot_start
+            """,
+            (start_iso, end_iso),
+        )
+        best_per_slot: dict[str, dict[str, Any]] = {}
+        for r in cursor.fetchall():
+            key = r["slot_start"]
+            existing = best_per_slot.get(key)
+            if existing is None or (r["issue_timestamp"] or "") > existing["issue_timestamp"]:
+                best_per_slot[key] = {
+                    "slot_start": key,
+                    "issue_timestamp": r["issue_timestamp"] or "",
+                    "spot_p50": float(r["spot_p50"]),
+                }
+
+        # Group by calendar date (local tz), then average per day.
+        per_day: dict[int, list[float]] = {}
+        for row in best_per_slot.values():
+            try:
+                slot_dt = datetime.fromisoformat(row["slot_start"]).astimezone(tz)
+            except (TypeError, ValueError):
+                continue
+            offset = (slot_dt.date() - today).days
+            if 1 <= offset <= 7:
+                per_day.setdefault(offset, []).append(row["spot_p50"])
+
+        for offset, spots in per_day.items():
+            if spots:
+                upcoming[offset] = sum(spots) / len(spots)
+
+        # --- Trailing 14-day avg export price_sek_kwh (>=2 distinct days) ---
+        trailing_start = (today - timedelta(days=14)).isoformat()
+        cursor = conn.execute(
+            """
+            SELECT slot_start, export_price_sek_kwh
+            FROM slot_observations
+            WHERE slot_start >= ? AND export_price_sek_kwh IS NOT NULL
+            """,
+            (trailing_start,),
+        )
+        values: list[float] = []
+        distinct_dates: set[date] = set()
+        for r in cursor.fetchall():
+            try:
+                slot_dt = datetime.fromisoformat(r["slot_start"])
+                distinct_dates.add(slot_dt.astimezone(tz).date())
+            except (TypeError, ValueError):
+                continue
+            values.append(float(r["export_price_sek_kwh"]))
+
+        if len(distinct_dates) >= 2 and values:
+            trailing = sum(values) / len(values)
+    except Exception as exc:
+        logger.warning("Price floor inputs: DB query failed: %s", exc)
+        return upcoming, trailing
+    finally:
+        conn.close()
+
+    return upcoming, trailing
+
+
+async def fetch_price_floor_inputs(
+    db_path: str, timezone_name: str
+) -> tuple[dict[int, float], float | None]:
+    """
+    Async wrapper around the synchronous price-floor-inputs DB query.
+
+    The synchronous query is offloaded to a thread (matching the established
+    `asyncio.to_thread` pattern used by the price-forecast API router) so the
+    event loop is never blocked on a long-running SQLite read.
+    """
+    return await asyncio.to_thread(_fetch_price_floor_inputs_sync, db_path, timezone_name)
+
+
 def _calculate_excess_pv_flags(
     kepler_slots: list[Any],
     water_heaters: list[Any],
@@ -449,6 +567,18 @@ class PlannerPipeline:
             full_forecast_df = build_forecast_dataframe(full_forecast_data, timezone_name)
 
             soc_debug: dict[str, Any] = {}
+
+            # Module 3: fetch price forecast data for the Layer 2 safety floor addon.
+            upcoming_spots: dict[int, float] | None = None
+            trailing_spot: float | None = None
+            if active_config.get("price_forecast", {}).get("enabled", False):
+                _db_path = active_config.get("learning", {}).get(
+                    "sqlite_path", "data/planner_learning.db"
+                )
+                upcoming_spots, trailing_spot = await fetch_price_floor_inputs(
+                    _db_path, timezone_name
+                )
+
             target_soc_kwh, soc_debug = calculate_safety_floor(
                 df,
                 active_config.get("battery", {}),
@@ -459,6 +589,8 @@ class PlannerPipeline:
                 ),
                 full_forecast_df=full_forecast_df,
                 price_horizon_end=price_horizon_end,
+                upcoming_daily_avg_spots=upcoming_spots,
+                trailing_avg_spot=trailing_spot,
             )
 
             # Derive percentage for UI/Legacy compatibility
