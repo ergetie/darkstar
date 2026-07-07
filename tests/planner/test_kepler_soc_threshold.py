@@ -1,14 +1,30 @@
 from datetime import datetime, timedelta
 
-import pytest
-
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
+    ExcessPVSinkEntry,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
     WaterHeaterInput,
 )
+
+
+def _boost_priority(reward: float) -> list[ExcessPVSinkEntry]:
+    return [ExcessPVSinkEntry(type="water_heater_boost", effective_reward_sek_per_kwh=reward)]
+
+
+def _custom_entity_priority(reward: float, power_kw: float) -> list[ExcessPVSinkEntry]:
+    return [
+        ExcessPVSinkEntry(
+            type="custom_entity", effective_reward_sek_per_kwh=reward, power_kw=power_kw
+        )
+    ]
+
+
+def _custom_entity_active(slot) -> bool:
+    """A slot's custom_entity_active is now a dict keyed by priority-list rank."""
+    return any(slot.custom_entity_active.values())
 
 
 def _wh(id: str = "wh1", power_kw: float = 3.0, min_kwh_per_day: float = 0.0):
@@ -59,8 +75,7 @@ class TestSoCThresholdBoost:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[True] * 4,
-            excess_pv_sink="water_heater_boost",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_boost_priority(reward=2.0),
             excess_pv_soc_threshold_percent=95.0,
             water_heaters=[_wh()],
         )
@@ -91,8 +106,7 @@ class TestSoCThresholdBoost:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[True] * 8,
-            excess_pv_sink="water_heater_boost",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_boost_priority(reward=2.0),
             excess_pv_soc_threshold_percent=95.0,
             water_heaters=[_wh()],
         )
@@ -101,9 +115,7 @@ class TestSoCThresholdBoost:
         result = KeplerSolver().solve(input_data, config)
         assert result.is_optimal
 
-        boost_slots = [
-            s for s in result.slots if s.water_heating_boost.get("wh1", False)
-        ]
+        boost_slots = [s for s in result.slots if s.water_heating_boost.get("wh1", False)]
         assert len(boost_slots) > 0, (
             "Boost should activate when SoC starts at 96% (above 95% threshold), "
             "excess PV is available, and reward (2.0) exceeds export price (0.0)"
@@ -124,8 +136,7 @@ class TestSoCThresholdBoost:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[True] * 8,
-            excess_pv_sink="water_heater_boost",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_boost_priority(reward=2.0),
             excess_pv_soc_threshold_percent=85.0,
             water_heaters=[_wh()],
         )
@@ -134,9 +145,7 @@ class TestSoCThresholdBoost:
         result = KeplerSolver().solve(input_data, config)
         assert result.is_optimal
 
-        boost_slots = [
-            s for s in result.slots if s.water_heating_boost.get("wh1", False)
-        ]
+        boost_slots = [s for s in result.slots if s.water_heating_boost.get("wh1", False)]
         assert len(boost_slots) > 0, (
             "Boost should activate at 88% SoC when threshold is lowered to 85%"
         )
@@ -158,10 +167,8 @@ class TestSoCThresholdCustomEntity:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[True] * 4,
-            excess_pv_sink="custom_entity",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_custom_entity_priority(reward=2.0, power_kw=2.0),
             excess_pv_soc_threshold_percent=95.0,
-            excess_pv_custom_entity_power_kw=2.0,
         )
         input_data = KeplerInput(slots=slots, initial_soc_kwh=initial_soc)
 
@@ -169,7 +176,7 @@ class TestSoCThresholdCustomEntity:
         assert result.is_optimal
 
         for i, s in enumerate(result.slots):
-            assert not s.custom_entity_active, (
+            assert not _custom_entity_active(s), (
                 f"Custom entity should NOT activate in slot {i} — SoC starts at 50% "
                 f"and cannot reach 95%. Got custom_entity_active={s.custom_entity_active}"
             )
@@ -189,17 +196,15 @@ class TestSoCThresholdCustomEntity:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[True] * 8,
-            excess_pv_sink="custom_entity",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_custom_entity_priority(reward=2.0, power_kw=2.0),
             excess_pv_soc_threshold_percent=95.0,
-            excess_pv_custom_entity_power_kw=2.0,
         )
         input_data = KeplerInput(slots=slots, initial_soc_kwh=initial_soc)
 
         result = KeplerSolver().solve(input_data, config)
         assert result.is_optimal
 
-        active_slots = [s for s in result.slots if s.custom_entity_active]
+        active_slots = [s for s in result.slots if _custom_entity_active(s)]
         assert len(active_slots) > 0, (
             "Custom entity should activate when SoC starts at 96% (above 95% threshold)"
         )
@@ -219,10 +224,8 @@ class TestSoCThresholdCustomEntity:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[False] * 8,
-            excess_pv_sink="custom_entity",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_custom_entity_priority(reward=2.0, power_kw=2.0),
             excess_pv_soc_threshold_percent=95.0,
-            excess_pv_custom_entity_power_kw=2.0,
         )
         input_data = KeplerInput(slots=slots, initial_soc_kwh=initial_soc)
 
@@ -230,7 +233,7 @@ class TestSoCThresholdCustomEntity:
         assert result.is_optimal
 
         for s in result.slots:
-            assert not s.custom_entity_active, (
+            assert not _custom_entity_active(s), (
                 "Custom entity should NOT activate when excess PV flag is False"
             )
 
@@ -249,10 +252,8 @@ class TestSoCThresholdCustomEntity:
             max_soc_percent=100.0,
             wear_cost_sek_per_kwh=0.01,
             excess_pv_slots=[True] * 12,
-            excess_pv_sink="custom_entity",
-            excess_pv_reward_sek_per_kwh=2.0,
+            excess_pv_priority=_custom_entity_priority(reward=2.0, power_kw=2.0),
             excess_pv_soc_threshold_percent=95.0,
-            excess_pv_custom_entity_power_kw=2.0,
         )
         input_data = KeplerInput(slots=slots, initial_soc_kwh=initial_soc)
 
@@ -264,7 +265,7 @@ class TestSoCThresholdCustomEntity:
             (i, s) for i, s in enumerate(result.slots) if s.soc_kwh < threshold_kwh
         ]
         for i, s in below_threshold_slots:
-            assert not s.custom_entity_active, (
+            assert not _custom_entity_active(s), (
                 f"Custom entity should NOT activate in slot {i} where SoC "
                 f"({s.soc_kwh:.2f} kWh) is below threshold ({threshold_kwh:.2f} kWh)"
             )

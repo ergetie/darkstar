@@ -93,32 +93,32 @@ class WaterHeaterGlobalConfig:
 WaterHeaterConfig = WaterHeaterGlobalConfig
 
 
-class ExcessPVSinkType(Enum):
-    """Type of excess PV sink."""
-
-    WATER_HEATER_BOOST = "water_heater_boost"
-    CUSTOM_ENTITY = "custom_entity"
-    DISABLED = "disabled"
-
-
 @dataclass
-class ExcessPVCustomEntityConfig:
-    """Custom HA entity configuration for excess PV sink."""
+class ExcessPVSinkEntry:
+    """One entry in the excess-PV sink priority list (executor.excess_pv.priority[]).
 
-    entity: str | None = None
+    List order is priority order (index 0 = highest); the house battery is
+    always implicitly first (gated separately via `soc_threshold_percent`).
+    Fields not relevant to `type` are left at their defaults.
+    """
+
+    type: str = "custom_entity"  # "ev" | "water_heater_boost" | "custom_entity"
+    charger_id: str | None = None  # type == "ev": id of an ev_chargers[] entry (type: current)
+    surplus_deadband_kw: float = 0.2  # type == "ev": deadband for the surplus feedback loop
+    reward_sek_per_kwh: float | None = None  # optional override of the rank-scaled reward
+    entity: str | None = None  # type == "custom_entity"
     on_value: str = "1"
     off_value: str = "0"
-    power_kw: float = 1.0
+    power_kw: float = 1.0  # type == "custom_entity": estimated power draw
 
 
 @dataclass
 class ExcessPVConfig:
     """Excess PV dispatch configuration."""
 
-    sink: ExcessPVSinkType = ExcessPVSinkType.DISABLED
+    priority: list[ExcessPVSinkEntry] = field(default_factory=lambda: [])
     boost_reward_sek_per_kwh: float = 0.5
     soc_threshold_percent: float = 95.0
-    custom_entity: ExcessPVCustomEntityConfig = field(default_factory=ExcessPVCustomEntityConfig)
 
 
 @dataclass
@@ -163,6 +163,12 @@ class EVChargerDeviceConfig:
     phase_sensor_l1: str | None = None
     phase_sensor_l2: str | None = None
     phase_sensor_l3: str | None = None
+
+    # Commanded 1<->3 phase switching (excess-pv-priority-dispatch)
+    phase_mode_entity: str | None = None  # HA select/entity for commanded phase mode
+    phase_switching_enabled: bool = False
+    phase_switch_hysteresis_kw: float = 0.5
+    phase_switch_min_dwell_s: int = 600
 
 
 class BalancedLoadType(Enum):
@@ -659,6 +665,24 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 phase_sensor_l1=_str_or_none(charger.get("phase_sensor_l1")),
                 phase_sensor_l2=_str_or_none(charger.get("phase_sensor_l2")),
                 phase_sensor_l3=_str_or_none(charger.get("phase_sensor_l3")),
+                phase_mode_entity=_str_or_none(charger.get("phase_mode_entity")),
+                phase_switching_enabled=bool(
+                    charger.get(
+                        "phase_switching_enabled", EVChargerDeviceConfig.phase_switching_enabled
+                    )
+                ),
+                phase_switch_hysteresis_kw=float(
+                    charger.get(
+                        "phase_switch_hysteresis_kw",
+                        EVChargerDeviceConfig.phase_switch_hysteresis_kw,
+                    )
+                ),
+                phase_switch_min_dwell_s=int(
+                    charger.get(
+                        "phase_switch_min_dwell_s",
+                        EVChargerDeviceConfig.phase_switch_min_dwell_s,
+                    )
+                ),
             )
         )
 
@@ -766,28 +790,41 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         if isinstance(executor_data.get("excess_pv"), dict)
         else {}
     )
-    sink_raw = str(excess_pv_data.get("sink", "disabled")).lower()
-    try:
-        sink_type = ExcessPVSinkType(sink_raw)
-    except ValueError:
-        sink_type = ExcessPVSinkType.DISABLED
+    priority_raw: Any = excess_pv_data.get("priority", [])
+    priority_entries: list[ExcessPVSinkEntry] = []
+    if isinstance(priority_raw, list):
+        for entry_raw in cast("list[Any]", priority_raw):
+            if not isinstance(entry_raw, dict):
+                continue
+            entry = cast("dict[str, Any]", entry_raw)
+            entry_type = str(entry.get("type", "")).lower()
+            if entry_type not in ("ev", "water_heater_boost", "custom_entity"):
+                logger.warning(
+                    "Ignoring excess_pv.priority[] entry with unknown type: %r", entry_type
+                )
+                continue
+            reward_override = entry.get("reward_sek_per_kwh")
+            priority_entries.append(
+                ExcessPVSinkEntry(
+                    type=entry_type,
+                    charger_id=_str_or_none(entry.get("charger_id")),
+                    surplus_deadband_kw=float(
+                        entry.get("surplus_deadband_kw", ExcessPVSinkEntry.surplus_deadband_kw)
+                    ),
+                    reward_sek_per_kwh=(
+                        float(reward_override) if reward_override is not None else None
+                    ),
+                    entity=_str_or_none(entry.get("entity")),
+                    on_value=str(entry.get("on_value", "1")),
+                    off_value=str(entry.get("off_value", "0")),
+                    power_kw=float(entry.get("power_kw", 1.0)),
+                )
+            )
 
-    custom_entity_data: dict[str, Any] = (
-        excess_pv_data.get("custom_entity", {})
-        if isinstance(excess_pv_data.get("custom_entity"), dict)
-        else {}
-    )
-    custom_entity = ExcessPVCustomEntityConfig(
-        entity=_str_or_none(custom_entity_data.get("entity")),
-        on_value=str(custom_entity_data.get("on_value", "1")),
-        off_value=str(custom_entity_data.get("off_value", "0")),
-        power_kw=float(custom_entity_data.get("power_kw", 1.0)),
-    )
     excess_pv = ExcessPVConfig(
-        sink=sink_type,
+        priority=priority_entries,
         boost_reward_sek_per_kwh=float(excess_pv_data.get("boost_reward_sek_per_kwh", 0.5)),
         soc_threshold_percent=float(excess_pv_data.get("soc_threshold_percent", 95.0)),
-        custom_entity=custom_entity,
     )
 
     return ExecutorConfig(

@@ -41,6 +41,24 @@ class EVChargerInput:
     plugged_in: bool
     deadline: datetime | None
     incentive_buckets: list[IncentiveBucket] = field(default_factory=lambda: [])
+    # "binary" (ON/OFF switch) or "current" (variable ampere setpoint). Only
+    # "current" chargers are eligible for excess-PV surplus charging — surplus
+    # is inherently fractional and a binary charger can't modulate to match it.
+    control_type: str = "binary"
+
+
+@dataclass
+class ExcessPVSinkEntry:
+    """One priority-ordered excess-PV sink entry, with its rank-scaled effective reward.
+
+    Mirrors executor.config.ExcessPVSinkEntry; built by the adapter from the
+    executor's `excess_pv.priority[]` config plus the shared base reward.
+    """
+
+    type: str  # "ev" | "water_heater_boost" | "custom_entity"
+    effective_reward_sek_per_kwh: float
+    charger_id: str | None = None  # type == "ev"
+    power_kw: float = 1.0  # type == "custom_entity": estimated power draw
 
 
 @dataclass
@@ -96,10 +114,9 @@ class KeplerConfig:
     excess_pv_slots: list[bool] = field(
         default_factory=lambda: []
     )  # Per-slot flags: True if excess PV available
-    excess_pv_sink: str = "disabled"  # water_heater_boost | custom_entity | disabled
-    excess_pv_reward_sek_per_kwh: float = 0.5  # Reward for using excess PV at sink vs exporting
+    # Priority-ordered sink list (index 0 = highest priority); empty = disabled.
+    excess_pv_priority: list[ExcessPVSinkEntry] = field(default_factory=lambda: [])
     excess_pv_soc_threshold_percent: float = 95.0  # Battery SoC % required before sink activates
-    excess_pv_custom_entity_power_kw: float = 1.0  # Estimated power of custom entity (kW)
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -168,7 +185,12 @@ class KeplerResultSlot:
     water_heating_boost: dict[str, bool] = field(
         default_factory=lambda: {}
     )  # Per-device: heater_id -> boost active
-    custom_entity_active: bool = False  # Whether custom entity sink should be on
+    custom_entity_active: dict[str, bool] = field(
+        default_factory=lambda: {}
+    )  # Per-entry: str(priority-list rank) -> whether that custom entity sink is on
+    ev_surplus_kw: dict[str, float] = field(
+        default_factory=lambda: {}
+    )  # Per-charger: charger_id -> surplus-eligible kW this slot
     is_optimal: bool = True
 
 

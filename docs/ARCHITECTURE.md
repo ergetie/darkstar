@@ -384,7 +384,7 @@ flowchart LR
 
 The executor includes real-time override logic for edge cases:
 - **Low SoC Protection**: Prevents export when SoC is critically low
-- **Excess PV Utilization**: Heats water to `temp_max` when excess PV available
+- **Excess PV Utilization**: Dispatches surplus PV into an ordered priority list of sinks (EV surplus charging, water heater boost to `temp_max`, custom entities) — see README "Excess PV Dispatch"
 - **Slot Failure Fallback**: Safe defaults if slot plan unavailable
 
 > **⚠️ IMPORTANT: Emergency Charge Override Removed (REV E6)**

@@ -162,14 +162,33 @@ def dataframe_to_json_response(
                 if isinstance(v, bool | int | float)
             }
 
-        # Normalize custom_entity_active: ensure it's always a bool
+        # Normalize custom_entity_active: ensure it's always a dict, not NaN.
+        # Keyed by str(priority-list rank); one entry per custom_entity sink.
         custom_val = record.get("custom_entity_active")
-        record["custom_entity_active"] = bool(custom_val) if custom_val is not None else False
+        if not isinstance(custom_val, dict):
+            record["custom_entity_active"] = {}
+        else:
+            record["custom_entity_active"] = {
+                k: bool(v)  # type: ignore[misc]
+                for k, v in custom_val.items()  # type: ignore[union-attr]
+                if isinstance(v, bool | int | float)
+            }
 
         # Normalize ev_chargers: ensure it's always a dict, not NaN for non-solver rows
         ev_chargers_val = record.get("ev_chargers")
         if not isinstance(ev_chargers_val, dict):
             record["ev_chargers"] = {}
+
+        # Normalize ev_surplus_kw: ensure it's always a dict, not NaN. Keyed by charger_id.
+        ev_surplus_val = record.get("ev_surplus_kw")
+        if not isinstance(ev_surplus_val, dict):
+            record["ev_surplus_kw"] = {}
+        else:
+            record["ev_surplus_kw"] = {
+                k: float(v)  # type: ignore[misc]
+                for k, v in ev_surplus_val.items()  # type: ignore[union-attr]
+                if isinstance(v, bool | int | float)
+            }
 
         # Rev K22: Calculate planned cash flow cost (Grid Bill only)
         import_kwh = float(record.get("kepler_import_kwh") or record.get("import_kwh") or 0.0)

@@ -274,9 +274,7 @@ class TestEVChargerCurrentTypeValidation:
         assert any("current_entity" in e["message"] for e in errors)
 
     def test_current_type_without_max_current_a_is_error(self):
-        config = self._base_config(
-            {"type": "current", "current_entity": "number.goe_current"}
-        )
+        config = self._base_config({"type": "current", "current_entity": "number.goe_current"})
         issues = _validate_config_for_save(config)
         errors = [i for i in issues if i["severity"] == "error"]
         assert any("max_current_a" in e["message"] for e in errors)
@@ -423,7 +421,12 @@ class TestLoadBalancingValidation:
         config["water_heaters"] = [{"id": "main_tank"}]
         issues = _validate_config_for_save(config)
         errors = [i for i in issues if i["severity"] == "error"]
-        assert not any("load_balancing" in e["message"] or "grid_current" in e["message"] or "main_fuse_a" in e["message"] for e in errors)
+        assert not any(
+            "load_balancing" in e["message"]
+            or "grid_current" in e["message"]
+            or "main_fuse_a" in e["message"]
+            for e in errors
+        )
 
 
 class TestLoadBalancingPowerSensorValidation:
@@ -456,9 +459,7 @@ class TestLoadBalancingPowerSensorValidation:
         phase_units = {"sensor.l1": {"unit_of_measurement": "lux", "device_class": ""}}
         issues = _validate_config_for_save(config, phase_units)
         errors = [i for i in issues if i["severity"] == "error"]
-        assert any(
-            "grid_current_l1" in e["message"] and "lux" in e["message"] for e in errors
-        )
+        assert any("grid_current_l1" in e["message"] and "lux" in e["message"] for e in errors)
 
     def test_recognized_power_unit_is_not_an_error(self):
         config = self._base_config({"enabled": True, "loads": []})
@@ -490,9 +491,7 @@ class TestLoadBalancingPowerSensorValidation:
         config["ev_chargers"] = [{"id": "goe", "type": "current"}]
         issues = _validate_config_for_save(config)
         errors = [i for i in issues if i["severity"] == "error"]
-        assert any(
-            "type: current" in e["message"] and "goe" in e["message"] for e in errors
-        )
+        assert any("type: current" in e["message"] and "goe" in e["message"] for e in errors)
 
     def test_type_binary_charger_in_loads_is_still_allowed(self):
         config = self._base_config(
@@ -531,9 +530,7 @@ class TestLoadBalancingPowerSensorValidation:
         config["ev_chargers"] = [{"id": "goe", "type": "current"}]
         issues = _validate_config_for_save(config)
         errors = [i for i in issues if i["severity"] == "error"]
-        assert any(
-            "goe" in e["message"] and "give-way" in e["guidance"] for e in errors
-        )
+        assert any("goe" in e["message"] and "give-way" in e["guidance"] for e in errors)
 
     def test_give_way_order_dangling_charger_reference_is_warning(self):
         config = self._base_config(
@@ -550,9 +547,7 @@ class TestLoadBalancingPowerSensorValidation:
         issues = _validate_config_for_save(config)
         warnings = [i for i in issues if i["severity"] == "warning"]
         assert any("ghost" in w["message"] and "give_way_order" in w["message"] for w in warnings)
-        assert not any(
-            "goe" in w["message"] and "give_way_order" in w["message"] for w in warnings
-        )
+        assert not any("goe" in w["message"] and "give_way_order" in w["message"] for w in warnings)
 
     def test_give_way_order_dangling_shed_reference_is_warning(self):
         config = self._base_config(
@@ -613,9 +608,7 @@ class TestLoadBalancingCompletionWarnings:
         assert matching
         assert "15" in matching[0]["guidance"]
         assert not any(
-            "executor.interval_seconds" in e["message"]
-            for e in issues
-            if e["severity"] == "error"
+            "executor.interval_seconds" in e["message"] for e in issues if e["severity"] == "error"
         )
 
     def test_fast_tick_produces_no_slow_tick_warning(self):
@@ -792,3 +785,127 @@ def test_validate_config_inverter_ac_only_warning_with_battery():
     assert any("Inverter AC power limit not configured" in m for m in warning_messages)
     # DC input warning should NOT appear (no solar)
     assert not any("Inverter DC input limit not configured" in m for m in warning_messages)
+
+
+class TestExcessPvPriorityValidation:
+    """excess-pv-priority-dispatch 1.5: executor.excess_pv.priority[] validation."""
+
+    def _base_config(self, priority, ev_chargers=None, **excess_pv_overrides):
+        config = {
+            "config_version": 2,
+            "system": {"has_battery": False, "has_solar": False, "has_water_heater": False},
+            "ev_chargers": ev_chargers or [],
+            "executor": {
+                "enabled": False,
+                "excess_pv": {"priority": priority, **excess_pv_overrides},
+            },
+        }
+        return config
+
+    def test_valid_priority_list_no_issues(self):
+        config = self._base_config(
+            [
+                {"type": "ev", "charger_id": "goe"},
+                {"type": "water_heater_boost"},
+                {"type": "custom_entity", "entity": "switch.pool_pump"},
+            ],
+            ev_chargers=[{"id": "goe", "name": "go-e", "type": "current"}],
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("executor.excess_pv.priority" in i["message"] for i in issues)
+
+    def test_unknown_type_is_error(self):
+        config = self._base_config([{"type": "solar_curtailment"}])
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("unknown type" in e["message"] for e in errors)
+
+    def test_ev_entry_missing_charger_id_is_error(self):
+        config = self._base_config([{"type": "ev"}])
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("references unknown or non-current charger_id" in e["message"] for e in errors)
+
+    def test_ev_entry_referencing_binary_charger_is_error(self):
+        config = self._base_config(
+            [{"type": "ev", "charger_id": "leaf"}],
+            ev_chargers=[{"id": "leaf", "name": "Leaf", "type": "binary"}],
+        )
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("references unknown or non-current charger_id" in e["message"] for e in errors)
+
+    def test_ev_entry_referencing_current_charger_is_valid(self):
+        config = self._base_config(
+            [{"type": "ev", "charger_id": "goe"}],
+            ev_chargers=[{"id": "goe", "name": "go-e", "type": "current"}],
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("charger_id" in i["message"] for i in issues)
+
+    def test_custom_entity_missing_entity_is_error(self):
+        config = self._base_config([{"type": "custom_entity"}])
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("missing 'entity'" in e["message"] for e in errors)
+
+    def test_reward_override_breaking_monotonicity_is_warning(self):
+        config = self._base_config(
+            [
+                {"type": "water_heater_boost"},
+                {"type": "custom_entity", "entity": "switch.pool_pump", "reward_sek_per_kwh": 10.0},
+            ],
+            boost_reward_sek_per_kwh=0.5,
+        )
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        assert any("higher-priority entry" in w["message"] for w in warnings)
+
+    def test_default_rank_scaling_preserves_monotonicity_no_warning(self):
+        config = self._base_config(
+            [
+                {"type": "ev", "charger_id": "goe"},
+                {"type": "water_heater_boost"},
+                {"type": "custom_entity", "entity": "switch.pool_pump"},
+            ],
+            ev_chargers=[{"id": "goe", "name": "go-e", "type": "current"}],
+            boost_reward_sek_per_kwh=0.5,
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("higher-priority entry" in i["message"] for i in issues)
+
+    def test_empty_priority_list_no_issues(self):
+        config = self._base_config([])
+        issues = _validate_config_for_save(config)
+        assert not any("executor.excess_pv.priority" in i["message"] for i in issues)
+
+
+class TestEVChargerPhaseSwitchingValidation:
+    """excess-pv-priority-dispatch 1.5: phase_switching_enabled requires phase_mode_entity."""
+
+    def _base_config(self, ev_overrides):
+        ev = {"id": "goe", "name": "go-e Gemini", "type": "current"}
+        ev.update(ev_overrides)
+        return {
+            "config_version": 2,
+            "system": {"has_ev_charger": True, "has_battery": False, "has_water_heater": False},
+            "ev_chargers": [ev],
+        }
+
+    def test_enabled_without_entity_is_error(self):
+        config = self._base_config({"phase_switching_enabled": True})
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("phase_mode_entity" in e["message"] for e in errors)
+
+    def test_enabled_with_entity_no_error(self):
+        config = self._base_config(
+            {"phase_switching_enabled": True, "phase_mode_entity": "select.goe_phase_mode"}
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("phase_mode_entity" in i["message"] for i in issues)
+
+    def test_disabled_without_entity_no_error(self):
+        config = self._base_config({"phase_switching_enabled": False})
+        issues = _validate_config_for_save(config)
+        assert not any("phase_mode_entity" in i["message"] for i in issues)

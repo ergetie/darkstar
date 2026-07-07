@@ -951,9 +951,7 @@ class TestBindMountExdevPath:
 
         # The retry should have succeeded atomically — copy2 must NOT have been called
         # for the config itself (it may be called for the .bak backup, so filter by target).
-        config_copy2_calls = [
-            call for call in copy2_calls if str(call[1]) == str(config_file)
-        ]
+        config_copy2_calls = [call for call in copy2_calls if str(call[1]) == str(config_file)]
         assert len(config_copy2_calls) == 0, (
             "shutil.copy2 should not be used when atomic replace succeeds on retry"
         )
@@ -989,9 +987,7 @@ class TestMigrateConfigVersionSet:
         monkeypatch.setattr(
             cm,
             "Path",
-            lambda p: tmp_path / p
-            if p in ["config.yaml", "config.default.yaml"]
-            else _Path(p),
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
 
         written_configs: list = []
@@ -1047,9 +1043,7 @@ class TestConfigVersionNotDowngraded:
         monkeypatch.setattr(
             cm,
             "Path",
-            lambda p: tmp_path / p
-            if p in ["config.yaml", "config.default.yaml"]
-            else _Path(p),
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
 
         written_configs: list = []
@@ -1114,9 +1108,7 @@ class TestMigrateConfigIdempotentV2:
         monkeypatch.setattr(
             cm,
             "Path",
-            lambda p: tmp_path / p
-            if p in ["config.yaml", "config.default.yaml"]
-            else _Path(p),
+            lambda p: tmp_path / p if p in ["config.yaml", "config.default.yaml"] else _Path(p),
         )
 
         write_calls: list = []
@@ -1229,3 +1221,103 @@ class TestBackupRetentionPruning:
         assert not old_backups[0].exists(), "Oldest backup should have been pruned"
         # The newest pre-seeded backup and the new one must survive.
         assert old_backups[-1].exists(), "Most recent old backup should survive"
+
+
+class TestMigrateExcessPvSinkToPriority:
+    """excess-pv-priority-dispatch 1.4: executor.excess_pv.sink -> priority[]."""
+
+    def test_water_heater_boost_migrated(self):
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {"executor": {"excess_pv": {"sink": "water_heater_boost"}}}
+        result, changed = _migrate_excess_pv_sink_to_priority(config)
+        assert changed
+        excess_pv = result["executor"]["excess_pv"]
+        assert "sink" not in excess_pv
+        assert excess_pv["priority"] == [{"type": "water_heater_boost"}]
+
+    def test_custom_entity_migrated_with_fields(self):
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {
+            "executor": {
+                "excess_pv": {
+                    "sink": "custom_entity",
+                    "custom_entity": {
+                        "entity": "switch.pool_pump",
+                        "on_value": "1",
+                        "off_value": "0",
+                        "power_kw": 2.5,
+                    },
+                }
+            }
+        }
+        result, changed = _migrate_excess_pv_sink_to_priority(config)
+        assert changed
+        excess_pv = result["executor"]["excess_pv"]
+        assert "sink" not in excess_pv
+        assert "custom_entity" not in excess_pv
+        assert excess_pv["priority"] == [
+            {
+                "type": "custom_entity",
+                "entity": "switch.pool_pump",
+                "on_value": "1",
+                "off_value": "0",
+                "power_kw": 2.5,
+            }
+        ]
+
+    def test_disabled_migrated_to_empty_priority(self):
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {"executor": {"excess_pv": {"sink": "disabled"}}}
+        result, changed = _migrate_excess_pv_sink_to_priority(config)
+        assert changed
+        excess_pv = result["executor"]["excess_pv"]
+        assert "sink" not in excess_pv
+        assert excess_pv["priority"] == []
+
+    def test_no_sink_key_no_change(self):
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {"executor": {"excess_pv": {"priority": [{"type": "ev", "charger_id": "x"}]}}}
+        result, changed = _migrate_excess_pv_sink_to_priority(config)
+        assert not changed
+        assert result["executor"]["excess_pv"]["priority"] == [{"type": "ev", "charger_id": "x"}]
+
+    def test_idempotent_second_run_no_op(self):
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {"executor": {"excess_pv": {"sink": "water_heater_boost"}}}
+        result, changed_once = _migrate_excess_pv_sink_to_priority(config)
+        assert changed_once
+        result, changed_twice = _migrate_excess_pv_sink_to_priority(result)
+        assert not changed_twice
+        assert result["executor"]["excess_pv"]["priority"] == [{"type": "water_heater_boost"}]
+
+    def test_no_excess_pv_section_no_error(self):
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {"executor": {}}
+        result, changed = _migrate_excess_pv_sink_to_priority(config)
+        assert not changed
+        assert result == {"executor": {}}
+
+    def test_existing_priority_wins_over_sink(self):
+        """If a user has already set both (partial migration or manual edit),
+        the existing priority[] is preserved and only 'sink'/'custom_entity' are dropped."""
+        from backend.config_migration import _migrate_excess_pv_sink_to_priority
+
+        config = {
+            "executor": {
+                "excess_pv": {
+                    "sink": "custom_entity",
+                    "priority": [{"type": "ev", "charger_id": "main_ev"}],
+                }
+            }
+        }
+        result, changed = _migrate_excess_pv_sink_to_priority(config)
+        assert changed
+        excess_pv = result["executor"]["excess_pv"]
+        assert "sink" not in excess_pv
+        assert excess_pv["priority"] == [{"type": "ev", "charger_id": "main_ev"}]

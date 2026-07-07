@@ -578,8 +578,7 @@ class PlannerPipeline:
         )
 
         # Pre-calculate excess PV slot flags from raw forecasts (task 3.1)
-        excess_pv_sink = kepler_config.excess_pv_sink
-        if excess_pv_sink != "disabled" and len(kepler_input.slots) > 0:
+        if len(kepler_config.excess_pv_priority) > 0 and len(kepler_input.slots) > 0:
             excess_pv_flags = _calculate_excess_pv_flags(
                 kepler_input.slots,
                 kepler_config.water_heaters,
@@ -588,10 +587,10 @@ class PlannerPipeline:
             )
             kepler_config.excess_pv_slots = excess_pv_flags
             logger.info(
-                "Excess PV: %d/%d slots have excess PV (sink=%s)",
+                "Excess PV: %d/%d slots have excess PV (sinks=%s)",
                 sum(excess_pv_flags),
                 len(excess_pv_flags),
-                excess_pv_sink,
+                [e.type for e in kepler_config.excess_pv_priority],
             )
 
         # Rev O1: Disable water heating in Kepler if no water heater (task 3.4)

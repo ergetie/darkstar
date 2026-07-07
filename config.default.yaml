@@ -131,6 +131,14 @@ ev_chargers:
     phase_sensor_l3: ""              # Optional: charger's own L3 power/current sensor
     replan_on_plugin: true           # Re-run planner immediately when this EV plugs in
     replan_on_unplug: false          # Re-run planner immediately when this EV unplugs
+    # Commanded 1<->3 phase switching (disabled by default). Lets a 3-phase
+    # charger drop to 1-phase so small PV surpluses (~1.4-4.1kW) still charge
+    # the car. Requires the charger to expose a phase-mode entity (e.g. go-e
+    # Gemini Flex via the MQTT integration).
+    phase_mode_entity: ""            # HA select entity for commanded phase mode (1/3-phase)
+    phase_switching_enabled: false   # Master toggle for commanded phase switching
+    phase_switch_hysteresis_kw: 0.5  # Deadband around the 3-phase minimum before switching
+    phase_switch_min_dwell_s: 600    # Minimum time between phase switches (contactor protection)
 
   # Example: Second EV (disabled by default)
   # - id: ev_charger_2
@@ -411,16 +419,28 @@ executor:
 
   # Excess PV Dispatch
   # Configures how forecast excess PV energy is utilized.
-  # The planner proactively schedules excess PV into the chosen sink.
+  # The planner proactively schedules excess PV into an ordered priority list
+  # of sinks. List order = priority order (index 0 = fed first); the house
+  # battery is always implicitly first (soc_threshold_percent gates it and
+  # every sink below it). An empty list behaves exactly like the old
+  # `sink: disabled`. Multiple sinks may be active in the same slot when
+  # surplus is large enough.
   excess_pv:
-    sink: disabled                     # Sink type: water_heater_boost | custom_entity | disabled
-    boost_reward_sek_per_kwh: 0.5      # Reward for using excess PV at sink vs exporting (SEK/kWh)
-    soc_threshold_percent: 95          # Battery SoC % required before sink activates (default 95)
-    custom_entity:
-      entity: ""                       # Home Assistant entity ID (e.g., switch.pool_pump)
-      on_value: "1"                    # Value to set when excess PV is available
-      off_value: "0"                   # Value to set when excess PV is not available
-      power_kw: 1.0                    # Estimated power consumption (kW) — used by solver for reward sizing
+    priority: []
+    # Example showing all three entry types (uncomment/adapt as needed):
+    # priority:
+    #   - type: ev                       # Send surplus to an EV charger (requires a type: current charger)
+    #     charger_id: ev_charger_1        # Must match an ev_chargers[].id with type: current
+    #     surplus_deadband_kw: 0.2        # Deadband for the real-time surplus feedback loop
+    #     # reward_sek_per_kwh: 0.5       # Optional: override the rank-scaled reward for this entry
+    #   - type: water_heater_boost       # Boost water heating above its normal schedule
+    #   - type: custom_entity            # Toggle an arbitrary HA entity
+    #     entity: switch.pool_pump
+    #     on_value: "1"
+    #     off_value: "0"
+    #     power_kw: 1.0                  # Estimated power consumption (kW) — used by solver for reward sizing
+    boost_reward_sek_per_kwh: 0.5      # Base reward for using excess PV at a sink vs exporting (SEK/kWh); each sink's effective reward scales down by rank (15% per priority position)
+    soc_threshold_percent: 95          # Battery SoC % required before any sink activates (default 95)
 
 # =============================================================================
 # UI Settings

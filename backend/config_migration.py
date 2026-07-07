@@ -580,6 +580,76 @@ def _migrate_export_floor(config: dict[str, Any]) -> tuple[dict[str, Any], bool]
     return config, changed
 
 
+def _migrate_excess_pv_sink_to_priority(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Migrate executor.excess_pv.sink (single sink) to executor.excess_pv.priority[].
+
+    `sink: water_heater_boost` -> `priority: [{type: water_heater_boost}]`
+    `sink: custom_entity` -> one-element array carrying over the legacy custom_entity block
+    `sink: disabled` (or anything else) -> `priority: []`
+
+    Idempotent: once `sink` is gone (already migrated), this is a no-op even if
+    `priority` was never set by the user.
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    changed = False
+
+    executor_raw: Any = config.get("executor", {})
+    if not isinstance(executor_raw, dict):
+        return config, changed
+    executor = cast("dict[str, Any]", executor_raw)
+
+    excess_pv_raw: Any = executor.get("excess_pv", {})
+    if not isinstance(excess_pv_raw, dict):
+        return config, changed
+    excess_pv = cast("dict[str, Any]", excess_pv_raw)
+
+    if "sink" not in excess_pv:
+        return config, changed
+
+    sink = str(excess_pv.get("sink", "disabled")).lower()
+
+    if "priority" not in excess_pv:
+        priority: list[dict[str, Any]] = []
+        if sink == "water_heater_boost":
+            priority = [{"type": "water_heater_boost"}]
+        elif sink == "custom_entity":
+            custom_entity_raw: Any = excess_pv.get("custom_entity", {})
+            custom_entity = (
+                cast("dict[str, Any]", custom_entity_raw)
+                if isinstance(custom_entity_raw, dict)
+                else {}
+            )
+            priority = [
+                {
+                    "type": "custom_entity",
+                    "entity": custom_entity.get("entity", ""),
+                    "on_value": custom_entity.get("on_value", "1"),
+                    "off_value": custom_entity.get("off_value", "0"),
+                    "power_kw": custom_entity.get("power_kw", 1.0),
+                }
+            ]
+        # sink == "disabled" (or unrecognized) -> priority stays []
+        excess_pv["priority"] = priority
+        logger.info(
+            f"🔄 Migrated executor.excess_pv.sink '{sink}' -> "
+            f"executor.excess_pv.priority ({len(priority)} entries)"
+        )
+        changed = True
+
+    del excess_pv["sink"]
+    logger.info("✂️  Removed deprecated key: 'executor.excess_pv.sink'")
+    changed = True
+
+    if "custom_entity" in excess_pv:
+        del excess_pv["custom_entity"]
+        logger.info("✂️  Removed deprecated key: 'executor.excess_pv.custom_entity'")
+        changed = True
+
+    return config, changed
+
+
 def _validate_config_structure(config: dict[str, Any], strict: bool = True) -> bool:
     """
     Validates that the config has minimum expected structure.
@@ -950,6 +1020,12 @@ async def migrate_config(
     # 2.7 Migrate export floor from executor.override to export section
     user_config, export_floor_changes = _migrate_export_floor(user_config)
     if export_floor_changes:
+        pre_merge_changes = True
+
+    # 2.7b Migrate excess_pv.sink (single sink) to excess_pv.priority[] (must run
+    # before remove_deprecated_keys/template merge)
+    user_config, excess_pv_priority_changes = _migrate_excess_pv_sink_to_priority(user_config)
+    if excess_pv_priority_changes:
         pre_merge_changes = True
 
     # 2.6 Remove energy_sensor from ev_chargers[] and water_heaters[]

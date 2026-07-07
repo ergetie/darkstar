@@ -77,7 +77,8 @@ export function parseFieldInput(field: BaseField, raw: string): unknown {
         field.type === 'penalty_levels' ||
         field.type === 'entity_array' ||
         field.type === 'balanced_loads' ||
-        field.type === 'give_way_list'
+        field.type === 'give_way_list' ||
+        field.type === 'excess_pv_priority'
     ) {
         try {
             return JSON.parse(raw)
@@ -112,7 +113,8 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
             field.type === 'penalty_levels' ||
             field.type === 'entity_array' ||
             field.type === 'balanced_loads' ||
-            field.type === 'give_way_list'
+            field.type === 'give_way_list' ||
+            field.type === 'excess_pv_priority'
         ) {
             // Handle complex array/object types - stringify if array/object, default to empty array
             if (Array.isArray(value) || (value !== null && typeof value === 'object')) {
@@ -164,7 +166,8 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         type !== 'penalty_levels' &&
         type !== 'entity_array' &&
         type !== 'balanced_loads' &&
-        type !== 'give_way_list'
+        type !== 'give_way_list' &&
+        type !== 'excess_pv_priority'
     ) {
         const strA = a !== null && a !== undefined ? String(a).trim() : ''
         const strB = b !== null && b !== undefined ? String(b).trim() : ''
@@ -186,7 +189,8 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         type === 'penalty_levels' ||
         type === 'entity_array' ||
         type === 'balanced_loads' ||
-        type === 'give_way_list'
+        type === 'give_way_list' ||
+        type === 'excess_pv_priority'
     ) {
         // Treat undefined as equivalent to empty array for array/object types
         const normalize = (v: unknown) => {

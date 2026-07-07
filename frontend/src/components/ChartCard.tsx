@@ -1210,7 +1210,8 @@ export default function ChartCard({
                     },
                     // Per-instance plugin options for the selection band (B1/S1)
                     selectionBand: { mobile: isMobile, index: null as number | null },
-                },
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                } as any,
                 // Always register onClick but guard on isMobileRef so crossing 768px mid-session
                 // works without recreating the chart (N1).
                 onClick: (_event, elements) => {

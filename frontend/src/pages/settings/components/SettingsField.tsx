@@ -15,6 +15,7 @@ import { SolarArraysEditor } from './SolarArraysEditor'
 import { PenaltyLevelsEditor } from './PenaltyLevelsEditor'
 import { EntityArrayEditor } from './EntityArrayEditor'
 import { GiveWayListEditor, type GiveWayEntry, type ShedLoad } from './GiveWayListEditor'
+import { ExcessPvPriorityEditor, type ExcessPvPriorityEntry } from './ExcessPvPriorityEditor'
 import { NumberInput } from '../../../components/ui/NumberInput'
 
 interface SettingsFieldProps {
@@ -220,6 +221,17 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                         loadsValue={String(fullForm['load_balancing.loads'] ?? '[]')}
                         onChangeOrder={(entries: GiveWayEntry[]) => onChange(field.key, JSON.stringify(entries))}
                         onChangeLoads={(loads: ShedLoad[]) => onChange('load_balancing.loads', JSON.stringify(loads))}
+                        disabled={isDisabled}
+                        config={config}
+                        haEntities={haEntities}
+                        haLoading={haLoading}
+                    />
+                )
+            case 'excess_pv_priority':
+                return (
+                    <ExcessPvPriorityEditor
+                        value={value}
+                        onChange={(entries: ExcessPvPriorityEntry[]) => onChange(field.key, JSON.stringify(entries))}
                         disabled={isDisabled}
                         config={config}
                         haEntities={haEntities}

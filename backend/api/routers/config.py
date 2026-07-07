@@ -649,6 +649,16 @@ def _validate_config_for_save(
                             }
                         )
 
+                # excess-pv-priority-dispatch 1.5: phase switching requires a phase-mode entity
+                if ev.get("phase_switching_enabled") and not ev.get("phase_mode_entity"):
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": f"EV charger '{ev.get('id', i + 1)}' has phase_switching_enabled but no phase_mode_entity",
+                            "guidance": "Set ev_chargers[].phase_mode_entity to the HA entity that commands 1/3-phase mode, or disable phase_switching_enabled.",
+                        }
+                    )
+
                 # Validate per-device departure_time format
                 dev_departure = str(ev.get("departure_time", "") or "")
                 if dev_departure and not re.match(
@@ -1133,6 +1143,83 @@ def _validate_config_for_save(
                     ),
                 }
             )
+
+    # excess-pv-priority-dispatch 1.5: validate the priority-ordered sink list
+    excess_pv_cfg = executor_cfg.get("excess_pv", {})
+    priority_list = excess_pv_cfg.get("priority", [])
+    if isinstance(priority_list, list) and priority_list:
+        current_type_ev_ids_for_excess_pv: set[str] = set()
+        for ev_raw in cast("list[Any]", config.get("ev_chargers", [])):
+            if not isinstance(ev_raw, dict):
+                continue
+            ev = cast("dict[str, Any]", ev_raw)
+            if ev.get("type") == "current":
+                current_type_ev_ids_for_excess_pv.add(str(ev.get("id")))
+        base_reward = float(excess_pv_cfg.get("boost_reward_sek_per_kwh", 0.5) or 0.0)
+        effective_rewards: list[float] = []
+        for i, entry_raw in enumerate(cast("list[Any]", priority_list)):
+            if not isinstance(entry_raw, dict):
+                continue
+            entry = cast("dict[str, Any]", entry_raw)
+            entry_type = str(entry.get("type", ""))
+            override = entry.get("reward_sek_per_kwh")
+
+            if entry_type not in ("ev", "water_heater_boost", "custom_entity"):
+                issues.append(
+                    {
+                        "severity": "error",
+                        "message": f"executor.excess_pv.priority[{i}] has unknown type: '{entry_type}'",
+                        "guidance": "type must be 'ev', 'water_heater_boost', or 'custom_entity'.",
+                    }
+                )
+                continue
+
+            if entry_type == "ev":
+                charger_id = entry.get("charger_id")
+                if not charger_id or str(charger_id) not in current_type_ev_ids_for_excess_pv:
+                    issues.append(
+                        {
+                            "severity": "error",
+                            "message": f"executor.excess_pv.priority[{i}] (type: ev) references unknown or non-current charger_id: '{charger_id}'",
+                            "guidance": "charger_id must match an ev_chargers[].id with type: current.",
+                        }
+                    )
+            elif entry_type == "custom_entity" and not entry.get("entity"):
+                issues.append(
+                    {
+                        "severity": "error",
+                        "message": f"executor.excess_pv.priority[{i}] (type: custom_entity) is missing 'entity'",
+                        "guidance": "Set executor.excess_pv.priority[].entity to the Home Assistant entity ID to toggle.",
+                    }
+                )
+
+            try:
+                effective_rewards.append(
+                    float(override) if override is not None else base_reward * (1 - i * 0.15)
+                )
+            except (TypeError, ValueError):
+                effective_rewards.append(base_reward * (1 - i * 0.15))
+
+        # Rank monotonicity: a per-entry override should never exceed an earlier
+        # (higher-priority) entry's effective reward — otherwise the solver would
+        # prefer the lower-priority sink, inverting the user's intended order.
+        for i in range(1, len(effective_rewards)):
+            if effective_rewards[i] > max(effective_rewards[:i]):
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "message": (
+                            f"executor.excess_pv.priority[{i}] has an effective reward "
+                            f"({effective_rewards[i]:.3f} SEK/kWh) higher than a "
+                            "higher-priority entry"
+                        ),
+                        "guidance": (
+                            "A reward_sek_per_kwh override on a lower-priority entry can "
+                            "make the solver prefer it over a higher-priority sink. "
+                            "Remove the override or lower it to preserve priority order."
+                        ),
+                    }
+                )
 
     return issues
 

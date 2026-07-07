@@ -45,6 +45,11 @@ from .config import (
     load_yaml,
 )
 from .controller import ControllerDecision, make_decision
+from .ev_surplus import (
+    EVSurplusController,
+    PhaseModeController,
+    three_phase_min_kw,
+)
 from .history import ExecutionHistory, ExecutionRecord
 from .load_balancer import (
     EVBalancerInput,
@@ -240,6 +245,21 @@ class ExecutorEngine:
 
         # Per-device EV charging state tracking
         self._ev_charger_states: dict[str, EVChargerState] = {}
+
+        # excess-pv-priority-dispatch: per-charger surplus feedback + phase-mode
+        # controllers, and this tick's surplus-computed ampere targets (consumed
+        # by _run_load_balancer / _control_ev_charger in place of the plan-derived
+        # target for surplus-eligible chargers).
+        self._ev_surplus_controllers: dict[str, EVSurplusController] = {}
+        self._ev_phase_controllers: dict[str, PhaseModeController] = {}
+        self._ev_surplus_targets: dict[str, int | None] = {}
+        self._last_surplus_state: dict[str, str] = {}
+        self._last_phase_mode: dict[str, str] = {}
+        # This tick's per-charger surplus state, for the execution-log
+        # throttle (task 3.8) and the synthetic "ev_surplus" history entry.
+        self._ev_surplus_status: dict[str, dict[str, str]] = {}
+        self._last_logged_surplus_states: dict[str, str] = {}
+        self._last_measured_surplus_kw: float | None = None
 
         # Real-time per-phase load balancer (universal-load-balancing)
         self._load_balancer = LoadBalancer(self.config.load_balancing)
@@ -1343,8 +1363,18 @@ class ExecutorEngine:
 
             # Rev EVFIX: Separate switch control from source isolation
             actual_ev_charging: bool = actual_ev_power_kw > 0.1
-            # Source isolation: Block discharge for both scheduled AND actual charging
-            ev_should_charge_block: bool = scheduled_ev_charging or actual_ev_charging
+            # excess-pv-priority-dispatch 3.4: surplus slots have ev_charging_kw=0
+            # (surplus is eligibility, not a scheduled plan), so isolation must
+            # also trigger on surplus eligibility directly — waiting for the
+            # actual-power sensor to catch up would leave a brief window where
+            # the battery could discharge into the EV during surplus charging.
+            surplus_eligible: bool = bool(
+                slot and any(v > 0.01 for v in slot.ev_surplus_kw.values())
+            )
+            # Source isolation: Block discharge for scheduled, actual, or surplus-eligible charging
+            ev_should_charge_block: bool = (
+                scheduled_ev_charging or actual_ev_charging or surplus_eligible
+            )
 
             # Preserve original slot before EV source isolation may overwrite discharge_kw
             original_slot = slot
@@ -1411,6 +1441,22 @@ class ExecutorEngine:
 
             self.status.last_action = decision.reason
 
+            # excess-pv-priority-dispatch 3.2/3.3/3.5: surplus feedback + phase-mode
+            # state machines run first, populating self._ev_surplus_targets —
+            # consumed by _run_load_balancer below in place of the plan-derived
+            # target for surplus-eligible chargers (order: surplus feedback
+            # proposes amps -> phase-mode may adjust mode/conversion -> balancer
+            # cap clamps -> dispatch; the balancer clamp is authoritative).
+            ev_surplus_phase_mode_results: list[ActionResult] = []
+            if not skip_writes:
+                ev_surplus_phase_mode_results = await self._update_ev_surplus_and_phase_mode(
+                    state, original_slot, now
+                )
+            else:
+                # Manual override active — no writes, and no stale surplus
+                # targets from a previous tick should leak into the balancer.
+                self._ev_surplus_targets = {}
+
             # Real-time per-phase load balancing (universal-load-balancing 4.7):
             # runs after the controller decision, before dispatch; a no-op
             # (enabled=False, empty outputs) unless load_balancing.enabled and
@@ -1457,6 +1503,14 @@ class ExecutorEngine:
                         shed_water_heater_ids.add(shed_out.load_id)
                     elif shed_out.device_type == "ev_charger":
                         shed_binary_charger_ids.add(shed_out.load_id)
+            elif self._ev_surplus_targets:
+                # excess-pv-priority-dispatch 3.3: the fuse balancer is off or
+                # unconfigured, but surplus-eligible chargers still need their
+                # feedback-computed target dispatched (there is no fuse cap to
+                # clamp it against, so it is used verbatim — same as the fuse
+                # balancer's own "disabled = zero behavior change" contract for
+                # everything else).
+                balancer_ev_targets = dict(self._ev_surplus_targets)
 
             # Control EV Charger Switch (per-device)
             if self._has_ev_charger and self.config.ev_chargers and not skip_writes:
@@ -1483,7 +1537,7 @@ class ExecutorEngine:
                 self._ev_failure_notified = False
 
             # 6. Execute actions (skipped when manual_override_active — no inverter/EV/water writes)
-            action_results: list[ActionResult] = []
+            action_results: list[ActionResult] = list(ev_surplus_phase_mode_results)
             if self.dispatcher and not skip_writes:
                 # REV UI11 Phase 7: Execute async actions
                 try:
@@ -1530,23 +1584,29 @@ class ExecutorEngine:
                             )
                             action_results.append(shed_result)
 
-                    # Control Excess PV Custom Entity (7.2-7.4)
-                    from executor.config import ExcessPVSinkType
-
-                    if self.config.excess_pv.sink == ExcessPVSinkType.CUSTOM_ENTITY:
-                        is_fallback = (
-                            override.override_needed
-                            and override.override_type.value == "slot_failure_fallback"
-                        )
+                    # Control Excess PV Custom Entity sinks (7.2-7.4, generalized to
+                    # the priority list — excess-pv-priority-dispatch 3.7). Keyed by
+                    # rank (index in excess_pv.priority[]), matching the solver's
+                    # per-entry output (task 2.7).
+                    is_fallback = (
+                        override.override_needed
+                        and override.override_type.value == "slot_failure_fallback"
+                    )
+                    for rank, entry in enumerate(self.config.excess_pv.priority):
+                        if entry.type != "custom_entity" or not entry.entity:
+                            continue
+                        rank_key = str(rank)
                         if is_fallback:
-                            custom_value = self.config.excess_pv.custom_entity.off_value
+                            custom_value = entry.off_value
                         else:
                             custom_value = (
-                                self.config.excess_pv.custom_entity.on_value
-                                if original_slot.custom_entity_active
-                                else self.config.excess_pv.custom_entity.off_value
+                                entry.on_value
+                                if original_slot.custom_entity_active.get(rank_key, False)
+                                else entry.off_value
                             )
-                        custom_result = await self.dispatcher.set_custom_entity(custom_value)
+                        custom_result = await self.dispatcher.set_balanced_entity(
+                            entry.entity, custom_value
+                        )
                         action_results.append(custom_result)
 
                     # Fix Issue 0: Await expected coroutine properly
@@ -1649,6 +1709,21 @@ class ExecutorEngine:
                         "skipped": False,
                         "error_details": None,
                     }
+                ]
+            if self._ev_surplus_status:
+                # excess-pv-priority-dispatch 3.8: surplus transitions are
+                # always auditable, same treatment as the balancer above.
+                record.action_results = (record.action_results or []) + [
+                    {
+                        "type": "ev_surplus",
+                        "success": True,
+                        "message": info["reason"],
+                        "charger_id": charger_id,
+                        "state": info["state"],
+                        "skipped": False,
+                        "error_details": None,
+                    }
+                    for charger_id, info in self._ev_surplus_status.items()
                 ]
             if should_log:
                 self.history.log_execution(record)
@@ -1860,8 +1935,19 @@ class ExecutorEngine:
             for k, v in raw_boost.items():  # type: ignore[union-attr]
                 water_heating_boost[str(k)] = bool(v)  # type: ignore[arg-type]
 
-        # Parse custom entity active flag
-        custom_entity_active = bool(slot_data.get("custom_entity_active", False))
+        # Parse per-entry custom entity active flags (keyed by priority-list rank)
+        raw_custom_entity_active = slot_data.get("custom_entity_active")
+        custom_entity_active: dict[str, bool] = {}
+        if isinstance(raw_custom_entity_active, dict):
+            for k, v in raw_custom_entity_active.items():  # type: ignore[union-attr]
+                custom_entity_active[str(k)] = bool(v)  # type: ignore[arg-type]
+
+        # Parse per-charger EV surplus-eligible kW (excess-pv-priority-dispatch 3.1)
+        raw_ev_surplus_kw = slot_data.get("ev_surplus_kw")
+        ev_surplus_kw: dict[str, float] = {}
+        if isinstance(raw_ev_surplus_kw, dict):
+            for k, v in raw_ev_surplus_kw.items():  # type: ignore[union-attr]
+                ev_surplus_kw[str(k)] = float(v)  # type: ignore[arg-type]
 
         return SlotPlan(
             charge_kw=charge_kw,
@@ -1876,6 +1962,7 @@ class ExecutorEngine:
             water_heater_plans=water_heater_plans,
             water_heating_boost=water_heating_boost,
             custom_entity_active=custom_entity_active,
+            ev_surplus_kw=ev_surplus_kw,
         )
 
     async def _gather_system_state(self) -> SystemState:
@@ -1915,6 +2002,7 @@ class ExecutorEngine:
 
         import_entity: str | None = None
         export_entity: str | None = None
+        net_grid_entity: str | None = None
         if meter_type == "dual":
             import_entity = input_sensors.get("grid_import_power")
             export_entity = input_sensors.get("grid_export_power")
@@ -1922,6 +2010,13 @@ class ExecutorEngine:
                 reads.append(("grid_import", lambda e=import_entity: ha.get_state_value(e)))
             if export_entity:
                 reads.append(("grid_export", lambda e=export_entity: ha.get_state_value(e)))
+        else:
+            # excess-pv-priority-dispatch: net-meter surplus tracking needs
+            # current_import_kw/current_export_kw populated too (design D3), so
+            # read the single bidirectional grid_power sensor here.
+            net_grid_entity = input_sensors.get("grid_power")
+            if net_grid_entity:
+                reads.append(("grid_power", lambda e=net_grid_entity: ha.get_state_value(e)))
 
         if self.config.has_battery and work_mode_entity:
             reads.append(("work_mode", lambda e=work_mode_entity: ha.get_state_value(e)))
@@ -1987,6 +2082,14 @@ class ExecutorEngine:
             exp_str = results.get("grid_export")
             if exp_str and exp_str not in ("unknown", "unavailable"):
                 state.current_export_kw = float(exp_str) / 1000
+
+            net_str = results.get("grid_power")
+            if net_str and net_str not in ("unknown", "unavailable"):
+                grid_net_kw = float(net_str) / 1000
+                if input_sensors.get("grid_power_inverted", False):
+                    grid_net_kw = -grid_net_kw
+                state.current_import_kw = max(0.0, grid_net_kw)
+                state.current_export_kw = max(0.0, -grid_net_kw)
 
             work_mode = results.get("work_mode")
             if work_mode:
@@ -2126,6 +2229,20 @@ class ExecutorEngine:
         if balancer_status.state != self._last_logged_balancer_state:
             reasons.append(f"balancer -> {balancer_status.state}")
 
+        # excess-pv-priority-dispatch 3.8: surplus mode enter/exit, pause/resume,
+        # and entity-unavailable fallback are always logged, mirroring the
+        # balancer's own always-log-transitions treatment above.
+        current_surplus_states = {
+            charger_id: info["state"] for charger_id, info in self._ev_surplus_status.items()
+        }
+        if current_surplus_states != self._last_logged_surplus_states:
+            for charger_id, state_val in current_surplus_states.items():
+                if self._last_logged_surplus_states.get(charger_id) != state_val:
+                    reasons.append(f"ev_surplus[{charger_id}] -> {state_val}")
+            for charger_id in self._last_logged_surplus_states:
+                if charger_id not in current_surplus_states:
+                    reasons.append(f"ev_surplus[{charger_id}] -> inactive")
+
         slot_minute = (now.minute // 15) * 15
         slot_bucket = now.replace(minute=slot_minute, second=0, microsecond=0).isoformat()
         heartbeat_due = slot_bucket != self._last_heartbeat_slot_bucket
@@ -2138,6 +2255,7 @@ class ExecutorEngine:
             self._last_logged_mode_intent = decision.mode_intent
             self._last_logged_override_type = current_override_type
             self._last_logged_balancer_state = balancer_status.state
+            self._last_logged_surplus_states = current_surplus_states
             self._last_heartbeat_slot_bucket = slot_bucket
 
         return should_log, reasons
@@ -2297,6 +2415,188 @@ class ExecutorEngine:
         except Exception as e:
             logger.debug("Battery cost update skipped: %s", e)
 
+    def _resolve_active_phase_count(
+        self,
+        charger_cfg: EVChargerDeviceConfig,
+        dev_state: EVChargerState,
+        phase_ctrl: PhaseModeController,
+    ) -> int:
+        """kW<->A conversions use the commanded phase count, falling back to the
+        configured `phases` count; once the charger's measured per-phase draw
+        shows fewer active phases than commanded, use the measured count
+        (task 3.6) — a car that only ever draws 1-phase makes 3-phase mode
+        pointless, and measurement catches that.
+        """
+        if charger_cfg.phase_switching_enabled and phase_ctrl.commanded_mode is not None:
+            commanded_count = phase_ctrl.commanded_mode
+        else:
+            commanded_count = len(charger_cfg.phases or [1, 2, 3]) or 1
+        measured_count = len(dev_state.active_phases) if dev_state.active_phases else None
+        if measured_count is not None and measured_count < commanded_count:
+            return measured_count
+        return commanded_count
+
+    async def _apply_phase_mode_decision(
+        self,
+        charger_cfg: EVChargerDeviceConfig,
+        phase_ctrl: PhaseModeController,
+        target_power_kw: float,
+        now: datetime,
+    ) -> ActionResult | None:
+        """Run the phase-mode state machine for one charger and dispatch a
+        switch if warranted (design D5, task 3.5). Returns the write's
+        ActionResult when a switch was attempted, else None.
+        """
+        entity = charger_cfg.phase_mode_entity
+        if not charger_cfg.phase_switching_enabled or not entity or not self.dispatcher:
+            return None
+
+        if phase_ctrl.failed and self.ha_client:
+            # Fail-safe recovery check: only re-arm once the entity reads back
+            # as available again — never blindly retry every tick.
+            current_val = await self.ha_client.get_state_value(entity)
+            if current_val is None or current_val in ("unknown", "unavailable"):
+                return None
+            phase_ctrl.on_entity_recovered()
+
+        decision = phase_ctrl.decide(
+            now=now,
+            target_power_kw=target_power_kw,
+            three_phase_min_kw_value=three_phase_min_kw(charger_cfg.min_current_a),
+            hysteresis_kw=charger_cfg.phase_switch_hysteresis_kw,
+            min_dwell_s=charger_cfg.phase_switch_min_dwell_s,
+            enabled=True,
+            entity_configured=True,
+            is_binary=False,
+        )
+        if not decision.should_switch or decision.commanded_mode is None:
+            return None
+
+        result = await self.dispatcher.set_ev_phase_mode(entity, decision.commanded_mode)
+        if result.success:
+            phase_ctrl.on_switch_success(decision.commanded_mode, now)
+        else:
+            phase_ctrl.on_entity_unavailable()
+            logger.warning(
+                "EV charger %s: phase-mode write failed (%s) — disabling further "
+                "switch attempts until the entity recovers",
+                charger_cfg.id,
+                result.error_details or result.message,
+            )
+        return result
+
+    async def _update_ev_surplus_and_phase_mode(
+        self, state: SystemState, slot: "SlotPlan | None", now: datetime
+    ) -> list[ActionResult]:
+        """Surplus feedback + phase-mode state machines for every type="current"
+        EV charger (excess-pv-priority-dispatch 3.2/3.3/3.5).
+
+        Populates self._ev_surplus_targets for surplus-eligible chargers this
+        tick; _run_load_balancer consumes it in place of the plan-derived
+        target. Returns ActionResults for any phase-mode writes attempted
+        (folded into the tick's action_results so switches always surface in
+        the execution log, never silently throttled away — task 3.8).
+        """
+        self._ev_surplus_targets = {}
+        self._ev_surplus_status = {}
+        action_results: list[ActionResult] = []
+        if not self.config.ev_chargers:
+            return action_results
+
+        surplus_kw = state.current_export_kw - state.current_import_kw
+        self._last_measured_surplus_kw = surplus_kw
+        ev_entries_by_charger = {
+            entry.charger_id: entry
+            for entry in self.config.excess_pv.priority
+            if entry.type == "ev" and entry.charger_id
+        }
+
+        for charger_cfg in self.config.ev_chargers:
+            if charger_cfg.type != "current":
+                continue
+            charger_id = charger_cfg.id
+            dev_state = self._ev_charger_states.setdefault(charger_id, EVChargerState())
+
+            surplus_entry = ev_entries_by_charger.get(charger_id)
+            surplus_eligible = bool(
+                surplus_entry and slot and slot.ev_surplus_kw.get(charger_id, 0.0) > 0
+            )
+
+            phase_ctrl = self._ev_phase_controllers.setdefault(charger_id, PhaseModeController())
+            charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
+            target_power_kw = surplus_kw if surplus_eligible else charger_plan_kw
+
+            phase_result = await self._apply_phase_mode_decision(
+                charger_cfg, phase_ctrl, target_power_kw, now
+            )
+            if phase_result is not None:
+                action_results.append(phase_result)
+                self._log_ev_transition(
+                    charger_id,
+                    "phase_mode",
+                    f"{phase_ctrl.commanded_mode}-phase"
+                    if phase_result.success
+                    else "write_failed",
+                )
+
+            if not surplus_eligible:
+                self._log_ev_transition(charger_id, "surplus", "inactive")
+                continue
+
+            assert surplus_entry is not None
+            active_phase_count = self._resolve_active_phase_count(
+                charger_cfg, dev_state, phase_ctrl
+            )
+            phase_switch_can_lower_floor = (
+                charger_cfg.phase_switching_enabled
+                and bool(charger_cfg.phase_mode_entity)
+                and not phase_ctrl.failed
+                and phase_ctrl.commanded_mode != 1
+            )
+
+            surplus_ctrl = self._ev_surplus_controllers.setdefault(
+                charger_id, EVSurplusController()
+            )
+            max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
+            result = surplus_ctrl.tick(
+                now=now,
+                surplus_kw=surplus_kw,
+                deadband_kw=surplus_entry.surplus_deadband_kw,
+                current_setpoint_a=dev_state.current_setpoint_a,
+                min_current_a=charger_cfg.min_current_a,
+                max_current_a=max_current_a,
+                active_phase_count=active_phase_count,
+                increase_step_a=self.config.load_balancing.increase_step_a,
+                resume_delay_s=self.config.load_balancing.resume_delay_s,
+                resume_margin_percent=self.config.load_balancing.resume_margin_percent,
+                phase_switch_can_lower_floor=phase_switch_can_lower_floor,
+            )
+            self._ev_surplus_targets[charger_id] = result.target_a
+            self._ev_surplus_status[charger_id] = {"state": result.state, "reason": result.reason}
+            self._log_ev_transition(charger_id, "surplus", result.state, result.reason)
+
+        return action_results
+
+    def _log_ev_transition(
+        self, charger_id: str, kind: str, new_state: str, reason: str = ""
+    ) -> None:
+        """Log surplus-mode/phase-mode state transitions once, on change only
+        (task 3.8) — mirrors the always-log-transitions shape used by
+        universal-load-balancing's intervention notifications.
+        """
+        tracker = self._last_surplus_state if kind == "surplus" else self._last_phase_mode
+        key = f"{kind}:{charger_id}"
+        if tracker.get(key) == new_state:
+            return
+        tracker[key] = new_state
+        logger.info(
+            "EV charger %s: %s -> %s%s",
+            charger_id,
+            kind,
+            new_state,
+            f" ({reason})" if reason else "",
+        )
+
     def _run_load_balancer(
         self, state: SystemState, slot: "SlotPlan | None", now: datetime
     ) -> LoadBalancerStatus:
@@ -2319,8 +2619,6 @@ class ExecutorEngine:
                 continue
 
             charger_id = charger_cfg.id
-            charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
-            should_charge = charger_plan_kw > 0.1
             dev_state = self._ev_charger_states.get(charger_id)
             phases = (
                 (dev_state.active_phases if dev_state and dev_state.active_phases else None)
@@ -2328,13 +2626,23 @@ class ExecutorEngine:
                 or [1, 2, 3]
             )
             max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
-            planner_target_a = (
-                planned_kw_to_amps(
-                    charger_plan_kw, len(phases), charger_cfg.min_current_a, max_current_a
+
+            if charger_id in self._ev_surplus_targets:
+                # excess-pv-priority-dispatch 3.3: surplus-eligible this slot —
+                # use the feedback controller's proposed amps (already
+                # deadband/ramp/pause-aware) instead of the plan-derived target,
+                # so the fuse balancer clamps the *surplus* proposal.
+                planner_target_a = self._ev_surplus_targets[charger_id]
+            else:
+                charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
+                should_charge = charger_plan_kw > 0.1
+                planner_target_a = (
+                    planned_kw_to_amps(
+                        charger_plan_kw, len(phases), charger_cfg.min_current_a, max_current_a
+                    )
+                    if should_charge
+                    else None
                 )
-                if should_charge
-                else None
-            )
             ev_inputs_by_id[charger_id] = EVBalancerInput(
                 charger_id=charger_id,
                 phases=phases,
@@ -2490,8 +2798,50 @@ class ExecutorEngine:
             self._notified_shed_states[shed_out.load_id] = shed_out.shed
 
     def get_load_balancer_status(self) -> dict[str, Any]:
-        """Serialize the latest balancer tick for the status surface (6.1/6.2)."""
+        """Serialize the latest balancer tick for the status surface (6.1/6.2),
+        plus per-charger EV-surplus/phase-mode fields (excess-pv-priority-
+        dispatch 4.1) — additive fields only. Surplus/phase-mode status must
+        surface even when the fuse balancer itself is disabled/unconfigured,
+        so the charger list is the union of chargers with a balancer decision
+        this tick and chargers with surplus/phase-mode state this tick.
+        """
         status = self._last_balancer_status
+        charger_names = {ev.id: (ev.name or ev.id) for ev in self.config.ev_chargers}
+        planned = getattr(self, "_last_balancer_planned_targets", {})
+        balancer_outputs_by_id = {o.charger_id: o for o in status.ev_outputs} if status else {}
+
+        charger_ids: list[str] = list(balancer_outputs_by_id.keys())
+        for charger_id in {**self._ev_surplus_status, **self._ev_phase_controllers}:
+            if charger_id not in charger_ids:
+                charger_ids.append(charger_id)
+
+        ev_list: list[dict[str, Any]] = []
+        for charger_id in charger_ids:
+            balancer_out = balancer_outputs_by_id.get(charger_id)
+            dev_state = self._ev_charger_states.get(charger_id)
+            surplus_info = self._ev_surplus_status.get(charger_id)
+            phase_ctrl = self._ev_phase_controllers.get(charger_id)
+            ev_list.append(
+                {
+                    "charger_id": charger_id,
+                    "charger_name": charger_names.get(charger_id, charger_id),
+                    "setpoint_a": (
+                        balancer_out.target_a
+                        if balancer_out is not None
+                        else (dev_state.current_setpoint_a if dev_state else None)
+                    ),
+                    "planned_target_a": planned.get(charger_id),
+                    "state": balancer_out.state if balancer_out is not None else "idle",
+                    "reason": balancer_out.reason if balancer_out is not None else "",
+                    # excess-pv-priority-dispatch 4.1: additive surplus-mode fields
+                    "surplus_mode": surplus_info is not None,
+                    "surplus_state": surplus_info["state"] if surplus_info else None,
+                    "surplus_reason": surplus_info["reason"] if surplus_info else None,
+                    "phase_mode": phase_ctrl.commanded_mode if phase_ctrl else None,
+                    "paused": bool(surplus_info and surplus_info["state"] == "paused"),
+                }
+            )
+
         if status is None or not status.enabled:
             return {
                 "enabled": False,
@@ -2502,12 +2852,11 @@ class ExecutorEngine:
                 "tick_interval_s": self.config.interval_seconds,
                 "phase_current_a": {},
                 "phase_headroom_a": {},
-                "ev": [],
+                "measured_surplus_kw": self._last_measured_surplus_kw,
+                "ev": ev_list,
                 "shed": [],
             }
 
-        planned = getattr(self, "_last_balancer_planned_targets", {})
-        charger_names = {ev.id: (ev.name or ev.id) for ev in self.config.ev_chargers}
         return {
             "enabled": True,
             "state": status.state,
@@ -2517,17 +2866,8 @@ class ExecutorEngine:
             "tick_interval_s": self.config.interval_seconds,
             "phase_current_a": status.phase_current_a,
             "phase_headroom_a": status.phase_headroom_a,
-            "ev": [
-                {
-                    "charger_id": o.charger_id,
-                    "charger_name": charger_names.get(o.charger_id, o.charger_id),
-                    "setpoint_a": o.target_a,
-                    "planned_target_a": planned.get(o.charger_id),
-                    "state": o.state,
-                    "reason": o.reason,
-                }
-                for o in status.ev_outputs
-            ],
+            "measured_surplus_kw": self._last_measured_surplus_kw,
+            "ev": ev_list,
             "shed": [
                 {
                     "load_id": o.load_id,

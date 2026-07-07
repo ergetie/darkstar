@@ -126,3 +126,75 @@ class TestEnabledPayload:
 
         payload = engine.get_load_balancer_status()
         assert payload["ev"][0]["charger_name"] == "Garage EV"
+
+
+class TestSurplusModeFields:
+    """excess-pv-priority-dispatch 4.1: additive surplus-mode status fields."""
+
+    def test_surplus_fields_default_absent(self, engine):
+        payload = engine.get_load_balancer_status()
+        assert payload["measured_surplus_kw"] is None
+        assert payload["ev"] == []
+
+    def test_surplus_charger_surfaces_even_when_balancer_disabled(self, engine):
+        """Fuse balancer disabled, but a surplus-eligible charger must still
+        appear in the status payload (design D7)."""
+        engine._last_measured_surplus_kw = 2.5
+        engine._ev_surplus_status = {"goe": {"state": "charging", "reason": "within floor"}}
+        engine._ev_charger_states["goe"] = MagicMock(current_setpoint_a=8)
+
+        payload = engine.get_load_balancer_status()
+
+        assert payload["enabled"] is False
+        assert payload["measured_surplus_kw"] == 2.5
+        assert len(payload["ev"]) == 1
+        ev = payload["ev"][0]
+        assert ev["charger_id"] == "goe"
+        assert ev["surplus_mode"] is True
+        assert ev["surplus_state"] == "charging"
+        assert ev["surplus_reason"] == "within floor"
+        assert ev["setpoint_a"] == 8
+        assert ev["paused"] is False
+
+    def test_paused_surplus_charger_flagged(self, engine):
+        engine._ev_surplus_status = {"goe": {"state": "paused", "reason": "insufficient surplus"}}
+
+        payload = engine.get_load_balancer_status()
+
+        assert payload["ev"][0]["paused"] is True
+
+    def test_phase_mode_reported(self, engine):
+        from executor.ev_surplus import PhaseModeController
+
+        ctrl = PhaseModeController()
+        ctrl.commanded_mode = 1
+        engine._ev_phase_controllers = {"goe": ctrl}
+
+        payload = engine.get_load_balancer_status()
+
+        assert payload["ev"][0]["charger_id"] == "goe"
+        assert payload["ev"][0]["phase_mode"] == 1
+        assert payload["ev"][0]["surplus_mode"] is False
+
+    def test_balancer_output_and_surplus_fields_coexist(self, engine):
+        """When the fuse balancer IS enabled and also throttling a
+        surplus-eligible charger, both sets of fields are present together."""
+        engine._last_balancer_status = LoadBalancerStatus(
+            enabled=True,
+            state="throttling",
+            reason="reason",
+            main_fuse_a=20,
+            phase_current_a={1: 18.0, 2: 5.0, 3: 5.0},
+            phase_headroom_a={1: 2.0, 2: 15.0, 3: 15.0},
+            ev_outputs=[EVBalancerOutput("goe", target_a=7, state="throttling", reason="capped")],
+        )
+        engine._ev_surplus_status = {"goe": {"state": "charging", "reason": "within floor"}}
+
+        payload = engine.get_load_balancer_status()
+
+        assert len(payload["ev"]) == 1
+        ev = payload["ev"][0]
+        assert ev["setpoint_a"] == 7  # balancer output wins over dev_state
+        assert ev["state"] == "throttling"
+        assert ev["surplus_mode"] is True
+        assert ev["surplus_state"] == "charging"

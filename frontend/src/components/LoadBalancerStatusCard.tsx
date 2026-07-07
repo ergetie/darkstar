@@ -50,6 +50,41 @@ function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]): stri
     return `${ev.setpoint_a}A`
 }
 
+/** excess-pv-priority-dispatch 4.4: "Surplus charging: X kW available -> charging at Y A (N-phase)". */
+function SurplusEvRow({
+    ev,
+    measuredSurplusKw,
+}: {
+    ev: LoadBalancerStatusResponse['ev'][number]
+    measuredSurplusKw?: number | null
+}) {
+    const surplusText =
+        measuredSurplusKw !== null && measuredSurplusKw !== undefined
+            ? `${measuredSurplusKw.toFixed(1)} kW available`
+            : 'Surplus charging'
+    const dispatchText =
+        ev.setpoint_a !== null
+            ? `charging at ${ev.setpoint_a}A${ev.phase_mode ? ` (${ev.phase_mode}-phase)` : ''}`
+            : 'paused'
+
+    return (
+        <div className="flex items-start justify-between gap-3 rounded-lg border border-line/20 bg-surface2/50 px-3 py-2 text-[11px]">
+            <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${ev.paused ? 'bg-bad' : 'bg-good'}`} />
+                    <span className="truncate font-semibold text-text">{ev.charger_name}</span>
+                </div>
+                <div className="mt-0.5 text-muted">
+                    {surplusText} → {dispatchText}
+                </div>
+                {ev.paused && ev.surplus_reason && (
+                    <div className="mt-0.5 text-[10px] text-bad">{ev.surplus_reason}</div>
+                )}
+            </div>
+        </div>
+    )
+}
+
 function formatAge(ageSeconds: number): string {
     if (ageSeconds < 60) return `${Math.max(0, Math.round(ageSeconds))}s ago`
     if (ageSeconds < 3600) return `${Math.floor(ageSeconds / 60)}m ago`
@@ -96,8 +131,11 @@ export default function LoadBalancerStatusCard() {
     }
 
     if (!status.enabled || status.state === 'disabled') {
+        // excess-pv-priority-dispatch 4.4: surplus-mode chargers still need to
+        // surface here even when fuse protection itself is off/unconfigured.
+        const surplusOnlyEv = status.ev.filter((ev) => ev.surplus_mode)
         return (
-            <Card className="p-4 md:p-5">
+            <Card className="p-4 md:p-5 space-y-3">
                 <div className="flex items-center gap-3">
                     <div className="p-2 rounded-lg bg-surface2 text-muted">
                         <Gauge size={18} />
@@ -116,6 +154,13 @@ export default function LoadBalancerStatusCard() {
                         Go to Settings
                     </Link>
                 </div>
+                {surplusOnlyEv.length > 0 && (
+                    <div className="space-y-1.5">
+                        {surplusOnlyEv.map((ev) => (
+                            <SurplusEvRow key={ev.charger_id} ev={ev} measuredSurplusKw={status.measured_surplus_kw} />
+                        ))}
+                    </div>
+                )}
             </Card>
         )
     }
@@ -205,6 +250,17 @@ export default function LoadBalancerStatusCard() {
                                 <div className="min-w-0">
                                     <div className="font-semibold text-text truncate">{ev.charger_name}</div>
                                     {ev.reason && <div className="text-muted text-[10px] mt-0.5">{ev.reason}</div>}
+                                    {ev.surplus_mode && (
+                                        <div className="text-muted text-[10px] mt-0.5">
+                                            Surplus charging
+                                            {status.measured_surplus_kw !== null &&
+                                            status.measured_surplus_kw !== undefined
+                                                ? `: ${status.measured_surplus_kw.toFixed(1)} kW available`
+                                                : ''}
+                                            {ev.phase_mode ? ` (${ev.phase_mode}-phase)` : ''}
+                                            {ev.paused && ev.surplus_reason ? ` — ${ev.surplus_reason}` : ''}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                             <div className="shrink-0 text-right">

@@ -296,6 +296,157 @@ class TestEVChargerCurrentControlConfig:
         assert ev.phases == [1, 2, 3]
 
 
+class TestEVChargerPhaseSwitchingConfig:
+    """excess-pv-priority-dispatch 1.2: phase-switching fields on ev_chargers[]."""
+
+    def test_phase_switching_fields_round_trip(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "executor": {"enabled": True},
+            "ev_chargers": [
+                {
+                    "id": "goe",
+                    "enabled": True,
+                    "type": "current",
+                    "phase_mode_entity": "select.goe_phase_mode",
+                    "phase_switching_enabled": True,
+                    "phase_switch_hysteresis_kw": 0.3,
+                    "phase_switch_min_dwell_s": 300,
+                }
+            ],
+        }
+        with config_file.open("w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_executor_config(str(config_file))
+
+        ev = config.ev_chargers[0]
+        assert ev.phase_mode_entity == "select.goe_phase_mode"
+        assert ev.phase_switching_enabled is True
+        assert ev.phase_switch_hysteresis_kw == 0.3
+        assert ev.phase_switch_min_dwell_s == 300
+
+    def test_phase_switching_defaults_when_absent(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "executor": {"enabled": True},
+            "ev_chargers": [{"id": "leaf", "enabled": True, "switch_entity": "switch.leaf"}],
+        }
+        with config_file.open("w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_executor_config(str(config_file))
+
+        ev = config.ev_chargers[0]
+        assert ev.phase_mode_entity is None
+        assert ev.phase_switching_enabled is False
+        assert ev.phase_switch_hysteresis_kw == 0.5
+        assert ev.phase_switch_min_dwell_s == 600
+
+
+class TestExcessPvPriorityConfig:
+    """excess-pv-priority-dispatch 1.1: executor.excess_pv.priority[] parsing."""
+
+    def test_full_priority_list_all_entry_types(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "executor": {
+                "enabled": True,
+                "excess_pv": {
+                    "priority": [
+                        {
+                            "type": "ev",
+                            "charger_id": "goe",
+                            "surplus_deadband_kw": 0.3,
+                            "reward_sek_per_kwh": 0.6,
+                        },
+                        {"type": "water_heater_boost"},
+                        {
+                            "type": "custom_entity",
+                            "entity": "switch.pool_pump",
+                            "on_value": "on",
+                            "off_value": "off",
+                            "power_kw": 2.5,
+                        },
+                    ],
+                    "boost_reward_sek_per_kwh": 0.5,
+                    "soc_threshold_percent": 90,
+                },
+            }
+        }
+        with config_file.open("w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_executor_config(str(config_file))
+
+        excess_pv = config.excess_pv
+        assert excess_pv.boost_reward_sek_per_kwh == 0.5
+        assert excess_pv.soc_threshold_percent == 90
+        assert len(excess_pv.priority) == 3
+
+        ev_entry = excess_pv.priority[0]
+        assert ev_entry.type == "ev"
+        assert ev_entry.charger_id == "goe"
+        assert ev_entry.surplus_deadband_kw == 0.3
+        assert ev_entry.reward_sek_per_kwh == 0.6
+
+        boost_entry = excess_pv.priority[1]
+        assert boost_entry.type == "water_heater_boost"
+        assert boost_entry.reward_sek_per_kwh is None
+
+        custom_entry = excess_pv.priority[2]
+        assert custom_entry.type == "custom_entity"
+        assert custom_entry.entity == "switch.pool_pump"
+        assert custom_entry.on_value == "on"
+        assert custom_entry.off_value == "off"
+        assert custom_entry.power_kw == 2.5
+
+    def test_defaults_when_priority_absent(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        with config_file.open("w") as f:
+            yaml.dump({"executor": {}}, f)
+
+        config = load_executor_config(str(config_file))
+
+        assert config.excess_pv.priority == []
+        assert config.excess_pv.boost_reward_sek_per_kwh == 0.5
+        assert config.excess_pv.soc_threshold_percent == 95.0
+
+    def test_unknown_entry_type_ignored(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "executor": {
+                "excess_pv": {
+                    "priority": [
+                        {"type": "water_heater_boost"},
+                        {"type": "some_future_sink"},
+                    ]
+                }
+            }
+        }
+        with config_file.open("w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_executor_config(str(config_file))
+
+        assert len(config.excess_pv.priority) == 1
+        assert config.excess_pv.priority[0].type == "water_heater_boost"
+
+    def test_surplus_deadband_default(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_data = {
+            "executor": {
+                "excess_pv": {"priority": [{"type": "ev", "charger_id": "goe"}]}
+            }
+        }
+        with config_file.open("w") as f:
+            yaml.dump(config_data, f)
+
+        config = load_executor_config(str(config_file))
+
+        assert config.excess_pv.priority[0].surplus_deadband_kw == 0.2
+
+
 class TestLoadBalancingConfig:
     """universal-load-balancing 1.3: load_balancing: section parsing."""
 

@@ -343,6 +343,12 @@ export type LoadBalancerEvStatus = {
     planned_target_a: number | null
     state: string
     reason: string
+    /** excess-pv-priority-dispatch 4.1: additive surplus-mode fields */
+    surplus_mode?: boolean
+    surplus_state?: string | null
+    surplus_reason?: string | null
+    phase_mode?: number | null
+    paused?: boolean
 }
 
 export type LoadBalancerShedStatus = {
@@ -362,6 +368,8 @@ export type LoadBalancerStatusResponse = {
     resume_margin_percent?: number
     /** Executor tick interval (s) — the balancer reacts and reports once per tick. */
     tick_interval_s?: number
+    /** excess-pv-priority-dispatch 4.1: whole-house measured surplus (export - import), kW */
+    measured_surplus_kw?: number | null
     ev: LoadBalancerEvStatus[]
     shed: LoadBalancerShedStatus[]
 }

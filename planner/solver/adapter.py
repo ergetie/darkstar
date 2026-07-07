@@ -7,12 +7,13 @@ Migrated from backend/kepler/adapter.py during Rev K13 modularization.
 
 import logging
 from datetime import datetime  # noqa: TC003
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 
 from .types import (
     EVChargerInput,
+    ExcessPVSinkEntry,
     IncentiveBucket,
     KeplerConfig,
     KeplerInput,
@@ -162,10 +163,52 @@ def build_ev_charger_inputs(
                 plugged_in=plugged_in,
                 deadline=deadline,
                 incentive_buckets=buckets,
+                control_type=str(ev.get("type", "binary")).lower(),
             )
         )
 
     return result
+
+
+def build_excess_pv_priority(excess_pv_cfg: dict[str, Any]) -> list[ExcessPVSinkEntry]:
+    """Map executor.excess_pv.priority[] config into solver-side ExcessPVSinkEntry list.
+
+    Computes each entry's rank-scaled effective reward in this single place
+    (task 2.2): `override if set, else boost_reward_sek_per_kwh * (1 - rank * 0.15)`,
+    floored at 0. Rank is the entry's position in the priority list (0 = highest).
+    """
+    base_reward = float(excess_pv_cfg.get("boost_reward_sek_per_kwh", 0.5) or 0.0)
+    priority_raw: Any = excess_pv_cfg.get("priority")
+    entries: list[ExcessPVSinkEntry] = []
+    if not isinstance(priority_raw, list):
+        return entries
+    priority_list = cast("list[Any]", priority_raw)
+
+    for rank, entry_raw in enumerate(priority_list):
+        if not isinstance(entry_raw, dict):
+            continue
+        entry = cast("dict[str, Any]", entry_raw)
+        entry_type = str(entry.get("type", "")).lower()
+        if entry_type not in ("ev", "water_heater_boost", "custom_entity"):
+            logger.warning("Ignoring excess_pv.priority[] entry with unknown type: %r", entry_type)
+            continue
+
+        override = entry.get("reward_sek_per_kwh")
+        if override is not None:
+            effective_reward = max(0.0, float(override))
+        else:
+            effective_reward = max(0.0, base_reward * (1 - rank * 0.15))
+
+        entries.append(
+            ExcessPVSinkEntry(
+                type=entry_type,
+                effective_reward_sek_per_kwh=effective_reward,
+                charger_id=cast("str | None", entry.get("charger_id")),
+                power_kw=float(entry.get("power_kw", 1.0)),
+            )
+        )
+
+    return entries
 
 
 def planner_to_kepler_input(
@@ -489,24 +532,13 @@ def config_to_kepler_config(
         ev_chargers=ev_inputs,
         # Excess PV dispatch
         excess_pv_slots=[],  # Populated by pipeline after forecast analysis
-        excess_pv_sink=str(
-            planner_config.get("executor", {}).get("excess_pv", {}).get("sink", "disabled")
-        ),
-        excess_pv_reward_sek_per_kwh=float(
-            planner_config.get("executor", {})
-            .get("excess_pv", {})
-            .get("boost_reward_sek_per_kwh", 0.5)
+        excess_pv_priority=build_excess_pv_priority(
+            planner_config.get("executor", {}).get("excess_pv", {})
         ),
         excess_pv_soc_threshold_percent=float(
             planner_config.get("executor", {})
             .get("excess_pv", {})
             .get("soc_threshold_percent", 95.0)
-        ),
-        excess_pv_custom_entity_power_kw=float(
-            planner_config.get("executor", {})
-            .get("excess_pv", {})
-            .get("custom_entity", {})
-            .get("power_kw", 1.0)
         ),
     )
 
@@ -576,6 +608,7 @@ def kepler_result_to_dataframe(
                 "water_from_battery_kwh": 0.0,
                 "ev_charging_kw": s.ev_charge_kw,  # Aggregate EV charging power (backward compat)
                 "ev_chargers": s.ev_charger_results,  # Per-device: charger_id -> kW
+                "ev_surplus_kw": s.ev_surplus_kw,  # Per-charger: charger_id -> surplus-eligible kW
                 "projected_battery_cost": 0.0,
             }
         )

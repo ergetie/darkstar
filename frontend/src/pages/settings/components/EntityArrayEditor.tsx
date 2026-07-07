@@ -7,6 +7,7 @@ import Switch from '../../../components/ui/Switch'
 import EntitySelect from '../../../components/EntitySelect'
 import { NumberInput } from '../../../components/ui/NumberInput'
 import { HaEntity } from '../types'
+import Tooltip from '../../../components/Tooltip'
 
 // Water Heater Entity Type
 export interface WaterHeaterEntity {
@@ -46,6 +47,10 @@ export interface EVChargerEntity {
     phase_sensor_l1?: string
     phase_sensor_l2?: string
     phase_sensor_l3?: string
+    phase_mode_entity?: string
+    phase_switching_enabled?: boolean
+    phase_switch_hysteresis_kw?: number
+    phase_switch_min_dwell_s?: number
 }
 
 type EntityType = 'water_heater' | 'ev_charger'
@@ -95,6 +100,10 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     current_entity: '',
     min_current_a: 6,
     phases: [1, 2, 3],
+    phase_mode_entity: '',
+    phase_switching_enabled: false,
+    phase_switch_hysteresis_kw: 0.5,
+    phase_switch_min_dwell_s: 600,
 })
 
 export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
@@ -750,6 +759,108 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                 Phases this charger draws current on.
                                                             </p>
                                                         </div>
+
+                                                        {/* Commanded 1<->3 Phase Switching (excess-pv-priority-dispatch) */}
+                                                        <div className="sm:col-span-2">
+                                                            <div className="bg-surface2/30 rounded-lg p-4 border border-line/20 space-y-3">
+                                                                <div className="flex items-center justify-between">
+                                                                    <label className="text-[10px] uppercase font-bold text-muted">
+                                                                        Commanded Phase Switching
+                                                                    </label>
+                                                                    <Switch
+                                                                        checked={
+                                                                            (entity as EVChargerEntity)
+                                                                                .phase_switching_enabled ?? false
+                                                                        }
+                                                                        onCheckedChange={(checked) =>
+                                                                            updateEntity(index, {
+                                                                                phase_switching_enabled: checked,
+                                                                            } as Partial<EVChargerEntity>)
+                                                                        }
+                                                                        disabled={disabled}
+                                                                    />
+                                                                </div>
+                                                                <p className="text-[10px] text-muted">
+                                                                    Lets Darkstar switch this charger to 1-phase mode so
+                                                                    small PV surpluses (~1.4-4.1kW) still charge the
+                                                                    car. Requires the charger&apos;s phase-mode entity
+                                                                    (e.g. go-e Gemini Flex via the MQTT integration).
+                                                                </p>
+                                                                <div>
+                                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                                        Phase Mode Entity
+                                                                    </label>
+                                                                    <EntitySelect
+                                                                        entities={haEntities}
+                                                                        value={
+                                                                            (entity as EVChargerEntity)
+                                                                                .phase_mode_entity || ''
+                                                                        }
+                                                                        onChange={(val) =>
+                                                                            updateEntity(index, {
+                                                                                phase_mode_entity: val,
+                                                                            } as Partial<EVChargerEntity>)
+                                                                        }
+                                                                        loading={haLoading}
+                                                                        placeholder="Select Home Assistant phase-mode entity..."
+                                                                        disabled={disabled}
+                                                                    />
+                                                                    {(entity as EVChargerEntity)
+                                                                        .phase_switching_enabled &&
+                                                                        !(entity as EVChargerEntity)
+                                                                            .phase_mode_entity && (
+                                                                            <p className="text-[10px] text-bad mt-1">
+                                                                                Required when phase switching is
+                                                                                enabled.
+                                                                            </p>
+                                                                        )}
+                                                                </div>
+                                                                <div className="grid grid-cols-2 gap-3">
+                                                                    <div>
+                                                                        <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                            <span>Hysteresis (kW)</span>
+                                                                            <Tooltip text="Buffer added to the 3-phase minimum (4.14 kW). Target power must exceed 3ph_min + Hysteresis to switch to 3-phase, and drop below to switch back. Prevents boundary oscillation. Default: 0.5 kW." />
+                                                                        </label>
+                                                                        <NumberInput
+                                                                            value={
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_switch_hysteresis_kw ?? 0.5
+                                                                            }
+                                                                            onChange={(val) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_switch_hysteresis_kw:
+                                                                                        Number(val),
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                            disabled={disabled}
+                                                                            step={0.1}
+                                                                            min={0}
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
+                                                                            <span>Dwell (seconds)</span>
+                                                                            <Tooltip text="Minimum time power must remain above/below the threshold before switching, and the minimum lockout between switches. Protects physical charger contactor relays and EV onboard chargers. Default: 600s (10 min)." />
+                                                                        </label>
+                                                                        <NumberInput
+                                                                            value={
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_switch_min_dwell_s ?? 600
+                                                                            }
+                                                                            onChange={(val) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_switch_min_dwell_s:
+                                                                                        Number(val),
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                            disabled={disabled}
+                                                                            step={30}
+                                                                            min={0}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </>
                                                 )}
 
@@ -757,8 +868,9 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                 <div className="sm:col-span-2">
                                                     <div className="bg-surface2/30 rounded-lg p-4 border border-line/20">
                                                         <div className="flex items-center justify-between mb-3">
-                                                            <label className="text-[10px] uppercase font-bold text-muted">
-                                                                Penalty Levels
+                                                            <label className="text-[10px] uppercase font-bold text-muted flex items-center gap-1.5">
+                                                                <span>Penalty Levels</span>
+                                                                <Tooltip text="Defines target battery SoC ranges and the maximum price/incentive (SEK/kWh) you are willing to pay to charge within each range." />
                                                             </label>
                                                             {!disabled && (
                                                                 <button
@@ -799,11 +911,45 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                             )}
                                                         </div>
 
-                                                        <p className="text-[10px] text-muted mb-3">
-                                                            Define willingness to pay for charging at different battery
-                                                            levels. Higher penalties encourage charging sooner (at lower
-                                                            SoC).
+                                                        <p className="text-[10px] text-muted mb-1.5">
+                                                            Define your willingness to pay (charging incentive) for
+                                                            reaching different battery SoC targets.
                                                         </p>
+                                                        <details className="mb-3 text-[11px] text-muted">
+                                                            <summary className="font-semibold text-accent hover:underline cursor-pointer select-none outline-none">
+                                                                How to configure & scenarios:
+                                                            </summary>
+                                                            <div className="mt-1.5 rounded-lg border border-ai/20 bg-ai/5 p-2.5 leading-relaxed text-[11px] text-muted space-y-2">
+                                                                <p>
+                                                                    Each level defines an incentive (SEK/kWh) to charge
+                                                                    up to that target SoC. The scheduler will schedule
+                                                                    charging if the net electricity price (spot price
+                                                                    minus solar export value) is below this incentive.
+                                                                </p>
+                                                                <ul className="list-disc space-y-1.5 pl-4">
+                                                                    <li>
+                                                                        <strong>Standard smart split (Default):</strong>{' '}
+                                                                        Set 3 levels (e.g., 50% SoC at 0.5 SEK/kWh, 80%
+                                                                        SoC at 0.2 SEK, and 100% SoC at 0.0 SEK). This
+                                                                        guarantees a baseline charge while leaving room
+                                                                        for cheaper hours or solar surplus.
+                                                                    </li>
+                                                                    <li>
+                                                                        <strong>Cheapest only:</strong> Delete extra
+                                                                        levels and keep just one level at 100% SoC set
+                                                                        to 0.0 SEK/kWh. The car will only charge during
+                                                                        the single cheapest window of the day or when
+                                                                        solar surplus is available.
+                                                                    </li>
+                                                                    <li>
+                                                                        <strong>Force charging:</strong> Set a level's
+                                                                        penalty high (e.g., 5.0 SEK/kWh). This forces
+                                                                        charging up to that SoC target regardless of
+                                                                        spot prices.
+                                                                    </li>
+                                                                </ul>
+                                                            </div>
+                                                        </details>
 
                                                         {((entity as EVChargerEntity).penalty_levels || []).length ===
                                                         0 ? (
@@ -819,8 +965,9 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                             className="flex items-center gap-3 bg-surface-elevated p-2 rounded-lg"
                                                                         >
                                                                             <div className="flex-1">
-                                                                                <label className="text-[10px] text-muted block mb-1">
-                                                                                    Max SoC (%)
+                                                                                <label className="text-[10px] text-muted flex items-center gap-1.5 mb-1">
+                                                                                    <span>Max SoC (%)</span>
+                                                                                    <Tooltip text="The State of Charge (SoC) target limit for this priority range." />
                                                                                 </label>
                                                                                 <NumberInput
                                                                                     value={level.max_soc}
@@ -852,8 +999,9 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                                 />
                                                                             </div>
                                                                             <div className="flex-1">
-                                                                                <label className="text-[10px] text-muted block mb-1">
-                                                                                    Penalty (SEK/kWh)
+                                                                                <label className="text-[10px] text-muted flex items-center gap-1.5 mb-1">
+                                                                                    <span>Penalty (SEK/kWh)</span>
+                                                                                    <Tooltip text="The maximum rate (SEK/kWh) you are willing to pay to charge within this SoC range. Set high to force charging, set low to charge only when cheap/surplus." />
                                                                                 </label>
                                                                                 <NumberInput
                                                                                     value={level.penalty_sek}

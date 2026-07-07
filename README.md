@@ -206,6 +206,30 @@ ev_chargers:
 ```
 
 
+### Excess PV Dispatch (Optional)
+
+When the battery is full and PV production still exceeds demand, Darkstar can route the surplus into an ordered priority list of sinks instead of exporting it for a low price:
+
+```yaml
+executor:
+  excess_pv:
+    priority:
+      - type: ev                     # Send surplus to an EV charger (requires an ev_chargers[] entry with type: current)
+        charger_id: tesla_model_3
+        surplus_deadband_kw: 0.2      # Deadband for the real-time surplus feedback loop
+      - type: water_heater_boost     # Boost water heating above its normal schedule
+      - type: custom_entity          # Toggle any other HA entity
+        entity: switch.pool_pump
+        power_kw: 1.0
+    boost_reward_sek_per_kwh: 0.5    # Base reward; each sink below the top gets 15% less by default
+    soc_threshold_percent: 95        # Battery must reach this SoC% before any sink activates
+```
+
+- **List order is priority order.** The house battery is always implicitly first (gated by `soc_threshold_percent`); the top entry is fed surplus first, and multiple sinks can be active at once when surplus is large enough. An empty (or omitted) `priority` list disables the feature entirely.
+- **EV surplus charging** requires the referenced charger to use `type: current` (variable ampere control — see the EV Charger section above) with its own `current_entity` configured. The executor tracks *measured* surplus in real time each tick and modulates the charge current directly; the planner's schedule only marks slots as surplus-*eligible*, it never dispatches an open-loop target.
+- **Commanded 1↔3-phase switching**: a 3-phase charger can't charge below ~4.1 kW (6A × 3 phases), so small surpluses (1.4–4.1 kW) go unused unless the charger switches to 1-phase mode. If your charger exposes a phase-mode entity (e.g. the go-e Gemini Flex via its MQTT integration), set `phase_mode_entity`, `phase_switching_enabled: true`, and optionally tune `phase_switch_hysteresis_kw` (default 0.5) and `phase_switch_min_dwell_s` (default 600) on that charger's `ev_chargers[]` entry — the dwell time protects the contactor from rapid switching.
+- **Migrating from the old single-sink config**: the legacy `executor.excess_pv.sink: water_heater_boost | custom_entity | disabled` key is migrated automatically on startup into an equivalent one-entry (or empty) `priority` list, and removed. No action needed.
+
 ## Home Assistant Integration
 
 Darkstar reads sensors and controls your inverter through Home Assistant:

@@ -1,8 +1,4 @@
-## Purpose
-
-The Kepler planner SHALL schedule EV surplus charging, water heater boost, and custom entity sink actions only when there is genuine excess PV — i.e., forecast PV exceeds all forecast consumption AND the battery SoC is near full. Sinks are configured as an ordered priority list; when surplus is scarce, higher-priority sinks are fed first via rank-scaled rewards, and multiple sinks may share abundant surplus in the same slot. This ensures the priority order: battery charges first, then the configured sinks share remaining surplus by priority.
-
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Priority order allocates scarce surplus across multiple sinks
 
@@ -23,6 +19,8 @@ Excess-PV sinks SHALL be configured as an ordered list `executor.excess_pv.prior
 #### Scenario: Reward override monotonicity warning
 - **WHEN** a per-entry reward override gives a lower-priority sink a higher reward than a higher-priority sink
 - **THEN** config validation SHALL emit a warning naming both entries
+
+## MODIFIED Requirements
 
 ### Requirement: Sink activation requires configurable SoC threshold (default 95%)
 
@@ -59,15 +57,6 @@ Where `M = capacity_kWh` and `threshold_kWh = capacity_kWh * soc_threshold_perce
 - **THEN** the solver SHALL schedule battery charging during morning/early afternoon
 - **AND** sink activation SHALL only appear in slots where battery SoC first reaches the configured threshold
 - **AND** no sink activation SHALL occur before the battery is near full
-
-### Requirement: Pre-calculated excess PV flags serve as coarse filter
-
-Before the MILP runs, the solver SHALL pre-calculate per-slot excess PV flags from raw forecasts: `excess[t] = max(0, pv_forecast[t] - load_forecast[t] - min_water_heat_forecast[t] - min_ev_forecast[t]) > 0`. These flags are a **coarse upper bound** that excludes slots where PV cannot possibly exceed demand. Sink variables are constrained to slots where this flag is true AND SoC >= `soc_threshold_percent`.
-
-#### Scenario: Nighttime slot excluded by coarse filter
-- **WHEN** slot 3 has zero PV forecast
-- **THEN** the excess PV flag SHALL be false
-- **AND** no sink variable SHALL be created for that slot
 
 ### Requirement: Kepler plans water heater boost with SoC gate
 
@@ -131,19 +120,6 @@ When the priority list contains a `custom_entity` entry, the solver SHALL create
 - **WHEN** the priority list contains no `custom_entity` entry
 - **THEN** no custom entity variables are created
 - **AND** no custom entity actions are performed by the executor
-
-### Requirement: Schedule output includes water heater boost flag
-
-The schedule output SHALL include a `water_heating_boost` field in each slot indicating which heaters are in boost mode.
-
-#### Scenario: Boost slot in schedule output
-- **WHEN** heater A has boost scheduled in slot 14
-- **THEN** the slot output SHALL contain `water_heating_boost: {"main_tank": true}`
-- **AND** the normal `water_heating_kw` field SHALL include both normal and boost energy
-
-#### Scenario: No boost in slot output
-- **WHEN** no heater has boost in slot 8
-- **THEN** the slot output SHALL contain `water_heating_boost: {}` or no boost entries
 
 ### Requirement: Executor toggles custom entity based on schedule
 

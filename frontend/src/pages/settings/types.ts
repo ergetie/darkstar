@@ -13,6 +13,7 @@ export type FieldType =
     | 'entity_array'
     | 'balanced_loads'
     | 'give_way_list'
+    | 'excess_pv_priority'
     | 'info'
 
 export interface HaEntity {
@@ -1403,101 +1404,29 @@ export const advancedSections: SettingsSection[] = [
     {
         title: 'Excess PV Dispatch',
         description:
-            'Configure how forecast excess PV energy is utilized. The planner schedules excess PV into the chosen sink.',
+            'Configure the ordered priority list of sinks for forecast excess PV energy. The house battery is always implicitly first; the planner schedules surplus into the listed sinks in order, and multiple sinks can be active at once when surplus is large enough.',
         showIf: { configKey: 'system.has_solar', value: true },
         fields: [
             {
-                key: 'executor.excess_pv.sink',
-                label: 'Excess PV Sink',
-                path: ['executor', 'excess_pv', 'sink'],
-                type: 'select',
-                options: [
-                    { label: 'Disabled', value: 'disabled' },
-                    { label: 'Water Heater Boost', value: 'water_heater_boost' },
-                    { label: 'Custom Entity', value: 'custom_entity' },
-                ],
-                helper: 'Choose where excess PV energy goes. Water Heater Boost heats water to max temp. Custom Entity toggles any HA entity.',
-                showIf: { configKey: 'system.has_water_heater', value: true },
+                key: 'executor.excess_pv.priority',
+                label: 'Sink priority list',
+                path: ['executor', 'excess_pv', 'priority'],
+                type: 'excess_pv_priority',
                 className: 'col-span-2',
-            },
-            {
-                key: 'executor.excess_pv.sink',
-                label: 'Excess PV Sink',
-                path: ['executor', 'excess_pv', 'sink'],
-                type: 'select',
-                options: [
-                    { label: 'Disabled', value: 'disabled' },
-                    { label: 'Custom Entity', value: 'custom_entity' },
-                ],
-                helper: 'Choose where excess PV energy goes. Custom Entity toggles any HA entity.',
-                showIf: { configKey: 'system.has_water_heater', value: false },
-                className: 'col-span-2',
-            },
-            {
-                key: 'executor.excess_pv.custom_entity.entity',
-                label: 'Custom Entity',
-                path: ['executor', 'excess_pv', 'custom_entity', 'entity'],
-                type: 'entity',
-                helper: 'Home Assistant entity to toggle (e.g., switch.pool_pump).',
-                showIf: {
-                    configKey: 'executor.excess_pv.sink',
-                    value: 'custom_entity',
-                },
-            },
-            {
-                key: 'executor.excess_pv.custom_entity.on_value',
-                label: 'On Value',
-                path: ['executor', 'excess_pv', 'custom_entity', 'on_value'],
-                type: 'text',
-                helper: 'Value to set when excess PV is available.',
-                showIf: {
-                    configKey: 'executor.excess_pv.sink',
-                    value: 'custom_entity',
-                },
-            },
-            {
-                key: 'executor.excess_pv.custom_entity.off_value',
-                label: 'Off Value',
-                path: ['executor', 'excess_pv', 'custom_entity', 'off_value'],
-                type: 'text',
-                helper: 'Value to set when excess PV is not available.',
-                showIf: {
-                    configKey: 'executor.excess_pv.sink',
-                    value: 'custom_entity',
-                },
-            },
-            {
-                key: 'executor.excess_pv.custom_entity.power_kw',
-                label: 'Power (kW)',
-                path: ['executor', 'excess_pv', 'custom_entity', 'power_kw'],
-                type: 'number',
-                helper: 'Estimated power consumption in kW. Used by the solver to size the reward correctly.',
-                showIf: {
-                    configKey: 'executor.excess_pv.sink',
-                    value: 'custom_entity',
-                },
             },
             {
                 key: 'executor.excess_pv.boost_reward_sek_per_kwh',
-                label: 'Sink Reward (SEK/kWh)',
+                label: 'Base Reward (SEK/kWh)',
                 path: ['executor', 'excess_pv', 'boost_reward_sek_per_kwh'],
                 type: 'number',
-                helper: 'Reward for using excess PV at the sink instead of exporting.',
-                showIf: {
-                    configKey: 'executor.excess_pv.sink',
-                    value: ['water_heater_boost', 'custom_entity'],
-                },
+                helper: 'Base reward for using excess PV at a sink instead of exporting. Each sink below the top gets 15% less by default (override per-entry above).',
             },
             {
                 key: 'executor.excess_pv.soc_threshold_percent',
                 label: 'SoC Threshold (%)',
                 path: ['executor', 'excess_pv', 'soc_threshold_percent'],
                 type: 'number',
-                helper: 'Battery must reach this SoC% before sink activates.',
-                showIf: {
-                    configKey: 'executor.excess_pv.sink',
-                    value: ['water_heater_boost', 'custom_entity'],
-                },
+                helper: 'Battery must reach this SoC% before any sink activates.',
             },
         ],
     },

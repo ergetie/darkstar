@@ -1,8 +1,4 @@
-## Purpose
-
-The Settings UI SHALL provide configuration for excess PV utilization, including an ordered priority list of sinks (EV surplus charging, water heater boost, custom entity), boost reward, related parameters, and per-charger phase-switching settings.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Excess PV sink configuration in Advanced tab
 
@@ -58,6 +54,8 @@ The excess PV configuration SHALL be persisted to `config.yaml` under `executor.
 #### Scenario: Migration is idempotent
 - **WHEN** the migration has already run and `priority` exists
 - **THEN** a subsequent startup SHALL NOT modify the config again
+
+## ADDED Requirements
 
 ### Requirement: Phase-switching settings on the EV charger device
 
