@@ -58,13 +58,12 @@ def test_power_cap_redistributes() -> None:
 
 
 def test_single_day_all_energy() -> None:
-    now = datetime.now(TZ)
-    naive = (now + timedelta(hours=6)).replace(minute=0, second=0, microsecond=0, tzinfo=None)
-    deadline = TZ.localize(naive)
-    quota = MultiDayPlanner.compute_quota(40.0, deadline, {}, [100.0])
+    frozen_now = datetime(2026, 7, 8, 10, 0, 0, tzinfo=TZ)
+    deadline = frozen_now + timedelta(hours=6)
+    quota = MultiDayPlanner.compute_quota(40.0, deadline, {}, [100.0], now=frozen_now)
 
     assert len(quota) == 1
-    assert quota[date.today()] == pytest.approx(40.0)
+    assert quota[frozen_now.date()] == pytest.approx(40.0)
 
 
 def test_zero_remaining() -> None:

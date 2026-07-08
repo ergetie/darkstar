@@ -59,8 +59,28 @@ The backend SHALL parse `input_datetime` states in `"YYYY-MM-DD HH:MM:SS"` (HA d
 - **WHEN** the entity state is `"07:00:00"` (no date)
 - **THEN** the backend SHALL log a warning and SHALL NOT update the state file
 
-### Requirement: input_datetime added to allowed service domains
-The `HAClient.call_service()` domain allowlist SHALL include `input_datetime` (service `set_datetime`) for write operations. Target-SoC writes SHALL reuse the already-allowed `input_number.set_value`.
+### Requirement: input_datetime plumbing across four surfaces (currently absent)
+Module 5's HA sync for the ready-by `input_datetime` requires plumbing that does not exist today. **All four SHALL be added:**
+1. **`HAClient.call_service()`** domain allowlist SHALL include `input_datetime` (service `set_datetime`) for write operations; executor SHALL expose a new `set_input_datetime(entity_id, datetime)`. Target-SoC writes SHALL reuse the already-allowed `input_number.set_value`.
+2. **`executor/profiles.py` `VALID_DOMAINS`** SHALL include `"input_datetime"` (currently `{"select","number","switch","input_number"}`).
+3. **`backend/api/routers/ha.py`** entity-list filter SHALL include `"input_datetime."` (currently only `"input_number."`) so the entity picker surfaces `input_datetime` entities in the UI.
+4. **`backend/ha_socket.py`** SHALL register `ev_ready_by_{idx}` / `ev_target_soc_{idx}` monitored-entity keys for each charger with `ha_ready_by_entity` / `ha_target_soc_entity` (alongside the existing `ev_plug_{idx}` mapping), with `state_changed` handlers that update the state-file goal.
+
+#### Scenario: call_service with input_datetime
+- **WHEN** `call_service(domain="input_datetime", service="set_datetime", …)` is called
+- **THEN** the domain guard SHALL allow it and the service SHALL execute
+
+#### Scenario: input_datetime entities appear in the entity picker
+- **WHEN** the frontend Settings entity picker queries `/api/ha/entities`
+- **THEN** `input_datetime.*` entities SHALL appear in the results (not just `input_number.*`)
+
+#### Scenario: ha_socket monitors the ready-by / target-SoC entities
+- **WHEN** a charger has `ha_ready_by_entity` and/or `ha_target_soc_entity` configured
+- **THEN** the backend WebSocket SHALL subscribe to `state_changed` for those entities under the `ev_ready_by_{idx}` / `ev_target_soc_{idx}` keys (mirroring the `ev_plug_{idx}` pattern)
+
+#### Scenario: ValidDomains accepts input_datetime on the executor side
+- **WHEN** the executor resolves an override or profile key for an `input_datetime.*` entity
+- **THEN** `executor/profiles.py:VALID_DOMAINS` SHALL accept it as valid (no "unknown domain" rejection)
 
 #### Scenario: call_service with input_datetime
 - **WHEN** `call_service(domain="input_datetime", service="set_datetime", …)` is called

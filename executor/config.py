@@ -204,6 +204,8 @@ class EVChargerDeviceConfig:
     n_days: int | None = None
     ready_by_date: str | None = None
     keep_on_after_target: bool = False
+    ha_ready_by_entity: str | None = None
+    ha_target_soc_entity: str | None = None
 
     # Legacy alias for ready_by (deprecated, one-release compatibility)
     departure_time: str | None = None
@@ -771,6 +773,8 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     charger.get("keep_on_after_target", EVChargerDeviceConfig.keep_on_after_target)
                 ),
                 departure_time=ready_by_value,  # keep in sync for legacy consumers
+                ha_ready_by_entity=_str_or_none(charger.get("ha_ready_by_entity")),
+                ha_target_soc_entity=_str_or_none(charger.get("ha_target_soc_entity")),
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),
                 current_entity=_str_or_none(charger.get("current_entity")),
                 min_current_a=int(

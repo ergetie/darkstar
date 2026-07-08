@@ -243,6 +243,7 @@ type ChartValues = {
     waterBoost?: (boolean | null)[]
     customEntityActive?: (number | null)[]
     evCharging?: (number | null)[]
+    evSurplus?: (number | null)[]
     socTarget?: (number | null)[]
     socProjected?: (number | null)[]
     socActual?: (number | null)[]
@@ -459,6 +460,24 @@ const createChartData = (
                 backgroundColor: 'rgba(139, 92, 246, 0.25)', // DS.ai (violet) at 25%
                 borderColor: DS.ai,
                 glow: false,
+                borderWidth: 0,
+                borderRadius: 2,
+                yAxisID: 'y1',
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
+                grouped: false,
+                order: 0,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
+            {
+                type: 'bar',
+                label: 'EV Surplus Charging (kW)',
+                data: values.evSurplus ?? values.labels.map(() => null),
+                backgroundColor: 'rgba(139, 92, 246, 0.90)', // DS.ai (violet) at 90%
+                borderColor: '#c084fc',
+                glow: true,
+                glowBlur: 20,
+                glowOpacity: 1.0,
                 borderWidth: 0,
                 borderRadius: 2,
                 yAxisID: 'y1',
@@ -1341,19 +1360,20 @@ export default function ChartCard({
             if (ds[6]) ds[6].hidden = !overlays.water
             if (ds[7]) ds[7].hidden = !overlays.water
             if (ds[8]) ds[8].hidden = !overlays.ev
-            if (ds[9]) ds[9].hidden = !overlays.excessPvSink
-            if (ds[10]) ds[10].hidden = !overlays.socTarget
-            if (ds[11]) ds[11].hidden = !overlays.socProjected
-            if (ds[12]) ds[12].hidden = !overlays.socActual
+            if (ds[9]) ds[9].hidden = !overlays.ev // EV Surplus
+            if (ds[10]) ds[10].hidden = !overlays.excessPvSink
+            if (ds[11]) ds[11].hidden = !overlays.socTarget
+            if (ds[12]) ds[12].hidden = !overlays.socProjected
+            if (ds[13]) ds[13].hidden = !overlays.socActual
 
             // Actual Overlays
-            if (ds[13]) ds[13].hidden = !overlays.showActual || !overlays.pv
-            if (ds[14]) ds[14].hidden = !overlays.showActual || !overlays.load
-            if (ds[15]) ds[15].hidden = !overlays.showActual || !overlays.charge
-            if (ds[16]) ds[16].hidden = !overlays.showActual || !overlays.discharge
-            if (ds[17]) ds[17].hidden = !overlays.showActual || !overlays.ev
-            if (ds[18]) ds[18].hidden = !overlays.showActual || !overlays.export
-            if (ds[19]) ds[19].hidden = !overlays.showActual || !overlays.water
+            if (ds[14]) ds[14].hidden = !overlays.showActual || !overlays.pv
+            if (ds[15]) ds[15].hidden = !overlays.showActual || !overlays.load
+            if (ds[16]) ds[16].hidden = !overlays.showActual || !overlays.charge
+            if (ds[17]) ds[17].hidden = !overlays.showActual || !overlays.discharge
+            if (ds[18]) ds[18].hidden = !overlays.showActual || !overlays.ev
+            if (ds[19]) ds[19].hidden = !overlays.showActual || !overlays.export
+            if (ds[20]) ds[20].hidden = !overlays.showActual || !overlays.water
 
             try {
                 if (chartRef.current) {
@@ -1656,6 +1676,7 @@ function buildLiveData(
     const waterBoost: (boolean | null)[] = []
     const customEntityActive: (number | null)[] = []
     const evCharging: (number | null)[] = []
+    const evSurplus: (number | null)[] = []
     const socTarget: (number | null)[] = []
     const socProjected: (number | null)[] = []
     const socActual: (number | null)[] = []
@@ -1700,8 +1721,18 @@ function buildLiveData(
             waterBoost.push(
                 slot.water_heating_boost && Object.values(slot.water_heating_boost).some(Boolean) ? true : null,
             )
-            customEntityActive.push(slot.custom_entity_active ? excessPvPowerKw : null)
-            evCharging.push(slot.ev_charging_kw ?? null)
+            customEntityActive.push(
+                slot.custom_entity_active && Object.values(slot.custom_entity_active).some(Boolean)
+                    ? excessPvPowerKw
+                    : null,
+            )
+            const regularEv = slot.ev_charging_kw ?? 0
+            evCharging.push(regularEv > 0.01 ? regularEv : null)
+
+            const surplusEv = slot.ev_surplus_kw
+                ? Object.values(slot.ev_surplus_kw).reduce((sum: number, val: number) => sum + (val || 0), 0)
+                : 0
+            evSurplus.push(surplusEv > 0.01 ? surplusEv : null)
             socTarget.push(slot.soc_target_percent ?? null)
             socProjected.push(slot.projected_soc_percent ?? null)
             socActual.push(slot.actual_soc != null ? slot.actual_soc : null)
@@ -1723,6 +1754,7 @@ function buildLiveData(
             discharge.push(null)
             exp.push(null)
             evCharging.push(null)
+            evSurplus.push(null)
             water.push(null)
             waterBoost.push(null)
             customEntityActive.push(null)
@@ -1766,6 +1798,7 @@ function buildLiveData(
                 waterBoost,
                 customEntityActive,
                 evCharging,
+                evSurplus,
                 socTarget,
                 socProjected,
                 socActual,

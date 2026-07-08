@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Per-device EV config supports optional HA goal entities
-Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_entity` (string, HA `input_datetime` entity ID) and `ha_target_soc_entity` (string, HA `input_number` entity ID). When configured, the backend SHALL sync the charger's ready-by time and target SoC bidirectionally with those entities, and HA values SHALL take priority over the dashboard value when set. (The core goal fields — `target_soc_percent`, `ready_by`, `repeat`, `keep_on_after_target`, `charge_priority` — are defined by the `per-device-ev-scheduling` change in Module 4.)
+Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_entity` (string, HA `input_datetime` entity ID) and `ha_target_soc_entity` (string, HA `input_number` entity ID). When configured, the backend SHALL sync the charger's ready-by time and target SoC bidirectionally with those entities, and HA values SHALL take priority over the dashboard value when set. (The core goal fields — `target_soc_percent`, `ready_by`, `repeat`, `keep_on_after_target` — are defined by the `per-device-ev-scheduling` change in Module 4. **No `charge_priority`** — surplus ordering is owned by `excess_pv.priority[]`.)
 
 #### Scenario: Charger with HA goal entities configured
 - **WHEN** a charger has `ha_ready_by_entity: "input_datetime.ev_ready_by"` and `ha_target_soc_entity: "input_number.ev_target_soc"`

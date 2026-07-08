@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useState, useEffect, useCallback } from 'react'
 import {
     ArrowDownToLine,
     ArrowUpFromLine,
@@ -8,9 +9,12 @@ import {
     DollarSign,
     Droplets,
     BatteryCharging,
+    Loader2,
 } from 'lucide-react'
 import Card from './Card'
 import { Api } from '../lib/api'
+import { useSocket } from '../lib/hooks'
+import EVChargerCard from './EVChargingCard'
 
 // --- Types ---
 interface GridCardProps {
@@ -33,6 +37,7 @@ interface ResourcesCardProps {
     hasWaterHeater?: boolean
     hasEvCharger?: boolean
     batteryCapacity?: number | null
+    config?: any | null
 }
 
 // --- Helper Components ---
@@ -382,100 +387,253 @@ export function ResourcesDomain({
     hasWaterHeater = true,
     hasEvCharger = false,
     batteryCapacity,
+    config,
 }: ResourcesCardProps) {
+    const [activeTab, setActiveTab] = useState<'metrics' | 'ev'>(() => {
+        try {
+            const val = localStorage.getItem('darkstar-resources-tab')
+            if (val === 'ev' || val === 'metrics') return val
+        } catch (e) {
+            console.error('Failed to read active tab from localStorage', e)
+        }
+        return 'metrics'
+    })
+
+    const handleTabChange = (tab: 'metrics' | 'ev') => {
+        setActiveTab(tab)
+        try {
+            localStorage.setItem('darkstar-resources-tab', tab)
+        } catch (e) {
+            console.error('Failed to save active tab to localStorage', e)
+        }
+    }
+
     return (
         <Card className="p-4 flex flex-col h-full relative overflow-hidden">
             <div className="absolute inset-0 bg-amber-500/[0.01]" />
 
             {/* Header */}
-            <div className="flex items-center gap-2 mb-4 relative z-10">
-                <div className="p-1.5 rounded-lg bg-accent/10 text-accent">
-                    <Zap className="h-4 w-4" />
+            <div className="flex items-center justify-between mb-4 relative z-10">
+                <div className="flex items-center gap-2">
+                    <div className="p-1.5 rounded-lg bg-accent/10 text-accent">
+                        <Zap className="h-4 w-4" />
+                    </div>
+                    <span className="text-sm font-medium text-text">Energy Resources</span>
+                    {hasBattery && batteryCapacity != null && batteryCapacity > 0 && (
+                        <span className="text-[9px] text-muted opacity-60 ml-2">({batteryCapacity} kWh Cap)</span>
+                    )}
                 </div>
-                <span className="text-sm font-medium text-text">Energy Resources</span>
-                {hasBattery && batteryCapacity != null && batteryCapacity > 0 && (
-                    <span className="ml-auto text-[9px] text-muted opacity-60">{batteryCapacity} kWh Cap</span>
+                {hasEvCharger && (
+                    <div className="flex items-center bg-surface-elevated rounded-lg p-0.5 text-[10px] font-medium border border-line/20">
+                        <button
+                            onClick={() => handleTabChange('metrics')}
+                            className={`px-2 py-1 rounded-md transition-all ${
+                                activeTab === 'metrics'
+                                    ? 'bg-accent text-surface-elevated font-semibold'
+                                    : 'text-muted hover:text-text'
+                            }`}
+                        >
+                            Metrics
+                        </button>
+                        <button
+                            onClick={() => handleTabChange('ev')}
+                            className={`px-2 py-1 rounded-md transition-all ${
+                                activeTab === 'ev'
+                                    ? 'bg-accent text-surface-elevated font-semibold'
+                                    : 'text-muted hover:text-text'
+                            }`}
+                        >
+                            EV
+                        </button>
+                    </div>
                 )}
             </div>
 
-            <div className="space-y-4 relative z-10">
-                {/* PV Section - conditional on hasSolar */}
-                {hasSolar && (
+            {activeTab === 'metrics' ? (
+                <div className="space-y-4 relative z-10">
+                    {/* PV Section - conditional on hasSolar */}
+                    {hasSolar && (
+                        <div>
+                            <div className="flex items-center justify-between mb-1">
+                                <div className="flex items-center gap-1.5 text-[11px] text-accent">
+                                    <Sun className="h-3 w-3" />
+                                    <span>Solar Production</span>
+                                </div>
+                                <div className="text-[10px] text-muted">
+                                    <span className="text-text font-medium">{pvActual?.toFixed(1) ?? '—'}</span>
+                                    <span className="mx-1">/</span>
+                                    {pvForecast?.toFixed(1) ?? '—'} kWh
+                                </div>
+                            </div>
+                            {pvSourceLabel && (
+                                <div className="mb-1 flex justify-end">
+                                    <span
+                                        className={`rounded-full border px-2 py-0.5 text-[9px] ${
+                                            pvSourceActive
+                                                ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
+                                                : 'border-sky-400/30 bg-sky-400/10 text-sky-300'
+                                        }`}
+                                    >
+                                        {pvSourceLabel}
+                                    </span>
+                                </div>
+                            )}
+                            <ProgressBar value={pvActual ?? 0} total={pvForecast ?? 1} colorClass="bg-accent" />
+                        </div>
+                    )}
+
+                    {/* Load Section - always displayed */}
                     <div>
                         <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-1.5 text-[11px] text-accent">
-                                <Sun className="h-3 w-3" />
-                                <span>Solar Production</span>
+                            <div className="flex items-center gap-1.5 text-[11px] text-house">
+                                <Activity className="h-3 w-3" />
+                                <span>House Load</span>
                             </div>
                             <div className="text-[10px] text-muted">
-                                <span className="text-text font-medium">{pvActual?.toFixed(1) ?? '—'}</span>
+                                <span className="text-text font-medium">{loadActual?.toFixed(1) ?? '—'}</span>
                                 <span className="mx-1">/</span>
-                                {pvForecast?.toFixed(1) ?? '—'} kWh
+                                {loadAvg?.toFixed(1) ?? '—'} kWh
                             </div>
                         </div>
-                        {pvSourceLabel && (
-                            <div className="mb-1 flex justify-end">
-                                <span
-                                    className={`rounded-full border px-2 py-0.5 text-[9px] ${
-                                        pvSourceActive
-                                            ? 'border-emerald-400/30 bg-emerald-400/10 text-emerald-300'
-                                            : 'border-sky-400/30 bg-sky-400/10 text-sky-300'
-                                    }`}
-                                >
-                                    {pvSourceLabel}
-                                </span>
-                            </div>
-                        )}
-                        <ProgressBar value={pvActual ?? 0} total={pvForecast ?? 1} colorClass="bg-accent" />
+                        <ProgressBar value={loadActual ?? 0} total={loadAvg ?? 1} colorClass="bg-house" />
                     </div>
-                )}
 
-                {/* Load Section - always displayed */}
-                <div>
-                    <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5 text-[11px] text-house">
-                            <Activity className="h-3 w-3" />
-                            <span>House Load</span>
+                    {/* EV Charging Section - conditional on hasEvCharger */}
+                    {hasEvCharger && (
+                        <div className="flex items-center justify-between pt-2 border-t border-line/30">
+                            <div className="flex items-center gap-1.5 text-[11px] text-ev">
+                                <BatteryCharging className="h-3 w-3" />
+                                <span>EV Charging</span>
+                            </div>
+                            <div className="text-sm font-medium text-text">
+                                {evChargingKwh?.toFixed(1) ?? '0.0'}{' '}
+                                <span className="text-[10px] text-muted font-normal">kWh</span>
+                            </div>
                         </div>
-                        <div className="text-[10px] text-muted">
-                            <span className="text-text font-medium">{loadActual?.toFixed(1) ?? '—'}</span>
-                            <span className="mx-1">/</span>
-                            {loadAvg?.toFixed(1) ?? '—'} kWh
+                    )}
+
+                    {/* Water Section - conditional on hasWaterHeater */}
+                    {hasWaterHeater && (
+                        <div
+                            className={`flex items-center justify-between pt-2${hasEvCharger ? '' : ' border-t border-line/30'}`}
+                        >
+                            <div className="flex items-center gap-1.5 text-[11px] text-water">
+                                <Droplets className="h-3 w-3" />
+                                <span>Water Heating</span>
+                            </div>
+                            <div className="text-sm font-medium text-text">
+                                {waterKwh?.toFixed(1) ?? '—'}{' '}
+                                <span className="text-[10px] text-muted font-normal">kWh</span>
+                            </div>
                         </div>
-                    </div>
-                    <ProgressBar value={loadActual ?? 0} total={loadAvg ?? 1} colorClass="bg-house" />
+                    )}
                 </div>
-
-                {/* EV Charging Section - conditional on hasEvCharger */}
-                {hasEvCharger && (
-                    <div className="flex items-center justify-between pt-2 border-t border-line/30">
-                        <div className="flex items-center gap-1.5 text-[11px] text-ev">
-                            <BatteryCharging className="h-3 w-3" />
-                            <span>EV Charging</span>
-                        </div>
-                        <div className="text-sm font-medium text-text">
-                            {evChargingKwh?.toFixed(1) ?? '0.0'}{' '}
-                            <span className="text-[10px] text-muted font-normal">kWh</span>
-                        </div>
-                    </div>
-                )}
-
-                {/* Water Section - conditional on hasWaterHeater */}
-                {hasWaterHeater && (
-                    <div
-                        className={`flex items-center justify-between pt-2${hasEvCharger ? '' : ' border-t border-line/30'}`}
-                    >
-                        <div className="flex items-center gap-1.5 text-[11px] text-water">
-                            <Droplets className="h-3 w-3" />
-                            <span>Water Heating</span>
-                        </div>
-                        <div className="text-sm font-medium text-text">
-                            {waterKwh?.toFixed(1) ?? '—'}{' '}
-                            <span className="text-[10px] text-muted font-normal">kWh</span>
-                        </div>
-                    </div>
-                )}
-            </div>
+            ) : (
+                <EVTabContent config={config} />
+            )}
         </Card>
+    )
+}
+
+function EVTabContent({ config }: { config: any }) {
+    const [chargers, setChargers] = useState<any[]>([])
+    const [loading, setLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
+
+    const fetchChargers = useCallback(() => {
+        setLoading(true)
+        Api.ev
+            .chargers()
+            .then(setChargers)
+            .catch((err) => {
+                console.error('Failed to fetch EV chargers', err)
+                setError('Failed to load chargers')
+            })
+            .finally(() => setLoading(false))
+    }, [])
+
+    useEffect(() => {
+        let active = true
+        const run = async () => {
+            await Promise.resolve()
+            if (active) {
+                fetchChargers()
+            }
+        }
+        run()
+        return () => {
+            active = false
+        }
+    }, [fetchChargers])
+
+    useSocket('ev_schedule_changed', () => {
+        fetchChargers()
+    })
+
+    useSocket('schedule_updated', () => {
+        fetchChargers()
+    })
+
+    const [loadBalancing, setLoadBalancing] = useState<any>(null)
+
+    useEffect(() => {
+        let active = true
+        const run = async () => {
+            await Promise.resolve()
+            if (!active) return
+            try {
+                const s = await Api.executor.loadBalancerStatus()
+                if (active) setLoadBalancing(s)
+            } catch (err) {
+                console.error('Failed to fetch load balancer status', err)
+            }
+        }
+        run()
+        return () => {
+            active = false
+        }
+    }, [])
+
+    useSocket('live_metrics', (data: any) => {
+        if (data?.load_balancing) {
+            setLoadBalancing(data.load_balancing)
+        }
+    })
+
+    if (loading && chargers.length === 0) {
+        return (
+            <div className="flex flex-col items-center justify-center py-12 text-muted text-xs relative z-10">
+                <Loader2 className="h-6 w-6 animate-spin mb-2 text-accent" />
+                <span>Loading chargers…</span>
+            </div>
+        )
+    }
+
+    const visibleChargers = chargers.filter((c: any) => !c.externally_controlled)
+
+    if (error && visibleChargers.length === 0) {
+        return <div className="text-center py-12 text-bad text-xs relative z-10">{error}</div>
+    }
+
+    if (visibleChargers.length === 0) {
+        return (
+            <div className="text-center py-12 text-muted text-xs relative z-10">
+                No EV chargers enabled or configured.
+            </div>
+        )
+    }
+
+    return (
+        <div className="space-y-4 overflow-y-auto max-h-[360px] pr-1 relative z-10 custom-scrollbar">
+            {visibleChargers.map((charger) => (
+                <EVChargerCard
+                    key={charger.id}
+                    charger={charger}
+                    config={config}
+                    loadBalancing={loadBalancing}
+                    onRefresh={fetchChargers}
+                />
+            ))}
+        </div>
     )
 }

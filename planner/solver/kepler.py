@@ -433,6 +433,25 @@ class KeplerSolver:
                 if ev_surplus_enabled
                 else 0.0
             )
+
+            # Limit total excess PV priority sink energy to net excess PV (PV minus house load)
+            # to prevent grid imports or battery discharge from powering these sinks (economic loophole)
+            if excess_pv_flags[t]:
+                net_excess_kwh = max(0.0, s.pv_kwh - s.load_kwh)
+                sink_terms: list[Any] = []
+                if water_enabled:
+                    for heater in water_heaters:
+                        if heater.id in water_boost:
+                            sink_terms.append(water_boost[heater.id][t] * heater.power_kw * h)
+                if custom_entity_enabled:
+                    for rank_str, entry in custom_entity_items:
+                        sink_terms.append(custom_entity_active[rank_str][t] * entry.power_kw * h)
+                if ev_surplus_enabled:
+                    for charger_id, _, _ in ev_surplus_items:
+                        sink_terms.append(ev_surplus_kw[charger_id][t] * h)
+
+                if sink_terms:
+                    prob += pulp.lpSum(sink_terms) <= net_excess_kwh
             prob += (
                 s.load_kwh
                 + water_load_kwh
@@ -596,7 +615,7 @@ class KeplerSolver:
             pass
 
         # EV goal constraints: soft target-by-time requirement and optional daily quota
-        today = date.today()
+        today = slots[0].start_time.date() if slots else date.today()
         ev_shortfall_penalty = getattr(
             config, "ev_shortfall_penalty_sek_per_kwh", EV_SHORTFALL_PENALTY_DEFAULT
         )

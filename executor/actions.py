@@ -18,6 +18,7 @@ import logging
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 import aiohttp
@@ -437,6 +438,17 @@ class HAClient:
         """Set an input_number entity to a specific value."""
         # Alias to set_number which now handles both
         return await self.set_number(entity_id, value)
+
+    async def set_input_datetime(self, entity_id: str, dt: datetime) -> bool:
+        """Set an input_datetime entity to a specific datetime."""
+        domain = self._get_safe_domain(entity_id, {"input_datetime"})
+        if not domain:
+            raise HACallError(
+                message=f"Invalid domain for input_datetime entity {entity_id}",
+                exception_type="DomainValidationError",
+            )
+        dt_str = dt.strftime("%Y-%m-%d %H:%M:%S")
+        return await self.call_service(domain, "set_datetime", entity_id, {"datetime": dt_str})
 
     async def send_notification(
         self,

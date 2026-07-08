@@ -332,6 +332,52 @@ async def get_ha_bool(entity_id: str) -> bool:
     return is_true
 
 
+async def get_ha_datetime(entity_id: str) -> datetime | None:
+    """Fetch datetime state from HA entity asynchronously and parse it.
+
+    Supports 'YYYY-MM-DD HH:MM:SS', ISO 8601, and ISO 8601 with timezone formats,
+    applying the system timezone when none is present.
+    Returns None + warning for time-only / unknown / unavailable / empty.
+    """
+    state = await get_ha_entity_state(entity_id)
+    if not state:
+        return None
+
+    raw_value = state.get("state")
+    if raw_value in (None, "unknown", "unavailable", "", "None"):
+        logger.warning("HA datetime entity %s is %s", entity_id, raw_value)
+        return None
+
+    raw_str = str(raw_value).strip()
+    if not raw_str:
+        logger.warning("HA datetime entity %s is empty", entity_id)
+        return None
+
+    # Check if time-only (contains no '-' to indicate year-month-day)
+    if "-" not in raw_str:
+        logger.warning("HA datetime entity %s has time-only/invalid value: %r", entity_id, raw_str)
+        return None
+
+    # Replace space with T to make ISO parsing easier
+    normalized = raw_str.replace(" ", "T")
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        logger.warning("Could not parse datetime value %r for entity %s", raw_str, entity_id)
+        return None
+
+    if dt.tzinfo is None:
+        try:
+            config = secrets.load_yaml("config.yaml")
+            tz_name = config.get("timezone", "Europe/Stockholm")
+            tz = pytz.timezone(tz_name)
+        except Exception:
+            tz = pytz.timezone("Europe/Stockholm")
+        dt = tz.localize(dt)
+
+    return dt
+
+
 async def get_initial_state(
     config_path: str = "config.yaml",
     ev_plugged_in_override: bool | None = None,

@@ -125,6 +125,8 @@ ev_chargers:
     # n_days: 2                       # Required when repeat: every_n_days
     # ready_by_date: "2026-06-12"     # Required when repeat: none (one-off date)
     keep_on_after_target: false      # Keep charger switch ON through ready_by after target is met
+    # ha_ready_by_entity: "input_datetime.ev_ready_by"
+    # ha_target_soc_entity: "input_number.ev_target_soc"
     switch_entity: ""                # HA entity to enable/disable smart charging (e.g. switch.ev_charger). Used when type=binary
     current_entity: ""               # HA number entity for the ampere setpoint. Required when type=current
     min_current_a: 6                 # Minimum charging current (A) — below this, charging pauses instead. Used when type=current

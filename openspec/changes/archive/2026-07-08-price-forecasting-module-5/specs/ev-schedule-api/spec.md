@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Write endpoint sets a charger's charging goal
-The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body with `target_soc_percent` (int 0–100, or null to clear), `ready_by` (`HH:MM`), `repeat` (`daily`|`weekdays`|`weekends`|`every_n_days`|`none`), optional `ready_by_date` (ISO date, required when `repeat: none`), optional `keep_on_after_target` (bool), and optional `charge_priority` (`battery`|`ev`). The endpoint SHALL validate inputs and persist the goal to `data/ev_multi_day_state.json`.
+The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body with `target_soc_percent` (int 0–100, or null to clear), `ready_by` (`HH:MM`), `repeat` (`daily`|`weekdays`|`weekends`|`every_n_days`|`none`), optional `ready_by_date` (ISO date, required when `repeat: none`), and optional `keep_on_after_target` (bool). **No `charge_priority` parameter** — surplus ordering is owned by `excess_pv.priority[]`, not per-charger. The endpoint SHALL validate inputs and persist the goal to `data/ev_multi_day_state.json`.
 
 #### Scenario: Set a daily goal
 - **WHEN** `POST /api/ev/chargers/ev_charger_1/schedule` is called with `{ "target_soc_percent": 80, "ready_by": "07:00", "repeat": "daily" }`

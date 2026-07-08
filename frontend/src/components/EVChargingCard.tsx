@@ -1,0 +1,421 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import React, { useState, useEffect } from 'react'
+import { Clock, RotateCw, Sun, Trash2, Loader2, Save } from 'lucide-react'
+import { Api, EVChargerState } from '../lib/api'
+import { useToast } from '../lib/useToast'
+import Switch from './ui/Switch'
+
+export default function EVChargingCard({
+    charger,
+    config,
+    loadBalancing,
+    onRefresh,
+}: {
+    charger: EVChargerState
+    config: any
+    loadBalancing: any
+    onRefresh: () => void
+}) {
+    const { toast } = useToast()
+    const [isEditing, setIsEditing] = useState(charger.target_soc_percent === null)
+    const [submitting, setSubmitting] = useState(false)
+    const [formError, setFormError] = useState<string | null>(null)
+
+    // Form states
+    const [targetSoc, setTargetSoc] = useState<number>(charger.target_soc_percent ?? 80)
+    const [readyBy, setReadyBy] = useState<string>(charger.ready_by ?? '07:00')
+    const [repeat, setRepeat] = useState<string>(charger.repeat ?? 'daily')
+    const [readyByDate, setReadyByDate] = useState<string>(
+        charger.ready_by_date ??
+            (() => {
+                const tomorrow = new Date()
+                tomorrow.setDate(tomorrow.getDate() + 1)
+                return tomorrow.toISOString().slice(0, 10)
+            })(),
+    )
+    const [nDays, setNDays] = useState<number>(charger.n_days ?? 2)
+    const [keepOn, setKeepOn] = useState<boolean>(charger.keep_on_after_target ?? false)
+
+    // Reset form states if charger changes externally (e.g. from HA socket sync)
+    useEffect(() => {
+        if (!isEditing) {
+            setTargetSoc(charger.target_soc_percent ?? 80)
+            setReadyBy(charger.ready_by ?? '07:00')
+            setRepeat(charger.repeat ?? 'daily')
+            if (charger.ready_by_date) setReadyByDate(charger.ready_by_date)
+            if (charger.n_days) setNDays(charger.n_days)
+            setKeepOn(charger.keep_on_after_target ?? false)
+        }
+    }, [charger, isEditing])
+
+    // Load balancer check
+    const balancerEv = loadBalancing?.ev?.find((e: any) => e.charger_id === charger.id)
+    const isPausedByBalancer =
+        balancerEv && (balancerEv.paused || balancerEv.state === 'paused' || balancerEv.state === 'throttled')
+
+    // Surplus absorption check
+    const excessPv = config?.executor?.excess_pv?.priority ?? []
+    const isSurplusPriority = excessPv.some((entry: any) => entry.type === 'ev' && entry.charger_id === charger.id)
+
+    const handleSave = async (e: React.FormEvent) => {
+        e.preventDefault()
+        setSubmitting(true)
+        setFormError(null)
+
+        try {
+            await Api.ev.setSchedule(charger.id, {
+                target_soc_percent: targetSoc,
+                ready_by: readyBy,
+                repeat: repeat,
+                ready_by_date: repeat === 'none' ? readyByDate : null,
+                n_days: repeat === 'every_n_days' ? nDays : null,
+                keep_on_after_target: targetSoc === 100 ? keepOn : false,
+            })
+            toast({ message: `Goal saved for ${charger.name}`, variant: 'success' })
+            setIsEditing(false)
+            onRefresh()
+        } catch (err: any) {
+            console.error(err)
+            setFormError(err.message || 'Failed to save goal')
+            toast({ message: 'Failed to save goal', variant: 'error' })
+        } finally {
+            setSubmitting(false)
+        }
+    }
+
+    const handleClear = async () => {
+        if (!window.confirm(`Are you sure you want to clear the goal for ${charger.name}?`)) return
+        setSubmitting(true)
+        try {
+            await Api.ev.setSchedule(charger.id, {
+                target_soc_percent: null,
+            })
+            toast({ message: `Goal cleared for ${charger.name}`, variant: 'success' })
+            setIsEditing(true)
+            onRefresh()
+        } catch (err: any) {
+            console.error(err)
+            toast({ message: 'Failed to clear goal', variant: 'error' })
+        } finally {
+            setSubmitting(false)
+        }
+    }
+
+    // Progress math
+    const delivered = charger.delivered_kwh ?? 0
+    const required = charger.required_kwh ?? 0
+    const progressPercent = required > 0 ? Math.min(100, Math.round((delivered / required) * 100)) : 0
+
+    let statusText: string = charger.status || 'idle'
+    let statusColor = 'bg-surface2 text-muted'
+    if (isPausedByBalancer) {
+        statusText = 'Paused by load balancer'
+        statusColor = 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+    } else if (charger.status === 'on_track') {
+        statusText = 'On track'
+        statusColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+    } else if (charger.status === 'behind') {
+        statusText = 'Behind'
+        statusColor = 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+    } else if (charger.status === 'complete') {
+        statusText = 'Complete'
+        statusColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+    } else if (charger.status === 'idle') {
+        statusText = 'Idle'
+        statusColor = 'bg-surface2 text-muted'
+    }
+
+    return (
+        <div className="bg-surface2/30 rounded-xl p-3 border border-line/10 relative overflow-hidden transition-all duration-300">
+            {/* Charger Info Header */}
+            <div className="flex items-center justify-between mb-3">
+                <div>
+                    <h4 className="text-xs font-semibold text-text">{charger.name}</h4>
+                    <p className="text-[10px] text-muted flex items-center gap-1">
+                        <span className={`h-1.5 w-1.5 rounded-full ${charger.plugged_in ? 'bg-good' : 'bg-muted'}`} />
+                        {charger.plugged_in ? 'Plugged' : 'Away'}
+                        {charger.soc_percent !== null && ` · ${charger.soc_percent}% SoC`}
+                        {charger.power_kw !== null && charger.power_kw > 0.05 && ` · ${charger.power_kw.toFixed(1)} kW`}
+                    </p>
+                </div>
+                {!isEditing && (
+                    <div className="flex items-center gap-1.5">
+                        {charger.source === 'ha' && (
+                            <span className="text-[9px] px-2 py-0.5 rounded-full font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20 uppercase">
+                                HA-Driven
+                            </span>
+                        )}
+                        <span className={`text-[9px] px-2 py-0.5 rounded-full font-semibold ${statusColor}`}>
+                            {statusText.toUpperCase()}
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            {isEditing ? (
+                /* Configure Schedule Form */
+                <form onSubmit={handleSave} className="space-y-3 pt-1">
+                    {formError && (
+                        <div className="text-[10px] text-bad bg-bad/10 p-2 rounded-lg border border-bad/20">
+                            {formError}
+                        </div>
+                    )}
+
+                    {/* Target SoC Slider */}
+                    <div>
+                        <div className="flex justify-between text-[10px] font-medium mb-1">
+                            <span className="text-text">Target SoC</span>
+                            <span className="text-accent">{targetSoc}%</span>
+                        </div>
+                        <input
+                            type="range"
+                            min="10"
+                            max="100"
+                            step="5"
+                            value={targetSoc}
+                            onChange={(e) => setTargetSoc(parseInt(e.target.value))}
+                            className="w-full accent-accent h-1 bg-surface-elevated rounded-lg cursor-pointer"
+                        />
+                    </div>
+
+                    {/* Time & Repeat inputs in grid */}
+                    <div className="grid grid-cols-2 gap-2">
+                        <div>
+                            <label className="block text-[9px] text-muted mb-1 font-medium">Ready By</label>
+                            <input
+                                type="time"
+                                value={readyBy}
+                                onChange={(e) => setReadyBy(e.target.value)}
+                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-[9px] text-muted mb-1 font-medium">Repeat</label>
+                            <select
+                                value={repeat}
+                                onChange={(e) => setRepeat(e.target.value)}
+                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                            >
+                                <option value="none">Once</option>
+                                <option value="daily">Daily</option>
+                                <option value="weekdays">Weekdays</option>
+                                <option value="weekends">Weekends</option>
+                                <option value="every_n_days">Every N Days</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Conditional Repeat Settings */}
+                    {repeat === 'none' && (
+                        <div>
+                            <label className="block text-[9px] text-muted mb-1 font-medium">Date</label>
+                            <input
+                                type="date"
+                                value={readyByDate}
+                                onChange={(e) => setReadyByDate(e.target.value)}
+                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                            />
+                        </div>
+                    )}
+
+                    {repeat === 'every_n_days' && (
+                        <div>
+                            <label className="block text-[9px] text-muted mb-1 font-medium">Interval (Days)</label>
+                            <input
+                                type="number"
+                                min="2"
+                                max="7"
+                                value={nDays}
+                                onChange={(e) => setNDays(parseInt(e.target.value) || 2)}
+                                className="w-full bg-surface-elevated border border-line/20 rounded px-2 py-1 text-xs text-text focus:outline-none focus:border-accent"
+                            />
+                        </div>
+                    )}
+
+                    {/* Keep charger on after target — only meaningful at 100% target */}
+                    <div className="flex items-center gap-2 pt-1">
+                        <Switch
+                            checked={keepOn}
+                            onCheckedChange={(checked) => setKeepOn(checked)}
+                            disabled={targetSoc !== 100}
+                        />
+                        <span className="text-[10px] text-text font-normal">
+                            Keep charger enabled after target SoC is met
+                            {targetSoc !== 100 && <span className="text-muted ml-1">(requires 100% target)</span>}
+                        </span>
+                    </div>
+
+                    {/* Form Actions */}
+                    <div className="flex gap-2 pt-1">
+                        {charger.target_soc_percent !== null && (
+                            <button
+                                type="button"
+                                onClick={() => setIsEditing(false)}
+                                className="flex-1 bg-surface-elevated hover:bg-surface border border-line/20 text-muted hover:text-text py-1 px-3 rounded-lg text-xs transition font-semibold"
+                            >
+                                Cancel
+                            </button>
+                        )}
+                        <button
+                            type="submit"
+                            disabled={submitting}
+                            className="flex-1 bg-accent hover:bg-accent2 text-surface-elevated py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                        >
+                            {submitting ? (
+                                <Loader2 className="h-3 w-3 animate-spin" />
+                            ) : (
+                                <>
+                                    <Save className="h-3 w-3" />
+                                    Save Goal
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            ) : (
+                /* Viewing Active Goal */
+                <div className="space-y-3">
+                    {/* Visual Progress Bar (delivered_kwh / required_kwh) */}
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] text-muted font-medium">
+                            <span>Delivered: {delivered.toFixed(1)} kWh</span>
+                            <span>
+                                Target: {required.toFixed(1)} kWh ({progressPercent}% of goal)
+                            </span>
+                        </div>
+                        <div className="h-1.5 w-full bg-line/20 rounded-full relative overflow-hidden">
+                            <div
+                                className="h-full bg-ev rounded-full animate-pulse"
+                                style={{ width: `${progressPercent}%` }}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Quota schedule summary */}
+                    {charger.delivered_kwh !== null && charger.required_kwh !== null && (
+                        <div className="flex justify-between text-[10px] bg-surface-elevated p-2 rounded-lg border border-line/10">
+                            <div>
+                                <span className="text-muted text-[9px] block">Delivered Today</span>
+                                <span className="font-semibold text-text">
+                                    {(charger.delivered_kwh ?? 0).toFixed(1)} kWh
+                                </span>
+                            </div>
+                            <div className="text-right">
+                                <span className="text-muted text-[9px] block">Remaining Need</span>
+                                <span className="font-semibold text-accent">
+                                    {charger.remaining_kwh !== null
+                                        ? `${(charger.remaining_kwh ?? 0).toFixed(1)} kWh`
+                                        : '—'}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Schedule and Repeat Info */}
+                    <div className="flex flex-wrap gap-x-3 gap-y-1.5 text-[10px] text-muted font-medium pt-1">
+                        <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-accent" />
+                            <span>{readyBy}</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                            <RotateCw className="h-3 w-3 text-accent" />
+                            <span className="capitalize">
+                                {repeat === 'every_n_days'
+                                    ? `Every ${nDays} Days`
+                                    : repeat === 'none'
+                                      ? `Once (${(() => {
+                                            if (!readyByDate) return ''
+                                            const match = readyByDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+                                            if (match) return readyByDate
+                                            const d = new Date(readyByDate)
+                                            return !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : readyByDate
+                                        })()})`
+                                      : repeat}
+                            </span>
+                        </div>
+                        {keepOn && (
+                            <div className="flex items-center gap-1 text-emerald-400/80">
+                                <span className="h-1 w-1 rounded-full bg-emerald-400" />
+                                <span>Keep enabled</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Day-by-day quota (from multi-day spreading) */}
+                    {charger.quota_schedule && Object.keys(charger.quota_schedule).length > 0 && (
+                        <div className="pt-1 border-t border-line/10">
+                            <div className="text-[9px] text-muted font-medium mb-1">Upcoming Daily Quotas</div>
+                            <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
+                                {Object.entries(charger.quota_schedule).map(([dateStr, kwh]: [string, any]) => {
+                                    const d = new Date(dateStr)
+                                    const dayName = d.toLocaleDateString([], { weekday: 'short' })
+                                    const isToday = dateStr === new Date().toISOString().slice(0, 10)
+                                    return (
+                                        <div
+                                            key={dateStr}
+                                            className={`p-1.5 rounded-lg border text-center min-w-[45px] ${
+                                                isToday
+                                                    ? 'bg-accent/10 border-accent/30 text-accent'
+                                                    : 'bg-surface-elevated border-line/20 text-muted'
+                                            }`}
+                                        >
+                                            <span className="text-[8px] uppercase block font-semibold">{dayName}</span>
+                                            <span className="text-[10px] font-mono font-bold block">
+                                                {kwh.toFixed(1)}
+                                            </span>
+                                        </div>
+                                    )
+                                })}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Surplus PV Hint (Decision 7) */}
+                    {charger.type === 'current' ? (
+                        isSurplusPriority ? (
+                            <div className="text-[9px] text-emerald-400 bg-emerald-500/10 p-2 rounded-lg border border-emerald-500/20 flex items-center gap-1">
+                                <Sun className="h-3 w-3 animate-spin-slow" />
+                                <span>Charges from surplus PV when available</span>
+                            </div>
+                        ) : (
+                            <div className="text-[9px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/25 flex items-start gap-1">
+                                <span>⚠️</span>
+                                <div>
+                                    Surplus absorption off —{' '}
+                                    <a
+                                        href="/settings?tab=advanced"
+                                        className="text-accent hover:underline font-semibold"
+                                    >
+                                        add this charger to Excess PV priority
+                                    </a>
+                                </div>
+                            </div>
+                        )
+                    ) : (
+                        <div className="text-[9px] text-muted bg-surface-elevated p-2 rounded-lg border border-line/10">
+                            ℹ️ Binary chargers can't absorb surplus — set up a current-type charger to use free PV.
+                        </div>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-1">
+                        <button
+                            onClick={handleClear}
+                            disabled={submitting}
+                            className="flex-1 bg-surface-elevated hover:bg-surface border border-line/20 text-bad py-1 px-3 rounded-lg text-xs transition font-semibold flex items-center justify-center gap-1"
+                        >
+                            <Trash2 className="h-3 w-3" />
+                            Clear Goal
+                        </button>
+                        <button
+                            onClick={() => setIsEditing(true)}
+                            className="flex-1 bg-accent hover:bg-accent2 text-surface-elevated py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
+                        >
+                            Configure Goal
+                        </button>
+                    </div>
+                </div>
+            )}
+        </div>
+    )
+}

@@ -216,6 +216,7 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
                         "input_boolean.",
                         "switch.",
                         "input_number.",
+                        "input_datetime.",
                         "input_select.",
                         "select.",
                         "number.",

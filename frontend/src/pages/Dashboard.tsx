@@ -822,6 +822,7 @@ export default function Dashboard() {
                         hasWaterHeater={systemFlags.hasWaterHeater}
                         hasEvCharger={systemFlags.hasEvCharger}
                         batteryCapacity={batteryCapacity}
+                        config={config}
                     />
                 </motion.div>
             </div>

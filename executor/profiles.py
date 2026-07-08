@@ -16,7 +16,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
-VALID_DOMAINS = frozenset(["select", "number", "switch", "input_number"])
+VALID_DOMAINS = frozenset(["select", "number", "switch", "input_number", "input_datetime"])
 VALID_CATEGORIES = frozenset(["system", "battery"])
 VALID_TEMPLATES = frozenset(
     [

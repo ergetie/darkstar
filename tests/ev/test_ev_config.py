@@ -213,3 +213,46 @@ def test_invalid_ready_by_falls_back_to_default() -> None:
 
     # Invalid time is rejected and the shipped default is used.
     assert cfg.ev_chargers[0].ready_by == "07:00"
+
+
+def test_ha_entity_fields_parse() -> None:
+    data = {
+        **MINIMAL_CONFIG,
+        "ev_chargers": [
+            {
+                "id": "ev1",
+                "enabled": True,
+                "ha_ready_by_entity": "input_datetime.ev_ready_by",
+                "ha_target_soc_entity": "input_number.ev_target_soc",
+            },
+            {
+                "id": "ev2",
+                "enabled": True,
+                "ha_ready_by_entity": "",
+                "ha_target_soc_entity": "   ",
+            },
+            {
+                "id": "ev3",
+                "enabled": True,
+            }
+        ],
+    }
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        path = f.name
+    try:
+        _write_config(path, data)
+        cfg = load_executor_config(path)
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+    ev1 = cfg.ev_chargers[0]
+    assert ev1.ha_ready_by_entity == "input_datetime.ev_ready_by"
+    assert ev1.ha_target_soc_entity == "input_number.ev_target_soc"
+
+    ev2 = cfg.ev_chargers[1]
+    assert ev2.ha_ready_by_entity is None
+    assert ev2.ha_target_soc_entity is None
+
+    ev3 = cfg.ev_chargers[2]
+    assert ev3.ha_ready_by_entity is None
+    assert ev3.ha_target_soc_entity is None

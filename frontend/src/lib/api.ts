@@ -654,6 +654,35 @@ export type TrainingHistoryResponse = {
     count: number
 }
 
+export type EVChargerState = {
+    id: string
+    name: string
+    plugged_in: boolean
+    soc_percent: number | null
+    power_kw: number | null
+    target_soc_percent: number | null
+    ready_by: string | null
+    repeat: string | null
+    ready_by_date: string | null
+    deadline: string | null
+    required_kwh: number | null
+    delivered_kwh: number | null
+    remaining_kwh: number | null
+    daily_quota_kwh: number | null
+    quota_schedule: Record<string, number> | null
+    keep_on_after_target: boolean
+    ha_ready_by_entity: string | null
+    ha_target_soc_entity: string | null
+    type: 'current' | 'binary'
+    n_days: number | null
+    status: 'on_track' | 'behind' | 'complete' | 'idle'
+    source: 'api' | 'ha' | null
+    externally_controlled: boolean
+    last_updated: string | null
+}
+
+export type EVChargersResponse = EVChargerState[]
+
 async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
     // Strip leading slash to make paths relative - works with base href for HA Ingress
     const relativePath = path.startsWith('/') ? path.slice(1) : path
@@ -845,6 +874,21 @@ export const Api = {
                 '/api/price-forecast' + (includeActuals ? '?include_actuals=true' : ''),
             ),
         priceForecastStatus: () => getJSON<PriceForecastStatusResponse>('/api/price-forecast/status'),
+    },
+    // EV Chargers (Module 5)
+    ev: {
+        chargers: () => getJSON<EVChargersResponse>('/api/ev/chargers'),
+        setSchedule: (
+            id: string,
+            body: {
+                target_soc_percent: number | null
+                ready_by?: string | null
+                repeat?: string | null
+                ready_by_date?: string | null
+                n_days?: number | null
+                keep_on_after_target?: boolean | null
+            },
+        ) => getJSON<EVChargerState>(`/api/ev/chargers/${id}/schedule`, 'POST', body),
     },
 }
 

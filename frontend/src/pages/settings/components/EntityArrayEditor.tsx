@@ -51,6 +51,13 @@ export interface EVChargerEntity {
     phase_switching_enabled?: boolean
     phase_switch_hysteresis_kw?: number
     phase_switch_min_dwell_s?: number
+    ha_ready_by_entity?: string
+    ha_target_soc_entity?: string
+    target_soc_percent?: number
+    ready_by?: string
+    repeat?: string
+    ready_by_date?: string
+    keep_on_after_target?: boolean
 }
 
 type EntityType = 'water_heater' | 'ev_charger'
@@ -104,6 +111,12 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     phase_switching_enabled: false,
     phase_switch_hysteresis_kw: 0.5,
     phase_switch_min_dwell_s: 600,
+    target_soc_percent: 80,
+    ready_by: '07:00',
+    repeat: 'daily',
+    keep_on_after_target: false,
+    ha_ready_by_entity: '',
+    ha_target_soc_entity: '',
 })
 
 export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
@@ -479,26 +492,50 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                             </div>
                                         )}
 
-                                        {/* Departure Time (EV only) */}
+                                        {/* HA Ready-By Entity (EV only) */}
                                         {!isWaterHeater && (
-                                            <div>
+                                            <div className="sm:col-span-2">
                                                 <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Departure Time
+                                                    HA Ready-By Entity
                                                 </label>
-                                                <input
-                                                    type="text"
-                                                    value={(entity as EVChargerEntity).departure_time || ''}
-                                                    onChange={(e) =>
+                                                <EntitySelect
+                                                    entities={haEntities}
+                                                    value={(entity as EVChargerEntity).ha_ready_by_entity || ''}
+                                                    onChange={(val) =>
                                                         updateEntity(index, {
-                                                            departure_time: e.target.value,
+                                                            ha_ready_by_entity: val,
                                                         } as Partial<EVChargerEntity>)
                                                     }
+                                                    loading={haLoading}
+                                                    placeholder="Select Home Assistant input_datetime..."
                                                     disabled={disabled}
-                                                    placeholder="e.g. 07:00"
-                                                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
                                                 />
                                                 <p className="text-[10px] text-muted mt-1">
-                                                    Daily departure time (HH:MM). Charging completes before this time.
+                                                    HA entity to sync ready-by time (e.g. input_datetime.ev_ready_by)
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {/* HA Target-SoC Entity (optional) (EV only) */}
+                                        {!isWaterHeater && (
+                                            <div className="sm:col-span-2">
+                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                    HA Target-SoC Entity (optional)
+                                                </label>
+                                                <EntitySelect
+                                                    entities={haEntities}
+                                                    value={(entity as EVChargerEntity).ha_target_soc_entity || ''}
+                                                    onChange={(val) =>
+                                                        updateEntity(index, {
+                                                            ha_target_soc_entity: val,
+                                                        } as Partial<EVChargerEntity>)
+                                                    }
+                                                    loading={haLoading}
+                                                    placeholder="Select Home Assistant input_number..."
+                                                    disabled={disabled}
+                                                />
+                                                <p className="text-[10px] text-muted mt-1">
+                                                    HA entity to sync target SoC % (e.g. input_number.ev_target_soc)
                                                 </p>
                                             </div>
                                         )}

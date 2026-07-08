@@ -20,6 +20,7 @@ class MultiDayPlanner:
         daily_prices: dict[int, float],
         max_daily_kwh: list[float],
         min_daily_fraction: float = 0.1,
+        now: datetime | None = None,
     ) -> dict[date, float]:
         """Spread ``remaining_kwh`` across the days until ``deadline``.
 
@@ -33,6 +34,7 @@ class MultiDayPlanner:
                 Used as a hard cap; excess is redistributed to other days.
             min_daily_fraction: Minimum share of ``remaining_kwh`` that every
                 non-final day must receive (default 10%).
+            now: Current datetime (timezone-aware). If None, defaults to current time.
 
         Returns:
             Mapping from calendar date to allocated kWh.
@@ -40,8 +42,9 @@ class MultiDayPlanner:
         if remaining_kwh <= 0:
             return {}
 
-        tz = deadline.tzinfo
-        now = datetime.now(tz) if tz else datetime.now()
+        if now is None:
+            tz = deadline.tzinfo
+            now = datetime.now(tz) if tz else datetime.now()
         today = now.date()
         deadline_date = deadline.date()
 
