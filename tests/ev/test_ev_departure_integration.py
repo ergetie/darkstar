@@ -11,7 +11,6 @@ from planner.pipeline import calculate_ev_deadline
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
     EVChargerInput,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -23,8 +22,9 @@ def _ev_config(
     soc_percent=50.0,
     max_power_kw=3.0,
     battery_capacity_kwh=50.0,
-    incentive_value_sek=100.0,
 ) -> KeplerConfig:
+    # Soft target: charge to 100% SoC by the deadline
+    required_kwh = battery_capacity_kwh * (1.0 - soc_percent / 100.0)
     return KeplerConfig(
         capacity_kwh=10.0,
         min_soc_percent=10.0,
@@ -42,9 +42,7 @@ def _ev_config(
                 current_soc_percent=soc_percent,
                 plugged_in=True,
                 deadline=deadline,
-                incentive_buckets=[
-                    IncentiveBucket(threshold_soc=100.0, value_sek=incentive_value_sek)
-                ],
+                required_kwh=required_kwh,
             )
         ],
     )

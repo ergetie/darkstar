@@ -14,7 +14,6 @@ import pandas as pd
 from .types import (
     EVChargerInput,
     ExcessPVSinkEntry,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -142,17 +141,9 @@ def build_ev_charger_inputs(
         soc_percent = float(state.get("soc_percent", 0.0))
         plugged_in = bool(state.get("plugged_in", False))
         deadline = state.get("deadline")  # datetime | None
-
-        # Build incentive buckets from penalty_levels config
-        penalty_levels: list[dict[str, Any]] = ev.get("penalty_levels", [])
-        buckets: list[IncentiveBucket] = [
-            IncentiveBucket(
-                threshold_soc=float(p.get("max_soc", 100.0)),
-                value_sek=float(p.get("penalty_sek", 0.0)),
-            )
-            for p in penalty_levels
-            if "max_soc" in p or "penalty_sek" in p
-        ]
+        required_kwh = state.get("required_kwh")
+        daily_quota_kwh = state.get("daily_quota_kwh")
+        keep_on_after_target = bool(state.get("keep_on_after_target", False))
 
         result.append(
             EVChargerInput(
@@ -162,7 +153,9 @@ def build_ev_charger_inputs(
                 current_soc_percent=soc_percent,
                 plugged_in=plugged_in,
                 deadline=deadline,
-                incentive_buckets=buckets,
+                required_kwh=float(required_kwh) if required_kwh is not None else None,
+                daily_quota_kwh=float(daily_quota_kwh) if daily_quota_kwh is not None else None,
+                keep_on_after_target=keep_on_after_target,
                 control_type=str(ev.get("type", "binary")).lower(),
             )
         )
@@ -490,6 +483,9 @@ def config_to_kepler_config(
         ),
         curtailment_penalty_sek=float(
             planner_config.get("kepler", {}).get("curtailment_penalty_sek", 0.1)
+        ),
+        ev_shortfall_penalty_sek_per_kwh=float(
+            planner_config.get("kepler", {}).get("ev_shortfall_penalty_sek_per_kwh", 50.0)
         ),
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
         # Per-device water heater inputs

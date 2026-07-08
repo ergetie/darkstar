@@ -7,7 +7,7 @@ Migrated from backend/kepler/solver.py during Rev K13 modularization.
 
 import logging
 from collections import defaultdict
-from datetime import timedelta  # Rev WH2
+from datetime import date, timedelta  # Rev WH2
 from typing import Any, cast
 
 import pulp  # type: ignore[import,no-redef]
@@ -24,6 +24,8 @@ from .types import (
 )
 
 logger = logging.getLogger("darkstar.kepler")
+
+EV_SHORTFALL_PENALTY_DEFAULT = 50.0  # SEK/kWh — soft target-by-time penalty
 
 
 class KeplerSolver:
@@ -121,12 +123,13 @@ class KeplerSolver:
         # dict[charger_id -> dict[t -> lp_var]]
         ev_charge: dict[str, dict[int, Any]] = {}
         ev_energy: dict[str, dict[int, Any]] = {}
-        # Per-device incentive bucket variables: ev_bucket_charged[device_id][bucket_idx]
-        ev_bucket_charged: dict[str, dict[int, Any]] = {}
+        # Per-device shortfall variable for soft target-by-time requirement
+        ev_shortfall: dict[str, Any] = {}
 
         for charger in plugged_chargers:
             d = charger.id
             safe_d = d.replace("-", "_").replace(".", "_")
+            effective_deadline = charger.deadline or (slots[-1].end_time if slots else None)
             if charger.deadline:
                 logger.info(
                     "EV %s: deadline constraint active at %s",
@@ -134,7 +137,7 @@ class KeplerSolver:
                     charger.deadline.strftime("%Y-%m-%d %H:%M"),
                 )
             else:
-                logger.info("EV %s: no deadline constraint", d)
+                logger.info("EV %s: no explicit deadline, using end of horizon", d)
 
             ev_charge[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                 f"ev_charge_{safe_d}", range(T), cat="Binary"
@@ -142,11 +145,8 @@ class KeplerSolver:
             ev_energy[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                 f"ev_energy_{safe_d}_kwh", range(T), lowBound=0.0
             )
-            buckets = charger.incentive_buckets or []
-            num_buckets = len(buckets)
-            ev_bucket_charged[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
-                f"ev_bucket_{safe_d}", range(num_buckets), lowBound=0.0
-            )
+            if charger.required_kwh is not None and effective_deadline is not None:
+                ev_shortfall[d] = pulp.LpVariable(f"ev_shortfall_{safe_d}_kwh", lowBound=0.0)
 
         # any_ev_charging[t]: auxiliary binary - 1 if ANY charger is active in slot t
         any_ev_charging: dict[int, Any]
@@ -229,39 +229,6 @@ class KeplerSolver:
                 block_overshoot[d] = pulp.LpVariable.dicts(  # type: ignore[reportUnknownMemberType]
                     f"block_overshoot_{safe_d}", range(T), lowBound=0.0
                 )
-
-        # Per-device incentive bucket setup
-        for charger in plugged_chargers:
-            d = charger.id
-            buckets = charger.incentive_buckets or []
-            num_buckets = len(buckets)
-            if num_buckets == 0:
-                continue
-
-            ev_capacity: float = charger.battery_capacity_kwh
-            ev_current_kwh: float = ev_capacity * (charger.current_soc_percent / 100.0)
-
-            prev_threshold_soc: float = 0.0
-            accum_energy_cap: float = 0.0
-
-            for i, b in enumerate(buckets):
-                bucket_soc_range: float = b.threshold_soc - prev_threshold_soc
-                bucket_capacity_kwh: float = max(0.0, ev_capacity * (bucket_soc_range / 100.0))
-
-                already_full: float = max(
-                    0.0, min(bucket_capacity_kwh, ev_current_kwh - accum_energy_cap)
-                )
-                remaining_cap: float = max(0.0, bucket_capacity_kwh - already_full)
-
-                prob += ev_bucket_charged[d][i] <= remaining_cap
-
-                prev_threshold_soc = b.threshold_soc
-                accum_energy_cap += bucket_capacity_kwh
-
-            # Total energy for this device must equal sum of its buckets
-            prob += pulp.lpSum(ev_energy[d][t] for t in range(T)) == pulp.lpSum(
-                ev_bucket_charged[d][i] for i in range(num_buckets)
-            )
 
         # Per-device slack variables for daily minimum soft constraints
         water_min_kwh_violation: dict[str, dict[int, Any]] = {}
@@ -628,8 +595,33 @@ class KeplerSolver:
             # If no target, we don't care where we end up (within min_soc limits)
             pass
 
-        # Rev // F51: Removed legacy EV target SoC constraint.
-        # Replaced by Incentive Buckets in the objective function.
+        # EV goal constraints: soft target-by-time requirement and optional daily quota
+        today = date.today()
+        ev_shortfall_penalty = getattr(
+            config, "ev_shortfall_penalty_sek_per_kwh", EV_SHORTFALL_PENALTY_DEFAULT
+        )
+        for charger in plugged_chargers:
+            d = charger.id
+            effective_deadline = charger.deadline or (slots[-1].end_time if slots else None)
+            if charger.required_kwh is None or effective_deadline is None:
+                continue
+            if charger.required_kwh <= 0:
+                continue
+
+            # Slots that end on or before the deadline
+            eligible_energy = pulp.lpSum(
+                ev_energy[d][t] for t in range(T) if slots[t].end_time <= effective_deadline
+            )
+            # Soft requirement: delivered + shortfall >= required
+            prob += eligible_energy + ev_shortfall[d] >= charger.required_kwh
+            total_cost.append(ev_shortfall_penalty * ev_shortfall[d])
+
+            # Optional daily quota cap for today's energy
+            if charger.daily_quota_kwh is not None:
+                today_energy = pulp.lpSum(
+                    ev_energy[d][t] for t in range(T) if slots[t].start_time.date() == today
+                )
+                prob += today_energy <= charger.daily_quota_kwh
 
         # Water Heating Constraints — per-device (tasks 2.4-2.6)
         sorted_days: list[Any] = []  # Initialize to avoid unbound error
@@ -765,16 +757,6 @@ class KeplerSolver:
                 if water_enabled
                 else 0.0
             )
-            # Per-device incentive bucket values: subtract from objective (negative cost = gain)
-            - (
-                pulp.lpSum(
-                    ev_bucket_charged[charger.id][i] * charger.incentive_buckets[i].value_sek
-                    for charger in plugged_chargers
-                    for i in range(len(charger.incentive_buckets or []))
-                )
-                if ev_any_enabled
-                else 0.0
-            )
         )
 
         # Solve using GLPK (available in Alpine) or CBC as fallback
@@ -823,6 +805,14 @@ class KeplerSolver:
         final_total_cost: float = 0.0
 
         if is_optimal:
+            # Per-charger shortfall vs required_kwh (reported on every slot)
+            ev_shortfall_by_charger: dict[str, float] = {}
+            for charger in plugged_chargers:
+                d = charger.id
+                if charger.required_kwh is not None and d in ev_shortfall:
+                    shortfall_val: float | None = pulp.value(ev_shortfall[d])  # type: ignore[assignment]
+                    ev_shortfall_by_charger[d] = shortfall_val if shortfall_val is not None else 0.0
+
             for t in range(T):
                 s: Any = slots[t]
                 h: float = slot_hours[t]
@@ -917,6 +907,7 @@ class KeplerSolver:
                         ev_charge_kw=ev_kw,
                         ev_charger_results=ev_charger_results,
                         ev_surplus_kw=ev_surplus_result,
+                        ev_shortfall_kwh=ev_shortfall_by_charger,
                         is_optimal=True,
                     )
                 )

@@ -21,6 +21,7 @@ from backend.api.routers import (
     config,
     dashboard,
     energy,
+    ev,
     executor,
     forecast,
     ha,
@@ -302,6 +303,7 @@ def create_app() -> socketio.ASGIApp:
     app.include_router(ha.router_misc)
     app.include_router(energy.router)
     app.include_router(water.router)
+    app.include_router(ev.router)
     app.include_router(legacy.router)
     app.include_router(learning.router)
     app.include_router(loads.router)

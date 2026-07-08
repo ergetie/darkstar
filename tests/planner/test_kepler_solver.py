@@ -5,7 +5,6 @@ import pytest
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
     EVChargerInput,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -149,7 +148,7 @@ def test_kepler_ev_solar_charging():
         curtailment_penalty_sek=1.0,  # Encourage using solar
         max_export_power_kw=0.0,  # Force solar into battery/EV
         enable_export=False,
-        # EV Settings (REV F51: Use incentive buckets)
+        # EV Settings: soft target to add 10 kWh before the end of the horizon
         ev_chargers=[
             EVChargerInput(
                 id="test_ev",
@@ -157,13 +156,8 @@ def test_kepler_ev_solar_charging():
                 battery_capacity_kwh=100.0,
                 current_soc_percent=50.0,
                 plugged_in=True,
-                deadline=None,
-                # REV F51: Incentive buckets (threshold -> value in SEK/kWh)
-                # Need 10kWh total to reach 60% SoC (from 50%)
-                incentive_buckets=[
-                    IncentiveBucket(threshold_soc=50.0, value_sek=1.0),  # 0-50%
-                    IncentiveBucket(threshold_soc=60.0, value_sek=5.0),  # 50-60%
-                ],
+                deadline=slots[-1].end_time,
+                required_kwh=10.0,
             )
         ],
     )
@@ -216,7 +210,7 @@ def test_kepler_ev_no_battery_drain():
         min_soc_percent=0.0,
         max_soc_percent=100.0,
         target_soc_kwh=10.0,  # Want to keep battery full!
-        # EV Settings (REV F51: Use penalty bucket to discourage charging when grid is expensive)
+        # EV Settings: no charging goal, so the solver must not charge from grid/battery
         ev_chargers=[
             EVChargerInput(
                 id="test_ev",
@@ -225,13 +219,7 @@ def test_kepler_ev_no_battery_drain():
                 current_soc_percent=10.0,
                 plugged_in=True,
                 deadline=None,
-                # REV F51: Negative penalty (NOT positive incentive) discourages EV charging
-                # The penalty is SUBTRACTED from objective, so negative = higher cost = discourage
-                incentive_buckets=[
-                    IncentiveBucket(
-                        threshold_soc=80.0, value_sek=-10.0
-                    ),  # Penalty discourages charging
-                ],
+                required_kwh=0.0,
             )
         ],
         wear_cost_sek_per_kwh=0.01,
@@ -292,21 +280,17 @@ def test_kepler_ev_blocks_discharge():
         wear_cost_sek_per_kwh=0.01,
         enable_export=True,
         max_export_power_kw=5.0,
-        # EV Settings: small battery so incentive bucket fills quickly (~1 slot),
+        # EV Settings: small battery with a 0.5 kWh soft target, fills in ~1 slot,
         # leaving remaining slots free to discharge for export (3 SEK/kWh)
         ev_chargers=[
             EVChargerInput(
                 id="test_ev",
                 max_power_kw=2.0,
-                battery_capacity_kwh=1.0,  # Small: 50% bucket = 0.5 kWh, fills in ~1 slot
+                battery_capacity_kwh=1.0,  # Small: 50% target = 0.5 kWh, fills in ~1 slot
                 current_soc_percent=0.0,
                 plugged_in=True,
-                deadline=None,
-                incentive_buckets=[
-                    IncentiveBucket(
-                        threshold_soc=50.0, value_sek=5.0
-                    ),  # 5 SEK/kWh for first 0.5 kWh
-                ],
+                deadline=slots[-1].end_time,
+                required_kwh=0.5,
             )
         ],
     )
@@ -378,10 +362,8 @@ def test_kepler_ev_load_pressure_mutual_exclusion():
                 battery_capacity_kwh=100.0,
                 current_soc_percent=0.0,
                 plugged_in=True,
-                deadline=None,
-                incentive_buckets=[
-                    IncentiveBucket(threshold_soc=20.0, value_sek=0.5),  # Small incentive
-                ],
+                deadline=slots[-1].end_time,
+                required_kwh=20.0,
             )
         ],
     )

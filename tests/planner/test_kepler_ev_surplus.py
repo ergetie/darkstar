@@ -6,7 +6,6 @@ from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
     EVChargerInput,
     ExcessPVSinkEntry,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -39,14 +38,18 @@ def _ev_charger(
     max_power_kw: float = 7.4,
     plugged_in: bool = True,
     control_type: str = "current",
+    deadline: datetime | None = None,
+    required_kwh: float = 0.0,
+    current_soc_percent: float = 50.0,
 ) -> EVChargerInput:
     return EVChargerInput(
         id=id,
         max_power_kw=max_power_kw,
         battery_capacity_kwh=60.0,
-        current_soc_percent=50.0,
+        current_soc_percent=current_soc_percent,
         plugged_in=plugged_in,
-        deadline=None,
+        deadline=deadline,
+        required_kwh=required_kwh,
         control_type=control_type,
     )
 
@@ -212,17 +215,11 @@ class TestEVSurplusExclusivity:
             excess_pv_priority=[_ev_priority("goe", reward=2.0)],
             excess_pv_soc_threshold_percent=95.0,
             ev_chargers=[
-                EVChargerInput(
+                _ev_charger(
                     id="goe",
-                    max_power_kw=7.4,
-                    battery_capacity_kwh=60.0,
                     current_soc_percent=10.0,
-                    plugged_in=True,
-                    deadline=None,
-                    control_type="current",
-                    # Strong incentive to charge on the cheap-import schedule too,
-                    # so the solver is tempted to combine scheduled + surplus charging.
-                    incentive_buckets=[IncentiveBucket(threshold_soc=90.0, value_sek=5.0)],
+                    deadline=slots[-1].end_time,
+                    required_kwh=50.0,
                 )
             ],
         )

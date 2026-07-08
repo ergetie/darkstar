@@ -10,7 +10,8 @@ Goal fields:
 - `n_days` (int) — used when `repeat: every_n_days`.
 - `ready_by_date` (string, ISO date) — used when `repeat: none` (the specific date for the one-off).
 - `keep_on_after_target` (boolean, default false) — keep the switch ON through the ready-by time after the target is met.
-- `charge_priority` (enum `battery` | `ev`, default `battery`) — who gets free surplus PV first.
+
+**No `charge_priority` field.** Surplus-PV routing is owned by the existing `excess_pv.priority[]` list (see `excess-pv-priority-dispatch`); the home battery is implicitly first via `soc_threshold_percent`. Adding a per-charger switch here would duplicate or contradict that surface.
 
 `penalty_levels` is **retired**: if present it SHALL be ignored for scheduling, SHALL emit a one-release deprecation warning, and SHALL be auto-migrated to `target_soc_percent` equal to the highest configured `max_soc`. `departure_time` SHALL be accepted as a deprecated alias for `ready_by` (with a warning). The config loader SHALL use a YAML 1.2 parser (ruamel.yaml) so unquoted `HH:MM` values read as strings, and SHALL accept the time as either `"HH:MM"` or an integer minutes-since-midnight (0–1439), converting integers to `"HH:MM"`; out-of-range values SHALL be treated as invalid.
 

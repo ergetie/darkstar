@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Spec: EV Target Charging
+
+## Purpose
+
+Defines how EV charging is governed by a per-charger goal — a target state-of-charge to be reached by a ready-by time — replacing the prior willingness-to-pay / penalty-bucket model. Charging is driven by energy need, not SEK/kWh incentive.
+
+## Requirements
 
 ### Requirement: EV charging is driven by a target SoC and a ready-by time
 EV charging SHALL be governed by a per-charger goal — a `target_soc_percent` to be reached by a `ready_by` time — not by a willingness-to-pay. The system SHALL derive the required energy from the goal and SHALL NOT require the user to set any SEK/kWh value.
@@ -25,7 +31,7 @@ The pipeline SHALL compute `required_kwh = max(0, (target_soc_percent − curren
 - **THEN** `required_kwh` SHALL be 0 and no charging SHALL be scheduled (subject to keep-on behaviour)
 
 ### Requirement: Kepler enforces the target as a soft requirement
-The Kepler solver SHALL add, per plugged charger with a goal, a soft constraint that delivered EV energy by the deadline meets `required_kwh`, with a shortfall penalty large enough that the target is treated as near-mandatory. The constraint SHALL be soft so that a physically unreachable target never makes the solve infeasible. The incentive-bucket variables and their reward term SHALL be removed.
+The Kepler solver SHALL add, per plugged charger with a goal, a soft constraint that delivered EV energy by the deadline meets `required_kwh`, with a shortfall penalty large enough that the target is treated as near-mandatory. The constraint SHALL be soft so that a physically unreachable target never makes the solve infeasible. The incentive-bucket variables and their reward term SHALL be removed. The shortfall penalty SHALL default to 50.0 SEK/kWh and SHALL be configurable via the advanced `kepler.ev_shortfall_penalty_sek_per_kwh` setting.
 
 #### Scenario: Target reachable
 - **WHEN** the charger can deliver `required_kwh` before the deadline
@@ -40,22 +46,29 @@ The Kepler solver SHALL add, per plugged charger with a goal, a soft constraint 
 #### Scenario: No incentive buckets remain
 - **WHEN** the solver builds the EV objective
 - **THEN** there SHALL be no `ev_bucket_charged` variable or `value_sek` reward term
-- **AND** no user-set per-kWh value SHALL influence EV charging
+- **AND** no user-set per-kWh incentive value SHALL influence EV charging (the shortfall penalty is an internal near-mandatory constraint, not a willingness-to-pay)
 
-### Requirement: Excess PV is self-consumed before export, ordered by priority
-When surplus PV is available, the solver SHALL route it to the home battery and/or the EV before exporting, ordered by a per-charger `charge_priority` (`battery` first by default, or `ev` first). This priority SHALL act only as a tie-break for free surplus and SHALL NOT force grid import or starve a deadline.
+#### Scenario: Shortfall penalty is configurable
+- **WHEN** `kepler.ev_shortfall_penalty_sek_per_kwh` is set in config
+- **THEN** the solver SHALL use that value as the shortfall penalty in the objective
+- **AND** when unset, the solver SHALL default to 50.0 SEK/kWh
 
-#### Scenario: Battery-first (default)
-- **WHEN** surplus PV exists, both the battery and a plugged EV can accept it, and neither has an urgent deadline
-- **THEN** the battery SHALL receive the surplus first, then the EV, then export
+### Requirement: Excess-PV surplus routing is owned by excess_pv.priority[] (no charge_priority here)
+Surplus-PV self-consumption ordering SHALL be governed by the already-shipped `excess_pv.priority[]` list (the `excess-pv-priority-dispatch` capability) — the home battery is implicitly first via `soc_threshold_percent`, and `ev` entries in the priority list route surplus to EV chargers ordered by rank-scaled reward. **This change SHALL NOT introduce a per-charger `charge_priority` field, an in-solver self-consumption tie-break term, or any parallel surplus-routing code path.** A user who wants EV-first surplus moves the `ev` entry up the existing priority-list editor (under Settings → Advanced → "Excess PV Dispatch").
 
-#### Scenario: EV-first when the user opts in
-- **WHEN** `charge_priority: ev` and surplus PV exists with both able to accept it
-- **THEN** the EV SHALL receive the surplus first, then the battery, then export
+#### Scenario: Surplus absorption requires the charger be listed in excess_pv.priority[]
+- **WHEN** a current-type charger has a goal but is NOT listed as an `ev` entry in `excess_pv.priority[]`
+- **THEN** the solver SHALL create no `ev_surplus_kw` variable for it and the charger SHALL only receive deadline-target scheduled charging (cheapest day-ahead slot prices)
+- **AND** export SHALL still occur when PV exceeds household + battery demand
 
-#### Scenario: Priority never forces expensive grid
-- **WHEN** the priority switch would otherwise prefer a sink that requires grid import
-- **THEN** the switch SHALL be ignored for that decision (it governs only free surplus)
+#### Scenario: Binary charger is never a surplus sink
+- **WHEN** an `ev` priority-list entry references a `type: binary` charger
+- **THEN** the solver SHALL silently drop it (no `ev_surplus_kw` variable created), as defense in depth alongside config-API rejection
+- **AND** the binary charger SHALL still receive the deadline-target scheduled charging (`ev_charge[d][t] = 1` for whole slots)
+
+#### Scenario: Battery-absent system still routes surplus
+- **WHEN** the system has no house battery (`capacity_kwh == 0`) and a current-type charger is listed in `excess_pv.priority[]`
+- **THEN** the `soc_above_threshold` big-M gate SHALL collapse (threshold 0, M 0) and surplus SHALL route to the configured sinks immediately without waiting for a battery to fill
 
 ### Requirement: Keep charger on after target
 A per-charger `keep_on_after_target` (default false) SHALL, when true, keep the charger's intended switch state ON through the ready-by time after the target is met, so the vehicle can pre-condition / run its heater.

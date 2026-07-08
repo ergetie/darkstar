@@ -124,3 +124,4 @@ config.yaml.bak_test
 data/test_planner.db-shm
 .gitignore
 data/test_planner.db-wal
+data/ev_multi_day_state.json

@@ -55,12 +55,6 @@ All UI changes must follow the design system:
 
 ## Boundaries
 
-### ✅ Always
-
-- Run `./scripts/lint.sh` before committing — fix any failures immediately
-- Update relevant documentation when making code changes
-- Commit after completing each task using the format below
-
 ### ⚠️ Ask First
 
 - Modifying files in `docs/` directory

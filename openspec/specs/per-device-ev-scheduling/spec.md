@@ -7,42 +7,43 @@ TBD - Defines how the system handles multiple EV chargers with independent per-d
 ## Requirements
 
 ### Requirement: Per-device EV config structure
-Each entry in `ev_chargers[]` SHALL support the following per-device fields: `departure_time` (string, HH:MM 24h format), `switch_entity` (string, HA entity ID), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), `type` (string, `binary` (default) or `current`), `current_entity` (string, HA number entity ID for the ampere setpoint, required when `type: current`), `min_current_a` (integer, default 6), `max_current_a` (integer, required when `type: current`), and `phases` (list of phase numbers the charger is wired to, e.g. `[1, 2, 3]`). These fields replace the global `ev_departure_time` and `executor.ev_charger.*` settings.
+Each entry in `ev_chargers[]` SHALL support the following per-device fields: `switch_entity` (string, HA entity ID), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), and the goal fields below. The goal fields replace the prior `departure_time` + `penalty_levels` model.
 
-The config loader SHALL use a YAML 1.2 parser (ruamel.yaml) to read `config.yaml`, ensuring that unquoted `HH:MM` values are read as strings, not as YAML 1.1 sexagesimal integers.
+Goal fields:
+- `target_soc_percent` (int, 0–100, default 80) — the SoC the vehicle should reach.
+- `ready_by` (string, `HH:MM` 24h) — the time the target should be met by.
+- `repeat` (enum `daily` | `weekdays` | `weekends` | `every_n_days` | `none`, default `daily`) — how the ready-by time recurs. `none` = a one-off.
+- `n_days` (int) — used when `repeat: every_n_days`.
+- `ready_by_date` (string, ISO date) — used when `repeat: none` (the specific date for the one-off).
+- `keep_on_after_target` (boolean, default false) — keep the switch ON through the ready-by time after the target is met.
 
-The config loader SHALL accept `departure_time` as either a string in `"HH:MM"` format or an integer representing minutes since midnight (0–1439). If an integer is provided, it SHALL be converted to `"HH:MM"` format (e.g., `960` → `"16:00"`). Values outside 0–1439 SHALL be treated as invalid and result in `None`.
+**No `charge_priority` field.** Surplus-PV routing is owned by the existing `excess_pv.priority[]` list (see `excess-pv-priority-dispatch`); the home battery is implicitly first via `soc_threshold_percent`. Adding a per-charger switch here would duplicate or contradict that surface.
 
-#### Scenario: Two chargers with different departure times
-- **WHEN** `ev_chargers` contains charger "tesla" with `departure_time: "07:00"` and charger "leaf" with `departure_time: "08:30"`
-- **THEN** the planner SHALL use 07:00 as the deadline for tesla and 08:30 as the deadline for leaf
+`penalty_levels` is **retired**: if present it SHALL be ignored for scheduling, SHALL emit a one-release deprecation warning, and SHALL be auto-migrated to `target_soc_percent` equal to the highest configured `max_soc`. `departure_time` SHALL be accepted as a deprecated alias for `ready_by` (with a warning). The config loader SHALL use a YAML 1.2 parser (ruamel.yaml) so unquoted `HH:MM` values read as strings, and SHALL accept the time as either `"HH:MM"` or an integer minutes-since-midnight (0–1439), converting integers to `"HH:MM"`; out-of-range values SHALL be treated as invalid.
 
-#### Scenario: Charger with no departure time
-- **WHEN** an enabled charger has `departure_time: ""` or the field is absent
-- **THEN** the planner SHALL not apply a deadline constraint for that charger (charge whenever cheapest)
+#### Scenario: Charger with a daily goal
+- **WHEN** a charger has `target_soc_percent: 80`, `ready_by: "07:00"`, `repeat: daily`
+- **THEN** the pipeline SHALL aim to reach 80% by the next 07:00 and repeat every day
 
-#### Scenario: Charger with no control entity
-- **WHEN** an enabled charger has neither a `switch_entity` nor a `current_entity` configured
-- **THEN** the executor SHALL skip actuation for that charger (planning-only mode)
+#### Scenario: Charger with a one-off date
+- **WHEN** a charger has `repeat: none`, `ready_by_date: "2026-06-12"`, `ready_by: "07:00"`, `target_soc_percent: 100`
+- **THEN** the pipeline SHALL aim to reach 100% by 2026-06-12 07:00 and SHALL become inert after that datetime passes
 
-#### Scenario: Current-type charger without current_entity is invalid
-- **WHEN** a charger has `type: current` but no `current_entity`
-- **THEN** config validation SHALL flag the device with an actionable error
+#### Scenario: Legacy penalty_levels present
+- **WHEN** a charger config still contains `penalty_levels`
+- **THEN** the loader SHALL ignore them for scheduling, emit a deprecation warning, and set `target_soc_percent` to the highest configured `max_soc`
 
-#### Scenario: Departure time stored as YAML 1.1 sexagesimal integer
-- **WHEN** `departure_time` is read from config as the integer `960` (due to prior YAML 1.1 parsing of `16:00`)
-- **THEN** the config loader SHALL convert it to the string `"16:00"`
-- **AND** the planner SHALL use 16:00 as the deadline for that charger
+#### Scenario: Legacy departure_time alias
+- **WHEN** a charger config uses `departure_time: "07:00"` and no `ready_by`
+- **THEN** the loader SHALL treat `07:00` as `ready_by` and emit a deprecation warning
 
-#### Scenario: Departure time stored as out-of-range integer
-- **WHEN** `departure_time` is read from config as an integer outside 0–1439 (e.g., `9999`)
-- **THEN** the config loader SHALL treat it as invalid and return `None`
-- **AND** the planner SHALL not apply a deadline constraint for that charger
+#### Scenario: Charger with no switch entity
+- **WHEN** an enabled charger has `switch_entity: ""` or the field is absent
+- **THEN** the executor SHALL skip switch control for that charger (planning-only mode)
 
 #### Scenario: Unquoted HH:MM in config.yaml read correctly
-- **WHEN** config.yaml contains `departure_time: 16:00` (unquoted)
+- **WHEN** config.yaml contains `ready_by: 16:00` (unquoted)
 - **THEN** the YAML 1.2 parser SHALL read it as the string `"16:00"` (not the integer `960`)
-- **AND** the planner SHALL use 16:00 as the deadline
 
 ### Requirement: Per-device MILP decision variables
 The Kepler solver SHALL create separate decision variables for each plugged-in, enabled EV charger: a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`.
@@ -197,3 +198,22 @@ This requirement SHALL apply equally when `max_power_kw` is entirely absent from
 - **THEN** the charger is re-registered without a `disabled_reason`
 - **AND** the corresponding `EV_MISSING_POWER` HealthIssue is cleared
 - **AND** the next planner run includes the charger in `KeplerConfig.ev_chargers`
+
+### Requirement: Per-device ready-by resolution
+The pipeline SHALL resolve each charger's next ready-by datetime independently from its `ready_by` + `repeat` (or `ready_by_date` when `repeat: none`). This resolved datetime SHALL be used as the Kepler deadline for that charger. A charger past a non-repeating ready-by datetime SHALL have no deadline (inert).
+
+#### Scenario: Daily repeat resolves to the next occurrence
+- **WHEN** `ready_by: "07:00"`, `repeat: daily`, and the current time is 22:00
+- **THEN** the resolved deadline SHALL be tomorrow 07:00
+
+#### Scenario: Every-N-days repeat
+- **WHEN** `repeat: every_n_days`, `n_days: 2`, and today is not a charging day
+- **THEN** the resolved deadline SHALL be the `ready_by` time on the next matching day
+
+#### Scenario: One-off date in the future
+- **WHEN** `repeat: none`, `ready_by_date: "2026-06-12"`, `ready_by: "07:00"`, and today is 2026-06-08
+- **THEN** the resolved deadline SHALL be 2026-06-12 07:00
+
+#### Scenario: One-off date already passed
+- **WHEN** `repeat: none` and the `ready_by_date`/`ready_by` datetime is in the past
+- **THEN** the charger SHALL have no deadline and SHALL NOT be scheduled

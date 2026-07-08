@@ -10,7 +10,6 @@ from pytz import timezone as pytz_timezone
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
     EVChargerInput,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -23,9 +22,12 @@ def _make_ev_charger(
     battery_capacity_kwh=50.0,
     current_soc_percent=50.0,
     plugged_in=True,
-    incentive_buckets=None,
+    required_kwh=None,
 ):
     """Helper to create a single EVChargerInput."""
+    if required_kwh is None:
+        # Default soft target: charge to 100% SoC
+        required_kwh = battery_capacity_kwh * (1.0 - current_soc_percent / 100.0)
     return EVChargerInput(
         id="test_ev",
         max_power_kw=max_power_kw,
@@ -33,8 +35,7 @@ def _make_ev_charger(
         current_soc_percent=current_soc_percent,
         plugged_in=plugged_in,
         deadline=deadline,
-        incentive_buckets=incentive_buckets
-        or [IncentiveBucket(threshold_soc=100.0, value_sek=2.0)],
+        required_kwh=required_kwh,
     )
 
 

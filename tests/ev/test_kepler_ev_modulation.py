@@ -8,7 +8,6 @@ sys.path.append(str(Path.cwd()))
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
     EVChargerInput,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -20,9 +19,11 @@ def _ev(
     battery_capacity_kwh=100.0,
     soc_percent=50.0,
     plugged_in=True,
-    incentive_buckets=None,
     deadline=None,
+    required_kwh=None,
 ) -> EVChargerInput:
+    if required_kwh is None:
+        required_kwh = battery_capacity_kwh * (1.0 - soc_percent / 100.0)
     return EVChargerInput(
         id="test_ev",
         max_power_kw=max_power_kw,
@@ -30,8 +31,7 @@ def _ev(
         current_soc_percent=soc_percent,
         plugged_in=plugged_in,
         deadline=deadline,
-        incentive_buckets=incentive_buckets
-        or [IncentiveBucket(threshold_soc=100.0, value_sek=2.0)],
+        required_kwh=required_kwh,
     )
 
 
@@ -54,7 +54,8 @@ def test_ev_modulation():
                 max_power_kw=7.4,
                 battery_capacity_kwh=100.0,
                 soc_percent=50.0,
-                incentive_buckets=[IncentiveBucket(threshold_soc=100.0, value_sek=100.0)],
+                deadline=datetime(2026, 1, 1, 1, 0),
+                required_kwh=50.0,
             )
         ],
     )
@@ -94,7 +95,7 @@ def test_ev_economic_stop():
         charge_efficiency=1.0,
         discharge_efficiency=1.0,
         wear_cost_sek_per_kwh=0.0,
-        ev_chargers=[_ev(incentive_buckets=[IncentiveBucket(threshold_soc=100.0, value_sek=2.0)])],
+        ev_chargers=[_ev(required_kwh=0.0)],
     )
 
     slots = [
@@ -116,10 +117,12 @@ def test_ev_economic_stop():
     print("Economic stop test SUCCESS")
 
 
-def test_multi_bucket_incentives():
-    print("\n--- Testing Multi-Bucket Incentives ---")
+def test_deferral_to_cheaper_slots():
+    print("\n--- Testing EV Deferral to Cheaper Slots ---")
     solver = KeplerSolver()
 
+    # 70 kWh soft target can be met entirely in the two cheapest slots,
+    # so the solver should avoid the expensive first slot.
     config = KeplerConfig(
         capacity_kwh=0.0,
         min_soc_percent=0.0,
@@ -134,11 +137,8 @@ def test_multi_bucket_incentives():
                 max_power_kw=30.0,
                 battery_capacity_kwh=100.0,
                 soc_percent=30.0,
-                incentive_buckets=[
-                    IncentiveBucket(threshold_soc=40.0, value_sek=10.0),
-                    IncentiveBucket(threshold_soc=70.0, value_sek=2.0),
-                    IncentiveBucket(threshold_soc=100.0, value_sek=1.0),
-                ],
+                deadline=datetime(2026, 1, 1, 3, 0),
+                required_kwh=60.0,
             )
         ],
     )
@@ -173,21 +173,21 @@ def test_multi_bucket_incentives():
 
     result = solver.solve(input_data, config)
 
-    print(f"Slot 0 (Price 5.0, Bucket 10.0): {result.slots[0].ev_charge_kw} kW")
-    print(f"Slot 1 (Price 1.0, Bucket 2.0): {result.slots[1].ev_charge_kw} kW")
-    print(f"Slot 2 (Price 0.1, Bucket 0.5): {result.slots[2].ev_charge_kw} kW")
+    print(f"Slot 0 (Price 5.0): {result.slots[0].ev_charge_kw} kW")
+    print(f"Slot 1 (Price 1.0): {result.slots[1].ev_charge_kw} kW")
+    print(f"Slot 2 (Price 0.1): {result.slots[2].ev_charge_kw} kW")
 
     assert abs(result.slots[0].ev_charge_kw - 0.0) < 0.1
     assert abs(result.slots[1].ev_charge_kw - 30.0) < 0.1
     assert abs(result.slots[2].ev_charge_kw - 30.0) < 0.1
-    print("Multi-bucket binary test SUCCESS")
+    print("Deferral to cheaper slots test SUCCESS")
 
 
 if __name__ == "__main__":
     try:
         test_ev_modulation()
         test_ev_economic_stop()
-        test_multi_bucket_incentives()
+        test_deferral_to_cheaper_slots()
         print("\nALL VERIFICATIONS PASSED")
     except Exception as e:
         print(f"\nVERIFICATION FAILED: {e}")

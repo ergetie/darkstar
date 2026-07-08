@@ -193,9 +193,9 @@ class TestBuildEvChargerInputs:
                 "enabled": True,
                 "max_power_kw": 11.0,
                 "battery_capacity_kwh": 82.0,
-                "penalty_levels": [
-                    {"max_soc": 80.0, "penalty_sek": 0.5},
-                ],
+                "target_soc_percent": 80,
+                "ready_by": "07:00",
+                "repeat": "daily",
             }
         ]
         result = build_ev_charger_inputs(chargers)
@@ -204,8 +204,7 @@ class TestBuildEvChargerInputs:
         assert ev.id == "tesla"
         assert ev.max_power_kw == 11.0
         assert ev.battery_capacity_kwh == 82.0
-        assert len(ev.incentive_buckets) == 1
-        assert ev.incentive_buckets[0].threshold_soc == 80.0
+        assert ev.control_type == "binary"
 
     def test_unplugged_charger_included_in_config(self):
         """Unplugged chargers are included but flagged as not plugged in."""

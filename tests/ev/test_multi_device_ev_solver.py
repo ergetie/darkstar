@@ -17,7 +17,6 @@ from pytz import timezone as pytz_timezone
 from planner.solver.kepler import KeplerSolver
 from planner.solver.types import (
     EVChargerInput,
-    IncentiveBucket,
     KeplerConfig,
     KeplerInput,
     KeplerInputSlot,
@@ -50,8 +49,11 @@ def _ev(
     soc_percent=50.0,
     plugged_in=True,
     deadline=None,
-    incentive_value=10.0,
+    required_kwh=None,
 ) -> EVChargerInput:
+    if required_kwh is None:
+        # Default soft target: charge to 100% SoC by the deadline
+        required_kwh = battery_capacity_kwh * (1.0 - soc_percent / 100.0)
     return EVChargerInput(
         id=ev_id,
         max_power_kw=max_power_kw,
@@ -59,7 +61,7 @@ def _ev(
         current_soc_percent=soc_percent,
         plugged_in=plugged_in,
         deadline=deadline,
-        incentive_buckets=[IncentiveBucket(threshold_soc=100.0, value_sek=incentive_value)],
+        required_kwh=required_kwh,
     )
 
 
@@ -83,8 +85,8 @@ def _config(ev_chargers, import_limit=None):
 class TestSingleChargerEquivalence:
     """Single charger produces same result as before multi-device refactor."""
 
-    def test_single_charger_charges_when_incentive_exceeds_price(self):
-        """EV charges when incentive (10 SEK) > import price (1 SEK)."""
+    def test_single_charger_charges_to_meet_target(self):
+        """EV with a soft target charges to meet it when price is below shortfall penalty."""
         solver = KeplerSolver()
         slots = _slots(n=4, import_price=1.0)
         inp = KeplerInput(slots=slots, initial_soc_kwh=5.0)
@@ -95,17 +97,17 @@ class TestSingleChargerEquivalence:
         total_ev = sum(s.ev_charge_kw for s in result.slots)
         assert total_ev > 0, "EV should charge when incentive > price"
 
-    def test_single_charger_stops_when_price_exceeds_incentive(self):
-        """EV does not charge when import price (20 SEK) > incentive (1 SEK)."""
+    def test_ev_with_no_target_does_not_charge(self):
+        """EV without a required-kWh target does not charge even when grid is cheap."""
         solver = KeplerSolver()
-        slots = _slots(n=4, import_price=20.0)
+        slots = _slots(n=4, import_price=1.0)
         inp = KeplerInput(slots=slots, initial_soc_kwh=5.0)
-        cfg = _config([_ev(incentive_value=1.0)])
+        cfg = _config([_ev(required_kwh=0.0)])
 
         result = solver.solve(inp, cfg)
 
         total_ev = sum(s.ev_charge_kw for s in result.slots)
-        assert total_ev < 0.1, "EV should not charge when price > incentive"
+        assert total_ev < 0.1, "EV should not charge when it has no energy target"
 
     def test_per_device_results_match_aggregate(self):
         """ev_charger_results['ev1'] should match ev_charge_kw for single charger."""

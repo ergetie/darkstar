@@ -6,11 +6,24 @@ Loads and validates the executor configuration from config.yaml.
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any, cast
 
 from ruamel.yaml import YAML
+
+EV_REPEAT_OPTIONS = ("daily", "weekdays", "weekends", "every_n_days", "none")
+
+
+class EVRepeatMode(StrEnum):
+    """How a charger's ready-by time recurs."""
+
+    DAILY = "daily"
+    WEEKDAYS = "weekdays"
+    WEEKENDS = "weekends"
+    EVERY_N_DAYS = "every_n_days"
+    NONE = "none"
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +65,48 @@ def _parse_departure_time(value: Any) -> str | None:
             return f"{value // 60:02d}:{value % 60:02d}"
         return None
 
-    return str(value) or None
+    # Accept "HH:MM" strings; strip surrounding quotes if present.
+    txt = str(value).strip()
+    if txt in ("''", '""'):
+        return None
+    if not txt:
+        return None
+
+    # Validate HH:MM format/range
+    try:
+        hour_str, minute_str = txt.split(":")
+        hour = int(hour_str)
+        minute = int(minute_str)
+        if not (0 <= hour <= 23 and 0 <= minute <= 59):
+            logger.warning("Invalid ready_by/departure_time value: %r", txt)
+            return None
+    except (ValueError, AttributeError):
+        logger.warning("Invalid ready_by/departure_time format: %r", txt)
+        return None
+
+    return txt
+
+
+def _parse_repeat(value: Any) -> EVRepeatMode:
+    """Parse EV repeat mode from config value, defaulting to daily."""
+    if value is None or value == "":
+        return EVRepeatMode.DAILY
+    txt = str(value).strip().lower()
+    try:
+        return EVRepeatMode(txt)
+    except ValueError:
+        logger.warning("Invalid ev_chargers[].repeat value %r, using 'daily'", value)
+        return EVRepeatMode.DAILY
+
+
+def _parse_ready_by_date(value: Any) -> str | None:
+    """Parse a one-off ready-by date string (ISO date)."""
+    if value is None or value == "":
+        return None
+    txt = str(value).strip()
+    if txt in ("''", '""'):
+        return None
+    return txt or None
 
 
 @dataclass
@@ -131,14 +185,6 @@ class WaterHeaterDeviceConfig:
     power_kw: float = 3.0
 
 
-DEFAULT_PENALTY_LEVELS = {
-    "emergency": 10.0,
-    "high": 2.0,
-    "normal": 0.5,
-    "opportunistic": 0.1,
-}
-
-
 @dataclass
 class EVChargerDeviceConfig:
     """Per-device EV charger configuration."""
@@ -150,6 +196,16 @@ class EVChargerDeviceConfig:
     battery_capacity_kwh: float | None = None
     replan_on_plugin: bool = True
     replan_on_unplug: bool = False
+
+    # Goal-based charging (replaces departure_time + penalty_levels)
+    target_soc_percent: int = 80
+    ready_by: str | None = "07:00"
+    repeat: EVRepeatMode = EVRepeatMode.DAILY
+    n_days: int | None = None
+    ready_by_date: str | None = None
+    keep_on_after_target: bool = False
+
+    # Legacy alias for ready_by (deprecated, one-release compatibility)
     departure_time: str | None = None
 
     # Variable-current control (universal-load-balancing)
@@ -635,6 +691,54 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             if isinstance(charger_phases_raw, list)
             else [1, 2, 3]
         )
+
+        # Legacy departure_time alias -> ready_by
+        raw_ready_by = charger.get("ready_by")
+        raw_departure_time = charger.get("departure_time")
+        ready_by_value: str | None = _parse_departure_time(raw_ready_by)
+        if ready_by_value is None and raw_departure_time is not None:
+            ready_by_value = _parse_departure_time(raw_departure_time)
+            if ready_by_value is not None:
+                logger.warning(
+                    "EV charger '%s': 'departure_time' is deprecated and will be removed. "
+                    "Use 'ready_by' instead. Mapped '%s' -> ready_by.",
+                    charger_id,
+                    ready_by_value,
+                )
+
+        # Legacy penalty_levels -> migrate to target_soc_percent = highest max_soc
+        target_soc_value: int | None = None
+        if "target_soc_percent" in charger:
+            try:
+                target_soc_value = int(charger["target_soc_percent"])
+            except (TypeError, ValueError):
+                target_soc_value = None
+        penalty_levels: list[dict[str, Any]] = charger.get("penalty_levels", [])
+        if penalty_levels:
+            if target_soc_value is None:
+                max_soc_values = [
+                    float(p.get("max_soc", 0.0))
+                    for p in penalty_levels
+                    if p.get("max_soc") is not None
+                ]
+                if max_soc_values:
+                    target_soc_value = int(max(max_soc_values))
+                else:
+                    target_soc_value = EVChargerDeviceConfig.target_soc_percent
+                logger.warning(
+                    "EV charger '%s': 'penalty_levels' is deprecated and removed. "
+                    "Migrated to target_soc_percent=%d. Update your config to use goal fields.",
+                    charger_id,
+                    target_soc_value,
+                )
+            else:
+                logger.warning(
+                    "EV charger '%s': 'penalty_levels' is deprecated and ignored. "
+                    "Using configured target_soc_percent=%d.",
+                    charger_id,
+                    target_soc_value,
+                )
+
         ev_chargers_list.append(
             EVChargerDeviceConfig(
                 id=charger_id,
@@ -650,7 +754,23 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 replan_on_unplug=bool(
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
-                departure_time=_parse_departure_time(charger.get("departure_time")),
+                target_soc_percent=(
+                    target_soc_value
+                    if target_soc_value is not None
+                    else int(
+                        charger.get("target_soc_percent", EVChargerDeviceConfig.target_soc_percent)
+                    )
+                ),
+                ready_by=(
+                    ready_by_value if ready_by_value is not None else EVChargerDeviceConfig.ready_by
+                ),
+                repeat=_parse_repeat(charger.get("repeat")),
+                n_days=charger.get("n_days") if charger.get("n_days") is not None else None,
+                ready_by_date=_parse_ready_by_date(charger.get("ready_by_date")),
+                keep_on_after_target=bool(
+                    charger.get("keep_on_after_target", EVChargerDeviceConfig.keep_on_after_target)
+                ),
+                departure_time=ready_by_value,  # keep in sync for legacy consumers
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),
                 current_entity=_str_or_none(charger.get("current_entity")),
                 min_current_a=int(

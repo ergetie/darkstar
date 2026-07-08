@@ -10,14 +10,6 @@ from datetime import datetime
 
 
 @dataclass
-class IncentiveBucket:
-    """EV incentive bucket based on SoC threshold."""
-
-    threshold_soc: float
-    value_sek: float
-
-
-@dataclass
 class WaterHeaterInput:
     """Per-device water heater input for the Kepler MILP solver."""
 
@@ -40,7 +32,9 @@ class EVChargerInput:
     current_soc_percent: float
     plugged_in: bool
     deadline: datetime | None
-    incentive_buckets: list[IncentiveBucket] = field(default_factory=lambda: [])
+    required_kwh: float | None = None
+    daily_quota_kwh: float | None = None
+    keep_on_after_target: bool = False
     # "binary" (ON/OFF switch) or "current" (variable ampere setpoint). Only
     # "current" chargers are eligible for excess-PV surplus charging — surplus
     # is inherently fractional and a binary charger can't modulate to match it.
@@ -81,6 +75,7 @@ class KeplerConfig:
     target_soc_kwh: float | None = None  # Minimum SoC at end of horizon
     target_soc_penalty_sek: float = 0.0  # Set by pipeline (Safety Floor penalty)
     curtailment_penalty_sek: float = 0.0  # Penalty for wasting available solar power
+    ev_shortfall_penalty_sek_per_kwh: float = 50.0  # Soft penalty for missing EV target by ready-by
     ramping_cost_sek_per_kw: float = 0.0  # Penalty for power changes
     export_threshold_sek_per_kwh: float = 0.0  # Min spread to export
     grid_import_limit_kw: float | None = None  # Soft constraint
@@ -191,6 +186,9 @@ class KeplerResultSlot:
     ev_surplus_kw: dict[str, float] = field(
         default_factory=lambda: {}
     )  # Per-charger: charger_id -> surplus-eligible kW this slot
+    ev_shortfall_kwh: dict[str, float] = field(
+        default_factory=lambda: {}
+    )  # Per-charger: shortfall vs required_kwh by deadline
     is_optimal: bool = True
 
 
