@@ -194,6 +194,38 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 
 ---
 
+#### [Planner] Keep-On-After-Target Energy Not Reflected in Schedule Totals
+
+**Goal:** Make published schedules energy-consistent when `keep_on_after_target` is active. Today `_apply_keep_on_after_target` (`planner/pipeline.py`) mutates `ev_charger_results`/`ev_charge_kw` after the solve without touching `grid_import_kwh`, `cost_sek`, or the energy balance — so the saved schedule shows max-power EV charging in keep-on slots with no matching import or cost, and any consumer summing plan energy gets inconsistent numbers.
+
+**Notes:** Found in the post-merge review of price-forecasting-module-4/5 (2026-07-09). The behavior is deliberate and documented in code (keep-on is a switch-state intent, not planned energy — the vehicle draws only what it needs), so this is a display/accounting honesty issue, not a control bug. Candidate fixes: mark keep-on slots with a distinct flag instead of fake `charging_kw`, or estimate a small standby draw and fold it into the balance. Decide the semantics before touching the executor's reading of these slots.
+
+---
+
+#### [UI/Tech Debt] Type the EV Dashboard Data Flow (remove `any`)
+
+**Goal:** Replace the file-wide `/* eslint-disable @typescript-eslint/no-explicit-any */` and `any`-typed `config`/`loadBalancing`/`chargers` props in `frontend/src/components/CommandDomains.tsx` and `EVChargingCard.tsx` with the real types (`EVChargerState`, `LoadBalancerStatusResponse` from `lib/api.ts`).
+
+**Notes:** From the post-merge review of price-forecasting-module-5 (2026-07-09). The `'throttled'` vs `'throttling'` dead-check bug shipped exactly where typing would have caught it. The `ev-goal-charging-fixes` change types the `chargers` array as a targeted fix; this item is the broader cleanup (config/load-balancing shapes, removing the eslint-disable headers).
+
+---
+
+#### [API/Performance] Parallelize Per-Charger HA Reads in `GET /api/ev/chargers`
+
+**Goal:** Reduce latency of `GET /api/ev/chargers`, which awaits its three HA REST reads (plug/SoC/power) sequentially per charger — roughly tripling response time per configured charger.
+
+**Notes:** From the post-merge review of price-forecasting-module-4 (2026-07-09). The helpers are already gather-ready; wrap the per-charger reads (and ideally the per-charger loop) in `asyncio.gather`. Low priority with one charger; matters with several. Endpoint is polled by the dashboard EV tab, so wins are user-visible.
+
+---
+
+#### [EV] Per-Charger Delivered-Energy Attribution
+
+**Goal:** Attribute delivered EV energy per charger instead of using the aggregate `slot_observations.ev_charging_kwh`. Needed for honest progress display (today every charger shows the household EV total as its own `delivered_kwh`) and for SoC-less requirement tracking with more than one charger.
+
+**Notes:** From the post-merge review of price-forecasting-module-4 (2026-07-09). The `ev-goal-charging-fixes` change gates the aggregate-based fallback to single-charger setups; this item lifts that limitation. Per-device energy recording foundations exist (see the related Future Ideas item "[EV] Full Support for Chargers Without a SoC Sensor" and "[Learning] Per-Device Load Forecasting" — data is recorded per device in the multi-device change). Likely approach: per-charger energy sensors or integrating each charger's power sensor.
+
+---
+
 ### 💡 Future Ideas (Brainstorming)
 
 #### [Planner/Balancing] Planner Awareness of Sustained Phase Overload (Considered & Deferred 2026-07-06)
@@ -209,18 +241,6 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 **Goal:** Make EV charge planning work honestly for chargers/cars with no SoC sensor. Today `soc_percent` silently defaults to `0.0` when unconfigured (`backend/core/ha_client.py`), so the planner sees the same assumed SoC every run — it can never detect charging progress or a balancer-throttling shortfall. Worse, with `battery_capacity_kwh` also defaulting to `0.0`, the solver's incentive buckets collapse and no charging is scheduled at all.
 
 **Notes:** Deferred during the load-balancing completion discussion (2026-07-06) — modern EVs generally expose SoC, so the config-time warning shipped in that change ("Darkstar can't track charging progress for this car") covers the realistic case of a *forgotten* sensor rather than a truly absent one. If full support is ever wanted: energy-counted sessions (integrate delivered kWh from the charger's energy sensor against a user-stated target kWh) would substitute for SoC-based need tracking. Delivered per-session energy is already recorded (`slot_observations.ev_charging_kwh`), so the data foundation exists.
-
----
-
-#### [Executor/Balancing] Unified Priority List for All Balanced Loads (Promoted 2026-07-06)
-
-**Status:** ✅ **Promoted to the `load-balancing-completion` change (2026-07-06)** — implemented as the flat, user-ordered `load_balancing.give_way_order` list (drag-ordered in the Load Balancing tab). The resolver processes the list top-down (charger entries throttle to floor then pause, shed entries switch off), restores in exact reverse order, and migrates the old `charger_priority` + `loads[].priority` fields automatically. The notes below are kept for the original design context.
-
-**Goal:** Replace the two-tier balancing structure — all dynamically-throttled current-type EV chargers always give way (throttle to floor) before any shed-list load is even considered — with a single flat priority list mixing EV chargers, water heaters, and custom entities together. This would let a user configure things like "shed the water heater before throttling my EV's charge rate," which isn't possible today: throttling a continuous EV charger always happens first, unconditionally, no matter its configured priority relative to shed items.
-
-**Notes:** Considered and deferred during design of the `load-balancing-power-sensors` change (2026-07-06), in favor of a simpler two-tier model shipped in that change: dynamically-throttled chargers reduce to floor first, ranked only against each other by a priority field; the existing on/off shed list (water heater, custom entity, binary-type EV chargers) only activates once every throttled charger is already at floor or paused, ranked by its own existing priority field. That ships now with the two groups clearly labeled in the UI so the fixed ordering is visible instead of implicit.
-
-Deferred because unifying the two tiers requires redefining how a continuous throttle-step and a full on/off shed compare when ranked in one list (e.g., does a lower-priority EV throttle fully to its floor before a higher-priority shed item is touched, or do they interleave more granularly?), and reworking `executor/load_balancer.py`'s `tick()` give-way order from a fixed two-tier gate (`ev_at_floor_or_paused`) into a single interleaved priority resolver — a materially bigger rewrite than the sensor/UI work shipped alongside it. Revisit if users want the ability to protect a specific load (e.g. water heater) above a specific EV charger's rate, or if the two-tier model produces surprising results in practice with multiple EVs and shed loads mixed on the same phase.
 
 ---
 
@@ -246,11 +266,5 @@ Deferred because unifying the two tiers requires redefining how a continuous thr
 **Goal:** Make `max_safety_buffer_pct` risk-level-aware so that Risk 1 (Safety) users genuinely get a higher safety floor ceiling than Risk 3 (Neutral) users during high-deficit periods.
 
 **Notes:** Currently `max_safety_buffer_pct` defaults to 20% of battery capacity and does NOT vary by risk level. On days with moderate-to-high temporal deficit, most users hit the 20% cap regardless of risk level — meaning the floor is effectively identical for Risk 1 and Risk 3 users. The risk differentiation via `RISK_CONFIG` margins and `min_buffer_pct` in `s_index.py` only activates on easy/sunny days when the deficit is small enough to stay below the cap. Potential fix: make the cap a per-risk-level value (e.g., Risk 1: 30%, Risk 3: 20%, Risk 5: 15%). Discovered during Module 3 (S-Index Price Awareness) design — the Module 3 price addon deliberately bypasses this 20% cap by being additive on top of the already-capped base floor, bounded separately at 80% of capacity.
-
----
-
-#### ~~[EV] Multi-Day EV Charging Planning~~ → PROMOTED
-
-Promoted to active changes: `price-forecasting-module-4` (backend) and `price-forecasting-module-5` (UI + HA integration).
 
 ---

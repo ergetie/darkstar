@@ -1,8 +1,5 @@
 # AGENTS.md - Darkstar Energy Manager
 
-> **IMPORTANT**: AGENTS.md and GEMINI.md must ALWAYS be kept 100% identical.
-> If updating one, you MUST update the other with the exact same content.
-
 ---
 
 ## Core Philosophy
@@ -61,6 +58,7 @@ All UI changes must follow the design system:
 - Database schema changes
 - Adding new dependencies
 - Major architectural changes
+- Staging or committing git changes
 
 ### 🚫 Never
 
@@ -68,6 +66,7 @@ All UI changes must follow the design system:
 - Commit `config.yaml` — defaults go in `config.default.yaml`
 - Commit secrets or API keys
 - Modify `docs/RELEASE_NOTES.md` unless explicitly instructed
+- Push git changes unless explicitly instructed
 
 ---
 
