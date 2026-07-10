@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from datetime import datetime, UTC
+from datetime import datetime, timedelta, UTC
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -29,7 +29,9 @@ async def test_get_ha_datetime_variants(monkeypatch):
     # 2. YYYY-MM-DD HH:MM:SS format (naive)
     state_naive = {"state": "2026-06-10 14:30:00"}
     # Mock load_yaml for config timezone
-    monkeypatch.setattr("backend.core.secrets.load_yaml", lambda _: {"timezone": "Europe/Stockholm"})
+    monkeypatch.setattr(
+        "backend.core.secrets.load_yaml", lambda _: {"timezone": "Europe/Stockholm"}
+    )
     with patch("backend.core.ha_client.get_ha_entity_state", AsyncMock(return_value=state_naive)):
         res = await get_ha_datetime("input_datetime.test")
         assert res is not None
@@ -98,13 +100,38 @@ def test_ha_change_updates_state_file_and_debounce(tmp_path, monkeypatch):
     assert updated["ev1"]["ready_by"] == "08:00"  # updated!
 
 
+def test_monitored_entities_include_ev_goal_entities(monkeypatch):
+    """5.1: ha_ready_by_entity/ha_target_soc_entity are registered for monitoring."""
+    cfg = {
+        "input_sensors": {},
+        "system": {"has_ev_charger": True},
+        "ev_chargers": [
+            {
+                "id": "ev1",
+                "enabled": True,
+                "ha_ready_by_entity": "input_datetime.ev1_ready",
+                "ha_target_soc_entity": "input_number.ev1_soc",
+            }
+        ],
+    }
+    monkeypatch.setattr("backend.ha_socket.load_yaml", lambda _: cfg)
+    client = HAWebSocketClient()
+    assert client.monitored_entities.get("input_datetime.ev1_ready") == "ev_ready_by_0"
+    assert client.monitored_entities.get("input_number.ev1_soc") == "ev_target_soc_0"
+
+
 @pytest.mark.asyncio
 async def test_startup_sync_scenarios(tmp_path, monkeypatch):
-    """Test startup sync seeds state file from HA, and pushes goals to HA if already present."""
+    """HA-wins-with-sanity reconnect sync: seeds a goal-less charger from HA
+    when HA's values are sane, and pushes an existing goal back to HA when
+    HA's values are missing/insane — never blanket-overwrites either side."""
     state_file = tmp_path / "ev_multi_day_state.json"
     monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
 
-    # Mock load_yaml for config
+    tz = pytz.timezone("Europe/Stockholm")
+    future = datetime.now(tz) + timedelta(days=2)
+    future_str = future.strftime("%Y-%m-%d %H:%M:%S")
+
     cfg = {
         "timezone": "Europe/Stockholm",
         "ev_chargers": [
@@ -119,29 +146,29 @@ async def test_startup_sync_scenarios(tmp_path, monkeypatch):
                 "enabled": True,
                 "ha_ready_by_entity": "input_datetime.ev2_ready",
                 "ha_target_soc_entity": "input_number.ev2_soc",
-            }
-        ]
+            },
+        ],
     }
     monkeypatch.setattr("backend.ha_socket.load_yaml", lambda _: cfg)
 
     # 1. State:
-    # - ev1 has no state goal (needs to seed HA -> state)
-    # - ev2 has a state goal (needs to push state -> HA)
+    # - ev1 has no state goal, HA has sane future values -> seeded from HA
+    # - ev2 has a state goal, HA is unavailable/insane -> pushed back to HA
     initial_state = {
         "ev2": {
             "target_soc_percent": 85,
             "ready_by": "07:30",
             "repeat": "daily",
+            "source": "api",
         }
     }
     state_file.write_text(json.dumps(initial_state))
 
-    # Mock HA get_states results
     results = [
-        {"entity_id": "input_datetime.ev1_ready", "state": "2026-06-11 06:15:00"},
+        {"entity_id": "input_datetime.ev1_ready", "state": future_str},
         {"entity_id": "input_number.ev1_soc", "state": "95.0"},
-        {"entity_id": "input_datetime.ev2_ready", "state": "2026-06-11 08:00:00"},
-        {"entity_id": "input_number.ev2_soc", "state": "50.0"},
+        {"entity_id": "input_datetime.ev2_ready", "state": "unknown"},
+        {"entity_id": "input_number.ev2_soc", "state": "unavailable"},
     ]
 
     client = HAWebSocketClient()
@@ -155,17 +182,115 @@ async def test_startup_sync_scenarios(tmp_path, monkeypatch):
 
     updated = json.loads(state_file.read_text())
 
-    # 2. ev1 seeded from HA
+    # 2. ev1 seeded from HA (sane future datetime -> adopted as a one-off)
     assert "ev1" in updated
     assert updated["ev1"]["target_soc_percent"] == 95
-    assert updated["ev1"]["ready_by"] == "06:15"
-    assert updated["ev1"]["repeat"] == "none"  # because ready_by had a specific date
+    assert updated["ev1"]["repeat"] == "none"
+    assert updated["ev1"]["ready_by_date"] == future.date().isoformat()
     assert updated["ev1"]["source"] == "ha"
 
-    # 3. ev2 state goal kept, and pushed to HA
+    # 3. ev2 state goal kept untouched (HA unavailable), and pushed to HA
     assert updated["ev2"]["target_soc_percent"] == 85
+    assert updated["ev2"]["source"] == "api"
     mock_sync_ha.assert_called_once()
-    # Check arguments of mock_sync_ha: charger_id='ev2', target_soc=85
     args, kwargs = mock_sync_ha.call_args
     assert args[0] == "ev2"
     assert args[1] == 85
+
+
+@pytest.mark.asyncio
+async def test_reconnect_past_ha_datetime_not_adopted_pushes_state_instead(tmp_path, monkeypatch):
+    """A past/stale HA ready-by datetime is never adopted (kills the expired-
+    goal seeding bug); the existing state-file goal is pushed to HA instead."""
+    state_file = tmp_path / "ev_multi_day_state.json"
+    monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
+
+    cfg = {
+        "timezone": "Europe/Stockholm",
+        "ev_chargers": [
+            {
+                "id": "ev1",
+                "enabled": True,
+                "ha_ready_by_entity": "input_datetime.ev1_ready",
+                "ha_target_soc_entity": "input_number.ev1_soc",
+            },
+        ],
+    }
+    monkeypatch.setattr("backend.ha_socket.load_yaml", lambda _: cfg)
+
+    initial_state = {
+        "ev1": {
+            "target_soc_percent": 85,
+            "ready_by": "07:30",
+            "repeat": "daily",
+            "source": "api",
+        }
+    }
+    state_file.write_text(json.dumps(initial_state))
+
+    results = [
+        {"entity_id": "input_datetime.ev1_ready", "state": "2020-01-01 06:00:00"},
+        {"entity_id": "input_number.ev1_soc", "state": "unknown"},
+    ]
+
+    client = HAWebSocketClient()
+    mock_sync_ha = AsyncMock()
+    monkeypatch.setattr("backend.api.routers.ev.sync_goal_to_ha", mock_sync_ha)
+
+    client._sync_ev_schedules_on_startup(results)
+    await asyncio.sleep(0.1)
+
+    updated = json.loads(state_file.read_text())
+    # State-file goal untouched — the past HA datetime was rejected.
+    assert updated["ev1"]["target_soc_percent"] == 85
+    assert updated["ev1"]["ready_by"] == "07:30"
+    assert updated["ev1"]["source"] == "api"
+
+    mock_sync_ha.assert_called_once()
+    args, kwargs = mock_sync_ha.call_args
+    assert args[0] == "ev1"
+    assert args[1] == 85
+
+
+@pytest.mark.asyncio
+async def test_reconnect_adopts_sane_ha_soc_nothing_pushed_back(tmp_path, monkeypatch):
+    """HA SoC changed while Darkstar was offline (sane value) -> adopted;
+    since HA is the only configured entity and it agrees, nothing is pushed."""
+    state_file = tmp_path / "ev_multi_day_state.json"
+    monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
+
+    cfg = {
+        "timezone": "Europe/Stockholm",
+        "ev_chargers": [
+            {
+                "id": "ev1",
+                "enabled": True,
+                "ha_target_soc_entity": "input_number.ev1_soc",
+            },
+        ],
+    }
+    monkeypatch.setattr("backend.ha_socket.load_yaml", lambda _: cfg)
+
+    initial_state = {
+        "ev1": {
+            "target_soc_percent": 60,
+            "ready_by": "07:30",
+            "repeat": "daily",
+            "source": "api",
+        }
+    }
+    state_file.write_text(json.dumps(initial_state))
+
+    results = [{"entity_id": "input_number.ev1_soc", "state": "75.0"}]
+
+    client = HAWebSocketClient()
+    mock_sync_ha = AsyncMock()
+    monkeypatch.setattr("backend.api.routers.ev.sync_goal_to_ha", mock_sync_ha)
+
+    client._sync_ev_schedules_on_startup(results)
+    await asyncio.sleep(0.1)
+
+    updated = json.loads(state_file.read_text())
+    assert updated["ev1"]["target_soc_percent"] == 75
+    assert updated["ev1"]["source"] == "ha"
+    mock_sync_ha.assert_not_called()

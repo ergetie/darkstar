@@ -142,4 +142,28 @@ class MultiDayPlanner:
             scale = remaining_kwh / current_total
             allocation = [a * scale for a in allocation]
 
+        # Re-clamp to physical per-day caps and non-negativity — the rescale
+        # above can push a day back above its cap. Redistribute any residual
+        # to days with remaining headroom instead of emitting a negative or
+        # above-cap allocation; if every day is at its cap, the allocation
+        # legitimately sums to less than remaining_kwh (physically that's
+        # all that can be delivered).
+        caps = [max_daily_kwh[i] if i < len(max_daily_kwh) else float("inf") for i in range(n)]
+        allocation = [min(max(0.0, a), caps[i]) for i, a in enumerate(allocation)]
+        for _ in range(n):
+            residual = remaining_kwh - sum(allocation)
+            if residual <= 1e-9:
+                break
+            headroom_days = [i for i in range(n) if allocation[i] < caps[i] - 1e-9]
+            if not headroom_days:
+                break
+            total_headroom = sum(caps[i] - allocation[i] for i in headroom_days)
+            if total_headroom <= 0:
+                break
+            distribute = min(residual, total_headroom)
+            for i in headroom_days:
+                share = (caps[i] - allocation[i]) / total_headroom
+                allocation[i] += distribute * share
+            allocation = [min(max(0.0, a), caps[i]) for i, a in enumerate(allocation)]
+
         return {day: allocation[i] for i, day in enumerate(days)}

@@ -6,26 +6,27 @@ Loads and validates the executor configuration from config.yaml.
 
 import logging
 from dataclasses import dataclass, field
-from enum import Enum, StrEnum
+from enum import Enum
 from pathlib import Path
 from typing import Any, cast
 
 from ruamel.yaml import YAML
 
-EV_REPEAT_OPTIONS = ("daily", "weekdays", "weekends", "every_n_days", "none")
-
-
-class EVRepeatMode(StrEnum):
-    """How a charger's ready-by time recurs."""
-
-    DAILY = "daily"
-    WEEKDAYS = "weekdays"
-    WEEKENDS = "weekends"
-    EVERY_N_DAYS = "every_n_days"
-    NONE = "none"
-
-
 logger = logging.getLogger(__name__)
+
+# Charging-goal fields live in data/ev_multi_day_state.json (dashboard/API), never
+# in config.yaml. Any of these present on an ev_chargers[] entry triggers a single
+# deprecation warning per charger and are otherwise ignored.
+_DEPRECATED_EV_GOAL_FIELDS = (
+    "target_soc_percent",
+    "ready_by",
+    "repeat",
+    "n_days",
+    "ready_by_date",
+    "keep_on_after_target",
+    "departure_time",
+    "penalty_levels",
+)
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -43,70 +44,6 @@ def _str_or_none(value: Any) -> str | None:
     if value is None or value == "" or str(value).strip() == "":
         return None
     return str(value)
-
-
-def _parse_departure_time(value: Any) -> str | None:
-    """Parse departure time from config value.
-
-    Handles both string "HH:MM" format and integer minutes-since-midnight (0-1439).
-    Defensive conversion for YAML 1.1 sexagesimal misparse (e.g., 16:00 -> 960).
-
-    Args:
-        value: Any value from config (str, int, None, or other)
-
-    Returns:
-        str in "HH:MM" format if valid, None otherwise
-    """
-    if value is None or value == "":
-        return None
-
-    if isinstance(value, int):
-        if 0 <= value <= 1439:
-            return f"{value // 60:02d}:{value % 60:02d}"
-        return None
-
-    # Accept "HH:MM" strings; strip surrounding quotes if present.
-    txt = str(value).strip()
-    if txt in ("''", '""'):
-        return None
-    if not txt:
-        return None
-
-    # Validate HH:MM format/range
-    try:
-        hour_str, minute_str = txt.split(":")
-        hour = int(hour_str)
-        minute = int(minute_str)
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            logger.warning("Invalid ready_by/departure_time value: %r", txt)
-            return None
-    except (ValueError, AttributeError):
-        logger.warning("Invalid ready_by/departure_time format: %r", txt)
-        return None
-
-    return txt
-
-
-def _parse_repeat(value: Any) -> EVRepeatMode:
-    """Parse EV repeat mode from config value, defaulting to daily."""
-    if value is None or value == "":
-        return EVRepeatMode.DAILY
-    txt = str(value).strip().lower()
-    try:
-        return EVRepeatMode(txt)
-    except ValueError:
-        logger.warning("Invalid ev_chargers[].repeat value %r, using 'daily'", value)
-        return EVRepeatMode.DAILY
-
-
-def _parse_ready_by_date(value: Any) -> str | None:
-    """Parse a one-off ready-by date string (ISO date)."""
-    if value is None or value == "":
-        return None
-    txt = str(value).strip()
-    if txt in ("''", '""'):
-        return None
-    return txt or None
 
 
 @dataclass
@@ -197,18 +134,11 @@ class EVChargerDeviceConfig:
     replan_on_plugin: bool = True
     replan_on_unplug: bool = False
 
-    # Goal-based charging (replaces departure_time + penalty_levels)
-    target_soc_percent: int = 80
-    ready_by: str | None = "07:00"
-    repeat: EVRepeatMode = EVRepeatMode.DAILY
-    n_days: int | None = None
-    ready_by_date: str | None = None
-    keep_on_after_target: bool = False
+    # HA entities the charging goal (set in the dashboard, stored in
+    # data/ev_multi_day_state.json) is mirrored to/from. The goal itself is
+    # never read from config.
     ha_ready_by_entity: str | None = None
     ha_target_soc_entity: str | None = None
-
-    # Legacy alias for ready_by (deprecated, one-release compatibility)
-    departure_time: str | None = None
 
     # Variable-current control (universal-load-balancing)
     type: str = "binary"  # "binary" (switch) or "current" (ampere setpoint)
@@ -694,52 +624,14 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             else [1, 2, 3]
         )
 
-        # Legacy departure_time alias -> ready_by
-        raw_ready_by = charger.get("ready_by")
-        raw_departure_time = charger.get("departure_time")
-        ready_by_value: str | None = _parse_departure_time(raw_ready_by)
-        if ready_by_value is None and raw_departure_time is not None:
-            ready_by_value = _parse_departure_time(raw_departure_time)
-            if ready_by_value is not None:
-                logger.warning(
-                    "EV charger '%s': 'departure_time' is deprecated and will be removed. "
-                    "Use 'ready_by' instead. Mapped '%s' -> ready_by.",
-                    charger_id,
-                    ready_by_value,
-                )
-
-        # Legacy penalty_levels -> migrate to target_soc_percent = highest max_soc
-        target_soc_value: int | None = None
-        if "target_soc_percent" in charger:
-            try:
-                target_soc_value = int(charger["target_soc_percent"])
-            except (TypeError, ValueError):
-                target_soc_value = None
-        penalty_levels: list[dict[str, Any]] = charger.get("penalty_levels", [])
-        if penalty_levels:
-            if target_soc_value is None:
-                max_soc_values = [
-                    float(p.get("max_soc", 0.0))
-                    for p in penalty_levels
-                    if p.get("max_soc") is not None
-                ]
-                if max_soc_values:
-                    target_soc_value = int(max(max_soc_values))
-                else:
-                    target_soc_value = EVChargerDeviceConfig.target_soc_percent
-                logger.warning(
-                    "EV charger '%s': 'penalty_levels' is deprecated and removed. "
-                    "Migrated to target_soc_percent=%d. Update your config to use goal fields.",
-                    charger_id,
-                    target_soc_value,
-                )
-            else:
-                logger.warning(
-                    "EV charger '%s': 'penalty_levels' is deprecated and ignored. "
-                    "Using configured target_soc_percent=%d.",
-                    charger_id,
-                    target_soc_value,
-                )
+        deprecated_fields_present = [f for f in _DEPRECATED_EV_GOAL_FIELDS if f in charger]
+        if deprecated_fields_present:
+            logger.warning(
+                "EV charger '%s': %s is set in config but ignored — charging goals are "
+                "set in the dashboard (stored in data/ev_multi_day_state.json), not config.yaml.",
+                charger_id,
+                ", ".join(sorted(deprecated_fields_present)),
+            )
 
         ev_chargers_list.append(
             EVChargerDeviceConfig(
@@ -756,23 +648,6 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 replan_on_unplug=bool(
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
-                target_soc_percent=(
-                    target_soc_value
-                    if target_soc_value is not None
-                    else int(
-                        charger.get("target_soc_percent", EVChargerDeviceConfig.target_soc_percent)
-                    )
-                ),
-                ready_by=(
-                    ready_by_value if ready_by_value is not None else EVChargerDeviceConfig.ready_by
-                ),
-                repeat=_parse_repeat(charger.get("repeat")),
-                n_days=charger.get("n_days") if charger.get("n_days") is not None else None,
-                ready_by_date=_parse_ready_by_date(charger.get("ready_by_date")),
-                keep_on_after_target=bool(
-                    charger.get("keep_on_after_target", EVChargerDeviceConfig.keep_on_after_target)
-                ),
-                departure_time=ready_by_value,  # keep in sync for legacy consumers
                 ha_ready_by_entity=_str_or_none(charger.get("ha_ready_by_entity")),
                 ha_target_soc_entity=_str_or_none(charger.get("ha_target_soc_entity")),
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),

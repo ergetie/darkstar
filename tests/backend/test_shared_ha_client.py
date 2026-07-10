@@ -68,6 +68,63 @@ def test_cross_loop_isolation():
 
 
 @pytest.mark.asyncio
+async def test_ha_action_client_singleton_reuse_within_loop(monkeypatch):
+    """Within one event loop, get_ha_action_client returns the same instance."""
+    monkeypatch.setattr(
+        ha_client.secrets,
+        "load_home_assistant_config",
+        lambda: {"url": "http://ha.local", "token": "tok"},
+    )
+    client1 = ha_client.get_ha_action_client()
+    client2 = ha_client.get_ha_action_client()
+    assert client1 is client2
+    assert client1 is not None
+
+
+@pytest.mark.asyncio
+async def test_ha_action_client_none_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(
+        ha_client.secrets, "load_home_assistant_config", lambda: {"url": None, "token": None}
+    )
+    assert ha_client.get_ha_action_client() is None
+
+
+def test_ha_action_client_cross_loop_isolation(monkeypatch):
+    """Each event loop gets its own backend-owned HA action client instance."""
+    monkeypatch.setattr(
+        ha_client.secrets,
+        "load_home_assistant_config",
+        lambda: {"url": "http://ha.local", "token": "tok"},
+    )
+
+    async def grab_client():
+        return ha_client.get_ha_action_client()
+
+    client_a = asyncio.run(grab_client())
+    client_b = asyncio.run(grab_client())
+
+    assert client_a is not client_b
+
+
+@pytest.mark.asyncio
+async def test_close_ha_action_clients_closes_current_loop_session(monkeypatch):
+    monkeypatch.setattr(
+        ha_client.secrets,
+        "load_home_assistant_config",
+        lambda: {"url": "http://ha.local", "token": "tok"},
+    )
+    client = ha_client.get_ha_action_client()
+    assert client is not None
+    session = await client._get_session()
+    assert not session.closed
+
+    await ha_client.close_ha_action_clients()
+    assert session.closed
+    # The provider forgets the client after closing.
+    assert ha_client.get_ha_action_client() is not client
+
+
+@pytest.mark.asyncio
 async def test_get_entity_state_preserves_error_behavior():
     """get_ha_entity_state returns None and does not raise on connection errors."""
     with patch("backend.core.secrets.load_home_assistant_config") as mock_load:

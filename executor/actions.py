@@ -13,7 +13,6 @@ Key Features:
 """
 
 import asyncio
-import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -239,41 +238,35 @@ class HAClient:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
-        self._session: aiohttp.ClientSession | None = None
+        self._sessions: dict[asyncio.AbstractEventLoop, aiohttp.ClientSession] = {}
 
     async def _get_session(self) -> aiohttp.ClientSession:
-        """Get or create the aiohttp session."""
-        import asyncio
+        """Get or create the aiohttp session for the CURRENT running event loop.
 
+        One session per event loop — a session is never closed from a
+        different loop than the one that created it (closing cross-loop
+        raises "Future attached to a different loop"). A stale/foreign-loop
+        session is simply left alone in ``_sessions``; only the current
+        loop's session is touched here.
+        """
         current_loop = asyncio.get_running_loop()
 
-        # Check if we need a new session (closed, None, or different event loop)
-        need_new_session = (
-            self._session is None
-            or self._session.closed
-            or getattr(self, "_session_loop", None) != current_loop
-        )
-
-        if need_new_session:
-            # Close old session if it exists and belongs to a different loop
-            if self._session and not self._session.closed:
-                with contextlib.suppress(Exception):
-                    await self._session.close()
-
-            self._session = aiohttp.ClientSession(
+        session = self._sessions.get(current_loop)
+        if session is None or session.closed:
+            session = aiohttp.ClientSession(
                 headers=self._headers,
                 timeout=self.timeout,
             )
-            self._session_loop = current_loop
+            self._sessions[current_loop] = session
 
-        assert self._session is not None
-        return self._session
+        return session
 
     async def close(self) -> None:
-        """Close the aiohttp session."""
-        if self._session and not self._session.closed:
-            await self._session.close()
-            self._session = None
+        """Close the aiohttp session belonging to the CURRENT running event loop."""
+        current_loop = asyncio.get_running_loop()
+        session = self._sessions.pop(current_loop, None)
+        if session and not session.closed:
+            await session.close()
 
     async def get_state(self, entity_id: str) -> dict[str, Any] | None:
         """Get the current state of an entity with retry logic."""

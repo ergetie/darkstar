@@ -130,8 +130,11 @@ async def test_ev_soc_fallback_logging_no_crash():
         assert len(ev_soc_warnings) == 1
         assert "0%%" in ev_soc_warnings[0][0]  # Format string has escaped %%
 
-        # Verify result has default EV SoC of 0
+        # Legacy aggregate scalar defaults to 0 for backward compat...
         assert result["ev_soc_percent"] == 0.0
+        # ...but the per-device state carries None, distinguishing "sensor
+        # unavailable" from a real 0% reading (planner double-count fix).
+        assert result["ev_charger_states"][0]["soc_percent"] is None
 
 
 @pytest.mark.asyncio
@@ -149,7 +152,9 @@ async def test_get_ha_entity_state_uses_shared_client():
     mock_client.get.return_value = mock_response
 
     with (
-        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client) as mock_get_client,
+        patch(
+            "backend.core.ha_client.get_ha_http_client", return_value=mock_client
+        ) as mock_get_client,
         patch(
             "backend.core.secrets.load_home_assistant_config",
             return_value={"url": "http://test", "token": "test_token"},
@@ -177,7 +182,9 @@ async def test_get_ha_entity_state_closes_client_on_exception():
     mock_client.get.side_effect = Exception("Connection refused")
 
     with (
-        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client) as mock_get_client,
+        patch(
+            "backend.core.ha_client.get_ha_http_client", return_value=mock_client
+        ) as mock_get_client,
         patch(
             "backend.core.secrets.load_home_assistant_config",
             return_value={"url": "http://test", "token": "test_token"},
@@ -212,7 +219,9 @@ async def test_get_load_profile_from_ha_uses_shared_client():
     }
 
     with (
-        patch("backend.core.ha_client.get_ha_http_client", return_value=mock_client) as mock_get_client,
+        patch(
+            "backend.core.ha_client.get_ha_http_client", return_value=mock_client
+        ) as mock_get_client,
         patch("backend.core.secrets.load_home_assistant_config") as mock_load_config,
     ):
         mock_load_config.return_value = {

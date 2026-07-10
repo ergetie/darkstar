@@ -118,13 +118,10 @@ ev_chargers:
     plug_sensor: ""                  # EV plug status sensor - Required for smart charging
     type: binary                     # Control type: binary (ON/OFF switch) or current (variable ampere setpoint)
     nominal_power_kw: 11.0           # Nominal power for load calculations
-    # Goal-based charging (replaces penalty_levels / departure_time)
-    target_soc_percent: 80           # Target SoC % to reach by ready_by
-    ready_by: "07:00"                # Time the target should be met (HH:MM, 24-hour)
-    repeat: daily                    # daily | weekdays | weekends | every_n_days | none
-    # n_days: 2                       # Required when repeat: every_n_days
-    # ready_by_date: "2026-06-12"     # Required when repeat: none (one-off date)
-    keep_on_after_target: false      # Keep charger switch ON through ready_by after target is met
+    # Charging goals (target SoC, ready-by, repeat, n_days, keep-on-after-target) are
+    # set in the dashboard, not here — they live in data/ev_multi_day_state.json and
+    # are the sole source of truth for the planner. A charger with no goal set in the
+    # dashboard simply has no charging goal until one is set.
     # ha_ready_by_entity: "input_datetime.ev_ready_by"
     # ha_target_soc_entity: "input_number.ev_target_soc"
     switch_entity: ""                # HA entity to enable/disable smart charging (e.g. switch.ev_charger). Used when type=binary
@@ -151,7 +148,6 @@ ev_chargers:
   #   sensor: sensor.fiat_power
   #   type: variable
   #   nominal_power_kw: 7.4
-  #   departure_time: ""
   #   switch_entity: ""
   #   replan_on_plugin: true
   #   replan_on_unplug: false

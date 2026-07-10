@@ -66,7 +66,11 @@ async def test_connect_authenticates_subscribes_and_handles_messages():
             "id": 2,
             "type": "result",
             "result": [
-                {"entity_id": "sensor.soc", "state": "55", "attributes": {"unit_of_measurement": "%"}}
+                {
+                    "entity_id": "sensor.soc",
+                    "state": "55",
+                    "attributes": {"unit_of_measurement": "%"},
+                }
             ],
         },
         {
@@ -85,6 +89,10 @@ async def test_connect_authenticates_subscribes_and_handles_messages():
     with (
         patch("backend.ha_socket.websockets.connect", return_value=fake_ws),
         patch("backend.events.emit_live_metrics") as emit_live_metrics,
+        # _sync_ev_schedules_on_startup (called from the get_states handler)
+        # reads config.yaml fresh — keep it mocked so it never touches the
+        # real config or the real EV state file.
+        patch("backend.ha_socket.load_yaml", return_value=CONFIG),
     ):
         await client.connect()
 

@@ -16,7 +16,7 @@ The Dashboard Energy Resources card SHALL display metrics conditionally based on
 
 The "House Load" metric SHALL always be displayed.
 
-When `has_ev_charger` is true, the card SHALL expose a "Metrics | EV" tab switch. The "Metrics" tab SHALL show the resource metrics (including an at-a-glance EV summary line); the "EV" tab SHALL show per-charger goal controls and progress as defined in the `ev-dashboard-card` capability. The active tab SHALL be persisted in `localStorage`.
+When `has_ev_charger` is true, the card SHALL expose a "Metrics | EV" tab switch. The "Metrics" tab SHALL show the resource metrics (including an at-a-glance EV summary line); the "EV" tab SHALL show per-charger goal controls and progress as defined in the `ev-dashboard-card` capability. The active tab SHALL be persisted in `localStorage`. When `has_ev_charger` is false (or no chargers are configured), the card SHALL render the Metrics view **regardless of any persisted tab value** — a stale `localStorage` preference for the EV tab SHALL never lock the user out of the Metrics view.
 
 #### Scenario: Full configuration (all features enabled)
 - **WHEN** the Dashboard loads with all `has_*` flags `true`
@@ -27,6 +27,10 @@ When `has_ev_charger` is true, the card SHALL expose a "Metrics | EV" tab switch
 - **WHEN** the Dashboard loads with all optional `has_*` flags `false`
 - **THEN** only "House Load" is displayed
 - **AND** no EV tab is shown
+
+#### Scenario: EV tab preference outlives the charger
+- **WHEN** the user last used the EV tab and later disables/removes all EV chargers
+- **THEN** the card SHALL render the Metrics view on next load (not an empty EV view with no way back)
 
 #### Scenario: EV-only conditional example
 - **WHEN** `has_ev_charger: true`

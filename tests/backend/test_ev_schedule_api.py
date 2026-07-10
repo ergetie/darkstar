@@ -53,7 +53,15 @@ async def test_set_schedule_happy_path(tmp_path, monkeypatch):
     state_file = tmp_path / "ev_multi_day_state.json"
     monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
 
-    cfg = {"ev_chargers": [_charger_cfg(id="ev1", ha_ready_by_entity="input_datetime.ev_ready_by", ha_target_soc_entity="input_number.ev_target_soc")]}
+    cfg = {
+        "ev_chargers": [
+            _charger_cfg(
+                id="ev1",
+                ha_ready_by_entity="input_datetime.ev_ready_by",
+                ha_target_soc_entity="input_number.ev_target_soc",
+            )
+        ]
+    }
     monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
 
     p_power, p_soc, p_plug = _patch_ha(power_kw=1.0, soc=40.0, plugged=True)
@@ -166,7 +174,130 @@ async def test_set_schedule_422_invalid_inputs(tmp_path, monkeypatch):
     assert excinfo.value.status_code == 422
 
     # None repeat without date
-    body = EVChargerScheduleBody(target_soc_percent=80, ready_by="07:00", repeat="none", ready_by_date=None)
+    body = EVChargerScheduleBody(
+        target_soc_percent=80, ready_by="07:00", repeat="none", ready_by_date=None
+    )
     with pytest.raises(HTTPException) as excinfo:
         await set_ev_charger_schedule("ev1", body, bg_tasks)
     assert excinfo.value.status_code == 422
+
+    # Impossible calendar date (Feb 31 doesn't exist)
+    body = EVChargerScheduleBody(
+        target_soc_percent=80, ready_by="07:00", repeat="none", ready_by_date="2026-02-31"
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        await set_ev_charger_schedule("ev1", body, bg_tasks)
+    assert excinfo.value.status_code == 422
+
+    # Past date
+    body = EVChargerScheduleBody(
+        target_soc_percent=80, ready_by="07:00", repeat="none", ready_by_date="2020-01-01"
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        await set_ev_charger_schedule("ev1", body, bg_tasks)
+    assert excinfo.value.status_code == 422
+
+    # n_days < 1
+    body = EVChargerScheduleBody(
+        target_soc_percent=80, ready_by="07:00", repeat="every_n_days", n_days=0
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        await set_ev_charger_schedule("ev1", body, bg_tasks)
+    assert excinfo.value.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_n_days_round_trip_through_state_and_planner(tmp_path, monkeypatch):
+    """POST with every_n_days/n_days=3 -> state file -> planner run -> deadline
+    3 days out -> GET returns n_days: 3."""
+    state_file = tmp_path / "ev_multi_day_state.json"
+    monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
+
+    cfg = {"ev_chargers": [_charger_cfg(id="ev1")], "timezone": "Europe/Stockholm"}
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
+
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=40.0, plugged=True)
+
+    body = EVChargerScheduleBody(
+        target_soc_percent=80, ready_by="07:00", repeat="every_n_days", n_days=3
+    )
+    bg_tasks = BackgroundTasks()
+
+    with p_power, p_soc, p_plug:
+        res = await set_ev_charger_schedule("ev1", body, bg_tasks)
+
+    assert res["n_days"] == 3
+
+    written = json.loads(state_file.read_text())
+    assert written["ev1"]["n_days"] == 3
+
+    # Planner merge picks up n_days from the state file (real pipeline code path).
+    from planner.pipeline import merge_ev_goals_from_state
+
+    merged = merge_ev_goals_from_state([{"id": "ev1"}], written)
+    assert merged[0]["n_days"] == 3
+
+    from backend.core.ev_goal import resolve_next_ready_by
+    from datetime import datetime
+    import pytz
+
+    tz = pytz.timezone("Europe/Stockholm")
+    now = datetime.now(tz)
+    deadline = resolve_next_ready_by(merged[0], now, tz)
+    assert deadline is not None
+    assert (deadline.date() - now.date()).days >= 1
+
+
+@pytest.mark.asyncio
+async def test_goal_survives_planner_persist_cycle_byte_identical(tmp_path, monkeypatch):
+    """A goal set via the API survives a planner _persist_ev_multi_day_state
+    cycle byte-identical (goal fields are preserved verbatim, never derived)."""
+    state_file = tmp_path / "ev_multi_day_state.json"
+    monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
+
+    cfg = {"ev_chargers": [_charger_cfg(id="ev1")], "timezone": "Europe/Stockholm"}
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
+
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=40.0, plugged=True)
+    body = EVChargerScheduleBody(
+        target_soc_percent=80, ready_by="07:00", repeat="daily", n_days=None
+    )
+    bg_tasks = BackgroundTasks()
+    with p_power, p_soc, p_plug:
+        await set_ev_charger_schedule("ev1", body, bg_tasks)
+
+    goal_after_post = json.loads(state_file.read_text())["ev1"]
+
+    from datetime import UTC, datetime, timedelta
+
+    from planner.pipeline import _persist_ev_multi_day_state
+    import pytz
+
+    tz = pytz.timezone("Europe/Stockholm")
+    now = datetime.now(UTC)
+    ev_states = [
+        {
+            "id": "ev1",
+            "deadline": now + timedelta(hours=5),
+            "required_kwh": 12.0,
+            "soc_percent": 40.0,
+            "plugged_in": True,
+        }
+    ]
+    _persist_ev_multi_day_state(
+        ev_states, [{"id": "ev1", "max_power_kw": 7.4}], sqlite_path="", tz=tz, now=now
+    )
+
+    goal_after_persist = json.loads(state_file.read_text())["ev1"]
+    goal_fields = (
+        "target_soc_percent",
+        "ready_by",
+        "repeat",
+        "ready_by_date",
+        "n_days",
+        "keep_on_after_target",
+        "source",
+        "last_updated",
+    )
+    for field in goal_fields:
+        assert goal_after_persist[field] == goal_after_post[field], field

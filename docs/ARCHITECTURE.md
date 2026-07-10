@@ -819,11 +819,11 @@ ev_chargers:
     enabled: true
     max_power_kw: 11.0
     battery_capacity_kwh: 82.0
-    min_soc_percent: 20.0
-    target_soc_percent: 80.0
     sensor: sensor.tesla_power    # Power sensor for disaggregation
     type: variable
     nominal_power_kw: 11.0
+    # Charging goals (target SoC, ready-by, repeat) are NOT config — they're
+    # set in the dashboard and stored in data/ev_multi_day_state.json.
 ```
 
 **Key Benefits:**

@@ -12,7 +12,7 @@ import {
     Loader2,
 } from 'lucide-react'
 import Card from './Card'
-import { Api } from '../lib/api'
+import { Api, type EVChargerState } from '../lib/api'
 import { useSocket } from '../lib/hooks'
 import EVChargerCard from './EVChargingCard'
 
@@ -408,6 +408,10 @@ export function ResourcesDomain({
         }
     }
 
+    // A persisted 'ev' tab must never render when there's no EV charger to
+    // show — guard at render time, not just by hiding the toggle button.
+    const effectiveTab = hasEvCharger ? activeTab : 'metrics'
+
     return (
         <Card className="p-4 flex flex-col h-full relative overflow-hidden">
             <div className="absolute inset-0 bg-amber-500/[0.01]" />
@@ -449,7 +453,7 @@ export function ResourcesDomain({
                 )}
             </div>
 
-            {activeTab === 'metrics' ? (
+            {effectiveTab === 'metrics' ? (
                 <div className="space-y-4 relative z-10">
                     {/* PV Section - conditional on hasSolar */}
                     {hasSolar && (
@@ -536,20 +540,26 @@ export function ResourcesDomain({
 }
 
 function EVTabContent({ config }: { config: any }) {
-    const [chargers, setChargers] = useState<any[]>([])
+    const [chargers, setChargers] = useState<EVChargerState[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const fetchSeqRef = React.useRef(0)
 
-    const fetchChargers = useCallback(() => {
+    const fetchChargers = useCallback(async () => {
+        const seq = ++fetchSeqRef.current
         setLoading(true)
-        Api.ev
-            .chargers()
-            .then(setChargers)
-            .catch((err) => {
-                console.error('Failed to fetch EV chargers', err)
-                setError('Failed to load chargers')
-            })
-            .finally(() => setLoading(false))
+        try {
+            const data = await Api.ev.chargers()
+            if (seq !== fetchSeqRef.current) return // a newer request has since started/resolved
+            setChargers(data)
+            setError(null)
+        } catch (err) {
+            if (seq !== fetchSeqRef.current) return
+            console.error('Failed to fetch EV chargers', err)
+            setError('Failed to load chargers')
+        } finally {
+            if (seq === fetchSeqRef.current) setLoading(false)
+        }
     }, [])
 
     useEffect(() => {
@@ -609,7 +619,7 @@ function EVTabContent({ config }: { config: any }) {
         )
     }
 
-    const visibleChargers = chargers.filter((c: any) => !c.externally_controlled)
+    const visibleChargers = chargers.filter((c) => !c.externally_controlled)
 
     if (error && visibleChargers.length === 0) {
         return <div className="text-center py-12 text-bad text-xs relative z-10">{error}</div>

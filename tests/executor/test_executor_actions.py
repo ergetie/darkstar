@@ -4,6 +4,7 @@ Tests for Executor Actions (HAClient and ActionDispatcher)
 Tests with mocked HTTP requests to avoid needing a live Home Assistant instance.
 """
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
@@ -337,11 +338,12 @@ class TestHAClientCrossThreadSafety:
         ):
             session2 = await client._get_session()
 
-        # Verify we got a different session
+        # Verify we got a different session, and both are retained per-loop
+        # (never closed cross-loop — only a closed session is recreated).
         assert session1 is mock_session1
         assert session2 is mock_session2
         assert session1 is not session2
-        assert client._session_loop == loop2
+        assert client._sessions[loop2] is mock_session2
 
     @pytest.mark.asyncio
     async def test_session_reused_on_same_event_loop(self):
@@ -368,7 +370,52 @@ class TestHAClientCrossThreadSafety:
         assert session1 is mock_session
         assert session2 is mock_session
         assert session1 is session2
-        assert client._session_loop == loop
+        assert client._sessions[loop] is mock_session
+
+    @pytest.mark.asyncio
+    async def test_close_from_one_loop_does_not_close_session_on_another_loop(self):
+        """Backend-owned session ownership (task 6.4): saving a schedule from
+        the API's event loop must not close a real aiohttp session that was
+        created on a different (e.g. the executor's) event loop."""
+        import threading
+
+        client = HAClient("http://ha:8123", "token123")
+
+        other_loop = asyncio.new_event_loop()
+        other_session_holder: dict[str, aiohttp.ClientSession] = {}
+
+        def _run_other_loop():
+            asyncio.set_event_loop(other_loop)
+            session = other_loop.run_until_complete(client._get_session())
+            other_session_holder["session"] = session
+            other_loop.run_forever()
+
+        thread = threading.Thread(target=_run_other_loop, daemon=True)
+        thread.start()
+        # Wait until the other loop has created its session.
+        for _ in range(100):
+            if "session" in other_session_holder:
+                break
+            await asyncio.sleep(0.01)
+        assert "session" in other_session_holder
+
+        # Create AND close a session on THIS (the current test's) event loop.
+        this_session = await client._get_session()
+        await client.close()
+
+        other_session = other_session_holder["session"]
+        assert this_session is not other_session
+        assert not other_session.closed, "closing on one loop must not close another loop's session"
+
+        # Clean up the other loop's session and thread.
+        async def _cleanup():
+            await other_session.close()
+
+        fut = asyncio.run_coroutine_threadsafe(_cleanup(), other_loop)
+        fut.result(timeout=5)
+        other_loop.call_soon_threadsafe(other_loop.stop)
+        thread.join(timeout=5)
+        other_loop.close()
 
 
 class TestSetWaterTemp:
@@ -530,7 +577,12 @@ class TestSetEvChargerCurrent:
 
     @pytest.fixture
     def base_config(self):
-        from executor.config import ControllerConfig, ExecutorConfig, InverterConfig, NotificationConfig
+        from executor.config import (
+            ControllerConfig,
+            ExecutorConfig,
+            InverterConfig,
+            NotificationConfig,
+        )
 
         return ExecutorConfig(
             inverter=InverterConfig(),

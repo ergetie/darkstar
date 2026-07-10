@@ -1,4 +1,10 @@
-"""Tests for EV charger config parsing and goal-based field migration."""
+"""Tests for EV charger config parsing.
+
+Charging goals (target SoC, ready-by, repeat, n_days, keep_on_after_target)
+are set in the dashboard and stored in data/ev_multi_day_state.json — config.yaml
+carries only hardware facts and HA entity mappings. Any legacy goal field found
+in an ev_chargers[] entry is ignored with a deprecation warning, never parsed.
+"""
 
 from __future__ import annotations
 
@@ -8,8 +14,7 @@ from typing import Any
 
 import pytest
 
-from executor.config import EVChargerDeviceConfig, EVRepeatMode, load_executor_config
-
+from executor.config import EVChargerDeviceConfig, load_executor_config
 
 MINIMAL_CONFIG: dict[str, Any] = {
     "config_version": 2,
@@ -35,7 +40,18 @@ def _write_config(path: str, data: dict[str, Any]) -> None:
         yaml.dump(data, f)
 
 
-def test_default_goal_fields() -> None:
+def _load(data: dict[str, Any]) -> Any:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+        path = f.name
+    try:
+        _write_config(path, data)
+        return load_executor_config(path)
+    finally:
+        Path(path).unlink(missing_ok=True)
+
+
+def test_goal_fields_are_not_parsed() -> None:
+    """Config no longer carries goal state; the dataclass has no such fields."""
     data = {
         **MINIMAL_CONFIG,
         "ev_chargers": [
@@ -43,176 +59,72 @@ def test_default_goal_fields() -> None:
                 "id": "ev1",
                 "enabled": True,
                 "battery_capacity_kwh": 50,
+                "target_soc_percent": 80,
+                "ready_by": "07:00",
+                "repeat": "daily",
+                "keep_on_after_target": True,
             }
         ],
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
+    cfg = _load(data)
     ev = cfg.ev_chargers[0]
-    assert ev.target_soc_percent == 80
-    assert ev.ready_by == "07:00"
-    assert ev.repeat == EVRepeatMode.DAILY
-    assert ev.keep_on_after_target is False
+    assert not hasattr(ev, "target_soc_percent")
+    assert not hasattr(ev, "ready_by")
+    assert not hasattr(ev, "repeat")
+    assert not hasattr(ev, "keep_on_after_target")
+    assert ev.battery_capacity_kwh == 50
 
 
-def test_ready_by_string_and_int() -> None:
-    data = {
-        **MINIMAL_CONFIG,
-        "ev_chargers": [
-            {"id": "ev1", "enabled": True, "ready_by": "16:30"},
-            {"id": "ev2", "enabled": True, "ready_by": 960},
-        ],
-    }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-    assert cfg.ev_chargers[0].ready_by == "16:30"
-    assert cfg.ev_chargers[1].ready_by == "16:00"
-
-
-def test_departure_time_alias_warns_and_maps(caplog: pytest.LogCaptureFixture) -> None:
-    data = {
-        **MINIMAL_CONFIG,
-        "ev_chargers": [
-            {"id": "ev1", "enabled": True, "departure_time": "08:15"},
-        ],
-    }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-    ev = cfg.ev_chargers[0]
-    assert ev.ready_by == "08:15"
-    assert ev.departure_time == "08:15"
-    assert "departure_time" in caplog.text
-    assert "deprecated" in caplog.text.lower()
-
-
-def test_penalty_levels_migrates_to_target_soc(caplog: pytest.LogCaptureFixture) -> None:
+def test_all_legacy_goal_fields_load_cleanly_with_one_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     data = {
         **MINIMAL_CONFIG,
         "ev_chargers": [
             {
                 "id": "ev1",
                 "enabled": True,
-                "penalty_levels": [
-                    {"max_soc": 60, "penalty_sek": 1},
-                    {"max_soc": 90, "penalty_sek": 3},
-                ],
+                "target_soc_percent": 80,
+                "ready_by": "07:00",
+                "repeat": "daily",
+                "n_days": 2,
+                "ready_by_date": "2026-06-12",
+                "keep_on_after_target": True,
+                "departure_time": "08:00",
+                "penalty_levels": [{"max_soc": 90, "penalty_sek": 1}],
             }
         ],
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
+    with caplog.at_level("WARNING"):
+        cfg = _load(data)
 
-    ev = cfg.ev_chargers[0]
-    assert ev.target_soc_percent == 90
-    assert "penalty_levels" in caplog.text
-    assert "deprecated" in caplog.text.lower()
+    assert len(cfg.ev_chargers) == 1
+    # Exactly one deprecation warning is logged for this charger, naming the dashboard.
+    deprecation_warnings = [
+        r
+        for r in caplog.records
+        if "ev1" in r.getMessage() and "dashboard" in r.getMessage().lower()
+    ]
+    assert len(deprecation_warnings) == 1
 
 
-def test_penalty_levels_ignored_when_target_soc_present(caplog: pytest.LogCaptureFixture) -> None:
+def test_malformed_goal_field_values_do_not_raise() -> None:
     data = {
         **MINIMAL_CONFIG,
         "ev_chargers": [
             {
                 "id": "ev1",
                 "enabled": True,
-                "target_soc_percent": 75,
-                "penalty_levels": [{"max_soc": 100, "penalty_sek": 5}],
+                "target_soc_percent": "80%",
+                "repeat": 12345,
+                "ready_by_date": {"nested": True},
+                "n_days": "two",
             }
         ],
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-    assert cfg.ev_chargers[0].target_soc_percent == 75
-
-
-def test_repeat_modes() -> None:
-    data = {
-        **MINIMAL_CONFIG,
-        "ev_chargers": [
-            {"id": "ev1", "enabled": True, "repeat": "weekdays"},
-            {"id": "ev2", "enabled": True, "repeat": "every_n_days", "n_days": 3},
-            {"id": "ev3", "enabled": True, "repeat": "none", "ready_by_date": "2026-06-12"},
-        ],
-    }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-    assert cfg.ev_chargers[0].repeat == EVRepeatMode.WEEKDAYS
-    assert cfg.ev_chargers[1].repeat == EVRepeatMode.EVERY_N_DAYS
-    assert cfg.ev_chargers[1].n_days == 3
-    assert cfg.ev_chargers[2].repeat == EVRepeatMode.NONE
-    assert cfg.ev_chargers[2].ready_by_date == "2026-06-12"
-
-
-def test_invalid_repeat_defaults_to_daily() -> None:
-    data = {
-        **MINIMAL_CONFIG,
-        "ev_chargers": [
-            {"id": "ev1", "enabled": True, "repeat": "fortnightly"},
-        ],
-    }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-    assert cfg.ev_chargers[0].repeat == EVRepeatMode.DAILY
-
-
-def test_invalid_ready_by_falls_back_to_default() -> None:
-    data = {
-        **MINIMAL_CONFIG,
-        "ev_chargers": [
-            {"id": "ev1", "enabled": True, "ready_by": "25:00"},
-        ],
-    }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
-
-    # Invalid time is rejected and the shipped default is used.
-    assert cfg.ev_chargers[0].ready_by == "07:00"
+    cfg = _load(data)
+    assert len(cfg.ev_chargers) == 1
+    assert cfg.ev_chargers[0].id == "ev1"
 
 
 def test_ha_entity_fields_parse() -> None:
@@ -234,16 +146,10 @@ def test_ha_entity_fields_parse() -> None:
             {
                 "id": "ev3",
                 "enabled": True,
-            }
+            },
         ],
     }
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
-        path = f.name
-    try:
-        _write_config(path, data)
-        cfg = load_executor_config(path)
-    finally:
-        Path(path).unlink(missing_ok=True)
+    cfg = _load(data)
 
     ev1 = cfg.ev_chargers[0]
     assert ev1.ha_ready_by_entity == "input_datetime.ev_ready_by"
@@ -256,3 +162,24 @@ def test_ha_entity_fields_parse() -> None:
     ev3 = cfg.ev_chargers[2]
     assert ev3.ha_ready_by_entity is None
     assert ev3.ha_target_soc_entity is None
+
+
+def test_hardware_fields_unaffected_by_deprecated_fields() -> None:
+    """battery_capacity_kwh etc. still parse normally alongside ignored goal fields."""
+    data = {
+        **MINIMAL_CONFIG,
+        "ev_chargers": [
+            {
+                "id": "ev1",
+                "enabled": True,
+                "max_power_kw": 11.0,
+                "battery_capacity_kwh": 82.0,
+                "target_soc_percent": 80,
+            }
+        ],
+    }
+    cfg = _load(data)
+    ev = cfg.ev_chargers[0]
+    assert ev.max_power_kw == 11.0
+    assert ev.battery_capacity_kwh == 82.0
+    assert isinstance(ev, EVChargerDeviceConfig)

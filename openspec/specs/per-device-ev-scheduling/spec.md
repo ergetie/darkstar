@@ -5,43 +5,24 @@
 TBD - Defines how the system handles multiple EV chargers with independent per-device scheduling, MILP decision variables, deadline constraints, SoC tracking, and executor control.
 ## Requirements
 ### Requirement: Per-device EV config structure
-Each entry in `ev_chargers[]` SHALL support the following per-device fields: `switch_entity` (string, HA entity ID), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), and the goal fields below. The goal fields replace the prior `departure_time` + `penalty_levels` model.
+Each entry in `ev_chargers[]` SHALL support the following per-device fields: `switch_entity` (string, HA entity ID), `replan_on_plugin` (boolean, default true), `replan_on_unplug` (boolean, default false), plus hardware facts (`sensor`, `soc_sensor`, `plug_sensor`, `battery_capacity_kwh`, `max_power_kw`, `type`, current/phase entities) and the optional HA goal entities (`ha_ready_by_entity`, `ha_target_soc_entity`).
 
-Goal fields:
-- `target_soc_percent` (int, 0–100, default 80) — the SoC the vehicle should reach.
-- `ready_by` (string, `HH:MM` 24h) — the time the target should be met by.
-- `repeat` (enum `daily` | `weekdays` | `weekends` | `every_n_days` | `none`, default `daily`) — how the ready-by time recurs. `none` = a one-off.
-- `n_days` (int) — used when `repeat: every_n_days`.
-- `ready_by_date` (string, ISO date) — used when `repeat: none` (the specific date for the one-off).
-- `keep_on_after_target` (boolean, default false) — keep the switch ON through the ready-by time after the target is met.
+**Goal fields do NOT live in config.** `target_soc_percent`, `ready_by`, `repeat`, `n_days`, `ready_by_date`, and `keep_on_after_target` SHALL NOT be read from `config.yaml`; goals are owned by `data/ev_multi_day_state.json` via the dashboard/API/HA sync (see `ev-schedule-api`). If any goal field (or the legacy `departure_time` / `penalty_levels`) is present in config, the loader SHALL log a deprecation warning naming the dashboard as the place to set goals, and SHALL ignore the value for scheduling. Malformed values in these ignored fields SHALL NOT crash config loading.
 
-**No `charge_priority` field.** Surplus-PV routing is owned by the existing `excess_pv.priority[]` list (see `excess-pv-priority-dispatch`); the home battery is implicitly first via `soc_threshold_percent`. Adding a per-charger switch here would duplicate or contradict that surface.
+**No `charge_priority` field.** Surplus-PV routing is owned by the existing `excess_pv.priority[]` list (see `excess-pv-priority-dispatch`).
 
-`penalty_levels` is **retired**: if present it SHALL be ignored for scheduling, SHALL emit a one-release deprecation warning, and SHALL be auto-migrated to `target_soc_percent` equal to the highest configured `max_soc`. `departure_time` SHALL be accepted as a deprecated alias for `ready_by` (with a warning). The config loader SHALL use a YAML 1.2 parser (ruamel.yaml) so unquoted `HH:MM` values read as strings, and SHALL accept the time as either `"HH:MM"` or an integer minutes-since-midnight (0–1439), converting integers to `"HH:MM"`; out-of-range values SHALL be treated as invalid.
+#### Scenario: Config with goal fields is tolerated but ignored
+- **WHEN** a charger config still contains `target_soc_percent: 90` or `departure_time: "07:00"`
+- **THEN** the loader SHALL emit a deprecation warning pointing to the dashboard
+- **AND** the value SHALL NOT influence scheduling (the state-file goal, or absence of one, governs)
 
-#### Scenario: Charger with a daily goal
-- **WHEN** a charger has `target_soc_percent: 80`, `ready_by: "07:00"`, `repeat: daily`
-- **THEN** the pipeline SHALL aim to reach 80% by the next 07:00 and repeat every day
-
-#### Scenario: Charger with a one-off date
-- **WHEN** a charger has `repeat: none`, `ready_by_date: "2026-06-12"`, `ready_by: "07:00"`, `target_soc_percent: 100`
-- **THEN** the pipeline SHALL aim to reach 100% by 2026-06-12 07:00 and SHALL become inert after that datetime passes
-
-#### Scenario: Legacy penalty_levels present
-- **WHEN** a charger config still contains `penalty_levels`
-- **THEN** the loader SHALL ignore them for scheduling, emit a deprecation warning, and set `target_soc_percent` to the highest configured `max_soc`
-
-#### Scenario: Legacy departure_time alias
-- **WHEN** a charger config uses `departure_time: "07:00"` and no `ready_by`
-- **THEN** the loader SHALL treat `07:00` as `ready_by` and emit a deprecation warning
+#### Scenario: Malformed legacy goal value does not crash
+- **WHEN** a charger config contains `target_soc_percent: "80%"`
+- **THEN** config loading SHALL succeed with a warning (no ValueError propagation)
 
 #### Scenario: Charger with no switch entity
 - **WHEN** an enabled charger has `switch_entity: ""` or the field is absent
 - **THEN** the executor SHALL skip switch control for that charger (planning-only mode)
-
-#### Scenario: Unquoted HH:MM in config.yaml read correctly
-- **WHEN** config.yaml contains `ready_by: 16:00` (unquoted)
-- **THEN** the YAML 1.2 parser SHALL read it as the string `"16:00"` (not the integer `960`)
 
 ### Requirement: Per-device MILP decision variables
 The Kepler solver SHALL create separate decision variables for each plugged-in, enabled EV charger: a binary `ev_charge[d][t]` (charging on/off) and continuous `ev_energy[d][t]` (energy in kWh) indexed by device `d` and time slot `t`.
@@ -67,17 +48,6 @@ The solver SHALL enforce a per-device deadline constraint: for each charger with
 - **WHEN** charger A has deadline 07:00 and charger B has deadline 09:00
 - **THEN** charger A SHALL have zero charging in all slots ending after 07:00
 - **AND** charger B MAY still charge in slots between 07:00 and 09:00
-
-### Requirement: Per-device SoC and incentive bucket constraints
-The solver SHALL track per-device incentive buckets based on each charger's `battery_capacity_kwh`, current `soc_percent`, and `penalty_levels`. Each charger's total energy charged SHALL equal the sum of its bucket allocations.
-
-#### Scenario: Two chargers with different SoC levels
-- **WHEN** charger A is at 20% SoC (high incentive to charge) and charger B is at 80% SoC (low incentive)
-- **THEN** the solver SHALL prioritize charging charger A over charger B when grid import is constrained
-
-#### Scenario: Charger with no penalty levels uses default bucket
-- **WHEN** a charger has empty `penalty_levels`
-- **THEN** the solver SHALL create a single bucket covering 0-100% SoC with zero penalty (charge whenever cost-effective)
 
 ### Requirement: Per-device discharge blocking
 The solver SHALL enforce discharge blocking when ANY charger is charging: `discharge[t] <= (1 - any_ev_charging[t]) * M` where `any_ev_charging[t]` is 1 if any charger is active in slot t.
@@ -198,15 +168,16 @@ This requirement SHALL apply equally when `max_power_kw` is entirely absent from
 - **AND** the next planner run includes the charger in `KeplerConfig.ev_chargers`
 
 ### Requirement: Per-device ready-by resolution
-The pipeline SHALL resolve each charger's next ready-by datetime independently from its `ready_by` + `repeat` (or `ready_by_date` when `repeat: none`). This resolved datetime SHALL be used as the Kepler deadline for that charger. A charger past a non-repeating ready-by datetime SHALL have no deadline (inert).
+The pipeline SHALL resolve each charger's next ready-by datetime independently from its state-file goal (`ready_by` + `repeat`, `n_days` when `repeat: every_n_days`, or `ready_by_date` when `repeat: none`). Resolution SHALL use **one shared resolver function** used identically by the planner pipeline, the schedule API, and the HA sync — divergent duplicate implementations are a defect. The shared resolver SHALL default `n_days` to 1 and SHALL anchor the `every_n_days` cycle to the goal's `last_updated` date (deterministic and user-controllable by re-saving), not a hard-coded epoch. A missing/null `repeat` SHALL be treated as `daily` (never string-matched against `"none"`). This resolved datetime SHALL be used as the Kepler deadline for that charger. A charger past a non-repeating ready-by datetime SHALL have no deadline (inert).
 
 #### Scenario: Daily repeat resolves to the next occurrence
 - **WHEN** `ready_by: "07:00"`, `repeat: daily`, and the current time is 22:00
 - **THEN** the resolved deadline SHALL be tomorrow 07:00
 
 #### Scenario: Every-N-days repeat
-- **WHEN** `repeat: every_n_days`, `n_days: 2`, and today is not a charging day
-- **THEN** the resolved deadline SHALL be the `ready_by` time on the next matching day
+- **WHEN** `repeat: every_n_days`, `n_days: 3`, and the goal was last saved today
+- **THEN** the resolved deadline SHALL be the `ready_by` time 3 days from the save date, and every 3 days thereafter
+- **AND** the API, planner, and HA sync SHALL all resolve the same datetime
 
 #### Scenario: One-off date in the future
 - **WHEN** `repeat: none`, `ready_by_date: "2026-06-12"`, `ready_by: "07:00"`, and today is 2026-06-08
@@ -215,6 +186,10 @@ The pipeline SHALL resolve each charger's next ready-by datetime independently f
 #### Scenario: One-off date already passed
 - **WHEN** `repeat: none` and the `ready_by_date`/`ready_by` datetime is in the past
 - **THEN** the charger SHALL have no deadline and SHALL NOT be scheduled
+
+#### Scenario: Null repeat from a legacy state file
+- **WHEN** a state-file goal has `repeat: null`
+- **THEN** the resolver SHALL treat it as `daily` (not as the one-off `"none"` mode)
 
 ### Requirement: Per-device EV config supports optional HA goal entities
 Each entry in `ev_chargers[]` SHALL support two optional fields: `ha_ready_by_entity` (string, HA `input_datetime` entity ID) and `ha_target_soc_entity` (string, HA `input_number` entity ID). When configured, the backend SHALL sync the charger's ready-by time and target SoC bidirectionally with those entities, and HA values SHALL take priority over the dashboard value when set. (The core goal fields — `target_soc_percent`, `ready_by`, `repeat`, `keep_on_after_target` — are defined by the `per-device-ev-scheduling` change in Module 4. **No `charge_priority`** — surplus ordering is owned by `excess_pv.priority[]`.)

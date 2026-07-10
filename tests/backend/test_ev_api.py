@@ -208,8 +208,13 @@ async def test_missing_state_file_returns_idle_with_live_sensors(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_stale_state_returns_idle(monkeypatch):
+async def test_old_last_updated_still_reports_goal_truthfully(monkeypatch):
+    """GET no longer nulls the goal based on ``last_updated`` age — the
+    planner is what decides whether to act on it; ``last_planned_at`` reports
+    when the planner last computed this progress instead of silently hiding
+    the goal (removed 2-hour staleness rule)."""
     now = datetime.now(UTC)
+    last_planned = (now - timedelta(hours=6)).isoformat()
     state = {
         "ev1": {
             "target_soc_percent": 80,
@@ -220,13 +225,13 @@ async def test_stale_state_returns_idle(monkeypatch):
             "delivered_kwh": 0.0,
             "remaining_kwh": 10.0,
             "current_soc_percent": 60.0,
-            "target_soc_percent_cfg": 80,
             "battery_capacity_kwh": 82.0,
             "daily_quota_kwh": None,
             "quota_schedule": None,
             "keep_on_after_target": False,
             "status": "on_track",
-            "last_updated": (now - timedelta(hours=6)).isoformat(),
+            "last_updated": last_planned,
+            "last_planned_at": last_planned,
         }
     }
     monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {k: v for k, v in state.items()})
@@ -237,8 +242,10 @@ async def test_stale_state_returns_idle(monkeypatch):
         result = await ev_router.get_ev_chargers()
 
     entry = result[0]
-    assert entry["status"] == "idle"
-    assert entry["required_kwh"] is None
+    assert entry["status"] == "on_track"
+    assert entry["required_kwh"] == 10.0
+    assert entry["target_soc_percent"] == 80
+    assert entry["last_planned_at"] == last_planned
 
 
 @pytest.mark.asyncio

@@ -28,6 +28,30 @@ logger = logging.getLogger("darkstar.kepler")
 EV_SHORTFALL_PENALTY_DEFAULT = 50.0  # SEK/kWh — soft target-by-time penalty
 
 
+def _ev_day_energy_terms(
+    day: date,
+    charger_id: str,
+    ev_energy: dict[str, dict[int, Any]],
+    surplus_kw: dict[int, Any] | None,
+    slots: list[Any],
+    slot_hours: list[float],
+    T: int,
+) -> list[Any]:
+    """Energy terms (scheduled + surplus) for one charger on one calendar day.
+
+    Surplus charging counts against the day's quota too (task 4.4) — it isn't
+    a free bonus on top of the scheduled allocation.
+    """
+    terms: list[Any] = [
+        ev_energy[charger_id][t] for t in range(T) if slots[t].start_time.date() == day
+    ]
+    if surplus_kw is not None:
+        terms.extend(
+            surplus_kw[t] * slot_hours[t] for t in range(T) if slots[t].start_time.date() == day
+        )
+    return terms
+
+
 class KeplerSolver:
     def solve(self, input_data: KeplerInput, config: KeplerConfig) -> KeplerResult:
         """Solve the energy scheduling problem using MILP.
@@ -434,8 +458,11 @@ class KeplerSolver:
                 else 0.0
             )
 
-            # Limit total excess PV priority sink energy to net excess PV (PV minus house load)
-            # to prevent grid imports or battery discharge from powering these sinks (economic loophole)
+            # Limit total excess PV priority sink energy to net excess PV (PV minus
+            # house load minus planned battery charging) to prevent grid imports
+            # from powering these sinks while appearing to be "free" surplus, and
+            # to stop sinks from collecting the surplus reward while grid power
+            # covers the battery (economic loophole).
             if excess_pv_flags[t]:
                 net_excess_kwh = max(0.0, s.pv_kwh - s.load_kwh)
                 sink_terms: list[Any] = []
@@ -451,7 +478,7 @@ class KeplerSolver:
                         sink_terms.append(ev_surplus_kw[charger_id][t] * h)
 
                 if sink_terms:
-                    prob += pulp.lpSum(sink_terms) <= net_excess_kwh
+                    prob += pulp.lpSum(sink_terms) + charge[t] <= net_excess_kwh
             prob += (
                 s.load_kwh
                 + water_load_kwh
@@ -614,8 +641,9 @@ class KeplerSolver:
             # If no target, we don't care where we end up (within min_soc limits)
             pass
 
-        # EV goal constraints: soft target-by-time requirement and optional daily quota
-        today = slots[0].start_time.date() if slots else date.today()
+        # EV goal constraints: soft target-by-time requirement and optional
+        # per-in-horizon-day quota (multi-day spreading).
+        in_horizon_days: set[date] = {slots[t].start_time.date() for t in range(T)}
         ev_shortfall_penalty = getattr(
             config, "ev_shortfall_penalty_sek_per_kwh", EV_SHORTFALL_PENALTY_DEFAULT
         )
@@ -627,20 +655,43 @@ class KeplerSolver:
             if charger.required_kwh <= 0:
                 continue
 
-            # Slots that end on or before the deadline
+            surplus_kw_for_charger = ev_surplus_kw.get(d)
+
+            if charger.quota_by_day:
+                # One cap per in-horizon day (replaces the old today-only cap).
+                for day, quota in charger.quota_by_day.items():
+                    if day not in in_horizon_days:
+                        continue
+                    day_terms = _ev_day_energy_terms(
+                        day, d, ev_energy, surplus_kw_for_charger, slots, slot_hours, T
+                    )
+                    prob += pulp.lpSum(day_terms) <= quota
+
+                # Cap the soft requirement at what's actually allocatable
+                # in-horizon, so the shortfall term can't force tomorrow's
+                # slots to deliver the whole multi-day requirement.
+                effective_required = min(
+                    charger.required_kwh,
+                    sum(
+                        quota
+                        for day, quota in charger.quota_by_day.items()
+                        if day in in_horizon_days
+                    ),
+                )
+            else:
+                effective_required = charger.required_kwh
+
+            # Slots that end on or before the deadline (scheduled energy only —
+            # surplus charging is a bonus on top, not counted against the
+            # shortfall requirement; it IS counted against the per-day quota
+            # above so a spread-out plan can't be blown by a surplus windfall).
             eligible_energy = pulp.lpSum(
                 ev_energy[d][t] for t in range(T) if slots[t].end_time <= effective_deadline
             )
-            # Soft requirement: delivered + shortfall >= required
-            prob += eligible_energy + ev_shortfall[d] >= charger.required_kwh
-            total_cost.append(ev_shortfall_penalty * ev_shortfall[d])
 
-            # Optional daily quota cap for today's energy
-            if charger.daily_quota_kwh is not None:
-                today_energy = pulp.lpSum(
-                    ev_energy[d][t] for t in range(T) if slots[t].start_time.date() == today
-                )
-                prob += today_energy <= charger.daily_quota_kwh
+            # Soft requirement: delivered + shortfall >= required
+            prob += eligible_energy + ev_shortfall[d] >= effective_required
+            total_cost.append(ev_shortfall_penalty * ev_shortfall[d])
 
         # Water Heating Constraints — per-device (tasks 2.4-2.6)
         sorted_days: list[Any] = []  # Initialize to avoid unbound error

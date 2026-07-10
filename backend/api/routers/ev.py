@@ -9,18 +9,18 @@ No ``charge_priority`` field is returned — it does not exist in this change.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 import time
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytz
 from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
-from backend.core.ev_state import read_ev_state, write_ev_state
+from backend.core.ev_goal import resolve_next_ready_by
+from backend.core.ev_state import read_ev_state, update_ev_state
 from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
 from backend.core.secrets import load_yaml
 
@@ -38,87 +38,20 @@ class EVChargerScheduleBody(BaseModel):
     keep_on_after_target: bool | None = Field(default=None)
 
 
-def resolve_next_ready_by(
-    ready_by: str, repeat: str, ready_by_date: str | None, tz_name: str, n_days: int | None = None
-) -> datetime | None:
-    from datetime import date, datetime as _datetime, time, timedelta
-
-    try:
-        hour, minute = map(int, ready_by.split(":"))
-    except Exception:
-        return None
-
-    tz = pytz.timezone(tz_name)
-    now = datetime.now(tz)
-
-    repeat = repeat.lower()
-
-    if repeat == "none":
-        if not ready_by_date:
-            return None
-        try:
-            target_date = date.fromisoformat(str(ready_by_date).strip())
-        except Exception:
-            return None
-        deadline = tz.localize(_datetime.combine(target_date, time(hour, minute)))
-        return deadline
-
-    candidate = tz.localize(_datetime.combine(now.date(), time(hour, minute)))
-    if candidate <= now:
-        candidate += timedelta(days=1)
-
-    if repeat == "daily":
-        return candidate
-
-    if repeat == "weekdays":
-        while candidate.weekday() >= 5:  # 5=Saturday, 6=Sunday
-            candidate += timedelta(days=1)
-        return candidate
-
-    if repeat == "weekends":
-        while candidate.weekday() < 5:
-            candidate += timedelta(days=1)
-        return candidate
-
-    if repeat == "every_n_days":
-        n = n_days if (isinstance(n_days, int) and n_days > 0) else 2
-        anchor = date(2020, 1, 1)
-        today = now.date()
-        days_since_anchor = (today - anchor).days
-        next_idx = ((days_since_anchor // n) + 1) * n
-        target_date = anchor + timedelta(days=next_idx)
-        deadline = tz.localize(_datetime.combine(target_date, time(hour, minute)))
-        while deadline <= now:
-            next_idx += n
-            target_date = anchor + timedelta(days=next_idx)
-            deadline = tz.localize(_datetime.combine(target_date, time(hour, minute)))
-        return deadline
-
-    return candidate
-
-
 def _get_ha_client() -> Any:
+    """Return the backend-owned HA action client for the current event loop.
+
+    Never the executor's own ``HAClient`` instance — that one belongs to the
+    executor's (possibly different) loop, and closing/using a session across
+    loops raises "Future attached to a different loop".
+    """
+    from backend.core.ha_client import get_ha_action_client
+
     try:
-        from backend.api.routers.executor import get_executor_instance
-
-        executor = get_executor_instance()
-        if executor and executor.ha_client:
-            return executor.ha_client
-    except Exception:
-        pass
-
-    try:
-        from backend.core.secrets import load_home_assistant_config
-        from executor.actions import HAClient
-
-        ha_config = load_home_assistant_config()
-        url = ha_config.get("url")
-        token = ha_config.get("token")
-        if url and token:
-            return HAClient(url, token)
-    except Exception:
-        pass
-    return None
+        return get_ha_action_client()
+    except Exception as exc:
+        logger.warning("Could not obtain HA action client: %s", exc)
+        return None
 
 
 async def sync_goal_to_ha(
@@ -206,20 +139,41 @@ async def set_ev_charger_schedule(
                 status_code=422, detail="ready_by_date is required when repeat is none"
             )
 
-        if body.ready_by_date and not re.match(r"^\d{4}-\d{2}-\d{2}$", body.ready_by_date):
-            raise HTTPException(
-                status_code=422, detail="ready_by_date must be in YYYY-MM-DD format"
-            )
+        if body.repeat == "none" and body.ready_by_date:
+            try:
+                date.fromisoformat(body.ready_by_date)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=422, detail="ready_by_date must be a valid YYYY-MM-DD date"
+                ) from exc
 
-    # 3. Read and update state file
-    state = read_ev_state()
+            timezone_name = config.get("timezone", "Europe/Stockholm")
+            tz = pytz.timezone(timezone_name)
+            probe_goal = {
+                "ready_by": body.ready_by,
+                "repeat": body.repeat,
+                "ready_by_date": body.ready_by_date,
+            }
+            if resolve_next_ready_by(probe_goal, datetime.now(tz), tz) is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="ready_by_date/ready_by must resolve to a future deadline",
+                )
+
+    if body.n_days is not None and body.n_days < 1:
+        raise HTTPException(status_code=422, detail="n_days must be an integer >= 1")
+
+    # 3. Read and update state file (locked read-modify-write)
     now = datetime.now(UTC)
+    new_charger_state: dict[str, Any] = {}
 
-    if body.target_soc_percent is None:
-        # Clear the goal
-        state.pop(id, None)
-    else:
-        # Update goal fields
+    def _mutate(state: dict[str, dict[str, Any]]) -> None:
+        nonlocal new_charger_state
+        if body.target_soc_percent is None:
+            # Clear the goal
+            state.pop(id, None)
+            new_charger_state = {}
+            return
         charger_state = state.get(id, {})
         charger_state.update(
             {
@@ -236,8 +190,10 @@ async def set_ev_charger_schedule(
             }
         )
         state[id] = charger_state
+        new_charger_state = charger_state
 
-    write_ev_state(state)
+    update_ev_state(_mutate)
+    charger_state = new_charger_state
 
     # 4. Trigger fire-and-forget sync to HA in background if entities configured
     ha_ready_by_entity = charger_cfg.get("ha_ready_by_entity")
@@ -245,15 +201,8 @@ async def set_ev_charger_schedule(
 
     if (ha_ready_by_entity or ha_target_soc_entity) and body.target_soc_percent is not None:
         timezone_name = config.get("timezone", "Europe/Stockholm")
-        assert body.ready_by is not None
-        assert body.repeat is not None
-        ready_by_dt = resolve_next_ready_by(
-            ready_by=body.ready_by,
-            repeat=body.repeat,
-            ready_by_date=body.ready_by_date,
-            tz_name=timezone_name,
-            n_days=body.n_days,
-        )
+        tz = pytz.timezone(timezone_name)
+        ready_by_dt = resolve_next_ready_by(charger_state, datetime.now(tz), tz)
         background_tasks.add_task(
             sync_goal_to_ha,
             id,
@@ -270,10 +219,6 @@ async def set_ev_charger_schedule(
             return c
 
     raise HTTPException(status_code=404, detail="Charger not found after update")
-
-
-# State older than this is considered stale → charger reports ``idle``.
-STATE_STALE_SECONDS = 2 * 60 * 60
 
 
 def _load_ev_state() -> dict[str, dict[str, Any]]:
@@ -332,7 +277,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             return None
         try:
             return await get_ha_sensor_float(entity_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
 
     async def _safe_kw(entity_id: str) -> float | None:
@@ -340,7 +286,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             return None
         try:
             return await get_ha_sensor_kw_normalized(entity_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
 
     async def _safe_bool(entity_id: str) -> bool | None:
@@ -348,7 +295,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             return None
         try:
             return await get_ha_bool(entity_id)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
 
     out: list[dict[str, Any]] = []
@@ -362,14 +310,6 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         plugged_in = await _safe_bool(str(ev.get("plug_sensor", "")))
 
         persisted = state_by_id.get(charger_id, {})
-        stale = False
-        last_updated = persisted.get("last_updated")
-        last_updated_dt = _parse_iso_deadline(last_updated) if last_updated else None
-        if (
-            last_updated_dt is not None
-            and (now - last_updated_dt).total_seconds() > STATE_STALE_SECONDS
-        ):
-            stale = True
 
         max_power_kw = float(ev.get("max_power_kw") or 7.4)
 
@@ -379,8 +319,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         else:
             externally_controlled = not bool(ev.get("current_entity"))
 
-        if not persisted or stale:
-            # Missing/stale state → idle with null goal-progress; live sensors only.
+        if not persisted:
+            # No goal set for this charger → idle with null goal-progress; live sensors only.
             out.append(
                 {
                     "id": charger_id,
@@ -407,6 +347,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                     "source": None,
                     "externally_controlled": externally_controlled,
                     "last_updated": None,
+                    "last_planned_at": None,
                 }
             )
             continue
@@ -463,11 +404,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "source": persisted.get("source"),
                 "externally_controlled": externally_controlled,
                 "last_updated": persisted.get("last_updated"),
+                "last_planned_at": persisted.get("last_planned_at"),
             }
         )
 
     return out
-
-
-# Suppress unused-import warning for asyncio (kept for parity with system.py pattern).
-_ = asyncio

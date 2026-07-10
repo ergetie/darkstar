@@ -135,6 +135,8 @@ class HAWebSocketClient:
                 used_power_sensors: set[str] = set()
                 used_soc_sensors: set[str] = set()
                 used_plug_sensors: set[str] = set()
+                used_ready_by_entities: set[str] = set()
+                used_target_soc_entities: set[str] = set()
                 for idx, ev in enumerate(ev_chargers):
                     if ev.get("enabled", True):
                         ev_name = ev.get("name", f"EV {idx + 1}")
@@ -155,6 +157,18 @@ class HAWebSocketClient:
                         if ev.get("plug_sensor") and ev["plug_sensor"] not in used_plug_sensors:
                             mapping[ev["plug_sensor"]] = f"ev_plug_{active_idx}"
                             used_plug_sensors.add(ev["plug_sensor"])
+                        if (
+                            ev.get("ha_ready_by_entity")
+                            and ev["ha_ready_by_entity"] not in used_ready_by_entities
+                        ):
+                            mapping[ev["ha_ready_by_entity"]] = f"ev_ready_by_{active_idx}"
+                            used_ready_by_entities.add(ev["ha_ready_by_entity"])
+                        if (
+                            ev.get("ha_target_soc_entity")
+                            and ev["ha_target_soc_entity"] not in used_target_soc_entities
+                        ):
+                            mapping[ev["ha_target_soc_entity"]] = f"ev_target_soc_{active_idx}"
+                            used_target_soc_entities.add(ev["ha_target_soc_entity"])
 
                 # Initialize ev_chargers array upfront with configured EVs
                 self.latest_values["ev_chargers"] = [
@@ -317,138 +331,148 @@ class HAWebSocketClient:
                 await asyncio.sleep(5)
 
     def _sync_ev_schedules_on_startup(self, results: list[dict[str, Any]]) -> None:
-        """Startup sync between HA and the state file for EV charger schedules.
+        """Reconnect sync between HA and the state file for EV goals: HA wins.
 
-        Runs after the initial get_states response has been received and processed.
+        For each goal field (target SoC, ready-by datetime), adopt the HA
+        value when it passes a sanity check (SoC in 1-100; datetime
+        parseable and strictly in the future — a past/stale HA datetime is
+        never adopted). Fields where HA is missing/insane keep the
+        state-file value and get pushed back to HA once. Never blanket-
+        overwrites either side, and never invents a goal that doesn't
+        already exist on one side.
         """
         try:
-            from datetime import UTC, datetime
+            from datetime import datetime
 
             import pytz
 
-            from backend.api.routers.ev import resolve_next_ready_by, sync_goal_to_ha
-            from backend.core.ev_state import read_ev_state, write_ev_state
+            from backend.api.routers.ev import sync_goal_to_ha
+            from backend.core.ev_goal import resolve_next_ready_by
+            from backend.core.ev_state import update_ev_state
+            from backend.core.ha_client import parse_ha_datetime_state
 
             # Map entity_id -> state dict from the get_states results
             ha_states = {s.get("entity_id"): s for s in results if s.get("entity_id")}
 
-            # Load current state file
-            state_data = read_ev_state()
-
-            # Load config to find timezone and ha entities
             cfg = load_yaml("config.yaml")
             timezone_name = cfg.get("timezone", "Europe/Stockholm")
             tz = pytz.timezone(timezone_name)
+            now = datetime.now(tz)
 
             ev_chargers: list[dict[str, Any]] = cfg.get("ev_chargers") or []
+            if not any(
+                ev.get("ha_ready_by_entity") or ev.get("ha_target_soc_entity") for ev in ev_chargers
+            ):
+                # Nothing to sync — skip the locked state read-modify-write entirely.
+                return
 
-            for ev in ev_chargers:
-                if not ev.get("enabled", True):
-                    continue
-                charger_id = str(ev.get("id"))
+            to_push: list[tuple[str, int | None, datetime | None, str | None, str | None]] = []
 
-                ha_ready_by_entity: str | None = ev.get("ha_ready_by_entity")
-                ha_target_soc_entity: str | None = ev.get("ha_target_soc_entity")
+            def _mutate(state_data: dict[str, dict[str, Any]]) -> None:
+                for ev in ev_chargers:
+                    if not ev.get("enabled", True):
+                        continue
+                    charger_id = str(ev.get("id"))
 
-                if not ha_ready_by_entity and not ha_target_soc_entity:
-                    continue
+                    ha_ready_by_entity: str | None = ev.get("ha_ready_by_entity")
+                    ha_target_soc_entity: str | None = ev.get("ha_target_soc_entity")
+                    if not ha_ready_by_entity and not ha_target_soc_entity:
+                        continue
 
-                # Check if state file has a goal (i.e. has target_soc_percent)
-                charger_state = state_data.get(charger_id, {})
-                has_state_goal = (
-                    charger_state and charger_state.get("target_soc_percent") is not None
-                )
+                    charger_state = state_data.get(charger_id, {})
 
-                if not has_state_goal:
-                    # Seed state file from HA if HA has valid values
-                    ha_soc_val = None
+                    # Target SoC: sane HA value is 1-100.
+                    ha_soc_val: int | None = None
                     if ha_target_soc_entity and ha_target_soc_entity in ha_states:
                         try:
                             val = ha_states[ha_target_soc_entity].get("state")
                             if val not in (None, "unknown", "unavailable", ""):
-                                ha_soc_val = int(float(val))
-                        except Exception:
+                                candidate = int(float(val))
+                                if 1 <= candidate <= 100:
+                                    ha_soc_val = candidate
+                        except (TypeError, ValueError):
                             pass
 
-                    ha_ready_by_dt = None
+                    # Ready-by: sane HA value parses and is strictly in the future.
+                    ha_ready_by_dt: datetime | None = None
                     if ha_ready_by_entity and ha_ready_by_entity in ha_states:
-                        try:
-                            val = ha_states[ha_ready_by_entity].get("state")
-                            if val not in (None, "unknown", "unavailable", ""):
-                                val_str = str(val).strip()
-                                if "-" in val_str:
-                                    normalized = val_str.replace(" ", "T")
-                                    dt = datetime.fromisoformat(normalized)
-                                    if dt.tzinfo is None:
-                                        dt = tz.localize(dt)
-                                    ha_ready_by_dt = dt
-                        except Exception as e:
-                            logger.warning(
-                                "Failed to parse startup HA ready_by for %s: %s", charger_id, e
-                            )
+                        raw_val = ha_states[ha_ready_by_entity].get("state")
+                        parsed = parse_ha_datetime_state(raw_val, tz)
+                        if parsed is not None and parsed > now:
+                            ha_ready_by_dt = parsed
 
-                    # If HA has valid values, seed the goal in state file
-                    if ha_soc_val is not None or ha_ready_by_dt is not None:
-                        target_soc = ha_soc_val if ha_soc_val is not None else 80
+                    changed = False
+                    if (
+                        ha_soc_val is not None
+                        and charger_state.get("target_soc_percent") != ha_soc_val
+                    ):
+                        charger_state["target_soc_percent"] = ha_soc_val
+                        changed = True
 
-                        if ha_ready_by_dt is not None:
-                            ready_by_str = f"{ha_ready_by_dt.hour:02d}:{ha_ready_by_dt.minute:02d}"
-                            ready_by_date = ha_ready_by_dt.date().isoformat()
-                        else:
-                            ready_by_str = "07:00"
-                            ready_by_date = None
+                    if ha_ready_by_dt is not None:
+                        ready_by_val = f"{ha_ready_by_dt.hour:02d}:{ha_ready_by_dt.minute:02d}"
+                        date_val = ha_ready_by_dt.date().isoformat()
+                        if (
+                            charger_state.get("ready_by") != ready_by_val
+                            or charger_state.get("repeat") != "none"
+                            or charger_state.get("ready_by_date") != date_val
+                        ):
+                            charger_state["ready_by"] = ready_by_val
+                            charger_state["repeat"] = "none"
+                            charger_state["ready_by_date"] = date_val
+                            changed = True
 
-                        state_data[charger_id] = {
-                            "target_soc_percent": target_soc,
-                            "ready_by": ready_by_str,
-                            "repeat": "none" if ready_by_date else "daily",
-                            "ready_by_date": ready_by_date,
-                            "keep_on_after_target": False,
-                            "source": "ha",
-                            "last_updated": datetime.now(UTC).isoformat(),
-                        }
+                    if not charger_state:
+                        # No goal on either side — nothing to adopt or push.
+                        continue
+
+                    if changed:
+                        charger_state.setdefault("keep_on_after_target", False)
+                        charger_state["source"] = "ha"
+                        charger_state["last_updated"] = now.isoformat()
+                        state_data[charger_id] = charger_state
                         logger.info(
-                            "Startup sync: Seeding state goal for EV %s from HA (target=%s, ready_by=%s)",
+                            "Reconnect sync: adopted HA goal values for EV %s "
+                            "(target=%s, ready_by=%s)",
                             charger_id,
-                            target_soc,
-                            ready_by_str,
+                            charger_state.get("target_soc_percent"),
+                            charger_state.get("ready_by"),
                         )
-                else:
-                    # State file already has a goal: push it back to HA to resync
-                    target_soc = charger_state.get("target_soc_percent")
-                    ready_by = charger_state.get("ready_by")
-                    repeat = charger_state.get("repeat")
-                    ready_by_date = charger_state.get("ready_by_date")
 
-                    ready_by_dt = (
-                        resolve_next_ready_by(
-                            ready_by=ready_by,
-                            repeat=repeat,
-                            ready_by_date=ready_by_date,
-                            tz_name=timezone_name,
+                    soc_needs_push = bool(ha_target_soc_entity) and ha_soc_val is None
+                    ready_by_needs_push = bool(ha_ready_by_entity) and ha_ready_by_dt is None
+                    if (soc_needs_push or ready_by_needs_push) and charger_state.get(
+                        "target_soc_percent"
+                    ) is not None:
+                        ready_by_dt = resolve_next_ready_by(charger_state, now, tz)
+                        to_push.append(
+                            (
+                                charger_id,
+                                charger_state.get("target_soc_percent"),
+                                ready_by_dt,
+                                ha_target_soc_entity,
+                                ha_ready_by_entity,
+                            )
                         )
-                        if ready_by and repeat
-                        else None
-                    )
 
-                    # Call sync_goal_to_ha in background
-                    task = asyncio.create_task(
-                        sync_goal_to_ha(
-                            charger_id,
-                            target_soc,
-                            ready_by_dt,
-                            ha_target_soc_entity,
-                            ha_ready_by_entity,
-                        )
-                    )
-                    self.background_tasks.add(task)
-                    task.add_done_callback(self.background_tasks.discard)
-                    logger.info(
-                        "Startup sync: Pushing state goal for EV %s back to HA to resync",
+            update_ev_state(_mutate)
+
+            for charger_id, target_soc, ready_by_dt, target_soc_entity, ready_by_entity in to_push:
+                task = asyncio.create_task(
+                    sync_goal_to_ha(
                         charger_id,
+                        target_soc,
+                        ready_by_dt,
+                        target_soc_entity,
+                        ready_by_entity,
                     )
-
-            write_ev_state(state_data)
+                )
+                self.background_tasks.add(task)
+                task.add_done_callback(self.background_tasks.discard)
+                logger.info(
+                    "Reconnect sync: pushing state goal for EV %s to HA (HA missing/insane)",
+                    charger_id,
+                )
         except Exception as e:
             logger.error("Error in EV schedule startup sync: %s", e, exc_info=True)
 
@@ -570,11 +594,10 @@ class HAWebSocketClient:
                 # Debounce check: skip if within 5s of a Darkstar write
                 import time
 
-                from backend.core.ev_state import (
-                    last_darkstar_write,
-                    read_ev_state,
-                    write_ev_state,
-                )
+                import pytz
+
+                from backend.core.ev_state import last_darkstar_write, update_ev_state
+                from backend.core.ha_client import parse_ha_datetime_state
 
                 last_write = last_darkstar_write.get(charger_id, 0.0)
                 if time.time() - last_write < 5.0:
@@ -588,17 +611,23 @@ class HAWebSocketClient:
                 if state_val in (None, "unknown", "unavailable", "", "None"):
                     return
 
-                # Read current state
-                state_data = read_ev_state()
-                charger_state = state_data.get(charger_id, {})
+                tz_name = load_yaml("config.yaml").get("timezone", "Europe/Stockholm")
+                tz = pytz.timezone(tz_name)
 
-                changed = False
-                if key.startswith("ev_ready_by_"):
-                    raw_str = str(state_val).strip()
-                    if "-" in raw_str:
-                        normalized = raw_str.replace(" ", "T")
-                        try:
-                            dt = datetime.fromisoformat(normalized)
+                outcome: dict[str, Any] = {"changed": False, "charger_state": {}}
+
+                def _mutate(state_data: dict[str, dict[str, Any]]) -> None:
+                    charger_state = state_data.get(charger_id, {})
+                    changed = False
+                    if key.startswith("ev_ready_by_"):
+                        dt = parse_ha_datetime_state(state_val, tz)
+                        if dt is None:
+                            logger.warning(
+                                "Could not parse HA ready-by value %r for EV %s",
+                                state_val,
+                                charger_id,
+                            )
+                        else:
                             ready_by_val = f"{dt.hour:02d}:{dt.minute:02d}"
                             if charger_state.get("ready_by") != ready_by_val:
                                 charger_state["ready_by"] = ready_by_val
@@ -610,36 +639,37 @@ class HAWebSocketClient:
                                 if charger_state.get("ready_by_date") != date_val:
                                     charger_state["ready_by_date"] = date_val
                                     changed = True
-                        except Exception as e:
-                            logger.error("Error parsing ready-by from HA: %s", e)
-                elif key.startswith("ev_target_soc_"):
-                    try:
-                        target_soc = int(float(state_val))
-                        if (
-                            0 <= target_soc <= 100
-                            and charger_state.get("target_soc_percent") != target_soc
-                        ):
-                            charger_state["target_soc_percent"] = target_soc
-                            changed = True
-                    except Exception as e:
-                        logger.error("Error parsing target SoC from HA: %s", e)
+                    elif key.startswith("ev_target_soc_"):
+                        try:
+                            target_soc = int(float(state_val))
+                            if (
+                                0 <= target_soc <= 100
+                                and charger_state.get("target_soc_percent") != target_soc
+                            ):
+                                charger_state["target_soc_percent"] = target_soc
+                                changed = True
+                        except (TypeError, ValueError) as e:
+                            logger.error("Error parsing target SoC from HA: %s", e)
 
-                if changed:
-                    # Update source and last_updated
-                    charger_state["source"] = "ha"
-                    charger_state["last_updated"] = datetime.now(UTC).isoformat()
-                    # Make sure other required keys are set
-                    if "repeat" not in charger_state:
-                        charger_state["repeat"] = "daily"
-                    if "keep_on_after_target" not in charger_state:
-                        charger_state["keep_on_after_target"] = False
+                    if changed:
+                        # Update source and last_updated
+                        charger_state["source"] = "ha"
+                        charger_state["last_updated"] = datetime.now(UTC).isoformat()
+                        # Make sure other required keys are set
+                        charger_state.setdefault("repeat", "daily")
+                        charger_state.setdefault("keep_on_after_target", False)
+                        state_data[charger_id] = charger_state
 
-                    state_data[charger_id] = charger_state
-                    write_ev_state(state_data)
+                    outcome["changed"] = changed
+                    outcome["charger_state"] = charger_state
+
+                update_ev_state(_mutate)
+
+                if outcome["changed"]:
                     logger.info(
                         "HA state changed - Updated state goal for EV %s: %s",
                         charger_id,
-                        charger_state,
+                        outcome["charger_state"],
                     )
 
                     # Emit ev_schedule_changed Socket.IO event

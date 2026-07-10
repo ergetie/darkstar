@@ -42,7 +42,7 @@ def _slots(
 def _ev(
     required_kwh: float,
     deadline: datetime | None = None,
-    daily_quota_kwh: float | None = None,
+    quota_by_day: dict[date, float] | None = None,
     max_power_kw: float = 7.4,
     battery_capacity_kwh: float = 100.0,
     soc_percent: float = 0.0,
@@ -55,7 +55,7 @@ def _ev(
         plugged_in=True,
         deadline=deadline,
         required_kwh=required_kwh,
-        daily_quota_kwh=daily_quota_kwh,
+        quota_by_day=quota_by_day,
     )
 
 
@@ -105,19 +105,20 @@ def test_shortfall_when_deadline_is_tight():
 
 
 def test_daily_quota_caps_todays_energy():
-    """daily_quota_kwh limits how much energy is delivered on the current calendar day."""
+    """quota_by_day limits how much energy is delivered on the current calendar day."""
     tz = pytz_timezone("Europe/Stockholm")
     # Use today's date so the solver's date.today() matches the slot calendar day.
     base = tz.localize(datetime.combine(date.today(), datetime.min.time())) + timedelta(hours=22)
     # 4 slots: two today (22-00), two tomorrow (00-02)
     slots = _slots(n=4, import_prices=[0.1, 0.1, 0.1, 0.1], start=base)
+    tomorrow = base.date() + timedelta(days=1)
     inp = KeplerInput(slots=slots, initial_soc_kwh=0.0)
     cfg = _config(
         [
             _ev(
                 required_kwh=20.0,
                 deadline=slots[-1].end_time,
-                daily_quota_kwh=3.0,
+                quota_by_day={base.date(): 3.0, tomorrow: 17.0},
                 max_power_kw=7.4,
             )
         ]
@@ -127,16 +128,12 @@ def test_daily_quota_caps_todays_energy():
     assert result.is_optimal
 
     today_energy = sum(
-        s.ev_charge_kw * 1.0
-        for s in result.slots
-        if s.start_time.date() == base.date()
+        s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() == base.date()
     )
     assert today_energy <= 3.0 + 0.01
     # The remaining energy is deferred to tomorrow
     tomorrow_energy = sum(
-        s.ev_charge_kw * 1.0
-        for s in result.slots
-        if s.start_time.date() != base.date()
+        s.ev_charge_kw * 1.0 for s in result.slots if s.start_time.date() != base.date()
     )
     assert tomorrow_energy > 0.0
 

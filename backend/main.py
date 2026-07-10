@@ -186,6 +186,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to close HA HTTP client: %s", e)
 
+    # Close backend-owned HA action clients (goal sync writes)
+    try:
+        from backend.core.ha_client import close_ha_action_clients
+
+        await close_ha_action_clients()
+    except Exception as e:
+        logger.error("Failed to close HA action clients: %s", e)
+
     # Close LearningStore
     if hasattr(app.state, "learning_store") and app.state.learning_store:
         await app.state.learning_store.close()

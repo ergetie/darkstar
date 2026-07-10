@@ -1,6 +1,6 @@
 """End-to-end EV target-SoC scenarios (price-forecasting-module-4 §6).
 
-Exercises the pipeline's EV section helpers (``_resolve_ready_by``,
+Exercises the pipeline's EV section helpers (``resolve_next_ready_by``,
 ``_calculate_required_kwh``, ``_compute_daily_ev_quota``,
 ``build_ev_charger_inputs``) together with the Kepler solver — the same
 sequence the production pipeline runs — without spinning up the full async
@@ -13,9 +13,11 @@ Covers:
 - 6.2: ``ready_by`` 3 days out + forecast with a cheap middle day → more
   energy allocated to the cheap day, today's quota respected, target met by
   the deadline.
-- 6.3: Migration: a config still using ``penalty_levels`` loads with a
-  deprecation warning, migrates to an equivalent ``target_soc_percent``, and
-  charges correctly (no incentive-bucket path executed).
+- 6.3: A config still carrying legacy goal fields (``penalty_levels``,
+  ``target_soc_percent``) loads cleanly with a single deprecation warning and
+  the fields are ignored (goals live only in the dashboard/state file now);
+  a goal set via the state-file path still charges correctly (no
+  incentive-bucket path executed).
 """
 
 from __future__ import annotations
@@ -30,12 +32,9 @@ from unittest.mock import patch
 import pytest
 from pytz import timezone as pytz_timezone
 
+from backend.core.ev_goal import resolve_next_ready_by
 from executor.config import load_executor_config
-from planner.pipeline import (
-    _calculate_required_kwh,
-    _compute_daily_ev_quota,
-    _resolve_ready_by,
-)
+from planner.pipeline import _calculate_required_kwh, _compute_daily_ev_quota
 from planner.solver.adapter import build_ev_charger_inputs
 from planner.solver.kepler import EV_SHORTFALL_PENALTY_DEFAULT, KeplerSolver
 from planner.solver.types import ExcessPVSinkEntry, KeplerConfig, KeplerInput, KeplerInputSlot
@@ -166,7 +165,7 @@ def test_e2e_surplus_pv_charges_ev_and_meets_target(monkeypatch):
     # No energy delivered yet today.
     monkeypatch.setattr("planner.pipeline._ev_delivered_today_kwh", lambda *_args, **_kw: 0.0)
 
-    deadline = _resolve_ready_by(charger_cfg, now, "Europe/Stockholm")
+    deadline = resolve_next_ready_by(charger_cfg, now, TZ)
     assert deadline is not None
     assert deadline.date() == (now + timedelta(days=1)).date()
     assert deadline.hour == 7
@@ -326,11 +325,14 @@ def test_e2e_multi_day_deferral_prefers_cheap_middle_day(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# 6.3 — migration: legacy ``penalty_levels`` config loads with a deprecation
-# warning, migrates to an equivalent ``target_soc_percent``, and charges
-# correctly (no incentive-bucket path executed).
+# 6.3 — legacy ``penalty_levels``/``target_soc_percent`` in config.yaml are
+# ignored (not migrated) with a single deprecation warning; a goal set via
+# the state-file path (the dashboard's sole source of truth) still charges
+# correctly, with no incentive-bucket path executed.
 # ---------------------------------------------------------------------------
-def test_e2e_migration_penalty_levels_charges_correctly(caplog: pytest.LogCaptureFixture):
+def test_e2e_legacy_config_fields_ignored_state_file_goal_charges_correctly(
+    caplog: pytest.LogCaptureFixture,
+):
     data = {
         **MINIMAL_CONFIG,
         "ev_chargers": [
@@ -343,6 +345,7 @@ def test_e2e_migration_penalty_levels_charges_correctly(caplog: pytest.LogCaptur
                 "soc_sensor": "sensor.legacy_soc",
                 "plug_sensor": "binary_sensor.legacy_plug",
                 "type": "binary",
+                "target_soc_percent": 80,
                 "penalty_levels": [
                     {"max_soc": 60, "penalty_sek": 1.0},
                     {"max_soc": 80, "penalty_sek": 2.0},
@@ -356,20 +359,23 @@ def test_e2e_migration_penalty_levels_charges_correctly(caplog: pytest.LogCaptur
         path = f.name
     try:
         _write_config(path, data)
-        with caplog.at_level(logging.WARNING, logger="darkstar.executor.config"):
+        with caplog.at_level(logging.WARNING, logger="executor.config"):
             cfg_exec = load_executor_config(path)
     finally:
         Path(path).unlink(missing_ok=True)
 
     ev = cfg_exec.ev_chargers[0]
-    # Migration sets target_soc_percent to the highest configured max_soc (100).
-    assert ev.target_soc_percent == 100
-    # A deprecation warning was emitted.
+    # Legacy goal fields are not parsed onto the executor's charger config at all.
+    assert not hasattr(ev, "target_soc_percent")
+    assert not hasattr(ev, "penalty_levels")
+    # A single deprecation warning names the dashboard as the place to set goals.
     assert any(
-        "penalty_levels" in r.message and "deprecated" in r.message.lower() for r in caplog.records
+        "legacy_ev" in r.getMessage() and "dashboard" in r.getMessage().lower()
+        for r in caplog.records
     )
 
-    # No incentive-bucket code path is executed — build the solver input and solve.
+    # The goal itself comes from the state file (dashboard), not config — build
+    # the merged goal dict the way the real pipeline merge would.
     now = TZ.localize(datetime(2026, 7, 8, 10, 0))
     deadline = now + timedelta(hours=10)
     cfg_dict = {
@@ -377,8 +383,8 @@ def test_e2e_migration_penalty_levels_charges_correctly(caplog: pytest.LogCaptur
         "enabled": True,
         "max_power_kw": ev.max_power_kw,
         "battery_capacity_kwh": ev.battery_capacity_kwh,
-        "target_soc_percent": ev.target_soc_percent,
-        "ready_by": ev.ready_by,
+        "target_soc_percent": 100,  # goal from data/ev_multi_day_state.json
+        "ready_by": "20:00",
         "repeat": "daily",
         "type": "binary",
     }
@@ -418,10 +424,10 @@ def test_e2e_migration_penalty_levels_charges_correctly(caplog: pytest.LogCaptur
     result = KeplerSolver().solve(KeplerInput(slots=slots, initial_soc_kwh=0.0), cfg)
     assert result.is_optimal
 
-    # The migrated charger charges toward the (migrated) target SoC — no
+    # The charger charges toward the state-file goal's target SoC — no
     # incentive-bucket path executed.
     total_ev = sum(s.ev_charge_kw for s in result.slots)
-    assert total_ev > 0.0, "migrated charger should schedule charging toward its target"
+    assert total_ev > 0.0, "charger should schedule charging toward its target"
     shortfall = result.slots[-1].ev_shortfall_kwh.get(ev.id, 0.0)
     assert shortfall == pytest.approx(0.0, abs=0.1)
     for s in result.slots:

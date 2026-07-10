@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from datetime import date, datetime
 
 
+from backend.core.ev_goal import resolve_next_ready_by
 from backend.core.version import get_version
 from backend.learning.store import LearningStore
 from planner.errors import PlannerError, PlannerErrorCode
@@ -43,99 +44,6 @@ from planner.strategy.s_index import (
     calculate_safety_floor,
 )
 from planner.vacation_state import load_last_anti_legionella, save_last_anti_legionella
-
-
-def _parse_hhmm(value: Any) -> tuple[int, int] | None:
-    """Parse a time value into (hour, minute)."""
-    if value is None or value == "":
-        return None
-    if isinstance(value, int):
-        if 0 <= value <= 1439:
-            return (value // 60, value % 60)
-        return None
-    txt = str(value).strip()
-    if txt in ("''", '""'):
-        return None
-    try:
-        hour_str, minute_str = txt.split(":")
-        hour = int(hour_str)
-        minute = int(minute_str)
-        if 0 <= hour <= 23 and 0 <= minute <= 59:
-            return (hour, minute)
-    except (ValueError, AttributeError):
-        pass
-    return None
-
-
-def _resolve_ready_by(
-    charger_cfg: dict[str, Any], now: datetime, timezone_name: str
-) -> datetime | None:
-    """Resolve the next ready-by datetime for a charger from its goal config.
-
-    Handles repeat modes: daily, weekdays, weekends, every_n_days, none.
-    For ``repeat: none`` a ``ready_by_date`` must be set and the resulting
-    datetime must be in the future; otherwise the charger is inert.
-    """
-    from datetime import date, datetime as _datetime, time, timedelta
-
-    time_tuple = _parse_hhmm(charger_cfg.get("ready_by") or charger_cfg.get("departure_time"))
-    if time_tuple is None:
-        return None
-    hour, minute = time_tuple
-
-    tz = pytz.timezone(timezone_name)
-    if now.tzinfo is None:
-        now = tz.localize(now)
-
-    repeat = str(charger_cfg.get("repeat", "daily")).lower()
-
-    if repeat == "none":
-        date_str = charger_cfg.get("ready_by_date")
-        if not date_str:
-            return None
-        try:
-            target_date = date.fromisoformat(str(date_str).strip())
-        except (ValueError, TypeError):
-            return None
-        deadline = tz.localize(_datetime.combine(target_date, time(hour, minute)))
-        return deadline if deadline > now else None
-
-    # Start with today; if the time has already passed, look at tomorrow.
-    candidate = tz.localize(_datetime.combine(now.date(), time(hour, minute)))
-    if candidate <= now:
-        candidate += timedelta(days=1)
-
-    if repeat == "daily":
-        return candidate
-
-    if repeat == "weekdays":
-        while candidate.weekday() >= 5:  # 5=Saturday, 6=Sunday
-            candidate += timedelta(days=1)
-        return candidate
-
-    if repeat == "weekends":
-        while candidate.weekday() < 5:
-            candidate += timedelta(days=1)
-        return candidate
-
-    if repeat == "every_n_days":
-        n_days = charger_cfg.get("n_days")
-        if not isinstance(n_days, int) or n_days <= 0:
-            n_days = 1
-        anchor = date(2020, 1, 1)
-        today = now.date()
-        days_since_anchor = (today - anchor).days
-        next_idx = ((days_since_anchor // n_days) + 1) * n_days
-        target_date = anchor + timedelta(days=next_idx)
-        deadline = tz.localize(_datetime.combine(target_date, time(hour, minute)))
-        while deadline <= now:
-            next_idx += n_days
-            target_date = anchor + timedelta(days=next_idx)
-            deadline = tz.localize(_datetime.combine(target_date, time(hour, minute)))
-        return deadline
-
-    # Unknown repeat mode: behave like daily.
-    return candidate
 
 
 def _ev_delivered_today_kwh(db_path: str, charger_id: str, tz: pytz.BaseTzInfo) -> float:
@@ -169,23 +77,50 @@ def _ev_delivered_today_kwh(db_path: str, charger_id: str, tz: pytz.BaseTzInfo) 
 
 
 def _calculate_required_kwh(
-    charger_cfg: dict[str, Any], ha_state: dict[str, Any], db_path: str | None, tz: pytz.BaseTzInfo
+    charger_cfg: dict[str, Any],
+    ha_state: dict[str, Any],
+    db_path: str | None,
+    tz: pytz.BaseTzInfo,
+    *,
+    single_enabled_charger: bool = True,
 ) -> float:
     """Compute remaining kWh required to reach target SoC.
 
-    ``required_kwh = max(0, (target_soc - current_soc)/100 * capacity)`` minus
-    the EV energy already delivered today (from slot_observations).
+    When a live SoC reading is available, ``required_kwh = max(0, (target -
+    current_soc)/100 * capacity)`` — the live reading already reflects
+    charging progress, so delivered-today is NOT subtracted on top of it
+    (that would double-count progress and leave the car short of target).
+
+    Only when SoC is unavailable (sensor missing/unreadable — distinguished
+    from a real 0.0 reading by ``ha_state["soc_percent"]`` being ``None``)
+    does the calculation fall back to ``target/100 * capacity -
+    delivered_today``. That fallback's ``slot_observations.ev_charging_kwh``
+    column is an unattributable aggregate across all chargers, so it is only
+    applied when exactly one charger is enabled; with multiple SoC-less
+    chargers, nothing is subtracted (a warning is logged instead).
     """
     target_soc = float(charger_cfg.get("target_soc_percent", 80))
-    current_soc = float(ha_state.get("soc_percent", 0.0))
     capacity = float(charger_cfg.get("battery_capacity_kwh") or 0.0)
-    required = max(0.0, (target_soc - current_soc) / 100.0 * capacity)
+    current_soc = ha_state.get("soc_percent")
 
-    delivered = 0.0
-    if db_path:
-        charger_id = str(charger_cfg.get("id", ""))
-        delivered = _ev_delivered_today_kwh(db_path, charger_id, tz)
+    if current_soc is not None:
+        return max(0.0, (target_soc - float(current_soc)) / 100.0 * capacity)
 
+    required = max(0.0, target_soc / 100.0 * capacity)
+    if not db_path:
+        return required
+
+    if not single_enabled_charger:
+        logger.warning(
+            "EV %s: SoC unavailable with multiple EV chargers enabled - "
+            "delivered-today (slot_observations.ev_charging_kwh) is an "
+            "unattributable aggregate; not subtracting.",
+            charger_cfg.get("id", ""),
+        )
+        return required
+
+    charger_id = str(charger_cfg.get("id", ""))
+    delivered = _ev_delivered_today_kwh(db_path, charger_id, tz)
     return max(0.0, required - delivered)
 
 
@@ -358,6 +293,51 @@ def _apply_keep_on_after_target(
     )
 
 
+def merge_ev_goals_from_state(
+    ev_chargers_cfg_raw: list[dict[str, Any]],
+    ev_state_data: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Merge each charger's config (hardware facts) with its goal from the state file.
+
+    Goals live ONLY in the state file (dashboard/API/HA are the sole source of
+    truth) — a charger with no state-file goal has no goal (all goal fields
+    are ``None``), never a config fallback.
+    """
+    merged: list[dict[str, Any]] = []
+    for ev_cfg_item in ev_chargers_cfg_raw:
+        charger_id = ev_cfg_item.get("id", "")
+        charger_state = ev_state_data.get(charger_id, {})
+        goal_cfg = dict(ev_cfg_item)
+        if charger_state and charger_state.get("target_soc_percent") is not None:
+            goal_cfg["target_soc_percent"] = charger_state.get("target_soc_percent")
+            goal_cfg["ready_by"] = charger_state.get("ready_by")
+            goal_cfg["repeat"] = charger_state.get("repeat")
+            goal_cfg["ready_by_date"] = charger_state.get("ready_by_date")
+            goal_cfg["n_days"] = charger_state.get("n_days")
+            goal_cfg["last_updated"] = charger_state.get("last_updated")
+            goal_cfg["keep_on_after_target"] = bool(
+                charger_state.get("keep_on_after_target", False)
+            )
+            logger.debug(
+                "EV %s: using goal from state file (target_soc_percent=%s, ready_by=%s, repeat=%s)",
+                charger_id,
+                goal_cfg["target_soc_percent"],
+                goal_cfg["ready_by"],
+                goal_cfg["repeat"],
+            )
+        else:
+            goal_cfg["target_soc_percent"] = None
+            goal_cfg["ready_by"] = None
+            goal_cfg["repeat"] = None
+            goal_cfg["ready_by_date"] = None
+            goal_cfg["n_days"] = None
+            goal_cfg["last_updated"] = None
+            goal_cfg["keep_on_after_target"] = False
+            logger.debug("EV %s: no goal set in the dashboard - charger inert", charger_id)
+        merged.append(goal_cfg)
+    return merged
+
+
 def _persist_ev_multi_day_state(
     ev_states: list[dict[str, Any]],
     ev_chargers_cfg: list[dict[str, Any]],
@@ -365,95 +345,86 @@ def _persist_ev_multi_day_state(
     tz: pytz.BaseTzInfo,
     now: datetime,
 ) -> None:
-    """Write per-charger transient goal/progress state to ``data/ev_multi_day_state.json``.
+    """Merge per-charger progress into ``data/ev_multi_day_state.json``.
 
-    Persisted per charger ``id``: goal (``target_soc_percent``, ``ready_by``,
-    ``repeat``, resolved ``deadline``), ``required_kwh``/``delivered_kwh``/
-    ``remaining_kwh``, ``daily_quota_kwh``, ``quota_schedule`` (when spreading),
-    ``keep_on_after_target``, ``status``, and ``last_updated``. No
-    ``charge_priority`` is persisted — the field does not exist in this change.
+    Goal fields (``target_soc_percent``, ``ready_by``, ``repeat``,
+    ``ready_by_date``, ``n_days``, ``keep_on_after_target``, ``source``,
+    ``last_updated``) belong to the dashboard/API/HA and are preserved
+    verbatim — the planner never invents or derives a goal from config, and
+    never touches ``last_updated`` (it anchors ``every_n_days``). Progress
+    fields (``deadline``, ``required_kwh``, ``delivered_kwh``,
+    ``remaining_kwh``, ``daily_quota_kwh``, ``quota_schedule``, ``status``,
+    ``last_planned_at``) are refreshed for chargers processed this run.
+    Chargers with no goal, or not processed this run (disabled/skipped), keep
+    their existing entry untouched — this is a merge, not a replace.
     """
-
-    from backend.core.ev_state import read_ev_state, write_ev_state
+    from backend.core.ev_state import update_ev_state
 
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
-    existing_state = read_ev_state()
-    out: dict[str, Any] = {}
 
-    for state in ev_states:
-        charger_id = str(state.get("id", ""))
-        cfg = cfg_by_id.get(charger_id, {})
-        deadline = state.get("deadline")
-        required_kwh = state.get("required_kwh")
-        max_power_kw = float(cfg.get("max_power_kw") or 7.4)
-        capacity = float(cfg.get("battery_capacity_kwh") or 0.0)
-        current_soc = float(state.get("soc_percent", 0.0))
+    def _mutate(existing_state: dict[str, dict[str, Any]]) -> None:
+        for state in ev_states:
+            charger_id = str(state.get("id", ""))
+            existing_charger = existing_state.get(charger_id, {})
 
-        delivered_kwh = 0.0
-        if sqlite_path:
-            delivered_kwh = _ev_delivered_today_kwh(sqlite_path, charger_id, tz)
-        remaining_kwh = None if required_kwh is None else max(0.0, required_kwh)
+            if existing_charger.get("target_soc_percent") is None:
+                # No goal set for this charger (dashboard is the sole source of
+                # truth) — nothing to persist.
+                continue
 
-        quota_schedule = state.get("quota_schedule")
-        schedule_json: dict[str, float] | None = None
-        if quota_schedule:
-            schedule_json = {str(d): round(float(v), 3) for d, v in quota_schedule.items()}
+            cfg = cfg_by_id.get(charger_id, {})
+            deadline = state.get("deadline")
+            required_kwh = state.get("required_kwh")
+            max_power_kw = float(cfg.get("max_power_kw") or 7.4)
+            capacity = float(cfg.get("battery_capacity_kwh") or 0.0)
+            current_soc = float(state.get("soc_percent") or 0.0)
 
-        dq = state.get("daily_quota_kwh")
+            delivered_kwh = 0.0
+            if sqlite_path:
+                delivered_kwh = _ev_delivered_today_kwh(sqlite_path, charger_id, tz)
+            remaining_kwh = None if required_kwh is None else max(0.0, required_kwh)
 
-        # Read existing state to preserve API/HA-written goal fields
-        existing_charger = existing_state.get(charger_id, {})
-        target_soc = existing_charger.get("target_soc_percent")
-        if target_soc is None:
-            target_soc = int(cfg.get("target_soc_percent", 80))
+            quota_schedule = state.get("quota_schedule")
+            schedule_json: dict[str, float] | None = None
+            if quota_schedule:
+                schedule_json = {str(d): round(float(v), 3) for d, v in quota_schedule.items()}
 
-        ready_by = existing_charger.get("ready_by")
-        if ready_by is None:
-            ready_by = cfg.get("ready_by") or cfg.get("departure_time")
+            dq = state.get("daily_quota_kwh")
 
-        repeat = existing_charger.get("repeat")
-        if repeat is None:
-            repeat = str(cfg.get("repeat", "daily"))
-
-        ready_by_date = existing_charger.get("ready_by_date")
-        if ready_by_date is None:
-            ready_by_date = cfg.get("ready_by_date")
-
-        keep_on_after_target = existing_charger.get("keep_on_after_target")
-        if keep_on_after_target is None:
-            keep_on_after_target = bool(state.get("keep_on_after_target", False))
-
-        source = existing_charger.get("source")
-
-        out[charger_id] = {
-            "target_soc_percent": target_soc,
-            "ready_by": ready_by,
-            "repeat": repeat,
-            "ready_by_date": ready_by_date,
-            "keep_on_after_target": keep_on_after_target,
-            "source": source,
-            "deadline": deadline.isoformat() if deadline else None,
-            "required_kwh": round(float(required_kwh), 3) if required_kwh is not None else None,
-            "delivered_kwh": round(delivered_kwh, 3),
-            "remaining_kwh": round(float(remaining_kwh), 3) if remaining_kwh is not None else None,
-            "current_soc_percent": round(current_soc, 2),
-            "target_soc_percent_cfg": target_soc,
-            "battery_capacity_kwh": capacity,
-            "daily_quota_kwh": round(float(dq), 3) if dq is not None else None,
-            "quota_schedule": schedule_json,
-            "status": _ev_charger_status(
-                bool(state.get("plugged_in", False)),
-                deadline,
-                required_kwh,
-                max_power_kw,
-                now,
-            ),
-            "last_updated": now.isoformat(),
-        }
+            existing_state[charger_id] = {
+                # Goal fields: preserved verbatim, never derived from config.
+                "target_soc_percent": existing_charger.get("target_soc_percent"),
+                "ready_by": existing_charger.get("ready_by"),
+                "repeat": existing_charger.get("repeat"),
+                "ready_by_date": existing_charger.get("ready_by_date"),
+                "n_days": existing_charger.get("n_days"),
+                "keep_on_after_target": bool(existing_charger.get("keep_on_after_target", False)),
+                "source": existing_charger.get("source"),
+                "last_updated": existing_charger.get("last_updated"),
+                # Progress fields: refreshed every run this charger is processed.
+                "deadline": deadline.isoformat() if deadline else None,
+                "required_kwh": round(float(required_kwh), 3) if required_kwh is not None else None,
+                "delivered_kwh": round(delivered_kwh, 3),
+                "remaining_kwh": round(float(remaining_kwh), 3)
+                if remaining_kwh is not None
+                else None,
+                "current_soc_percent": round(current_soc, 2),
+                "battery_capacity_kwh": capacity,
+                "daily_quota_kwh": round(float(dq), 3) if dq is not None else None,
+                "quota_schedule": schedule_json,
+                "status": _ev_charger_status(
+                    bool(state.get("plugged_in", False)),
+                    deadline,
+                    required_kwh,
+                    max_power_kw,
+                    now,
+                ),
+                "last_planned_at": now.isoformat(),
+            }
 
     try:
-        write_ev_state(out)
-        logger.debug("Persisted EV multi-day state for %d charger(s)", len(out))
+        update_ev_state(_mutate)
+        logger.debug("Persisted EV multi-day state for %d charger(s)", len(ev_states))
     except Exception as exc:
         logger.warning("Failed to persist EV multi-day state: %s", exc)
 
@@ -479,7 +450,8 @@ def _fetch_price_floor_inputs_sync(
     from datetime import datetime, time, timedelta
 
     tz = pytz.timezone(timezone_name)
-    today = datetime.now(tz).date()
+    now = datetime.now(tz)
+    today = now.date()
 
     upcoming: dict[int, float] = {}
     trailing: float | None = None
@@ -493,8 +465,8 @@ def _fetch_price_floor_inputs_sync(
     try:
         conn.row_factory = sqlite3.Row
 
-        # --- Upcoming daily avg spot p50 for D+1..D+7 ---
-        start_local = tz.localize(datetime.combine(today + timedelta(days=1), time.min))
+        # --- Today's (offset 0) remaining-slots avg spot p50, plus D+1..D+7 ---
+        start_local = tz.localize(datetime.combine(today, time.min))
         end_local = tz.localize(datetime.combine(today + timedelta(days=8), time.min))
         start_iso = start_local.isoformat()
         end_iso = end_local.isoformat()
@@ -520,7 +492,9 @@ def _fetch_price_floor_inputs_sync(
                     "spot_p50": float(r["spot_p50"]),
                 }
 
-        # Group by calendar date (local tz), then average per day.
+        # Group by calendar date (local tz), then average per day. Offset 0
+        # (today) only counts remaining slots (slot_start >= now) — past
+        # cheap morning slots must not inflate today's attractiveness.
         per_day: dict[int, list[float]] = {}
         for row in best_per_slot.values():
             try:
@@ -528,7 +502,9 @@ def _fetch_price_floor_inputs_sync(
             except (TypeError, ValueError):
                 continue
             offset = (slot_dt.date() - today).days
-            if 1 <= offset <= 7:
+            if offset == 0 and slot_dt < now:
+                continue
+            if 0 <= offset <= 7:
                 per_day.setdefault(offset, []).append(row["spot_p50"])
 
         for offset, spots in per_day.items():
@@ -1166,32 +1142,8 @@ class PlannerPipeline:
             from backend.core.ev_state import read_ev_state
 
             ev_state_data = read_ev_state()
-            ev_chargers_cfg: list[dict[str, Any]] = []
-            for ev_cfg_item in ev_chargers_cfg_raw:
-                charger_id = ev_cfg_item.get("id", "")
-                charger_state = ev_state_data.get(charger_id, {})
-                goal_cfg = dict(ev_cfg_item)
-                if charger_state and charger_state.get("target_soc_percent") is not None:
-                    goal_cfg["target_soc_percent"] = charger_state.get("target_soc_percent")
-                    goal_cfg["ready_by"] = charger_state.get("ready_by")
-                    goal_cfg["repeat"] = charger_state.get("repeat")
-                    goal_cfg["ready_by_date"] = charger_state.get("ready_by_date")
-                    if charger_state.get("keep_on_after_target") is not None:
-                        goal_cfg["keep_on_after_target"] = charger_state.get("keep_on_after_target")
-                    logger.debug(
-                        "EV %s: using goal from state file (target_soc_percent=%s, ready_by=%s, repeat=%s)",
-                        charger_id,
-                        goal_cfg["target_soc_percent"],
-                        goal_cfg["ready_by"],
-                        goal_cfg["repeat"],
-                    )
-                else:
-                    logger.debug(
-                        "EV %s: using goal from config file (target_soc_percent=%s)",
-                        charger_id,
-                        goal_cfg.get("target_soc_percent"),
-                    )
-                ev_chargers_cfg.append(goal_cfg)
+            ev_chargers_cfg = merge_ev_goals_from_state(ev_chargers_cfg_raw, ev_state_data)
+            enabled_charger_count = sum(1 for c in ev_chargers_cfg if c.get("enabled", True))
 
             # Calculate per-device goals and attach to state dicts
             upcoming_spots: dict[int, float] | None = None
@@ -1213,14 +1165,18 @@ class PlannerPipeline:
                 keep_on_after_target = bool(ev_cfg_item.get("keep_on_after_target", False))
 
                 if plugged_in:
-                    deadline = _resolve_ready_by(
+                    deadline = resolve_next_ready_by(
                         ev_cfg_item,
                         now_dt,
-                        timezone_name,
+                        tz,
                     )
                     if deadline is not None:
                         required_kwh = _calculate_required_kwh(
-                            ev_cfg_item, ha_state, sqlite_path, tz
+                            ev_cfg_item,
+                            ha_state,
+                            sqlite_path,
+                            tz,
+                            single_enabled_charger=(enabled_charger_count == 1),
                         )
                         # Multi-day spreading only when deadline is far and a
                         # forecast may be available.
@@ -1230,25 +1186,25 @@ class PlannerPipeline:
                             "EV %s: SoC=%.1f%%, Plugged=%s, Target=%d%%, "
                             "Required=%.2f kWh, ReadyBy=%s, Deadline=%s",
                             charger_id,
-                            ha_state.get("soc_percent", 0.0),
+                            ha_state.get("soc_percent") or 0.0,
                             plugged_in,
-                            ev_cfg_item.get("target_soc_percent", 80),
+                            ev_cfg_item.get("target_soc_percent"),
                             required_kwh or 0.0,
-                            ev_cfg_item.get("ready_by") or ev_cfg_item.get("departure_time", ""),
+                            ev_cfg_item.get("ready_by"),
                             deadline.strftime("%Y-%m-%d %H:%M"),
                         )
                     else:
                         logger.info(
                             "EV %s: SoC=%.1f%%, Plugged=%s, no active deadline",
                             charger_id,
-                            ha_state.get("soc_percent", 0.0),
+                            ha_state.get("soc_percent") or 0.0,
                             plugged_in,
                         )
 
                 ev_charger_states_with_goal.append(
                     {
                         "id": charger_id,
-                        "soc_percent": ha_state.get("soc_percent", 0.0),
+                        "soc_percent": ha_state.get("soc_percent"),
                         "plugged_in": plugged_in,
                         "deadline": deadline,
                         "required_kwh": required_kwh,

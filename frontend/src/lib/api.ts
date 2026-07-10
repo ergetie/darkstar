@@ -679,6 +679,7 @@ export type EVChargerState = {
     source: 'api' | 'ha' | null
     externally_controlled: boolean
     last_updated: string | null
+    last_planned_at: string | null
 }
 
 export type EVChargersResponse = EVChargerState[]

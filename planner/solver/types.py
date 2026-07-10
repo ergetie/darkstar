@@ -6,7 +6,7 @@ Migrated from backend/kepler/types.py for the new planner package.
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 
 
 @dataclass
@@ -33,7 +33,9 @@ class EVChargerInput:
     plugged_in: bool
     deadline: datetime | None
     required_kwh: float | None = None
-    daily_quota_kwh: float | None = None
+    # Per-in-horizon-day energy cap (calendar date -> kWh) from multi-day
+    # spreading. None when spreading isn't active (single-day goal).
+    quota_by_day: dict[date, float] | None = None
     keep_on_after_target: bool = False
     # "binary" (ON/OFF switch) or "current" (variable ampere setpoint). Only
     # "current" chargers are eligible for excess-PV surplus charging — surplus

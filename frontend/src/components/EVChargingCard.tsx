@@ -1,9 +1,45 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { Clock, RotateCw, Sun, Trash2, Loader2, Save } from 'lucide-react'
 import { Api, EVChargerState } from '../lib/api'
 import { useToast } from '../lib/useToast'
 import Switch from './ui/Switch'
+
+/** Format a Date as a local (not UTC) YYYY-MM-DD string — never use
+ * toISOString().slice(0, 10) for calendar logic, it shifts across midnight
+ * in timezones behind/ahead of UTC. */
+function toLocalISODate(d: Date): string {
+    const year = d.getFullYear()
+    const month = String(d.getMonth() + 1).padStart(2, '0')
+    const day = String(d.getDate()).padStart(2, '0')
+    return `${year}-${month}-${day}`
+}
+
+/** Parse a YYYY-MM-DD string as a local date — never use `new Date("YYYY-MM-DD")`
+ * for calendar logic, it parses as UTC midnight and can shift a day in local time. */
+function parseLocalISODate(dateStr: string): Date {
+    const [year, month, day] = dateStr.split('-').map(Number)
+    return new Date(year, (month || 1) - 1, day || 1)
+}
+
+function tomorrowLocalISODate(): string {
+    const tomorrow = new Date()
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    return toLocalISODate(tomorrow)
+}
+
+const EV_BALANCER_STATE_LABELS: Record<string, string> = {
+    throttling: 'Throttling by Load Balancer',
+    paused: 'Paused by Load Balancer',
+    stale_fallback: 'Load Balancer Fail-Safe',
+}
+
+const EV_BALANCER_STATE_COLORS: Record<string, string> = {
+    throttling: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
+    paused: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
+    stale_fallback: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+}
 
 export default function EVChargingCard({
     charger,
@@ -14,44 +50,55 @@ export default function EVChargingCard({
     charger: EVChargerState
     config: any
     loadBalancing: any
-    onRefresh: () => void
+    onRefresh: () => Promise<void>
 }) {
     const { toast } = useToast()
-    const [isEditing, setIsEditing] = useState(charger.target_soc_percent === null)
+
+    // View-vs-edit mode is derived from the current charger prop every
+    // render — never a one-shot init — so a goal cleared server-side (by
+    // another client, HA, or this component) always shows the no-goal
+    // (create) form, never a phantom stale goal. `manualEdit` only tracks
+    // the user explicitly opening the form to edit an EXISTING goal.
+    const hasGoal = charger.target_soc_percent !== null
+    const [manualEdit, setManualEdit] = useState(false)
+    const isEditing = !hasGoal || manualEdit
+
     const [submitting, setSubmitting] = useState(false)
     const [formError, setFormError] = useState<string | null>(null)
+    // True while a save's refetch is in flight — the reset-from-props effect
+    // is skipped during this window so the just-submitted values stay
+    // displayed instead of flashing back to the (momentarily stale) props.
+    const [pendingRefresh, setPendingRefresh] = useState(false)
 
     // Form states
     const [targetSoc, setTargetSoc] = useState<number>(charger.target_soc_percent ?? 80)
     const [readyBy, setReadyBy] = useState<string>(charger.ready_by ?? '07:00')
     const [repeat, setRepeat] = useState<string>(charger.repeat ?? 'daily')
-    const [readyByDate, setReadyByDate] = useState<string>(
-        charger.ready_by_date ??
-            (() => {
-                const tomorrow = new Date()
-                tomorrow.setDate(tomorrow.getDate() + 1)
-                return tomorrow.toISOString().slice(0, 10)
-            })(),
-    )
+    const [readyByDate, setReadyByDate] = useState<string>(charger.ready_by_date ?? tomorrowLocalISODate())
     const [nDays, setNDays] = useState<number>(charger.n_days ?? 2)
     const [keepOn, setKeepOn] = useState<boolean>(charger.keep_on_after_target ?? false)
 
-    // Reset form states if charger changes externally (e.g. from HA socket sync)
+    // Reset form states if charger changes externally (e.g. from HA socket sync).
+    // Every field resets unconditionally from props (including to its default
+    // when the server value is null) — a stale local value must never survive
+    // a server-side change just because it happened to be falsy.
     useEffect(() => {
-        if (!isEditing) {
+        if (!isEditing && !pendingRefresh) {
             setTargetSoc(charger.target_soc_percent ?? 80)
             setReadyBy(charger.ready_by ?? '07:00')
             setRepeat(charger.repeat ?? 'daily')
-            if (charger.ready_by_date) setReadyByDate(charger.ready_by_date)
-            if (charger.n_days) setNDays(charger.n_days)
+            setReadyByDate(charger.ready_by_date ?? tomorrowLocalISODate())
+            setNDays(charger.n_days ?? 2)
             setKeepOn(charger.keep_on_after_target ?? false)
         }
-    }, [charger, isEditing])
+    }, [charger, isEditing, pendingRefresh])
 
-    // Load balancer check
+    // Load balancer check — states mirror LoadBalancerStatusCard's per-EV
+    // states exactly: idle (no override), throttling, paused, stale_fallback.
     const balancerEv = loadBalancing?.ev?.find((e: any) => e.charger_id === charger.id)
-    const isPausedByBalancer =
-        balancerEv && (balancerEv.paused || balancerEv.state === 'paused' || balancerEv.state === 'throttled')
+    const balancerState: string | undefined = balancerEv?.state
+    const balancerOverrideLabel = balancerState ? EV_BALANCER_STATE_LABELS[balancerState] : undefined
+    const balancerOverrideColor = balancerState ? EV_BALANCER_STATE_COLORS[balancerState] : undefined
 
     // Surplus absorption check
     const excessPv = config?.executor?.excess_pv?.priority ?? []
@@ -61,6 +108,7 @@ export default function EVChargingCard({
         e.preventDefault()
         setSubmitting(true)
         setFormError(null)
+        setPendingRefresh(true)
 
         try {
             await Api.ev.setSchedule(charger.id, {
@@ -72,14 +120,15 @@ export default function EVChargingCard({
                 keep_on_after_target: targetSoc === 100 ? keepOn : false,
             })
             toast({ message: `Goal saved for ${charger.name}`, variant: 'success' })
-            setIsEditing(false)
-            onRefresh()
+            setManualEdit(false)
+            await onRefresh()
         } catch (err: any) {
             console.error(err)
             setFormError(err.message || 'Failed to save goal')
             toast({ message: 'Failed to save goal', variant: 'error' })
         } finally {
             setSubmitting(false)
+            setPendingRefresh(false)
         }
     }
 
@@ -91,8 +140,7 @@ export default function EVChargingCard({
                 target_soc_percent: null,
             })
             toast({ message: `Goal cleared for ${charger.name}`, variant: 'success' })
-            setIsEditing(true)
-            onRefresh()
+            await onRefresh()
         } catch (err: any) {
             console.error(err)
             toast({ message: 'Failed to clear goal', variant: 'error' })
@@ -108,9 +156,10 @@ export default function EVChargingCard({
 
     let statusText: string = charger.status || 'idle'
     let statusColor = 'bg-surface2 text-muted'
-    if (isPausedByBalancer) {
-        statusText = 'Paused by load balancer'
-        statusColor = 'bg-blue-500/10 text-blue-400 border border-blue-500/20'
+    if (balancerOverrideLabel && balancerOverrideColor) {
+        // A fail-safe pause/throttle must never read as "on track".
+        statusText = balancerOverrideLabel
+        statusColor = balancerOverrideColor
     } else if (charger.status === 'on_track') {
         statusText = 'On track'
         statusColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
@@ -247,10 +296,10 @@ export default function EVChargingCard({
 
                     {/* Form Actions */}
                     <div className="flex gap-2 pt-1">
-                        {charger.target_soc_percent !== null && (
+                        {hasGoal && (
                             <button
                                 type="button"
-                                onClick={() => setIsEditing(false)}
+                                onClick={() => setManualEdit(false)}
                                 className="flex-1 bg-surface-elevated hover:bg-surface border border-line/20 text-muted hover:text-text py-1 px-3 rounded-lg text-xs transition font-semibold"
                             >
                                 Cancel
@@ -323,13 +372,7 @@ export default function EVChargingCard({
                                 {repeat === 'every_n_days'
                                     ? `Every ${nDays} Days`
                                     : repeat === 'none'
-                                      ? `Once (${(() => {
-                                            if (!readyByDate) return ''
-                                            const match = readyByDate.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-                                            if (match) return readyByDate
-                                            const d = new Date(readyByDate)
-                                            return !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : readyByDate
-                                        })()})`
+                                      ? `Once (${readyByDate})`
                                       : repeat}
                             </span>
                         </div>
@@ -347,9 +390,9 @@ export default function EVChargingCard({
                             <div className="text-[9px] text-muted font-medium mb-1">Upcoming Daily Quotas</div>
                             <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
                                 {Object.entries(charger.quota_schedule).map(([dateStr, kwh]: [string, any]) => {
-                                    const d = new Date(dateStr)
+                                    const d = parseLocalISODate(dateStr)
                                     const dayName = d.toLocaleDateString([], { weekday: 'short' })
-                                    const isToday = dateStr === new Date().toISOString().slice(0, 10)
+                                    const isToday = dateStr === toLocalISODate(new Date())
                                     return (
                                         <div
                                             key={dateStr}
@@ -382,12 +425,12 @@ export default function EVChargingCard({
                                 <span>⚠️</span>
                                 <div>
                                     Surplus absorption off —{' '}
-                                    <a
-                                        href="/settings?tab=advanced"
+                                    <Link
+                                        to="/settings?tab=load-balancing"
                                         className="text-accent hover:underline font-semibold"
                                     >
                                         add this charger to Excess PV priority
-                                    </a>
+                                    </Link>
                                 </div>
                             </div>
                         )
@@ -408,7 +451,7 @@ export default function EVChargingCard({
                             Clear Goal
                         </button>
                         <button
-                            onClick={() => setIsEditing(true)}
+                            onClick={() => setManualEdit(true)}
                             className="flex-1 bg-accent hover:bg-accent2 text-surface-elevated py-1 px-3 rounded-lg text-xs font-bold transition flex items-center justify-center gap-1"
                         >
                             Configure Goal

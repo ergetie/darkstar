@@ -138,11 +138,12 @@ def build_ev_charger_inputs(
 
         state = state_by_id.get(charger_id, {})
 
-        soc_percent = float(state.get("soc_percent", 0.0))
+        soc_percent = float(state.get("soc_percent") or 0.0)
         plugged_in = bool(state.get("plugged_in", False))
         deadline = state.get("deadline")  # datetime | None
         required_kwh = state.get("required_kwh")
-        daily_quota_kwh = state.get("daily_quota_kwh")
+        quota_schedule = state.get("quota_schedule")
+        quota_by_day = {d: float(v) for d, v in quota_schedule.items()} if quota_schedule else None
         keep_on_after_target = bool(state.get("keep_on_after_target", False))
 
         result.append(
@@ -154,7 +155,7 @@ def build_ev_charger_inputs(
                 plugged_in=plugged_in,
                 deadline=deadline,
                 required_kwh=float(required_kwh) if required_kwh is not None else None,
-                daily_quota_kwh=float(daily_quota_kwh) if daily_quota_kwh is not None else None,
+                quota_by_day=quota_by_day,
                 keep_on_after_target=keep_on_after_target,
                 control_type=str(ev.get("type", "binary")).lower(),
             )

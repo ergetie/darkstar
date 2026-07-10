@@ -46,6 +46,56 @@ async def close_ha_http_client() -> None:
         logger.info("Closed shared Home Assistant HTTP client for current event loop")
 
 
+# Backend-owned HA action client (executor.actions.HAClient), used for goal
+# writes (set_input_number/set_input_datetime). One per running event loop —
+# never the executor's own client instance, which lives on the executor's
+# (possibly different) loop.
+_ha_action_clients: dict[asyncio.AbstractEventLoop, Any] = {}
+_ha_action_clients_lock = threading.Lock()
+
+
+def get_ha_action_client() -> Any:
+    """Return a backend-owned HAClient bound to the CURRENT running event loop.
+
+    Returns ``None`` if Home Assistant isn't configured (no url/token). Never
+    returns the executor's own HAClient instance — that one belongs to the
+    executor's loop and must not be used or closed from another loop.
+    """
+    from executor.actions import HAClient
+
+    ha_config = secrets.load_home_assistant_config()
+    url = ha_config.get("url")
+    token = ha_config.get("token")
+    if not url or not token:
+        return None
+
+    loop = asyncio.get_running_loop()
+    with _ha_action_clients_lock:
+        client = _ha_action_clients.get(loop)
+        if client is None:
+            client = HAClient(url, token)
+            _ha_action_clients[loop] = client
+        return client
+
+
+async def close_ha_action_clients() -> None:
+    """Close all backend-owned HA action clients (FastAPI shutdown).
+
+    Each client's ``close()`` only touches the session for the loop it's
+    called from, so this is safe to call from any single loop even if
+    clients were created on others (those simply won't have their session
+    closed here, matching HAClient's own cross-loop-safety guarantee).
+    """
+    with _ha_action_clients_lock:
+        clients = list(_ha_action_clients.values())
+        _ha_action_clients.clear()
+    for client in clients:
+        try:
+            await client.close()
+        except Exception as exc:
+            logger.warning("Error closing HA action client: %s", exc)
+
+
 def make_ha_headers(token: str) -> dict[str, str]:
     """Return headers for Home Assistant REST calls."""
     return {
@@ -332,6 +382,32 @@ async def get_ha_bool(entity_id: str) -> bool:
     return is_true
 
 
+def parse_ha_datetime_state(raw_value: Any, tz: pytz.BaseTzInfo) -> datetime | None:
+    """Parse a raw Home Assistant ``input_datetime`` state string.
+
+    Supports ``'YYYY-MM-DD HH:MM:SS'`` and ISO 8601 (with or without
+    timezone) formats; naive results are localized to ``tz``. Returns
+    ``None`` for unknown/unavailable/empty/time-only/unparseable values.
+    """
+    if raw_value in (None, "unknown", "unavailable", "", "None"):
+        return None
+
+    raw_str = str(raw_value).strip()
+    if not raw_str or "-" not in raw_str:
+        return None
+
+    normalized = raw_str.replace(" ", "T")
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+    if dt.tzinfo is None:
+        dt = tz.localize(dt)
+
+    return dt
+
+
 async def get_ha_datetime(entity_id: str) -> datetime | None:
     """Fetch datetime state from HA entity asynchronously and parse it.
 
@@ -344,37 +420,20 @@ async def get_ha_datetime(entity_id: str) -> datetime | None:
         return None
 
     raw_value = state.get("state")
-    if raw_value in (None, "unknown", "unavailable", "", "None"):
-        logger.warning("HA datetime entity %s is %s", entity_id, raw_value)
-        return None
-
-    raw_str = str(raw_value).strip()
-    if not raw_str:
-        logger.warning("HA datetime entity %s is empty", entity_id)
-        return None
-
-    # Check if time-only (contains no '-' to indicate year-month-day)
-    if "-" not in raw_str:
-        logger.warning("HA datetime entity %s has time-only/invalid value: %r", entity_id, raw_str)
-        return None
-
-    # Replace space with T to make ISO parsing easier
-    normalized = raw_str.replace(" ", "T")
     try:
-        dt = datetime.fromisoformat(normalized)
-    except ValueError:
-        logger.warning("Could not parse datetime value %r for entity %s", raw_str, entity_id)
-        return None
+        config = secrets.load_yaml("config.yaml")
+        tz_name = config.get("timezone", "Europe/Stockholm")
+        tz = pytz.timezone(tz_name)
+    except Exception:
+        tz = pytz.timezone("Europe/Stockholm")
 
-    if dt.tzinfo is None:
-        try:
-            config = secrets.load_yaml("config.yaml")
-            tz_name = config.get("timezone", "Europe/Stockholm")
-            tz = pytz.timezone(tz_name)
-        except Exception:
-            tz = pytz.timezone("Europe/Stockholm")
-        dt = tz.localize(dt)
-
+    dt = parse_ha_datetime_state(raw_value, tz)
+    if dt is None:
+        logger.warning(
+            "HA datetime entity %s has unparseable/time-only/unavailable value: %r",
+            entity_id,
+            raw_value,
+        )
     return dt
 
 
@@ -466,8 +525,11 @@ async def get_initial_state(
             soc_sensor = ev.get("soc_sensor", "")
             plug_sensor = ev.get("plug_sensor", "")
 
-            # SoC
-            soc_percent = 0.0
+            # SoC: None when unavailable (no sensor configured, or the sensor
+            # read failed) — distinguished from a real 0.0% reading, so the
+            # required-kWh calculation doesn't misidentify "unknown" as
+            # "already at 0%" (see planner.pipeline._calculate_required_kwh).
+            soc_percent: float | None = None
             if soc_sensor:
                 ha_soc_val = per_device_results.get(f"ev_soc_{charger_id}")
                 if ha_soc_val is not None:
@@ -502,8 +564,13 @@ async def get_initial_state(
                 }
             )
 
-    # Build aggregate values for backward compatibility
-    ev_soc_percent = ev_charger_states[0]["soc_percent"] if ev_charger_states else 0.0
+    # Build aggregate values for backward compatibility (legacy scalar field:
+    # unavailable SoC displays as 0.0 here, unlike the per-device list above).
+    ev_soc_percent = (
+        ev_charger_states[0]["soc_percent"]
+        if ev_charger_states and ev_charger_states[0]["soc_percent"] is not None
+        else 0.0
+    )
     ev_plugged_in = ev_charger_states[0]["plugged_in"] if ev_charger_states else False
 
     return {

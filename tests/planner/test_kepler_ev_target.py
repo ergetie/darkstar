@@ -70,7 +70,7 @@ def _ev(
     id: str = "ev1",
     required_kwh: float,
     deadline: datetime | None = None,
-    daily_quota_kwh: float | None = None,
+    quota_by_day: dict[date, float] | None = None,
     max_power_kw: float = 7.4,
     battery_capacity_kwh: float = 100.0,
     soc_percent: float = 0.0,
@@ -84,7 +84,7 @@ def _ev(
         plugged_in=True,
         deadline=deadline,
         required_kwh=required_kwh,
-        daily_quota_kwh=daily_quota_kwh,
+        quota_by_day=quota_by_day,
         control_type=control_type,
     )
 
@@ -186,17 +186,18 @@ def test_reports_shortfall_when_target_unreachable():
 
 
 # ---------------------------------------------------------------------------
-# Scenario: daily_quota_kwh caps today's energy; remainder deferred to other
-# (later) days within the deadline horizon.
+# Scenario: quota_by_day caps today's energy; remainder deferred to other
+# (later) days within the deadline horizon (per-day quota, not just today).
 # ---------------------------------------------------------------------------
 def test_daily_quota_caps_todays_energy():
     # 4 slots starting late tonight: two today (22-00), two tomorrow (00-02).
     base = TZ.localize(datetime.combine(date.today(), datetime.min.time())) + timedelta(hours=22)
     slots = _slots(n=4, import_prices=[0.1] * 4, start=base)
+    tomorrow = base.date() + timedelta(days=1)
     ev = _ev(
         required_kwh=20.0,
         deadline=slots[-1].end_time,
-        daily_quota_kwh=3.0,
+        quota_by_day={base.date(): 3.0, tomorrow: 17.0},
         max_power_kw=7.4,
     )
     cfg = KeplerConfig(**_base_config(capacity_kwh=0.0), ev_chargers=[ev])

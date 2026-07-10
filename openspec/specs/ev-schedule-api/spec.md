@@ -4,7 +4,7 @@
 TBD - created by archiving change price-forecasting-module-5. Update Purpose after archive.
 ## Requirements
 ### Requirement: Write endpoint sets a charger's charging goal
-The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body with `target_soc_percent` (int 0–100, or null to clear), `ready_by` (`HH:MM`), `repeat` (`daily`|`weekdays`|`weekends`|`every_n_days`|`none`), optional `ready_by_date` (ISO date, required when `repeat: none`), and optional `keep_on_after_target` (bool). **No `charge_priority` parameter** — surplus ordering is owned by `excess_pv.priority[]`, not per-charger. The endpoint SHALL validate inputs and persist the goal to `data/ev_multi_day_state.json`.
+The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body with `target_soc_percent` (int 0–100, or null to clear), `ready_by` (`HH:MM`), `repeat` (`daily`|`weekdays`|`weekends`|`every_n_days`|`none`), optional `n_days` (int ≥ 1, used with `repeat: every_n_days`), optional `ready_by_date` (ISO date, required when `repeat: none`), and optional `keep_on_after_target` (bool). **No `charge_priority` parameter** — surplus ordering is owned by `excess_pv.priority[]`, not per-charger. The endpoint SHALL validate inputs and persist the goal to `data/ev_multi_day_state.json`. `ready_by_date` SHALL be validated as a real calendar date (`date.fromisoformat`, not regex only) and SHALL NOT be in the past; violations return HTTP 422. `n_days` SHALL round-trip: persisted, preserved by planner writebacks, and returned by GET.
 
 #### Scenario: Set a daily goal
 - **WHEN** `POST /api/ev/chargers/ev_charger_1/schedule` is called with `{ "target_soc_percent": 80, "ready_by": "07:00", "repeat": "daily" }`
@@ -14,6 +14,19 @@ The API SHALL expose `POST /api/ev/chargers/{id}/schedule` accepting a JSON body
 #### Scenario: Set a one-off goal for a specific date
 - **WHEN** the body has `repeat: "none"`, `ready_by_date: "2026-06-12"`, `ready_by: "07:00"`, `target_soc_percent: 100`
 - **THEN** the goal SHALL be persisted with that date
+
+#### Scenario: Set an every-N-days goal
+- **WHEN** the body has `repeat: "every_n_days"`, `n_days: 3`, `ready_by: "07:00"`
+- **THEN** the goal SHALL be persisted with `n_days: 3`
+- **AND** `GET /api/ev/chargers` SHALL return `n_days: 3` even after subsequent planner runs
+
+#### Scenario: Impossible calendar date rejected
+- **WHEN** the body has `ready_by_date: "2026-02-31"`
+- **THEN** the endpoint SHALL return HTTP 422
+
+#### Scenario: Past date rejected
+- **WHEN** the body has `repeat: "none"` and `ready_by_date` is yesterday
+- **THEN** the endpoint SHALL return HTTP 422 (a past one-off can never be acted on)
 
 #### Scenario: Clear the goal
 - **WHEN** the body has `target_soc_percent: null`
@@ -46,15 +59,19 @@ When a charger has `ha_ready_by_entity` and/or `ha_target_soc_entity` configured
 - **AND** the failure SHALL be logged as a warning
 
 ### Requirement: State file is source of truth for the user-set goal
-`data/ev_multi_day_state.json` SHALL be the primary source of truth for the user-set goal. The pipeline SHALL read the goal from the state file and fall back to `config.yaml` goal fields only when the state file has no goal for a charger.
+`data/ev_multi_day_state.json` SHALL be the **sole** source of truth for charging goals. The pipeline SHALL read goals only from the state file; `config.yaml` goal fields are removed and SHALL NOT be used as a fallback. Planner writebacks SHALL preserve all user-set goal fields verbatim (including `n_days`) and SHALL preserve entries for chargers not processed in the current run (e.g. temporarily disabled chargers).
 
-#### Scenario: State file overrides config
-- **WHEN** config has `target_soc_percent: 70` and the state file has `target_soc_percent: 90` for the same charger
-- **THEN** the pipeline SHALL use the state file value 90
+#### Scenario: No goal in state file means no goal
+- **WHEN** the state file has no goal for a charger
+- **THEN** the pipeline SHALL treat the charger as having no charging goal (no config fallback)
+
+#### Scenario: Planner writeback preserves goals
+- **WHEN** the planner persists progress for charger A while charger B is disabled in config
+- **THEN** charger B's goal entry SHALL remain in the state file unchanged
 
 #### Scenario: State file missing or corrupt
 - **WHEN** the state file does not exist or cannot be parsed
-- **THEN** the pipeline SHALL fall back to config goal fields
+- **THEN** the pipeline SHALL treat all chargers as having no goal and log a warning
 - **AND** the API SHALL recreate the state file on next write
 
 ### Requirement: Write endpoint returns the updated charger state
@@ -63,3 +80,25 @@ After persisting, the endpoint SHALL return the affected charger's state in the 
 #### Scenario: Response includes goal and progress
 - **WHEN** a goal is set successfully
 - **THEN** the response SHALL include `id`, the goal fields, the resolved `deadline`, and progress fields (which MAY be null until the next planner run)
+
+### Requirement: State-file access is serialized across writers
+All reads and writes of `data/ev_multi_day_state.json` SHALL go through `backend/core/ev_state.py`, which SHALL hold an inter-process/inter-thread file lock across each read-modify-write cycle and SHALL write via a uniquely named temp file followed by an atomic rename. Concurrent writers (API endpoint, HA websocket handler, planner persist) SHALL NOT lose each other's updates or corrupt the file.
+
+#### Scenario: API write during planner persist
+- **WHEN** a goal is saved via the API while the planner is persisting progress
+- **THEN** both updates SHALL be present in the final file (no lost update, no partial JSON)
+
+#### Scenario: Unique temp files
+- **WHEN** two writers write concurrently
+- **THEN** each SHALL use its own temp file (no shared `.tmp` path)
+
+### Requirement: Backend owns its HA client sessions per event loop
+HTTP calls to Home Assistant from the backend (API routers, HA websocket sync) SHALL use an HA client whose aiohttp session is bound to the calling event loop, created and closed by the backend. The backend SHALL NOT borrow the executor's HA client, and no code path SHALL close or rebind a session owned by another event loop.
+
+#### Scenario: Schedule save does not disturb the executor
+- **WHEN** a schedule is saved (triggering HA sync) while the executor is sending a hardware command
+- **THEN** the executor's HTTP session SHALL remain open and its command SHALL complete normally
+
+#### Scenario: Sessions cleaned up on shutdown
+- **WHEN** the backend shuts down
+- **THEN** backend-owned HA client sessions SHALL be closed (no leaked sessions per save)
