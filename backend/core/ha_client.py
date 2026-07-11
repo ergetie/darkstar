@@ -616,7 +616,8 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         "filter_entity_id": entity_id,
         "end_time": end_time.isoformat(),
         "significant_changes_only": False,
-        "minimal_response": False,
+        "minimal_response": True,
+        "no_attributes": True,
     }
 
     try:

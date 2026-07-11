@@ -22,8 +22,18 @@ The executor SHALL NOT crash when Home Assistant service calls fail or time out.
 ### Requirement: call_service uses retry-with-backoff
 `HAClient.call_service` SHALL use the same `_retry_with_backoff` mechanism as `get_state`, with 3 attempts and a 1-second base delay, treating `TimeoutError` and `aiohttp.ClientError` as retryable.
 
+#### Scenario: call_service retries a transient network error
+- **WHEN** `call_service` posts to the Home Assistant API and the session raises a retryable error (`TimeoutError` or `aiohttp.ClientError`)
+- **THEN** `_retry_with_backoff` retries the call up to 3 times with a 1-second base delay before giving up
+- **AND** if all attempts fail, `HACallError` is raised to the caller
+
 ### Requirement: Timeout handling is tested
 A unit test SHALL exist verifying that a `TimeoutError` raised by the HTTP session during `call_service` results in an `HACallError` being raised by the client.
+
+#### Scenario: Unit test verifies timeout raises HACallError
+- **WHEN** `tests/executor/test_executor_actions.py::test_call_service_timeout_raises_ha_call_error` runs with a mocked session that raises `TimeoutError` from `call_service`
+- **THEN** the test asserts `HACallError` is raised
+- **AND** the test asserts `exception_type` on the raised error is `"TimeoutError"`
 
 ### Requirement: Status API current_slot_plan includes mode_intent
 

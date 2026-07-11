@@ -41,7 +41,6 @@ def test_route_snapshot(app_client):
         "GET /api/energy/range",
         "GET /api/performance/data",
         "GET /api/ha-socket",
-        "POST /api/simulate",
     }
 
     registered = set()

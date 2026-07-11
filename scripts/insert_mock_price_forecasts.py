@@ -8,6 +8,10 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import pytz
+
+LOCAL_TZ = pytz.timezone("Europe/Stockholm")
+
 
 def insert_mock_forecasts(db_path: str = "data/planner_learning.db"):
     """Insert 7 days of mock price forecast data."""
@@ -26,12 +30,12 @@ def insert_mock_forecasts(db_path: str = "data/planner_learning.db"):
         print("price_forecasts table doesn't exist. Run: uv run alembic upgrade 5a8b9c2d1e3f")
         return
 
-    # Clear existing mock data
-    cursor.execute("DELETE FROM price_forecasts WHERE issue_timestamp = '2026-03-30T08:00:00'")
-
     # Generate 7 days of hourly forecasts (24 slots per day)
     base_date = datetime(2026, 3, 30, 0, 0, 0)
-    issue_time = "2026-03-30T08:00:00"
+    issue_time = LOCAL_TZ.localize(datetime(2026, 3, 30, 8, 0, 0)).isoformat()
+
+    # Clear existing mock data
+    cursor.execute("DELETE FROM price_forecasts WHERE issue_timestamp = ?", (issue_time,))
 
     # Realistic consumer price patterns (import prices with taxes/fees)
     # Range: ~0.50 kr/kWh (cheap nights) to ~2.50 kr/kWh (expensive peaks)
@@ -49,7 +53,7 @@ def insert_mock_forecasts(db_path: str = "data/planner_learning.db"):
     for day_offset, pattern in enumerate(daily_patterns):
         for hour in range(24):
             slot_time = base_date + timedelta(days=day_offset, hours=hour)
-            slot_start = slot_time.strftime("%Y-%m-%dT%H:%M:%S")
+            slot_start = LOCAL_TZ.localize(slot_time).isoformat()
 
             # Realistic hourly patterns for consumer prices
             hour_factor = 1.0

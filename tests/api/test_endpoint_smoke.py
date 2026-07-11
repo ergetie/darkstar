@@ -165,10 +165,3 @@ def test_smoke_ha_socket(client):
     ):
         resp = client.get("/api/ha-socket")
     assert resp.status_code != 500
-
-
-def test_smoke_simulate(client):
-    resp = client.post("/api/simulate")
-    assert resp.status_code == 200
-    data = resp.json()
-    assert data.get("status") in ("error", "success")

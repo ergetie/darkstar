@@ -36,7 +36,7 @@ The configuration help documentation SHALL remove all references to `today_*` se
 - **AND** does NOT mention `today_*` sensors
 
 ### Requirement: EV charger energy_sensor configuration removed
-The `energy_sensor` field is no longer supported for `ev_chargers[]` items. EV energy recording uses the HA History API with the existing power sensor (`sensor` field). Config migration silently removes `energy_sensor` from `ev_chargers[]` items — no user action required.
+The `energy_sensor` field SHALL NOT be supported for `ev_chargers[]` items. EV energy recording MUST use the HA History API with the existing power sensor (`sensor` field). Config migration SHALL silently remove `energy_sensor` from `ev_chargers[]` items — no user action required.
 
 #### Scenario: Config migration removes energy_sensor from EV chargers
 - **WHEN** an existing config contains `energy_sensor` in an `ev_chargers[]` item
@@ -48,7 +48,7 @@ The `energy_sensor` field is no longer supported for `ev_chargers[]` items. EV e
 - **THEN** the default config SHALL NOT include `energy_sensor` in `ev_chargers[]` items
 
 ### Requirement: Water heater energy_sensor configuration removed
-The `energy_sensor` field is no longer supported for `water_heaters[]` items. Water heater energy recording uses the HA History API with the existing power sensor (`sensor` field). Config migration silently removes `energy_sensor` from `water_heaters[]` items — no user action required.
+The `energy_sensor` field SHALL NOT be supported for `water_heaters[]` items. Water heater energy recording MUST use the HA History API with the existing power sensor (`sensor` field). Config migration SHALL silently remove `energy_sensor` from `water_heaters[]` items — no user action required.
 
 #### Scenario: Config migration removes energy_sensor from water heaters
 - **WHEN** an existing config contains `energy_sensor` in a `water_heaters[]` item

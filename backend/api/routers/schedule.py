@@ -521,30 +521,6 @@ async def save_schedule(request_body: dict[str, Any]) -> dict[str, str]:
         return {"status": "error", "message": str(e)}
 
 
-@router.post(
-    "/api/simulate",
-    summary="Run Simulation",
-    description="Run a simulation of the current schedule.",
-)
-async def run_simulation() -> dict[str, Any]:
-    """Run schedule simulation."""
-    try:
-        from planner.simulation import simulate_schedule  # pyright: ignore [reportMissingImports]
-
-        with Path("data/schedule.json").open() as f:
-            schedule = json.load(f)
-
-        config = load_yaml("config.yaml")
-        initial_state: dict[str, Any] = {}  # Simplified simulation
-
-        result = simulate_schedule(schedule, config, initial_state)
-        return {"status": "success", "result": cast("dict[str, Any]", result)}
-    except ImportError:
-        return {"status": "error", "message": "Simulation module not available"}
-    except Exception as e:
-        return {"status": "error", "message": str(e)}
-
-
 def _clean_nans(obj: Any) -> Any:
     """Recursively replace NaN/Infinity with 0.0 for JSON safety."""
     if isinstance(obj, float):

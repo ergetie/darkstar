@@ -1,13 +1,13 @@
 # Capability: Startup Wizard
 
 ## Purpose
-TBD
+The Startup Wizard walks a fresh installation through selecting an inverter profile, entering equipment specifications, and configuring baseline consumption before the main dashboard becomes accessible.
 
 ## Requirements
 
 ### Requirement: Triggering the Setup Wizard
 
-The system must detect when a fresh installation requires initial configuration and force the user into the Setup Wizard, preventing access to the main dashboard.
+The system MUST detect when a fresh installation requires initial configuration and force the user into the Setup Wizard, preventing access to the main dashboard.
 
 #### Scenario: Fresh Installation Detected
 - **WHEN** the application loads
@@ -23,7 +23,7 @@ The system must detect when a fresh installation requires initial configuration 
 
 ### Requirement: Step 1 - Equipment Profile Selection
 
-The user must be able to select their inverter hardware profile, which automatically populates the standard Home Assistant entities for that hardware.
+The user MUST be able to select their inverter hardware profile, which automatically populates the standard Home Assistant entities for that hardware.
 
 #### Scenario: User selects a hardware profile
 - **WHEN** the user is on Step 1 of the wizard
@@ -33,7 +33,7 @@ The user must be able to select their inverter hardware profile, which automatic
 
 ### Requirement: Step 2 - Equipment Specifications
 
-The user must configure their basic energy hardware specifications so the system knows its physical limits.
+The user MUST configure their basic energy hardware specifications so the system knows its physical limits.
 
 #### Scenario: User enters hardware specifications
 - **WHEN** the user is on Step 2 of the wizard
@@ -43,7 +43,7 @@ The user must configure their basic energy hardware specifications so the system
 
 ### Requirement: Step 3 - Baseline Consumption
 
-The user must provide a baseline consumption source, either by selecting an existing Home Assistant historical sensor or by estimating their daily usage for a synthetic profile.
+The user MUST provide a baseline consumption source, either by selecting an existing Home Assistant historical sensor or by estimating their daily usage for a synthetic profile.
 
 #### Scenario: User selects a Home Assistant sensor
 - **WHEN** the user is on Step 3 of the wizard
@@ -60,7 +60,7 @@ The user must provide a baseline consumption source, either by selecting an exis
 
 ### Requirement: Finalizing Configuration
 
-The system must save the collected configuration, validate it, and reload the backend engine to apply the changes.
+The system MUST save the collected configuration, validate it, and reload the backend engine to apply the changes.
 
 #### Scenario: User completes the wizard
 - **WHEN** the configuration is finalized on Step 3

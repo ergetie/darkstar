@@ -75,35 +75,6 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 
 ---
 
-#### [HA/Performance] Slim Down Home Assistant History Fetches
-
-**Goal:** Reduce the latency of `/api/ha/average` (and related HA history reads), which still takes ~1.3s on a cache miss. The cost is the HTTP round-trip to Home Assistant's `/api/history/period` plus parsing a large, maximal-detail response — not CPU on our side.
-
-**Notes:** Discovered 2026-06-17 while verifying `dashboard-performance-pass` (which targeted CPU-bound work and correctly did not change this I/O-bound path). The history requests fetch maximal detail: `backend/api/routers/ha.py:_fetch_ha_history_avg` (lines 39-40) and `backend/core/ha_client.py:get_load_profile_from_ha` both set `significant_changes_only: False` and `minimal_response: False`. Options to try: (a) set `minimal_response: True` and/or `no_attributes: True` to shrink the payload, (b) set `significant_changes_only: True` where attribute precision isn't needed, (c) lengthen/tune the existing 60s cache. Validate that the averaging/step-integration math still produces correct results with the reduced data before/after. Low priority — it has a 60s cache and no longer blocks the dashboard (the CPU serialization that did is fixed).
-
----
-
-#### [Specs] Fix 5 Pre-Existing OpenSpec Validation Failures
-
-**Goal:** Make `openspec validate --specs` pass cleanly. Five spec files fail format validation (independent of any feature work — the capabilities are implemented; only the spec docs don't conform). Fix each by adding the missing normative `SHALL`/`MUST` wording and/or at least one `#### Scenario:` block per requirement:
-- `startup-wizard` — all 5 requirements lack a `SHALL`/`MUST` keyword; Purpose section is too brief (<50 chars).
-- `sensor-configuration` — requirements #4 and #5 lack a `SHALL`/`MUST` keyword.
-- `aurora-corrector` — requirement #1 lacks both a `SHALL`/`MUST` keyword and a scenario.
-- `executor` — requirements #2 and #3 have no `#### Scenario:` block.
-- `planner` — requirement #5 has no `#### Scenario:` block.
-
-**Notes:** Discovered 2026-06-17 during verification of the `dashboard-performance-pass` change. Pre-existing failures, unrelated to that change (not in its diff). These are hard errors (they fail even without `--strict`), but they are documentation/lint issues only — no code is broken. Files live in `openspec/specs/<name>/spec.md`. Each requirement needs a `### Requirement:` line containing SHALL/MUST plus ≥1 `#### Scenario:` (level-4 header) with WHEN/THEN bullets.
-
----
-
-#### [Planner/API] `/api/simulate` Fails with `'dict' object has no attribute 'iterrows'`
-
-**Goal:** Fix the `POST /api/simulate` endpoint, which currently returns `{"status":"error","message":"'dict' object has no attribute 'iterrows'"}` instead of running a simulation. Something passes a plain `dict` where a pandas DataFrame is expected (`.iterrows()` called on it).
-
-**Notes:** Discovered 2026-06-16 during verification of the `battery-cycle-cost-floor` change. Pre-existing and unrelated to that change — the simulate path is not touched by it, and the main planner cycle runs fine (full Kepler plan succeeds at startup). Scope is `/api/simulate` only. Start by tracing where the simulate handler builds/forwards its input data and find the spot that should be a DataFrame but is a dict.
-
----
-
 #### [Tooling] Deliberate Dependency Upgrade + Tight Pinning Pass
 
 **Goal:** Bring all dependencies up to current versions in a controlled pass, then pin them so CI and local always resolve identically. Covers: runtime deps (`requirements.txt`, currently loose `>=` pins), dev tools (`pyright` is held at 1.1.408 — one behind latest; `ruff` at 0.15.5; `pytest` et al. still loose), `pnpm` (pinned to 9 in the Dockerfile to dodge pnpm 10's Node-22 `node:sqlite` requirement), and the Node version in the add-on `Dockerfile`.
@@ -154,14 +125,6 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 
 ---
 
-#### [Price Forecast] Mock Script Inserts Timezone-Naive Timestamps
-
-**Goal:** Fix `scripts/insert_mock_price_forecasts.py` line 52 to include timezone offset in `slot_start`. Currently uses `strftime("%Y-%m-%dT%H:%M:%S")` which produces `2026-03-30T00:00:00` (no timezone), while production code produces `2026-03-30T00:00:00+02:00`. This causes join mismatches with `slot_observations` (which always includes timezone).
-
-**Notes:** Discovered during price-forecast-ui-enhancements verification (2026-04-08). Not a production bug — only affects dev/test data. Fix: use `.isoformat()` on a timezone-aware datetime instead of `strftime`. Also consider adding the same fix to `issue_timestamp` on the same line.
-
----
-
 #### [Price Forecast] Discontinuity Between Actual and Forecasted Prices at Midnight
 
 **Goal:** Investigate and fix the large price spike at the boundary between historical actuals and forecasted prices (e.g., actual 0.16 at 23:45 jumping to forecast 0.70 at 00:00). The forecast should be continuous with recent actuals, especially for the D+1 boundary.
@@ -207,14 +170,6 @@ Because the flake only appears in a full-suite run and never in `tests/ev/` alon
 **Goal:** Replace the file-wide `/* eslint-disable @typescript-eslint/no-explicit-any */` and `any`-typed `config`/`loadBalancing`/`chargers` props in `frontend/src/components/CommandDomains.tsx` and `EVChargingCard.tsx` with the real types (`EVChargerState`, `LoadBalancerStatusResponse` from `lib/api.ts`).
 
 **Notes:** From the post-merge review of price-forecasting-module-5 (2026-07-09). The `'throttled'` vs `'throttling'` dead-check bug shipped exactly where typing would have caught it. The `ev-goal-charging-fixes` change types the `chargers` array as a targeted fix; this item is the broader cleanup (config/load-balancing shapes, removing the eslint-disable headers).
-
----
-
-#### [API/Performance] Parallelize Per-Charger HA Reads in `GET /api/ev/chargers`
-
-**Goal:** Reduce latency of `GET /api/ev/chargers`, which awaits its three HA REST reads (plug/SoC/power) sequentially per charger — roughly tripling response time per configured charger.
-
-**Notes:** From the post-merge review of price-forecasting-module-4 (2026-07-09). The helpers are already gather-ready; wrap the per-charger reads (and ideally the per-charger loop) in `asyncio.gather`. Low priority with one charger; matters with several. Endpoint is polled by the dashboard EV tab, so wins are user-visible.
 
 ---
 

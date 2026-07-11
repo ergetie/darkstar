@@ -21,10 +21,6 @@ Each API router file in `backend/api/routers/` SHALL contain endpoints for a sin
 - **WHEN** a developer looks for water heating control endpoints
 - **THEN** all water boost endpoints (GET, POST, DELETE) are found in `backend/api/routers/water.py`
 
-#### Scenario: Schedule simulation lives in schedule.py
-- **WHEN** a developer looks for the schedule simulation endpoint
-- **THEN** the simulate endpoint is found in `backend/api/routers/schedule.py` alongside other schedule-related endpoints
-
 ### Requirement: Router naming follows project conventions
 Each router file SHALL define router objects using `APIRouter()` with explicit `prefix` and `tags` parameters. Router variable names SHALL be `router` for the primary router. If a file needs a secondary router for a different URL prefix, it SHALL use a descriptive name (e.g., `router_misc`).
 
@@ -67,7 +63,7 @@ All endpoint URL paths MUST remain identical after the split. No URL path SHALL 
 
 #### Scenario: Route preservation
 - **WHEN** the application starts after the split
-- **THEN** all of the following routes are registered: `GET /api/ha/entity/{entity_id}`, `GET /api/ha/average`, `GET /api/ha/entities`, `GET /api/ha/services`, `POST /api/ha/test`, `GET /api/water/boost`, `POST /api/water/boost`, `DELETE /api/water/boost`, `GET /api/energy/today`, `GET /api/energy/range`, `GET /api/performance/data`, `GET /api/ha-socket`, `POST /api/simulate`
+- **THEN** all of the following routes are registered: `GET /api/ha/entity/{entity_id}`, `GET /api/ha/average`, `GET /api/ha/entities`, `GET /api/ha/services`, `POST /api/ha/test`, `GET /api/water/boost`, `POST /api/water/boost`, `DELETE /api/water/boost`, `GET /api/energy/today`, `GET /api/energy/range`, `GET /api/performance/data`, `GET /api/ha-socket`
 - **AND** each path resolves to the same handler logic as before
 
 ### Requirement: Route-preservation snapshot test exists

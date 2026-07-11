@@ -282,6 +282,97 @@ async def test_target_already_met_reports_complete(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_multiple_chargers_preserve_config_order(monkeypatch):
+    """Parallelizing per-charger HA reads (asyncio.gather) must not change
+    response ordering versus the original config-list order."""
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    monkeypatch.setattr(
+        ev_router,
+        "load_yaml",
+        lambda _p: _config(
+            [
+                _charger_cfg(
+                    id="ev1",
+                    sensor="sensor.ev1_power",
+                    soc_sensor="sensor.ev1_soc",
+                    plug_sensor="binary_sensor.ev1_plug",
+                ),
+                _charger_cfg(
+                    id="ev2",
+                    sensor="sensor.ev2_power",
+                    soc_sensor="sensor.ev2_soc",
+                    plug_sensor="binary_sensor.ev2_plug",
+                ),
+            ]
+        ),
+    )
+
+    power_by_entity = {"sensor.ev1_power": 2.0, "sensor.ev2_power": 5.0}
+    soc_by_entity = {"sensor.ev1_soc": 40.0, "sensor.ev2_soc": 70.0}
+    plug_by_entity = {"binary_sensor.ev1_plug": True, "binary_sensor.ev2_plug": False}
+
+    with (
+        patch(
+            "backend.api.routers.ev.get_ha_sensor_kw_normalized",
+            AsyncMock(side_effect=lambda e: power_by_entity[e]),
+        ),
+        patch(
+            "backend.api.routers.ev.get_ha_sensor_float",
+            AsyncMock(side_effect=lambda e: soc_by_entity[e]),
+        ),
+        patch(
+            "backend.api.routers.ev.get_ha_bool", AsyncMock(side_effect=lambda e: plug_by_entity[e])
+        ),
+    ):
+        result = await ev_router.get_ev_chargers()
+
+    assert [c["id"] for c in result] == ["ev1", "ev2"]
+    assert result[0]["power_kw"] == 2.0
+    assert result[0]["soc_percent"] == 40.0
+    assert result[0]["plugged_in"] is True
+    assert result[1]["power_kw"] == 5.0
+    assert result[1]["soc_percent"] == 70.0
+    assert result[1]["plugged_in"] is False
+
+
+@pytest.mark.asyncio
+async def test_one_charger_sensor_failure_isolated(monkeypatch):
+    """A failed sensor read for one charger degrades only that charger's
+    fields to None; other chargers are unaffected."""
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    monkeypatch.setattr(
+        ev_router,
+        "load_yaml",
+        lambda _p: _config(
+            [
+                _charger_cfg(id="ev1", sensor="sensor.ev1_power"),
+                _charger_cfg(id="ev2", sensor="sensor.ev2_power"),
+            ]
+        ),
+    )
+
+    async def _flaky_power(entity_id: str) -> float:
+        if entity_id == "sensor.ev1_power":
+            raise TimeoutError("HA unreachable")
+        return 3.3
+
+    with (
+        patch(
+            "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(side_effect=_flaky_power)
+        ),
+        patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0)),
+        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(return_value=True)),
+    ):
+        result = await ev_router.get_ev_chargers()
+
+    by_id = {c["id"]: c for c in result}
+    assert by_id["ev1"]["power_kw"] is None
+    assert by_id["ev1"]["soc_percent"] == 50.0
+    assert by_id["ev2"]["power_kw"] == 3.3
+    assert by_id["ev2"]["soc_percent"] == 50.0
+
+
+@pytest.mark.asyncio
 async def test_disabled_chargers_not_returned(monkeypatch):
     monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
     monkeypatch.setattr(

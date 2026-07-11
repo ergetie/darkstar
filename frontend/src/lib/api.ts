@@ -767,15 +767,6 @@ export const Api = {
     theme: () => getJSON<ThemeResponse>('/api/themes'),
     runPlanner: () => getJSON<{ status: string; message?: string }>('/api/run_planner', 'POST'),
     resetToOptimal: () => getJSON<{ status: string }>('/api/schedule/save', 'POST'),
-    simulate: async (payload: unknown): Promise<ScheduleResponse> => {
-        const response = await fetch('api/simulate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-        })
-        if (!response.ok) throw new Error('Simulation failed')
-        return response.json() as Promise<ScheduleResponse>
-    },
     getAdvice: async (): Promise<AdviceResponse> => {
         const response = await fetch('api/analyst/advice')
         if (!response.ok) throw new Error('Failed to fetch advice')

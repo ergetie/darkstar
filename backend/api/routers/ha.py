@@ -37,7 +37,8 @@ async def _fetch_ha_history_avg(entity_id: str, hours: int) -> float:
         "filter_entity_id": entity_id,
         "end_time": end_time.isoformat(),
         "significant_changes_only": False,
-        "minimal_response": False,
+        "minimal_response": True,
+        "no_attributes": True,
     }
 
     try:

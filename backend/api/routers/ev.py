@@ -9,6 +9,7 @@ No ``charge_priority`` field is returned — it does not exist in this change.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -299,15 +300,16 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
 
-    out: list[dict[str, Any]] = []
-    for ev in ev_chargers_cfg:
+    async def _build_charger(ev: dict[str, Any]) -> dict[str, Any] | None:
         if not ev.get("enabled", True):
-            continue
+            return None
         charger_id = str(ev.get("id", ""))
 
-        power_kw = await _safe_kw(str(ev.get("sensor", "")))
-        soc_percent = await _safe_float(str(ev.get("soc_sensor", "")))
-        plugged_in = await _safe_bool(str(ev.get("plug_sensor", "")))
+        power_kw, soc_percent, plugged_in = await asyncio.gather(
+            _safe_kw(str(ev.get("sensor", ""))),
+            _safe_float(str(ev.get("soc_sensor", ""))),
+            _safe_bool(str(ev.get("plug_sensor", ""))),
+        )
 
         persisted = state_by_id.get(charger_id, {})
 
@@ -321,36 +323,33 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
 
         if not persisted:
             # No goal set for this charger → idle with null goal-progress; live sensors only.
-            out.append(
-                {
-                    "id": charger_id,
-                    "name": ev.get("name", charger_id),
-                    "plugged_in": plugged_in,
-                    "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
-                    "power_kw": round(power_kw, 3) if power_kw is not None else None,
-                    "target_soc_percent": None,
-                    "ready_by": None,
-                    "repeat": None,
-                    "deadline": None,
-                    "required_kwh": None,
-                    "delivered_kwh": None,
-                    "remaining_kwh": None,
-                    "daily_quota_kwh": None,
-                    "quota_schedule": None,
-                    "keep_on_after_target": bool(ev.get("keep_on_after_target", False)),
-                    "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
-                    "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
-                    "type": ev.get("type", "current"),
-                    "n_days": None,
-                    "ready_by_date": None,
-                    "status": "idle",
-                    "source": None,
-                    "externally_controlled": externally_controlled,
-                    "last_updated": None,
-                    "last_planned_at": None,
-                }
-            )
-            continue
+            return {
+                "id": charger_id,
+                "name": ev.get("name", charger_id),
+                "plugged_in": plugged_in,
+                "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
+                "power_kw": round(power_kw, 3) if power_kw is not None else None,
+                "target_soc_percent": None,
+                "ready_by": None,
+                "repeat": None,
+                "deadline": None,
+                "required_kwh": None,
+                "delivered_kwh": None,
+                "remaining_kwh": None,
+                "daily_quota_kwh": None,
+                "quota_schedule": None,
+                "keep_on_after_target": bool(ev.get("keep_on_after_target", False)),
+                "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
+                "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
+                "type": ev.get("type", "current"),
+                "n_days": None,
+                "ready_by_date": None,
+                "status": "idle",
+                "source": None,
+                "externally_controlled": externally_controlled,
+                "last_updated": None,
+                "last_planned_at": None,
+            }
 
         deadline = _parse_iso_deadline(persisted.get("deadline"))
         required_kwh = persisted.get("required_kwh")
@@ -378,34 +377,33 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 now,
             )
 
-        out.append(
-            {
-                "id": charger_id,
-                "name": ev.get("name", charger_id),
-                "plugged_in": plugged_in,
-                "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
-                "power_kw": round(power_kw, 3) if power_kw is not None else None,
-                "target_soc_percent": persisted.get("target_soc_percent"),
-                "ready_by": persisted.get("ready_by"),
-                "repeat": persisted.get("repeat"),
-                "deadline": persisted.get("deadline"),
-                "required_kwh": persisted.get("required_kwh"),
-                "delivered_kwh": persisted.get("delivered_kwh"),
-                "remaining_kwh": persisted.get("remaining_kwh"),
-                "daily_quota_kwh": persisted.get("daily_quota_kwh"),
-                "quota_schedule": persisted.get("quota_schedule"),
-                "keep_on_after_target": bool(persisted.get("keep_on_after_target", False)),
-                "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
-                "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
-                "type": ev.get("type", "current"),
-                "n_days": persisted.get("n_days"),
-                "ready_by_date": persisted.get("ready_by_date"),
-                "status": status,
-                "source": persisted.get("source"),
-                "externally_controlled": externally_controlled,
-                "last_updated": persisted.get("last_updated"),
-                "last_planned_at": persisted.get("last_planned_at"),
-            }
-        )
+        return {
+            "id": charger_id,
+            "name": ev.get("name", charger_id),
+            "plugged_in": plugged_in,
+            "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
+            "power_kw": round(power_kw, 3) if power_kw is not None else None,
+            "target_soc_percent": persisted.get("target_soc_percent"),
+            "ready_by": persisted.get("ready_by"),
+            "repeat": persisted.get("repeat"),
+            "deadline": persisted.get("deadline"),
+            "required_kwh": persisted.get("required_kwh"),
+            "delivered_kwh": persisted.get("delivered_kwh"),
+            "remaining_kwh": persisted.get("remaining_kwh"),
+            "daily_quota_kwh": persisted.get("daily_quota_kwh"),
+            "quota_schedule": persisted.get("quota_schedule"),
+            "keep_on_after_target": bool(persisted.get("keep_on_after_target", False)),
+            "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
+            "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
+            "type": ev.get("type", "current"),
+            "n_days": persisted.get("n_days"),
+            "ready_by_date": persisted.get("ready_by_date"),
+            "status": status,
+            "source": persisted.get("source"),
+            "externally_controlled": externally_controlled,
+            "last_updated": persisted.get("last_updated"),
+            "last_planned_at": persisted.get("last_planned_at"),
+        }
 
-    return out
+    results = await asyncio.gather(*(_build_charger(ev) for ev in ev_chargers_cfg))
+    return [charger for charger in results if charger is not None]

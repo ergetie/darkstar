@@ -107,8 +107,7 @@ The StrategyEngine SHALL calculate `export_threshold_sek_per_kwh` dynamically ba
 
 **Formula:**
 ```python
-# Risk appetite shifts the minimum threshold floor
-RISK_BASELINE_SHIFTS = {
+RISK_BASELINE_SHIFTS = {  # Risk appetite shifts the minimum threshold floor
     1: 0.15,   # Safe: Never below 0.15 SEK
     2: 0.10,   # Conservative: Floor at 0.10
     3: 0.05,   # Neutral: Floor at 0.05
@@ -116,12 +115,10 @@ RISK_BASELINE_SHIFTS = {
     5: 0.00,   # Gambler: Can go to 0.00 on high spread days
 }
 
-# Normalize spread: 0.0 at 0.3 SEK, 1.0 at 2.0 SEK
-spread_norm = max(0.0, min(1.0, (spread - 0.3) / 1.7))
+spread_norm = max(0.0, min(1.0, (spread - 0.3) / 1.7))  # Normalize spread: 0.0 at 0.3 SEK, 1.0 at 2.0 SEK
 
-# Threshold scales from 0.50 (low spread) down to risk-based baseline (high spread)
 baseline = RISK_BASELINE_SHIFTS[risk_appetite]
-threshold = 0.50 - (0.50 - baseline) * spread_norm
+threshold = 0.50 - (0.50 - baseline) * spread_norm  # Scales from 0.50 (low spread) down to risk-based baseline (high spread)
 ```
 
 **Behavior:**
@@ -409,20 +406,6 @@ The reported plan cost (`total_cost_sek` and per-slot `cost_sek`) SHALL be recom
 - **WHEN** the export threshold is zero
 - **THEN** the reported cost is identical to today's value
 - **AND** the chosen schedule is unchanged in all cases
-
-### Requirement: Simulation SoC projection reflects total battery charge within the SoC band
-
-The `/api/simulate` SoC projection SHALL use total battery charge (including PV-sourced charge), not grid-sourced charge only, and SHALL clamp the projected SoC to the configured min/max SoC band.
-
-#### Scenario: PV charging is reflected in the simulated SoC curve
-
-- **WHEN** the battery charges from surplus PV in a simulated slot
-- **THEN** the projected SoC rises by the total battery charge for that slot, not only the grid-sourced portion
-
-#### Scenario: Projected SoC stays within the configured band
-
-- **WHEN** the projection would exceed the configured min or max SoC
-- **THEN** the projected SoC is clamped to the configured band
 
 ### Requirement: Configured battery cycle cost is a hard floor on solver wear cost
 The wear cost the solver uses (`wear_cost_sek_per_kwh`) SHALL never be lower than the configured battery cycle cost (`battery_economics.battery_cycle_cost_kwh`). This floor SHALL be enforced at the single solver-adapter resolution point where the wear cost is finalized, so it holds regardless of which source set the value (StrategyEngine override, root-level config, or default). The effective value SHALL be `max(battery_cycle_cost_kwh, resolved_wear_cost)`.
