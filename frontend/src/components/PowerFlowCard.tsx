@@ -8,12 +8,12 @@
 
 import { useMemo, useState, useCallback, useEffect } from 'react'
 import { NODE_REGISTRY, type PowerFlowData } from './PowerFlowRegistry'
+import type { ConfigResponse } from '../lib/api'
 import { Plug } from 'lucide-react'
 
 interface PowerFlowCardProps {
     data: PowerFlowData
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- config is dynamic nested object from backend
-    systemConfig?: any
+    systemConfig?: ConfigResponse | null
 }
 
 interface Entity {
@@ -216,15 +216,15 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
     // Config-based node visibility
     const configMap = useMemo(() => {
         if (!systemConfig || typeof systemConfig !== 'object') return null
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- dynamic config flattening
-        const map: Record<string, any> = {}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const flatten = (obj: any, prefix = '') => {
+        const map: Record<string, unknown> = {}
+        const flatten = (obj: unknown, prefix = '') => {
             if (obj && typeof obj === 'object' && !Array.isArray(obj)) {
-                for (const k in obj) {
+                const record = obj as Record<string, unknown>
+                for (const k in record) {
                     const path = prefix ? `${prefix}.${k}` : k
-                    if (typeof obj[k] === 'object' && !Array.isArray(obj[k])) flatten(obj[k], path)
-                    else map[path] = obj[k]
+                    const val = record[k]
+                    if (typeof val === 'object' && !Array.isArray(val)) flatten(val, path)
+                    else map[path] = val
                 }
             }
         }

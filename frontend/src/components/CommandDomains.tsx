@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect, useCallback } from 'react'
 import {
     ArrowDownToLine,
@@ -12,7 +11,7 @@ import {
     Loader2,
 } from 'lucide-react'
 import Card from './Card'
-import { Api, type EVChargerState } from '../lib/api'
+import { Api, type EVChargerState, type ConfigResponse, type LoadBalancerStatusResponse } from '../lib/api'
 import { useSocket } from '../lib/hooks'
 import EVChargerCard from './EVChargingCard'
 
@@ -37,7 +36,7 @@ interface ResourcesCardProps {
     hasWaterHeater?: boolean
     hasEvCharger?: boolean
     batteryCapacity?: number | null
-    config?: any | null
+    config?: ConfigResponse | null
 }
 
 // --- Helper Components ---
@@ -533,13 +532,13 @@ export function ResourcesDomain({
                     )}
                 </div>
             ) : (
-                <EVTabContent config={config} />
+                <EVTabContent config={config ?? null} />
             )}
         </Card>
     )
 }
 
-function EVTabContent({ config }: { config: any }) {
+function EVTabContent({ config }: { config: ConfigResponse | null }) {
     const [chargers, setChargers] = useState<EVChargerState[]>([])
     const [loading, setLoading] = useState(false)
     const [error, setError] = useState<string | null>(null)
@@ -584,7 +583,7 @@ function EVTabContent({ config }: { config: any }) {
         fetchChargers()
     })
 
-    const [loadBalancing, setLoadBalancing] = useState<any>(null)
+    const [loadBalancing, setLoadBalancing] = useState<LoadBalancerStatusResponse | null>(null)
 
     useEffect(() => {
         let active = true
@@ -604,10 +603,9 @@ function EVTabContent({ config }: { config: any }) {
         }
     }, [])
 
-    useSocket('live_metrics', (data: any) => {
-        if (data?.load_balancing) {
-            setLoadBalancing(data.load_balancing)
-        }
+    useSocket('live_metrics', (data: unknown) => {
+        const payload = data as { load_balancing?: LoadBalancerStatusResponse }
+        setLoadBalancing(payload.load_balancing ?? null)
     })
 
     if (loading && chargers.length === 0) {

@@ -1,10 +1,19 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Clock, RotateCw, Sun, Trash2, Loader2, Save } from 'lucide-react'
-import { Api, EVChargerState } from '../lib/api'
+import {
+    Api,
+    EVChargerState,
+    type ConfigResponse,
+    type LoadBalancerStatusResponse,
+    type LoadBalancerEvStatus,
+} from '../lib/api'
 import { useToast } from '../lib/useToast'
 import Switch from './ui/Switch'
+
+type ExcessPvPriorityEntry = NonNullable<
+    NonNullable<NonNullable<ConfigResponse['executor']>['excess_pv']>['priority']
+>[number]
 
 /** Format a Date as a local (not UTC) YYYY-MM-DD string — never use
  * toISOString().slice(0, 10) for calendar logic, it shifts across midnight
@@ -48,8 +57,8 @@ export default function EVChargingCard({
     onRefresh,
 }: {
     charger: EVChargerState
-    config: any
-    loadBalancing: any
+    config: ConfigResponse | null
+    loadBalancing: LoadBalancerStatusResponse | null
     onRefresh: () => Promise<void>
 }) {
     const { toast } = useToast()
@@ -95,14 +104,16 @@ export default function EVChargingCard({
 
     // Load balancer check — states mirror LoadBalancerStatusCard's per-EV
     // states exactly: idle (no override), throttling, paused, stale_fallback.
-    const balancerEv = loadBalancing?.ev?.find((e: any) => e.charger_id === charger.id)
+    const balancerEv = loadBalancing?.ev?.find((e: LoadBalancerEvStatus) => e.charger_id === charger.id)
     const balancerState: string | undefined = balancerEv?.state
     const balancerOverrideLabel = balancerState ? EV_BALANCER_STATE_LABELS[balancerState] : undefined
     const balancerOverrideColor = balancerState ? EV_BALANCER_STATE_COLORS[balancerState] : undefined
 
     // Surplus absorption check
     const excessPv = config?.executor?.excess_pv?.priority ?? []
-    const isSurplusPriority = excessPv.some((entry: any) => entry.type === 'ev' && entry.charger_id === charger.id)
+    const isSurplusPriority = excessPv.some(
+        (entry: ExcessPvPriorityEntry) => entry.type === 'ev' && entry.charger_id === charger.id,
+    )
 
     const handleSave = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -122,9 +133,9 @@ export default function EVChargingCard({
             toast({ message: `Goal saved for ${charger.name}`, variant: 'success' })
             setManualEdit(false)
             await onRefresh()
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err)
-            setFormError(err.message || 'Failed to save goal')
+            setFormError(err instanceof Error ? err.message : 'Failed to save goal')
             toast({ message: 'Failed to save goal', variant: 'error' })
         } finally {
             setSubmitting(false)
@@ -141,7 +152,7 @@ export default function EVChargingCard({
             })
             toast({ message: `Goal cleared for ${charger.name}`, variant: 'success' })
             await onRefresh()
-        } catch (err: any) {
+        } catch (err: unknown) {
             console.error(err)
             toast({ message: 'Failed to clear goal', variant: 'error' })
         } finally {
@@ -389,7 +400,7 @@ export default function EVChargingCard({
                         <div className="pt-1 border-t border-line/10">
                             <div className="text-[9px] text-muted font-medium mb-1">Upcoming Daily Quotas</div>
                             <div className="flex gap-2 overflow-x-auto pb-0.5 custom-scrollbar">
-                                {Object.entries(charger.quota_schedule).map(([dateStr, kwh]: [string, any]) => {
+                                {Object.entries(charger.quota_schedule).map(([dateStr, kwh]) => {
                                     const d = parseLocalISODate(dateStr)
                                     const dayName = d.toLocaleDateString([], { weekday: 'short' })
                                     const isToday = dateStr === toLocalISODate(new Date())

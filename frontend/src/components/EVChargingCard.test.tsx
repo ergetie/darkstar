@@ -2,7 +2,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import EVChargingCard from './EVChargingCard'
-import type { EVChargerState } from '../lib/api'
+import type { EVChargerState, LoadBalancerEvStatus, LoadBalancerStatusResponse } from '../lib/api'
 
 vi.mock('../lib/api', () => ({
     Api: {
@@ -47,6 +47,31 @@ function baseCharger(overrides: Partial<EVChargerState> = {}): EVChargerState {
     }
 }
 
+function baseEvStatus(overrides: Partial<LoadBalancerEvStatus> = {}): LoadBalancerEvStatus {
+    return {
+        charger_id: 'ev1',
+        charger_name: 'Tesla',
+        setpoint_a: null,
+        planned_target_a: null,
+        state: 'idle',
+        reason: '',
+        ...overrides,
+    }
+}
+
+function baseLoadBalancing(ev: LoadBalancerEvStatus[]): LoadBalancerStatusResponse {
+    return {
+        enabled: true,
+        state: 'idle',
+        reason: '',
+        main_fuse_a: null,
+        phase_current_a: {},
+        phase_headroom_a: {},
+        ev,
+        shed: [],
+    }
+}
+
 function renderCard(charger: EVChargerState) {
     return render(
         <MemoryRouter>
@@ -79,7 +104,7 @@ describe('EVChargingCard balancer badge (7.6)', () => {
                 <EVChargingCard
                     charger={baseCharger()}
                     config={{}}
-                    loadBalancing={{ ev: [{ charger_id: 'ev1', state: 'throttling' }] }}
+                    loadBalancing={baseLoadBalancing([baseEvStatus({ state: 'throttling' })])}
                     onRefresh={async () => {}}
                 />
             </MemoryRouter>,
@@ -93,7 +118,7 @@ describe('EVChargingCard balancer badge (7.6)', () => {
                 <EVChargingCard
                     charger={baseCharger()}
                     config={{}}
-                    loadBalancing={{ ev: [{ charger_id: 'ev1', state: 'stale_fallback' }] }}
+                    loadBalancing={baseLoadBalancing([baseEvStatus({ state: 'stale_fallback' })])}
                     onRefresh={async () => {}}
                 />
             </MemoryRouter>,
@@ -108,7 +133,7 @@ describe('EVChargingCard balancer badge (7.6)', () => {
                 <EVChargingCard
                     charger={baseCharger()}
                     config={{}}
-                    loadBalancing={{ ev: [{ charger_id: 'ev1', state: 'paused' }] }}
+                    loadBalancing={baseLoadBalancing([baseEvStatus({ state: 'paused' })])}
                     onRefresh={async () => {}}
                 />
             </MemoryRouter>,

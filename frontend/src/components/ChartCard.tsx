@@ -1133,8 +1133,7 @@ export default function ChartCard({
                 }
 
                 // Load custom entity power_kw for chart bar scaling
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                const powerKw = (config as any)?.executor?.excess_pv?.custom_entity?.power_kw
+                const powerKw = config?.executor?.excess_pv?.custom_entity?.power_kw
                 if (powerKw != null) {
                     setExcessPvPowerKw(Number(powerKw))
                 }

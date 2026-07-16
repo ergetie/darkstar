@@ -137,6 +137,14 @@ export type ConfigResponse = {
         nominal_power_kw: number
         penalty_levels?: { max_soc: number; penalty_sek: number }[]
     }[]
+    executor?: {
+        excess_pv?: {
+            priority?: { type: string; charger_id?: string }[]
+            custom_entity?: { power_kw?: number; [key: string]: unknown }
+            [key: string]: unknown
+        }
+        [key: string]: unknown
+    }
     [key: string]: unknown
 }
 export type ConfigSaveError = { field?: string; message: string }

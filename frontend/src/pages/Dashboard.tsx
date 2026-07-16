@@ -4,7 +4,13 @@ import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import { Flame, BatteryCharging } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { Api, type PlannerSIndex, type ExecutorStatusResponse, type LearningStatusResponse } from '../lib/api'
+import {
+    Api,
+    type PlannerSIndex,
+    type ExecutorStatusResponse,
+    type LearningStatusResponse,
+    type ConfigResponse,
+} from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
@@ -90,7 +96,7 @@ export default function Dashboard() {
     }>({})
 
     const [executorHealth, setExecutorHealth] = useState<import('../lib/api').ExecutorHealthResponse | null>(null)
-    const [config, setConfig] = useState<any>(null)
+    const [config, setConfig] = useState<ConfigResponse | null>(null)
 
     const [priceOutlook, setPriceOutlook] = useState<import('../lib/api').PriceOutlookResponse | undefined>(undefined)
     const [priceAdvice, setPriceAdvice] = useState<import('../lib/api').AdviceItem[]>([])
