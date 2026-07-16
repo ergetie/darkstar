@@ -821,6 +821,8 @@ export const Api = {
         },
         health: () => getJSON<ExecutorHealthResponse>('/api/executor/health'),
         loadBalancerStatus: () => getJSON<LoadBalancerStatusResponse>('/api/executor/load-balancer/status'),
+        testNotification: () =>
+            getJSON<{ status: string; message: string }>('/api/executor/notifications/test', 'POST'),
     },
     waterBoost: {
         status: () =>

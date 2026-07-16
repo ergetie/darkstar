@@ -4,6 +4,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { waterFieldList, waterSections } from './types'
+import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -16,6 +17,7 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
     const {
         config,
         form,
+        fields,
         fieldErrors,
         loading,
         saving,
@@ -116,7 +118,7 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
                     onClick={() => save()}
                     className="flex items-center justify-center gap-2 rounded-xl px-3 py-2.5 text-[11px] font-semibold transition btn-glow-primary bg-accent hover:bg-accent2 text-[#100f0e] disabled:opacity-50"
                 >
-                    {saving ? 'Saving…' : 'Save Water Settings'}
+                    {saving ? 'Saving…' : 'Save Heating Settings'}
                 </button>
                 {statusMessage && (
                     <div
@@ -143,6 +145,7 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
 
             {!advancedMode && hasHiddenSections && <GlobalAdvancedLockedNotice />}

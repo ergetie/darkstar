@@ -4,6 +4,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { parameterFieldList, parameterSections } from './types'
+import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -13,8 +14,20 @@ import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 
 export const ParametersTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) => {
     const navigate = useNavigate()
-    const { form, fieldErrors, loading, saving, statusMessage, handleChange, save, isDirty, haEntities, haLoading } =
-        useSettingsForm(parameterFieldList, [])
+    const {
+        config,
+        form,
+        fields,
+        fieldErrors,
+        loading,
+        saving,
+        statusMessage,
+        handleChange,
+        save,
+        isDirty,
+        haEntities,
+        haLoading,
+    } = useSettingsForm(parameterFieldList, [])
 
     const blocker = useUnsavedChangesGuard(isDirty)
 
@@ -163,6 +176,7 @@ export const ParametersTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMo
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
         </div>
     )

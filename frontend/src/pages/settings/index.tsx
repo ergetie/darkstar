@@ -39,7 +39,7 @@ const ALL_TABS = [
     { id: 'solar', label: 'Solar', icon: <Sun size={16} />, showIf: 'system.has_solar' },
     { id: 'battery', label: 'Battery', icon: <Battery size={16} />, showIf: 'system.has_battery' },
     { id: 'ev', label: 'EV', icon: <EvIcon size={16} />, showIf: 'system.has_ev_charger' },
-    { id: 'water', label: 'Water', icon: <Droplets size={16} />, showIf: 'system.has_water_heater' },
+    { id: 'water', label: 'Heating', icon: <Droplets size={16} />, showIf: 'system.has_water_heater' },
     {
         id: 'load-balancing',
         label: 'Load Balancing',

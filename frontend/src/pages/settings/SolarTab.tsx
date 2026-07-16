@@ -4,6 +4,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { solarFieldList, solarSections } from './types'
+import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -13,8 +14,20 @@ import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 
 export const SolarTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) => {
     const navigate = useNavigate()
-    const { form, fieldErrors, loading, saving, statusMessage, handleChange, save, isDirty, haEntities, haLoading } =
-        useSettingsForm(solarFieldList, [])
+    const {
+        config,
+        form,
+        fields,
+        fieldErrors,
+        loading,
+        saving,
+        statusMessage,
+        handleChange,
+        save,
+        isDirty,
+        haEntities,
+        haLoading,
+    } = useSettingsForm(solarFieldList, [])
 
     const blocker = useUnsavedChangesGuard(isDirty)
     const hasHiddenSections = solarSections.some((s) => s.fields.every((f) => f.isAdvanced))
@@ -129,6 +142,7 @@ export const SolarTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
 
             {!advancedMode && hasHiddenSections && <GlobalAdvancedLockedNotice />}

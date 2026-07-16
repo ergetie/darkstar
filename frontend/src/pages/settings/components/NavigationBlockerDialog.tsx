@@ -2,14 +2,21 @@ import React from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AlertTriangle } from 'lucide-react'
+import { ChangedField } from '../utils'
 
 interface NavigationBlockerDialogProps {
     visible: boolean
     onStay: () => void
     onLeave: () => void
+    changes?: ChangedField[]
 }
 
-export const NavigationBlockerDialog: React.FC<NavigationBlockerDialogProps> = ({ visible, onStay, onLeave }) => {
+export const NavigationBlockerDialog: React.FC<NavigationBlockerDialogProps> = ({
+    visible,
+    onStay,
+    onLeave,
+    changes,
+}) => {
     if (!visible) return null
 
     return createPortal(
@@ -39,6 +46,21 @@ export const NavigationBlockerDialog: React.FC<NavigationBlockerDialogProps> = (
                                     You have unsaved changes. Are you sure you want to leave without saving?
                                 </p>
                             </div>
+                            {changes && changes.length > 0 && (
+                                <div className="w-full max-h-40 overflow-y-auto rounded-lg border border-line/30 bg-surface2/40 p-2 text-left">
+                                    {changes.map((change) => (
+                                        <div
+                                            key={change.key}
+                                            className="flex items-center justify-between gap-2 py-1 text-xs border-b border-line/20 last:border-b-0"
+                                        >
+                                            <span className="text-muted shrink-0">{change.label}</span>
+                                            <span className="text-text text-right truncate">
+                                                {change.oldValue} → {change.newValue}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                             <div className="flex gap-3 w-full mt-2">
                                 <button onClick={onStay} className="flex-1 btn btn-secondary btn-lg rounded-xl">
                                     Stay

@@ -7,6 +7,7 @@ import { buildFormState, buildPatch } from '../utils'
 export interface UseSettingsFormReturn {
     config: ConfigResponse | null
     form: Record<string, string>
+    fields: BaseField[]
     fieldErrors: Record<string, string>
     loading: boolean
     saving: boolean
@@ -326,6 +327,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     return {
         config,
         form,
+        fields,
         fieldErrors,
         loading,
         saving,

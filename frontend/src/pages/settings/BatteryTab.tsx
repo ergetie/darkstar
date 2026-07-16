@@ -4,6 +4,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { batteryFieldList, batterySections, InverterProfile, BaseField, generateProfileEntityFields } from './types'
+import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -26,6 +27,7 @@ export const BatteryTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode 
     const {
         config,
         form,
+        fields,
         fieldErrors,
         loading,
         saving,
@@ -174,6 +176,7 @@ export const BatteryTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode 
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
 
             {!advancedMode && hasHiddenSections && <GlobalAdvancedLockedNotice />}

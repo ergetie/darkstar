@@ -23,6 +23,7 @@ import Card from '../components/Card'
 import LoadBalancerStatusCard from '../components/LoadBalancerStatusCard'
 
 import { useSocket } from '../lib/hooks'
+import { Api } from '../lib/api'
 
 // Types for notifications
 type NotificationSettings = {
@@ -218,12 +219,7 @@ const executorApi = {
             if (!r.ok) throw new Error(`Notifications update failed: ${r.status}`)
             return r.json()
         },
-        test: async () => {
-            const r = await fetch('api/executor/notifications/test', { method: 'POST' })
-            const data = await r.json()
-            if (!r.ok) throw new Error(data.error || `Test failed: ${r.status}`)
-            return data
-        },
+        test: () => Api.executor.testNotification(),
     },
     config: {
         get: async (): Promise<EntityConfig> => {

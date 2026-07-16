@@ -4,6 +4,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { loadBalancingFieldList, loadBalancingSections } from './types'
+import { listChangedFields } from './utils'
 import { isPowerModeEntity, shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -16,6 +17,7 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
     const {
         config,
         form,
+        fields,
         fieldErrors,
         loading,
         saving,
@@ -158,6 +160,7 @@ export const LoadBalancingTab: React.FC<{ advancedMode?: boolean }> = ({ advance
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
 
             {!advancedMode && hasHiddenSections && <GlobalAdvancedLockedNotice />}

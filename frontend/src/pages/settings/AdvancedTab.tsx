@@ -7,6 +7,7 @@ import Modal from '../../components/ui/Modal'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { advancedFieldList, advancedSections } from './types'
+import { listChangedFields } from './utils'
 import { UnsavedChangesBanner } from './components/UnsavedChangesBanner'
 import { NavigationBlockerDialog } from './components/NavigationBlockerDialog'
 import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
@@ -17,6 +18,7 @@ export const AdvancedTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode
     const {
         config,
         form,
+        fields,
         fieldErrors,
         loading,
         saving,
@@ -215,6 +217,7 @@ export const AdvancedTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
         </div>
     )

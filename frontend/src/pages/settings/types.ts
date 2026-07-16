@@ -1063,7 +1063,7 @@ export const evSections: SettingsSection[] = [
 
 export const waterSections: SettingsSection[] = [
     {
-        title: 'Water Heaters',
+        title: 'Heating Devices',
         description: 'Configure multiple water heaters for optimization and load disaggregation.',
         fields: [
             {

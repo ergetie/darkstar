@@ -1,11 +1,14 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-// Api and ThemeInfo commented out - Accent Theme card is hidden
-// import { Api, ThemeInfo } from '../../lib/api'
+import { Bell } from 'lucide-react'
+import { Api } from '../../lib/api'
+// ThemeInfo commented out - Accent Theme card is hidden
+// import { ThemeInfo } from '../../lib/api'
 import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { uiFieldList, uiSections } from './types'
+import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -15,12 +18,26 @@ import { useUnsavedChangesGuard } from './hooks/useUnsavedChangesGuard'
 
 export const UITab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) => {
     const navigate = useNavigate()
-    const { form, fieldErrors, loading, saving, statusMessage, handleChange, save, isDirty } = useSettingsForm(
-        uiFieldList,
-        [],
-    )
+    const { config, form, fields, fieldErrors, loading, saving, statusMessage, handleChange, save, isDirty } =
+        useSettingsForm(uiFieldList, [])
 
     const blocker = useUnsavedChangesGuard(isDirty)
+
+    const [testingNotification, setTestingNotification] = useState(false)
+    const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
+
+    const handleTestNotification = async () => {
+        setTestingNotification(true)
+        setTestResult(null)
+        try {
+            const res = await Api.executor.testNotification()
+            setTestResult({ success: res.status === 'success', message: res.message || 'Test sent!' })
+        } catch (e) {
+            setTestResult({ success: false, message: e instanceof Error ? e.message : 'Test failed' })
+        } finally {
+            setTestingNotification(false)
+        }
+    }
 
     // Themes state commented out - Accent Theme card is hidden
     // const [themes, setThemes] = useState<ThemeInfo[]>([])
@@ -116,6 +133,40 @@ export const UITab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) =>
                                                 )}
                                         </AnimatePresence>
                                     </div>
+
+                                    {section.title === 'Notifications' && (
+                                        <div className="mt-4 pt-3 border-t border-line/30">
+                                            <button
+                                                onClick={handleTestNotification}
+                                                disabled={testingNotification}
+                                                className={`flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 border text-[11px] font-medium transition-all ${
+                                                    testingNotification
+                                                        ? 'bg-surface2/50 border-line/30 text-muted cursor-not-allowed'
+                                                        : 'bg-accent/10 border-accent/30 text-accent hover:bg-accent/20'
+                                                }`}
+                                            >
+                                                {testingNotification ? (
+                                                    <>
+                                                        <div className="h-3 w-3 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
+                                                        Sending…
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Bell className="h-3.5 w-3.5" />
+                                                        Send Test Notification
+                                                    </>
+                                                )}
+                                            </button>
+
+                                            {testResult && (
+                                                <div
+                                                    className={`mt-2 text-[11px] ${testResult.success ? 'text-good' : 'text-bad'}`}
+                                                >
+                                                    {testResult.message}
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                 </Card>
                             </motion.div>
                         )}
@@ -158,6 +209,7 @@ export const UITab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }) =>
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
         </div>
     )

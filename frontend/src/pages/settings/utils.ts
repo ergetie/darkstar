@@ -204,6 +204,85 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
     return a === b
 }
 
+export type ChangedField = {
+    key: string
+    label: string
+    oldValue: string
+    newValue: string
+}
+
+/**
+ * Stringifies a value for display in the changed-fields list.
+ */
+function displayValue(value: unknown, type: string): string {
+    if (value === null || value === undefined || value === '') return '—'
+    if (type === 'boolean') return value === true || value === 'true' ? 'on' : 'off'
+    if (Array.isArray(value)) return value.length ? value.join(', ') : '—'
+    if (typeof value === 'object') return JSON.stringify(value)
+    return String(value)
+}
+
+/**
+ * Lists human-readable changed fields by comparing form state with original config.
+ * Mirrors buildPatch's comparison semantics but returns a flat display list
+ * (label + old/new values) instead of a nested config patch.
+ */
+export function listChangedFields(
+    original: Record<string, unknown>,
+    form: Record<string, string>,
+    fields: BaseField[],
+): ChangedField[] {
+    const changes: ChangedField[] = []
+
+    fields.forEach((field) => {
+        // Skip virtual/UI-only fields that don't correspond to actual config paths
+        if (field.path.length === 0) return
+
+        if (field.companionKey) {
+            const rawCompanion = form[field.companionKey]
+            if (rawCompanion !== undefined) {
+                const parsedCompanion = rawCompanion === 'true'
+                const companionPath = field.companionKey.split('.')
+                const currentCompanion = getDeepValue<unknown>(original, companionPath)
+
+                if (parsedCompanion !== currentCompanion) {
+                    changes.push({
+                        key: field.companionKey,
+                        label: field.label,
+                        oldValue: displayValue(currentCompanion, 'boolean'),
+                        newValue: displayValue(parsedCompanion, 'boolean'),
+                    })
+                }
+            }
+        }
+
+        const raw = form[field.key]
+        if (raw === undefined) return
+
+        const parsed = parseFieldInput(field, raw)
+        if (parsed === undefined) return
+
+        // Specialized number/null handling
+        if (field.type === 'number' && parsed === null) {
+            const current = getDeepValue<unknown>(original, field.path)
+            if (current === null || current === undefined) return
+        }
+
+        const currentValue = getDeepValue<unknown>(original, field.path)
+
+        if (areEqual(parsed, currentValue, field.type)) return
+
+        changes.push({
+            key: field.key,
+            label: field.label,
+            oldValue: displayValue(currentValue, field.type),
+            newValue: displayValue(parsed, field.type),
+        })
+    })
+
+    return changes
+}
+
 /**
  * Builds a patch object for the API by comparing form state with original config.
  */

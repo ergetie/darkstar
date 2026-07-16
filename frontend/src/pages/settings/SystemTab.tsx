@@ -5,6 +5,7 @@ import Card from '../../components/Card'
 import { useSettingsForm } from './hooks/useSettingsForm'
 import { SettingsField } from './components/SettingsField'
 import { systemFieldList, systemSections, InverterProfile, generateProfileEntityFields } from './types'
+import { listChangedFields } from './utils'
 import { shouldRenderField } from './logic'
 import { motion, AnimatePresence } from 'framer-motion'
 import { AdditionalAdvancedNotice, GlobalAdvancedLockedNotice } from './components/AdvancedLockedNotice'
@@ -27,6 +28,7 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
     const {
         config,
         form,
+        fields,
         fieldErrors,
         loading: settingsLoading,
         saving,
@@ -448,6 +450,7 @@ export const SystemTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode }
                         })
                     }
                 }}
+                changes={config ? listChangedFields(config as unknown as Record<string, unknown>, form, fields) : []}
             />
         </div>
     )

@@ -36,6 +36,7 @@ function setupForm({ enabled, intervalSeconds }: { enabled: boolean; intervalSec
             water_heaters: [],
         },
         form: makeFormState({ 'load_balancing.enabled': enabled ? 'true' : 'false' }),
+        fields: loadBalancingFieldList,
         fieldErrors: {},
         loading: false,
         saving: false,

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { getDeepValue, setDeepValueCorrect, parseFieldInput, buildFormState, buildPatch } from '../utils'
+import {
+    getDeepValue,
+    setDeepValueCorrect,
+    parseFieldInput,
+    buildFormState,
+    buildPatch,
+    listChangedFields,
+} from '../utils'
 import { BaseField } from '../types'
 
 describe('Settings Utilities', () => {
@@ -99,6 +106,65 @@ describe('Settings Utilities', () => {
             const original = { a: 10, b: { c: 'same' } }
             const form = { a: '10', b: 'same' }
             expect(buildPatch(original, form, fields)).toEqual({})
+        })
+    })
+
+    describe('listChangedFields', () => {
+        const fields: BaseField[] = [
+            { key: 'a', label: 'Field A', path: ['a'], type: 'number' },
+            { key: 'b', label: 'Field B', path: ['b', 'c'], type: 'text' },
+        ]
+
+        it('returns an entry per edited field with correct labels/old/new', () => {
+            const original = { a: 10, b: { c: 'old' } }
+            const form = { a: '20', b: 'new' }
+            const changes = listChangedFields(original, form, fields)
+            expect(changes).toHaveLength(2)
+            expect(changes).toContainEqual({ key: 'a', label: 'Field A', oldValue: '10', newValue: '20' })
+            expect(changes).toContainEqual({ key: 'b', label: 'Field B', oldValue: 'old', newValue: 'new' })
+        })
+
+        it('returns an empty list for an untouched form', () => {
+            const original = { a: 10, b: { c: 'same' } }
+            const form = { a: '10', b: 'same' }
+            expect(listChangedFields(original, form, fields)).toEqual([])
+        })
+
+        it('agrees with buildPatch: non-empty iff buildPatch is non-empty', () => {
+            const cases = [
+                { original: { a: 10, b: { c: 'old' } }, form: { a: '20', b: 'new' } },
+                { original: { a: 10, b: { c: 'same' } }, form: { a: '10', b: 'same' } },
+                { original: { a: 10, b: { c: 'same' } }, form: { a: '99', b: 'same' } },
+            ]
+            cases.forEach(({ original, form }) => {
+                const patchNonEmpty = Object.keys(buildPatch(original, form, fields)).length > 0
+                const changesNonEmpty = listChangedFields(original, form, fields).length > 0
+                expect(changesNonEmpty).toBe(patchNonEmpty)
+            })
+        })
+
+        it('represents a companion-key change', () => {
+            const companionFields: BaseField[] = [
+                {
+                    key: 'grid_power',
+                    label: 'Grid Power',
+                    path: ['input_sensors', 'grid_power'],
+                    type: 'entity',
+                    companionKey: 'input_sensors.grid_power_inverted',
+                },
+            ]
+            const original = { input_sensors: { grid_power: 'sensor.grid', grid_power_inverted: false } }
+            const form = {
+                grid_power: 'sensor.grid',
+                'input_sensors.grid_power_inverted': 'true',
+            }
+            const changes = listChangedFields(original, form, companionFields)
+            expect(changes).toContainEqual({
+                key: 'input_sensors.grid_power_inverted',
+                label: 'Grid Power',
+                oldValue: 'off',
+                newValue: 'on',
+            })
         })
     })
 })
