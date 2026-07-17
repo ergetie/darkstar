@@ -6,6 +6,7 @@ with multiple water heaters and EV chargers.
 """
 
 import pandas as pd
+import pytest
 import pytz
 
 from planner.solver.adapter import (
@@ -248,6 +249,68 @@ class TestBuildEvChargerInputs:
         result = build_ev_charger_inputs(chargers)
         assert len(result) == 1
         assert result[0].id == "charger_b"
+
+    def test_min_power_kw_derived_for_3_phase_current_charger(self):
+        """3-phase 6A current charger derives ~4.18 kW (with 1% margin)."""
+        chargers = [
+            {
+                "id": "tesla",
+                "enabled": True,
+                "type": "current",
+                "max_power_kw": 11.0,
+                "min_current_a": 6,
+                "phases": [1, 2, 3],
+            }
+        ]
+        result = build_ev_charger_inputs(chargers)
+        expected = 6 * 230 * 3 / 1000 * 1.01
+        assert result[0].min_power_kw == pytest.approx(expected)
+        assert result[0].min_power_kw == pytest.approx(4.1814)
+
+    def test_min_power_kw_derived_for_1_phase_current_charger(self):
+        """1-phase 6A current charger derives ~1.39 kW (with 1% margin)."""
+        chargers = [
+            {
+                "id": "fiat",
+                "enabled": True,
+                "type": "current",
+                "max_power_kw": 7.4,
+                "min_current_a": 6,
+                "phases": [2],
+            }
+        ]
+        result = build_ev_charger_inputs(chargers)
+        expected = 6 * 230 * 1 / 1000 * 1.01
+        assert result[0].min_power_kw == pytest.approx(expected)
+        assert result[0].min_power_kw == pytest.approx(1.3938)
+
+    def test_min_power_kw_equals_max_power_kw_for_binary_charger(self):
+        """Binary chargers have no fractional range: min equals max."""
+        chargers = [
+            {
+                "id": "wallbox",
+                "enabled": True,
+                "type": "binary",
+                "max_power_kw": 11.0,
+            }
+        ]
+        result = build_ev_charger_inputs(chargers)
+        assert result[0].min_power_kw == 11.0
+
+    def test_min_power_kw_defaults_min_current_a_to_6(self):
+        """Missing min_current_a on a current charger defaults to 6A."""
+        chargers = [
+            {
+                "id": "tesla",
+                "enabled": True,
+                "type": "current",
+                "max_power_kw": 11.0,
+                "phases": [1, 2, 3],
+            }
+        ]
+        result = build_ev_charger_inputs(chargers)
+        expected = 6 * 230 * 3 / 1000 * 1.01
+        assert result[0].min_power_kw == pytest.approx(expected)
 
 
 class TestKeplerConfigWithARC15:

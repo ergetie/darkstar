@@ -100,6 +100,25 @@ def build_water_heater_inputs(
     return result
 
 
+def derive_min_power_kw(ev: dict[str, Any], control_type: str, max_power_kw: float) -> float:
+    """Derive the minimum plannable charging power for a charger.
+
+    `type: binary` chargers have no fractional range, so their minimum equals
+    their maximum (the equality energy link in kepler.py handles them either
+    way). `type: current` chargers derive it from `min_current_a` x phase
+    count x 230V, with a 1% margin so the executor's floor-based kW->amps
+    conversion never rounds a planned minimum below `min_current_a`.
+    """
+    if control_type != "current":
+        return max_power_kw
+
+    min_current_a = float(ev.get("min_current_a") or 6)
+    phases = ev.get("phases") or [1, 2, 3]
+    phase_count = len(phases) if phases else 3
+
+    return min_current_a * 230 * phase_count / 1000 * 1.01
+
+
 def build_ev_charger_inputs(
     ev_chargers_config: list[dict[str, Any]],
     ev_charger_states: list[dict[str, Any]] | None = None,
@@ -146,10 +165,13 @@ def build_ev_charger_inputs(
         quota_by_day = {d: float(v) for d, v in quota_schedule.items()} if quota_schedule else None
         keep_on_after_target = bool(state.get("keep_on_after_target", False))
 
+        control_type = str(ev.get("type", "binary")).lower()
+        max_power_kw = float(ev.get("max_power_kw") or 0.0)
+
         result.append(
             EVChargerInput(
                 id=charger_id,
-                max_power_kw=float(ev.get("max_power_kw") or 0.0),
+                max_power_kw=max_power_kw,
                 battery_capacity_kwh=float(ev.get("battery_capacity_kwh", 0.0)),
                 current_soc_percent=soc_percent,
                 plugged_in=plugged_in,
@@ -157,7 +179,8 @@ def build_ev_charger_inputs(
                 required_kwh=float(required_kwh) if required_kwh is not None else None,
                 quota_by_day=quota_by_day,
                 keep_on_after_target=keep_on_after_target,
-                control_type=str(ev.get("type", "binary")).lower(),
+                control_type=control_type,
+                min_power_kw=derive_min_power_kw(ev, control_type, max_power_kw),
             )
         )
 

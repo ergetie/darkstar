@@ -415,8 +415,15 @@ class KeplerSolver:
             # Per-device EV constraints
             for charger in plugged_chargers:
                 d = charger.id
-                # Energy coupling: binary ON/OFF at max power
-                prob += ev_energy[d][t] == ev_charge[d][t] * charger.max_power_kw * h
+                if charger.control_type == "current":
+                    # Semi-continuous: off => 0, on => any power in
+                    # [min_power_kw, max_power_kw]. min_power_kw is derived
+                    # by the adapter from min_current_a x phases (design D1/D2).
+                    prob += ev_energy[d][t] >= charger.min_power_kw * h * ev_charge[d][t]
+                    prob += ev_energy[d][t] <= charger.max_power_kw * h * ev_charge[d][t]
+                else:
+                    # Binary ON/OFF at max power (unchanged)
+                    prob += ev_energy[d][t] == ev_charge[d][t] * charger.max_power_kw * h
 
                 # Deadline constraint: zero charging after deadline
                 if charger.deadline is not None and s.end_time > charger.deadline:

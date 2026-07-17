@@ -33,6 +33,12 @@ class EVChargerInput:
     plugged_in: bool
     deadline: datetime | None
     required_kwh: float | None = None
+    # Minimum plannable power when charging is on. Only meaningful for
+    # control_type "current" (semi-continuous); derived by the adapter from
+    # min_current_a x phases. Defaults to 0.0 for "binary" callers that don't
+    # set it explicitly (kepler treats "binary" via the equality energy link
+    # regardless of this value).
+    min_power_kw: float = 0.0
     # Per-in-horizon-day energy cap (calendar date -> kWh) from multi-day
     # spreading. None when spreading isn't active (single-day goal).
     quota_by_day: dict[date, float] | None = None

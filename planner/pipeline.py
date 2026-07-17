@@ -32,6 +32,7 @@ from planner.output.soc_target import apply_soc_target_percent
 from planner.preflight import run_preflight
 from planner.solver.adapter import (
     config_to_kepler_config,
+    derive_min_power_kw,
     kepler_result_to_dataframe,
     planner_to_kepler_input,
 )
@@ -189,6 +190,13 @@ def _compute_daily_ev_quota(
     max_power_kw = float(charger_cfg.get("max_power_kw") or 7.4)
     max_daily = _max_daily_kwh_for_deadline(max_power_kw, now, deadline, tz)
 
+    # Smallest energy the solver can schedule in one 15-min slot: derived min
+    # power for `type: current` chargers, max power for `type: binary`
+    # (`derive_min_power_kw` already returns max_power_kw for binary).
+    control_type = str(charger_cfg.get("type", "binary")).lower()
+    min_power_kw = derive_min_power_kw(charger_cfg, control_type, max_power_kw)
+    min_chunk_kwh = min_power_kw * 0.25
+
     quota_schedule = MultiDayPlanner.compute_quota(
         remaining_kwh=required_kwh,
         deadline=deadline,
@@ -196,6 +204,7 @@ def _compute_daily_ev_quota(
         max_daily_kwh=max_daily,
         min_daily_fraction=0.1,
         now=now,
+        min_chunk_kwh=min_chunk_kwh,
     )
 
     if not quota_schedule:
@@ -288,6 +297,55 @@ def _apply_keep_on_after_target(
         "keep_on_after_target: standby flag active for %d charger(s) until ready-by",
         len(keep_on_map),
     )
+
+
+def _warn_on_zero_scheduled_active_goals(
+    result: Any,
+    ev_states: list[dict[str, Any]],
+    ev_chargers_cfg: list[dict[str, Any]],
+) -> None:
+    """Loudly report an active EV goal that produced zero scheduled energy.
+
+    A charger with ``required_kwh > 0`` and a resolved deadline should never
+    silently convert entirely to shortfall — log a WARNING naming the
+    charger, the required kWh, the per-day quota split, and the minimum
+    schedulable chunk so quota/feasibility interactions (design D1-D4) are
+    never invisible.
+    """
+    cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
+
+    for state in ev_states:
+        required_kwh = state.get("required_kwh")
+        deadline = state.get("deadline")
+        if required_kwh is None or deadline is None or required_kwh <= 0:
+            continue
+
+        charger_id = str(state.get("id", ""))
+        total_scheduled_kwh = sum(
+            s.ev_charger_results.get(charger_id, 0.0)
+            * ((s.end_time - s.start_time).total_seconds() / 3600.0)
+            for s in result.slots
+        )
+        if total_scheduled_kwh > 1e-6:
+            continue
+
+        cfg = cfg_by_id.get(charger_id, {})
+        control_type = str(cfg.get("type", "binary")).lower()
+        max_power_kw = float(cfg.get("max_power_kw") or 0.0)
+        min_power_kw = derive_min_power_kw(cfg, control_type, max_power_kw)
+        min_chunk_kwh = min_power_kw * 0.25
+
+        quota_schedule = cast("dict[Any, float] | None", state.get("quota_schedule"))
+        quota_by_day = {str(k): round(v, 2) for k, v in (quota_schedule or {}).items()}
+        logger.warning(
+            "EV %s: active goal (required=%.2f kWh, deadline=%s) produced ZERO "
+            "scheduled charging — quota_by_day=%s, min_chunk_kwh=%.3f",
+            charger_id,
+            required_kwh,
+            deadline,
+            quota_by_day,
+            min_chunk_kwh,
+        )
 
 
 def merge_ev_goals_from_state(
@@ -1377,6 +1435,10 @@ class PlannerPipeline:
                 )
             except Exception as exc:
                 logger.warning("keep_on_after_target injection failed: %s", exc)
+
+            _warn_on_zero_scheduled_active_goals(
+                result, ev_charger_states_with_goal, ev_chargers_cfg
+            )
 
         if result.slots:
             logger.info(
