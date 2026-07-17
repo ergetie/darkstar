@@ -201,7 +201,12 @@ def _add_calendar_features(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
-    """Add price lag features (1d, 7d, 24h avg) from slot_observations."""
+    """Add price lag features (1d, 7d, 24h avg) from slot_observations.
+
+    Each lag is masked to NaN unless its source timestamp strictly precedes
+    the row's issue_timestamp, so training never sees a value that wouldn't
+    have been knowable at forecast issue time.
+    """
     df = df.copy()
 
     # Initialize lag columns with NaN
@@ -216,44 +221,51 @@ def _add_price_lag_features(df: pd.DataFrame, db_path: str) -> pd.DataFrame:
 
         for idx, row in df.iterrows():
             slot_start = row["slot_start"]
+            issue_timestamp = row["issue_timestamp"]
 
-            # Price lag 1 day ago
+            # Price lag 1 day ago — only knowable if its timestamp precedes issue time
             lag_1d = slot_start - timedelta(days=1)
-            result = (
-                session.query(SlotObservation)
-                .filter(SlotObservation.slot_start == lag_1d.isoformat())
-                .first()
-            )
-            if result and result.export_price_sek_kwh is not None:
-                df.at[idx, "price_lag_1d"] = result.export_price_sek_kwh
-
-            # Price lag 7 days ago
-            lag_7d = slot_start - timedelta(days=7)
-            result = (
-                session.query(SlotObservation)
-                .filter(SlotObservation.slot_start == lag_7d.isoformat())
-                .first()
-            )
-            if result and result.export_price_sek_kwh is not None:
-                df.at[idx, "price_lag_7d"] = result.export_price_sek_kwh
-
-            # Trailing 24-hour average
-            trailing_start = lag_1d - timedelta(hours=23)
-            results = (
-                session.query(SlotObservation)
-                .filter(
-                    SlotObservation.slot_start >= trailing_start.isoformat(),
-                    SlotObservation.slot_start <= lag_1d.isoformat(),
-                    SlotObservation.export_price_sek_kwh.isnot(None),
+            lag_1d_knowable = lag_1d < issue_timestamp
+            if lag_1d_knowable:
+                result = (
+                    session.query(SlotObservation)
+                    .filter(SlotObservation.slot_start == lag_1d.isoformat())
+                    .first()
                 )
-                .all()
-            )
-            if results:
-                prices = [
-                    r.export_price_sek_kwh for r in results if r.export_price_sek_kwh is not None
-                ]
-                if prices:
-                    df.at[idx, "price_lag_24h_avg"] = sum(prices) / len(prices)
+                if result and result.export_price_sek_kwh is not None:
+                    df.at[idx, "price_lag_1d"] = result.export_price_sek_kwh
+
+            # Price lag 7 days ago — only knowable if its timestamp precedes issue time
+            lag_7d = slot_start - timedelta(days=7)
+            if lag_7d < issue_timestamp:
+                result = (
+                    session.query(SlotObservation)
+                    .filter(SlotObservation.slot_start == lag_7d.isoformat())
+                    .first()
+                )
+                if result and result.export_price_sek_kwh is not None:
+                    df.at[idx, "price_lag_7d"] = result.export_price_sek_kwh
+
+            # Trailing 24-hour average — whole window masked unless its end (lag_1d) precedes issue time
+            if lag_1d_knowable:
+                trailing_start = lag_1d - timedelta(hours=23)
+                results = (
+                    session.query(SlotObservation)
+                    .filter(
+                        SlotObservation.slot_start >= trailing_start.isoformat(),
+                        SlotObservation.slot_start <= lag_1d.isoformat(),
+                        SlotObservation.export_price_sek_kwh.isnot(None),
+                    )
+                    .all()
+                )
+                if results:
+                    prices = [
+                        r.export_price_sek_kwh
+                        for r in results
+                        if r.export_price_sek_kwh is not None
+                    ]
+                    if prices:
+                        df.at[idx, "price_lag_24h_avg"] = sum(prices) / len(prices)
 
         session.close()
 

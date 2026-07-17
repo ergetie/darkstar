@@ -346,7 +346,7 @@ async def test_generate_price_forecasts_repeated_runs_do_not_grow_rows(tmp_db, p
     """Two generation runs should keep one row per overlapping natural key."""
     db_path, engine = tmp_db
 
-    def build_features(start_time, end_time, days_ahead, weather_df):
+    def build_features(start_time, end_time, days_ahead, weather_df, db_session=None):
         return pd.DataFrame(
             {
                 "hour": [start_time.hour],

@@ -5,8 +5,13 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
+import pytz
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-from ml.price_train import train_price_model
+from backend.learning.models import Base, SlotObservation
+from ml.price_train import _add_price_lag_features, train_price_model
 
 
 class TestPriceTrain(unittest.TestCase):
@@ -112,6 +117,70 @@ class TestPriceTrain(unittest.TestCase):
         self.assertIn("wind_index", expected_cols)
 
         print("✓ Feature columns match expected schema")
+
+
+def test_add_price_lag_features_masks_by_issue_time_knowability(tmp_path):
+    """Lags are only materialised when their source timestamp precedes the
+    row's issue_timestamp — leakage-free even when the DB has the observation."""
+    db_path = str(tmp_path / "test.db")
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.create_all(engine)
+
+    tz = pytz.timezone("Europe/Stockholm")
+
+    def local(y, m, d, h):
+        return tz.localize(pd.Timestamp(y, m, d, h).to_pydatetime())
+
+    # days_ahead=1 row: issued the same morning for a slot later that day.
+    row_a_slot = local(2026, 4, 10, 12)
+    row_a_issue = local(2026, 4, 10, 6)
+
+    # days_ahead=5 row: issued 4 days ahead of the target slot.
+    row_b_slot = local(2026, 4, 14, 12)
+    row_b_issue = local(2026, 4, 10, 6)
+
+    observation_timestamps = [
+        row_a_slot - pd.Timedelta(days=1),  # row A lag_1d source (knowable)
+        row_a_slot - pd.Timedelta(days=7),  # row A lag_7d source (knowable)
+        row_b_slot - pd.Timedelta(days=1),  # row B lag_1d source (NOT knowable)
+        row_b_slot - pd.Timedelta(days=7),  # row B lag_7d source (knowable)
+    ]
+
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    for ts in observation_timestamps:
+        session.add(
+            SlotObservation(
+                slot_start=ts.isoformat(),
+                slot_end=(ts + pd.Timedelta(minutes=15)).isoformat(),
+                export_price_sek_kwh=0.5,
+            )
+        )
+    session.commit()
+    session.close()
+    engine.dispose()
+
+    df = pd.DataFrame(
+        {
+            "slot_start": [row_a_slot, row_b_slot],
+            "issue_timestamp": [row_a_issue, row_b_issue],
+            "days_ahead": [1, 5],
+        }
+    )
+
+    result = _add_price_lag_features(df, db_path)
+
+    row_a = result.iloc[0]
+    row_b = result.iloc[1]
+
+    # Row A: both lags knowable at issue time -> populated.
+    assert row_a["price_lag_1d"] == pytest.approx(0.5)
+    assert row_a["price_lag_7d"] == pytest.approx(0.5)
+
+    # Row B: lag_1d source is after issue time -> NaN despite the DB row existing.
+    assert pd.isna(row_b["price_lag_1d"])
+    # Row B: lag_7d source still precedes issue time -> populated.
+    assert row_b["price_lag_7d"] == pytest.approx(0.5)
 
 
 if __name__ == "__main__":

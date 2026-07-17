@@ -1,12 +1,16 @@
 """Tests for price forecasting feature engineering."""
 
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
+import pytest
 import pytz
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from backend.learning.models import Base, SlotObservation
 from ml.price_features import build_price_features, build_price_features_batch
 
 
@@ -173,6 +177,59 @@ class TestPriceFeatures(unittest.TestCase):
             self.assertIn(col, df.columns)
 
         print(f"✓ Generated {len(df)} feature rows correctly")
+
+
+@pytest.fixture
+def db_session(tmp_path):
+    """Real SQLite session with the slot_observations schema, no seeded rows."""
+    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    yield session
+    session.close()
+    engine.dispose()
+
+
+def test_inference_wiring_populates_lag_from_observation(db_session):
+    """build_price_features_batch, called the way generate_price_forecasts now
+    calls it (with a db_session), populates price_lag_1d for a slot whose
+    same-hour-yesterday observation exists, and leaves it NaN when absent."""
+    tz = pytz.timezone("Europe/Stockholm")
+    slot_with_lag = tz.localize(datetime(2026, 4, 10, 12, 0))
+    lag_source = slot_with_lag - timedelta(days=1)
+
+    db_session.add(
+        SlotObservation(
+            slot_start=lag_source.isoformat(),
+            slot_end=(lag_source + timedelta(minutes=15)).isoformat(),
+            export_price_sek_kwh=0.42,
+        )
+    )
+    db_session.commit()
+
+    start_time = slot_with_lag
+    end_time = start_time + timedelta(minutes=15)
+    df = build_price_features_batch(
+        start_time=start_time,
+        end_time=end_time,
+        days_ahead=1,
+        db_session=db_session,
+    )
+
+    row = df.loc[start_time.isoformat()]
+    assert row["price_lag_1d"] == pytest.approx(0.42)
+
+    # A slot whose same-hour-yesterday has no observation row stays NaN
+    slot_without_lag = tz.localize(datetime(2026, 4, 20, 12, 0))
+    df_missing = build_price_features_batch(
+        start_time=slot_without_lag,
+        end_time=slot_without_lag + timedelta(minutes=15),
+        days_ahead=1,
+        db_session=db_session,
+    )
+    row_missing = df_missing.loc[slot_without_lag.isoformat()]
+    assert pd.isna(row_missing["price_lag_1d"])
 
 
 if __name__ == "__main__":
