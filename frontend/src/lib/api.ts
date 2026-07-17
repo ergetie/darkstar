@@ -135,7 +135,6 @@ export type ConfigResponse = {
         sensor: string
         type: 'variable' | 'constant'
         nominal_power_kw: number
-        penalty_levels?: { max_soc: number; penalty_sek: number }[]
     }[]
     executor?: {
         excess_pv?: {

@@ -9,7 +9,6 @@ export type FieldType =
     | 'azimuth'
     | 'tilt'
     | 'solar_arrays'
-    | 'penalty_levels'
     | 'entity_array'
     | 'balanced_loads'
     | 'give_way_list'

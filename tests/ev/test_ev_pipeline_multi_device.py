@@ -11,7 +11,6 @@ from datetime import datetime
 
 from pytz import timezone as pytz_timezone
 
-from planner.pipeline import calculate_ev_deadline
 from planner.solver.adapter import build_ev_charger_inputs
 
 # ---------------------------------------------------------------------------
@@ -21,69 +20,6 @@ from planner.solver.adapter import build_ev_charger_inputs
 
 def _localize(dt: datetime, tz_name: str = "Europe/Stockholm") -> datetime:
     return pytz_timezone(tz_name).localize(dt)
-
-
-# ---------------------------------------------------------------------------
-# Per-device deadline calculation
-# ---------------------------------------------------------------------------
-
-
-class TestPerDeviceDeadlineCalculation:
-    """calculate_ev_deadline is called per charger; each gets its own deadline."""
-
-    def test_two_chargers_different_departure_times(self):
-        now = _localize(datetime(2026, 1, 15, 10, 0))
-
-        deadline_ev1 = calculate_ev_deadline("14:00", now, "Europe/Stockholm")
-        deadline_ev2 = calculate_ev_deadline("07:00", now, "Europe/Stockholm")
-
-        # EV1: 14:00 is ahead of 10:00 → same day
-        assert deadline_ev1 is not None
-        assert deadline_ev1.day == 15
-        assert deadline_ev1.hour == 14
-
-        # EV2: 07:00 has passed at 10:00 → tomorrow
-        assert deadline_ev2 is not None
-        assert deadline_ev2.day == 16
-        assert deadline_ev2.hour == 7
-
-    def test_deadline_only_set_when_plugged_in(self):
-        """Deadline should be None when charger is unplugged (caller responsibility)."""
-        now = _localize(datetime(2026, 1, 15, 10, 0))
-
-        # When plugged_in=False we should NOT call calculate_ev_deadline
-        # The pipeline only calls it when ha_state.get("plugged_in", False) is True.
-        # Simulate the check:
-        ha_state_plugged = {"plugged_in": True, "soc_percent": 50.0}
-        ha_state_unplugged = {"plugged_in": False, "soc_percent": 50.0}
-
-        departure_time = "07:00"
-
-        deadline_plugged = (
-            calculate_ev_deadline(departure_time, now, "Europe/Stockholm")
-            if ha_state_plugged.get("plugged_in", False)
-            else None
-        )
-        deadline_unplugged = (
-            calculate_ev_deadline(departure_time, now, "Europe/Stockholm")
-            if ha_state_unplugged.get("plugged_in", False)
-            else None
-        )
-
-        assert deadline_plugged is not None
-        assert deadline_unplugged is None
-
-    def test_empty_departure_time_returns_none(self):
-        now = _localize(datetime(2026, 1, 15, 10, 0))
-
-        result = calculate_ev_deadline("", now, "Europe/Stockholm")
-        assert result is None
-
-    def test_none_departure_time_returns_none(self):
-        now = _localize(datetime(2026, 1, 15, 10, 0))
-
-        result = calculate_ev_deadline(None, now, "Europe/Stockholm")  # type: ignore[arg-type]
-        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +99,7 @@ class TestPerDeviceStateMatching:
 
     def test_deadline_passed_through_to_ev_charger_input(self):
         """Deadline computed by pipeline is stored in EVChargerInput."""
-        tz = pytz_timezone("Europe/Stockholm")
-        now = tz.localize(datetime(2026, 1, 15, 10, 0))
-        deadline = calculate_ev_deadline("14:00", now, "Europe/Stockholm")
+        deadline = _localize(datetime(2026, 1, 15, 14, 0))
 
         cfgs = [self._make_cfg("ev1")]
         states = [self._make_state("ev1", soc=40.0, plugged_in=True, deadline=deadline)]

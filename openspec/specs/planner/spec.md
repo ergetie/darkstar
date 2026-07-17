@@ -177,18 +177,6 @@ The planner adapter SHALL build a list of `EVChargerInput` objects from the `ev_
 - **WHEN** charger A is enabled and charger B has `enabled: false`
 - **THEN** only charger A SHALL be passed to the solver
 
-### Requirement: Per-device deadline calculation
-The pipeline SHALL calculate `ev_deadline` independently for each charger using that charger's `departure_time` field. Chargers without a departure time SHALL have `deadline: None`.
-
-#### Scenario: Two chargers with different departure times
-- **WHEN** charger A has `departure_time: "07:00"` and charger B has `departure_time: "09:00"`
-- **AND** current time is 22:00
-- **THEN** charger A's deadline SHALL be tomorrow 07:00 and charger B's deadline SHALL be tomorrow 09:00
-
-#### Scenario: Charger with no departure time
-- **WHEN** a charger has `departure_time: ""`
-- **THEN** its deadline SHALL be `None` (no deadline constraint in solver)
-
 ### Requirement: Per-device initial state fetching
 The `get_initial_state()` function SHALL fetch SoC and plug state for ALL enabled chargers from Home Assistant, returning per-device state instead of scalar values.
 

@@ -74,7 +74,6 @@ export function parseFieldInput(field: BaseField, raw: string): unknown {
     }
     if (
         field.type === 'solar_arrays' ||
-        field.type === 'penalty_levels' ||
         field.type === 'entity_array' ||
         field.type === 'balanced_loads' ||
         field.type === 'give_way_list' ||
@@ -110,7 +109,6 @@ export function buildFormState(config: Record<string, unknown> | null, fields: B
             state[field.key] = value.join(', ')
         } else if (
             field.type === 'solar_arrays' ||
-            field.type === 'penalty_levels' ||
             field.type === 'entity_array' ||
             field.type === 'balanced_loads' ||
             field.type === 'give_way_list' ||
@@ -143,13 +141,7 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
     // This fixes the bug where adding new entity fields shows "No changes detected"
     if ((a === null || a === undefined) && b !== null && b !== undefined) {
         // For text/entity fields, also check if the new value is non-empty
-        if (
-            type !== 'boolean' &&
-            type !== 'number' &&
-            type !== 'array' &&
-            type !== 'solar_arrays' &&
-            type !== 'penalty_levels'
-        ) {
+        if (type !== 'boolean' && type !== 'number' && type !== 'array' && type !== 'solar_arrays') {
             const strB = String(b).trim()
             if (strB !== '') return false // Adding a new non-empty value is a change
         } else {
@@ -163,7 +155,6 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
         type !== 'number' &&
         type !== 'array' &&
         type !== 'solar_arrays' &&
-        type !== 'penalty_levels' &&
         type !== 'entity_array' &&
         type !== 'balanced_loads' &&
         type !== 'give_way_list' &&
@@ -186,7 +177,6 @@ export function areEqual(a: unknown, b: unknown, type: string): boolean {
 
     if (
         type === 'solar_arrays' ||
-        type === 'penalty_levels' ||
         type === 'entity_array' ||
         type === 'balanced_loads' ||
         type === 'give_way_list' ||

@@ -12,7 +12,6 @@ import Switch from '../../../components/ui/Switch'
 import { Badge } from '../../../components/ui/Badge'
 import configHelp from '../../../config-help.json'
 import { SolarArraysEditor } from './SolarArraysEditor'
-import { PenaltyLevelsEditor } from './PenaltyLevelsEditor'
 import { EntityArrayEditor } from './EntityArrayEditor'
 import { GiveWayListEditor, type GiveWayEntry, type ShedLoad } from './GiveWayListEditor'
 import { ExcessPvPriorityEditor, type ExcessPvPriorityEntry } from './ExcessPvPriorityEditor'
@@ -185,14 +184,6 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
                     <SolarArraysEditor
                         arrays={JSON.parse(value || '[]')}
                         onChange={(arrays) => onChange(field.key, JSON.stringify(arrays))}
-                        disabled={isDisabled}
-                    />
-                )
-            case 'penalty_levels':
-                return (
-                    <PenaltyLevelsEditor
-                        value={value}
-                        onChange={(levels) => onChange(field.key, JSON.stringify(levels))}
                         disabled={isDisabled}
                     />
                 )

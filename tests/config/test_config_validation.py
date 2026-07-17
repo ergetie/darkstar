@@ -188,51 +188,30 @@ class TestEVChargerValidation:
         ]
         assert len(ev_errors) == 0
 
-    def test_ev_departure_time_valid(self):
-        for time_str in ["07:00", "23:30", "00:00", "12:59", "7:00"]:
-            config = {
-                "config_version": 2,
-                "system": {"has_ev_charger": True, "has_battery": False, "has_water_heater": False},
-                "ev_chargers": [
-                    {
-                        "id": "tesla",
-                        "name": "Tesla",
-                        "max_power_kw": 11.0,
-                        "battery_capacity_kwh": 82.0,
-                    }
-                ],
-                "ev_departure_time": time_str,
-            }
-            issues = _validate_config_for_save(config)
-            errors = [
-                i
-                for i in issues
-                if i["severity"] == "error" and "departure time" in i["message"].lower()
-            ]
-            assert len(errors) == 0
-
-    def test_ev_departure_time_invalid(self):
-        for time_str in ["25:00", "12:60", "7:00 AM", "invalid"]:
-            config = {
-                "config_version": 2,
-                "system": {"has_ev_charger": True, "has_battery": False, "has_water_heater": False},
-                "ev_chargers": [
-                    {
-                        "id": "tesla",
-                        "name": "Tesla",
-                        "max_power_kw": 11.0,
-                        "battery_capacity_kwh": 82.0,
-                    }
-                ],
-                "ev_departure_time": time_str,
-            }
-            issues = _validate_config_for_save(config)
-            errors = [
-                i
-                for i in issues
-                if i["severity"] == "error" and "departure time" in i["message"].lower()
-            ]
-            assert len(errors) == 1
+    def test_legacy_departure_time_does_not_block_save(self):
+        """per-device-ev-scheduling: malformed legacy goal fields must never block a settings save."""
+        config = {
+            "config_version": 2,
+            "system": {"has_ev_charger": True, "has_battery": False, "has_water_heater": False},
+            "ev_chargers": [
+                {
+                    "id": "tesla",
+                    "name": "Tesla",
+                    "max_power_kw": 11.0,
+                    "battery_capacity_kwh": 82.0,
+                    "departure_time": 1200,
+                    "penalty_levels": [{"max_soc": 80, "penalty": 1.0}],
+                }
+            ],
+            "ev_departure_time": "invalid",
+        }
+        issues = _validate_config_for_save(config)
+        errors_and_warnings = [
+            i
+            for i in issues
+            if "departure" in i["message"].lower() or "penalty" in i["message"].lower()
+        ]
+        assert len(errors_and_warnings) == 0
 
 
 class TestEVChargerCurrentTypeValidation:

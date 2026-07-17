@@ -593,9 +593,6 @@ def _validate_config_for_save(
                         }
                     )
 
-                # REV K25 Phase 1: Legacy min_soc_percent and target_soc_percent fields removed
-                # EV charging is now controlled via penalty_levels only
-
                 # Validate sensor format
                 sensor = ev.get("sensor", "")
                 if sensor and not sensor.startswith("sensor."):
@@ -659,19 +656,6 @@ def _validate_config_for_save(
                         }
                     )
 
-                # Validate per-device departure_time format
-                dev_departure = str(ev.get("departure_time", "") or "")
-                if dev_departure and not re.match(
-                    r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$", dev_departure
-                ):
-                    issues.append(
-                        {
-                            "severity": "error",
-                            "message": f"EV charger '{ev.get('id', i + 1)}' has invalid departure_time format: '{dev_departure}'",
-                            "guidance": "departure_time must be in 24-hour HH:MM format (e.g., '07:00' or '23:30').",
-                        }
-                    )
-
                 # Validate per-device switch_entity format
                 switch_entity = ev.get("switch_entity", "")
                 if switch_entity and not (
@@ -693,19 +677,6 @@ def _validate_config_for_save(
                         "severity": "warning",
                         "message": "All EV chargers are disabled",
                         "guidance": "Enable at least one EV charger or set system.has_ev_charger to false.",
-                    }
-                )
-
-            # REV K25 Phase 2: Validate departure time format
-            departure_time = config.get("ev_departure_time", "")
-            if departure_time and not re.match(
-                r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$", departure_time
-            ):
-                issues.append(
-                    {
-                        "severity": "error",
-                        "message": f"Invalid departure time format: '{departure_time}'",
-                        "guidance": "ev_departure_time must be in 24-hour HH:MM format (e.g., '07:00' or '23:30').",
                     }
                 )
 

@@ -510,17 +510,6 @@ class TestMigrateEvChargerFields:
             "ev_chargers": [charger],
         }
 
-    def test_departure_time_migrated_to_first_enabled_charger(self):
-        from backend.config_migration import _migrate_ev_charger_fields
-
-        config = self._base_config()
-        config["ev_departure_time"] = "07:30"
-
-        result, changed = _migrate_ev_charger_fields(config)
-
-        assert changed is True
-        assert result["ev_chargers"][0]["departure_time"] == "07:30"
-
     def test_switch_entity_migrated_from_executor_ev_charger(self):
         from backend.config_migration import _migrate_ev_charger_fields
 
@@ -553,17 +542,6 @@ class TestMigrateEvChargerFields:
 
         assert changed is True
         assert result["ev_chargers"][0]["replan_on_unplug"] is True
-
-    def test_idempotent_departure_time_not_overwritten(self):
-        from backend.config_migration import _migrate_ev_charger_fields
-
-        config = self._base_config(extra_charger_fields={"departure_time": "08:00"})
-        config["ev_departure_time"] = "07:30"
-
-        result, _ = _migrate_ev_charger_fields(config)
-
-        # departure_time already present — should NOT be overwritten
-        assert result["ev_chargers"][0]["departure_time"] == "08:00"
 
     def test_idempotent_switch_entity_not_overwritten(self):
         from backend.config_migration import _migrate_ev_charger_fields
@@ -617,6 +595,61 @@ class TestMigrateEvChargerFields:
         _, changed = _migrate_ev_charger_fields(config)
 
         assert changed is False
+
+
+class TestRemoveEvGoalFields:
+    """ev-legacy-goal-field-cleanup: _remove_ev_goal_fields strips deprecated EV
+    goal fields from ev_chargers[] entries."""
+
+    def test_departure_time_and_penalty_levels_stripped(self):
+        from backend.config_migration import _remove_ev_goal_fields
+
+        config = {
+            "ev_chargers": [
+                {
+                    "id": "main",
+                    "enabled": True,
+                    "departure_time": 1200,
+                    "penalty_levels": [{"max_soc": 80, "penalty": 1.0}],
+                }
+            ]
+        }
+
+        result, changed = _remove_ev_goal_fields(config)
+
+        assert changed is True
+        assert "departure_time" not in result["ev_chargers"][0]
+        assert "penalty_levels" not in result["ev_chargers"][0]
+
+    def test_clean_charger_reports_no_change(self):
+        from backend.config_migration import _remove_ev_goal_fields
+
+        config = {"ev_chargers": [{"id": "main", "enabled": True, "name": "My EV"}]}
+
+        result, changed = _remove_ev_goal_fields(config)
+
+        assert changed is False
+        assert result["ev_chargers"][0] == {"id": "main", "enabled": True, "name": "My EV"}
+
+    def test_root_ev_departure_time_removed_and_not_copied(self):
+        from backend.config_migration import (
+            _migrate_ev_charger_fields,
+            _remove_ev_goal_fields,
+            remove_deprecated_keys,
+        )
+
+        config = {
+            "ev_chargers": [{"id": "main", "enabled": True, "name": "My EV"}],
+            "ev_departure_time": "07:30",
+        }
+
+        config, _ = _migrate_ev_charger_fields(config)
+        config, _ = _remove_ev_goal_fields(config)
+        config, removed = remove_deprecated_keys(config)
+
+        assert removed is True
+        assert "ev_departure_time" not in config
+        assert "departure_time" not in config["ev_chargers"][0]
 
 
 class TestMigrateLegacyEvChargerCurrentStub:

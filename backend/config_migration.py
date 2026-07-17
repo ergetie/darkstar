@@ -20,6 +20,8 @@ except ImportError:
     # Fallback if ruamel.yaml is not available (should be in requirements.txt)
     YAML = None  # type: ignore[misc,assignment]
 
+from executor.config import DEPRECATED_EV_GOAL_FIELDS
+
 logger = logging.getLogger("darkstar.config_migration")
 
 BACKUP_DIR_ENV = "BACKUP_DIR"
@@ -74,7 +76,7 @@ MigrationStep = Callable[[dict[str, Any]], tuple[dict[str, Any], bool]]
 DEPRECATED_KEYS = {
     "deferrable_loads",  # Replaced by water_heaters[] and ev_chargers[]
     "ev_charger",  # Replaced by ev_chargers[] array (plural)
-    "ev_departure_time",  # Moved into ev_chargers[].departure_time
+    "ev_departure_time",  # Deprecated EV goal field, no longer copied anywhere
     "solar_array",  # Replaced by solar_arrays[] array (plural)
     "version",  # Replaced by config_version
     "schedule_future_only",  # Removed
@@ -252,7 +254,6 @@ def _migrate_ev_charger_fields(config: dict[str, Any]) -> tuple[dict[str, Any], 
     """Migrate global EV charger settings into the first enabled ev_chargers[] entry.
 
     Copies:
-      - ev_departure_time (root) -> ev_chargers[0].departure_time (if absent/empty)
       - executor.ev_charger.switch_entity -> ev_chargers[0].switch_entity (if absent/empty)
       - executor.ev_charger.replan_on_plugin -> ev_chargers[0].replan_on_plugin (if absent)
       - executor.ev_charger.replan_on_unplug -> ev_chargers[0].replan_on_unplug (if absent)
@@ -278,15 +279,6 @@ def _migrate_ev_charger_fields(config: dict[str, Any]) -> tuple[dict[str, Any], 
 
     if first_enabled is None:
         return config, changed
-
-    # Migrate ev_departure_time -> departure_time
-    old_departure = config.get("ev_departure_time", "")
-    if old_departure and not first_enabled.get("departure_time"):
-        first_enabled["departure_time"] = old_departure
-        logger.info(
-            f"🔄 Migrated ev_departure_time -> ev_chargers[0].departure_time: {old_departure}"
-        )
-        changed = True
 
     # Migrate executor.ev_charger settings
     executor_raw: Any = config.get("executor", {})
@@ -531,6 +523,29 @@ def _remove_energy_sensor_fields(config: dict[str, Any]) -> tuple[dict[str, Any]
             if isinstance(item, dict) and "energy_sensor" in item:
                 del item["energy_sensor"]
                 logger.info(f"✂️  Removed deprecated key: '{array_key}[].energy_sensor'")
+                changed = True
+    return config, changed
+
+
+def _remove_ev_goal_fields(config: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """Remove deprecated EV goal fields from ev_chargers[] items.
+
+    Charging goals live in data/ev_multi_day_state.json (dashboard/API), never in
+    config.yaml. Old values have no runtime effect since the goal-based EV charging
+    model landed; the executor's deprecation warning covers configs that skip
+    migration, but migrated configs should be clean.
+
+    Returns:
+        Tuple of (modified_config, changed_flag)
+    """
+    changed = False
+    for item in config.get("ev_chargers", []):
+        if not isinstance(item, dict):
+            continue
+        for goal_field in DEPRECATED_EV_GOAL_FIELDS:
+            if goal_field in item:
+                del item[goal_field]
+                logger.info(f"✂️  Removed deprecated key: 'ev_chargers[].{goal_field}'")
                 changed = True
     return config, changed
 
@@ -990,6 +1005,11 @@ async def migrate_config(
     # 2.1 Migrate global EV charger fields into per-device ev_chargers[] entries
     user_config, ev_migration_changes = _migrate_ev_charger_fields(user_config)
     pre_merge_changes = ev_migration_changes
+
+    # 2.1a Strip deprecated EV goal fields from ev_chargers[] entries
+    user_config, ev_goal_field_changes = _remove_ev_goal_fields(user_config)
+    if ev_goal_field_changes:
+        pre_merge_changes = True
 
     # 2.1b Migrate inverter config keys (must run before remove_deprecated_keys)
     user_config, inverter_migration_changes = _migrate_inverter_keys(user_config)

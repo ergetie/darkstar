@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Charging-goal fields live in data/ev_multi_day_state.json (dashboard/API), never
 # in config.yaml. Any of these present on an ev_chargers[] entry triggers a single
 # deprecation warning per charger and are otherwise ignored.
-_DEPRECATED_EV_GOAL_FIELDS = (
+DEPRECATED_EV_GOAL_FIELDS = (
     "target_soc_percent",
     "ready_by",
     "repeat",
@@ -624,7 +624,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
             else [1, 2, 3]
         )
 
-        deprecated_fields_present = [f for f in _DEPRECATED_EV_GOAL_FIELDS if f in charger]
+        deprecated_fields_present = [f for f in DEPRECATED_EV_GOAL_FIELDS if f in charger]
         if deprecated_fields_present:
             logger.warning(
                 "EV charger '%s': %s is set in config but ignored — charging goals are "
