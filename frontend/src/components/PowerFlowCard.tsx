@@ -60,20 +60,41 @@ const TOP_CY = 32,
 // PURE HELPERS (module-level — no closure over component state)
 // =============================================================================
 
-function cxFor(idx: number, count: number) {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function cxFor(idx: number, count: number) {
     return PAD_X + (SPAN * (idx + 0.5)) / count
 }
 
-function exitYFor(row: 'top' | 'bot') {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function exitYFor(row: 'top' | 'bot') {
     return row === 'top' ? TOP_CY + B_H : BOT_CY - B_H
 }
 
-function toPathD(pts: { x: number; y: number }[]): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function toPathD(pts: { x: number; y: number }[]): string {
     if (!pts.length) return ''
     return pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
 }
 
-function partitionFlow(data: PowerFlowData, enabledIds: Set<string>): { sources: Entity[]; loads: Entity[] } {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function computeEnabledNodes(configMap: Record<string, unknown> | null, data: PowerFlowData) {
+    if (!configMap) return NODE_REGISTRY.filter((n) => !n.configKey || ['solar', 'battery', 'water'].includes(n.id))
+    return NODE_REGISTRY.filter((node) => {
+        if (node.configKey) {
+            const val = configMap[node.configKey]
+            if (val !== undefined) {
+                if (val === false) return false
+            } else {
+                if (!['solar', 'battery', 'water'].includes(node.id)) return false
+            }
+        }
+        if (node.shouldRender) return node.shouldRender(data, configMap)
+        return true
+    })
+}
+
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function partitionFlow(data: PowerFlowData, enabledIds: Set<string>): { sources: Entity[]; loads: Entity[] } {
     const sources: Entity[] = []
     const loads: Entity[] = []
 
@@ -232,21 +253,7 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
         return map
     }, [systemConfig])
 
-    const enabledNodes = useMemo(() => {
-        if (!configMap) return NODE_REGISTRY.filter((n) => !n.configKey || ['solar', 'battery', 'water'].includes(n.id))
-        return NODE_REGISTRY.filter((node) => {
-            if (node.configKey) {
-                const val = configMap[node.configKey]
-                if (val !== undefined) {
-                    if (val === false) return false
-                } else {
-                    if (!['solar', 'battery', 'water'].includes(node.id)) return false
-                }
-            }
-            if (node.shouldRender) return node.shouldRender(data, configMap)
-            return true
-        })
-    }, [configMap, data])
+    const enabledNodes = useMemo(() => computeEnabledNodes(configMap, data), [configMap, data])
 
     const enabledIds = useMemo(() => new Set(enabledNodes.map((n) => n.id)), [enabledNodes])
 

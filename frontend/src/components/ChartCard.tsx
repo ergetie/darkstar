@@ -33,6 +33,22 @@ function useIsMobile(): boolean {
     return isMobile
 }
 
+/** Splits a total SEK/kWh price into spot and fees+VAT parts.
+ * Total = (Spot + Fees) * (1 + VAT/100); Spot = (Total / (1 + VAT/100)) - Fees. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function splitPriceBreakdown(
+    value: number,
+    pricing?: { vat: number; fees: number },
+): { spot: number; feesAndVat: number } | null {
+    if (!pricing) return null
+    const vatMul = 1 + pricing.vat / 100
+    // Avoid division by zero
+    const basePrice = vatMul > 0 ? value / vatMul : value
+    const spot = Math.max(0, basePrice - pricing.fees)
+    const feesAndVat = value - spot
+    return { spot, feesAndVat }
+}
+
 const chartOptions: ChartConfiguration['options'] = {
     maintainAspectRatio: false,
     animation: false,
@@ -101,19 +117,11 @@ const chartOptions: ChartConfiguration['options'] = {
                         const pricing = data.pricingConfig
 
                         // If we have pricing config, show breakdown
-                        if (pricing) {
-                            // Total = (Spot + Fees) * (1 + VAT/100)
-                            // Spot = (Total / (1 + VAT/100)) - Fees
-                            const vatMul = 1 + pricing.vat / 100
-                            // Avoid division by zero
-                            const basePrice = vatMul > 0 ? value / vatMul : value
-                            const spot = Math.max(0, basePrice - pricing.fees)
-                            // Fees + Tax part of the total
-                            const feesAndVat = value - spot
-
+                        const breakdown = splitPriceBreakdown(value, pricing)
+                        if (breakdown) {
                             return [
                                 `${datasetLabel}: ${formattedValue}${unit}`,
-                                `(Spot: ${spot.toFixed(2)} + Tax/Fees: ${feesAndVat.toFixed(2)})`,
+                                `(Spot: ${breakdown.spot.toFixed(2)} + Tax/Fees: ${breakdown.feesAndVat.toFixed(2)})`,
                             ] as unknown as string[] // Chart.js allows string arrays for multiline
                         }
                     } else if (datasetLabel.includes('kW')) {
@@ -980,12 +988,9 @@ export default function ChartCard({
             if (dsLabel.includes('SEK/kWh')) {
                 formattedValue = value.toFixed(2)
                 unit = ' SEK/kWh'
-                if (pricing) {
-                    const vatMul = 1 + pricing.vat / 100
-                    const basePrice = vatMul > 0 ? value / vatMul : value
-                    const spot = Math.max(0, basePrice - pricing.fees)
-                    const feesAndVat = value - spot
-                    extra = `Spot: ${spot.toFixed(2)} + Tax/Fees: ${feesAndVat.toFixed(2)}`
+                const breakdown = splitPriceBreakdown(value, pricing)
+                if (breakdown) {
+                    extra = `Spot: ${breakdown.spot.toFixed(2)} + Tax/Fees: ${breakdown.feesAndVat.toFixed(2)}`
                 }
             } else if (dsLabel.includes('kW')) {
                 formattedValue = value.toFixed(1)
@@ -1571,7 +1576,8 @@ export default function ChartCard({
     )
 }
 
-function buildLiveData(
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function buildLiveData(
     slots: ScheduleSlot[],
     day: DaySel,
     themeColors: Record<string, string> = {},

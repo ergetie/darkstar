@@ -18,7 +18,8 @@ type ExcessPvPriorityEntry = NonNullable<
 /** Format a Date as a local (not UTC) YYYY-MM-DD string — never use
  * toISOString().slice(0, 10) for calendar logic, it shifts across midnight
  * in timezones behind/ahead of UTC. */
-function toLocalISODate(d: Date): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function toLocalISODate(d: Date): string {
     const year = d.getFullYear()
     const month = String(d.getMonth() + 1).padStart(2, '0')
     const day = String(d.getDate()).padStart(2, '0')
@@ -27,12 +28,14 @@ function toLocalISODate(d: Date): string {
 
 /** Parse a YYYY-MM-DD string as a local date — never use `new Date("YYYY-MM-DD")`
  * for calendar logic, it parses as UTC midnight and can shift a day in local time. */
-function parseLocalISODate(dateStr: string): Date {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function parseLocalISODate(dateStr: string): Date {
     const [year, month, day] = dateStr.split('-').map(Number)
     return new Date(year, (month || 1) - 1, day || 1)
 }
 
-function tomorrowLocalISODate(): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function tomorrowLocalISODate(): string {
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     return toLocalISODate(tomorrow)
@@ -48,6 +51,50 @@ const EV_BALANCER_STATE_COLORS: Record<string, string> = {
     throttling: 'bg-amber-500/10 text-amber-400 border border-amber-500/20',
     paused: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
     stale_fallback: 'bg-rose-500/10 text-rose-400 border border-rose-500/20',
+}
+
+/** Percentage of the charge goal delivered so far, capped at 100. Returns 0
+ * (rather than dividing by zero) when the goal has no required_kwh set. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function computeProgressPercent(charger: EVChargerState): number {
+    const delivered = charger.delivered_kwh ?? 0
+    const required = charger.required_kwh ?? 0
+    return required > 0 ? Math.min(100, Math.round((delivered / required) * 100)) : 0
+}
+
+/** Derives the displayed status text/color for a charger, giving load-balancer
+ * fail-safe states (throttling/paused/stale_fallback) priority over the
+ * charger's own on_track/behind/complete/idle status. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function deriveChargerStatus(
+    charger: EVChargerState,
+    balancerEv: LoadBalancerEvStatus | undefined,
+): { statusText: string; statusColor: string } {
+    const balancerState = balancerEv?.state
+    const balancerOverrideLabel = balancerState ? EV_BALANCER_STATE_LABELS[balancerState] : undefined
+    const balancerOverrideColor = balancerState ? EV_BALANCER_STATE_COLORS[balancerState] : undefined
+
+    let statusText: string = charger.status || 'idle'
+    let statusColor = 'bg-surface2 text-muted'
+    if (balancerOverrideLabel && balancerOverrideColor) {
+        // A fail-safe pause/throttle must never read as "on track".
+        statusText = balancerOverrideLabel
+        statusColor = balancerOverrideColor
+    } else if (charger.status === 'on_track') {
+        statusText = 'On track'
+        statusColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+    } else if (charger.status === 'behind') {
+        statusText = 'Behind'
+        statusColor = 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+    } else if (charger.status === 'complete') {
+        statusText = 'Complete'
+        statusColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+    } else if (charger.status === 'idle') {
+        statusText = 'Idle'
+        statusColor = 'bg-surface2 text-muted'
+    }
+
+    return { statusText, statusColor }
 }
 
 export default function EVChargingCard({
@@ -105,9 +152,6 @@ export default function EVChargingCard({
     // Load balancer check — states mirror LoadBalancerStatusCard's per-EV
     // states exactly: idle (no override), throttling, paused, stale_fallback.
     const balancerEv = loadBalancing?.ev?.find((e: LoadBalancerEvStatus) => e.charger_id === charger.id)
-    const balancerState: string | undefined = balancerEv?.state
-    const balancerOverrideLabel = balancerState ? EV_BALANCER_STATE_LABELS[balancerState] : undefined
-    const balancerOverrideColor = balancerState ? EV_BALANCER_STATE_COLORS[balancerState] : undefined
 
     // Surplus absorption check
     const excessPv = config?.executor?.excess_pv?.priority ?? []
@@ -163,27 +207,8 @@ export default function EVChargingCard({
     // Progress math
     const delivered = charger.delivered_kwh ?? 0
     const required = charger.required_kwh ?? 0
-    const progressPercent = required > 0 ? Math.min(100, Math.round((delivered / required) * 100)) : 0
-
-    let statusText: string = charger.status || 'idle'
-    let statusColor = 'bg-surface2 text-muted'
-    if (balancerOverrideLabel && balancerOverrideColor) {
-        // A fail-safe pause/throttle must never read as "on track".
-        statusText = balancerOverrideLabel
-        statusColor = balancerOverrideColor
-    } else if (charger.status === 'on_track') {
-        statusText = 'On track'
-        statusColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
-    } else if (charger.status === 'behind') {
-        statusText = 'Behind'
-        statusColor = 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
-    } else if (charger.status === 'complete') {
-        statusText = 'Complete'
-        statusColor = 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
-    } else if (charger.status === 'idle') {
-        statusText = 'Idle'
-        statusColor = 'bg-surface2 text-muted'
-    }
+    const progressPercent = computeProgressPercent(charger)
+    const { statusText, statusColor } = deriveChargerStatus(charger, balancerEv)
 
     return (
         <div className="bg-surface2/30 rounded-xl p-3 border border-line/10 relative overflow-hidden transition-all duration-300">

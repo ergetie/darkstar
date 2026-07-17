@@ -11,23 +11,27 @@ interface MiniBarGraphProps {
     bars?: number
 }
 
+/** Slices `data` to the last `bars` points and normalizes them to a 0.1-1.0 range
+ * (minimum 10% bar height). Falls back to a flat `bars`-length array when empty. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function computeNormalizedBars(data: number[], bars: number): number[] {
+    if (!data || data.length === 0) return Array(bars).fill(0.2)
+
+    const sliced = data.slice(-bars)
+    const max = Math.max(...sliced, 1)
+    const min = Math.min(...sliced, 0)
+    const range = max - min || 1
+
+    return sliced.map((v) => 0.1 + 0.9 * ((v - min) / range))
+}
+
 /**
  * Mini bar graph component for data visualization.
  * Replaces sparklines with a more TE-style graphic look.
  */
 export default function MiniBarGraph({ data, colorClass = 'bg-accent', height = 32, bars = 12 }: MiniBarGraphProps) {
     // Normalize and slice data to fit bars
-    const normalizedData = useMemo(() => {
-        if (!data || data.length === 0) return Array(bars).fill(0.2)
-
-        const sliced = data.slice(-bars)
-        const max = Math.max(...sliced, 1)
-        const min = Math.min(...sliced, 0)
-        const range = max - min || 1
-
-        // Normalize to 0.1 - 1.0 range (minimum 10% height)
-        return sliced.map((v) => 0.1 + 0.9 * ((v - min) / range))
-    }, [data, bars])
+    const normalizedData = useMemo(() => computeNormalizedBars(data, bars), [data, bars])
 
     return (
         <div className="mini-bars" style={{ height }}>

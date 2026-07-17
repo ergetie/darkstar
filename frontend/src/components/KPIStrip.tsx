@@ -12,13 +12,17 @@ interface KPIStripProps {
     priceAccuracy?: PriceAccuracyResponse
 }
 
-export default function KPIStrip({ metrics, perfData, priceAccuracy }: KPIStripProps) {
-    // 1. Calculate Cost Drift (7-day)
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function computeCostDrift(costSeries?: AuroraPerformanceData['cost_series'] | null): {
+    costDrift: number
+    costDriftLabel: string
+    isSaving: boolean
+} {
     let totalPlanned = 0
     let totalRealized = 0
 
-    if (perfData?.cost_series) {
-        perfData.cost_series.forEach((d) => {
+    if (costSeries) {
+        costSeries.forEach((d) => {
             totalPlanned += d.planned
             totalRealized += d.realized
         })
@@ -29,6 +33,13 @@ export default function KPIStrip({ metrics, perfData, priceAccuracy }: KPIStripP
         costDrift <= 0 ? `Saved ${Math.abs(costDrift).toFixed(1)} SEK` : `Overspent ${costDrift.toFixed(1)} SEK`
 
     const isSaving = costDrift <= 0
+
+    return { costDrift, costDriftLabel, isSaving }
+}
+
+export default function KPIStrip({ metrics, perfData, priceAccuracy }: KPIStripProps) {
+    // 1. Calculate Cost Drift (7-day)
+    const { costDriftLabel, isSaving } = computeCostDrift(perfData?.cost_series)
 
     // 2. Forecast Accuracy
     const pvMae = metrics?.mae_pv_aurora?.toFixed(2) ?? 'N/A'

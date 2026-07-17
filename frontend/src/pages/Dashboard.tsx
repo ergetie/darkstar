@@ -12,7 +12,7 @@ import {
     type ConfigResponse,
 } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
-import { isToday, isTomorrow } from '../lib/time'
+import { isToday, isTomorrow, formatHour } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 import PowerFlowCard from '../components/PowerFlowCard'
 import CommandBar from '../components/CommandBar'
@@ -26,6 +26,65 @@ type PlannerMeta = {
     planner_version?: string
     s_index?: PlannerSIndex
 } | null
+
+/** Merges adjacent same-action slots into a single joined "Charge 00:00-01:00 (...)" string
+ * for today's schedule, e.g. "Charge 00:00-01:00 → Export 06:00-07:00". */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function computeTodaySummary(slots: ScheduleSlot[], now: Date = new Date()): string | null {
+    if (!slots || slots.length === 0) return null
+    const todayStart = new Date(now)
+    todayStart.setHours(0, 0, 0, 0)
+    const tomorrowStart = new Date(todayStart)
+    tomorrowStart.setDate(tomorrowStart.getDate() + 1)
+    const todaySlots = slots.filter((s) => {
+        const t = new Date(s.start_time)
+        return t >= todayStart && t < tomorrowStart
+    })
+    if (todaySlots.length === 0) return null
+
+    interface Phase {
+        action: string
+        start: string
+        end: string
+        extra?: string
+    }
+    const phases: Phase[] = []
+
+    todaySlots.forEach((s) => {
+        const start = formatHour(s.start_time)
+        const endTime = new Date(new Date(s.start_time).getTime() + 30 * 60 * 1000)
+        const end = formatHour(endTime.toISOString())
+        if ((s.charge_kw || 0) > 0.1) {
+            const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
+            phases.push({ action: 'Charge', start, end, extra: price ? price : undefined })
+        } else if ((s.discharge_kw || 0) > 0.1) {
+            const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
+            phases.push({ action: 'Discharge', start, end, extra: price ? price : undefined })
+        } else if ((s.export_kwh || 0) > 0.1) {
+            const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
+            phases.push({ action: 'Export', start, end, extra: price ? price : undefined })
+        }
+    })
+    if (phases.length === 0) return null
+
+    const merged: Phase[] = []
+    phases.forEach((p) => {
+        const last = merged[merged.length - 1]
+        if (last && last.action === p.action) {
+            last.end = p.end
+            if (p.extra) last.extra = p.extra
+        } else {
+            merged.push({ ...p })
+        }
+    })
+    return merged
+        .map((p) => {
+            let text = `${p.action} ${p.start}-${p.end}`
+            if (p.extra) text += ` (${p.extra})`
+            return text
+        })
+        .join(' → ')
+}
 
 export default function Dashboard() {
     const [soc, setSoc] = useState<number | null>(null)
@@ -490,62 +549,7 @@ export default function Dashboard() {
         }
     }
 
-    const todaySummary = (() => {
-        if (!slotsOverride || slotsOverride.length === 0) return null
-        const todayStart = new Date()
-        todayStart.setHours(0, 0, 0, 0)
-        const tomorrowStart = new Date(todayStart)
-        tomorrowStart.setDate(tomorrowStart.getDate() + 1)
-        const todaySlots = slotsOverride.filter((s) => {
-            const t = new Date(s.start_time)
-            return t >= todayStart && t < tomorrowStart
-        })
-        if (todaySlots.length === 0) return null
-
-        interface Phase {
-            action: string
-            start: string
-            end: string
-            extra?: string
-        }
-        const phases: Phase[] = []
-        const fmt = (iso: string) => iso.slice(11, 16)
-
-        todaySlots.forEach((s) => {
-            const start = fmt(s.start_time)
-            const endTime = new Date(new Date(s.start_time).getTime() + 30 * 60 * 1000)
-            const end = endTime.toISOString().slice(11, 16)
-            if ((s.charge_kw || 0) > 0.1) {
-                const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
-                phases.push({ action: 'Charge', start, end, extra: price ? price : undefined })
-            } else if ((s.discharge_kw || 0) > 0.1) {
-                const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
-                phases.push({ action: 'Discharge', start, end, extra: price ? price : undefined })
-            } else if ((s.export_kwh || 0) > 0.1) {
-                const price = s.import_price_sek_kwh ? `${s.import_price_sek_kwh.toFixed(2)} kr` : null
-                phases.push({ action: 'Export', start, end, extra: price ? price : undefined })
-            }
-        })
-        if (phases.length === 0) return null
-
-        const merged: Phase[] = []
-        phases.forEach((p) => {
-            const last = merged[merged.length - 1]
-            if (last && last.action === p.action) {
-                last.end = p.end
-                if (p.extra) last.extra = p.extra
-            } else {
-                merged.push({ ...p })
-            }
-        })
-        return merged
-            .map((p) => {
-                let text = `${p.action} ${p.start}-${p.end}`
-                if (p.extra) text += ` (${p.extra})`
-                return text
-            })
-            .join(' → ')
-    })()
+    const todaySummary = computeTodaySummary(slotsOverride ?? [])
 
     return (
         <main className="mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 lg:pt-8 space-y-4">

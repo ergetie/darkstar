@@ -52,6 +52,73 @@ const ProgressBar = ({ value, total, colorClass }: { value: number; total: numbe
     )
 }
 
+type PeriodSel = 'today' | 'yesterday' | 'week' | 'month' | 'custom'
+
+/** Computes the default {start, end} date-picker values for a given period, relative to `now`. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function getDefaultDatesForPeriod(
+    prevPeriod: PeriodSel,
+    now: Date = new Date(),
+): { start: string; end: string } {
+    const today = now
+    const todayStr = today.toISOString().split('T')[0]
+
+    switch (prevPeriod) {
+        case 'today': {
+            // Use yesterday to today
+            const yesterday = new Date(today)
+            yesterday.setDate(yesterday.getDate() - 1)
+            return {
+                start: yesterday.toISOString().split('T')[0],
+                end: todayStr,
+            }
+        }
+        case 'yesterday': {
+            // Single day - yesterday
+            const yesterdayOnly = new Date(today)
+            yesterdayOnly.setDate(yesterdayOnly.getDate() - 1)
+            return {
+                start: yesterdayOnly.toISOString().split('T')[0],
+                end: yesterdayOnly.toISOString().split('T')[0],
+            }
+        }
+        case 'week': {
+            // 7 days ago to today
+            const weekAgo = new Date(today)
+            weekAgo.setDate(weekAgo.getDate() - 7)
+            return {
+                start: weekAgo.toISOString().split('T')[0],
+                end: todayStr,
+            }
+        }
+        case 'month': {
+            // 30 days ago to today
+            const monthAgo = new Date(today)
+            monthAgo.setDate(monthAgo.getDate() - 30)
+            return {
+                start: monthAgo.toISOString().split('T')[0],
+                end: todayStr,
+            }
+        }
+        default: {
+            // Default to 7 days
+            const defaultStart = new Date(today)
+            defaultStart.setDate(defaultStart.getDate() - 7)
+            return {
+                start: defaultStart.toISOString().split('T')[0],
+                end: todayStr,
+            }
+        }
+    }
+}
+
+/** Pure predicate for a custom date range: both dates present and end >= start. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function isValidDateRange(start: string, end: string): boolean {
+    if (!start || !end) return false
+    return new Date(end) >= new Date(start)
+}
+
 // --- Domain Cards ---
 
 export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
@@ -75,71 +142,13 @@ export function GridDomain({ netCost, importKwh, exportKwh }: GridCardProps) {
     } | null>(null)
     const [loading, setLoading] = useState(true)
 
-    // Helper to calculate default dates based on previous period
-    const getDefaultDatesForPeriod = (prevPeriod: typeof previousPeriod) => {
-        const today = new Date()
-        const todayStr = today.toISOString().split('T')[0]
-
-        switch (prevPeriod) {
-            case 'today': {
-                // Use yesterday to today
-                const yesterday = new Date(today)
-                yesterday.setDate(yesterday.getDate() - 1)
-                return {
-                    start: yesterday.toISOString().split('T')[0],
-                    end: todayStr,
-                }
-            }
-            case 'yesterday': {
-                // Single day - yesterday
-                const yesterdayOnly = new Date(today)
-                yesterdayOnly.setDate(yesterdayOnly.getDate() - 1)
-                return {
-                    start: yesterdayOnly.toISOString().split('T')[0],
-                    end: yesterdayOnly.toISOString().split('T')[0],
-                }
-            }
-            case 'week': {
-                // 7 days ago to today
-                const weekAgo = new Date(today)
-                weekAgo.setDate(weekAgo.getDate() - 7)
-                return {
-                    start: weekAgo.toISOString().split('T')[0],
-                    end: todayStr,
-                }
-            }
-            case 'month': {
-                // 30 days ago to today
-                const monthAgo = new Date(today)
-                monthAgo.setDate(monthAgo.getDate() - 30)
-                return {
-                    start: monthAgo.toISOString().split('T')[0],
-                    end: todayStr,
-                }
-            }
-            default: {
-                // Default to 7 days
-                const defaultStart = new Date(today)
-                defaultStart.setDate(defaultStart.getDate() - 7)
-                return {
-                    start: defaultStart.toISOString().split('T')[0],
-                    end: todayStr,
-                }
-            }
-        }
-    }
-
-    // Validation helper for custom date range
+    // Validation helper for custom date range: pure predicate lives in isValidDateRange,
+    // this wrapper only adds the setDateError side effect.
     const validateDateRange = (start: string, end: string): boolean => {
         if (!start || !end) return false
-        const startDate = new Date(start)
-        const endDate = new Date(end)
-        if (endDate < startDate) {
-            setDateError('End date must be after start date')
-            return false
-        }
-        setDateError(null)
-        return true
+        const valid = isValidDateRange(start, end)
+        setDateError(valid ? null : 'End date must be after start date')
+        return valid
     }
 
     // Fetch data when period changes

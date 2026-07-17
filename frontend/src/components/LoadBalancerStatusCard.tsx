@@ -36,13 +36,15 @@ const EV_STATE_DOTS: Record<string, string> = {
     stale_fallback: 'bg-bad',
 }
 
-function phaseColor(currentA: number, fuseA: number, marginPercent: number): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function phaseColor(currentA: number, fuseA: number, marginPercent: number): string {
     if (currentA > fuseA) return 'bg-bad'
     if (currentA >= (fuseA * marginPercent) / 100) return 'bg-accent'
     return 'bg-good'
 }
 
-function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]): string {
     if (ev.setpoint_a === null) return 'Paused'
     if (ev.planned_target_a !== null && ev.planned_target_a !== ev.setpoint_a) {
         return `${ev.setpoint_a}A (planned ${ev.planned_target_a}A)`
@@ -85,7 +87,8 @@ function SurplusEvRow({
     )
 }
 
-function formatAge(ageSeconds: number): string {
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function formatAge(ageSeconds: number): string {
     if (ageSeconds < 60) return `${Math.max(0, Math.round(ageSeconds))}s ago`
     if (ageSeconds < 3600) return `${Math.floor(ageSeconds / 60)}m ago`
     return `${Math.floor(ageSeconds / 3600)}h ago`
