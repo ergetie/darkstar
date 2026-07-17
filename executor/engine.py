@@ -48,6 +48,7 @@ from .controller import ControllerDecision, make_decision
 from .ev_surplus import (
     EVSurplusController,
     PhaseModeController,
+    one_phase_min_kw,
     three_phase_min_kw,
 )
 from .history import ExecutionHistory, ExecutionRecord
@@ -70,6 +71,14 @@ from .override import (
 logger = logging.getLogger(__name__)
 
 EXECUTOR_VERSION = "1.0.0"
+
+# Marker substring appended to the tick reason text when a charger is held on
+# solely via keep_on_after_target (no planned kW) — set regardless of whether
+# battery source isolation triggers, so battery-less systems still surface it.
+# Frontend history rows match this exact string to render the standby badge
+# (task 2.9/4.4) — keep it a documented literal shared by both, since there is
+# no DB column.
+EV_KEEP_ON_REASON_MARKER = "EV keep-on active"
 
 # Consecutive-tick threshold before a command-failure push; deterministic
 # rejections, so lower than the EV zero-power threshold (5).
@@ -445,6 +454,7 @@ class ExecutorEngine:
                     "discharge_kw": slot.discharge_kw,
                     "ev_charging_kw": slot.ev_charging_kw,
                     "ev_charger_plans": slot.ev_charger_plans,
+                    "ev_keep_on": slot.ev_keep_on,
                     "water_heater_plans": slot.water_heater_plans,
                     "soc_target": slot.soc_target,
                     "soc_projected": slot.soc_projected,
@@ -1338,7 +1348,10 @@ class ExecutorEngine:
 
             # REV K25 Phase 5 + REV F76: EV Charging Logic with Actual Power Monitoring
             ev_charging_kw = slot.ev_charging_kw if slot else 0.0
-            scheduled_ev_charging = ev_charging_kw > 0.1 if ev_charging_kw else False
+            slot_keep_on_active = bool(slot and any(slot.ev_keep_on.values()))
+            scheduled_ev_charging = (ev_charging_kw > 0.1 if ev_charging_kw else False) or (
+                slot_keep_on_active
+            )
 
             # REV F76 Phase 2: Get actual EV power from disaggregator
             actual_ev_power_kw: float = 0.0
@@ -1381,6 +1394,16 @@ class ExecutorEngine:
             ev_isolation_reason: str | None = None
             ev_charge_failed = False
 
+            # Charger IDs on solely via the keep-on flag (no planned power).
+            # Computed unconditionally (not gated on _has_battery) so the tick
+            # reason text names them even on battery-less systems, where there
+            # is no discharge to isolate but the switch is still held on.
+            keep_on_charger_ids = sorted(
+                charger_id
+                for charger_id, active in original_slot.ev_keep_on.items()
+                if active and original_slot.ev_charger_plans.get(charger_id, 0.0) <= 0.1
+            )
+
             # Source Isolation: Block battery discharge when EV charging
             if ev_should_charge_block and self._has_battery:
                 # Rev EVFIX: Updated logging to distinguish switch control vs source isolation
@@ -1413,11 +1436,14 @@ class ExecutorEngine:
                     ev_charging_kw=slot.ev_charging_kw,  # REV F76: Preserve EV data
                     soc_target=slot.soc_target,
                     soc_projected=slot.soc_projected,
+                    ev_keep_on=slot.ev_keep_on,  # Preserve for _follow_plan's keep-on idle check
                 )
 
-                # Set isolation reason for execution record
+                # Set isolation/keep-on reason for execution record
                 actual_for_reason = actual_ev_power_kw if not self._ev_power_fetch_failed else 0.0
-                ev_isolation_reason = f"EV source isolation: {ev_charging_kw:.1f}kW scheduled, {actual_for_reason:.2f}kW actual"
+                ev_isolation_reason = self._build_ev_reason_note(
+                    True, ev_charging_kw, actual_for_reason, keep_on_charger_ids
+                )
             else:
                 # REV F76 Phase 5 (Issue 4): Smart state-based logging
                 if self._ev_detected_last_tick and not self._ev_power_fetch_failed:
@@ -1427,6 +1453,13 @@ class ExecutorEngine:
                         "EV charging ended - Source isolation: Resuming normal battery operation"
                     )
                 self._ev_detected_last_tick = False
+
+                # No battery to isolate (or isolation didn't trigger), but a
+                # charger may still be held on solely via keep-on — surface it
+                # in the reason text regardless (battery-less systems).
+                ev_isolation_reason = self._build_ev_reason_note(
+                    False, ev_charging_kw, actual_ev_power_kw, keep_on_charger_ids
+                )
 
             decision = make_decision(
                 slot,
@@ -1949,6 +1982,13 @@ class ExecutorEngine:
             for k, v in raw_ev_surplus_kw.items():  # type: ignore[union-attr]
                 ev_surplus_kw[str(k)] = float(v)  # type: ignore[arg-type]
 
+        # Parse per-charger keep-on-after-target flags (switch held on, no planned energy)
+        raw_ev_keep_on = slot_data.get("ev_keep_on")
+        ev_keep_on: dict[str, bool] = {}
+        if isinstance(raw_ev_keep_on, dict):
+            for k, v in raw_ev_keep_on.items():  # type: ignore[union-attr]
+                ev_keep_on[str(k)] = bool(v)  # type: ignore[arg-type]
+
         return SlotPlan(
             charge_kw=charge_kw,
             discharge_kw=discharge_kw,
@@ -1963,6 +2003,7 @@ class ExecutorEngine:
             water_heating_boost=water_heating_boost,
             custom_entity_active=custom_entity_active,
             ev_surplus_kw=ev_surplus_kw,
+            ev_keep_on=ev_keep_on,
         )
 
     async def _gather_system_state(self) -> SystemState:
@@ -2524,7 +2565,21 @@ class ExecutorEngine:
 
             phase_ctrl = self._ev_phase_controllers.setdefault(charger_id, PhaseModeController())
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
-            target_power_kw = surplus_kw if surplus_eligible else charger_plan_kw
+            keep_on_only = (
+                not surplus_eligible
+                and charger_plan_kw <= 0.1
+                and self._charger_should_be_on(slot, charger_id)
+            )
+            if surplus_eligible:
+                target_power_kw = surplus_kw
+            elif keep_on_only:
+                # Keep-on-only: no planned energy, target the smallest
+                # representable "on" state (1-phase minimum current) for
+                # phase-mode selection (D3) rather than 0, which would read
+                # as "should be off".
+                target_power_kw = one_phase_min_kw(charger_cfg.min_current_a)
+            else:
+                target_power_kw = charger_plan_kw
 
             phase_result = await self._apply_phase_mode_decision(
                 charger_cfg, phase_ctrl, target_power_kw, now
@@ -2635,14 +2690,18 @@ class ExecutorEngine:
                 planner_target_a = self._ev_surplus_targets[charger_id]
             else:
                 charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
-                should_charge = charger_plan_kw > 0.1
-                planner_target_a = (
-                    planned_kw_to_amps(
+                should_charge = self._charger_should_be_on(slot, charger_id)
+                if charger_plan_kw > 0.1:
+                    planner_target_a = planned_kw_to_amps(
                         charger_plan_kw, len(phases), charger_cfg.min_current_a, max_current_a
                     )
-                    if should_charge
-                    else None
-                )
+                elif should_charge:
+                    # Keep-on-only: no planned energy, hold the relay closed at
+                    # the charger's configured minimum current (D3) rather than
+                    # a computed target — the balancer may still shed it.
+                    planner_target_a = charger_cfg.min_current_a
+                else:
+                    planner_target_a = None
             ev_inputs_by_id[charger_id] = EVBalancerInput(
                 charger_id=charger_id,
                 phases=phases,
@@ -2917,6 +2976,46 @@ class ExecutorEngine:
 
         return False
 
+    @staticmethod
+    def _build_ev_reason_note(
+        isolating: bool,
+        ev_charging_kw: float,
+        actual_ev_power_kw: float,
+        keep_on_charger_ids: list[str],
+    ) -> str | None:
+        """Build the tick's EV-related reason/log text (task 2.9).
+
+        ``isolating`` selects the source-isolation framing (battery discharge
+        being blocked); the keep-on marker is appended/returned regardless of
+        that, so battery-less systems (where isolation never triggers) still
+        surface which charger(s) are held on solely via the flag. Single
+        implementation shared by both branches so the two texts can't diverge.
+        """
+        if isolating:
+            reason = (
+                f"EV source isolation: {ev_charging_kw:.1f}kW scheduled, "
+                f"{actual_ev_power_kw:.2f}kW actual"
+            )
+            if keep_on_charger_ids:
+                reason += f" | {EV_KEEP_ON_REASON_MARKER}: {', '.join(keep_on_charger_ids)}"
+            return reason
+        if keep_on_charger_ids:
+            return f"{EV_KEEP_ON_REASON_MARKER}: {', '.join(keep_on_charger_ids)}"
+        return None
+
+    @staticmethod
+    def _charger_should_be_on(slot: "SlotPlan | None", charger_id: str) -> bool:
+        """True when a charger has planned power OR is held on via keep_on_after_target.
+
+        Single source of truth for "should this charger be on?" across the
+        switch-close decision, load balancer, and surplus/phase-mode target —
+        keep-on plans no energy but still needs the switch/relay closed.
+        """
+        if slot is None:
+            return False
+        plan_kw = slot.ev_charger_plans.get(charger_id, 0.0)
+        return plan_kw > 0.1 or slot.ev_keep_on.get(charger_id, False)
+
     async def _control_ev_charger(
         self,
         slot: "SlotPlan | None",
@@ -2956,7 +3055,7 @@ class ExecutorEngine:
 
             charger_id = charger_cfg.id
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
-            should_charge = charger_plan_kw > 0.1
+            should_charge = self._charger_should_be_on(slot, charger_id)
 
             # D2: force_stop quick action overrides the plan
             if force_stop:
@@ -3157,10 +3256,18 @@ class ExecutorEngine:
             ) or 1
             target_a = None
             if should_charge:
-                max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
-                target_a = planned_kw_to_amps(
-                    charger_plan_kw, active_phase_count, charger_cfg.min_current_a, max_current_a
-                )
+                if charger_plan_kw > 0.1:
+                    max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
+                    target_a = planned_kw_to_amps(
+                        charger_plan_kw,
+                        active_phase_count,
+                        charger_cfg.min_current_a,
+                        max_current_a,
+                    )
+                else:
+                    # Keep-on-only (no balancer active): hold the relay closed
+                    # at the configured minimum current (D3).
+                    target_a = charger_cfg.min_current_a
 
         is_currently_active = dev_state.current_setpoint_a is not None
 

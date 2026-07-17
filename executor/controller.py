@@ -199,9 +199,13 @@ class Controller:
             # At or below SoC target - use idle to hold battery
             # Round current SoC to integer for consistent comparison with plan target
             mode_intent = "idle"
-        elif slot.discharge_kw == 0 and slot.ev_charging_kw > 0.1:
+        elif slot.discharge_kw == 0 and (
+            slot.ev_charging_kw > 0.1 or any(slot.ev_keep_on.values())
+        ):
             # REV F76 Phase 3: EV charging active - use idle instead of self_consumption
-            # to prevent any battery discharge to EV
+            # to prevent any battery discharge to EV. keep_on-only slots (no
+            # planned kW) get the same treatment — the car may start drawing
+            # at any moment (design D4).
             mode_intent = "idle"
         else:
             # Above SoC target - use self_consumption

@@ -18,6 +18,10 @@ import { formatHour, DaySel, isToday, isTomorrow } from '../lib/time'
 // Note: We use a custom plugin for the NOW marker to support zooming.
 // CSS overlays don't work well with pan/zoom.
 
+// Fixed bar height for the "EV standby" band — keep-on slots carry no planned
+// energy, so this is a presence indicator, not a real kW value.
+const EV_STANDBY_BAND_KW = 0.3
+
 // Hook: returns true when viewport is below Tailwind's `md` breakpoint (768px)
 function useIsMobile(): boolean {
     const [isMobile, setIsMobile] = useState(() => {
@@ -103,6 +107,9 @@ const chartOptions: ChartConfiguration['options'] = {
                 },
                 label: function (context) {
                     const datasetLabel = context.dataset.label || ''
+                    if (datasetLabel === 'EV Standby') {
+                        return 'EV Standby: Charger switch held on after target — car draws only what it needs'
+                    }
                     const value = context.parsed.y
                     if (value === null || value === undefined) return ''
 
@@ -252,6 +259,7 @@ type ChartValues = {
     customEntityActive?: (number | null)[]
     evCharging?: (number | null)[]
     evSurplus?: (number | null)[]
+    evKeepOn?: (number | null)[]
     socTarget?: (number | null)[]
     socProjected?: (number | null)[]
     socActual?: (number | null)[]
@@ -675,6 +683,23 @@ const createChartData = (
                 hidden: true,
                 order: 1,
             } as ChartDataset,
+            {
+                type: 'bar',
+                label: 'EV Standby',
+                data: values.evKeepOn ?? values.labels.map(() => null),
+                backgroundColor: 'rgba(139, 92, 246, 0.35)', // DS.ai (violet), muted vs. EV Charging
+                borderColor: '#8b5cf6',
+                borderDash: [3, 2],
+                glow: false,
+                borderWidth: 1,
+                borderRadius: 2,
+                yAxisID: 'y1',
+                barPercentage: 0.85,
+                categoryPercentage: 0.9,
+                grouped: false,
+                order: 0,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            } as any,
         ],
     }
 
@@ -1036,6 +1061,7 @@ export default function ChartCard({
                         export: true,
                         water: false,
                         ev: false,
+                        evKeepOn: false,
                         excessPvSink: false,
                         socTarget: false,
                         socProjected: false,
@@ -1057,6 +1083,7 @@ export default function ChartCard({
                     export: parsed.export ?? true,
                     water: parsed.water ?? false,
                     ev: parsed.ev ?? false,
+                    evKeepOn: parsed.evKeepOn ?? false,
                     excessPvSink: parsed.excessPvSink ?? false,
                     socTarget: parsed.socTarget ?? false,
                     socProjected: parsed.socProjected ?? false,
@@ -1077,6 +1104,7 @@ export default function ChartCard({
             export: true,
             water: false,
             ev: false,
+            evKeepOn: false,
             excessPvSink: false,
             socTarget: false,
             socProjected: false,
@@ -1155,6 +1183,7 @@ export default function ChartCard({
                         export: true,
                         water: true,
                         ev: true,
+                        evKeepOn: true,
                         excessPvSink: false,
                         socTarget: true,
                         socProjected: true,
@@ -1378,6 +1407,7 @@ export default function ChartCard({
             if (ds[18]) ds[18].hidden = !overlays.showActual || !overlays.ev
             if (ds[19]) ds[19].hidden = !overlays.showActual || !overlays.export
             if (ds[20]) ds[20].hidden = !overlays.showActual || !overlays.water
+            if (ds[21]) ds[21].hidden = !overlays.evKeepOn // EV Standby
 
             try {
                 if (chartRef.current) {
@@ -1489,6 +1519,7 @@ export default function ChartCard({
                                     ['Charge', 'charge', 'bg-bad/20 border-bad'],
                                     ['Discharge', 'discharge', 'bg-peak/20 border-peak'],
                                     ['EV', 'ev', 'bg-ai/20 border-ai'],
+                                    ['EV Standby', 'evKeepOn', 'bg-ai/20 border-ai'],
                                     ['Export', 'export', 'bg-good/20 border-good'],
                                     ['Water', 'water', 'bg-water/20 border-water'],
                                     ['Excess PV', 'excessPvSink', 'bg-bad/20 border-good'],
@@ -1682,6 +1713,7 @@ export function buildLiveData(
     const customEntityActive: (number | null)[] = []
     const evCharging: (number | null)[] = []
     const evSurplus: (number | null)[] = []
+    const evKeepOn: (number | null)[] = []
     const socTarget: (number | null)[] = []
     const socProjected: (number | null)[] = []
     const socActual: (number | null)[] = []
@@ -1738,6 +1770,9 @@ export function buildLiveData(
                 ? Object.values(slot.ev_surplus_kw).reduce((sum: number, val: number) => sum + (val || 0), 0)
                 : 0
             evSurplus.push(surplusEv > 0.01 ? surplusEv : null)
+
+            const keepOnActive = slot.ev_keep_on ? Object.values(slot.ev_keep_on).some(Boolean) : false
+            evKeepOn.push(keepOnActive && regularEv <= 0.01 ? EV_STANDBY_BAND_KW : null)
             socTarget.push(slot.soc_target_percent ?? null)
             socProjected.push(slot.projected_soc_percent ?? null)
             socActual.push(slot.actual_soc != null ? slot.actual_soc : null)
@@ -1760,6 +1795,7 @@ export function buildLiveData(
             exp.push(null)
             evCharging.push(null)
             evSurplus.push(null)
+            evKeepOn.push(null)
             water.push(null)
             waterBoost.push(null)
             customEntityActive.push(null)
@@ -1804,6 +1840,7 @@ export function buildLiveData(
                 customEntityActive,
                 evCharging,
                 evSurplus,
+                evKeepOn,
                 socTarget,
                 socProjected,
                 socActual,

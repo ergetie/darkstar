@@ -107,6 +107,8 @@ class SlotPlan:
     custom_entity_active: dict[str, bool] = field(default_factory=lambda: {})
     # Per-charger: charger_id -> surplus-eligible kW this slot (eligibility only, not a hard target)
     ev_surplus_kw: dict[str, float] = field(default_factory=lambda: {})
+    # Per-charger: charger_id -> switch held on past target, no planned energy
+    ev_keep_on: dict[str, bool] = field(default_factory=lambda: {})
 
 
 class OverrideEvaluator:

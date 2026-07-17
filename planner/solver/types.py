@@ -191,6 +191,9 @@ class KeplerResultSlot:
     ev_shortfall_kwh: dict[str, float] = field(
         default_factory=lambda: {}
     )  # Per-charger: shortfall vs required_kwh by deadline
+    ev_keep_on: dict[str, bool] = field(
+        default_factory=lambda: {}
+    )  # Per-charger: charger_id -> switch held on past target (no planned energy)
     is_optimal: bool = True
 
 

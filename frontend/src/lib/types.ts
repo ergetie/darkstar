@@ -29,6 +29,7 @@ export type ScheduleSlot = {
     water_heating_boost?: Record<string, boolean>
     custom_entity_active?: Record<string, boolean>
     ev_surplus_kw?: Record<string, number>
+    ev_keep_on?: Record<string, boolean> // Charger switch held on past target, no planned energy
 }
 
 export type Status = { value: number; timestamp: string; planned_at?: string; planner_version?: string }

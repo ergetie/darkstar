@@ -241,20 +241,23 @@ def _apply_keep_on_after_target(
     ev_chargers_cfg: list[dict[str, Any]],
     now: datetime,
 ) -> None:
-    """Post-solve keep-on-standby injection for ``keep_on_after_target``.
+    """Post-solve keep-on-standby flag for ``keep_on_after_target``.
 
     When a charger has ``keep_on_after_target=True`` and the goal target SoC is
     100% and live SoC is already at 100%, the solver schedules no EV slots
-    (``required_kwh=0``). This injects ``max_power_kw`` into each upcoming
-    slot (``now < end_time <= deadline``) so the executor keeps the charger
-    connected as a standby supply for EV ambient/cabin/preconditioning loads
-    — the EV's onboard charger self-gates actual battery draw past 100%. After
-    the ready-by deadline the charger idles (no injection), matching the
-    agreed window: target-met → deadline. Gated on target=100 to avoid
-    overcharging chemistries sensitive to repeated full-top-ups.
+    (``required_kwh=0``). This sets ``slot.ev_keep_on[charger_id] = True`` on
+    each upcoming slot (``now < end_time <= deadline``) so the executor keeps
+    the charger connected as a standby supply for EV ambient/cabin/
+    preconditioning loads — the EV's onboard charger self-gates actual battery
+    draw past 100%. The flag carries no planned energy: ``ev_charger_results``/
+    ``ev_charge_kw`` are left untouched (0 from the solver), so schedule
+    totals stay energy-consistent. After the ready-by deadline the charger
+    idles (no flag), matching the agreed window: target-met → deadline. Gated
+    on target=100 to avoid overcharging chemistries sensitive to repeated
+    full-top-ups.
     """
     cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
-    keep_on_map: dict[str, tuple[Any, float]] = {}
+    keep_on_map: dict[str, Any] = {}
     for state in ev_states:
         if not state.get("keep_on_after_target"):
             continue
@@ -270,7 +273,7 @@ def _apply_keep_on_after_target(
         max_power_kw = float(cfg.get("max_power_kw") or 0.0)
         if max_power_kw <= 0:
             continue
-        keep_on_map[charger_id] = (deadline, max_power_kw)
+        keep_on_map[charger_id] = deadline
 
     if not keep_on_map:
         return
@@ -278,17 +281,11 @@ def _apply_keep_on_after_target(
     for slot in result.slots:
         if slot.end_time <= now:
             continue
-        changed = False
-        for charger_id, (deadline, max_kw) in keep_on_map.items():
+        for charger_id, deadline in keep_on_map.items():
             if slot.end_time <= deadline:
-                current = slot.ev_charger_results.get(charger_id, 0.0)
-                if current < max_kw:
-                    slot.ev_charger_results[charger_id] = max_kw
-                    changed = True
-        if changed:
-            slot.ev_charge_kw = float(sum(slot.ev_charger_results.values()))
+                slot.ev_keep_on[charger_id] = True
     logger.info(
-        "keep_on_after_target: standby injection active for %d charger(s) until ready-by",
+        "keep_on_after_target: standby flag active for %d charger(s) until ready-by",
         len(keep_on_map),
     )
 

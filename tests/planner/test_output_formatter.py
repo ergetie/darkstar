@@ -8,6 +8,8 @@ import numpy as np
 import pandas as pd
 
 from planner.output.formatter import dataframe_to_json_response
+from planner.solver.adapter import kepler_result_to_dataframe
+from planner.solver.types import KeplerResult, KeplerResultSlot
 
 
 def _make_schedule_df(ev_chargers_col=None):
@@ -103,6 +105,47 @@ class TestEvChargersInOutput:
         assert records[0]["ev_chargers"] == {"charger_a": 2.5}
         assert records[1]["ev_chargers"] == {}
         assert records[2]["ev_chargers"] == {"charger_a": 0.0}
+
+
+def _make_kepler_result_slot(start, end, ev_keep_on=None):
+    return KeplerResultSlot(
+        start_time=start,
+        end_time=end,
+        charge_kwh=0.0,
+        discharge_kwh=0.0,
+        grid_import_kwh=0.0,
+        grid_export_kwh=0.0,
+        soc_kwh=0.0,
+        cost_sek=0.0,
+        ev_keep_on=dict(ev_keep_on) if ev_keep_on is not None else {},
+    )
+
+
+class TestEvKeepOnRoundTrip:
+    """Task 1.6: KeplerResultSlot.ev_keep_on round-trips through adapter + formatter."""
+
+    def test_keep_on_slot_round_trips_to_json(self):
+        now = datetime(2024, 6, 1, 10, 0, tzinfo=UTC)
+        slot = _make_kepler_result_slot(now, now + pd.Timedelta(hours=1), ev_keep_on={"ev1": True})
+        result = KeplerResult(slots=[slot], total_cost_sek=0.0, is_optimal=True, status_msg="ok")
+
+        df = kepler_result_to_dataframe(result)
+        records = dataframe_to_json_response(df, now_override=now)
+
+        assert len(records) == 1
+        assert records[0]["ev_keep_on"] == {"ev1": True}
+        assert records[0]["ev_charging_kw"] == 0.0
+
+    def test_slot_without_keep_on_round_trips_empty(self):
+        now = datetime(2024, 6, 1, 10, 0, tzinfo=UTC)
+        slot = _make_kepler_result_slot(now, now + pd.Timedelta(hours=1))
+        result = KeplerResult(slots=[slot], total_cost_sek=0.0, is_optimal=True, status_msg="ok")
+
+        df = kepler_result_to_dataframe(result)
+        records = dataframe_to_json_response(df, now_override=now)
+
+        assert len(records) == 1
+        assert records[0]["ev_keep_on"] == {}
 
 
 def _make_schedule_df_with_water(water_heaters_col=None):

@@ -179,6 +179,17 @@ def dataframe_to_json_response(
         if not isinstance(ev_chargers_val, dict):
             record["ev_chargers"] = {}
 
+        # Normalize ev_keep_on: ensure it's always a dict, not NaN. Keyed by charger_id.
+        ev_keep_on_val = record.get("ev_keep_on")
+        if not isinstance(ev_keep_on_val, dict):
+            record["ev_keep_on"] = {}
+        else:
+            record["ev_keep_on"] = {
+                k: bool(v)  # type: ignore[misc]
+                for k, v in ev_keep_on_val.items()  # type: ignore[union-attr]
+                if isinstance(v, bool | int | float)
+            }
+
         # Normalize ev_surplus_kw: ensure it's always a dict, not NaN. Keyed by charger_id.
         ev_surplus_val = record.get("ev_surplus_kw")
         if not isinstance(ev_surplus_val, dict):

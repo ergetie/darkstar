@@ -25,6 +25,11 @@ import LoadBalancerStatusCard from '../components/LoadBalancerStatusCard'
 import { useSocket } from '../lib/hooks'
 import { Api } from '../lib/api'
 
+// Must match executor/engine.py's EV_KEEP_ON_REASON_MARKER — history rows have
+// no structured keep-on field (KISS, no DB migration), so the standby badge
+// is detected from this substring in the record's reason text.
+const EV_KEEP_ON_REASON_MARKER = 'EV keep-on active'
+
 // Types for notifications
 type NotificationSettings = {
     service: string
@@ -55,6 +60,7 @@ type ExecutorStatus = {
         water_kw: number
         discharge_kw: number
         ev_charging_kw: number
+        ev_keep_on?: Record<string, boolean>
         soc_target: number
         soc_projected: number
         mode_intent?: string | null
@@ -1012,11 +1018,22 @@ export default function Executor() {
                                                 <span>💧 Heating</span>
                                             </div>
                                         )}
-                                        {(status.current_slot_plan.ev_charging_kw ?? 0) > 0 && (
+                                        {(status.current_slot_plan.ev_charging_kw ?? 0) > 0.1 && (
                                             <div className="flex items-center gap-1 text-purple-400 bg-purple-400/20 px-1.5 py-0.5 rounded w-fit">
                                                 <span>🔌 EV</span>
                                             </div>
                                         )}
+                                        {(status.current_slot_plan.ev_charging_kw ?? 0) <= 0.1 &&
+                                            Object.values(status.current_slot_plan.ev_keep_on ?? {}).some(
+                                                (active) => active,
+                                            ) && (
+                                                <div
+                                                    className="flex items-center gap-1 text-purple-400 bg-purple-400/20 px-1.5 py-0.5 rounded w-fit"
+                                                    title="Charger switch held on after target — car draws only what it needs"
+                                                >
+                                                    <span>🔌 EV standby</span>
+                                                </div>
+                                            )}
                                         {status.current_slot_plan.soc_target > 0 && (
                                             <div className="flex items-center gap-1 text-muted">
                                                 <span>SoC→{status.current_slot_plan.soc_target}%</span>
@@ -1075,6 +1092,15 @@ export default function Executor() {
                                                     🔌 EV
                                                 </span>
                                             )}
+                                            {(record.ev_charging_kw ?? 0) === 0 &&
+                                                record.override_reason?.includes(EV_KEEP_ON_REASON_MARKER) && (
+                                                    <span
+                                                        className="text-[9px] text-purple-400 bg-purple-400/20 px-1.5 py-0.5 rounded"
+                                                        title="Charger switch held on after target — car draws only what it needs"
+                                                    >
+                                                        🔌 EV standby
+                                                    </span>
+                                                )}
                                         </div>
                                         <div className="flex items-center gap-2">
                                             {record.override_active ? (

@@ -605,6 +605,7 @@ def kepler_result_to_dataframe(
                 "water_from_battery_kwh": 0.0,
                 "ev_charging_kw": s.ev_charge_kw,  # Aggregate EV charging power (backward compat)
                 "ev_chargers": s.ev_charger_results,  # Per-device: charger_id -> kW
+                "ev_keep_on": s.ev_keep_on,  # Per-charger: charger_id -> switch held on, no planned energy
                 "ev_surplus_kw": s.ev_surplus_kw,  # Per-charger: charger_id -> surplus-eligible kW
                 "projected_battery_cost": 0.0,
             }
