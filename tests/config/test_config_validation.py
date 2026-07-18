@@ -162,6 +162,44 @@ class TestWaterHeaterValidation:
         assert any("Duplicate water heater ID" in e["message"] for e in errors)
 
 
+class TestWaterHeaterTypeValidation:
+    """fix-loadtype-enum-and-surface-warnings: water heater type validation,
+    mirroring the EV charger current-type check."""
+
+    def _base_config(self, wh_overrides):
+        wh = {
+            "id": "main_tank",
+            "name": "Main Water Heater",
+            "power_kw": 3.0,
+        }
+        wh.update(wh_overrides)
+        return {
+            "config_version": 2,
+            "system": {"has_water_heater": True, "has_battery": False, "has_ev_charger": False},
+            "water_heaters": [wh],
+        }
+
+    def test_valid_modulating_type_no_warning(self):
+        config = self._base_config({"type": "modulating"})
+        issues = _validate_config_for_save(config)
+        assert not any("uses unsupported type" in i["message"] for i in issues)
+
+    def test_unknown_type_warns(self):
+        config = self._base_config({"type": "power"})
+        issues = _validate_config_for_save(config)
+        warnings = [i for i in issues if i["severity"] == "warning"]
+        assert any(
+            "uses unsupported type" in w["message"] and "main_tank" in w["message"]
+            for w in warnings
+        )
+
+    def test_unknown_type_does_not_block_save(self):
+        config = self._base_config({"type": "power"})
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert not any("uses unsupported type" in e["message"] for e in errors)
+
+
 class TestEVChargerValidation:
     """Test ev_chargers[] array validation (ARC15)."""
 

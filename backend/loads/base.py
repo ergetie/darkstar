@@ -5,6 +5,15 @@ class LoadType(Enum):
     BINARY = "binary"  # On/Off (e.g. some water heaters)
     FIXED = "fixed"  # Alias for binary/static loads
     VARIABLE = "variable"  # Variable power (e.g. smart EV chargers)
+    CURRENT = "current"  # Variable ampere setpoint (e.g. current-controlled EV chargers)
+    MODULATING = "modulating"  # Modulating power output (e.g. some water heaters)
+
+
+# Accepted `type` values per device kind, derived from LoadType so config
+# validation (backend/api/routers/config.py) and the load-disaggregation
+# runtime (backend/loads/service.py) can't silently drift apart.
+EV_CHARGER_LOAD_TYPES = {LoadType.BINARY.value, LoadType.CURRENT.value}
+WATER_HEATER_LOAD_TYPES = {LoadType.BINARY.value, LoadType.MODULATING.value}
 
 
 class DeferrableLoad:

@@ -176,6 +176,48 @@ class TestARC15EntityArrays:
             assert total == 8.5
             assert disaggregator.get_load_by_id("main_tank").current_power_kw == 3.0
 
+    def test_ev_charger_current_type_no_fallback_warning(self, caplog):
+        config = {
+            "config_version": 2,
+            "ev_chargers": [
+                {
+                    "id": "ev_charger_1",
+                    "name": "Charger",
+                    "enabled": True,
+                    "max_power_kw": 11.0,
+                    "sensor": "sensor.ev",
+                    "type": "current",
+                }
+            ],
+        }
+        with caplog.at_level("WARNING", logger="loads"):
+            disaggregator = LoadDisaggregator(config)
+
+        ev = disaggregator.get_load_by_id("ev_charger_1")
+        assert ev.type == LoadType.CURRENT
+        assert not any("Invalid load type" in msg for msg in caplog.messages)
+
+    def test_water_heater_modulating_type_no_fallback_warning(self, caplog):
+        config = {
+            "config_version": 2,
+            "water_heaters": [
+                {
+                    "id": "wh_1",
+                    "name": "Water Heater",
+                    "enabled": True,
+                    "power_kw": 3.0,
+                    "sensor": "sensor.vvb",
+                    "type": "modulating",
+                }
+            ],
+        }
+        with caplog.at_level("WARNING", logger="loads"):
+            disaggregator = LoadDisaggregator(config)
+
+        wh = disaggregator.get_load_by_id("wh_1")
+        assert wh.type == LoadType.MODULATING
+        assert not any("Invalid load type" in msg for msg in caplog.messages)
+
 
 class TestBackwardCompatibility:
     """Test that legacy deferrable_loads format still works (ARC15)."""

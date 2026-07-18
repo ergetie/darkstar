@@ -14,6 +14,7 @@ from backend.config_migration import (
 )
 from backend.core.ha_client import get_ha_entity_state
 from backend.core.secrets import load_home_assistant_config, load_notifications_config, load_yaml
+from backend.loads.base import EV_CHARGER_LOAD_TYPES, WATER_HEATER_LOAD_TYPES
 from executor.load_balancer import classify_phase_sensor_unit
 from executor.profiles import get_profile_from_config
 
@@ -508,6 +509,17 @@ def _validate_config_for_save(
                         }
                     )
 
+                # Validate water heater type
+                wh_type = wh.get("type", "binary") or "binary"
+                if wh_type not in WATER_HEATER_LOAD_TYPES:
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "message": f"Water heater '{wh.get('id', i + 1)}' uses unsupported type: '{wh_type}'",
+                            "guidance": "type must be 'binary' (ON/OFF switch) or 'modulating' (variable power output).",
+                        }
+                    )
+
             # Check if at least one water heater is enabled
             if not any(wh.get("enabled", True) for wh in water_heaters):
                 issues.append(
@@ -606,7 +618,7 @@ def _validate_config_for_save(
 
                 # REV F77 / universal-load-balancing 1.6: Validate EV charger type
                 ev_type = ev.get("type", "binary") or "binary"
-                if ev_type not in ("binary", "current"):
+                if ev_type not in EV_CHARGER_LOAD_TYPES:
                     issues.append(
                         {
                             "severity": "warning",
