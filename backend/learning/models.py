@@ -183,6 +183,14 @@ class PlannerDebug(Base):
     payload: Mapped[str] = mapped_column(Text)
 
 
+class SIndexHistory(Base):
+    __tablename__ = "s_index_history"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[str] = mapped_column(String, index=True)
+    payload: Mapped[str] = mapped_column(Text)
+
+
 class StrategyLog(Base):
     __tablename__ = "strategy_log"
 

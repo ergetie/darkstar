@@ -15,7 +15,7 @@ from typing import Any
 
 import pandas as pd
 
-from planner.observability.logging import record_debug_payload
+from planner.observability.logging import record_debug_payload, record_s_index_history
 from planner.output.debug import generate_debug_payload
 from planner.output.formatter import dataframe_to_json_response
 
@@ -102,6 +102,9 @@ async def save_schedule_to_json(
 
         learning_config = config.get("learning", {})
         await record_debug_payload(debug_payload, learning_config)
+
+    if s_index_debug:
+        await record_s_index_history(s_index_debug)
 
     class DateTimeEncoder(json.JSONEncoder):
         def default(self, o: Any) -> Any:
