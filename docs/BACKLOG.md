@@ -72,4 +72,10 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 💡 Future Ideas / Deferred
 
-<!-- Empty. The `max_safety_buffer_pct` risk-differentiation item was promoted into the risk-aware-safety-buffer-cap change (2026-07-18). The planner-awareness-of-sustained-phase-overload item was scrapped 2026-07-18 (edge case, mitigated by SoC re-read + early replan). -->
+<!-- The `max_safety_buffer_pct` risk-differentiation item was promoted into the risk-aware-safety-buffer-cap change (2026-07-18). The planner-awareness-of-sustained-phase-overload item was scrapped 2026-07-18 (edge case, mitigated by SoC re-read + early replan). -->
+
+#### [UI] Expand Settings-Search User Guides
+
+**Goal:** Grow the in-app guide library beyond the initial 4–5 guides shipped with the settings search.
+
+**Notes:** The settings search (see the settings-search change, discussed 2026-07-18) launches with short guides for Load Balancing, EV Charging, Water Heater, Battery/S-Index, and Solar Forecast. Later, add guides for the remaining functions (e.g. price alerts, vacation mode, excess-PV priority, advisor/LLM, quick actions) and consider deepening existing ones. Revisit trigger: after the settings-search change ships and has been used for a while.

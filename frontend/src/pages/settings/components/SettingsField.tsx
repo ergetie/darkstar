@@ -291,7 +291,10 @@ export const SettingsField: React.FC<SettingsFieldProps> = ({
     }
 
     return (
-        <div className={`space-y-1 ${!isEnabled ? 'opacity-40 pointer-events-none' : ''} ${field.className || ''}`}>
+        <div
+            data-field-key={field.key}
+            className={`space-y-1 rounded-lg ${!isEnabled ? 'opacity-40 pointer-events-none' : ''} ${field.className || ''}`}
+        >
             {!isEnabled && field.showIf?.disabledText && (
                 <div className="text-xs text-muted italic mb-1">{field.showIf.disabledText}</div>
             )}

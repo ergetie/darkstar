@@ -25,6 +25,8 @@ import { UITab } from './UITab'
 import { AdvancedTab } from './AdvancedTab'
 import { DebugContent } from '../Debug'
 import { Api } from '../../lib/api'
+import { SettingsSearch } from './search/SettingsSearch'
+import { jumpToField } from './search/jump'
 
 interface SystemFlags {
     has_solar?: boolean
@@ -64,6 +66,8 @@ export default function Settings() {
 
     const [systemFlags, setSystemFlags] = useState<SystemFlags>({})
     const [configLoading, setConfigLoading] = useState(true)
+    const [fullConfig, setFullConfig] = useState<Record<string, unknown> | null>(null)
+    const [pendingJump, setPendingJump] = useState<{ tabId: string; fieldKey: string } | null>(null)
 
     useEffect(() => {
         localStorage.setItem(STORAGE_KEY, String(advancedMode))
@@ -80,6 +84,7 @@ export default function Settings() {
                     has_water_heater: Boolean(system.has_water_heater),
                     has_ev_charger: Boolean(system.has_ev_charger),
                 })
+                setFullConfig(config as Record<string, unknown>)
             })
             .catch((err) => console.error('Failed to load config for tab visibility:', err))
             .finally(() => setConfigLoading(false))
@@ -105,6 +110,22 @@ export default function Settings() {
         },
         [setSearchParams],
     )
+
+    // Search: jump to a field, potentially on another tab. Reuses setActiveTab
+    // so the existing unsaved-changes navigation guard applies exactly as it
+    // does for a manual tab click.
+    const handleJumpToField = useCallback(
+        (tabId: string, fieldKey: string) => {
+            setPendingJump({ tabId, fieldKey })
+            setActiveTab(tabId)
+        },
+        [setActiveTab],
+    )
+
+    useEffect(() => {
+        if (!pendingJump || pendingJump.tabId !== activeTab) return
+        return jumpToField(pendingJump.fieldKey, () => setPendingJump(null))
+    }, [activeTab, pendingJump])
 
     // Force redirect if on advanced tab but mode is off
     useEffect(() => {
@@ -153,7 +174,7 @@ export default function Settings() {
     if (configLoading) {
         return (
             <main className="p-4 lg:p-8">
-                <div className="mx-auto max-w-5xl">
+                <div className="mx-auto max-w-[1200px]">
                     <div className="flex items-center justify-center p-8">
                         <div className="animate-pulse text-muted">Loading...</div>
                     </div>
@@ -166,8 +187,10 @@ export default function Settings() {
         <>
             <main className="p-4 lg:p-8">
                 <div
-                    className={`mx-auto ${activeTab === 'debug' ? 'max-w-7xl' : 'max-w-5xl'} transition-all duration-300`}
+                    className={`mx-auto ${activeTab === 'debug' ? 'max-w-7xl' : 'max-w-[1200px]'} transition-all duration-300`}
                 >
+                    <SettingsSearch advancedMode={advancedMode} config={fullConfig} onJumpToField={handleJumpToField} />
+
                     <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                         <div className="flex flex-wrap gap-2">
                             {tabs.map((tab) => (
@@ -188,14 +211,19 @@ export default function Settings() {
 
                         <button
                             onClick={() => setAdvancedMode(!advancedMode)}
-                            className={`flex items-center gap-2 rounded-xl px-4 py-2.5 text-[10px] font-bold uppercase tracking-wider transition duration-300 self-end sm:self-auto ${
+                            title={
+                                advancedMode
+                                    ? 'Advanced Mode (click to switch to Standard)'
+                                    : 'Standard Mode (click to switch to Advanced)'
+                            }
+                            aria-label={advancedMode ? 'Advanced Mode' : 'Standard Mode'}
+                            className={`flex items-center justify-center rounded-xl p-2.5 transition duration-300 self-end sm:self-auto ${
                                 advancedMode
                                     ? 'bg-bad text-white shadow-[0_0_20px_rgba(var(--color-bad-rgb),0.3)]'
                                     : 'bg-good text-white shadow-[0_0_20px_rgba(var(--color-good-rgb),0.3)]'
                             }`}
                         >
-                            {advancedMode ? <ShieldAlert size={14} /> : <Zap size={14} />}
-                            {advancedMode ? 'Advanced Mode' : 'Standard Mode'}
+                            {advancedMode ? <ShieldAlert size={16} /> : <Zap size={16} />}
                         </button>
                     </div>
 

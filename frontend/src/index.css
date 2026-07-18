@@ -669,6 +669,22 @@ body::before {
         }
     }
 
+    @keyframes settings-field-highlight-pulse {
+        0% {
+            background-color: rgb(var(--color-accent) / 0.35);
+        }
+
+        100% {
+            background-color: rgb(var(--color-accent) / 0);
+        }
+    }
+
+    /* Flat color overlay only — no box-shadow/border, so there's nothing that
+       can clip or mismatch against an ancestor's own rounded corner. */
+    .settings-field-highlight {
+        animation: settings-field-highlight-pulse 5s ease-out;
+    }
+
     @keyframes glow-pulse {
         0%,
         100% {
