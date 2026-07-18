@@ -1,8 +1,6 @@
-## Purpose
+# Price Advisor Engine — Delta
 
-Enable intelligent energy cost optimization by providing price-aware recommendations through the analyst endpoint, helping users make informed decisions about when to run heavy loads based on forecasted electricity prices.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Price-aware advice rules in analyst endpoint
 The existing `GET /api/analyst/advice` endpoint SHALL include price-related advice items with `category: "price"` when `price_forecast.enabled` is `true` and forecast data is available.
@@ -56,18 +54,3 @@ The "today" reference price used by the rules SHALL be the average of today's ac
 - **WHEN** `price_forecast.enabled` is `true` but today's actual day-ahead prices cannot be fetched
 - **THEN** no price advice items SHALL be included in the response
 - **AND** the endpoint SHALL still return successfully with the remaining advice categories
-
-### Requirement: Price advice does not break existing advice
-Price advice items SHALL be appended to the existing advice array alongside risk, mode, and battery advice. The addition of price advice SHALL NOT change the format or behavior of existing advice items.
-
-#### Scenario: Mixed advice response
-- **WHEN** both price advice and existing advice items are applicable
-- **THEN** the response contains all applicable items with their respective categories
-- **AND** the `count` field reflects the total number of all advice items
-
-### Requirement: Price advice uses forecast outlook data
-The price advisor rules SHALL consume forecast data via the same aggregation logic used by the outlook endpoint (daily averages from `price_forecasts` table). The advisor SHALL NOT perform independent forecast queries — it SHALL reuse the shared aggregation function.
-
-#### Scenario: Shared data source
-- **WHEN** the advisor generates price advice
-- **THEN** the daily price summaries used for rule evaluation SHALL match those returned by `GET /api/price-forecast/outlook`

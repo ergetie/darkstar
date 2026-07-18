@@ -11,6 +11,7 @@ from backend.core.price_outlook import (
     classify_confidence,
     classify_level,
     get_daily_outlook,
+    get_price_window_averages,
     get_trailing_avg,
 )
 
@@ -164,6 +165,121 @@ class TestGetDailyOutlook(unittest.TestCase):
         self.assertAlmostEqual(result[0]["avg_spot_p50"], 0.45, places=2)
         print("✓ Only latest run loaded successfully")
 
+
+
+class TestGetPriceWindowAverages(unittest.TestCase):
+    """Test get_price_window_averages() overnight/midday helper (price-alert-accuracy 1.1)."""
+
+    def setUp(self):
+        """Create a temporary database for testing."""
+        import pytz
+
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        self.tz = pytz.timezone("Europe/Stockholm")
+
+        from datetime import datetime as dt
+        from datetime import timedelta
+
+        now = dt.now(self.tz)
+        self.today = now.date()
+        self.tomorrow = self.today + timedelta(days=1)
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE price_forecasts (
+                slot_start TEXT,
+                issue_timestamp TEXT,
+                days_ahead INTEGER,
+                spot_p10 REAL,
+                spot_p50 REAL,
+                spot_p90 REAL
+            )
+        """)
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        Path(self.db_path).unlink()
+
+    def _insert(self, date, hour, spot_p50, issue_timestamp="2026-03-30T12:00:00Z"):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        slot_start = f"{date.isoformat()}T{hour:02d}:00:00"
+        days_ahead = (date - self.today).days
+        cursor.execute(
+            """
+            INSERT INTO price_forecasts (slot_start, issue_timestamp, days_ahead, spot_p10, spot_p50, spot_p90)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (slot_start, issue_timestamp, days_ahead, spot_p50 * 0.8, spot_p50, spot_p50 * 1.2),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_overnight_window_average(self):
+        """Overnight avg covers today 22:00-23:00 and tomorrow 00:00-05:00, excludes 06:00+."""
+        print("\n--- Testing Overnight Window Average ---")
+
+        overnight_hours_today = [22, 23]
+        overnight_hours_tomorrow = [0, 1, 2, 3, 4, 5]
+        values = [0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80]
+
+        for hour, value in zip(overnight_hours_today, values[:2]):
+            self._insert(self.today, hour, value)
+        for hour, value in zip(overnight_hours_tomorrow, values[2:]):
+            self._insert(self.tomorrow, hour, value)
+
+        # Slots outside the window should not affect the average
+        self._insert(self.tomorrow, 6, 999.0)
+        self._insert(self.today, 21, 999.0)
+
+        result = get_price_window_averages(self.db_path)
+
+        self.assertAlmostEqual(result["overnight_avg"], sum(values) / len(values), places=6)
+        print("✓ Overnight window average computed from the correct slots")
+
+    def test_midday_window_average(self):
+        """Midday avg covers tomorrow 10:00-15:00, excludes 09:00 and 16:00."""
+        print("\n--- Testing Midday Window Average ---")
+
+        midday_hours = [10, 11, 12, 13, 14, 15]
+        values = [0.10, 0.15, 0.20, 0.25, 0.30, 0.35]
+
+        for hour, value in zip(midday_hours, values):
+            self._insert(self.tomorrow, hour, value)
+
+        # Slots outside the window should not affect the average
+        self._insert(self.tomorrow, 9, 999.0)
+        self._insert(self.tomorrow, 16, 999.0)
+
+        result = get_price_window_averages(self.db_path)
+
+        self.assertAlmostEqual(result["midday_avg"], sum(values) / len(values), places=6)
+        print("✓ Midday window average computed from the correct slots")
+
+    def test_only_latest_issue_used(self):
+        """Only the latest issue_timestamp's slots are averaged."""
+        print("\n--- Testing Only Latest Issue Used ---")
+
+        self._insert(self.tomorrow, 11, 999.0, issue_timestamp="2026-03-30T06:00:00Z")
+        self._insert(self.tomorrow, 11, 0.25, issue_timestamp="2026-03-30T12:00:00Z")
+
+        result = get_price_window_averages(self.db_path)
+
+        self.assertAlmostEqual(result["midday_avg"], 0.25, places=6)
+        print("✓ Only the latest forecast issue is used")
+
+    def test_none_when_window_has_no_slots(self):
+        """Returns None for a window with no matching forecast slots."""
+        print("\n--- Testing None When Window Has No Slots ---")
+
+        result = get_price_window_averages(self.db_path)
+
+        self.assertIsNone(result["overnight_avg"])
+        self.assertIsNone(result["midday_avg"])
+        print("✓ Returns None per window when slots are missing")
 
 
 class TestGetTrailingAvg(unittest.TestCase):

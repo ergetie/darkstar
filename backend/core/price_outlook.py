@@ -7,7 +7,7 @@ suitable for the Weekly Outlook UI widget.
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from typing import Any
 
 import pytz
@@ -15,6 +15,33 @@ import pytz
 from backend.core.forecasts import get_forecast_db_path
 
 logger = logging.getLogger("darkstar.price_outlook")
+
+OVERNIGHT_START_TIME = time(22, 0)
+OVERNIGHT_END_TIME = time(6, 0)
+MIDDAY_START_TIME = time(10, 0)
+MIDDAY_END_TIME = time(16, 0)
+
+
+def _get_configured_timezone() -> pytz.BaseTzInfo:
+    tz_name = "Europe/Stockholm"
+    try:
+        from backend.core.secrets import load_yaml
+
+        config = load_yaml("config.yaml")
+        tz_name = config.get("timezone", "Europe/Stockholm")
+    except Exception:
+        pass
+    return pytz.timezone(tz_name)
+
+
+def _localize(tz: pytz.BaseTzInfo, naive_dt: datetime) -> datetime:
+    """Localize a naive local-wall-clock datetime, tolerating DST transitions."""
+    try:
+        return tz.localize(naive_dt)
+    except pytz.exceptions.AmbiguousTimeError:
+        return tz.localize(naive_dt, is_dst=False)
+    except pytz.exceptions.NonExistentTimeError:
+        return tz.localize(naive_dt + timedelta(hours=1))
 
 
 def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
@@ -174,6 +201,86 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
         return []
 
 
+def get_price_window_averages(db_path: str | None = None) -> dict[str, float | None]:
+    """
+    Query the latest price_forecasts issue and average spot_p50 over two fixed
+    local-time windows: tonight's overnight window [today 22:00, tomorrow 06:00)
+    and tomorrow's solar-midday window [tomorrow 10:00, tomorrow 16:00).
+
+    Window bounds are built from concrete dates/times in the configured local
+    timezone (not hour arithmetic), so they stay correct across DST transitions.
+
+    Args:
+        db_path: Path to the SQLite database. If None, uses default learning DB.
+
+    Returns:
+        {"overnight_avg": float | None, "midday_avg": float | None} — None for a
+        window with no matching forecast slots.
+    """
+    import sqlite3
+
+    if db_path is None:
+        db_path = get_forecast_db_path()
+
+    tz = _get_configured_timezone()
+    today = datetime.now(tz).date()
+    tomorrow = today + timedelta(days=1)
+
+    overnight_start = _localize(tz, datetime.combine(today, OVERNIGHT_START_TIME))
+    overnight_end = _localize(tz, datetime.combine(tomorrow, OVERNIGHT_END_TIME))
+    midday_start = _localize(tz, datetime.combine(tomorrow, MIDDAY_START_TIME))
+    midday_end = _localize(tz, datetime.combine(tomorrow, MIDDAY_END_TIME))
+
+    empty_result: dict[str, float | None] = {"overnight_avg": None, "midday_avg": None}
+
+    try:
+        conn = sqlite3.connect(db_path, timeout=30)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            SELECT slot_start, spot_p50
+            FROM price_forecasts
+            WHERE issue_timestamp = (SELECT MAX(issue_timestamp) FROM price_forecasts)
+              AND spot_p50 IS NOT NULL
+        """)
+        rows = cursor.fetchall()
+        conn.close()
+    except sqlite3.Error as e:
+        logger.warning(f"Database error in get_price_window_averages: {e}")
+        return empty_result
+    except Exception as e:
+        logger.warning(f"Error in get_price_window_averages: {e}")
+        return empty_result
+
+    if not rows:
+        return empty_result
+
+    overnight_values: list[float] = []
+    midday_values: list[float] = []
+
+    for row in rows:
+        slot_start = row["slot_start"]
+        try:
+            slot_dt = datetime.fromisoformat(slot_start.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            continue
+
+        slot_dt = _localize(tz, slot_dt) if slot_dt.tzinfo is None else slot_dt.astimezone(tz)
+
+        if overnight_start <= slot_dt < overnight_end:
+            overnight_values.append(row["spot_p50"])
+        if midday_start <= slot_dt < midday_end:
+            midday_values.append(row["spot_p50"])
+
+    return {
+        "overnight_avg": sum(overnight_values) / len(overnight_values)
+        if overnight_values
+        else None,
+        "midday_avg": sum(midday_values) / len(midday_values) if midday_values else None,
+    }
+
+
 def get_trailing_avg(db_path: str | None = None) -> float | None:
     """
     Query slot_observations.export_price_sek_kwh for the most recent 14 days and return the mean.
@@ -233,6 +340,10 @@ def get_trailing_avg(db_path: str | None = None) -> float | None:
 
 async def async_get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
     return await asyncio.to_thread(get_daily_outlook, db_path)
+
+
+async def async_get_price_window_averages(db_path: str | None = None) -> dict[str, float | None]:
+    return await asyncio.to_thread(get_price_window_averages, db_path)
 
 
 async def async_get_trailing_avg(db_path: str | None = None) -> float | None:
