@@ -287,13 +287,15 @@ class TestCalculateSafetyFloor:
         )
 
         min_soc_kwh = 0.12 * 34.2
-        max_allowed = min_soc_kwh + (0.10 * 34.2)
+        # Risk 1: effective cap = 10% * 1.50 cap_scale = 15%, floored at the
+        # risk level's own 25% min_buffer_pct -> 25% wins.
+        max_allowed = min_soc_kwh + (0.25 * 34.2)
         assert debug["using_extended_data"] is True
         assert debug["temporal_deficit_kwh"] > 30.0
         assert floor_kwh == pytest.approx(max_allowed, abs=0.01)
 
     def test_safety_floor_max_buffer_cap(self):
-        """max_safety_buffer_pct should cap the safety floor."""
+        """max_safety_buffer_pct should cap the safety floor (floored at min_buffer_pct)."""
         # High deficit scenario
         df = build_test_df(load_kwh=100.0, pv_kwh=5.0)
 
@@ -302,13 +304,14 @@ class TestCalculateSafetyFloor:
 
         floor_kwh, _debug = calculate_safety_floor(df, battery_cfg, s_index_cfg, "Europe/Stockholm")
 
-        # Max buffer = 10% of 34.2 = 3.42 kWh above min_soc
+        # Risk 1: effective cap = 10% * 1.50 cap_scale = 15%, floored at the
+        # risk level's own 25% min_buffer_pct -> 25% of 34.2 above min_soc.
         min_soc_kwh = 0.12 * 34.2
-        max_allowed = min_soc_kwh + (0.10 * 34.2)
+        max_allowed = min_soc_kwh + (0.25 * 34.2)
 
         assert floor_kwh <= max_allowed + 0.01, (
             f"Floor ({floor_kwh:.2f}) should be capped at {max_allowed:.2f} "
-            f"(10% of capacity above min_soc)"
+            f"(effective cap floored at 25% min_buffer_pct)"
         )
 
     def test_safety_floor_price_horizon_expansion(self):
@@ -417,3 +420,71 @@ class TestSafetyFloorMinimumBuffer:
 
         min_soc_kwh = 0.12 * 34.2
         assert floor_kwh == pytest.approx(min_soc_kwh, abs=0.01)
+
+
+class TestRiskAwareSafetyBufferCap:
+    """Tests for the risk-aware effective cap (cap_scale per RISK_CONFIG entry)."""
+
+    def test_saturating_deficit_floors_strictly_ordered(self):
+        """Under a saturating deficit, Risk 1 > Risk 3 > Risk 5, and Risk 3
+        equals the pre-change flat-cap floor (min_soc + 20% of capacity)."""
+        # Huge deficit so every risk level's effective cap is the binding constraint.
+        # Use price_horizon_end/full_forecast_df so the temporal deficit calc
+        # actually captures the df's load (a bare df with no horizon info
+        # falls back to an empty look-ahead window and yields a zero deficit).
+        df = build_test_df(load_kwh=100.0, pv_kwh=0.0)
+        price_horizon_end = df.index[0] - timedelta(minutes=15)
+
+        battery_cfg = {"capacity_kwh": 34.2, "min_soc_percent": 12.0}
+        min_soc_kwh = 0.12 * 34.2
+
+        floors = {}
+        for risk in [1, 3, 5]:
+            s_index_cfg = {"risk_appetite": risk, "max_safety_buffer_percent": 20.0}
+            floor_kwh, _debug = calculate_safety_floor(
+                df,
+                battery_cfg,
+                s_index_cfg,
+                "Europe/Stockholm",
+                full_forecast_df=df,
+                price_horizon_end=price_horizon_end,
+            )
+            floors[risk] = floor_kwh
+
+        assert floors[1] > floors[3], f"Risk 1 ({floors[1]}) should be > Risk 3 ({floors[3]})"
+        assert floors[3] > floors[5], f"Risk 3 ({floors[3]}) should be > Risk 5 ({floors[5]})"
+
+        expected_risk3 = min_soc_kwh + (0.20 * 34.2)
+        assert floors[3] == pytest.approx(expected_risk3, abs=0.01), (
+            "Risk 3 (cap_scale=1.0) must be numerically unchanged from the pre-change flat cap"
+        )
+
+    def test_low_config_cap_still_honors_risk1_minimum_buffer(self):
+        """Risk 1 with a low configured max_safety_buffer_percent still honors
+        its 25% minimum buffer (cap floored at min_buffer, not silently suppressed)."""
+        df = build_test_df(load_kwh=100.0, pv_kwh=0.0)
+
+        battery_cfg = {"capacity_kwh": 34.2, "min_soc_percent": 12.0}
+        s_index_cfg = {"risk_appetite": 1, "max_safety_buffer_percent": 10.0}
+
+        floor_kwh, debug = calculate_safety_floor(df, battery_cfg, s_index_cfg, "Europe/Stockholm")
+
+        min_soc_kwh = 0.12 * 34.2
+        expected_min_buffer = 0.25 * 34.2
+
+        assert floor_kwh == pytest.approx(min_soc_kwh + expected_min_buffer, abs=0.01)
+        assert debug["max_buffer_kwh"] == pytest.approx(expected_min_buffer, abs=0.01)
+
+    def test_debug_payload_reports_cap_scale_and_effective_max_buffer(self):
+        """S-Index debug payload should include cap_scale and the effective
+        (post-scaling, post-floor) max_buffer_kwh."""
+        df = build_test_df(load_kwh=30.0, pv_kwh=10.0)
+
+        battery_cfg = {"capacity_kwh": 34.2, "min_soc_percent": 12.0}
+        s_index_cfg = {"risk_appetite": 2, "max_safety_buffer_percent": 20.0}
+
+        _floor_kwh, debug = calculate_safety_floor(df, battery_cfg, s_index_cfg, "Europe/Stockholm")
+
+        assert debug["cap_scale"] == 1.25
+        expected_max_buffer = 20.0 / 100.0 * 34.2 * 1.25
+        assert debug["max_buffer_kwh"] == pytest.approx(expected_max_buffer, abs=0.01)

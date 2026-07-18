@@ -842,27 +842,35 @@ def calculate_safety_floor(
 
     risk_appetite = int(s_index_cfg.get("risk_appetite", 3))
 
-    # Max buffer as % of capacity (default 20% to prevent runaway)
+    # Max buffer as % of capacity (default 20%, Risk 3 / Neutral baseline; scaled
+    # per risk level below via cap_scale to prevent runaway)
     max_safety_buffer_pct = float(s_index_cfg.get("max_safety_buffer_percent", 20.0)) / 100.0
-    max_buffer_kwh = capacity_kwh * max_safety_buffer_pct
 
-    # 2. Risk Configuration: margin on deficit + minimum floor above min_soc
-    # Risk 1 (Safety): 30% margin, minimum 25% capacity buffer
-    # Risk 2 (Conservative): 20% margin, minimum 15% capacity buffer
-    # Risk 3 (Neutral): 15% margin, minimum 10% capacity buffer
-    # Risk 4 (Aggressive): 5% margin, minimum 3% capacity buffer
-    # Risk 5 (Gambler): 0% margin, 0% minimum (returns min_soc)
+    # 2. Risk Configuration: margin on deficit + minimum floor above min_soc +
+    # cap_scale (multiplier applied to max_safety_buffer_pct for this risk level)
+    # Risk 1 (Safety): 30% margin, minimum 25% capacity buffer, 1.50x cap
+    # Risk 2 (Conservative): 20% margin, minimum 15% capacity buffer, 1.25x cap
+    # Risk 3 (Neutral): 15% margin, minimum 10% capacity buffer, 1.00x cap (baseline)
+    # Risk 4 (Aggressive): 5% margin, minimum 3% capacity buffer, 0.85x cap
+    # Risk 5 (Gambler): 0% margin, 0% minimum (returns min_soc), 0.75x cap
     RISK_CONFIG = {
-        1: {"margin": 1.30, "min_buffer_pct": 0.25},  # Safety
-        2: {"margin": 1.20, "min_buffer_pct": 0.15},  # Conservative
-        3: {"margin": 1.15, "min_buffer_pct": 0.10},  # Neutral
-        4: {"margin": 1.05, "min_buffer_pct": 0.03},  # Aggressive
-        5: {"margin": 1.00, "min_buffer_pct": 0.00},  # Gambler
+        1: {"margin": 1.30, "min_buffer_pct": 0.25, "cap_scale": 1.50},  # Safety
+        2: {"margin": 1.20, "min_buffer_pct": 0.15, "cap_scale": 1.25},  # Conservative
+        3: {"margin": 1.15, "min_buffer_pct": 0.10, "cap_scale": 1.00},  # Neutral
+        4: {"margin": 1.05, "min_buffer_pct": 0.03, "cap_scale": 0.85},  # Aggressive
+        5: {"margin": 1.00, "min_buffer_pct": 0.00, "cap_scale": 0.75},  # Gambler
     }
 
     risk_config = RISK_CONFIG.get(risk_appetite, RISK_CONFIG[3])
     risk_margin = risk_config["margin"]
     min_buffer_kwh = capacity_kwh * risk_config["min_buffer_pct"]
+    cap_scale = risk_config["cap_scale"]
+
+    # Effective cap: scale the configured (Risk 3 baseline) cap per risk level,
+    # then floor it at this risk level's own minimum buffer so the promised
+    # min_buffer_pct can never be suppressed by the cap.
+    max_buffer_kwh = capacity_kwh * max_safety_buffer_pct * cap_scale
+    max_buffer_kwh = max(max_buffer_kwh, min_buffer_kwh)
 
     # 3. Determine the look-ahead window (24h beyond price horizon)
     lookahead_start: datetime | pd.Timestamp
@@ -890,6 +898,7 @@ def calculate_safety_floor(
             "base_reserve_kwh": 0.0,
             "weather_buffer_kwh": 0.0,
             "max_buffer_kwh": round(max_buffer_kwh, 2),
+            "cap_scale": cap_scale,
             "min_soc_kwh": round(min_soc_kwh, 2),
             "calculated_floor_kwh": round(safety_floor_kwh, 2),
             "fallback": "no_data",
@@ -1019,6 +1028,7 @@ def calculate_safety_floor(
         "weather_buffer_kwh": round(weather_buffer_kwh, 2),
         "weather_details": weather_debug,
         "max_buffer_kwh": round(max_buffer_kwh, 2),
+        "cap_scale": cap_scale,
         "min_soc_kwh": round(min_soc_kwh, 2),
         "calculated_floor_kwh": round(safety_floor_kwh, 2),
     }

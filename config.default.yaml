@@ -164,7 +164,7 @@ s_index:
   temp_cold_c: -10.0               # Temperature where adjustment reaches 100%
   s_index_horizon_days: 4          # Number of days ahead to evaluate (integer)
   risk_appetite: 3                 # 1-5 scale (1=safe, 3=neutral, 5=gambler)
-  max_safety_buffer_percent: 20    # Max reserve capacity to hold at 100% deficit (default 40%)
+  max_safety_buffer_percent: 20    # Max reserve capacity to hold at 100% deficit; Risk 3 (Neutral) baseline, scaled per risk level (see RISK_CONFIG cap_scale)
 
 export:
   enable_export: true              # Master switch for grid export (if false, planner enforces 0 export)

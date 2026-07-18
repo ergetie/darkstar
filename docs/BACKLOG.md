@@ -66,7 +66,7 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Goal:** Display a live phase current (L1, L2, L3) bar graph and overload status overlay on the main dashboard.
 
-**Notes:** Highlights active load shedding, EV charger throttling, or stale-sensor fallback alerts, including a one-click manual bypass/override control. Consider designing together with (or right after) the Dashboard Reorganize/Declutter pass so a new card isn't added and then immediately reorganized.
+**Notes:** Highlights active load shedding, EV charger throttling, or stale-sensor fallback alerts, including a one-click manual bypass/override control.
 
 ---
 

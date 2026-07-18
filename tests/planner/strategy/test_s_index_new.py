@@ -117,23 +117,23 @@ def test_calculate_safety_floor_risk_multipliers():
         }
     )
 
-    # Max buffer = 50% of 10 kWh = 5.0 kWh for all tests
+    # Max buffer = 50% of 10 kWh scaled per risk level (cap_scale): Risk 1 = 7.5 kWh, Risk 5 = 3.75 kWh
 
-    # Risk 1 (Safety): 30% margin, 25% min buffer
-    # Base reserve = 6.0 * 1.30 = 7.8, capped at 5.0
-    # Min buffer = 2.5 kWh
-    # Floor = max(5.0, 2.5) = 5.0 kWh
+    # Risk 1 (Safety): 30% margin, 25% min buffer, 1.50x cap_scale
+    # Base reserve = 6.0 * 1.30 = 7.8
+    # Effective cap = 10 * 0.50 * 1.50 = 7.5, floored at min_buffer 2.5 -> 7.5
+    # Floor = min(7.8, 7.5) = 7.5 kWh
     cfg_risk1 = {"risk_appetite": 1, "max_safety_buffer_percent": 50.0}
     floor1, _ = calculate_safety_floor(df, battery_config, cfg_risk1, "UTC")
-    assert floor1 == 5.0
+    assert floor1 == 7.5
 
-    # Risk 5 (Gambler): 0% margin, 0% min buffer
-    # Base reserve = 6.0 * 1.00 = 6.0, capped at 5.0
-    # Min buffer = 0 kWh
-    # Floor = max(5.0, 0) = 5.0 kWh
+    # Risk 5 (Gambler): 0% margin, 0% min buffer, 0.75x cap_scale
+    # Base reserve = 6.0 * 1.00 = 6.0
+    # Effective cap = 10 * 0.50 * 0.75 = 3.75, floored at min_buffer 0 -> 3.75
+    # Floor = min(6.0, 3.75) = 3.75 kWh
     cfg_risk5 = {"risk_appetite": 5, "max_safety_buffer_percent": 50.0}
     floor5, _ = calculate_safety_floor(df, battery_config, cfg_risk5, "UTC")
-    assert floor5 == 5.0
+    assert floor5 == 3.75
 
     # Actually, with temporal deficit capped at max_buffer, both hit the cap.
     # Let's test with smaller deficit to see risk difference
