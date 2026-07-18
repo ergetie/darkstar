@@ -3,7 +3,12 @@ import pytest
 from datetime import datetime, timedelta
 from unittest.mock import patch, MagicMock
 
-from backend.health import HealthIssue, HealthChecker
+from backend.health import (
+    HealthChecker,
+    HealthIssue,
+    clear_load_forecast_status,
+    set_load_forecast_status,
+)
 
 
 class TestHealthIssueSerialization:
@@ -93,3 +98,35 @@ class TestCheckPlanner:
             assert issues[0].severity == "warning"
             assert issues[0].code == "PRICES_UNAVAILABLE"
             assert issues[0].retry_in_s == 120
+
+
+class TestCheckLoadForecast:
+    def teardown_method(self):
+        clear_load_forecast_status()
+
+    def test_not_configured_message_instructs_configuration(self):
+        clear_load_forecast_status()
+        set_load_forecast_status("degraded", "demo")
+        checker = HealthChecker()
+        issues = checker.check_load_forecast()
+        assert len(issues) == 1
+        assert "demo data" in issues[0].message
+        assert "Configure" in issues[0].guidance
+        assert "discarded" not in issues[0].guidance
+
+    def test_configured_but_discarded_message_names_sensor_not_configure(self):
+        clear_load_forecast_status()
+        set_load_forecast_status(
+            "degraded",
+            "demo",
+            detail=(
+                "'sensor.fronius_lifetime' data discarded: 19609.2 kWh/day exceeds the "
+                "500 kWh/day plausibility bound"
+            ),
+        )
+        checker = HealthChecker()
+        issues = checker.check_load_forecast()
+        assert len(issues) == 1
+        assert "sensor.fronius_lifetime" in issues[0].guidance
+        assert "discarded as implausible" in issues[0].guidance
+        assert "Configure 'total_load_consumption'" not in issues[0].guidance

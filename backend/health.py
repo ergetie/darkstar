@@ -32,6 +32,7 @@ _forecast_lock: threading.Lock = threading.Lock()
 # REV F65 Phase 5b: Load forecast status tracking
 _load_forecast_status: str = "ok"  # "ok", "degraded"
 _load_forecast_reason: str = ""  # "ml", "baseline", "demo", ""
+_load_forecast_detail: str = ""  # e.g. which sensor's data was discarded, and why
 _load_forecast_lock: threading.Lock = threading.Lock()
 
 
@@ -86,21 +87,25 @@ def get_forecast_status() -> dict[str, Any]:
         }
 
 
-def set_load_forecast_status(status: str, reason: str = "") -> None:
+def set_load_forecast_status(status: str, reason: str = "", detail: str = "") -> None:
     """Set load forecast status for health monitoring.
 
     Args:
         status: "ok" or "degraded"
         reason: "ml" (ML models working), "baseline" (using baseline avg),
                 "demo" (using demo data), "no_ml" (ML unavailable but data exists)
+        detail: optional specifics, e.g. which sensor's data was discarded and why
+                (distinguishes "sensor not configured" from "sensor configured but
+                data discarded as implausible")
     """
-    global _load_forecast_status, _load_forecast_reason
+    global _load_forecast_status, _load_forecast_reason, _load_forecast_detail
     with _load_forecast_lock:
         _load_forecast_status = status
         _load_forecast_reason = reason
+        _load_forecast_detail = detail
 
     if status == "degraded":
-        logger.warning(f"Load forecast degraded: {reason}")
+        logger.warning(f"Load forecast degraded: {reason}" + (f" ({detail})" if detail else ""))
 
 
 def get_load_forecast_status() -> dict[str, Any]:
@@ -109,15 +114,17 @@ def get_load_forecast_status() -> dict[str, Any]:
         return {
             "status": _load_forecast_status,
             "reason": _load_forecast_reason,
+            "detail": _load_forecast_detail,
         }
 
 
 def clear_load_forecast_status() -> None:
     """Clear load forecast degraded status (called after successful ML forecast)."""
-    global _load_forecast_status, _load_forecast_reason
+    global _load_forecast_status, _load_forecast_reason, _load_forecast_detail
     with _load_forecast_lock:
         _load_forecast_status = "ok"
         _load_forecast_reason = ""
+        _load_forecast_detail = ""
 
 
 @dataclass
@@ -945,20 +952,35 @@ class HealthChecker:
         load_info = get_load_forecast_status()
         status = load_info.get("status", "ok")
         reason = load_info.get("reason", "")
+        detail = load_info.get("detail", "")
 
         if status == "degraded":
             if reason == "demo":
-                issues.append(
-                    HealthIssue(
-                        category="forecast",
-                        severity="warning",
-                        message="Load forecast using demo data (0.5 kWh flat)",
-                        guidance=(
-                            "No historical load data available. The system is using a flat demo profile. "
-                            "Configure 'total_load_consumption' sensor in input_sensors to enable accurate load forecasting."
-                        ),
+                if detail:
+                    issues.append(
+                        HealthIssue(
+                            category="forecast",
+                            severity="warning",
+                            message="Load forecast using demo data (0.5 kWh flat)",
+                            guidance=(
+                                f"{detail}. The data was discarded as implausible, not because "
+                                "the sensor is unconfigured. This resolves automatically once the "
+                                "sensor reports plausible readings again."
+                            ),
+                        )
                     )
-                )
+                else:
+                    issues.append(
+                        HealthIssue(
+                            category="forecast",
+                            severity="warning",
+                            message="Load forecast using demo data (0.5 kWh flat)",
+                            guidance=(
+                                "No historical load data available. The system is using a flat demo profile. "
+                                "Configure 'total_load_consumption' sensor in input_sensors to enable accurate load forecasting."
+                            ),
+                        )
+                    )
             elif reason == "baseline":
                 issues.append(
                     HealthIssue(

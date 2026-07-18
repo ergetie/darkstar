@@ -645,6 +645,10 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         prev_time = None
         cached_unit: str | None = None
 
+        max_meter_delta_kwh = float(config.get("recorder", {}).get("max_meter_delta_kwh", 50.0))
+        skipped_delta_count = 0
+        largest_skipped_delta = 0.0
+
         start_time_local = start_time.astimezone(local_tz)
 
         for state in states:
@@ -672,6 +676,17 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 if prev_state is not None and prev_time is not None:
                     # Calculate energy delta (ensure positive)
                     energy_delta = max(0, current_value - prev_state)
+
+                    if energy_delta > max_meter_delta_kwh:
+                        # Implausible cumulative-meter jump (e.g. a Fronius
+                        # lifetime sensor resetting to 0 overnight and back).
+                        # Skip this interval but still advance the baseline
+                        # below so subsequent deltas stay correct.
+                        skipped_delta_count += 1
+                        largest_skipped_delta = max(largest_skipped_delta, energy_delta)
+                        prev_state = current_value
+                        prev_time = current_time
+                        continue
 
                     # Distribute across time buckets
                     time_diff = current_time - prev_time
@@ -716,6 +731,16 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 logger.warning("Skipping invalid state data for %s: %s", entity_id, e)
                 continue
 
+        if skipped_delta_count:
+            logger.warning(
+                "Skipped %d implausible cumulative-meter delta(s) for %s "
+                "(largest %.1f kWh, max allowed %.1f kWh)",
+                skipped_delta_count,
+                entity_id,
+                largest_skipped_delta,
+                max_meter_delta_kwh,
+            )
+
         # Create average daily profile from the 7 days of data (divide by 7 days)
         daily_profile = [0.0] * 96
         for slot in range(96):
@@ -734,10 +759,19 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
                 total_daily,
                 entity_id,
             )
-            return get_dummy_load_profile(config)
+            return get_dummy_load_profile(
+                config,
+                discard_reason=(
+                    f"'{entity_id}' data discarded: {total_daily:.1f} kWh/day exceeds the "
+                    "500 kWh/day plausibility bound"
+                ),
+            )
         if total_daily <= 0:
             logger.warning("No valid energy consumption data found for %s", entity_id)
-            return get_dummy_load_profile(config)
+            return get_dummy_load_profile(
+                config,
+                discard_reason=f"'{entity_id}' returned no valid (positive) energy consumption data",
+            )
 
         logger.info("Successfully loaded HA data: %.2f kWh/day average", total_daily)
 
@@ -758,12 +792,20 @@ async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
         return get_dummy_load_profile(config)
 
 
-def get_dummy_load_profile(config: dict[str, Any]) -> list[float]:
+def get_dummy_load_profile(
+    config: dict[str, Any], discard_reason: str | None = None
+) -> list[float]:
     """Create a dummy load profile or a synthetic scaled profile.
 
     If config.input_sensors.total_load_consumption is a number (estimated daily kWh),
     we generate a synthetic winter heat-pump curve scaled to that daily total.
     Otherwise, we fall back to a 0.5 kWh flat dummy profile.
+
+    ``discard_reason``, when set, means a sensor WAS configured but its fetched
+    data was discarded as implausible (as opposed to no sensor being configured
+    at all) — it flows into the degraded-status detail so the health banner
+    names the sensor instead of telling the user to configure one that already
+    exists.
     """
     import logging
 
@@ -895,11 +937,14 @@ def get_dummy_load_profile(config: dict[str, Any]) -> list[float]:
         # Scale the curve so its integral (sum) equals the estimated daily kWh
         return [(val / curve_sum) * estimated_daily_kwh for val in base_curve]
 
-    logger.warning(
-        "⚠️ Using DEMO load profile (0.5 kWh flat) - no historical data available. Configure total_load_consumption sensor for accurate forecasts."
-    )
+    if discard_reason:
+        logger.warning("⚠️ Using DEMO load profile (0.5 kWh flat) - %s.", discard_reason)
+    else:
+        logger.warning(
+            "⚠️ Using DEMO load profile (0.5 kWh flat) - no historical data available. Configure total_load_consumption sensor for accurate forecasts."
+        )
 
     # REV F65 Phase 5b: Set degraded status when using demo data
-    set_load_forecast_status("degraded", "demo")
+    set_load_forecast_status("degraded", "demo", detail=discard_reason or "")
 
     return [0.5] * 96

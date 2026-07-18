@@ -404,7 +404,14 @@ def get_profile_from_config(
         InverterProfile instance
     """
     system_config = config.get("system", {})
-    profile_name = system_config.get("inverter_profile", "generic")
+    raw_profile_name = system_config.get("inverter_profile")
+    profile_name = raw_profile_name or "generic"
+
+    if not raw_profile_name:
+        # Shipped default (config.default.yaml ships inverter_profile: null) —
+        # go straight to generic, no profiles/None.yaml attempt, no ERROR log.
+        logger.info("No inverter_profile configured; using 'generic' profile")
+        return load_profile("generic", profiles_dir)
 
     logger.info("Loading inverter profile from config: %s", profile_name)
 

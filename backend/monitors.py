@@ -27,13 +27,20 @@ evidence phase (openspec/changes/stabilization-review-2/findings.md):
   refreshes on every successful run (store.py upsert). 3 h tolerates a restart
   plus one missed run; the only historical breach was the 31 h DST outage (#6)
   this invariant exists to catch.
-- COMMAND_SUCCESS_MIN = 0.99 over trailing 24 h: monthly success has been
-  ≥ 99.7 % since 2026-03 (#4); 1 % headroom absorbs a normal HA restart
-  (~1-2 failed ticks) without alerting, while the Jan/Feb-style episodes
-  (2.5-3.7 % daily failure) trip it within hours.
-- PV_FORECAST_CEILING_KWH = 7.11 * 0.25: physical array limit per 15-min slot
-  (7.11 kWp); best slot ever observed is 1.43 kWh (#13.4). Any stored future
-  forecast above the ceiling is a regression of the 2026-06-17 fix.
+- COMMAND_SUCCESS_MIN = 0.95 over trailing 24 h, at 60 s ticks (~1440/day):
+  tolerates ~72 failed one-minute ticks per day (a normal HA restart or a
+  short outage) without alerting, while sustained breakage (the Jan/Feb-style
+  2.5-3.7 % daily failure episodes) still trips it within hours. Raised from
+  the original 0.99, which false-alarmed on beta installs whose first-boot
+  placeholder config produced a short failure burst (fix-beta-monitor-false-
+  alarms, 2026-07-18).
+- Forecast sanity ceiling: computed at evaluation time as
+  ``sum(system.solar_arrays[].kwp) * 0.25`` kWh per 15-min slot, from the
+  configured system rather than a hardcoded constant — the previous
+  PV_FORECAST_CEILING_KWH = 7.11 * 0.25 was the reference install's array
+  size and false-alarmed permanently on any larger system (fix-beta-monitor-
+  false-alarms, 2026-07-18). Skipped (not violated) when no arrays are
+  configured or their summed kWp is not positive.
 - DATA_QUALITY_MAX_BAD_FRACTION = 0.05 over trailing 24 h: computed directly
   from slot_observations because data_quality_daily is dead (#9). A recorded
   slot is "bad" when its SoC or import price is missing; NULL-price rows
@@ -62,9 +69,9 @@ ENERGY_RESIDUAL_KWH = 2.0
 ENERGY_VIOLATION_COUNT = 3
 SOC_MARGIN_PERCENT = 5.0
 PLAN_AGE_MAX_HOURS = 3.0
-COMMAND_SUCCESS_MIN = 0.99
-PV_FORECAST_CEILING_KWH = 7.11 * 0.25
+COMMAND_SUCCESS_MIN = 0.95
 DATA_QUALITY_MAX_BAD_FRACTION = 0.05
+PV_FORECAST_CEILING_KWH_PER_KWP = 0.25  # kWh per 15-min slot per kWp configured
 
 DEFAULT_INTERVAL_MINUTES = 15  # at most once per recorder cycle (spec)
 
@@ -277,6 +284,12 @@ class InvariantMonitors:
         )
 
     def _eval_forecast_sanity(self, con: sqlite3.Connection, now: datetime) -> InvariantResult:
+        system_cfg: dict[str, Any] = self._config.get("system", {}) or {}
+        solar_arrays: list[dict[str, Any]] = system_cfg.get("solar_arrays", []) or []
+        total_kwp = sum(float(a.get("kwp", 0) or 0) for a in solar_arrays)
+        if total_kwp <= 0:
+            return InvariantResult("forecast_sanity", "skipped", "no solar arrays configured")
+        ceiling = total_kwp * PV_FORECAST_CEILING_KWH_PER_KWP
         row = con.execute(
             "SELECT MAX(pv_forecast_kwh), COUNT(*) FROM slot_forecasts WHERE slot_start >= ?",
             (now.isoformat(),),
@@ -284,12 +297,12 @@ class InvariantMonitors:
         max_pv, n = row
         if not n:
             return InvariantResult("forecast_sanity", "skipped", "no future forecasts stored")
-        if max_pv is not None and max_pv > PV_FORECAST_CEILING_KWH:
+        if max_pv is not None and max_pv > ceiling:
             return InvariantResult(
                 "forecast_sanity",
                 "violation",
                 f"future PV forecast {max_pv:.3f} kWh/slot exceeds physical ceiling "
-                f"{PV_FORECAST_CEILING_KWH:.3f}",
+                f"{ceiling:.3f} ({total_kwp:.2f} kWp configured)",
             )
         return InvariantResult(
             "forecast_sanity", "pass", f"max future PV forecast {max_pv or 0:.3f} kWh/slot"

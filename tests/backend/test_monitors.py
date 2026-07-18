@@ -13,17 +13,34 @@ from unittest.mock import patch
 
 import pytest
 import pytz
+import yaml
 from sqlalchemy import create_engine
 
 from backend.learning.models import Base
 from backend.monitors import (
     ENERGY_VIOLATION_COUNT,
-    PV_FORECAST_CEILING_KWH,
+    PV_FORECAST_CEILING_KWH_PER_KWP,
     InvariantMonitors,
     InvariantResult,
 )
 
 TZ = pytz.timezone("Europe/Stockholm")
+
+# config.yaml's real solar_arrays (Roof 3.16 + Garage 3.95 kWp) sum to 7.11 kWp,
+# matching the old hardcoded reference-install ceiling constant.
+REFERENCE_INSTALL_KWP = 7.11
+REFERENCE_INSTALL_CEILING_KWH = REFERENCE_INSTALL_KWP * PV_FORECAST_CEILING_KWH_PER_KWP
+
+
+def write_config(tmp_path: Path, solar_arrays: list[dict] | None) -> str:
+    """Write a minimal config.yaml with the given system.solar_arrays (or none)."""
+    system: dict = {}
+    if solar_arrays is not None:
+        system["solar_arrays"] = solar_arrays
+    config = {"system": system}
+    path = tmp_path / "monitor_config.yaml"
+    path.write_text(yaml.safe_dump(config), encoding="utf-8")
+    return str(path)
 
 
 @pytest.fixture
@@ -212,7 +229,7 @@ class TestViolations:
             "forecast_version, created_at) VALUES (?, ?, 0.2, 'test', ?)",
             (
                 future.isoformat(),
-                PV_FORECAST_CEILING_KWH + 0.5,
+                REFERENCE_INSTALL_CEILING_KWH + 0.5,
                 datetime.now(UTC).replace(tzinfo=None).isoformat(),
             ),
         )
@@ -222,6 +239,102 @@ class TestViolations:
         results = await monitors.evaluate_all()
         r = next(x for x in results if x.name == "forecast_sanity")
         assert r.status == "violation"
+        assert f"{REFERENCE_INSTALL_CEILING_KWH:.3f}" in r.detail
+
+    @pytest.mark.asyncio
+    async def test_large_array_forecast_within_config_derived_ceiling_passes(
+        self, mon_db, tmp_path
+    ):
+        """14.94 kWp system: 2.781 kWh/slot forecast is well within physical reach."""
+        import sqlite3
+
+        config_path = write_config(tmp_path, [{"name": "A", "kwp": 14.94}])
+        m = InvariantMonitors(config_path=config_path)
+        seed_healthy(mon_db)
+        con = sqlite3.connect(mon_db)
+        future = datetime.now(TZ) + timedelta(hours=3)
+        con.execute(
+            "INSERT INTO slot_forecasts (slot_start, pv_forecast_kwh, load_forecast_kwh, "
+            "forecast_version, created_at) VALUES (?, 2.781, 0.2, 'test', ?)",
+            (future.isoformat(), datetime.now(UTC).replace(tzinfo=None).isoformat()),
+        )
+        con.commit()
+        con.close()
+
+        results = await m.evaluate_all()
+        r = next(x for x in results if x.name == "forecast_sanity")
+        assert r.status == "pass", r.detail
+
+    @pytest.mark.asyncio
+    async def test_small_array_forecast_above_config_derived_ceiling_violates(
+        self, mon_db, tmp_path
+    ):
+        """7.11 kWp system: forecast above 1.778 kWh/slot violates."""
+        import sqlite3
+
+        config_path = write_config(tmp_path, [{"name": "A", "kwp": 7.11}])
+        m = InvariantMonitors(config_path=config_path)
+        seed_healthy(mon_db)
+        con = sqlite3.connect(mon_db)
+        future = datetime.now(TZ) + timedelta(hours=3)
+        con.execute(
+            "INSERT INTO slot_forecasts (slot_start, pv_forecast_kwh, load_forecast_kwh, "
+            "forecast_version, created_at) VALUES (?, 1.9, 0.2, 'test', ?)",
+            (future.isoformat(), datetime.now(UTC).replace(tzinfo=None).isoformat()),
+        )
+        con.commit()
+        con.close()
+
+        results = await m.evaluate_all()
+        r = next(x for x in results if x.name == "forecast_sanity")
+        assert r.status == "violation"
+
+    @pytest.mark.asyncio
+    async def test_no_solar_arrays_configured_skips_forecast_sanity(self, mon_db, tmp_path):
+        import sqlite3
+
+        config_path = write_config(tmp_path, [])
+        m = InvariantMonitors(config_path=config_path)
+        seed_healthy(mon_db)
+        con = sqlite3.connect(mon_db)
+        future = datetime.now(TZ) + timedelta(hours=3)
+        con.execute(
+            "INSERT INTO slot_forecasts (slot_start, pv_forecast_kwh, load_forecast_kwh, "
+            "forecast_version, created_at) VALUES (?, 999.0, 0.2, 'test', ?)",
+            (future.isoformat(), datetime.now(UTC).replace(tzinfo=None).isoformat()),
+        )
+        con.commit()
+        con.close()
+
+        results = await m.evaluate_all()
+        r = next(x for x in results if x.name == "forecast_sanity")
+        assert r.status == "skipped"
+        assert "no solar arrays" in r.detail
+
+    @pytest.mark.asyncio
+    async def test_brief_outage_within_95_percent_passes(self, mon_db, monitors):
+        """18/1321 failed ticks (98.64%) passes at the 95% threshold."""
+        import sqlite3
+
+        seed_healthy(mon_db)
+        con = sqlite3.connect(mon_db)
+        now = datetime.now(TZ)
+        con.execute("DELETE FROM execution_log")
+        for i in range(1321):
+            t = now - timedelta(minutes=i)
+            success = 0 if i < 18 else 1
+            con.execute(
+                "INSERT INTO execution_log "
+                "(executed_at, slot_start, override_active, success, source, commanded_unit) "
+                "VALUES (?, ?, 0, ?, 'native', 'A')",
+                (t.isoformat(), t.isoformat(), success),
+            )
+        con.commit()
+        con.close()
+
+        results = await monitors.evaluate_all()
+        r = next(x for x in results if x.name == "command_success")
+        assert r.status == "pass", r.detail
 
     @pytest.mark.asyncio
     async def test_data_quality_violation_on_missing_prices(self, mon_db, monitors):
