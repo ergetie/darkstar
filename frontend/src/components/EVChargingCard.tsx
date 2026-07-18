@@ -140,6 +140,7 @@ export default function EVChargingCard({
     // a server-side change just because it happened to be falsy.
     useEffect(() => {
         if (!isEditing && !pendingRefresh) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- must re-run when pendingRefresh clears to avoid optimistic-save flash-back; render-derivation can't express that
             setTargetSoc(charger.target_soc_percent ?? 80)
             setReadyBy(charger.ready_by ?? '07:00')
             setRepeat(charger.repeat ?? 'daily')

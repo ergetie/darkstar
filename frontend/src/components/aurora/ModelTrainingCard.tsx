@@ -18,17 +18,6 @@ export default function ModelTrainingCard() {
         progress: number
     } | null>(null)
 
-    // Listen for real-time progress
-    useSocket('training_progress', (data: unknown) => {
-        const payload = data as { status: string; stage: string; message: string; progress: number }
-        // console.log('Training progress:', payload)
-        setProgress(payload)
-        if (payload.status === 'success' || payload.status === 'error') {
-            // Refresh main data on completion
-            fetchData()
-        }
-    })
-
     const fetchData = async () => {
         setLoading(true)
         try {
@@ -47,7 +36,19 @@ export default function ModelTrainingCard() {
         }
     }
 
+    // Listen for real-time progress
+    useSocket('training_progress', (data: unknown) => {
+        const payload = data as { status: string; stage: string; message: string; progress: number }
+        // console.log('Training progress:', payload)
+        setProgress(payload)
+        if (payload.status === 'success' || payload.status === 'error') {
+            // Refresh main data on completion
+            fetchData()
+        }
+    })
+
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- mount IO fetch, not derivable
         fetchData()
         // Poll status if training is active
         const interval = setInterval(() => {

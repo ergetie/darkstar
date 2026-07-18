@@ -131,7 +131,6 @@ export default function Dashboard() {
     } | null>(null)
 
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
-    const [plannerMeta, setPlannerMeta] = useState<PlannerMeta>(null)
     const [batteryCapacity, setBatteryCapacity] = useState<number>(0)
     const [avgLoad, setAvgLoad] = useState<{ kw: number; dailyKwh: number } | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number>(0)
@@ -486,10 +485,6 @@ export default function Dashboard() {
         setTimeout(() => fetchDeferredData(), 100)
     }, [fetchCriticalData, fetchDeferredData])
 
-    useEffect(() => {
-        setPlannerMeta(plannerLocalMeta)
-    }, [plannerLocalMeta])
-
     const pvPersonalization = learningStatus?.pv_personalization
     const pvPersonalized = (pvPersonalization?.weight ?? 0) > 0
     const pvSourceLabel = pvPersonalized ? 'Open-Meteo + tuned' : 'Open-Meteo baseline'
@@ -505,6 +500,7 @@ export default function Dashboard() {
     }
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- initial IO fetch, also driven by socket-reconnect refetch
         fetchAllData()
     }, [fetchAllData])
 
@@ -743,7 +739,7 @@ export default function Dashboard() {
                     vacationModeHA={vacationModeHA}
                     waterBoostActive={waterBoostActive}
                     soc={soc}
-                    plannerMeta={plannerMeta}
+                    plannerMeta={plannerLocalMeta}
                     onSetRiskAppetite={handleSetRiskAppetite}
                     onSetComfortLevel={handleSetComfortLevel}
                     onToggleScheduler={toggleAutomationScheduler}
@@ -800,7 +796,7 @@ export default function Dashboard() {
                         soc={soc}
                         socTarget={currentSlotTarget}
                         batteryCapacity={batteryCapacity}
-                        plannerMeta={plannerMeta}
+                        plannerMeta={plannerLocalMeta}
                         batteryCycles={todayStats?.batteryCycles ?? null}
                         priceOutlook={priceOutlook}
                         currentAction={currentAction}

@@ -83,11 +83,6 @@ export default function Select({
         return [...grouped.noGroup, ...Object.values(grouped.groups).flat()]
     }, [grouped])
 
-    // Reset highlight on change
-    useEffect(() => {
-        setHighlightIndex(0)
-    }, [filtered.length, open])
-
     const updatePosition = () => {
         if (triggerRef.current) {
             const rect = triggerRef.current.getBoundingClientRect()
@@ -151,6 +146,7 @@ export default function Select({
             if (e.key === 'Enter' || e.key === ' ' || e.key === 'ArrowDown') {
                 e.preventDefault()
                 updatePosition()
+                setHighlightIndex(0)
                 setOpen(true)
             }
             return
@@ -175,9 +171,11 @@ export default function Select({
                 e.preventDefault()
                 setOpen(false)
                 setSearch('')
+                setHighlightIndex(0)
                 break
             case 'Tab':
                 setOpen(false)
+                setHighlightIndex(0)
                 break
         }
     }
@@ -193,6 +191,7 @@ export default function Select({
                         if (!open) {
                             updatePosition()
                         }
+                        setHighlightIndex(0)
                         setOpen(!open)
                         if (!open && searchable) {
                             setTimeout(() => inputRef.current?.focus(), 0)
@@ -235,7 +234,10 @@ export default function Select({
                                         ref={inputRef}
                                         type="text"
                                         value={search}
-                                        onChange={(e) => setSearch(e.target.value)}
+                                        onChange={(e) => {
+                                            setSearch(e.target.value)
+                                            setHighlightIndex(0)
+                                        }}
                                         placeholder="Search..."
                                         className="w-full pl-8 pr-3 py-1.5 rounded-md bg-surface2 border border-line text-sm text-text placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent/40"
                                         onKeyDown={handleKeyDown}

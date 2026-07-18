@@ -34,7 +34,6 @@ export const ProfileSetupHelper: React.FC<ProfileSetupHelperProps> = ({ profileN
 
     useEffect(() => {
         if (!profileName || profileName === 'generic') {
-            setSuggestions(null)
             return
         }
 
@@ -63,9 +62,13 @@ export const ProfileSetupHelper: React.FC<ProfileSetupHelperProps> = ({ profileN
         fetchSuggestions()
     }, [profileName])
 
+    // Generic profile has no suggestions to show, even if a previous profile's fetch is still cached in state
+    const isGeneric = !profileName || profileName === 'generic'
+    const displaySuggestions = isGeneric ? null : suggestions
+
     // Calculate diffs using local form state (if available)
-    const diffItems = suggestions
-        ? suggestions.diff.filter((d) => {
+    const diffItems = displaySuggestions
+        ? displaySuggestions.diff.filter((d) => {
               // Check if locally applied
               const localValue = currentForm ? currentForm[d.key] : undefined
               if (localValue !== undefined) {
@@ -76,8 +79,9 @@ export const ProfileSetupHelper: React.FC<ProfileSetupHelperProps> = ({ profileN
           })
         : []
 
-    if (!suggestions || (!suggestions.missing_entities.length && !diffItems.length)) {
-        if (loading) return <div className="text-xs text-muted animate-pulse">Checking profile compatibility...</div>
+    if (!displaySuggestions || (!displaySuggestions.missing_entities.length && !diffItems.length)) {
+        if (!isGeneric && loading)
+            return <div className="text-xs text-muted animate-pulse">Checking profile compatibility...</div>
         return null
     }
 
@@ -93,7 +97,8 @@ export const ProfileSetupHelper: React.FC<ProfileSetupHelperProps> = ({ profileN
                             <div className="text-sm font-bold text-text">Profile Setup Helper</div>
                             <div className="text-xs text-muted mt-0.5">
                                 Optimize your configuration for the{' '}
-                                <span className="text-accent font-semibold">{suggestions.profile_name}</span> profile.
+                                <span className="text-accent font-semibold">{displaySuggestions.profile_name}</span>{' '}
+                                profile.
                             </div>
                         </div>
                     </div>
@@ -101,14 +106,14 @@ export const ProfileSetupHelper: React.FC<ProfileSetupHelperProps> = ({ profileN
                 </div>
 
                 <div className="mt-4 space-y-3">
-                    {suggestions.missing_entities.length > 0 && (
+                    {displaySuggestions.missing_entities.length > 0 && (
                         <div className="rounded-lg bg-bad/10 border border-bad/20 p-3">
                             <div className="text-[11px] font-bold text-bad uppercase tracking-wider flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full bg-bad animate-pulse" />
                                 Missing Required Entities
                             </div>
                             <ul className="mt-2 space-y-1">
-                                {suggestions.missing_entities.map((key) => (
+                                {displaySuggestions.missing_entities.map((key) => (
                                     <li key={key} className="text-xs text-muted flex items-center gap-2">
                                         <code className="bg-surface1 px-1 py-0.5 rounded text-[10px]">{key}</code>
                                         <span>is not configured.</span>
@@ -131,7 +136,7 @@ export const ProfileSetupHelper: React.FC<ProfileSetupHelperProps> = ({ profileN
                                 {showDiff ? 'Hide Details' : 'View Details'}
                             </button>
                             <button
-                                onClick={() => onApply(suggestions.suggestions)}
+                                onClick={() => onApply(displaySuggestions.suggestions)}
                                 className="rounded-lg px-3 py-1.5 text-[10px] font-bold bg-accent hover:bg-accent2 transition text-[#100f0e] btn-glow-primary shadow-lg shadow-accent/20"
                             >
                                 Apply Recommendations

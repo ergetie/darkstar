@@ -108,6 +108,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     }, [])
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- mount IO fetch, not derivable
         reload()
         reloadEntities()
     }, [reload, reloadEntities])
@@ -115,6 +116,7 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
     // Rebuild form state when fields change (for dynamic profile fields)
     useEffect(() => {
         if (config && fields.length > 0) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- guards against wiping in-progress edits on rebuild; render-derivation would lose them
             setForm(buildFormState(config as unknown as Record<string, unknown>, fields))
             setFieldErrors({})
             setFormInitialized(true)

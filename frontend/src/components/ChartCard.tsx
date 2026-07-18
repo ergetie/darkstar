@@ -962,6 +962,8 @@ export default function ChartCard({
     const [themeColors, setThemeColors] = useState<Record<string, string>>({})
     // Mobile tap-to-select state
     const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+    // Selection only applies on mobile; derived so the desktop transition clears it without an effect setState
+    const effectiveSelectedIndex = isMobile ? selectedIndex : null
     // Snapshot of the latest chart data pushed to the chart instance — used by the
     // selection panel memo so it reads stable React state rather than a mutating ref (S2b)
     const [liveChartData, setLiveChartData] = useState<ExtendedChartData | null>(null)
@@ -985,21 +987,21 @@ export default function ChartCard({
     }, [isMobile])
 
     // Build formatted slot data for the selection panel from stable React state (S2b).
-    // Keyed on liveChartData (updated whenever chart data is swapped) + selectedIndex + isMobile,
+    // Keyed on liveChartData (updated whenever chart data is swapped) + effectiveSelectedIndex,
     // so the panel never reads a mutating ref mid-render.
     const selectedSlotPanel = useMemo(() => {
-        if (!isMobile || selectedIndex === null || !liveChartData) return null
+        if (effectiveSelectedIndex === null || !liveChartData) return null
         const data = liveChartData
-        if (!data.labels || selectedIndex >= data.labels.length) return null
+        if (!data.labels || effectiveSelectedIndex >= data.labels.length) return null
 
-        const label = data.labels[selectedIndex] as string
+        const label = data.labels[effectiveSelectedIndex] as string
         const pricing = data.pricingConfig
 
         const rows: { label: string; value: string; color: string }[] = []
 
         for (const ds of data.datasets) {
             if (ds.hidden) continue
-            const raw = ds.data[selectedIndex]
+            const raw = ds.data[effectiveSelectedIndex]
             if (raw === null || raw === undefined) continue
             const value = typeof raw === 'number' ? raw : null
             if (value === null) continue
@@ -1035,7 +1037,7 @@ export default function ChartCard({
         }
 
         return { label, rows }
-    }, [isMobile, selectedIndex, liveChartData])
+    }, [effectiveSelectedIndex, liveChartData])
     const [overlays, setOverlays] = useState(() => {
         // Load from localStorage if available, otherwise use defaults
         const STORAGE_KEY = 'darkstar-chart-overlays'
@@ -1304,7 +1306,7 @@ export default function ChartCard({
     }, [themeColors, pricingConfig, hasRealData, scaling.gridMaxKw, scaling.inverterMaxKw, scaling.solarKwp]) // Re-create chart only for initial creation or theme/pricing changes (but not after real data loads)
 
     // Mobile: push current selection into per-instance plugin options and redraw (B1/S1/S3).
-    // Dependency array is [selectedIndex] so it only runs when selection actually changes.
+    // Dependency array is [effectiveSelectedIndex] so it only runs when the (mobile-gated) selection actually changes.
     useEffect(() => {
         if (!chartRef.current) return
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1312,15 +1314,17 @@ export default function ChartCard({
         if (pluginsOpts) {
             pluginsOpts.selectionBand = {
                 mobile: isMobileRef.current,
-                index: selectedIndex,
+                index: effectiveSelectedIndex,
             }
         }
         chartRef.current.draw()
-    }, [selectedIndex])
+    }, [effectiveSelectedIndex])
 
     // Mobile: update chart tooltip enabled state when viewport changes.
     // Also updates the per-instance selectionBand plugin option so the band is
-    // disabled the moment the viewport crosses to desktop (N1/S1).
+    // disabled the moment the viewport crosses to desktop (N1/S1). Selection itself
+    // is cleared via effectiveSelectedIndex (derived from isMobile) rather than a
+    // setState call here — the redraw effect above repaints the band to cleared.
     useEffect(() => {
         if (!chartRef.current) return
         if (chartRef.current.options?.plugins?.tooltip) {
@@ -1331,14 +1335,10 @@ export default function ChartCard({
         if (pluginsOpts) {
             pluginsOpts.selectionBand = {
                 mobile: isMobile,
-                index: selectedIndex,
+                index: effectiveSelectedIndex,
             }
         }
         chartRef.current.update('none')
-        if (!isMobile) {
-            // Clearing selection when switching to desktop
-            setSelectedIndex(null)
-        }
     }, [isMobile]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Dynamically update chart scales when scaling configuration changes

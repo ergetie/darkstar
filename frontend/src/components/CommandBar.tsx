@@ -86,11 +86,11 @@ export default function CommandBar({
     const [topUpSocIdx, setTopUpSocIdx] = useState(1)
     const [loadingVacation, setLoadingVacation] = useState(false)
     const [loadingBoost, setLoadingBoost] = useState(false)
-    const [, setTick] = useState(0)
+    const [now, setNow] = useState(() => Date.now())
 
     useEffect(() => {
         if (!waterBoostActive?.boost || !waterBoostActive.expires_at) return
-        const id = setInterval(() => setTick((t) => t + 1), 1000)
+        const id = setInterval(() => setNow(Date.now()), 1000)
         return () => clearInterval(id)
     }, [waterBoostActive?.boost, waterBoostActive?.expires_at])
 
@@ -214,7 +214,7 @@ export default function CommandBar({
 
     const boostCountdown = (() => {
         if (!isBoostActive || !waterBoostActive?.expires_at) return null
-        const rem = Math.max(0, Math.floor((new Date(waterBoostActive.expires_at).getTime() - Date.now()) / 1000))
+        const rem = Math.max(0, Math.floor((new Date(waterBoostActive.expires_at).getTime() - now) / 1000))
         return `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`
     })()
 
@@ -246,202 +246,192 @@ export default function CommandBar({
             comfortLevel
         ] || 'Unknown'
 
-    function CompactRiskPills() {
-        const colorMap: Record<number, string> = {
-            1: 'bg-good text-[#100f0e] border-good',
-            2: 'bg-night text-[#100f0e] border-night',
-            3: 'bg-water text-[#100f0e] border-water',
-            4: 'bg-warn text-[#100f0e] border-warn',
-            5: 'bg-ai text-[#100f0e] border-ai',
-        }
-        return (
-            <div className="flex items-center gap-1.5" title={`Risk Appetite: ${riskLabel}`}>
-                <span className="text-[10px] text-muted whitespace-nowrap">Risk</span>
-                <div className="flex gap-0.5 h-5">
-                    {[1, 2, 3, 4, 5].map((level) => {
-                        const isActive = riskAppetite === level
-                        return (
-                            <button
-                                key={level}
-                                onClick={() => onSetRiskAppetite(level)}
-                                className={`w-4 rounded-sm text-[9px] font-medium transition border ${
-                                    isActive
-                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                        : 'bg-surface2/50 text-muted hover:bg-surface2 border-transparent'
-                                }`}
-                            >
-                                {level}
-                            </button>
-                        )
-                    })}
-                </div>
-            </div>
-        )
+    const riskPillColorMap: Record<number, string> = {
+        1: 'bg-good text-[#100f0e] border-good',
+        2: 'bg-night text-[#100f0e] border-night',
+        3: 'bg-water text-[#100f0e] border-water',
+        4: 'bg-warn text-[#100f0e] border-warn',
+        5: 'bg-ai text-[#100f0e] border-ai',
     }
-
-    function CompactWaterPills() {
-        const colorMap: Record<number, string> = {
-            1: 'bg-good text-[#100f0e] border-good',
-            2: 'bg-night text-[#100f0e] border-night',
-            3: 'bg-water text-[#100f0e] border-water',
-            4: 'bg-warn text-[#100f0e] border-warn',
-            5: 'bg-bad text-[#100f0e] border-bad',
-        }
-        return (
-            <div className="flex items-center gap-1.5" title={`Water Comfort: ${comfortLabel}`}>
-                <span className="text-[10px] text-muted whitespace-nowrap">Water</span>
-                <div className="flex gap-0.5 h-5">
-                    {[1, 2, 3, 4, 5].map((level) => {
-                        const isActive = comfortLevel === level
-                        return (
-                            <button
-                                key={level}
-                                onClick={() => onSetComfortLevel(level)}
-                                className={`w-4 rounded-sm text-[9px] font-medium transition border ${
-                                    isActive
-                                        ? `${colorMap[level]} ring-1 ring-inset ring-white/5`
-                                        : 'bg-surface2/50 text-muted hover:bg-surface2 border-transparent'
-                                }`}
-                            >
-                                {level}
-                            </button>
-                        )
-                    })}
-                </div>
+    const riskPills = (
+        <div className="flex items-center gap-1.5" title={`Risk Appetite: ${riskLabel}`}>
+            <span className="text-[10px] text-muted whitespace-nowrap">Risk</span>
+            <div className="flex gap-0.5 h-5">
+                {[1, 2, 3, 4, 5].map((level) => {
+                    const isActive = riskAppetite === level
+                    return (
+                        <button
+                            key={level}
+                            onClick={() => onSetRiskAppetite(level)}
+                            className={`w-4 rounded-sm text-[9px] font-medium transition border ${
+                                isActive
+                                    ? `${riskPillColorMap[level]} ring-1 ring-inset ring-white/5`
+                                    : 'bg-surface2/50 text-muted hover:bg-surface2 border-transparent'
+                            }`}
+                        >
+                            {level}
+                        </button>
+                    )
+                })}
             </div>
-        )
+        </div>
+    )
+
+    const waterPillColorMap: Record<number, string> = {
+        1: 'bg-good text-[#100f0e] border-good',
+        2: 'bg-night text-[#100f0e] border-night',
+        3: 'bg-water text-[#100f0e] border-water',
+        4: 'bg-warn text-[#100f0e] border-warn',
+        5: 'bg-bad text-[#100f0e] border-bad',
     }
-
-    function OverrideButtons() {
-        return (
-            <div className="flex items-center gap-2">
-                {/* Top Up */}
-                <div
-                    className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
-                        isTopUpActive
-                            ? 'bg-good/40 border border-good/60 shadow-[0_0_10px_rgba(34,197,94,0.4)]'
-                            : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                    }`}
-                >
-                    {!isTopUpActive && (
-                        <div className="flex items-center mr-1">
-                            <button
-                                onClick={() => setTopUpSocIdx((i) => Math.max(0, i - 1))}
-                                className="px-0.5 hover:text-accent"
-                                disabled={topUpSocIdx === 0}
-                            >
-                                <ChevronLeft className="h-2.5 w-2.5" />
-                            </button>
-                            <span className="text-muted text-[9px] min-w-[16px] text-center">
-                                {TOP_UP_SOC_OPTIONS[topUpSocIdx]}%
-                            </span>
-                            <button
-                                onClick={() => setTopUpSocIdx((i) => Math.min(TOP_UP_SOC_OPTIONS.length - 1, i + 1))}
-                                className="px-0.5 hover:text-accent"
-                                disabled={topUpSocIdx === TOP_UP_SOC_OPTIONS.length - 1}
-                            >
-                                <ChevronRight className="h-2.5 w-2.5" />
-                            </button>
-                        </div>
-                    )}
-                    <button
-                        onClick={handleToggleTopUp}
-                        className={`flex items-center gap-1 ${isTopUpActive ? 'text-white' : 'text-good'}`}
-                    >
-                        <BatteryCharging className={`h-3 w-3 ${isTopUpActive ? 'animate-pulse' : ''}`} />
-                        <span>{isTopUpActive ? 'STOP' : 'Top Up'}</span>
-                    </button>
-                </div>
-
-                {/* Boost */}
-                <div
-                    className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
-                        isBoostActive
-                            ? 'bg-water/40 border border-water/60 shadow-[0_0_10px_rgba(var(--color-water),0.4)]'
-                            : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                    }`}
-                >
-                    {!isBoostActive && (
-                        <div className="flex items-center mr-1">
-                            <button
-                                onClick={() => setBoostMinutesIdx((i) => Math.max(0, i - 1))}
-                                className="px-0.5 hover:text-accent"
-                                disabled={boostMinutesIdx === 0}
-                            >
-                                <ChevronLeft className="h-2.5 w-2.5" />
-                            </button>
-                            <span className="text-muted text-[9px] min-w-[16px] text-center">
-                                {BOOST_MINUTES_OPTIONS[boostMinutesIdx] === 120
-                                    ? '2h'
-                                    : BOOST_MINUTES_OPTIONS[boostMinutesIdx] === 60
-                                      ? '1h'
-                                      : '30m'}
-                            </span>
-                            <button
-                                onClick={() =>
-                                    setBoostMinutesIdx((i) => Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1))
-                                }
-                                className="px-0.5 hover:text-accent"
-                                disabled={boostMinutesIdx === BOOST_MINUTES_OPTIONS.length - 1}
-                            >
-                                <ChevronRight className="h-2.5 w-2.5" />
-                            </button>
-                        </div>
-                    )}
-                    <button
-                        onClick={handleToggleBoost}
-                        disabled={loadingBoost}
-                        className={`flex items-center gap-1 ${isBoostActive ? 'text-white' : 'text-water'}`}
-                    >
-                        <Flame className={`h-3 w-3 ${isBoostActive ? 'animate-pulse' : ''}`} />
-                        <span>{isBoostActive ? 'STOP' : 'Boost'}</span>
-                        {boostCountdown && <span className="text-water/80">{boostCountdown}</span>}
-                    </button>
-                </div>
-
-                {/* Vacation */}
-                <div
-                    className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
-                        isVacationActive
-                            ? 'bg-amber-500/30 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
-                            : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
-                    }`}
-                >
-                    {!isVacationActive && (
-                        <div className="flex items-center mr-1">
-                            <button
-                                onClick={() => setVacationDaysIdx((i) => Math.max(0, i - 1))}
-                                className="px-0.5 hover:text-accent"
-                                disabled={vacationDaysIdx === 0}
-                            >
-                                <ChevronLeft className="h-2.5 w-2.5" />
-                            </button>
-                            <span className="text-muted text-[9px] min-w-[16px] text-center">
-                                {VACATION_DAYS_OPTIONS[vacationDaysIdx]}d
-                            </span>
-                            <button
-                                onClick={() =>
-                                    setVacationDaysIdx((i) => Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1))
-                                }
-                                className="px-0.5 hover:text-accent"
-                                disabled={vacationDaysIdx === VACATION_DAYS_OPTIONS.length - 1}
-                            >
-                                <ChevronRight className="h-2.5 w-2.5" />
-                            </button>
-                        </div>
-                    )}
-                    <button
-                        onClick={handleToggleVacation}
-                        disabled={loadingVacation}
-                        className={`flex items-center gap-1 ${isVacationActive ? 'text-amber-100' : 'text-amber-400/80'}`}
-                    >
-                        <Palmtree className="h-3 w-3" />
-                        <span>{isVacationActive ? 'ON' : 'Vacay'}</span>
-                    </button>
-                </div>
+    const waterPills = (
+        <div className="flex items-center gap-1.5" title={`Water Comfort: ${comfortLabel}`}>
+            <span className="text-[10px] text-muted whitespace-nowrap">Water</span>
+            <div className="flex gap-0.5 h-5">
+                {[1, 2, 3, 4, 5].map((level) => {
+                    const isActive = comfortLevel === level
+                    return (
+                        <button
+                            key={level}
+                            onClick={() => onSetComfortLevel(level)}
+                            className={`w-4 rounded-sm text-[9px] font-medium transition border ${
+                                isActive
+                                    ? `${waterPillColorMap[level]} ring-1 ring-inset ring-white/5`
+                                    : 'bg-surface2/50 text-muted hover:bg-surface2 border-transparent'
+                            }`}
+                        >
+                            {level}
+                        </button>
+                    )
+                })}
             </div>
-        )
-    }
+        </div>
+    )
+
+    const overrideButtons = (
+        <div className="flex items-center gap-2">
+            {/* Top Up */}
+            <div
+                className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
+                    isTopUpActive
+                        ? 'bg-good/40 border border-good/60 shadow-[0_0_10px_rgba(34,197,94,0.4)]'
+                        : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
+                }`}
+            >
+                {!isTopUpActive && (
+                    <div className="flex items-center mr-1">
+                        <button
+                            onClick={() => setTopUpSocIdx((i) => Math.max(0, i - 1))}
+                            className="px-0.5 hover:text-accent"
+                            disabled={topUpSocIdx === 0}
+                        >
+                            <ChevronLeft className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-muted text-[9px] min-w-[16px] text-center">
+                            {TOP_UP_SOC_OPTIONS[topUpSocIdx]}%
+                        </span>
+                        <button
+                            onClick={() => setTopUpSocIdx((i) => Math.min(TOP_UP_SOC_OPTIONS.length - 1, i + 1))}
+                            className="px-0.5 hover:text-accent"
+                            disabled={topUpSocIdx === TOP_UP_SOC_OPTIONS.length - 1}
+                        >
+                            <ChevronRight className="h-2.5 w-2.5" />
+                        </button>
+                    </div>
+                )}
+                <button
+                    onClick={handleToggleTopUp}
+                    className={`flex items-center gap-1 ${isTopUpActive ? 'text-white' : 'text-good'}`}
+                >
+                    <BatteryCharging className={`h-3 w-3 ${isTopUpActive ? 'animate-pulse' : ''}`} />
+                    <span>{isTopUpActive ? 'STOP' : 'Top Up'}</span>
+                </button>
+            </div>
+
+            {/* Boost */}
+            <div
+                className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
+                    isBoostActive
+                        ? 'bg-water/40 border border-water/60 shadow-[0_0_10px_rgba(var(--color-water),0.4)]'
+                        : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
+                }`}
+            >
+                {!isBoostActive && (
+                    <div className="flex items-center mr-1">
+                        <button
+                            onClick={() => setBoostMinutesIdx((i) => Math.max(0, i - 1))}
+                            className="px-0.5 hover:text-accent"
+                            disabled={boostMinutesIdx === 0}
+                        >
+                            <ChevronLeft className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-muted text-[9px] min-w-[16px] text-center">
+                            {BOOST_MINUTES_OPTIONS[boostMinutesIdx] === 120
+                                ? '2h'
+                                : BOOST_MINUTES_OPTIONS[boostMinutesIdx] === 60
+                                  ? '1h'
+                                  : '30m'}
+                        </span>
+                        <button
+                            onClick={() => setBoostMinutesIdx((i) => Math.min(BOOST_MINUTES_OPTIONS.length - 1, i + 1))}
+                            className="px-0.5 hover:text-accent"
+                            disabled={boostMinutesIdx === BOOST_MINUTES_OPTIONS.length - 1}
+                        >
+                            <ChevronRight className="h-2.5 w-2.5" />
+                        </button>
+                    </div>
+                )}
+                <button
+                    onClick={handleToggleBoost}
+                    disabled={loadingBoost}
+                    className={`flex items-center gap-1 ${isBoostActive ? 'text-white' : 'text-water'}`}
+                >
+                    <Flame className={`h-3 w-3 ${isBoostActive ? 'animate-pulse' : ''}`} />
+                    <span>{isBoostActive ? 'STOP' : 'Boost'}</span>
+                    {boostCountdown && <span className="text-water/80">{boostCountdown}</span>}
+                </button>
+            </div>
+
+            {/* Vacation */}
+            <div
+                className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
+                    isVacationActive
+                        ? 'bg-amber-500/30 border border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                        : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
+                }`}
+            >
+                {!isVacationActive && (
+                    <div className="flex items-center mr-1">
+                        <button
+                            onClick={() => setVacationDaysIdx((i) => Math.max(0, i - 1))}
+                            className="px-0.5 hover:text-accent"
+                            disabled={vacationDaysIdx === 0}
+                        >
+                            <ChevronLeft className="h-2.5 w-2.5" />
+                        </button>
+                        <span className="text-muted text-[9px] min-w-[16px] text-center">
+                            {VACATION_DAYS_OPTIONS[vacationDaysIdx]}d
+                        </span>
+                        <button
+                            onClick={() => setVacationDaysIdx((i) => Math.min(VACATION_DAYS_OPTIONS.length - 1, i + 1))}
+                            className="px-0.5 hover:text-accent"
+                            disabled={vacationDaysIdx === VACATION_DAYS_OPTIONS.length - 1}
+                        >
+                            <ChevronRight className="h-2.5 w-2.5" />
+                        </button>
+                    </div>
+                )}
+                <button
+                    onClick={handleToggleVacation}
+                    disabled={loadingVacation}
+                    className={`flex items-center gap-1 ${isVacationActive ? 'text-amber-100' : 'text-amber-400/80'}`}
+                >
+                    <Palmtree className="h-3 w-3" />
+                    <span>{isVacationActive ? 'ON' : 'Vacay'}</span>
+                </button>
+            </div>
+        </div>
+    )
 
     return (
         <Card className="px-4 py-2 border-accent/20 bg-surface/80 backdrop-blur-md">
@@ -503,10 +493,10 @@ export default function CommandBar({
 
                 {/* Center Group: Parameters & Overrides */}
                 <div className="flex flex-wrap items-center gap-4">
-                    <CompactRiskPills />
-                    <CompactWaterPills />
+                    {riskPills}
+                    {waterPills}
                     <div className="h-6 w-px bg-line/40 hidden md:block" />
-                    <OverrideButtons />
+                    {overrideButtons}
                 </div>
 
                 {/* Right Group: Status */}

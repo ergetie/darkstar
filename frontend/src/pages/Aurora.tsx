@@ -90,6 +90,7 @@ export default function Aurora() {
     }
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- mount IO fetch, not derivable
         fetchDashboard()
 
         const fetchSchedulerStatus = async () => {
@@ -146,6 +147,7 @@ export default function Aurora() {
 
     useEffect(() => {
         if (chartMode === 'price' && priceForecastSlots.length === 0) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- lazy IO fetch, loading flag is fetch state
             setPriceForecastLoading(true)
             Api.priceForecast
                 .forecasts(true)

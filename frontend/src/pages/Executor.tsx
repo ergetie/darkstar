@@ -470,6 +470,7 @@ export default function Executor() {
 
     // Initial data load
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- initial-load spinner; must not move into fetchAll or it would flash on every background poll
         setLoading(true)
         fetchAll()
         const interval = setInterval(fetchAll, 30000) // Keep status polling as backup

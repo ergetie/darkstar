@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Terminal, Activity, Download, Trash2, RefreshCw, ShieldCheck } from 'lucide-react'
 import Card from '../components/Card'
 import MonitorStatusCard from '../components/MonitorStatusCard'
@@ -35,6 +35,7 @@ function LogsView({
     clearLogs: () => void
 }) {
     const logContainerRef = useRef<HTMLDivElement>(null)
+    const [now, setNow] = useState(() => Date.now())
 
     // Autoscroll
     useEffect(() => {
@@ -43,26 +44,33 @@ function LogsView({
         }
     }, [logs, isLive])
 
-    const filteredLogs = logs
-        .filter((entry) => {
-            if (levelFilter === 'all') return true
-            const level = (entry.level || '').toUpperCase()
-            if (levelFilter === 'error') return level === 'ERROR' || level === 'CRITICAL'
-            return level === 'WARN' || level === 'WARNING' || level === 'ERROR' || level === 'CRITICAL'
-        })
-        .filter((entry) => {
-            if (timeRange === 'all') return true
-            const ts = new Date(entry.timestamp).getTime()
-            if (Number.isNaN(ts)) return true
+    // Refresh the time-range cutoff periodically (purity: Date.now() may not be read during render)
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 60000)
+        return () => clearInterval(id)
+    }, [])
 
-            const now = Date.now()
-            const deltaMs = now - ts
-            const oneHour = 60 * 60 * 1000
-            if (timeRange === '1h') return deltaMs <= oneHour
-            if (timeRange === '6h') return deltaMs <= 6 * oneHour
-            if (timeRange === '24h') return deltaMs <= 24 * oneHour
-            return true
-        })
+    const filteredLogs = useMemo(() => {
+        return logs
+            .filter((entry) => {
+                if (levelFilter === 'all') return true
+                const level = (entry.level || '').toUpperCase()
+                if (levelFilter === 'error') return level === 'ERROR' || level === 'CRITICAL'
+                return level === 'WARN' || level === 'WARNING' || level === 'ERROR' || level === 'CRITICAL'
+            })
+            .filter((entry) => {
+                if (timeRange === 'all') return true
+                const ts = new Date(entry.timestamp).getTime()
+                if (Number.isNaN(ts)) return true
+
+                const deltaMs = now - ts
+                const oneHour = 60 * 60 * 1000
+                if (timeRange === '1h') return deltaMs <= oneHour
+                if (timeRange === '6h') return deltaMs <= 6 * oneHour
+                if (timeRange === '24h') return deltaMs <= 24 * oneHour
+                return true
+            })
+    }, [logs, levelFilter, timeRange, now])
 
     const errorLogs = logs.filter((entry) => {
         const level = (entry.level || '').toUpperCase()

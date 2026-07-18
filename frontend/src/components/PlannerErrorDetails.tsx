@@ -40,13 +40,16 @@ function redactSecrets(obj: Record<string, unknown>, seen = new WeakSet()): Reco
 }
 
 function useRetryCountdown(retryInS: number | null | undefined): number | null {
-    const [remaining, setRemaining] = useState<number | null>(retryInS ?? null)
+    const initialVal = retryInS ?? null
+    const [prevRetryInS, setPrevRetryInS] = useState(initialVal)
+    const [remaining, setRemaining] = useState<number | null>(initialVal)
+
+    if (initialVal !== prevRetryInS) {
+        setPrevRetryInS(initialVal)
+        setRemaining(initialVal)
+    }
 
     useEffect(() => {
-        const initialVal = retryInS ?? null
-
-        setRemaining(initialVal)
-
         if (initialVal === null) {
             return
         }
@@ -61,7 +64,7 @@ function useRetryCountdown(retryInS: number | null | undefined): number | null {
             })
         }, 1000)
         return () => clearInterval(interval)
-    }, [retryInS])
+    }, [initialVal])
 
     return remaining
 }

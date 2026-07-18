@@ -3,6 +3,16 @@ import { Activity, Database, CheckCircle, AlertTriangle, AlertCircle, Clock, Ser
 import { Api, SystemHealthResponse } from '../lib/api'
 import Card from './Card'
 
+function StatusIcon({ status }: { status: string }) {
+    if (status === 'success' || status === 'good' || status === 'graduate' || status === 'statistician') {
+        return <CheckCircle className="h-3 w-3 text-emerald-400" />
+    }
+    if (status === 'warning' || status === 'infant') {
+        return <AlertTriangle className="h-3 w-3 text-amber-400" />
+    }
+    return <AlertCircle className="h-3 w-3 text-rose-400" />
+}
+
 export default function SystemHealthCard() {
     const [health, setHealth] = useState<SystemHealthResponse | null>(null)
     const [loading, setLoading] = useState(true)
@@ -37,16 +47,6 @@ export default function SystemHealthCard() {
                 </div>
             </Card>
         )
-    }
-
-    const StatusIcon = ({ status }: { status: string }) => {
-        if (status === 'success' || status === 'good' || status === 'graduate' || status === 'statistician') {
-            return <CheckCircle className="h-3 w-3 text-emerald-400" />
-        }
-        if (status === 'warning' || status === 'infant') {
-            return <AlertTriangle className="h-3 w-3 text-amber-400" />
-        }
-        return <AlertCircle className="h-3 w-3 text-rose-400" />
     }
 
     return (
