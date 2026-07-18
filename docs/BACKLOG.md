@@ -61,8 +61,4 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 💡 Future Ideas / Deferred
 
-#### [UI] Expand Settings-Search User Guides
-
-**Goal:** Grow the in-app guide library beyond the initial 4–5 guides shipped with the settings search.
-
-**Notes:** The settings search (see the settings-search change, discussed 2026-07-18) launches with short guides for Load Balancing, EV Charging, Water Heater, Battery/S-Index, and Solar Forecast. Later, add guides for the remaining functions (e.g. price alerts, vacation mode, excess-PV priority, advisor/LLM, quick actions) and consider deepening existing ones. Revisit trigger: after the settings-search change ships and has been used for a while.
+<!-- Empty -->

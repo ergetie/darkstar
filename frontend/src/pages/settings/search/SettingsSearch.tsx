@@ -1,9 +1,9 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback } from 'react'
-import { Search, X, BookOpen } from 'lucide-react'
-import { search, FieldSearchResult, GuideSearchResult } from './index'
+import { Search, X, BookOpen, BookA } from 'lucide-react'
+import { search, FieldSearchResult, GuideSearchResult, GlossarySearchResult } from './index'
 import { getFieldVisibility } from './hints'
 import { GuideViewer } from './GuideViewer'
-import { Guide } from './guides'
+import { ViewerContent, guideToContent, glossaryToContent } from './viewerContent'
 
 interface SettingsSearchProps {
     advancedMode: boolean
@@ -11,24 +11,32 @@ interface SettingsSearchProps {
     onJumpToField: (tabId: string, fieldKey: string) => void
 }
 
-type CombinedItem = { type: 'field'; result: FieldSearchResult } | { type: 'guide'; result: GuideSearchResult }
+type CombinedItem =
+    | { type: 'field'; result: FieldSearchResult }
+    | { type: 'guide'; result: GuideSearchResult }
+    | { type: 'glossary'; result: GlossarySearchResult }
 
 export const SettingsSearch: React.FC<SettingsSearchProps> = ({ advancedMode, config, onJumpToField }) => {
     const [query, setQuery] = useState('')
     const [isOpen, setIsOpen] = useState(false)
     const [highlightedIndex, setHighlightedIndex] = useState(0)
-    const [openGuide, setOpenGuide] = useState<Guide | null>(null)
+    const [viewerContent, setViewerContent] = useState<ViewerContent | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     const inputRef = useRef<HTMLInputElement>(null)
 
-    const { fields: fieldResults, guides: guideResults } = useMemo(() => search(query), [query])
+    const {
+        fields: fieldResults,
+        guides: guideResults,
+        glossary: glossaryResults,
+    } = useMemo(() => search(query), [query])
 
     const combined: CombinedItem[] = useMemo(
         () => [
             ...fieldResults.map((result): CombinedItem => ({ type: 'field', result })),
             ...guideResults.map((result): CombinedItem => ({ type: 'guide', result })),
+            ...glossaryResults.map((result): CombinedItem => ({ type: 'glossary', result })),
         ],
-        [fieldResults, guideResults],
+        [fieldResults, guideResults, glossaryResults],
     )
 
     // Reset the highlighted item whenever the query changes. Adjusting state
@@ -59,15 +67,21 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({ advancedMode, co
 
     const selectGuide = useCallback((result: GuideSearchResult) => {
         setIsOpen(false)
-        setOpenGuide(result.guide)
+        setViewerContent(guideToContent(result.guide))
+    }, [])
+
+    const selectGlossary = useCallback((result: GlossarySearchResult) => {
+        setIsOpen(false)
+        setViewerContent(glossaryToContent(result.entry))
     }, [])
 
     const selectItem = useCallback(
         (item: CombinedItem) => {
             if (item.type === 'field') selectField(item.result)
-            else selectGuide(item.result)
+            else if (item.type === 'guide') selectGuide(item.result)
+            else selectGlossary(item.result)
         },
-        [selectField, selectGuide],
+        [selectField, selectGuide, selectGlossary],
     )
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -204,15 +218,48 @@ export const SettingsSearch: React.FC<SettingsSearchProps> = ({ advancedMode, co
                                     })}
                                 </div>
                             )}
+
+                            {glossaryResults.length > 0 && (
+                                <div className="py-1 border-t border-line/30">
+                                    <div className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-muted">
+                                        Glossary
+                                    </div>
+                                    {glossaryResults.map((result, i) => {
+                                        const idx = fieldResults.length + guideResults.length + i
+                                        return (
+                                            <button
+                                                key={result.entry.id}
+                                                type="button"
+                                                onClick={() => selectGlossary(result)}
+                                                onMouseEnter={() => setHighlightedIndex(idx)}
+                                                className={`flex w-full items-start gap-2 text-left px-3 py-2 transition-colors ${
+                                                    highlightedIndex === idx ? 'bg-surface2' : 'hover:bg-surface2/60'
+                                                }`}
+                                            >
+                                                <BookA size={14} className="mt-0.5 shrink-0 text-accent" />
+                                                <div>
+                                                    <div className="text-sm font-medium text-text">
+                                                        {result.entry.term}
+                                                    </div>
+                                                    <p className="mt-0.5 text-xs text-muted line-clamp-2">
+                                                        {result.entry.definition}
+                                                    </p>
+                                                </div>
+                                            </button>
+                                        )
+                                    })}
+                                </div>
+                            )}
                         </>
                     )}
                 </div>
             )}
 
             <GuideViewer
-                guide={openGuide}
-                onClose={() => setOpenGuide(null)}
+                content={viewerContent}
+                onClose={() => setViewerContent(null)}
                 onJumpToField={(tabId, fieldKey) => onJumpToField(tabId, fieldKey)}
+                onOpenGuide={(guide) => setViewerContent(guideToContent(guide))}
             />
         </div>
     )

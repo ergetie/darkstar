@@ -13,6 +13,8 @@ import {
     BaseField,
 } from '../types'
 import { guides, Guide } from './guides'
+import { glossaryEntries, GlossaryEntry } from './glossary'
+import { fieldAliases } from './aliases'
 
 export interface SearchFieldEntry {
     tabId: string
@@ -83,7 +85,13 @@ export interface GuideSearchResult {
     score: number
 }
 
-export type SearchResult = FieldSearchResult | GuideSearchResult
+export interface GlossarySearchResult {
+    kind: 'glossary'
+    entry: GlossaryEntry
+    score: number
+}
+
+export type SearchResult = FieldSearchResult | GuideSearchResult | GlossarySearchResult
 
 function tokenize(query: string): string[] {
     return query.toLowerCase().trim().split(/\s+/).filter(Boolean)
@@ -115,6 +123,7 @@ export function searchFields(query: string): FieldSearchResult[] {
         const score = matchScore(
             [
                 { text: entry.label, weight: 3 },
+                { text: fieldAliases[entry.fieldKey]?.join(' '), weight: 3 },
                 { text: entry.fieldKey, weight: 2 },
                 { text: entry.helpText, weight: 1 },
             ],
@@ -134,6 +143,7 @@ export function searchGuides(query: string): GuideSearchResult[] {
         const score = matchScore(
             [
                 { text: guide.title, weight: 3 },
+                { text: guide.aliases?.join(' '), weight: 3 },
                 { text: guide.summary, weight: 2 },
                 { text: guide.body, weight: 1 },
             ],
@@ -144,6 +154,29 @@ export function searchGuides(query: string): GuideSearchResult[] {
     return results.sort((a, b) => b.score - a.score)
 }
 
-export function search(query: string): { fields: FieldSearchResult[]; guides: GuideSearchResult[] } {
-    return { fields: searchFields(query), guides: searchGuides(query) }
+export function searchGlossary(query: string): GlossarySearchResult[] {
+    const tokens = tokenize(query)
+    if (tokens.length === 0) return []
+
+    const results: GlossarySearchResult[] = []
+    for (const entry of glossaryEntries) {
+        const score = matchScore(
+            [
+                { text: entry.term, weight: 3 },
+                { text: entry.aliases?.join(' '), weight: 3 },
+                { text: entry.definition, weight: 1 },
+            ],
+            tokens,
+        )
+        if (score > 0) results.push({ kind: 'glossary', entry, score })
+    }
+    return results.sort((a, b) => b.score - a.score)
+}
+
+export function search(query: string): {
+    fields: FieldSearchResult[]
+    guides: GuideSearchResult[]
+    glossary: GlossarySearchResult[]
+} {
+    return { fields: searchFields(query), guides: searchGuides(query), glossary: searchGlossary(query) }
 }
