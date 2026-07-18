@@ -3,6 +3,13 @@ name = "darkstar"
 version = "2.5.11-beta"
 requires-python = ">=3.12"
 
+[tool.uv]
+# Not a buildable/lockable package — deps are managed via requirements*.txt
+# (see design.md D1 in the dependency-upgrade-pass change). Without this, `uv
+# run`/`uv pip install` treat this as a uv project and keep regenerating a
+# meaningless single-package uv.lock stub.
+package = false
+
 [tool.ruff]
 # Same line length as previous Black config
 line-length = 100

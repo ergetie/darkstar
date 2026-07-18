@@ -847,12 +847,8 @@ def _validate_config_for_save(
             missing_entities = active_profile.get_missing_entities(config)
 
             for missing_key in missing_entities:
-                entity_def = active_profile.entities.get(missing_key, {})
-                entity_category = (
-                    entity_def.get("category", "system")
-                    if isinstance(entity_def, dict)
-                    else "system"
-                )
+                entity_def = active_profile.entities.get(missing_key)
+                entity_category = entity_def.category if entity_def is not None else "system"
                 recommended_tab = "Battery" if entity_category == "battery" else "System"
 
                 issues.append(

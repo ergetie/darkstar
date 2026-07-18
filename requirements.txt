@@ -1,26 +1,33 @@
-aiosqlite>=0.19.0
-alembic>=1.18.4,<2.0.0
-astral>=3.2
 # Core production dependencies for Darkstar
-# Database
-fastapi>=0.109.0,<0.136.0
-starlette>=0.40.0,<1.0.0
-httpx>=0.27.0
-lightgbm>=4.0.0
-nordpool>=0.2
-open-meteo-solar-forecast
-pandas>=2.0.0
-pulp>=2.9.0,<4.0.0
-pydantic>=2.0.0
-python-dateutil>=2.8.0
-python-json-logger>=2.0.7
-python-socketio>=5.11.0
-pytz>=2023.3
-pyyaml>=6.0
-requests>=2.0.0
-aiohttp>=3.9.0
-ruamel.yaml>=0.17.0
-scikit-learn>=1.3.0
-sqlalchemy>=2.0.48,<3.0.0
-uvicorn[standard]>=0.27.0
-websockets>=11.0
+# Pinned exactly so CI, local, and Docker resolve the SAME versions. Loose
+# ranges let CI/local/Docker each resolve a different version — the exact
+# failure mode that broke CI in June 2026. Bump deliberately (and re-run the
+# local CI gate) to upgrade.
+aiohttp==3.14.1
+aiosqlite==0.22.1
+alembic==1.18.5  # ceiling <2.0.0 dropped — 2.x not yet released as of 2026-07-17
+astral==3.2
+fastapi==0.139.2
+httpx==0.28.1
+lightgbm==4.6.0
+nordpool==0.5.1
+open-meteo-solar-forecast==0.1.29
+pandas==3.0.3
+# Held below 4.0 (not yet released as of 2026-07-17) until the
+# prob.constraints dict-access migration in planner/solver/kepler.py is done.
+# Bump the exact pin only, don't reintroduce a range. Lift the hold only after
+# that migration lands (see design.md D4).
+pulp==3.3.2
+pydantic==2.13.4
+python-dateutil==2.9.0.post0
+python-json-logger==4.1.0
+python-socketio==5.16.3
+pytz==2026.2
+pyyaml==6.0.3
+requests==2.34.2
+ruamel.yaml==0.19.1
+scikit-learn==1.9.0
+sqlalchemy==2.0.51  # ceiling <3.0.0 dropped — 3.x not yet released as of 2026-07-17
+starlette==0.52.1  # ceiling <1.0.0 dropped — 1.x not yet adopted, see design.md D1
+uvicorn[standard]==0.51.0
+websockets==16.1

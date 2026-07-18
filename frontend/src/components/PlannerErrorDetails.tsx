@@ -44,7 +44,7 @@ function useRetryCountdown(retryInS: number | null | undefined): number | null {
 
     useEffect(() => {
         const initialVal = retryInS ?? null
-        // eslint-disable-next-line react-hooks/set-state-in-effect
+
         setRemaining(initialVal)
 
         if (initialVal === null) {

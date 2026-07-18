@@ -8,6 +8,10 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # Deps are managed via requirements*.txt (uv pip install), not `uv sync`/uv.lock
+  # (see pyproject.toml [tool.uv] package = false). Without this, `uv run` treats
+  # the repo as a uv project and regenerates a meaningless uv.lock stub.
+  UV_NO_SYNC: "1"
 
 jobs:
   lint-backend:
@@ -25,7 +29,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: uv.lock
+          cache-dependency-glob: 'requirements*.txt'
 
       - name: Install dependencies
         run: uv venv && uv pip install -r requirements.txt -r requirements-dev.txt
@@ -45,12 +49,12 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 10
 
       - name: Setup Node
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -75,7 +79,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: uv.lock
+          cache-dependency-glob: 'requirements*.txt'
 
       - name: Install dependencies
         run: uv venv && uv pip install -r requirements.txt -r requirements-dev.txt
@@ -98,7 +102,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: uv.lock
+          cache-dependency-glob: 'requirements*.txt'
 
       - name: Install dependencies
         run: uv venv && uv pip install -r requirements.txt -r requirements-dev.txt
@@ -121,7 +125,7 @@ jobs:
         uses: astral-sh/setup-uv@v6
         with:
           enable-cache: true
-          cache-dependency-glob: uv.lock
+          cache-dependency-glob: 'requirements*.txt'
 
       - name: Install dependencies
         run: uv venv && uv pip install -r requirements.txt

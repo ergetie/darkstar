@@ -163,12 +163,12 @@ def remove_deprecated_keys(config: dict[str, Any]) -> tuple[dict[str, Any], bool
     # Nested deprecated keys
     for path, keys in DEPRECATED_NESTED_KEYS.items():
         parts = path.split(".")
-        obj = config
+        obj: Any = config
 
         # Navigate to nested object
         for part in parts:
             if isinstance(obj, dict) and part in obj:
-                obj = obj[part]
+                obj = cast("Any", obj)[part]
             else:
                 break
         else:
@@ -741,11 +741,11 @@ def validate_config_for_write(config: dict[str, Any], strict: bool = True) -> bo
         # Check nested deprecated keys
         for path, keys in DEPRECATED_NESTED_KEYS.items():
             parts = path.split(".")
-            obj = config
+            obj: Any = config
             # Navigate to nested object
             for part in parts:
                 if isinstance(obj, dict) and part in obj:
-                    obj = obj[part]
+                    obj = cast("Any", obj)[part]
                 else:
                     break
             else:

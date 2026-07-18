@@ -49,27 +49,13 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🔧 Improvements
 
-#### [Price Forecast / S-Index] Calibrate `RISK_PRICE_KW_FRACTION` Against Real Price Data **(needs production data)**
+<!-- The three price-forecast/S-Index "(needs production data)" calibration items were resolved by the 2026-07-17 replay investigation (97 days of prod forecasts + last winter's actuals): RISK_PRICE_KW_FRACTION keeps its values and pure-peak stays (verdicts + evidence recorded in openspec/changes/price-alert-accuracy/proposal.md); the alert-accuracy work was promoted into the price-alert-accuracy change. -->
 
-**Goal:** Revisit the risk-fraction constants `{1: 0.15, 2: 0.12, 3: 0.10, 4: 0.05, 5: 0.02}` in `planner/strategy/s_index.py` after Module 3 (price-forecasting-module-3) has been live in production for 2–4 weeks and a meaningful sample of real positive-spread events has been observed. Determine whether the resulting floor adjustments match expected behavior or need tuning.
+#### [Frontend] Fix Findings from `react-hooks` Lint Rules Disabled During dependency-upgrade-pass
 
-**Notes:** Added 2026-04-25 as part of price-forecasting-module-3. The fractions were chosen by reasoning about reasonable behavior for Swedish price ranges, not measured against historical Nordpool data. Sample evaluation criteria: (a) does Risk 1 (Safety) actually hoard appropriately during real winter spikes? (b) is Risk 5 (Gambler) correctly under-reactive? (c) are mid-spread events (~1–2 SEK/kWh) producing floor changes the user intuitively agrees with? Use `s_index_debug` log entries and `strategy_log` events as the data source.
+**Goal:** Fix the 22 pre-existing findings across 13 files that `eslint-plugin-react-hooks` 7.1.1 flagged, then re-enable the 4 rules currently turned off in `frontend/eslint.config.js` (`react-hooks/set-state-in-effect`, `static-components`, `purity`, `immutability`).
 
----
-
-#### [Price Forecast / S-Index] Explore Top-2-Average vs Pure Peak for Upcoming Price Signal **(needs production data)**
-
-**Goal:** Investigate whether `calculate_price_floor_addon()` should use the top-2 daily average instead of the pure peak (`max`) across D+1–D+7 to compute `peak_upcoming_sek`. The pure-peak approach is sensitive to a single inaccurate D+5/D+6/D+7 forecast day; a top-2 average dampens that without losing strong-spike sensitivity.
-
-**Notes:** Added 2026-04-25 as part of price-forecasting-module-3. Module 3 ships with pure peak for KISS reasons (simpler, easier to debug). The 80% capacity cap and the trailing-14-day average already provide some protection against runaway addons from a single bad forecast day. Revisit only if real-world observation shows the pure peak is producing unwarranted floor increases on bad-forecast days. Trivial code change if needed. Rides along with the `RISK_PRICE_KW_FRACTION` calibration session — same data, same analysis.
-
----
-
-#### [Price Forecast] Improve Price Alert Accuracy **(needs production data)**
-
-**Goal:** Review and improve the rule-based price alert thresholds in `backend/api/routers/analyst.py` (`_get_price_advice()`). Current alerts ("cheapest day ahead" at 30% threshold, "prices rising", "cheap overnight" at 25% threshold) may fire on noise or stale forecast data, producing alerts that don't match observed reality.
-
-**Notes:** Observed during price-forecast-ui-enhancements verification (2026-04-08). The alerts are dynamically generated from real forecast data (not hardcoded), but the simple percentage thresholds may need tuning. Consider: (a) requiring minimum absolute price difference, not just percentage, (b) filtering out stale forecast data before computing alerts, (c) confidence-weighting alerts based on model accuracy (d1_mae).
+**Notes:** During dependency-upgrade-pass (2026-07), bumping `eslint-plugin-react-hooks` 7.0.1 → 7.1.1 (an in-range minor, part of the frontend minor/patch phase) pulled in 4 new rules added to its `recommended` set. They surfaced 22 findings in existing code. Fixing them properly means restructuring the affected components/effects, which was out of scope for a version-bump-only change (risk of behavior changes), so the 4 rules were disabled instead with a comment. User-approved as a scope call at the time. This item is the follow-up: go through the 13 files, fix the findings, re-enable the rules one at a time.
 
 ---
 
@@ -108,6 +94,14 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 ---
 
 ## 💡 Future Ideas / Deferred
+
+#### [Telemetry] Opt-In Call-Home Data Gathering for Calibration (Considered & Deferred 2026-07-17)
+
+**Goal:** Collect anonymized calibration-relevant data (e.g., S-Index floor decisions, price-addon events, forecast accuracy) from consenting users' installs to a central endpoint, so tuning sessions can draw on multi-household evidence instead of only the maintainer's prod.
+
+**Notes:** Raised 2026-07-17 during the S-Index calibration data-review discussion. Deferred because it is real infrastructure — a hosted endpoint, consent UX, privacy handling, schema versioning — while the constants being tuned (price behavior) are per-bidding-zone rather than per-household, so the maintainer's own prod data plus deterministic replay covers current needs. If built: must be consent-based (user-approved), surfaced as an advanced setting (user suggested opt-out-able advanced setting; default-off opt-in is the safer baseline). **Revisit trigger:** a tuning question arises that genuinely needs multi-household data (e.g., per-install load-shape-dependent constants that replay on one household cannot answer). Prerequisite ridealong: the `s-index-history-persistence` change gives every install a local `s_index_history` table — the natural data source a future call-home would ship.
+
+---
 
 #### [Planner/Balancing] Planner Awareness of Sustained Phase Overload (Considered & Deferred 2026-07-06)
 

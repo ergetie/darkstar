@@ -84,8 +84,7 @@ export const StartupWizard: React.FC<StartupWizardProps> = ({ onComplete }) => {
                     } else {
                         // Test connection if URL/token exist in config
                         const haCfg = (cfg as Record<string, unknown>).home_assistant as
-                            | Record<string, string>
-                            | undefined
+                            Record<string, string> | undefined
 
                         if (haCfg?.url) setHaUrl(haCfg.url)
                         if (haCfg?.token) setHaToken(haCfg.token)

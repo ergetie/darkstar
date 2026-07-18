@@ -10,6 +10,11 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
+# Deps are managed via requirements*.txt (uv pip install), not `uv sync`/uv.lock
+# (see pyproject.toml [tool.uv] package = false). Without this, `uv run` treats
+# the repo as a uv project and regenerates a meaningless uv.lock stub on every call.
+export UV_NO_SYNC=1
+
 echo "▶ [1/5] Ruff (lint)"
 uv run ruff check backend/ planner/ ml/ executor/
 

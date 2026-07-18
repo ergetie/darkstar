@@ -798,8 +798,7 @@ const selectionBandPlugin: Plugin = {
         // Read per-instance options set by the component
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const opts = (chart.options.plugins as any)?.selectionBand as
-            | { mobile?: boolean; index?: number | null }
-            | undefined
+            { mobile?: boolean; index?: number | null } | undefined
         if (!opts?.mobile) return
         const idx = opts.index
         if (idx === null || idx === undefined) return

@@ -54,7 +54,7 @@ function LogsView({
             if (timeRange === 'all') return true
             const ts = new Date(entry.timestamp).getTime()
             if (Number.isNaN(ts)) return true
-            // eslint-disable-next-line react-hooks/purity
+
             const now = Date.now()
             const deltaMs = now - ts
             const oneHour = 60 * 60 * 1000

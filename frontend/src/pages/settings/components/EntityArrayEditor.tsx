@@ -146,8 +146,7 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
 
     const updateEntity = (index: number, updates: Partial<WaterHeaterEntity | EVChargerEntity>) => {
         const newEntities = entities.map((e, i) => (i === index ? { ...e, ...updates } : e)) as
-            | WaterHeaterEntity[]
-            | EVChargerEntity[]
+            WaterHeaterEntity[] | EVChargerEntity[]
         onChange(newEntities)
     }
 

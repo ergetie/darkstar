@@ -4,6 +4,10 @@
 
 
 
+# Deps are managed via requirements*.txt, not `uv sync`/uv.lock (see
+# pyproject.toml [tool.uv] package = false).
+export UV_NO_SYNC=1
+
 # Free port 5000 if already in use (prevents Address already in use)
 fuser -k 5000/tcp > /dev/null 2>&1 || true
 

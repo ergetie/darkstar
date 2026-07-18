@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Deps are managed via requirements*.txt, not `uv sync`/uv.lock (see
+# pyproject.toml [tool.uv] package = false).
+export UV_NO_SYNC=1
+
 echo "🔍 Running Ruff linter (auto-fix)..."
 uv run ruff check --fix .
 
