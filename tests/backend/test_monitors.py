@@ -218,9 +218,11 @@ class TestViolations:
         assert r.status == "violation"
 
     @pytest.mark.asyncio
-    async def test_pv_forecast_over_ceiling_detected(self, mon_db, monitors):
+    async def test_pv_forecast_over_ceiling_detected(self, mon_db, tmp_path):
         import sqlite3
 
+        config_path = write_config(tmp_path, [{"name": "A", "kwp": REFERENCE_INSTALL_KWP}])
+        m = InvariantMonitors(config_path=config_path)
         seed_healthy(mon_db)
         con = sqlite3.connect(mon_db)
         future = datetime.now(TZ) + timedelta(hours=3)
@@ -236,7 +238,7 @@ class TestViolations:
         con.commit()
         con.close()
 
-        results = await monitors.evaluate_all()
+        results = await m.evaluate_all()
         r = next(x for x in results if x.name == "forecast_sanity")
         assert r.status == "violation"
         assert f"{REFERENCE_INSTALL_CEILING_KWH:.3f}" in r.detail
