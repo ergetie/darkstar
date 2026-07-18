@@ -5,7 +5,8 @@ import Card from './Card'
 import { Api, type LoadBalancerStatusResponse } from '../lib/api'
 import { useSocket } from '../lib/hooks'
 
-const STATE_LABELS: Record<string, string> = {
+// eslint-disable-next-line react-refresh/only-export-components -- pure data, reused by PowerFlowTabs
+export const STATE_LABELS: Record<string, string> = {
     disabled: 'Disabled',
     idle: 'Within Limits',
     throttling: 'Throttling',
@@ -22,7 +23,8 @@ const STATE_COLORS: Record<string, string> = {
     stale_fallback: 'text-bad',
 }
 
-const EV_STATE_LABELS: Record<string, string> = {
+// eslint-disable-next-line react-refresh/only-export-components -- pure data, reused by PowerFlowTabs
+export const EV_STATE_LABELS: Record<string, string> = {
     idle: 'Idle',
     throttling: 'Throttling',
     paused: 'Paused',

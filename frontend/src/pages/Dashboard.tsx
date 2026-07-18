@@ -1,6 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useEffect, useState, useCallback, useRef } from 'react'
-import Card from '../components/Card'
 import ChartCard from '../components/ChartCard'
 import { Flame, BatteryCharging } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -14,7 +13,7 @@ import {
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, formatHour } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
-import PowerFlowCard from '../components/PowerFlowCard'
+import PowerFlowTabs from '../components/PowerFlowTabs'
 import CommandBar from '../components/CommandBar'
 import BatteryStrategyCard from '../components/BatteryStrategyCard'
 import { GridDomain, ResourcesDomain } from '../components/CommandDomains'
@@ -754,36 +753,32 @@ export default function Dashboard() {
                     <SmartAdvisor todaySummary={todaySummary} priceAdvice={priceAdvice} />
                 </motion.div>
 
-                {/* Cell 2: PowerFlowCard (row 1, col 2) */}
+                {/* Cell 2: PowerFlowTabs (row 1, col 2) */}
                 <motion.div className="h-full" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-                    <Card className="h-full flex flex-col overflow-hidden">
-                        <div className="flex-1 flex items-center justify-center overflow-hidden">
-                            <PowerFlowCard
-                                systemConfig={config}
-                                data={{
-                                    solar: {
-                                        kw: livePower.pv_kw ?? 0,
-                                        todayKwh: todayStats?.pvProduction ?? undefined,
-                                    },
-                                    battery: { kw: livePower.battery_kw ?? 0, soc: soc ?? 50 },
-                                    grid: {
-                                        kw: livePower.grid_kw ?? 0,
-                                        importKwh: todayStats?.gridImport ?? undefined,
-                                        exportKwh: todayStats?.gridExport ?? undefined,
-                                    },
-                                    house: {
-                                        kw: livePower.load_kw ?? 0,
-                                        todayKwh: todayStats?.loadConsumption ?? undefined,
-                                    },
-                                    water: { kw: livePower.water_kw ?? 0, todayKwh: waterToday?.kwh },
-                                    ev: { kw: livePower.ev_kw ?? 0 },
-                                    evPluggedIn: livePower.ev_plugged_in,
-                                    evSoc: livePower.ev_soc,
-                                    evChargers: livePower.ev_chargers,
-                                }}
-                            />
-                        </div>
-                    </Card>
+                    <PowerFlowTabs
+                        systemConfig={config}
+                        data={{
+                            solar: {
+                                kw: livePower.pv_kw ?? 0,
+                                todayKwh: todayStats?.pvProduction ?? undefined,
+                            },
+                            battery: { kw: livePower.battery_kw ?? 0, soc: soc ?? 50 },
+                            grid: {
+                                kw: livePower.grid_kw ?? 0,
+                                importKwh: todayStats?.gridImport ?? undefined,
+                                exportKwh: todayStats?.gridExport ?? undefined,
+                            },
+                            house: {
+                                kw: livePower.load_kw ?? 0,
+                                todayKwh: todayStats?.loadConsumption ?? undefined,
+                            },
+                            water: { kw: livePower.water_kw ?? 0, todayKwh: waterToday?.kwh },
+                            ev: { kw: livePower.ev_kw ?? 0 },
+                            evPluggedIn: livePower.ev_plugged_in,
+                            evSoc: livePower.ev_soc,
+                            evChargers: livePower.ev_chargers,
+                        }}
+                    />
                 </motion.div>
 
                 {/* Cell 3: BatteryStrategyCard (rows 1-2, col 3) */}

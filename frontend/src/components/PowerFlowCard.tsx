@@ -44,7 +44,7 @@ const TOP_ORDER = ['solar', 'battery', 'grid'] as const
 const BOT_ORDER = ['house', 'water', 'ev'] as const
 
 const W = 400,
-    H = 160
+    H = 180
 const PAD_X = 12
 const SPAN = W - 2 * PAD_X
 const B_W = 40,
@@ -52,7 +52,8 @@ const B_W = 40,
     B_SIZE = 10,
     B_R = 4
 const CORNER_R = 6
-const BUS_Y = H / 2
+// Anchored independently of H so the extra bottom whitespace doesn't shift the bus/rows.
+const BUS_Y = 80
 const TOP_CY = 32,
     BOT_CY = 128
 
@@ -465,13 +466,7 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
 
     return (
         <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-full block mx-auto" preserveAspectRatio="xMidYMid meet">
-            <defs>
-                <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                    <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgb(var(--color-line))" strokeWidth="1.5" />
-                </pattern>
-            </defs>
             <rect x="-4000" y="-4000" width="10000" height="10000" fill={SURFACE} />
-            <rect x="-4000" y="-4000" width="10000" height="10000" fill="url(#grid)" opacity="0.6" />
             {pairPaths.map((p, i) => (
                 <path
                     key={`trace-${i}`}

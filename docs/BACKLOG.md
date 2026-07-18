@@ -43,36 +43,23 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-<!-- Empty. Previously held the flaky `test_executor_ev_switch_not_opened_without_schedule` item (observed 2026-07-06, ~1-in-5-8 full-suite failure rate) — declared unreproducible 2026-07-13 after 35/35 clean full-suite runs (code review eliminated in-test causes; no DB-lock errors observed). Evidently fixed incidentally by EV/executor changes landed since. Reopen only if it fails again in CI. -->
+<!-- Empty -->
 
 ---
 
 ## 🔧 Improvements
 
-<!-- The three price-forecast/S-Index "(needs production data)" calibration items were resolved by the 2026-07-17 replay investigation (97 days of prod forecasts + last winter's actuals): RISK_PRICE_KW_FRACTION keeps its values and pure-peak stays (verdicts + evidence recorded in openspec/changes/price-alert-accuracy/proposal.md); the alert-accuracy work was promoted into the price-alert-accuracy change. -->
-
-
-## ✨ New Features
-
-#### [UI] Settings Search / Command Palette (Ctrl+K)
-
-**Goal:** Implement a global quick search bar or keyboard command palette at the top of the settings page.
-
-**Notes:** Allows users to jump directly to any configuration field (e.g. "Main Fuse") across the System, EV, Water, Load Balancing, UI, and Advanced tabs without manual navigation.
+<!-- Empty -->
 
 ---
 
-#### [UI] Live Load-Balancer Status Overlay on Dashboard
+## ✨ New Features
 
-**Goal:** Display a live phase current (L1, L2, L3) bar graph and overload status overlay on the main dashboard.
-
-**Notes:** Highlights active load shedding, EV charger throttling, or stale-sensor fallback alerts, including a one-click manual bypass/override control.
+<!-- Empty -->
 
 ---
 
 ## 💡 Future Ideas / Deferred
-
-<!-- The `max_safety_buffer_pct` risk-differentiation item was promoted into the risk-aware-safety-buffer-cap change (2026-07-18). The planner-awareness-of-sustained-phase-overload item was scrapped 2026-07-18 (edge case, mitigated by SoC re-read + early replan). -->
 
 #### [UI] Expand Settings-Search User Guides
 
