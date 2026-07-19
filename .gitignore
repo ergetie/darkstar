@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .ruff_cache/
+# uv regenerates this stub on any `uv run` without UV_NO_SYNC=1 (see
+# pyproject.toml [tool.uv] package = false); deps are pinned via requirements*.txt instead.
+uv.lock
 # NOTE: typings/ holds hand-written .pyi stubs for untyped deps (nordpool, pulp,
 # socketio). They are committed on purpose — pyright's stubPath points here, and
 # without them CI strict-mode pyright fails on imports that pass locally.

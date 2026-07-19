@@ -22,8 +22,10 @@
 |------|---------|
 | Install dependencies | `uv pip install -r requirements.txt` |
 | Run dev environment | `pnpm run dev` |
-| Run single test | `uv run python -m pytest tests/test_file.py::test_name -v` |
+| Run single test | `UV_NO_SYNC=1 uv run python -m pytest tests/test_file.py::test_name -v` |
 | Run all checks | `./scripts/lint.sh` |
+
+Always prefix ad-hoc `uv run ...` commands with `UV_NO_SYNC=1` — without it, uv regenerates a meaningless `uv.lock` stub on every call (deps are pinned via `requirements*.txt`, not uv's lockfile; see `pyproject.toml` `[tool.uv] package = false`).
 
 ---
 

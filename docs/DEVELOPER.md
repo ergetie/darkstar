@@ -379,7 +379,7 @@ pnpm run dev  # OR run backend/scheduler separately
     ```
 2.  **Testing**:
     ```bash
-    uv run python -m pytest -q (for regression testing, after significant changes.)
+    UV_NO_SYNC=1 uv run python -m pytest -q (for regression testing, after significant changes.)
     ```
 3.  **UI Themes**: Add custom JSON themes to `backend/themes/`.
 4.  **Logs**: Check the **Debug** tab in the UI for real-time logs from the Planner, Scheduler, and Strategy Engine.
