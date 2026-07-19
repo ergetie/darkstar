@@ -540,8 +540,15 @@ async def record_observation_from_current_state(
         load_kwh = base_load_kwh
 
     # Standard inverter convention: positive = discharge, negative = charge
-    batt_discharge_kwh = (battery_kw * 0.25) if battery_kw > 0 else 0.0
-    batt_charge_kwh = (abs(battery_kw) * 0.25) if battery_kw < 0 else 0.0
+    discharge_power_kw = battery_kw if battery_kw > 0 else 0.0
+    charge_power_kw = abs(battery_kw) if battery_kw < 0 else 0.0
+
+    batt_discharge_kwh, _ = await calculate_energy_from_cumulative(
+        "total_battery_discharge", discharge_power_kw, "battery_discharge_total"
+    )
+    batt_charge_kwh, _ = await calculate_energy_from_cumulative(
+        "total_battery_charge", charge_power_kw, "battery_charge_total"
+    )
 
     # Battery
     soc_entity = input_sensors.get("battery_soc")
