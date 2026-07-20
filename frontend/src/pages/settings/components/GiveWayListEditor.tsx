@@ -345,8 +345,8 @@ export const GiveWayListEditor: React.FC<GiveWayListEditorProps> = ({
             {entries.length === 0 && (
                 <div className="rounded-xl border border-dashed border-line/20 bg-surface-elevated px-4 py-6 text-center">
                     <div className="text-sm text-muted">
-                        Nothing to balance yet. Add an EV charger with dynamic current control in the EV tab, or add an
-                        on/off load here.
+                        Nothing to balance yet. Add an EV charger with dynamic current control in the EV tab, or add a
+                        water heater or custom entity here with the &quot;Add Load&quot; button above.
                     </div>
                 </div>
             )}

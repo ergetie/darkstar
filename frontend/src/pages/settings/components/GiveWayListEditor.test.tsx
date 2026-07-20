@@ -27,6 +27,7 @@ function renderEditor({
     loads = [{ device_type: 'water_heater', device_id: 'main_tank', phases: [2] }],
     onChangeOrder = vi.fn(),
     onChangeLoads = vi.fn(),
+    config = CONFIG,
 } = {}) {
     render(
         <MemoryRouter>
@@ -35,7 +36,7 @@ function renderEditor({
                 loadsValue={JSON.stringify(loads)}
                 onChangeOrder={onChangeOrder}
                 onChangeLoads={onChangeLoads}
-                config={CONFIG}
+                config={config}
             />
         </MemoryRouter>,
     )
@@ -141,5 +142,23 @@ describe('GiveWayListEditor', () => {
     it('shows a missing charger even when absent from the stored order (display self-heal)', () => {
         renderEditor({ order: [{ kind: 'shed', id: 'main_tank' }] })
         expect(screen.getByText('Garage EV')).toBeInTheDocument()
+    })
+
+    it('shows an empty-state message naming water heater/custom entity when no charger or load exists', () => {
+        renderEditor({
+            order: [],
+            loads: [],
+            config: { ev_chargers: [], water_heaters: [] },
+        })
+        expect(screen.getByText(/water heater or custom entity/)).toBeInTheDocument()
+    })
+
+    it('hides the empty-state message once a load exists, even with no EV charger configured', () => {
+        renderEditor({
+            order: [{ kind: 'shed', id: 'main_tank' }],
+            loads: [{ device_type: 'water_heater', device_id: 'main_tank', phases: [2] }],
+            config: { ev_chargers: [], water_heaters: [{ id: 'main_tank', name: 'Main Tank' }] },
+        })
+        expect(screen.queryByText(/Nothing to balance yet/)).not.toBeInTheDocument()
     })
 })

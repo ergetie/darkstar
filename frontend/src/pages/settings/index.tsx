@@ -46,7 +46,6 @@ const ALL_TABS = [
         id: 'load-balancing',
         label: 'Load Balancing',
         icon: <Gauge size={16} />,
-        showIf: 'system.has_ev_charger',
     },
     { id: 'ui', label: 'UI', icon: <Palette size={16} /> },
     { id: 'advanced', label: 'Advanced', icon: <Zap size={16} />, advancedOnly: true },
