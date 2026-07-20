@@ -59,3 +59,15 @@ Code deploy → next scheduled training run picks up masked features (or trigger
 ## Open Questions
 
 _None — approach decided with the user 2026-07-11/12 (root-cause fix only, blend excluded unless acceptance check fails)._
+
+## Verification Notes (2026-07-19/20, production)
+
+- Deployed 2026-07-19 06:23 UTC (container recreated). Confirmed `lag_session`/`issue_timestamp` masking present in the running image's `ml/price_forecast.py` and `ml/price_train.py`.
+- Manual retrain triggered via `POST /api/learning/train` at 23:42 CEST 2026-07-19 — succeeded (`duration_seconds: 182.94`), all three price model files rewritten (previous versions were from 03:08 UTC that day, trained on pre-fix/unmasked data).
+- Forecast generation triggered manually (no dedicated API endpoint exists for this; replicated the scheduler's exact call — `generate_price_forecasts(config=engine.config, db_path=str(engine.db_path), model_path=None)` — via `docker exec`) at 23:49 CEST 2026-07-19: 679 records generated.
+- **Midnight boundary acceptance check (task 4.3):**
+  - Last 4 actual slots of 2026-07-19 (`slot_observations.export_price_sek_kwh`): 23:00 → 1.6662, 23:15 → 1.5012, 23:30 → 1.4070, 23:45 → 1.4070 SEK/kWh.
+  - First 4 D+1 forecast slots for 2026-07-20 (`price_forecasts.spot_p50`, issue_timestamp `2026-07-19T23:49:07+02:00`): 00:00 → 1.2744, 00:15 → 1.2955, 00:30 → 1.2983, 00:45 → 1.3144 SEK/kWh.
+  - Boundary step (23:45 actual → 00:00 forecast): **−0.133 SEK/kWh**. For context, that same evening's slot-to-slot deltas ran −0.165, −0.094, 0.00 (23:00→23:45), and the full prior day's mean/max absolute slot-to-slot delta was 0.054 / 0.483 SEK/kWh. The boundary step falls within the range of same-evening local volatility — not an order-of-magnitude discontinuity like the pre-fix case (e.g. 0.16 → 0.70, a >4x jump against the prevailing trend).
+  - **Acceptance: PASS.** No systematic level jump attributable to missing anchoring. Task 4.4 (blend fallback) not triggered.
+- **d1_mae baseline at deploy time (task 4.5):** `d1_mae = 0.2894`, `d1_bias = -0.088` (`/api/price-forecast/accuracy`, `sample_days: 10` — reflects pre-fix forecasts still working through the 10-day accuracy window). Watch this value over the following ~10 days as pre-fix forecasts roll out of the window and post-fix ones roll in; expect it to hold or improve, not regress.

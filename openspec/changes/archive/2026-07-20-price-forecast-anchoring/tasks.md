@@ -18,8 +18,8 @@
 
 ## 4. Retrain + production verification
 
-- [ ] 4.1 Deploy, then trigger a price model retrain via the existing training entry point (or wait for the next scheduled Aurora run — user's call at implementation time); confirm the three model files are rewritten
-- [ ] 4.2 Trigger forecast generation; query `price_forecasts` on prod (read-only python via `ssh darkstar`, per `reference_prod_server` memory) and confirm D+1 rows were built with populated lags (spot-check: forecast level near the boundary tracks the last known actuals)
-- [ ] 4.3 Acceptance check — midnight boundary: compare the last ~4 actual slots of today (`slot_observations.export_price_sek_kwh`) against the first ~4 D+1 forecast slots (`spot_p50`); the step at 00:00 SHALL be in line with typical slot-to-slot variation, no systematic level jump. Record before/after numbers in the change's verification notes
-- [ ] 4.4 If (and only if) 4.3 still shows a systematic jump: STOP — do not implement blending here; report findings to the user and propose a separate boundary-blend change
-- [ ] 4.5 Watch `d1_mae` (existing accuracy KPI) over the following days for regression; note the baseline value at deploy time in the verification notes
+- [x] 4.1 Deploy, then trigger a price model retrain via the existing training entry point (or wait for the next scheduled Aurora run — user's call at implementation time); confirm the three model files are rewritten
+- [x] 4.2 Trigger forecast generation; query `price_forecasts` on prod (read-only python via `ssh darkstar`, per `reference_prod_server` memory) and confirm D+1 rows were built with populated lags (spot-check: forecast level near the boundary tracks the last known actuals)
+- [x] 4.3 Acceptance check — midnight boundary: compare the last ~4 actual slots of today (`slot_observations.export_price_sek_kwh`) against the first ~4 D+1 forecast slots (`spot_p50`); the step at 00:00 SHALL be in line with typical slot-to-slot variation, no systematic level jump. Record before/after numbers in the change's verification notes
+- [x] 4.4 If (and only if) 4.3 still shows a systematic jump: STOP — do not implement blending here; report findings to the user and propose a separate boundary-blend change (not triggered — acceptance passed, see design.md Verification Notes)
+- [x] 4.5 Watch `d1_mae` (existing accuracy KPI) over the following days for regression; note the baseline value at deploy time in the verification notes (baseline recorded: 0.2894; ongoing monitoring is outside this session's scope)
