@@ -388,7 +388,20 @@ def merge_ev_goals_from_state(
             goal_cfg["n_days"] = None
             goal_cfg["last_updated"] = None
             goal_cfg["keep_on_after_target"] = False
-            logger.debug("EV %s: no goal set in the dashboard - charger inert", charger_id)
+            if charger_state and charger_state.get("ready_by"):
+                # A ready-by with no target SoC is a half-set goal: the whole
+                # goal is dropped here, which reads downstream as "no active
+                # deadline" and looks identical to no goal at all. Say so, so
+                # it is diagnosable from the log instead of silent.
+                logger.warning(
+                    "EV %s: ready-by %s is set but no target SoC is - the goal is "
+                    "incomplete and no charging will be planned. Set a target SoC "
+                    "for this charger in Darkstar or via its ha_target_soc_entity.",
+                    charger_id,
+                    charger_state.get("ready_by"),
+                )
+            else:
+                logger.debug("EV %s: no goal set in the dashboard - charger inert", charger_id)
         merged.append(goal_cfg)
     return merged
 

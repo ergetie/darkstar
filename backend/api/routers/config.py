@@ -322,6 +322,22 @@ async def save_config(
             # Log but don't fail the save if executor reload fails
             logger.warning("Failed to reload executor config after save: %s", e)
 
+        # Re-arm the HA websocket listener against the saved entity IDs.
+        # This call lived in the Flask config-save endpoint and was lost with
+        # backend/webapp.py in 2c9e0386; without it the listener kept watching
+        # whatever entities existed at startup, so any entity added or changed
+        # in settings was silently ignored until the next restart.
+        try:
+            from backend.ha_socket import reload_ha_socket_client_async
+
+            added = await reload_ha_socket_client_async()
+            logger.info(
+                "HA websocket entities reloaded after config save (%d newly monitored)",
+                len(added),
+            )
+        except Exception as e:
+            logger.warning("Failed to reload HA websocket entities after save: %s", e)
+
         # Refresh LearningEngine singleton so next forecast uses saved values
         try:
             from backend.learning import get_learning_engine
@@ -679,6 +695,35 @@ def _validate_config_for_save(
                             "severity": "warning",
                             "message": f"EV charger '{ev.get('id', i + 1)}' switch_entity may be invalid: {switch_entity}",
                             "guidance": "switch_entity should be a Home Assistant switch entity ID (e.g., 'switch.ev_charger' or 'input_boolean.ev_charger').",
+                        }
+                    )
+
+                # Goal entities must be the domains the sync actually parses.
+                # A ready-by pointed at anything but an input_datetime parses
+                # as None (parse_ha_datetime_state requires a date), which
+                # leaves the charger with no deadline and no error anywhere.
+                ready_by_entity = ev.get("ha_ready_by_entity", "")
+                if ready_by_entity and not ready_by_entity.startswith("input_datetime."):
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "message": f"EV charger '{ev.get('id', i + 1)}' ha_ready_by_entity is not an input_datetime: {ready_by_entity}",
+                            "guidance": "Ready-by must be a Home Assistant input_datetime helper with BOTH date and time enabled "
+                            "(e.g. 'input_datetime.ev_ready_by'). Any other entity cannot be read as a deadline, "
+                            "and goal charging will never be planned.",
+                        }
+                    )
+
+                target_soc_entity = ev.get("ha_target_soc_entity", "")
+                if target_soc_entity and not target_soc_entity.startswith(
+                    ("input_number.", "number.", "sensor.")
+                ):
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "message": f"EV charger '{ev.get('id', i + 1)}' ha_target_soc_entity may be invalid: {target_soc_entity}",
+                            "guidance": "Target SoC should be a numeric Home Assistant entity, normally an input_number helper "
+                            "(e.g. 'input_number.ev_target_soc').",
                         }
                     )
 
