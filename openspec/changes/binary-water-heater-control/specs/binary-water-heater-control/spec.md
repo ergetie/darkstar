@@ -1,23 +1,33 @@
+Throughout this capability, "binary heater" means a water heater whose **`control_type` is `"switch"`**. It does not refer to the separate load-model field `type: "binary"`, which describes how the load draws power and applies to most temperature-controlled heaters too.
+
 ## ADDED Requirements
 
 ### Requirement: Water heater control type is configurable and reaches the executor
 
-Each water heater SHALL declare a control type in `water_heaters[].type`. A heater with `type: "binary"` is driven by switching an ON/OFF entity; any other value, including an absent one, means the heater is driven by writing a target temperature. The executor's per-device water heater configuration SHALL carry the control type, so the type declared in configuration determines which write path is used at execution time.
+Each water heater SHALL declare its control type in `water_heaters[].control_type`, with the value `"switch"` meaning the heater is driven by switching an ON/OFF entity and `"temperature"` meaning it is driven by writing a target temperature. An absent or unrecognised value SHALL mean `"temperature"`. The executor's per-device water heater configuration SHALL carry the control type, so the value declared in configuration determines which write path is used at execution time.
 
-#### Scenario: Binary type reaches the executor
-- **GIVEN** a water heater configured with `type: "binary"` and `target_entity: "switch.vvb"`
+The existing `water_heaters[].type` field SHALL continue to describe only the load model (`"binary"` / `"modulating"`) and SHALL NOT be read as a control type, since it defaults to `"binary"` on every heater including temperature-controlled ones.
+
+#### Scenario: Switch control type reaches the executor
+- **GIVEN** a water heater configured with `control_type: "switch"` and `target_entity: "switch.vvb"`
 - **WHEN** the executor configuration is loaded
-- **THEN** that heater's executor device config SHALL record binary control
+- **THEN** that heater's executor device config SHALL record switch control
 - **AND** the heater SHALL be included in the per-device control loop
 
-#### Scenario: Absent type defaults to temperature control
-- **GIVEN** a water heater configured with `target_entity: "number.vvb_target"` and no `type` field
+#### Scenario: Absent control_type defaults to temperature control
+- **GIVEN** a water heater configured with `target_entity: "number.vvb_target"` and no `control_type` field
 - **WHEN** the executor configuration is loaded
 - **THEN** that heater SHALL be treated as temperature-controlled
-- **AND** its execution behavior SHALL be unchanged from a heater that declares the temperature type explicitly
+- **AND** its execution behavior SHALL be unchanged from a heater that declares `control_type: "temperature"` explicitly
+
+#### Scenario: Existing load-model type does not imply switch control
+- **GIVEN** a water heater configured with `type: "binary"`, no `control_type`, and `target_entity: "input_number.vvbtemp"`
+- **WHEN** the executor configuration is loaded
+- **THEN** that heater SHALL be treated as temperature-controlled
+- **AND** its `type` SHALL continue to be used only for load modelling
 
 #### Scenario: Mixed control types in one system
-- **GIVEN** heater A is `type: "binary"` and heater B is temperature-controlled
+- **GIVEN** heater A is `control_type: "switch"` and heater B is temperature-controlled
 - **WHEN** the executor configuration is loaded
 - **THEN** each heater SHALL carry its own control type independently
 
@@ -114,21 +124,21 @@ Manual water boost SHALL resolve to ON for a binary heater for the duration of t
 
 ### Requirement: Control entity is validated against the declared control type
 
-Configuration save SHALL reject a water heater whose `target_entity` domain cannot be written by its declared control type. A temperature-controlled heater SHALL require a `number.` or `input_number.` entity; a binary heater SHALL require a `switch.` or `input_boolean.` entity. A mismatch SHALL be reported with `severity: "error"`, and the message SHALL name the control type that would accept the entity the user entered.
+Configuration save SHALL reject a water heater whose `target_entity` domain cannot be written by its declared control type. A heater with `control_type: "temperature"` SHALL require a `number.` or `input_number.` entity; a heater with `control_type: "switch"` SHALL require a `switch.` or `input_boolean.` entity. A mismatch SHALL be reported with `severity: "error"`, and the message SHALL name the control type that would accept the entity the user entered.
 
 #### Scenario: Switch entity on a temperature heater is rejected
-- **GIVEN** a water heater with no `type` (temperature control) and `target_entity: "switch.vvb"`
+- **GIVEN** a water heater with no `control_type` (so temperature control) and `target_entity: "switch.vvb"`
 - **WHEN** the configuration is saved
 - **THEN** validation SHALL report an error for that heater
-- **AND** the message SHALL indicate that `switch.vvb` requires the binary control type
+- **AND** the message SHALL indicate that `switch.vvb` requires `control_type: "switch"`
 
 #### Scenario: Number entity on a binary heater is rejected
-- **GIVEN** a water heater with `type: "binary"` and `target_entity: "number.vvb_target"`
+- **GIVEN** a water heater with `control_type: "switch"` and `target_entity: "number.vvb_target"`
 - **WHEN** the configuration is saved
 - **THEN** validation SHALL report an error for that heater
 
 #### Scenario: Matching entity and type is accepted
-- **GIVEN** a water heater with `type: "binary"` and `target_entity: "switch.vvb"`
+- **GIVEN** a water heater with `control_type: "switch"` and `target_entity: "switch.vvb"`
 - **WHEN** the configuration is saved
 - **THEN** validation SHALL report no issue for that heater's control entity
 
@@ -143,7 +153,7 @@ Configuration save SHALL reject a water heater whose `target_entity` domain cann
 A water heater whose declared control type does not match its `target_entity` domain SHALL be skipped by the executor with a logged warning, in the same way a heater with no `target_entity` is skipped. The executor SHALL NOT raise, and SHALL continue controlling every other heater in the same tick.
 
 #### Scenario: Hand-edited config with a mismatched pair
-- **GIVEN** a configuration edited outside the save-time validation, declaring temperature control with `target_entity: "switch.vvb"`
+- **GIVEN** a configuration edited outside the save-time validation, pairing `control_type: "temperature"` with `target_entity: "switch.vvb"`
 - **WHEN** the executor tick executes
 - **THEN** the executor SHALL log a warning naming that heater
 - **AND** SHALL skip control for that heater
@@ -155,7 +165,7 @@ The water heater settings editor SHALL let the user choose the control type per 
 
 #### Scenario: Control type is selectable
 - **WHEN** a user edits a water heater in settings
-- **THEN** the editor SHALL offer a choice between temperature control and binary ON/OFF control
+- **THEN** the editor SHALL offer a choice between temperature control and switch ON/OFF control, distinct from the existing load-model `type` field
 
 #### Scenario: Entity field reflects the selected type
 - **GIVEN** a user has selected binary control for a heater

@@ -1,22 +1,25 @@
 ## Why
 
-Water heater control is temperature-only: the executor always writes a target temperature via `set_input_number`, whose domain guard accepts only `number.` / `input_number.` entities. Users whose hot water tank is a plain relay (`switch.vvb`) therefore cannot control it at all, even though `water_heaters[].type` already offers a `"binary"` value that the planner and load model understand. Today such a user configures a switch entity, saves without a hard error, and only discovers at execution time that nothing is ever written.
+Water heater control is temperature-only: the executor always writes a target temperature via `set_input_number`, whose domain guard accepts only `number.` / `input_number.` entities. Users whose hot water tank is a plain relay (`switch.vvb`) therefore cannot control it at all. Today such a user configures a switch entity, saves without a hard error, and only discovers at execution time that nothing is ever written.
+
+Note that the existing `water_heaters[].type` field does **not** express this. It describes the *load model* — `"binary"` vs `"modulating"`, consumed by `backend/loads/service.py` — and it defaults to `"binary"` for every heater, including temperature-controlled ones. The current production config has `type: binary` alongside `target_entity: input_number.vvbtemp`. Control type therefore needs its own field.
 
 ## What Changes
 
-- Water heaters gain a real binary (ON/OFF) control mode alongside the existing temperature mode. A heater declared `type: "binary"` is driven by turning its `switch.` / `input_boolean.` entity on and off.
-- The heater's control type reaches the executor. `WaterHeaterDeviceConfig` currently carries only `id`, `name`, `target_entity`, `power_kw`, so the configured `type` is silently dropped before the executor sees it.
-- The executor's per-device water loop branches on control type: temperature heaters keep writing a setpoint; binary heaters are switched ON when the planned temperature exceeds `temp_off` and OFF otherwise. The planner is unchanged — it keeps deciding in temperatures, and the executor translates.
+- Water heaters gain a real switch (ON/OFF) control mode alongside the existing temperature mode, selected by a new `water_heaters[].control_type` field with values `"temperature"` (default) and `"switch"`.
+- The existing `type` field is left alone. It keeps meaning the load model, and is not read as a control type anywhere.
+- The control type reaches the executor. `WaterHeaterDeviceConfig` currently carries only `id`, `name`, `target_entity`, `power_kw`, so it gains the new field.
+- The executor's per-device water loop branches on control type: temperature heaters keep writing a setpoint; switch heaters are switched ON when the planned temperature exceeds `temp_off` and OFF otherwise. The planner is unchanged — it keeps deciding in temperatures, and the executor translates.
 - Manual water boost becomes per-device and is repaired. Boost is currently a single global flag that writes to the legacy single-heater entity, so on any entity-array config it writes nothing at all — for temperature heaters as much as binary ones. The boost API, the engine's boost state, and the override that carries boost into the tick all become per-heater, and the user can choose which heater to boost.
-- Manual water boost becomes type-aware. A binary heater has no boost temperature to reach, so boost means "ON for the boost duration"; the temperature controls in the boost UI are not offered for a binary heater.
-- Config validation becomes type-aware and blocking: a temperature heater requires a `number.` / `input_number.` control entity, a binary heater requires a `switch.` / `input_boolean.` one, and a mismatch is an error at save time rather than a silent runtime no-op.
+- Manual water boost becomes control-type-aware. A switch heater has no boost temperature to reach, so boost means "ON for the boost duration"; the temperature controls in the boost UI are not offered for it.
+- Config validation becomes control-type-aware and blocking: `control_type: temperature` requires a `number.` / `input_number.` control entity, `control_type: switch` requires a `switch.` / `input_boolean.` one, and a mismatch is an error at save time rather than a silent runtime no-op.
 - The water heater settings editor exposes the control type and labels the control entity field according to it.
-- No breaking change: heaters with no explicit `type` continue to default to temperature control and behave exactly as today.
+- No breaking change: `control_type` is new and defaults to `"temperature"`, so every existing config — all of which are temperature-controlled — behaves exactly as today with no migration.
 
 ## Capabilities
 
 ### New Capabilities
-- `binary-water-heater-control`: ON/OFF control of water heaters whose HA entity is a switch rather than a temperature setpoint — control-type configuration, the temperature-to-ON/OFF translation rule, type-aware validation at config save, and boost semantics for a binary heater.
+- `binary-water-heater-control`: ON/OFF control of water heaters whose HA entity is a switch rather than a temperature setpoint — the `control_type` field, the temperature-to-ON/OFF translation rule, control-type-aware validation at config save, and boost semantics for a switch heater.
 - `per-device-water-boost`: manual boost targeted at a chosen water heater — per-heater boost state, per-heater dispatch through the existing per-device control loop, and device selection in the API and UI.
 
 ### Modified Capabilities
@@ -31,5 +34,6 @@ Water heater control is temperature-only: the executor always writes a target te
 - `executor/actions.py` — a binary water heater write path, reusing the existing on/off writer rather than adding a second one.
 - `backend/api/routers/config.py` — type-aware validation of the water heater control entity at save time.
 - `frontend/src/pages/settings/components/EntityArrayEditor.tsx` — control type field and entity-field labelling.
-- No migration needed: absent `type` means temperature control, which is the current behavior.
+- `backend/loads/base.py`, `backend/loads/service.py` — unchanged. The load-model `type` field keeps its current meaning and consumers.
+- No migration needed: absent `control_type` means temperature control, which is the current behavior for every existing config.
 - Existing specs `water-heater-execution` and `per-device-water-scheduling` describe the temperature path; only the former changes, since planning stays in temperatures.

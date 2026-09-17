@@ -2,7 +2,9 @@
 
 The water heater control path is temperature-only end to end. The planner decides per-device heating in kW, the controller converts that to a per-device target temperature (`ControllerDecision.water_temps`), and the executor writes that temperature with `ActionDispatcher.set_water_temp`, which calls `HAClient.set_input_number`. That writer's domain guard (`_get_safe_domain(entity_id, {"number", "input_number"})`) rejects anything else, so a relay-driven tank (`switch.vvb`) cannot be controlled.
 
-The configuration layer already half-believes otherwise. `water_heaters[].type` accepts `"binary"` and `"modulating"` (`WATER_HEATER_LOAD_TYPES`), and `backend/loads/service.py` uses `type` when building the load model. But `WaterHeaterDeviceConfig` (`executor/config.py:116`) carries only `id`, `name`, `target_entity`, `power_kw` — the type never reaches the executor. Config save only warns about a malformed *power sensor* and never checks that `target_entity` is a domain the executor can actually write, so a switch entity saves cleanly and then silently does nothing forever.
+`water_heaters[].type` looks like it might already express this, and it does not. It accepts `"binary"` and `"modulating"` (`WATER_HEATER_LOAD_TYPES` in `backend/loads/base.py:16`), it describes the *load model* consumed by `backend/loads/service.py:68`, and it **defaults to `"binary"`**. Every existing heater is therefore already `type: "binary"` while being temperature-controlled — the current production config pairs `type: binary` with `target_entity: input_number.vvbtemp`. Reading `type` as a control type would reclassify every deployed heater as switch-driven and fail validation on configs that work today.
+
+`WaterHeaterDeviceConfig` (`executor/config.py:116`) carries only `id`, `name`, `target_entity`, `power_kw`, so nothing about control reaches the executor beyond the entity id. Config save only warns about a malformed *power sensor* and never checks that `target_entity` is a domain the executor can actually write, so a switch entity saves cleanly and then silently does nothing forever.
 
 The on/off writer already exists: `ActionDispatcher.set_balanced_entity` writes on/off to arbitrary `switch.` / `input_boolean.` entities, and is used today for excess-PV custom-entity sinks and load-balancing custom-entity loads.
 
@@ -38,13 +40,21 @@ The planner and controller keep producing temperatures for every heater regardle
 
 *Consequence to accept:* `temp_normal` and `temp_boost` become meaningless numbers for a binary heater. The settings UI should not offer them for that heater, and the requirement text should say the values are not written anywhere.
 
+### A new `control_type` field, not the existing `type`
+
+Control type is a **new** `water_heaters[].control_type` field with values `"temperature"` (the default) and `"switch"`. The existing `type` field keeps meaning the load model and is not read as a control type anywhere.
+
+*Why:* `type` defaults to `"binary"`, so every deployed heater already carries that value while being temperature-controlled (see Context). Overloading it would reclassify every existing heater as switch-driven, break their control the moment the executor branched on it, and fail validation on configs that work today. The two concepts are genuinely different — a heater can be an on/off *load* while being commanded by a temperature setpoint, which is exactly the common case.
+
+*Naming:* `"temperature"` / `"switch"` rather than reusing the word `binary`, so the two fields cannot be confused in config, code review, or a bug report. The capability keeps the name `binary-water-heater-control` because that is what users call it.
+
+*Alternative considered:* deriving the control type from the `target_entity` domain and storing nothing. Tempting — the domain is unambiguous — but it makes an invalid config unrepresentable rather than detectable, so a typo'd entity silently changes control mode instead of producing an error. Declared-and-validated beats inferred here.
+
 ### Carry the control type on `WaterHeaterDeviceConfig`, reusing `target_entity`
 
-Add the control type to `WaterHeaterDeviceConfig` and populate it in the loader from the same `water_heaters[]` entry that already supplies `power_kw`. The control entity stays `target_entity` for both types rather than adding a separate `switch_entity`.
+Add `control_type` to `WaterHeaterDeviceConfig` and populate it in the loader from the same `water_heaters[]` entry that already supplies `power_kw`. The control entity stays `target_entity` for both control types rather than adding a separate `switch_entity`.
 
 *Why:* one heater has one control entity; a second field invites configs where both are set and neither is obviously authoritative. EV chargers use `switch_entity` because they genuinely have a switch *and* a separate current setpoint; a water heater does not.
-
-*Alternative considered:* deriving the type from the entity domain and dropping the config field. Rejected because `water_heaters[].type` already exists and is already consumed by the load model, so inferring a second, possibly conflicting answer in the executor would be worse than reading the declared one.
 
 ### Reuse the shared on/off write, under a distinct `water_switch` action type
 
@@ -76,7 +86,8 @@ At config save, a heater with temperature control requires a `number.` / `input_
 
 ## Risks / Trade-offs
 
-- **[Existing configs with a switch in `target_entity` start failing validation]** → Those configs are already non-functional (the write is rejected every tick), so the error surfaces an existing breakage rather than causing one. Making the fix obvious matters: the error message should name the control type that would accept the entity they already entered, so the remedy is to set `type: "binary"`.
+- **[Existing configs with a switch in `target_entity` start failing validation]** → Those configs are already non-functional (the write is rejected every tick), so the error surfaces an existing breakage rather than causing one. Making the fix obvious matters: the error message should name the control type that would accept the entity they already entered, so the remedy is to set `control_type: "switch"`.
+- **[Two similarly-named fields, `type` and `control_type`, on the same object]** → Real confusion risk for future readers. Mitigated by the value vocabularies being disjoint (`binary`/`modulating` vs `temperature`/`switch`), by a comment at both definition sites, and by the settings UI labelling them distinctly. The alternative — renaming `type` to `load_type` — would be clearer but needs a config migration and touches the EV charger path, so it is deliberately left out of scope.
 - **[`temp_normal` / `temp_boost` remain in config for binary heaters and look meaningful]** → Hide them in the settings editor for binary heaters and state in the spec that they are not written. Leaving them in the stored config is deliberate, so switching a heater back to temperature control does not lose the values.
 - **[Translation rule hides a real distinction]** → `temp > temp_off` collapses "heat to normal" and "heat to boost" into the same ON. That is inherent to the hardware, not to the rule, but it means a binary heater's execution history shows less than a temperature heater's. Acceptable.
 - **[Type and entity can drift out of sync via direct config.yaml edits]** → Validation runs on the save path, not on load. A hand-edited config can still reach the executor with a mismatched pair. The executor should log a clear warning and skip that heater rather than raise, matching how it already handles a heater with no `target_entity`.
@@ -87,7 +98,7 @@ At config save, a heater with temperature control requires a `number.` / `input_
 
 ## Migration Plan
 
-No data migration. A heater with no `type` is treated as temperature-controlled, which is the current behavior, so existing configs load and execute identically. A boost request that names no heater boosts all of them, so existing API callers keep working. Rollback is a code revert; nothing is written to config or the database that an older build would fail to read.
+No data migration. `control_type` is a new field defaulting to `"temperature"`, so existing configs — all of which are temperature-controlled — load and execute identically, and the existing `type` field is untouched. A boost request that names no heater boosts all of them, so existing API callers keep working. Rollback is a code revert; nothing is written to config or the database that an older build would fail to read.
 
 ## Open Questions
 
