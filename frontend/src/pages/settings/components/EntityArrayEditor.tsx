@@ -20,6 +20,7 @@ export interface WaterHeaterEntity {
     water_min_spacing_hours: number
     sensor: string
     target_entity: string
+    control_type: 'temperature' | 'switch'
     type: 'binary' | 'modulating'
 }
 
@@ -79,6 +80,7 @@ const createDefaultWaterHeater = (index: number): WaterHeaterEntity => ({
     water_min_spacing_hours: 4,
     sensor: '',
     target_entity: '',
+    control_type: 'temperature',
     type: 'binary',
 })
 
@@ -386,28 +388,65 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
 
                                         {/* Target Entity (Water Heater only - ARC15) */}
                                         {isWaterHeater && (
-                                            <div className="sm:col-span-2">
-                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Thermostat entity
-                                                </label>
-                                                <EntitySelect
-                                                    entities={haEntities}
-                                                    value={(entity as WaterHeaterEntity).target_entity}
-                                                    onChange={(val) =>
-                                                        updateEntity(index, {
-                                                            target_entity: val,
-                                                        } as Partial<WaterHeaterEntity>)
-                                                    }
-                                                    loading={haLoading}
-                                                    placeholder="Select Home Assistant thermostat..."
-                                                    disabled={disabled}
-                                                />
-                                                <p className="text-[10px] text-muted mt-1">
-                                                    Thermostat entity for controlling water heater temperature. The
-                                                    executor sets this to temp_off/temp_normal/temp_boost based on
-                                                    schedule.
-                                                </p>
-                                            </div>
+                                            <>
+                                                <div>
+                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                        Control Type
+                                                    </label>
+                                                    <select
+                                                        value={
+                                                            (entity as WaterHeaterEntity).control_type ?? 'temperature'
+                                                        }
+                                                        onChange={(e) =>
+                                                            updateEntity(index, {
+                                                                control_type: e.target.value as
+                                                                    'temperature' | 'switch',
+                                                            } as Partial<WaterHeaterEntity>)
+                                                        }
+                                                        disabled={disabled}
+                                                        className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                                                    >
+                                                        <option value="temperature">Temperature setpoint</option>
+                                                        <option value="switch">Switch ON/OFF</option>
+                                                    </select>
+                                                    <p className="text-[10px] text-muted mt-1">
+                                                        How Darkstar commands this heater. This is separate from Load
+                                                        Type.
+                                                    </p>
+                                                </div>
+                                                <div className="sm:col-span-2">
+                                                    <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                        {(entity as WaterHeaterEntity).control_type === 'switch'
+                                                            ? 'Switch entity'
+                                                            : 'Temperature control entity'}
+                                                    </label>
+                                                    <EntitySelect
+                                                        entities={haEntities.filter((haEntity) =>
+                                                            (entity as WaterHeaterEntity).control_type === 'switch'
+                                                                ? ['switch', 'input_boolean'].includes(haEntity.domain)
+                                                                : ['number', 'input_number'].includes(haEntity.domain),
+                                                        )}
+                                                        value={(entity as WaterHeaterEntity).target_entity}
+                                                        onChange={(val) =>
+                                                            updateEntity(index, {
+                                                                target_entity: val,
+                                                            } as Partial<WaterHeaterEntity>)
+                                                        }
+                                                        loading={haLoading}
+                                                        placeholder={
+                                                            (entity as WaterHeaterEntity).control_type === 'switch'
+                                                                ? 'Select Home Assistant switch...'
+                                                                : 'Select Home Assistant number...'
+                                                        }
+                                                        disabled={disabled}
+                                                    />
+                                                    <p className="text-[10px] text-muted mt-1">
+                                                        {(entity as WaterHeaterEntity).control_type === 'switch'
+                                                            ? 'Switch or input_boolean entity. Scheduled heating turns it on; idle and shed periods turn it off.'
+                                                            : 'Number or input_number entity. The executor writes temp_off/temp_normal/temp_boost based on the schedule.'}
+                                                    </p>
+                                                </div>
+                                            </>
                                         )}
 
                                         {/* SoC Sensor (EV only) */}

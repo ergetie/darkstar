@@ -40,7 +40,9 @@ interface CommandBarProps {
         boost: boolean
         expires_at?: string
         remaining_seconds?: number
+        heaters?: Record<string, { expires_at: string; remaining_seconds: number }>
     } | null
+    waterHeaters: { id: string; name: string }[]
     soc: number | null
     plannerMeta: PlannerMeta
     onSetRiskAppetite: (level: number) => void
@@ -71,6 +73,7 @@ export default function CommandBar({
     vacationMode,
     vacationModeHA,
     waterBoostActive,
+    waterHeaters,
     plannerMeta,
     onSetRiskAppetite,
     onSetComfortLevel,
@@ -86,6 +89,7 @@ export default function CommandBar({
     const [topUpSocIdx, setTopUpSocIdx] = useState(1)
     const [loadingVacation, setLoadingVacation] = useState(false)
     const [loadingBoost, setLoadingBoost] = useState(false)
+    const [selectedHeaterId, setSelectedHeaterId] = useState<string>('')
     const [now, setNow] = useState(() => Date.now())
 
     useEffect(() => {
@@ -166,11 +170,17 @@ export default function CommandBar({
         setLoadingBoost(true)
         try {
             if (waterBoostActive?.boost) {
-                await Api.waterBoost.cancel()
+                await Api.waterBoost.cancel(
+                    waterHeaters.length > 1 && effectiveSelectedHeaterId ? [effectiveSelectedHeaterId] : undefined,
+                )
                 toast({ message: 'Water Boost Cancelled', variant: 'success' })
             } else {
                 const duration = BOOST_MINUTES_OPTIONS[boostMinutesIdx]
-                await Api.waterBoost.start(duration)
+                if (waterHeaters.length > 1 && effectiveSelectedHeaterId) {
+                    await Api.waterBoost.startFor(duration, [effectiveSelectedHeaterId])
+                } else {
+                    await Api.waterBoost.start(duration)
+                }
                 toast({ message: `Water Boost Started (${duration}m)`, variant: 'success' })
             }
             onRefresh()
@@ -211,10 +221,21 @@ export default function CommandBar({
     const isTopUpActive = executorStatus?.quick_action?.type === 'force_charge'
     const isBoostActive = waterBoostActive?.boost ?? false
     const isVacationActive = vacationMode || vacationModeHA
+    const effectiveSelectedHeaterId =
+        selectedHeaterId && waterHeaters.some((heater) => heater.id === selectedHeaterId)
+            ? selectedHeaterId
+            : waterHeaters[0]?.id || ''
+    const activeBoosts = waterBoostActive?.heaters ?? {}
+    const activeBoostIds = Object.keys(activeBoosts)
+    const activeBoostNames = activeBoostIds
+        .map((id) => waterHeaters.find((heater) => heater.id === id)?.name || id)
+        .join(', ')
+    const selectedBoost = effectiveSelectedHeaterId ? activeBoosts[effectiveSelectedHeaterId] : undefined
 
     const boostCountdown = (() => {
-        if (!isBoostActive || !waterBoostActive?.expires_at) return null
-        const rem = Math.max(0, Math.floor((new Date(waterBoostActive.expires_at).getTime() - now) / 1000))
+        const expiresAt = selectedBoost?.expires_at || waterBoostActive?.expires_at
+        if (!isBoostActive || !expiresAt) return null
+        const rem = Math.max(0, Math.floor((new Date(expiresAt).getTime() - now) / 1000))
         return `${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, '0')}`
     })()
 
@@ -381,6 +402,21 @@ export default function CommandBar({
                         </button>
                     </div>
                 )}
+                {waterHeaters.length > 1 && (
+                    <select
+                        aria-label="Water heater to boost"
+                        value={effectiveSelectedHeaterId}
+                        onChange={(e) => setSelectedHeaterId(e.target.value)}
+                        className="mr-1 max-w-[110px] bg-transparent text-[9px] text-muted outline-none"
+                        disabled={loadingBoost}
+                    >
+                        {waterHeaters.map((heater) => (
+                            <option key={heater.id} value={heater.id}>
+                                {heater.name}
+                            </option>
+                        ))}
+                    </select>
+                )}
                 <button
                     onClick={handleToggleBoost}
                     disabled={loadingBoost}
@@ -390,6 +426,11 @@ export default function CommandBar({
                     <span>{isBoostActive ? 'STOP' : 'Boost'}</span>
                     {boostCountdown && <span className="text-water/80">{boostCountdown}</span>}
                 </button>
+                {isBoostActive && activeBoostNames && (
+                    <span className="ml-1 max-w-[130px] truncate text-[9px] text-water/80" title={activeBoostNames}>
+                        {activeBoostNames}
+                    </span>
+                )}
             </div>
 
             {/* Vacation */}

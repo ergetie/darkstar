@@ -127,6 +127,7 @@ export default function Dashboard() {
     const [waterBoostActive, setWaterBoostActive] = useState<{
         boost: boolean
         expires_at?: string
+        heaters?: Record<string, { expires_at: string; remaining_seconds: number }>
     } | null>(null)
 
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
@@ -670,6 +671,11 @@ export default function Dashboard() {
                                 })}
                             </span>
                         )}
+                        {waterBoostActive.heaters && Object.keys(waterBoostActive.heaters).length > 0 && (
+                            <span className="opacity-70 text-xs ml-2">
+                                — {Object.keys(waterBoostActive.heaters).join(', ')}
+                            </span>
+                        )}
                     </div>
                     <button
                         onClick={async () => {
@@ -737,6 +743,10 @@ export default function Dashboard() {
                     vacationMode={vacationMode}
                     vacationModeHA={vacationModeHA}
                     waterBoostActive={waterBoostActive}
+                    waterHeaters={(config?.water_heaters ?? []).map((heater) => ({
+                        id: heater.id,
+                        name: heater.name,
+                    }))}
                     soc={soc}
                     plannerMeta={plannerLocalMeta}
                     onSetRiskAppetite={handleSetRiskAppetite}

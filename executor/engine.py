@@ -231,7 +231,7 @@ class ExecutorEngine:
         self._pause_reminder_sent: bool = False
 
         # Water boost state
-        self._water_boost_until: datetime | None = None
+        self._water_boost_until: dict[str, datetime] = {}
         self._last_boost_state: dict[str, Any] | None = None  # Track changes for WebSocket
         self._last_boost_broadcast: float = 0.0  # Timestamp of last periodic broadcast
 
@@ -806,7 +806,9 @@ class ExecutorEngine:
 
     # --- Water Boost ---
 
-    def set_water_boost(self, duration_minutes: int) -> dict[str, Any]:
+    def set_water_boost(
+        self, duration_minutes: int, heater_ids: list[str] | None = None
+    ) -> dict[str, Any]:
         """
         Start water heater boost (heat to 65°C for specified duration).
 
@@ -829,33 +831,35 @@ class ExecutorEngine:
                 f"Invalid duration: {duration_minutes}. Must be one of {valid_durations}"
             )
 
+        configured_ids = [device.id for device in self.config.water_heater_devices]
+        selected_ids = configured_ids if heater_ids is None else list(dict.fromkeys(heater_ids))
+        unknown_ids = [heater_id for heater_id in selected_ids if heater_id not in configured_ids]
+        if unknown_ids:
+            return {
+                "success": False,
+                "error": f"Unknown water heater id: {unknown_ids[0]}",
+                "unknown_heater_ids": unknown_ids,
+            }
+        # Preserve the legacy single-heater boost when no entity-array devices exist.
+        if not selected_ids and self._has_water_heater:
+            selected_ids = ["__legacy__"]
+        if not selected_ids:
+            return {"success": False, "error": "No water heater control entity configured"}
+
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
         expires_at = now + timedelta(minutes=duration_minutes)
 
         with self._lock:
-            self._water_boost_until = expires_at
+            for heater_id in selected_ids:
+                self._water_boost_until[heater_id] = expires_at
 
         logger.info(
-            "Water boost started for %d minutes (until %s)",
+            "Water boost started for %d minutes for %s (until %s)",
             duration_minutes,
+            ", ".join(selected_ids),
             expires_at.isoformat(),
         )
-
-        # Immediately apply the boost
-        if self.ha_client and self.dispatcher:
-            try:
-                # Schedule async water temp setting
-                loop = asyncio.get_running_loop()
-                task: asyncio.Task[Any] = loop.create_task(
-                    self.dispatcher.set_water_temp(self.config.water_heater.temp_boost)
-                )
-                self._background_tasks.add(task)
-                task.add_done_callback(self._background_tasks.discard)
-            except RuntimeError:
-                logger.warning("Could not apply water boost: no running event loop")
-            except Exception as e:
-                logger.error("Failed to apply water boost: %s", e)
 
         # Emit WebSocket event
         self._emit_water_boost_status(force=True)
@@ -864,55 +868,66 @@ class ExecutorEngine:
             "success": True,
             "expires_at": expires_at.isoformat(),
             "duration_minutes": duration_minutes,
+            "heater_ids": selected_ids,
             "temp_target": self.config.water_heater.temp_boost,
         }
 
-    def clear_water_boost(self) -> dict[str, Any]:
-        """Cancel active water boost."""
+    def clear_water_boost(self, heater_ids: list[str] | None = None) -> dict[str, Any]:
+        """Cancel active water boost for selected heaters."""
+        configured_ids = [device.id for device in self.config.water_heater_devices]
+        selected_ids = list(dict.fromkeys(configured_ids if heater_ids is None else heater_ids))
+        unknown_ids = [heater_id for heater_id in selected_ids if heater_id not in configured_ids]
+        if unknown_ids:
+            return {
+                "success": False,
+                "error": f"Unknown water heater id: {unknown_ids[0]}",
+                "unknown_heater_ids": unknown_ids,
+            }
+        if not selected_ids and self._has_water_heater:
+            selected_ids = ["__legacy__"]
+
         with self._lock:
-            was_active = self._water_boost_until is not None
-            self._water_boost_until = None
+            was_active = any(heater_id in self._water_boost_until for heater_id in selected_ids)
+            for heater_id in selected_ids:
+                self._water_boost_until.pop(heater_id, None)
 
         if was_active:
-            logger.info("Water boost cancelled by user")
-            # Set water temp back to normal
-            if self.dispatcher:
-                try:
-                    # Schedule async water temp setting
-                    loop = asyncio.get_running_loop()
-                    task: asyncio.Task[Any] = loop.create_task(
-                        self.dispatcher.set_water_temp(self.config.water_heater.temp_off)
-                    )
-                    self._background_tasks.add(task)
-                    task.add_done_callback(self._background_tasks.discard)
-                except RuntimeError:
-                    logger.warning("Could not reset water temp: no running event loop")
-                except Exception as e:
-                    logger.error("Failed to reset water temp: %s", e)
-
-            # Emit WebSocket event
+            logger.info("Water boost cancelled by user for %s", ", ".join(selected_ids))
             self._emit_water_boost_status(force=True)
 
-        return {"success": True, "was_active": was_active}
+        return {"success": True, "was_active": was_active, "heater_ids": selected_ids}
 
-    def get_water_boost_status(self) -> dict[str, Any] | None:
-        """Get water boost status with remaining time."""
+    def get_water_boost_status(self) -> dict[str, Any]:
+        """Get per-heater water boost status with remaining time."""
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
 
         with self._lock:
-            if self._water_boost_until is None:
-                return None
+            expired = [
+                heater_id
+                for heater_id, expires_at in self._water_boost_until.items()
+                if now >= expires_at
+            ]
+            for heater_id in expired:
+                self._water_boost_until.pop(heater_id, None)
 
-            if now >= self._water_boost_until:
-                # Expired
-                self._water_boost_until = None
-                return None
-
-            remaining_seconds = int((self._water_boost_until - now).total_seconds())
+            heaters = {
+                heater_id: {
+                    "expires_at": expires_at.isoformat(),
+                    "remaining_seconds": int((expires_at - now).total_seconds()),
+                }
+                for heater_id, expires_at in self._water_boost_until.items()
+            }
+            latest_expiry = max(
+                (expires_at for expires_at in self._water_boost_until.values()), default=None
+            )
             return {
-                "expires_at": self._water_boost_until.isoformat(),
-                "remaining_seconds": remaining_seconds,
+                "active": bool(heaters),
+                "heaters": heaters,
+                "expires_at": latest_expiry.isoformat() if latest_expiry else None,
+                "remaining_seconds": int((latest_expiry - now).total_seconds())
+                if latest_expiry
+                else 0,
                 "temp_target": self.config.water_heater.temp_boost,
             }
 
@@ -923,14 +938,13 @@ class ExecutorEngine:
         current_status = self.get_water_boost_status()
 
         # Build event payload
-        if current_status:
-            payload = {
-                "active": True,
-                "expires_at": current_status["expires_at"],
-                "remaining_seconds": current_status["remaining_seconds"],
-            }
-        else:
-            payload = {"active": False, "expires_at": None, "remaining_seconds": 0}
+        heaters = current_status.get("heaters", {})
+        payload = {
+            "active": bool(current_status.get("active")),
+            "heaters": heaters,
+            "expires_at": current_status.get("expires_at"),
+            "remaining_seconds": current_status.get("remaining_seconds", 0),
+        }
 
         # Check if status changed or periodic broadcast needed
         status_changed = self._last_boost_state != payload
@@ -1258,7 +1272,7 @@ class ExecutorEngine:
                     reason=quick_action.get("reason", f"User quick action: {action_type}"),
                     actions=actions,
                 )
-            elif water_boost:
+            elif water_boost.get("active"):
                 # Water Boost Logic with battery protection (Issue 2 fix)
                 from .override import OverrideResult, OverrideType
 
@@ -1275,7 +1289,7 @@ class ExecutorEngine:
                     )
                     # Clear the boost
                     with self._lock:
-                        self._water_boost_until = None
+                        self._water_boost_until.clear()
                     # Send notification
                     if self.dispatcher:
                         await self.dispatcher._send_notification(  # type: ignore[protected-access]
@@ -1294,6 +1308,11 @@ class ExecutorEngine:
                         actions={
                             "soc_target": protected_soc,  # Protect from excessive drain
                             "water_temp": self.config.water_heater.temp_boost,
+                            "water_temps": {
+                                heater_id: self.config.water_heater.temp_boost
+                                for heater_id in water_boost["heaters"]
+                                if heater_id != "__legacy__"
+                            },
                         },
                     )
             else:
@@ -1581,16 +1600,31 @@ class ExecutorEngine:
                         ) and self.config.water_heater_devices:
                             # New multi-device format: control each heater independently
                             for device in self.config.water_heater_devices:
-                                temp = decision.water_temps.get(
-                                    device.id, self.config.water_heater.temp_off
-                                )
-                                if device.id in shed_water_heater_ids:
-                                    # Load-balancer shed takes precedence over the schedule
-                                    temp = self.config.water_heater.temp_off
-                                water_result = await self.dispatcher.set_water_temp(
-                                    temp, device.target_entity
-                                )
-                                action_results.append(water_result)
+                                try:
+                                    if not device.target_entity:
+                                        continue
+                                    temp = decision.water_temps.get(
+                                        device.id, self.config.water_heater.temp_off
+                                    )
+                                    if device.id in shed_water_heater_ids:
+                                        # Load-balancer shed takes precedence over the schedule
+                                        temp = self.config.water_heater.temp_off
+                                    if device.control_type == "switch":
+                                        water_result = await self.dispatcher.set_water_switch(
+                                            device.target_entity,
+                                            temp > self.config.water_heater.temp_off,
+                                        )
+                                    else:
+                                        water_result = await self.dispatcher.set_water_temp(
+                                            temp, device.target_entity
+                                        )
+                                    action_results.append(water_result)
+                                except Exception as exc:
+                                    logger.exception(
+                                        "Water heater '%s' dispatch failed; continuing with other heaters: %s",
+                                        device.id,
+                                        exc,
+                                    )
                         elif getattr(self.config.water_heater, "target_entity", None):
                             # Legacy fallback: old-format schedule or single heater
                             water_result = await self.dispatcher.set_water_temp(decision.water_temp)

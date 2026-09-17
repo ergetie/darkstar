@@ -43,4 +43,3 @@ def test_api_loads_debug():
 if __name__ == "__main__":
     # Run simple test manually
     test_api_loads_debug()
-    print("✅ API Loads Debug verified!")

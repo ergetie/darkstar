@@ -381,23 +381,32 @@ class TestHAClientCrossThreadSafety:
 
         client = HAClient("http://ha:8123", "token123")
 
-        other_loop = asyncio.new_event_loop()
+        other_loop_holder: dict[str, asyncio.AbstractEventLoop] = {}
         other_session_holder: dict[str, aiohttp.ClientSession] = {}
+        cleanup_requested = threading.Event()
 
         def _run_other_loop():
+            # Create and use the loop in the thread that owns it.  The test
+            # environment's selector loop does not reliably wake from a
+            # cross-thread call_soon_threadsafe(), so use an explicit handoff
+            # and run cleanup on this owning thread instead.
+            other_loop = asyncio.new_event_loop()
             asyncio.set_event_loop(other_loop)
+            other_loop_holder["loop"] = other_loop
             session = other_loop.run_until_complete(client._get_session())
             other_session_holder["session"] = session
-            other_loop.run_forever()
+            cleanup_requested.wait(timeout=5)
+            other_loop.run_until_complete(session.close())
 
         thread = threading.Thread(target=_run_other_loop, daemon=True)
         thread.start()
         # Wait until the other loop has created its session.
         for _ in range(100):
-            if "session" in other_session_holder:
+            if "session" in other_session_holder and "loop" in other_loop_holder:
                 break
             await asyncio.sleep(0.01)
         assert "session" in other_session_holder
+        other_loop = other_loop_holder["loop"]
 
         # Create AND close a session on THIS (the current test's) event loop.
         this_session = await client._get_session()
@@ -407,14 +416,14 @@ class TestHAClientCrossThreadSafety:
         assert this_session is not other_session
         assert not other_session.closed, "closing on one loop must not close another loop's session"
 
-        # Clean up the other loop's session and thread.
-        async def _cleanup():
-            await other_session.close()
-
-        fut = asyncio.run_coroutine_threadsafe(_cleanup(), other_loop)
-        fut.result(timeout=5)
-        other_loop.call_soon_threadsafe(other_loop.stop)
+        # Clean up the other loop's session on its owning thread.
+        cleanup_requested.set()
+        # The worker exits immediately after cleanup; keep this synchronous so
+        # the test does not create a default-executor worker that pytest must
+        # wait for during asyncio loop shutdown.
         thread.join(timeout=5)
+        assert not thread.is_alive()
+        assert other_session.closed
         other_loop.close()
 
 
@@ -570,6 +579,80 @@ class TestSetWaterTemp:
 
         # Assert HA write was attempted
         ha_client.set_input_number.assert_called_once_with("input_number.water_heater_target", 50.0)
+
+
+class TestSetWaterSwitch:
+    """Test switch-controlled water heater actions."""
+
+    @pytest.fixture
+    def base_config(self):
+        from executor.config import (
+            ControllerConfig,
+            ExecutorConfig,
+            InverterConfig,
+            NotificationConfig,
+            WaterHeaterConfig,
+        )
+
+        return ExecutorConfig(
+            inverter=InverterConfig(),
+            controller=ControllerConfig(),
+            water_heater=WaterHeaterConfig(temp_off=40),
+            notifications=NotificationConfig(),
+        )
+
+    def _dispatcher(self, base_config, current="off", shadow_mode=False):
+        from executor.actions import ActionDispatcher
+
+        ha_client = MagicMock()
+        ha_client.get_state_value = AsyncMock(return_value=current)
+        ha_client.set_switch = AsyncMock(return_value=True)
+        dispatcher = ActionDispatcher(ha_client, base_config, shadow_mode=shadow_mode)
+        dispatcher._verify_action = AsyncMock(
+            return_value=("on" if current == "on" else "off", True)
+        )
+        return dispatcher, ha_client
+
+    @pytest.mark.asyncio
+    async def test_turns_on_and_off(self, base_config):
+        for desired, expected in ((True, "on"), (False, "off")):
+            dispatcher, ha_client = self._dispatcher(
+                base_config, current="off" if desired else "on"
+            )
+            result = await dispatcher.set_water_switch("switch.vvb", desired)
+            assert result.success is True
+            assert result.action_type == "water_switch"
+            assert result.new_value == expected
+            ha_client.set_switch.assert_awaited_once_with("switch.vvb", desired)
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_in_state(self, base_config):
+        dispatcher, ha_client = self._dispatcher(base_config, current="on")
+
+        result = await dispatcher.set_water_switch("switch.vvb", True)
+
+        assert result.skipped is True
+        ha_client.set_switch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_in_shadow_mode(self, base_config):
+        dispatcher, ha_client = self._dispatcher(base_config, current="off", shadow_mode=True)
+
+        result = await dispatcher.set_water_switch("switch.vvb", True)
+
+        assert result.success is True
+        assert result.skipped is True
+        ha_client.set_switch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_rejects_number_entity(self, base_config):
+        dispatcher, ha_client = self._dispatcher(base_config)
+
+        result = await dispatcher.set_water_switch("number.vvb", True)
+
+        assert result.success is False
+        assert "Invalid domain" in result.message
+        ha_client.get_state_value.assert_not_called()
 
 
 class TestSetEvChargerCurrent:

@@ -1,4 +1,7 @@
+import asyncio
 import os
+from contextlib import suppress
+from functools import wraps
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +11,43 @@ from sqlalchemy import create_engine
 
 from backend.core import secrets
 from backend.learning.models import Base
+
+
+class PollingEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
+    """Make cross-thread callbacks reliable in this restricted test runtime.
+
+    The sandbox blocks asyncio's socketpair wakeup, which normally alerts an
+    event loop when a worker thread completes.  Polling the selector briefly
+    preserves normal thread-based behavior while preventing callbacks from
+    waiting indefinitely.
+    """
+
+    def new_event_loop(self):
+        loop = super().new_event_loop()
+        selector = loop._selector  # type: ignore[attr-defined]
+        original_select = selector.select
+
+        @wraps(original_select)
+        def polling_select(timeout=None):
+            if timeout is None or timeout > 0.005:
+                timeout = 0.005
+            return original_select(timeout)
+
+        selector.select = polling_select
+        return loop
+
+
+asyncio.set_event_loop_policy(PollingEventLoopPolicy())
+
+
+@pytest.fixture(autouse=True)
+def disable_external_nordpool_requests(monkeypatch):
+    """Keep the suite hermetic when tests exercise executor price updates."""
+
+    def empty_fetch(*args, **kwargs):
+        return {"areas": {}}
+
+    monkeypatch.setattr("nordpool.elspot.Prices.fetch", empty_fetch)
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -86,10 +126,8 @@ def setup_test_env():
 
     # Remove the seeded config.yaml only if we created it (never the real one).
     if created_config_file:
-        try:
+        with suppress(Exception):
             config_file.unlink()
-        except Exception:
-            pass
 
     try:
         if db_path.exists():
@@ -102,6 +140,7 @@ def setup_test_env():
 def reset_ha_http_client():
     """Reset the Home Assistant shared HTTP client dict between tests to prevent test contamination."""
     from backend.core import ha_client
+
     ha_client._ha_http_clients.clear()
     yield
     ha_client._ha_http_clients.clear()

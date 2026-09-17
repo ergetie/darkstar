@@ -122,6 +122,8 @@ export type ConfigResponse = {
         max_hours_between_heating: number
         water_min_spacing_hours: number
         sensor: string
+        target_entity?: string
+        control_type: 'temperature' | 'switch'
         type: 'binary' | 'modulating'
     }[]
     ev_chargers?: {
@@ -506,7 +508,13 @@ export type DashboardBundleResponse = {
     schedule: ScheduleResponse | null
     executor_status: ExecutorStatusResponse | null
     scheduler_status: SchedulerStatusResponse | null
-    water_boost: { boost: boolean; expires_at?: string; source?: string } | null
+    water_boost: {
+        boost: boolean
+        active?: boolean
+        expires_at?: string
+        source?: string
+        heaters?: Record<string, { expires_at: string; remaining_seconds: number }>
+    } | null
 }
 export type AuroraBriefingResponse = { briefing: string }
 export type LogInfoResponse = {
@@ -833,16 +841,30 @@ export const Api = {
     },
     waterBoost: {
         status: () =>
-            getJSON<{ water_boost: { expires_at: string; remaining_minutes: number; temp_target: number } | null }>(
-                '/api/water/boost',
-            ),
+            getJSON<{
+                boost: boolean
+                active?: boolean
+                expires_at?: string
+                heaters?: Record<string, { expires_at: string; remaining_seconds: number }>
+            }>('/api/water/boost'),
         start: (durationMinutes: number) =>
-            getJSON<{ success: boolean; expires_at?: string; duration_minutes?: number; temp_target?: number }>(
+            getJSON<{ success: boolean; expires_at?: string; duration_minutes?: number; heater_ids?: string[] }>(
                 '/api/water/boost',
                 'POST',
                 { duration_minutes: durationMinutes },
             ),
-        cancel: () => getJSON<{ success: boolean; was_active?: boolean }>('/api/water/boost', 'DELETE'),
+        startFor: (durationMinutes: number, heaterIds: string[]) =>
+            getJSON<{ success: boolean; expires_at?: string; duration_minutes?: number; heater_ids?: string[] }>(
+                '/api/water/boost',
+                'POST',
+                { duration_minutes: durationMinutes, heater_ids: heaterIds },
+            ),
+        cancel: (heaterIds?: string[]) =>
+            getJSON<{ success: boolean; was_active?: boolean; heater_ids?: string[] }>(
+                '/api/water/boost',
+                'DELETE',
+                heaterIds ? { heater_ids: heaterIds } : undefined,
+            ),
     },
     // Energy stats from HA sensors
     energyToday: () => getJSON<EnergyTodayResponse>('/api/energy/today'),

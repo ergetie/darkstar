@@ -9,7 +9,7 @@ import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import pytz
@@ -615,7 +615,7 @@ class TestRunOnce:
 
         with patch("backend.core.websockets.ws_manager") as mock_ws:
             mock_ws.emit_sync.side_effect = RuntimeError("WS unavailable")
-            result = await engine.run_once()
+            await engine.run_once()
 
         # Record must still be persisted even when broadcast fails
         assert any(r["type"] == "test_action" for r in engine.recent_errors)
@@ -1172,6 +1172,11 @@ class TestControlWaterHeatersPerDevice:
                     mock_ha.set_input_number.return_value = True
                     eng.ha_client = mock_ha
                     eng.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
+                    # These tests exercise per-device water dispatch.  Battery
+                    # cost updates fetch live Nordpool data, which is an
+                    # unrelated external dependency and can hold run_once()
+                    # open for the price-fetch timeout.
+                    eng._update_battery_cost = AsyncMock()
                     eng._has_water_heater = True
                     yield eng
 
@@ -1216,6 +1221,48 @@ class TestControlWaterHeatersPerDevice:
         # Both heaters should be set to normal (heating planned)
         assert call(60, "input_number.wh1_target") in calls
         assert call(60, "input_number.wh2_target") in calls
+
+    @pytest.mark.asyncio
+    async def test_switch_heater_uses_on_off_dispatch_without_temperature_write(
+        self, engine, temp_schedule
+    ):
+        from unittest.mock import AsyncMock
+
+        from executor.actions import ActionResult
+
+        switch_heater = engine.config.water_heater_devices[0]
+        switch_heater.control_type = "switch"
+        switch_heater.target_entity = "switch.wh1"
+
+        tz = pytz.timezone("Europe/Stockholm")
+        slot_start = datetime.now(tz) - timedelta(minutes=5)
+        slot = {
+            "start_time": slot_start.isoformat(),
+            "end_time": (slot_start + timedelta(minutes=15)).isoformat(),
+            "end_time_kepler": (slot_start + timedelta(minutes=15)).isoformat(),
+            "battery_charge_kw": 0.0,
+            "battery_discharge_kw": 0.0,
+            "export_kwh": 0.0,
+            "water_heating_kw": 3.0,
+            "soc_target_percent": 50,
+            "projected_soc_percent": 45,
+            "water_heaters": {"wh1": {"heating_kw": 3.0}, "wh2": {"heating_kw": 0.0}},
+        }
+        temp_schedule_path = Path(temp_schedule)
+        temp_schedule_path.write_text(json.dumps(make_schedule([slot])))
+
+        engine.dispatcher.set_water_switch = AsyncMock(
+            return_value=ActionResult(action_type="water_switch", success=True)
+        )
+        engine.dispatcher.set_water_temp = AsyncMock(
+            return_value=ActionResult(action_type="water_temp", success=True)
+        )
+
+        await engine.run_once()
+
+        engine.dispatcher.set_water_switch.assert_awaited_once_with("switch.wh1", True)
+        engine.dispatcher.set_water_temp.assert_awaited_once_with(40, "input_number.wh2_target")
+        engine.ha_client.set_input_number.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_heater_off_when_not_planned(self, engine, temp_schedule):
@@ -1571,17 +1618,51 @@ class TestWaterBoostCancellationNotification:
                     from executor.actions import ActionDispatcher
 
                     engine.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
+                    # Keep this notification test hermetic; it does not test
+                    # battery-cost accounting or Nordpool availability.
+                    engine._update_battery_cost = AsyncMock()
 
                     yield engine
 
+    def _configure_devices(self, engine):
+        from executor.config import WaterHeaterDeviceConfig
+
+        engine._has_water_heater = True
+        engine.config.water_heater_devices = [
+            WaterHeaterDeviceConfig(id="main", target_entity="input_number.main"),
+            WaterHeaterDeviceConfig(
+                id="upstairs", target_entity="switch.upstairs", control_type="switch"
+            ),
+        ]
+
+    async def test_boost_is_tracked_per_heater_and_cleared_independently(self, engine):
+        self._configure_devices(engine)
+
+        result = engine.set_water_boost(30, ["main"])
+        assert result["success"] is True
+        assert set(engine.get_water_boost_status()["heaters"]) == {"main"}
+
+        result = engine.set_water_boost(60, ["upstairs"])
+        assert result["success"] is True
+        assert set(engine.get_water_boost_status()["heaters"]) == {"main", "upstairs"}
+
+        clear_result = engine.clear_water_boost(["main"])
+        assert clear_result["success"] is True
+        assert set(engine.get_water_boost_status()["heaters"]) == {"upstairs"}
+
+    async def test_unnamed_boost_targets_all_and_unknown_ids_are_rejected(self, engine):
+        self._configure_devices(engine)
+
+        result = engine.set_water_boost(30)
+        assert set(result["heater_ids"]) == {"main", "upstairs"}
+
+        unknown = engine.set_water_boost(30, ["missing"])
+        assert unknown["success"] is False
+        assert unknown["unknown_heater_ids"] == ["missing"]
+
     async def test_boost_cancelled_notification_is_awaited(self, engine, temp_schedule):
         """Notification is sent (and awaited) when boost is cancelled due to low SoC."""
-        from datetime import timedelta
         from unittest.mock import AsyncMock
-
-        import pytz
-
-        tz = pytz.timezone("Europe/Stockholm")
 
         # Activate a water boost
         engine.set_water_boost(60)
@@ -1607,7 +1688,7 @@ class TestWaterBoostCancellationNotification:
         # Notification must have been awaited (not just called)
         mock_notify.assert_awaited_once()
         # Boost should be cleared
-        assert engine.get_water_boost_status() is None
+        assert engine.get_water_boost_status()["active"] is False
 
 
 class TestCreateExecutionRecordErrorMessage:

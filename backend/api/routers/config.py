@@ -525,6 +525,56 @@ def _validate_config_for_save(
                         }
                     )
 
+                # Control type is separate from the load-model `type` field.
+                raw_control_type = wh.get("control_type", "temperature")
+                control_type = str(raw_control_type).strip().lower()
+                if control_type not in {"temperature", "switch"}:
+                    issues.append(
+                        {
+                            "severity": "warning",
+                            "message": (
+                                f"Water heater '{wh.get('id', i + 1)}' uses unsupported control_type: "
+                                f"'{raw_control_type}'"
+                            ),
+                            "guidance": "control_type must be 'temperature' or 'switch'; treating it as 'temperature'.",
+                        }
+                    )
+                    control_type = "temperature"
+
+                target_entity = wh.get("target_entity")
+                if target_entity:
+                    target_entity = str(target_entity).strip()
+                    expected_prefixes = (
+                        ("switch.", "input_boolean.")
+                        if control_type == "switch"
+                        else ("number.", "input_number.")
+                    )
+                    if not target_entity.startswith(expected_prefixes):
+                        entered_domain = target_entity.split(".", 1)[0]
+                        domain_label = (
+                            "a switch"
+                            if entered_domain in {"switch", "input_boolean"}
+                            else "a temperature control entity"
+                        )
+                        accepted_type = (
+                            "switch"
+                            if entered_domain in {"switch", "input_boolean"}
+                            else "temperature"
+                        )
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": (
+                                    f"Water heater '{wh.get('id', i + 1)}' target_entity '{target_entity}' is "
+                                    f"{domain_label} — set control_type to '{accepted_type}' to control this heater"
+                                ),
+                                "guidance": (
+                                    "Temperature control requires number./input_number.; switch control requires "
+                                    "switch./input_boolean."
+                                ),
+                            }
+                        )
+
                 # Validate water heater type
                 wh_type = wh.get("type", "binary") or "binary"
                 if wh_type not in WATER_HEATER_LOAD_TYPES:

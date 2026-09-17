@@ -54,6 +54,9 @@ class TestExecutorV2ActionOrdering:
             profile=profile,
             shadow_mode=False,
         )
+        # This test verifies dispatch ordering; read-back verification has its
+        # own coverage and would otherwise wait for the real settle timeout.
+        dispatcher._verify_action = AsyncMock(return_value=("verified", True))
 
         decision = ControllerDecision(
             mode_intent="charge",

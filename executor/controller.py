@@ -14,6 +14,7 @@ Determines:
 
 import logging
 from dataclasses import dataclass
+from typing import cast
 
 # from typing import Any, Dict, Optional, Tuple
 from .config import (
@@ -150,6 +151,21 @@ class Controller:
         # Get SoC target and water temp from override
         soc_target = int(actions.get("soc_target", 10))
         water_temp = int(actions.get("water_temp", 40))
+        raw_water_temps = actions.get("water_temps")
+        water_temps: dict[str, int] = {}
+        if isinstance(raw_water_temps, dict):
+            typed_water_temps = cast("dict[object, object]", raw_water_temps)
+            water_temps = {
+                str(heater_id): int(temp)
+                for heater_id, temp in typed_water_temps.items()
+                if isinstance(temp, (int, float, str))
+            }
+        if water_temps:
+            # Manual boost overrides only the selected heaters; the remaining
+            # devices continue to follow this slot's per-device schedule.
+            scheduled_water_temps = self._determine_water_temps(slot)
+            scheduled_water_temps.update(water_temps)
+            water_temps = scheduled_water_temps
 
         # User's configured max limits (for templates)
         unit = (
@@ -168,6 +184,7 @@ class Controller:
             export_with_load_w=0.0,
             soc_target=soc_target,
             water_temp=water_temp,
+            water_temps=water_temps,
             max_charge=max_charge,
             max_discharge=max_discharge,
             write_charge_current=write_charge,

@@ -112,14 +112,14 @@ class TestWaterHeaterDeviceConfig:
                     "id": "wh1",
                     "name": "Main Heater",
                     "enabled": True,
-                    "target_entity": "climate.water_heater_1",
+                    "target_entity": "input_number.water_heater_1",
                     "power_kw": 3.0,
                 },
                 {
                     "id": "wh2",
                     "name": "Cabin Heater",
                     "enabled": True,
-                    "target_entity": "climate.water_heater_2",
+                    "target_entity": "input_number.water_heater_2",
                     "power_kw": 2.0,
                 },
             ],
@@ -133,12 +133,12 @@ class TestWaterHeaterDeviceConfig:
         wh1 = config.water_heater_devices[0]
         assert wh1.id == "wh1"
         assert wh1.name == "Main Heater"
-        assert wh1.target_entity == "climate.water_heater_1"
+        assert wh1.target_entity == "input_number.water_heater_1"
         assert wh1.power_kw == 3.0
 
         wh2 = config.water_heater_devices[1]
         assert wh2.id == "wh2"
-        assert wh2.target_entity == "climate.water_heater_2"
+        assert wh2.target_entity == "input_number.water_heater_2"
         assert wh2.power_kw == 2.0
 
     def test_heater_without_target_entity_excluded(self, tmp_path):
@@ -150,7 +150,7 @@ class TestWaterHeaterDeviceConfig:
                 {
                     "id": "wh1",
                     "enabled": True,
-                    "target_entity": "climate.water_heater_1",
+                    "target_entity": "input_number.water_heater_1",
                     "power_kw": 3.0,
                 },
                 {
@@ -169,6 +169,118 @@ class TestWaterHeaterDeviceConfig:
         assert len(config.water_heater_devices) == 1
         assert config.water_heater_devices[0].id == "wh1"
 
+    def test_control_type_switch_loads_as_switch(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "executor": {"enabled": True},
+                    "water_heaters": [
+                        {
+                            "id": "relay",
+                            "target_entity": "switch.vvb",
+                            "control_type": " SWITCH ",
+                        }
+                    ],
+                }
+            )
+        )
+
+        config = load_executor_config(str(config_file))
+
+        assert config.water_heater_devices[0].control_type == "switch"
+
+    def test_control_type_defaults_to_temperature_and_ignores_load_type(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "executor": {"enabled": True},
+                    "water_heaters": [
+                        {
+                            "id": "temperature",
+                            "target_entity": "input_number.vvbtemp",
+                            "type": "binary",
+                        }
+                    ],
+                }
+            )
+        )
+
+        config = load_executor_config(str(config_file))
+
+        assert config.water_heater_devices[0].control_type == "temperature"
+
+    def test_unrecognised_control_type_falls_back_to_temperature(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "executor": {"enabled": True},
+                    "water_heaters": [
+                        {
+                            "id": "temperature",
+                            "target_entity": "number.vvbtemp",
+                            "control_type": "relay",
+                        }
+                    ],
+                }
+            )
+        )
+
+        config = load_executor_config(str(config_file))
+
+        assert config.water_heater_devices[0].control_type == "temperature"
+
+    def test_mismatched_control_type_is_skipped_and_warned(self, tmp_path, caplog):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "executor": {"enabled": True},
+                    "water_heaters": [
+                        {
+                            "id": "bad_relay",
+                            "target_entity": "number.vvbtemp",
+                            "control_type": "switch",
+                        },
+                        {
+                            "id": "good_relay",
+                            "target_entity": "switch.vvb",
+                            "control_type": "switch",
+                        },
+                    ],
+                }
+            )
+        )
+
+        with caplog.at_level("WARNING"):
+            config = load_executor_config(str(config_file))
+
+        assert [heater.id for heater in config.water_heater_devices] == ["good_relay"]
+        assert "bad_relay" in caplog.text
+
+    def test_mixed_control_types_load_independently(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            yaml.safe_dump(
+                {
+                    "executor": {"enabled": True},
+                    "water_heaters": [
+                        {"id": "relay", "target_entity": "switch.vvb", "control_type": "switch"},
+                        {"id": "temperature", "target_entity": "number.vvbtemp"},
+                    ],
+                }
+            )
+        )
+
+        config = load_executor_config(str(config_file))
+
+        assert [(heater.id, heater.control_type) for heater in config.water_heater_devices] == [
+            ("relay", "switch"),
+            ("temperature", "temperature"),
+        ]
+
     def test_disabled_heater_excluded(self, tmp_path):
         """Disabled heaters are not included in water_heater_devices."""
         config_file = tmp_path / "config.yaml"
@@ -178,13 +290,13 @@ class TestWaterHeaterDeviceConfig:
                 {
                     "id": "wh1",
                     "enabled": True,
-                    "target_entity": "climate.water_heater_1",
+                    "target_entity": "input_number.water_heater_1",
                     "power_kw": 3.0,
                 },
                 {
                     "id": "wh2",
                     "enabled": False,
-                    "target_entity": "climate.water_heater_2",
+                    "target_entity": "input_number.water_heater_2",
                     "power_kw": 2.0,
                 },
             ],
@@ -212,7 +324,7 @@ class TestWaterHeaterDeviceConfig:
                 {
                     "id": "wh1",
                     "enabled": True,
-                    "target_entity": "climate.water_heater_1",
+                    "target_entity": "input_number.water_heater_1",
                     "power_kw": 3.0,
                 }
             ],

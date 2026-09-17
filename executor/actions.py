@@ -559,6 +559,8 @@ class ActionDispatcher:
         entity_id: str,
         value: Any,
         domain: str,
+        *,
+        raise_errors: bool = False,
     ) -> bool:
         """
         Write value to HA entity using appropriate service call.
@@ -586,6 +588,8 @@ class ActionDispatcher:
                 return False
         except HACallError as e:
             logger.error("Failed to write to %s: %s", entity_id, e)
+            if raise_errors:
+                raise
             return False
 
     def _values_match(self, current: str | None, target: Any) -> bool:
@@ -922,6 +926,90 @@ class ActionDispatcher:
             verified_value=verified_value,
             verification_success=verification_success,
             duration_ms=duration,
+            error_details=error_details,
+        )
+
+    async def set_water_switch(self, entity_id: str, on: bool) -> ActionResult:
+        """Turn a switch-controlled water heater on or off."""
+        start = time.time()
+        action_label = "on" if on else "off"
+        domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+        if domain not in {"switch", "input_boolean"}:
+            return ActionResult(
+                action_type="water_switch",
+                success=False,
+                message=f"Invalid domain for water switch entity {entity_id}",
+                entity_id=entity_id,
+                duration_ms=int((time.time() - start) * 1000),
+                error_details=f"Invalid domain for switch entity {entity_id}",
+            )
+
+        current = await self.ha.get_state_value(entity_id)
+        if self._values_match(current, action_label):
+            return ActionResult(
+                action_type="water_switch",
+                success=True,
+                message=f"Already {action_label}",
+                previous_value=current,
+                new_value=action_label,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
+        if self.shadow_mode:
+            logger.info(
+                "[SHADOW] Would set water switch %s to %s (current: %s)",
+                entity_id,
+                action_label,
+                current,
+            )
+            return ActionResult(
+                action_type="water_switch",
+                success=True,
+                message=f"[SHADOW] Would change {current} -> {action_label}",
+                previous_value=current,
+                new_value=action_label,
+                entity_id=entity_id,
+                skipped=True,
+                duration_ms=int((time.time() - start) * 1000),
+            )
+
+        error_details = None
+        try:
+            success = await self._write_entity(entity_id, action_label, domain, raise_errors=True)
+        except HACallError as e:
+            success = False
+            error_details = str(e)
+            logger.error("Failed to set water switch %s: %s", entity_id, error_details)
+
+        verified_value = None
+        verification_success = None
+        if success:
+            verified_value, verification_success = await self._verify_action(
+                entity_id, action_label
+            )
+            await self._maybe_notify(
+                "water_heat_start" if on else "water_heat_stop",
+                f"Water heater turned {'on' if on else 'off'}",
+            )
+
+        return ActionResult(
+            action_type="water_switch",
+            success=success,
+            message=(
+                f"Changed {current} -> {action_label}"
+                if success
+                else f"Failed: {error_details}"
+                if error_details
+                else "Failed to set water switch"
+            ),
+            previous_value=current,
+            new_value=action_label,
+            entity_id=entity_id,
+            verified_value=verified_value,
+            verification_success=verification_success,
+            duration_ms=int((time.time() - start) * 1000),
             error_details=error_details,
         )
 

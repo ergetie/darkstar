@@ -161,6 +161,51 @@ class TestWaterHeaterValidation:
         errors = [i for i in issues if i["severity"] == "error"]
         assert any("Duplicate water heater ID" in e["message"] for e in errors)
 
+    def _control_config(self, heater):
+        return {
+            "config_version": 2,
+            "system": {"has_water_heater": True, "has_battery": False, "has_ev_charger": False},
+            "water_heaters": [
+                {
+                    "id": "main_tank",
+                    "name": "Main Water Heater",
+                    "power_kw": 3.0,
+                    **heater,
+                }
+            ],
+        }
+
+    def test_switch_entity_without_control_type_is_error(self):
+        issues = _validate_config_for_save(self._control_config({"target_entity": "switch.vvb"}))
+        assert any(
+            issue["severity"] == "error" and "control_type to 'switch'" in issue["message"]
+            for issue in issues
+        )
+
+    def test_number_entity_with_switch_control_is_error(self):
+        issues = _validate_config_for_save(
+            self._control_config({"target_entity": "number.vvb", "control_type": "switch"})
+        )
+        assert any(issue["severity"] == "error" and "main_tank" in issue["message"] for issue in issues)
+
+    def test_matching_control_entity_pairs_pass(self):
+        for heater in (
+            {"target_entity": "input_number.vvb"},
+            {"target_entity": "input_boolean.vvb", "control_type": "switch"},
+        ):
+            issues = _validate_config_for_save(self._control_config(heater))
+            assert not any(issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues)
+
+    def test_missing_sensor_does_not_create_control_error(self):
+        issues = _validate_config_for_save(self._control_config({"target_entity": "number.vvb"}))
+        assert not any(issue["severity"] == "error" and "sensor" in issue["message"] for issue in issues)
+
+    def test_load_model_binary_does_not_imply_switch_control(self):
+        issues = _validate_config_for_save(
+            self._control_config({"type": "binary", "target_entity": "input_number.vvb"})
+        )
+        assert not any(issue["severity"] == "error" and "target_entity" in issue["message"] for issue in issues)
+
 
 class TestWaterHeaterTypeValidation:
     """fix-loadtype-enum-and-surface-warnings: water heater type validation,

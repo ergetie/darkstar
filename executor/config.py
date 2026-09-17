@@ -120,6 +120,8 @@ class WaterHeaterDeviceConfig:
     name: str = ""
     target_entity: str | None = None
     power_kw: float = 3.0
+    # Control mode for the target entity; distinct from the load-model `type`.
+    control_type: str = "temperature"
 
 
 @dataclass
@@ -601,12 +603,35 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
         if not target_ent:
             continue  # Only include heaters with a target_entity
         heater_id = str(heater.get("id", f"water_heater_{idx}"))
+        raw_control_type = heater.get("control_type", "temperature")
+        control_type = str(raw_control_type).strip().lower()
+        if control_type != "switch":
+            control_type = "temperature"
+
+        valid_prefixes = (
+            ("switch.", "input_boolean.")
+            if control_type == "switch"
+            else (
+                "number.",
+                "input_number.",
+            )
+        )
+        if not target_ent.startswith(valid_prefixes):
+            logger.warning(
+                "Skipping water heater '%s': control_type '%s' does not match target entity '%s'",
+                heater_id,
+                control_type,
+                target_ent,
+            )
+            continue
+
         water_heater_devices_list.append(
             WaterHeaterDeviceConfig(
                 id=heater_id,
                 name=str(heater.get("name", heater_id)),
                 target_entity=target_ent,
                 power_kw=float(heater.get("power_kw", WaterHeaterDeviceConfig.power_kw)),
+                control_type=control_type,
             )
         )
 

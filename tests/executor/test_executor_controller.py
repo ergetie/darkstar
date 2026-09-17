@@ -719,3 +719,22 @@ class TestControllerPerDeviceWaterTemps:
         )
 
         assert decision.water_temp == 60
+
+    def test_manual_boost_overlays_selected_heater_on_schedule(self):
+        slot = SlotPlan(water_heater_plans={"wh1": 0.0, "wh2": 2.0})
+        state = SystemState()
+        override = OverrideResult(
+            override_needed=True,
+            override_type=OverrideType.FORCE_HEAT,
+            actions={"water_temp": 70, "water_temps": {"wh1": 70}},
+        )
+
+        decision = make_decision(
+            slot,
+            state,
+            override,
+            water_heater_config=WaterHeaterGlobalConfig(temp_normal=60, temp_off=35, temp_boost=70),
+            water_heater_devices=self._make_devices(),
+        )
+
+        assert decision.water_temps == {"wh1": 70, "wh2": 60}

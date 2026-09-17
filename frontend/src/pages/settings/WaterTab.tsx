@@ -31,6 +31,15 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
 
     const blocker = useUnsavedChangesGuard(isDirty)
     const hasHiddenSections = waterSections.some((s) => s.fields.every((f) => f.isAdvanced))
+    const waterHeaters = (() => {
+        try {
+            return JSON.parse(String(form.water_heaters || '[]')) as { control_type?: string }[]
+        } catch {
+            return []
+        }
+    })()
+    const hasTemperatureHeater =
+        waterHeaters.length === 0 || waterHeaters.some((heater) => heater.control_type !== 'switch')
 
     if (loading) {
         return <Card className="p-6 text-sm text-muted">Loading water heating configuration…</Card>
@@ -63,6 +72,7 @@ export const WaterTab: React.FC<{ advancedMode?: boolean }> = ({ advancedMode })
                 }
 
                 if (!sectionEnabled) return null
+                if (section.title === 'Temperatures' && !hasTemperatureHeater) return null
 
                 const isEntirelyAdvanced = section.fields.every((f) => f.isAdvanced)
                 const shouldShowCard = advancedMode || !isEntirelyAdvanced
