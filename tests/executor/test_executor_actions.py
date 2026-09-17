@@ -650,3 +650,90 @@ class TestSetEvChargerCurrent:
         assert result.skipped is True
         assert "[SHADOW]" in result.message
         ha_client.set_number.assert_not_called()
+
+
+class TestVerificationReadBack:
+    """Read-back verification must tolerate inverters whose HA state lags the write."""
+
+    @pytest.fixture
+    def base_config(self):
+        from executor.config import (
+            ControllerConfig,
+            ExecutorConfig,
+            InverterConfig,
+            NotificationConfig,
+        )
+
+        return ExecutorConfig(
+            inverter=InverterConfig(),
+            controller=ControllerConfig(),
+            notifications=NotificationConfig(),
+        )
+
+    @pytest.fixture
+    def dispatcher(self, base_config):
+        from unittest.mock import MagicMock
+
+        from executor.actions import ActionDispatcher
+
+        return ActionDispatcher(ha_client=MagicMock(), config=base_config, shadow_mode=False)
+
+    @pytest.mark.asyncio
+    async def test_retries_until_slow_entity_settles(self, dispatcher, monkeypatch):
+        """A modbus-polled select reports its old option for a while after the write."""
+        from unittest.mock import AsyncMock
+
+        import executor.actions as actions_mod
+
+        monkeypatch.setattr(actions_mod, "VERIFY_POLL_INTERVAL_MS", 1)
+        dispatcher.ha.get_state_value = AsyncMock(
+            side_effect=["Forced mode", "Forced mode", "Self-consumption mode"]
+        )
+
+        value, ok = await dispatcher._verify_action("select.ems_mode", "Self-consumption mode")
+
+        assert ok is True
+        assert value == "Self-consumption mode"
+        assert dispatcher.ha.get_state_value.await_count == 3
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_max_wait(self, dispatcher, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        import executor.actions as actions_mod
+
+        monkeypatch.setattr(actions_mod, "VERIFY_MAX_WAIT_MS", 3)
+        monkeypatch.setattr(actions_mod, "VERIFY_POLL_INTERVAL_MS", 1)
+        dispatcher.ha.get_state_value = AsyncMock(return_value="Forced mode")
+
+        value, ok = await dispatcher._verify_action("select.ems_mode", "Self-consumption mode")
+
+        assert ok is False
+        assert value == "Forced mode"
+
+    @pytest.mark.asyncio
+    async def test_no_extra_read_when_already_correct(self, dispatcher):
+        from unittest.mock import AsyncMock
+
+        dispatcher.ha.get_state_value = AsyncMock(return_value="Self-consumption mode")
+
+        value, ok = await dispatcher._verify_action("select.ems_mode", "Self-consumption mode")
+
+        assert ok is True
+        assert value == "Self-consumption mode"
+        assert dispatcher.ha.get_state_value.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_unavailable_entity_reports_unknown(self, dispatcher, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        import executor.actions as actions_mod
+
+        monkeypatch.setattr(actions_mod, "VERIFY_MAX_WAIT_MS", 3)
+        monkeypatch.setattr(actions_mod, "VERIFY_POLL_INTERVAL_MS", 1)
+        dispatcher.ha.get_state_value = AsyncMock(return_value=None)
+
+        value, ok = await dispatcher._verify_action("select.ems_mode", "Self-consumption mode")
+
+        assert value is None
+        assert ok is None

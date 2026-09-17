@@ -28,6 +28,12 @@ from .profiles import InverterProfile, ModeAction
 
 logger = logging.getLogger(__name__)
 
+# Read-back verification: how long to keep re-reading an entity before declaring
+# the write unverified, and how long to wait between reads when the action's
+# profile does not declare its own settle_ms.
+VERIFY_MAX_WAIT_MS = 2000
+VERIFY_POLL_INTERVAL_MS = 400
+
 
 class HACallError(Exception):
     """Home Assistant API call error with detailed context."""
@@ -603,13 +609,39 @@ class ActionDispatcher:
                     return True
             return str(current).strip().lower() == str(target).strip().lower()
 
-    async def _verify_action(self, entity_id: str, expected: Any) -> tuple[Any, bool | None]:
-        """Verify that an action was applied correctly."""
+    async def _verify_action(
+        self, entity_id: str, expected: Any, settle_ms: int | None = None
+    ) -> tuple[Any, bool | None]:
+        """Verify that an action was applied correctly.
+
+        Many inverters are polled over modbus, so the entity in HA keeps reporting
+        its previous value for a second or more after the write succeeds. Reading
+        back immediately therefore compares against stale state and reports a
+        perfectly good write as FAILED. Re-read until the value settles, giving up
+        after VERIFY_MAX_WAIT_MS.
+        """
+        delay_ms = settle_ms if settle_ms and settle_ms > 0 else VERIFY_POLL_INTERVAL_MS
+        waited_ms = 0
         state = await self.ha.get_state_value(entity_id)
+        matches = None if state is None else self._values_match(state, expected)
+
+        while matches is not True and waited_ms < VERIFY_MAX_WAIT_MS:
+            await asyncio.sleep(min(delay_ms, VERIFY_MAX_WAIT_MS - waited_ms) / 1000.0)
+            waited_ms += delay_ms
+            state = await self.ha.get_state_value(entity_id)
+            matches = None if state is None else self._values_match(state, expected)
+
+        if matches is not True:
+            logger.debug(
+                "Verification of %s did not settle on %r within %dms (last read: %r)",
+                entity_id,
+                expected,
+                waited_ms,
+                state,
+            )
+
         if state is None:
             return None, None
-
-        matches = self._values_match(state, expected)
         return state, matches
 
     async def execute(self, decision: ControllerDecision) -> list[ActionResult]:
@@ -760,7 +792,7 @@ class ActionDispatcher:
         verification_success = None
         if success:
             verified_value, verification_success = await self._verify_action(
-                entity_id, resolved_value
+                entity_id, resolved_value, action.settle_ms
             )
 
         duration_ms = int((time.time() - start_time) * 1000)
