@@ -48,7 +48,7 @@ The safety floor SHALL incorporate two risk-based mechanisms:
 1. A **risk margin** applied to the temporal deficit (higher risk appetite = lower margin, trusting the forecast more)
 2. A **minimum floor** per risk level as a percentage of battery capacity above min_soc, ensuring the floor never collapses to min_soc regardless of forecast conditions
 
-The existing `max_safety_buffer_pct` cap SHALL still apply to prevent the floor from exceeding reasonable levels.
+The safety floor SHALL be capped at a **risk-aware maximum buffer**. The effective cap SHALL be derived by scaling the configured `max_safety_buffer_percent` (which retains its existing meaning as the Risk 3 / Neutral baseline) by a per-risk multiplier that decreases monotonically with risk appetite (Risk 1 highest ceiling, Risk 5 lowest; Risk 3 multiplier = 1.0 so Neutral behavior is unchanged). The effective cap SHALL never be lower than the risk level's own minimum floor percentage, so the promised per-risk minimum buffer can never be suppressed by the cap. The S-Index debug output SHALL report the effective (post-scaling) cap and the applied multiplier.
 
 #### Scenario: Excess Solar Energy at End of Horizon
 - **WHEN** the battery receives abundant solar energy and covering all loads leaves the end-of-horizon SoC higher than the calculated Safety Floor target
@@ -91,9 +91,28 @@ The existing `max_safety_buffer_pct` cap SHALL still apply to prevent the floor 
 - **THEN** the system SHALL log a warning
 - **AND** the safety floor SHALL use only the available horizon data with the minimum floor per risk level as baseline
 
-#### Scenario: Max safety buffer cap applies
-- **WHEN** the calculated safety floor (temporal deficit reserve + weather buffer + minimum floor) exceeds `max_safety_buffer_pct` of battery capacity above min_soc
-- **THEN** the safety floor SHALL be capped at min_soc + (max_safety_buffer_pct * capacity)
+#### Scenario: Risk-aware max safety buffer cap applies
+- **WHEN** the calculated safety floor (temporal deficit reserve + weather buffer + minimum floor) exceeds the risk level's effective cap above min_soc
+- **THEN** the safety floor SHALL be capped at min_soc + (configured max buffer fraction × per-risk multiplier × capacity)
+
+#### Scenario: Risk levels produce differentiated floors under saturating deficit
+- **GIVEN** a temporal deficit large enough to exceed every risk level's effective cap
+- **AND** `max_safety_buffer_percent` = 20
+- **WHEN** the safety floor is calculated for risk levels 1, 3, and 5
+- **THEN** the Risk 1 floor SHALL be strictly greater than the Risk 3 floor
+- **AND** the Risk 3 floor SHALL be strictly greater than the Risk 5 floor
+- **AND** the Risk 3 floor SHALL equal the pre-change flat-cap floor (min_soc + 20% of capacity)
+
+#### Scenario: Effective cap never suppresses the per-risk minimum floor
+- **GIVEN** risk_appetite = 1 (minimum floor 25% of capacity)
+- **AND** `max_safety_buffer_percent` configured low (e.g. 10)
+- **WHEN** the safety floor is calculated
+- **THEN** the effective cap SHALL be raised to at least the risk level's minimum floor percentage
+- **AND** the delivered floor SHALL honor the 25% minimum buffer
+
+#### Scenario: Debug output reports the effective cap
+- **WHEN** the safety floor is calculated
+- **THEN** the S-Index debug payload SHALL include the effective (post-scaling, post-minimum-floor) `max_buffer_kwh` and the applied per-risk cap multiplier
 
 ### Requirement: Solver Respects Export Threshold
 The planner adapter MUST map the user's `export_threshold_sek_per_kwh` parameter to the solver configuration. The solver MUST mathematically deduct this threshold from the spot price before making export decisions, preventing micro-cycling for negligible profits.
