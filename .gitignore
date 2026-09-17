@@ -129,3 +129,6 @@ data/test_planner.db-shm
 data/test_planner.db-wal
 data/ev_multi_day_state.json
 data/ev_multi_day_state.json.lock
+
+# Agent skills (auto-generated scaffolding, per-client like .agent/, .opencode/, .gemini/)
+.agents/
