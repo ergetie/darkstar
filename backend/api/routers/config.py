@@ -725,28 +725,93 @@ def _validate_config_for_save(
                         )
 
                 # excess-pv-priority-dispatch 1.5: phase switching requires a phase-mode entity
-                if ev.get("phase_switching_enabled") and not ev.get("phase_mode_entity"):
-                    issues.append(
-                        {
-                            "severity": "error",
-                            "message": f"EV charger '{ev.get('id', i + 1)}' has phase_switching_enabled but no phase_mode_entity",
-                            "guidance": "Set ev_chargers[].phase_mode_entity to the HA entity that commands 1/3-phase mode, or disable phase_switching_enabled.",
-                        }
-                    )
+                charger_label = ev.get("id", i + 1)
+                phase_switching_enabled = bool(ev.get("phase_switching_enabled"))
+                phase_mode_entity = str(ev.get("phase_mode_entity") or "").strip()
+                phase_1_value = str(ev.get("phase_1_value", "1") or "").strip()
+                phase_3_value = str(ev.get("phase_3_value", "3") or "").strip()
+                if phase_switching_enabled:
+                    if not phase_mode_entity:
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' has phase_switching_enabled but no phase_mode_entity",
+                                "guidance": "Set ev_chargers[].phase_mode_entity to a Home Assistant select or input_select entity, or disable phase_switching_enabled.",
+                            }
+                        )
+                    elif not phase_mode_entity.startswith(("select.", "input_select.")):
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' phase_mode_entity must be a select or input_select entity: {phase_mode_entity}",
+                                "guidance": "Use a Home Assistant select.* or input_select.* entity for commanded phase mode.",
+                            }
+                        )
+                    if not phase_1_value or not phase_3_value:
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' phase_1_value and phase_3_value must be non-empty",
+                                "guidance": "Set both phase option values when phase switching is enabled.",
+                            }
+                        )
+                    elif phase_1_value == phase_3_value:
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' phase_1_value and phase_3_value must differ",
+                                "guidance": "Choose distinct Home Assistant options for one-phase and three-phase mode.",
+                            }
+                        )
 
                 # Validate per-device switch_entity format
-                switch_entity = ev.get("switch_entity", "")
-                if switch_entity and not (
-                    switch_entity.startswith("switch.")
-                    or switch_entity.startswith("input_boolean.")
-                ):
+                switch_entity = str(ev.get("switch_entity") or "").strip()
+                switch_domain = switch_entity.split(".", 1)[0] if "." in switch_entity else ""
+                if switch_entity and switch_domain not in {
+                    "switch",
+                    "input_boolean",
+                    "select",
+                    "input_select",
+                }:
                     issues.append(
                         {
                             "severity": "warning",
-                            "message": f"EV charger '{ev.get('id', i + 1)}' switch_entity may be invalid: {switch_entity}",
-                            "guidance": "switch_entity should be a Home Assistant switch entity ID (e.g., 'switch.ev_charger' or 'input_boolean.ev_charger').",
+                            "message": f"EV charger '{charger_label}' switch_entity may be invalid: {switch_entity}",
+                            "guidance": "Charging Control Entity must be a switch, input_boolean, select, or input_select entity.",
                         }
                     )
+                if switch_domain in {"select", "input_select"}:
+                    charge_enabled_value = str(ev.get("charge_enabled_value", "on") or "").strip()
+                    charge_disabled_value = str(
+                        ev.get("charge_disabled_value", "off") or ""
+                    ).strip()
+                    if not charge_enabled_value or not charge_disabled_value:
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' select charging mappings must be non-empty",
+                                "guidance": "Set charge_enabled_value and charge_disabled_value to the Home Assistant options to send.",
+                            }
+                        )
+                    elif charge_enabled_value == charge_disabled_value:
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' charge_enabled_value and charge_disabled_value must differ",
+                                "guidance": "Choose distinct Home Assistant options for charging enabled and disabled.",
+                            }
+                        )
+
+                if "plugged_in_states" in ev:
+                    plugged_in_states = str(ev.get("plugged_in_states") or "")
+                    if not any(token.strip() for token in plugged_in_states.split(",")):
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{charger_label}' plugged_in_states must contain at least one non-empty state",
+                                "guidance": "Provide one or more comma-separated Home Assistant states, for example 'on,true,connected'.",
+                            }
+                        )
 
                 # Goal entities must be the domains the sync actually parses.
                 # A ready-by pointed at anything but an input_datetime parses

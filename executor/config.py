@@ -131,6 +131,11 @@ class EVChargerDeviceConfig:
     id: str = ""
     name: str = ""
     switch_entity: str | None = None
+    charge_enabled_value: str = "on"
+    charge_disabled_value: str = "off"
+    plugged_in_states: str = "on,true,1,connected"
+    phase_1_value: str = "1"
+    phase_3_value: str = "3"
     max_power_kw: float = 7.4
     battery_capacity_kwh: float | None = None
     replan_on_plugin: bool = True
@@ -663,6 +668,33 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 id=charger_id,
                 name=str(charger.get("name") or charger_id),
                 switch_entity=_str_or_none(charger.get("switch_entity")),
+                charge_enabled_value=(
+                    str(charger["charge_enabled_value"]).strip()
+                    if "charge_enabled_value" in charger
+                    and charger["charge_enabled_value"] is not None
+                    else EVChargerDeviceConfig.charge_enabled_value
+                ),
+                charge_disabled_value=(
+                    str(charger["charge_disabled_value"]).strip()
+                    if "charge_disabled_value" in charger
+                    and charger["charge_disabled_value"] is not None
+                    else EVChargerDeviceConfig.charge_disabled_value
+                ),
+                plugged_in_states=(
+                    str(charger["plugged_in_states"]).strip()
+                    if "plugged_in_states" in charger and charger["plugged_in_states"] is not None
+                    else EVChargerDeviceConfig.plugged_in_states
+                ),
+                phase_1_value=(
+                    str(charger["phase_1_value"]).strip()
+                    if "phase_1_value" in charger and charger["phase_1_value"] is not None
+                    else EVChargerDeviceConfig.phase_1_value
+                ),
+                phase_3_value=(
+                    str(charger["phase_3_value"]).strip()
+                    if "phase_3_value" in charger and charger["phase_3_value"] is not None
+                    else EVChargerDeviceConfig.phase_3_value
+                ),
                 max_power_kw=float(
                     charger.get("max_power_kw") or EVChargerDeviceConfig.max_power_kw
                 ),

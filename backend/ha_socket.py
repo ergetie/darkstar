@@ -7,6 +7,7 @@ from typing import Any
 
 import websockets
 
+from backend.core.ev_plug import is_ev_plugged_in
 from backend.core.secrets import load_home_assistant_config, load_yaml
 
 logger = logging.getLogger("darkstar.ha_socket")
@@ -143,7 +144,12 @@ class HAWebSocketClient:
                         ev_id = ev.get("id", f"ev_charger_{idx}")
                         active_idx = len(self.ev_charger_configs)
                         self.ev_charger_configs.append(
-                            {"index": active_idx, "name": ev_name, "id": ev_id}
+                            {
+                                "index": active_idx,
+                                "name": ev_name,
+                                "id": ev_id,
+                                "plugged_in_states": ev.get("plugged_in_states"),
+                            }
                         )
                         # Only map sensors that aren't already used for the same type
                         # This allows same sensor for different types (e.g., one sensor for both power and soc)
@@ -513,10 +519,14 @@ class HAWebSocketClient:
         if key and key.startswith("ev_plug_"):
             try:
                 ev_idx = int(key.split("_")[-1])
-                state_val = new_state.get("state", "").lower()
+                raw_state = new_state.get("state", "")
+                state_val = str(raw_state).lower()
                 logger.info(f"EV{ev_idx} plug state changed: {entity_id}={state_val}")
 
-                is_plugged = state_val in ("on", "true", "1", "connected")
+                ev_config = (
+                    self.ev_charger_configs[ev_idx] if ev_idx < len(self.ev_charger_configs) else {}
+                )
+                is_plugged = is_ev_plugged_in(raw_state, ev_config.get("plugged_in_states"))
 
                 # Initialize ev_chargers data structure if needed
                 ev_chargers: list[dict[str, Any]] = self.latest_values.get("ev_chargers", [])
@@ -536,8 +546,11 @@ class HAWebSocketClient:
                         }
                     )
 
-                # Update this EV's plug status
+                # Update this EV's plug status, remembering the derived value so
+                # connected-to-connected state changes do not retrigger planning.
+                previous_plugged = False
                 if ev_idx < len(ev_chargers):
+                    previous_plugged = bool(ev_chargers[ev_idx].get("plugged_in", False))
                     ev_chargers[ev_idx]["plugged_in"] = is_plugged
 
                 # Build aggregate for backward compat
@@ -549,16 +562,24 @@ class HAWebSocketClient:
                     if ev_idx < len(self.ev_charger_configs)
                     else f"ev_charger_{ev_idx}"
                 )
-                if is_plugged:
+                if is_plugged != previous_plugged:
+                    if is_plugged:
+                        logger.info(
+                            f"EV{ev_idx} ({charger_id}) plugged in - triggering immediate re-plan"
+                        )
+                    else:
+                        logger.info(
+                            f"EV{ev_idx} ({charger_id}) unplugged - triggering immediate re-plan"
+                        )
+                    self._trigger_ev_replan(charger_id=charger_id, plugged_in=is_plugged)
+                elif is_plugged:
                     logger.info(
-                        f"EV{ev_idx} ({charger_id}) plugged in - triggering immediate re-plan"
+                        f"EV{ev_idx} ({charger_id}) remains connected; skipping duplicate re-plan"
                     )
-                    self._trigger_ev_replan(charger_id=charger_id, plugged_in=True)
                 else:
                     logger.info(
-                        f"EV{ev_idx} ({charger_id}) unplugged - triggering immediate re-plan"
+                        f"EV{ev_idx} ({charger_id}) remains disconnected; skipping duplicate re-plan"
                     )
-                    self._trigger_ev_replan(charger_id=charger_id, plugged_in=False)
 
                 # Emit entity change event
                 from backend.events import emit_ha_entity_change

@@ -189,7 +189,7 @@ async def get_ha_average(entity_id: str | None = None, hours: int = 24) -> dict[
     summary="List HA Entities",
     description="List available Home Assistant entities.",
 )
-async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
+async def get_ha_entities() -> dict[str, list[dict[str, Any]]]:
     """List available HA entities."""
     # Fetch from HA states
     config = load_home_assistant_config()
@@ -207,7 +207,7 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
         if resp.status_code == 200:
             data = resp.json()
             # Filter and format
-            entities: list[dict[str, str]] = []
+            entities: list[dict[str, Any]] = []
             for s in data:
                 eid = str(s.get("entity_id", ""))
                 if eid.startswith(
@@ -225,6 +225,7 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
                     )
                 ):
                     attrs = s.get("attributes", {})
+                    options: object = attrs.get("options", [])
                     entities.append(
                         {
                             "entity_id": eid,
@@ -232,6 +233,12 @@ async def get_ha_entities() -> dict[str, list[dict[str, str]]]:
                             "domain": eid.split(".")[0],
                             "unit_of_measurement": str(attrs.get("unit_of_measurement", "")),
                             "device_class": str(attrs.get("device_class", "")),
+                            "options": (
+                                [str(option) for option in cast("list[object]", options)]
+                                if eid.startswith(("select.", "input_select."))
+                                and isinstance(options, list)
+                                else []
+                            ),
                         }
                     )
             return {"entities": entities}

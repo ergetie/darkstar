@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.api.routers import ev as ev_router
+from backend.core.ev_plug import is_ev_plugged_in
 
 
 def _config(chargers: list[dict]) -> dict:
@@ -321,7 +322,8 @@ async def test_multiple_chargers_preserve_config_order(monkeypatch):
             AsyncMock(side_effect=lambda e: soc_by_entity[e]),
         ),
         patch(
-            "backend.api.routers.ev.get_ha_bool", AsyncMock(side_effect=lambda e: plug_by_entity[e])
+            "backend.api.routers.ev.get_ha_bool",
+            AsyncMock(side_effect=lambda e, _states: plug_by_entity[e]),
         ),
     ):
         result = await ev_router.get_ev_chargers()
@@ -333,6 +335,37 @@ async def test_multiple_chargers_preserve_config_order(monkeypatch):
     assert result[1]["power_kw"] == 5.0
     assert result[1]["soc_percent"] == 70.0
     assert result[1]["plugged_in"] is False
+
+
+@pytest.mark.asyncio
+async def test_charger_specific_plug_mapping_is_used(monkeypatch):
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    monkeypatch.setattr(
+        ev_router,
+        "load_yaml",
+        lambda _p: _config(
+            [
+                _charger_cfg(
+                    plugged_in_states="WaitCar, Charging",
+                    plug_sensor="sensor.goe_state",
+                )
+            ]
+        ),
+    )
+
+    async def read_plug(entity_id: str, connected_states: str) -> bool:
+        assert entity_id == "sensor.goe_state"
+        assert connected_states == "WaitCar, Charging"
+        return is_ev_plugged_in(" charging ", connected_states)
+
+    with (
+        patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)),
+        patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0)),
+        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(side_effect=read_plug)),
+    ):
+        result = await ev_router.get_ev_chargers()
+
+    assert result[0]["plugged_in"] is True
 
 
 @pytest.mark.asyncio

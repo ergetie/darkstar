@@ -70,4 +70,77 @@ describe('EV charger load type (EntityArrayEditor)', () => {
         renderEditor(makeCharger({ type: 'binary', soc_sensor: '' }))
         expect(screen.queryByText('No SoC sensor configured:')).not.toBeInTheDocument()
     })
+
+    it('hides mapped charge values for switch-like controls', () => {
+        renderEditor(makeCharger({ switch_entity: 'switch.ev_charger' }))
+        expect(screen.getByText('Charging Control Entity')).toBeInTheDocument()
+        expect(screen.queryByLabelText('Charging Enabled Value')).not.toBeInTheDocument()
+        expect(screen.queryByLabelText('Charging Disabled Value')).not.toBeInTheDocument()
+    })
+
+    it('uses HA options for select control, phase, and plug mappings', () => {
+        render(
+            <MemoryRouter>
+                <EntityArrayEditor
+                    entities={[
+                        makeCharger({
+                            switch_entity: 'select.ev_mode',
+                            charge_enabled_value: 'On',
+                            charge_disabled_value: 'Off',
+                            plug_sensor: 'sensor.ev_state',
+                            phase_mode_entity: 'select.ev_phase',
+                            phase_switching_enabled: true,
+                            phase_1_value: 'Force_1',
+                            phase_3_value: 'Force_3',
+                            plugged_in_states: 'WaitCar,Charging',
+                        }),
+                    ]}
+                    entityType="ev_charger"
+                    onChange={vi.fn()}
+                    haEntities={[
+                        {
+                            entity_id: 'select.ev_mode',
+                            friendly_name: 'Mode',
+                            domain: 'select',
+                            options: ['Neutral', 'Off', 'On'],
+                        },
+                        {
+                            entity_id: 'select.ev_phase',
+                            friendly_name: 'Phase',
+                            domain: 'select',
+                            options: ['Auto', 'Force_1', 'Force_3'],
+                        },
+                        {
+                            entity_id: 'sensor.ev_state',
+                            friendly_name: 'State',
+                            domain: 'sensor',
+                            options: ['WaitCar', 'Charging'],
+                        },
+                    ]}
+                />
+            </MemoryRouter>,
+        )
+
+        expect(screen.getByLabelText('Charging Enabled Value')).toHaveValue('On')
+        expect(screen.getByLabelText('Charging Enabled Value')).toContainHTML('<option')
+        expect(screen.getByLabelText('1-Phase Option')).toHaveValue('Force_1')
+        expect(screen.getByLabelText('3-Phase Option')).toHaveValue('Force_3')
+        expect(screen.getByLabelText('Connected Plug States')).toHaveValue(['WaitCar', 'Charging'])
+    })
+
+    it('falls back to text inputs and preserves values absent from HA options', () => {
+        render(
+            <MemoryRouter>
+                <EntityArrayEditor
+                    entities={[makeCharger({ switch_entity: 'select.ev_mode', charge_enabled_value: 'VendorOn' })]}
+                    entityType="ev_charger"
+                    onChange={vi.fn()}
+                    haEntities={[{ entity_id: 'select.ev_mode', friendly_name: 'Mode', domain: 'select', options: [] }]}
+                />
+            </MemoryRouter>,
+        )
+
+        expect(screen.getByLabelText('Charging Enabled Value')).toHaveValue('VendorOn')
+        expect(screen.getByLabelText('Charging Enabled Value').tagName).toBe('INPUT')
+    })
 })

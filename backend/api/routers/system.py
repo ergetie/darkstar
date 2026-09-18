@@ -14,6 +14,7 @@ from backend.api.models.system import (
     SystemHealthResponse,
     VersionResponse,
 )
+from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES
 from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
 from backend.core.secrets import load_yaml
 from backend.core.version import get_version as _get_git_version
@@ -84,7 +85,12 @@ async def get_system_status() -> StatusResponse:
 
         plug_sensor = ev.get("plug_sensor")
         tasks.append(
-            get_ha_bool(str(plug_sensor)) if plug_sensor else asyncio.sleep(0, result=False)
+            get_ha_bool(
+                str(plug_sensor),
+                ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
+            )
+            if plug_sensor
+            else asyncio.sleep(0, result=False)
         )
 
     results: list[Any] = await asyncio.gather(*tasks)

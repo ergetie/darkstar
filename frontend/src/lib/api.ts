@@ -763,6 +763,7 @@ export const Api = {
                 domain: string
                 unit_of_measurement?: string
                 device_class?: string
+                options?: string[]
             }[]
         }>('/api/ha/entities'),
     haServices: () => getJSON<{ services: string[] }>('/api/ha/services'),

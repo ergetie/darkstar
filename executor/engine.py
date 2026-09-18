@@ -2547,7 +2547,12 @@ class ExecutorEngine:
         if not decision.should_switch or decision.commanded_mode is None:
             return None
 
-        result = await self.dispatcher.set_ev_phase_mode(entity, decision.commanded_mode)
+        phase_option = (
+            charger_cfg.phase_1_value if decision.commanded_mode == 1 else charger_cfg.phase_3_value
+        )
+        result = await self.dispatcher.set_ev_phase_mode(
+            entity, decision.commanded_mode, phase_option
+        )
         if result.success:
             phase_ctrl.on_switch_success(decision.commanded_mode, now)
         else:
@@ -3120,7 +3125,23 @@ class ExecutorEngine:
 
             try:
                 current_state = await self.ha_client.get_state_value(switch_entity)
-                is_currently_on = current_state == "on" if current_state else False
+                control_domain = switch_entity.split(".", 1)[0] if "." in switch_entity else ""
+                is_select_control = control_domain in {"select", "input_select"}
+                enabled_value = charger_cfg.charge_enabled_value if is_select_control else "on"
+                disabled_value = charger_cfg.charge_disabled_value if is_select_control else "off"
+
+                enabled_matches = (
+                    current_state is not None
+                    and str(current_state).strip().casefold()
+                    == str(enabled_value).strip().casefold()
+                )
+                desired_value = enabled_value if should_charge else disabled_value
+                is_at_desired_state = (
+                    current_state is not None
+                    and str(current_state).strip().casefold()
+                    == str(desired_value).strip().casefold()
+                )
+                is_currently_on = enabled_matches
 
                 # Safety timeout: stop if plan expired
                 if is_currently_on and not should_charge and dev_state.charging_started_at:
@@ -3134,9 +3155,18 @@ class ExecutorEngine:
                         should_charge = False
 
                 if should_charge and not is_currently_on:
-                    result = await self.dispatcher.set_ev_charger_switch(
-                        switch_entity, turn_on=True, charging_kw=charger_plan_kw
-                    )
+                    if is_select_control:
+                        result = await self.dispatcher.set_ev_charger_switch(
+                            switch_entity,
+                            turn_on=True,
+                            charging_kw=charger_plan_kw,
+                            enabled_value=charger_cfg.charge_enabled_value,
+                            disabled_value=charger_cfg.charge_disabled_value,
+                        )
+                    else:
+                        result = await self.dispatcher.set_ev_charger_switch(
+                            switch_entity, turn_on=True, charging_kw=charger_plan_kw
+                        )
                     if result.success:
                         dev_state.charging_active = True
                         dev_state.charging_started_at = now
@@ -3168,10 +3198,19 @@ class ExecutorEngine:
                             )
                         )
 
-                elif not should_charge and is_currently_on:
-                    result = await self.dispatcher.set_ev_charger_switch(
-                        switch_entity, turn_on=False, charging_kw=0.0
-                    )
+                elif not should_charge and not is_at_desired_state:
+                    if is_select_control:
+                        result = await self.dispatcher.set_ev_charger_switch(
+                            switch_entity,
+                            turn_on=False,
+                            charging_kw=0.0,
+                            enabled_value=charger_cfg.charge_enabled_value,
+                            disabled_value=charger_cfg.charge_disabled_value,
+                        )
+                    else:
+                        result = await self.dispatcher.set_ev_charger_switch(
+                            switch_entity, turn_on=False, charging_kw=0.0
+                        )
                     if result.success:
                         dev_state.charging_active = False
                         dev_state.charging_started_at = None

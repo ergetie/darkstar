@@ -21,6 +21,7 @@ export interface HaEntity {
     domain: string
     unit_of_measurement?: string
     device_class?: string
+    options?: string[]
 }
 
 export interface BaseField {

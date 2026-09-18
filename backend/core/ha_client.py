@@ -10,6 +10,7 @@ import httpx
 import pytz
 
 from backend.core import secrets
+from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES, is_ev_plugged_in
 from backend.health import set_load_forecast_status
 
 logger = logging.getLogger("darkstar.core.ha_client")
@@ -367,11 +368,19 @@ async def get_energy_from_power_history(
         return None
 
 
-async def get_ha_bool(entity_id: str) -> bool:
-    """Return True if entity is 'on', 'true', 'armed', etc."""
+async def get_ha_bool(entity_id: str, connected_states: Any = None) -> bool:
+    """Return a boolean HA state.
+
+    ``connected_states`` is used by EV consumers to apply the shared,
+    charger-specific plug vocabulary. Other callers retain the generic HA
+    boolean behavior when it is omitted.
+    """
     state = await get_ha_entity_state(entity_id)
     if not state:
         return False
+
+    if connected_states is not None:
+        return is_ev_plugged_in(state.get("state"), connected_states)
 
     raw = str(state.get("state", "")).lower()
     # Common 'on' states in Home Assistant
@@ -512,7 +521,13 @@ async def get_initial_state(
             )
             if plug_sensor and not (ev_plugged_in_override is not None and is_override_charger):
                 key = f"ev_plug_{charger_id}"
-                per_device_reads.append((key, lambda e=plug_sensor: get_ha_bool(e)))
+                configured_states = ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES
+                per_device_reads.append(
+                    (
+                        key,
+                        lambda e=plug_sensor, states=configured_states: get_ha_bool(e, states),
+                    )
+                )
 
         per_device_results: dict[str, Any] = {}
         if per_device_reads:

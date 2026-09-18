@@ -183,3 +183,43 @@ def test_hardware_fields_unaffected_by_deprecated_fields() -> None:
     assert ev.max_power_kw == 11.0
     assert ev.battery_capacity_kwh == 82.0
     assert isinstance(ev, EVChargerDeviceConfig)
+
+
+def test_ev_mapping_defaults_preserve_legacy_behavior() -> None:
+    cfg = _load(
+        {
+            **MINIMAL_CONFIG,
+            "ev_chargers": [{"id": "ev1", "enabled": True}],
+        }
+    )
+    ev = cfg.ev_chargers[0]
+    assert ev.charge_enabled_value == "on"
+    assert ev.charge_disabled_value == "off"
+    assert ev.plugged_in_states == "on,true,1,connected"
+    assert ev.phase_1_value == "1"
+    assert ev.phase_3_value == "3"
+
+
+def test_ev_mapping_values_are_trimmed_and_preserve_case() -> None:
+    cfg = _load(
+        {
+            **MINIMAL_CONFIG,
+            "ev_chargers": [
+                {
+                    "id": "goe",
+                    "enabled": True,
+                    "charge_enabled_value": " On ",
+                    "charge_disabled_value": " Off ",
+                    "plugged_in_states": " WaitCar, Charging ",
+                    "phase_1_value": " Force_1 ",
+                    "phase_3_value": " Force_3 ",
+                }
+            ],
+        }
+    )
+    ev = cfg.ev_chargers[0]
+    assert ev.charge_enabled_value == "On"
+    assert ev.charge_disabled_value == "Off"
+    assert ev.plugged_in_states == "WaitCar, Charging"
+    assert ev.phase_1_value == "Force_1"
+    assert ev.phase_3_value == "Force_3"

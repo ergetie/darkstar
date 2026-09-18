@@ -971,3 +971,57 @@ class TestEVChargerPhaseSwitchingValidation:
         config = self._base_config({"phase_switching_enabled": False})
         issues = _validate_config_for_save(config)
         assert not any("phase_mode_entity" in i["message"] for i in issues)
+
+    def test_select_control_and_input_select_control_are_supported(self):
+        for entity in ("select.goe_mode", "input_select.goe_mode"):
+            issues = _validate_config_for_save(
+                self._base_config(
+                    {
+                        "type": "binary",
+                        "switch_entity": entity,
+                        "charge_enabled_value": "On",
+                        "charge_disabled_value": "Off",
+                    }
+                )
+            )
+            assert not any("switch_entity may be invalid" in i["message"] for i in issues)
+
+    def test_select_mappings_must_be_nonempty_and_distinct(self):
+        for overrides, expected in (
+            ({"switch_entity": "select.goe_mode", "charge_enabled_value": ""}, "non-empty"),
+            (
+                {
+                    "switch_entity": "select.goe_mode",
+                    "charge_enabled_value": "On",
+                    "charge_disabled_value": "On",
+                },
+                "must differ",
+            ),
+        ):
+            issues = _validate_config_for_save(self._base_config(overrides))
+            assert any(expected in i["message"] for i in issues if i["severity"] == "error")
+
+    def test_phase_mode_requires_select_and_distinct_phase_options(self):
+        issues = _validate_config_for_save(
+            self._base_config(
+                {
+                    "phase_switching_enabled": True,
+                    "phase_mode_entity": "switch.goe_phase",
+                    "phase_1_value": "Force_1",
+                    "phase_3_value": "Force_1",
+                }
+            )
+        )
+        errors = [issue["message"] for issue in issues if issue["severity"] == "error"]
+        assert any("must be a select or input_select" in message for message in errors)
+        assert any("must differ" in message for message in errors)
+
+    def test_custom_plug_states_cannot_be_empty(self):
+        issues = _validate_config_for_save(
+            self._base_config({"plugged_in_states": " ,  "})
+        )
+        assert any(
+            "plugged_in_states must contain" in issue["message"]
+            for issue in issues
+            if issue["severity"] == "error"
+        )

@@ -21,6 +21,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.core.ev_goal import resolve_next_ready_by
+from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES
 from backend.core.ev_state import read_ev_state, update_ev_state
 from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
 from backend.core.secrets import load_yaml
@@ -291,11 +292,11 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
 
-    async def _safe_bool(entity_id: str) -> bool | None:
+    async def _safe_bool(entity_id: str, connected_states: Any) -> bool | None:
         if not entity_id:
             return None
         try:
-            return await get_ha_bool(entity_id)
+            return await get_ha_bool(entity_id, connected_states)
         except Exception as exc:
             logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
@@ -308,7 +309,10 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         power_kw, soc_percent, plugged_in = await asyncio.gather(
             _safe_kw(str(ev.get("sensor", ""))),
             _safe_float(str(ev.get("soc_sensor", ""))),
-            _safe_bool(str(ev.get("plug_sensor", ""))),
+            _safe_bool(
+                str(ev.get("plug_sensor", "")),
+                ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
+            ),
         )
 
         persisted = state_by_id.get(charger_id, {})

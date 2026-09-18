@@ -9,8 +9,9 @@ import pytest
 from backend.core import ha_client
 from backend.core.ha_client import (
     close_ha_http_client,
-    get_ha_http_client,
+    get_ha_bool,
     get_ha_entity_state,
+    get_ha_http_client,
 )
 
 
@@ -138,3 +139,13 @@ async def test_get_entity_state_preserves_error_behavior():
             mock_get.assert_called_once()
             # Assert timeout of 10s was passed
             assert mock_get.call_args[1]["timeout"] == 10.0
+
+
+@pytest.mark.asyncio
+async def test_generic_sensor_boolean_keeps_yes_as_true():
+    """Non-EV boolean reads retain their established generic vocabulary."""
+    with patch(
+        "backend.core.ha_client.get_ha_entity_state",
+        new=AsyncMock(return_value={"state": "yes"}),
+    ):
+        assert await get_ha_bool("sensor.normal_status") is True

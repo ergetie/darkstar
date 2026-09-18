@@ -1206,15 +1206,23 @@ class ActionDispatcher:
         )
 
     async def set_ev_charger_switch(
-        self, entity_id: str, turn_on: bool, charging_kw: float = 0.0
+        self,
+        entity_id: str,
+        turn_on: bool,
+        charging_kw: float = 0.0,
+        *,
+        enabled_value: str = "on",
+        disabled_value: str = "off",
     ) -> ActionResult:
         """
         Control EV charger switch with shadow mode support.
 
         Args:
-            entity_id: The HA switch entity ID for the EV charger
+            entity_id: The HA charging-control entity ID for the EV charger
             turn_on: True to turn on, False to turn off
             charging_kw: Planned charging power in kW (for logging/notifications)
+            enabled_value: Select option used when charging is enabled
+            disabled_value: Select option used when charging is disabled
 
         Returns:
             ActionResult with details of the action
@@ -1222,19 +1230,28 @@ class ActionDispatcher:
         start = time.time()
         action_type = "ev_charge_start" if turn_on else "ev_charge_stop"
         action_label = "ON" if turn_on else "OFF"
+        domain = entity_id.split(".", 1)[0] if "." in entity_id else ""
+        is_select = domain in {"select", "input_select"}
+        target_value = (
+            enabled_value
+            if turn_on
+            else disabled_value
+            if is_select
+            else ("on" if turn_on else "off")
+        )
+        service_target = target_value if is_select else ("on" if turn_on else "off")
 
         # Check current state
         current_state = await self.ha.get_state_value(entity_id)
-        is_currently_on = current_state == "on" if current_state else False
 
         # Idempotent skip
-        if turn_on == is_currently_on:
+        if self._values_match(current_state, service_target):
             return ActionResult(
                 action_type=action_type,
                 success=True,
                 message=f"EV charger already {action_label}",
                 previous_value=current_state,
-                new_value=turn_on,
+                new_value=target_value,
                 entity_id=entity_id,
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
@@ -1244,7 +1261,7 @@ class ActionDispatcher:
         # Shadow mode check
         if self.shadow_mode:
             logger.info(
-                "[SHADOW] EV Charger: Would turn %s %s (current: %s)",
+                "[SHADOW] EV Charger: Would set %s %s (current: %s)",
                 action_label,
                 entity_id,
                 current_state,
@@ -1252,9 +1269,9 @@ class ActionDispatcher:
             return ActionResult(
                 action_type=action_type,
                 success=True,
-                message=f"[SHADOW] Would turn {action_label}",
+                message=f"[SHADOW] Would set {target_value}",
                 previous_value=current_state,
-                new_value=turn_on,
+                new_value=target_value,
                 entity_id=entity_id,
                 skipped=True,
                 duration_ms=int((time.time() - start) * 1000),
@@ -1264,7 +1281,10 @@ class ActionDispatcher:
         # Execute action
         error_details = None
         try:
-            await self.ha.set_switch(entity_id, turn_on)
+            if is_select:
+                await self.ha.set_select_option(entity_id, target_value)
+            else:
+                await self.ha.set_switch(entity_id, turn_on)
             success = True
         except HACallError as e:
             success = False
@@ -1276,7 +1296,7 @@ class ActionDispatcher:
         verification_success = None
         if success:
             verified_value, verification_success = await self._verify_action(
-                entity_id, "on" if turn_on else "off"
+                entity_id, service_target
             )
 
         duration = int((time.time() - start) * 1000)
@@ -1298,7 +1318,7 @@ class ActionDispatcher:
             if error_details
             else f"Failed to turn {action_label} EV charger",
             previous_value=current_state,
-            new_value=turn_on,
+            new_value=target_value,
             entity_id=entity_id,
             verified_value=verified_value,
             verification_success=verification_success,
@@ -1389,19 +1409,22 @@ class ActionDispatcher:
             error_details=error_details,
         )
 
-    async def set_ev_phase_mode(self, entity_id: str, mode: int) -> ActionResult:
+    async def set_ev_phase_mode(
+        self, entity_id: str, mode: int, option: str | None = None
+    ) -> ActionResult:
         """
         Command an EV charger's phase mode (1 or 3-phase) via its HA select entity.
 
         Args:
             entity_id: HA select entity controlling commanded phase mode
             mode: 1 or 3 (phase count)
+            option: HA select option mapped from the internal phase count
 
         Returns:
             ActionResult with details of the action
         """
         start = time.time()
-        option = str(mode)
+        option = str(mode) if option is None else option
 
         current_state = await self.ha.get_state_value(entity_id)
 

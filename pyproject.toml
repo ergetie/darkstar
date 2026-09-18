@@ -91,6 +91,8 @@ asyncio_mode = "auto"
 pythonVersion = "3.12"
 typeCheckingMode = "strict"
 stubPath = "typings"
+venvPath = "."
+venv = ".venv"
 
 # Include all Python source directories
 include = [

@@ -37,6 +37,9 @@ export interface EVChargerEntity {
     type: 'binary' | 'current'
     nominal_power_kw: number
     switch_entity?: string
+    charge_enabled_value?: string
+    charge_disabled_value?: string
+    plugged_in_states?: string
     replan_on_plugin?: boolean
     replan_on_unplug?: boolean
     current_entity?: string
@@ -48,6 +51,8 @@ export interface EVChargerEntity {
     phase_sensor_l3?: string
     phase_mode_entity?: string
     phase_switching_enabled?: boolean
+    phase_1_value?: string
+    phase_3_value?: string
     phase_switch_hysteresis_kw?: number
     phase_switch_min_dwell_s?: number
     ha_ready_by_entity?: string
@@ -96,6 +101,9 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     type: 'binary',
     nominal_power_kw: 11.0,
     switch_entity: '',
+    charge_enabled_value: 'on',
+    charge_disabled_value: 'off',
+    plugged_in_states: 'on,true,1,connected',
     replan_on_plugin: true,
     replan_on_unplug: false,
     current_entity: '',
@@ -103,6 +111,8 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     phases: [1, 2, 3],
     phase_mode_entity: '',
     phase_switching_enabled: false,
+    phase_1_value: '1',
+    phase_3_value: '3',
     phase_switch_hysteresis_kw: 0.5,
     phase_switch_min_dwell_s: 600,
     target_soc_percent: 80,
@@ -112,6 +122,136 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     ha_ready_by_entity: '',
     ha_target_soc_entity: '',
 })
+
+const DEFAULT_CHARGE_ENABLED_VALUE = 'on'
+const DEFAULT_CHARGE_DISABLED_VALUE = 'off'
+const DEFAULT_PLUGGED_IN_STATES = 'on,true,1,connected'
+const DEFAULT_PHASE_1_VALUE = '1'
+const DEFAULT_PHASE_3_VALUE = '3'
+
+function entityDomain(entityId: string | undefined, entity?: HaEntity): string {
+    return entity?.domain || entityId?.split('.')[0] || ''
+}
+
+function optionsIncludingStored(options: string[] | undefined, storedValue: string): string[] {
+    const available = options && options.length > 0 ? [...options] : []
+    if (storedValue && !available.includes(storedValue)) {
+        available.unshift(storedValue)
+    }
+    return available
+}
+
+function optionsIncludingStoredValues(options: string[] | undefined, storedValues: string[]): string[] {
+    const available = options && options.length > 0 ? [...options] : []
+    for (const value of storedValues) {
+        if (value && !available.includes(value)) available.unshift(value)
+    }
+    return available
+}
+
+interface MappingValueFieldProps {
+    label: string
+    value: string
+    fallback: string
+    options?: string[]
+    onChange: (value: string) => void
+    disabled: boolean
+}
+
+const MappingValueField: React.FC<MappingValueFieldProps> = ({
+    label,
+    value,
+    fallback,
+    options,
+    onChange,
+    disabled,
+}) => {
+    const currentValue = value || fallback
+    const selectOptions = options && options.length > 0 ? optionsIncludingStored(options, currentValue) : []
+    return (
+        <div>
+            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">{label}</label>
+            {selectOptions.length > 0 ? (
+                <select
+                    aria-label={label}
+                    value={currentValue}
+                    onChange={(event) => onChange(event.target.value)}
+                    disabled={disabled}
+                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                >
+                    {selectOptions.map((option) => (
+                        <option key={option} value={option}>
+                            {option}
+                            {option === currentValue && !options?.includes(option) ? ' (current)' : ''}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <input
+                    aria-label={label}
+                    type="text"
+                    value={currentValue}
+                    onChange={(event) => onChange(event.target.value)}
+                    disabled={disabled}
+                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                />
+            )}
+        </div>
+    )
+}
+
+interface PluggedStatesFieldProps {
+    value: string
+    options?: string[]
+    onChange: (value: string) => void
+    disabled: boolean
+}
+
+const PluggedStatesField: React.FC<PluggedStatesFieldProps> = ({ value, options, onChange, disabled }) => {
+    const currentValue = value || DEFAULT_PLUGGED_IN_STATES
+    const selectedValues = currentValue
+        .split(',')
+        .map((token) => token.trim())
+        .filter(Boolean)
+    const selectOptions = options && options.length > 0 ? optionsIncludingStoredValues(options, selectedValues) : []
+    return (
+        <div className="sm:col-span-2">
+            <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">Connected Plug States</label>
+            {selectOptions.length > 0 ? (
+                <select
+                    aria-label="Connected Plug States"
+                    multiple
+                    value={selectedValues}
+                    onChange={(event) =>
+                        onChange(Array.from(event.target.selectedOptions, (option) => option.value).join(','))
+                    }
+                    disabled={disabled}
+                    className="w-full min-h-20 rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                >
+                    {selectOptions.map((option) => (
+                        <option key={option} value={option}>
+                            {option}
+                            {!options?.includes(option) ? ' (current)' : ''}
+                        </option>
+                    ))}
+                </select>
+            ) : (
+                <input
+                    aria-label="Connected Plug States"
+                    type="text"
+                    value={currentValue}
+                    onChange={(event) => onChange(event.target.value)}
+                    disabled={disabled}
+                    placeholder="on,true,1,connected"
+                    className="w-full rounded-lg border border-line/50 bg-surface2 px-3 py-2 text-sm text-text focus:border-accent focus:outline-none disabled:opacity-50"
+                />
+            )}
+            <p className="text-[10px] text-muted mt-1">
+                States that mean the vehicle is connected; separate multiple states with commas.
+            </p>
+        </div>
+    )
+}
 
 export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
     entities,
@@ -492,17 +632,37 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                     disabled={disabled}
                                                 />
                                                 <p className="text-[10px] text-muted mt-1">
-                                                    EV plug status (on/off or connected/disconnected) - Required for
-                                                    smart charging
+                                                    Select the charger-specific connected states below when the sensor
+                                                    reports named values.
                                                 </p>
                                             </div>
+                                        )}
+
+                                        {/* Plug-state mapping (EV only) */}
+                                        {!isWaterHeater && (
+                                            <PluggedStatesField
+                                                value={(entity as EVChargerEntity).plugged_in_states || ''}
+                                                options={
+                                                    haEntities.find(
+                                                        (haEntity) =>
+                                                            haEntity.entity_id ===
+                                                            (entity as EVChargerEntity).plug_sensor,
+                                                    )?.options
+                                                }
+                                                onChange={(value) =>
+                                                    updateEntity(index, {
+                                                        plugged_in_states: value,
+                                                    } as Partial<EVChargerEntity>)
+                                                }
+                                                disabled={disabled}
+                                            />
                                         )}
 
                                         {/* Switch Entity (EV only) */}
                                         {!isWaterHeater && (
                                             <div className="sm:col-span-2">
                                                 <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
-                                                    Switch Entity
+                                                    Charging Control Entity
                                                 </label>
                                                 <EntitySelect
                                                     entities={haEntities}
@@ -513,14 +673,67 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                         } as Partial<EVChargerEntity>)
                                                     }
                                                     loading={haLoading}
-                                                    placeholder="Select Home Assistant switch entity..."
+                                                    placeholder="Select Home Assistant charging-control entity..."
                                                     disabled={disabled}
                                                 />
                                                 <p className="text-[10px] text-muted mt-1">
-                                                    Switch to enable/disable charging (e.g. switch.ev_charger)
+                                                    Switch-like entities use turn on/off. Select-like entities use the
+                                                    mapped options below.
                                                 </p>
                                             </div>
                                         )}
+
+                                        {/* Select-like charging mappings (EV only) */}
+                                        {!isWaterHeater &&
+                                            ['select', 'input_select'].includes(
+                                                entityDomain(
+                                                    (entity as EVChargerEntity).switch_entity,
+                                                    haEntities.find(
+                                                        (haEntity) =>
+                                                            haEntity.entity_id ===
+                                                            (entity as EVChargerEntity).switch_entity,
+                                                    ),
+                                                ),
+                                            ) && (
+                                                <div className="sm:col-span-2 grid grid-cols-2 gap-3">
+                                                    <MappingValueField
+                                                        label="Charging Enabled Value"
+                                                        value={(entity as EVChargerEntity).charge_enabled_value || ''}
+                                                        fallback={DEFAULT_CHARGE_ENABLED_VALUE}
+                                                        options={
+                                                            haEntities.find(
+                                                                (haEntity) =>
+                                                                    haEntity.entity_id ===
+                                                                    (entity as EVChargerEntity).switch_entity,
+                                                            )?.options
+                                                        }
+                                                        onChange={(value) =>
+                                                            updateEntity(index, {
+                                                                charge_enabled_value: value,
+                                                            } as Partial<EVChargerEntity>)
+                                                        }
+                                                        disabled={disabled}
+                                                    />
+                                                    <MappingValueField
+                                                        label="Charging Disabled Value"
+                                                        value={(entity as EVChargerEntity).charge_disabled_value || ''}
+                                                        fallback={DEFAULT_CHARGE_DISABLED_VALUE}
+                                                        options={
+                                                            haEntities.find(
+                                                                (haEntity) =>
+                                                                    haEntity.entity_id ===
+                                                                    (entity as EVChargerEntity).switch_entity,
+                                                            )?.options
+                                                        }
+                                                        onChange={(value) =>
+                                                            updateEntity(index, {
+                                                                charge_disabled_value: value,
+                                                            } as Partial<EVChargerEntity>)
+                                                        }
+                                                        disabled={disabled}
+                                                    />
+                                                </div>
+                                            )}
 
                                         {/* HA Ready-By Entity (EV only) */}
                                         {!isWaterHeater && (
@@ -882,6 +1095,55 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                                             </p>
                                                                         )}
                                                                 </div>
+                                                                {(entity as EVChargerEntity)
+                                                                    .phase_switching_enabled && (
+                                                                    <div className="grid grid-cols-2 gap-3">
+                                                                        <MappingValueField
+                                                                            label="1-Phase Option"
+                                                                            value={
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_1_value || ''
+                                                                            }
+                                                                            fallback={DEFAULT_PHASE_1_VALUE}
+                                                                            options={
+                                                                                haEntities.find(
+                                                                                    (haEntity) =>
+                                                                                        haEntity.entity_id ===
+                                                                                        (entity as EVChargerEntity)
+                                                                                            .phase_mode_entity,
+                                                                                )?.options
+                                                                            }
+                                                                            onChange={(value) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_1_value: value,
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                            disabled={disabled}
+                                                                        />
+                                                                        <MappingValueField
+                                                                            label="3-Phase Option"
+                                                                            value={
+                                                                                (entity as EVChargerEntity)
+                                                                                    .phase_3_value || ''
+                                                                            }
+                                                                            fallback={DEFAULT_PHASE_3_VALUE}
+                                                                            options={
+                                                                                haEntities.find(
+                                                                                    (haEntity) =>
+                                                                                        haEntity.entity_id ===
+                                                                                        (entity as EVChargerEntity)
+                                                                                            .phase_mode_entity,
+                                                                                )?.options
+                                                                            }
+                                                                            onChange={(value) =>
+                                                                                updateEntity(index, {
+                                                                                    phase_3_value: value,
+                                                                                } as Partial<EVChargerEntity>)
+                                                                            }
+                                                                            disabled={disabled}
+                                                                        />
+                                                                    </div>
+                                                                )}
                                                                 <div className="grid grid-cols-2 gap-3">
                                                                     <div>
                                                                         <label className="text-[10px] uppercase font-bold text-muted mb-1.5 flex items-center gap-1.5">
