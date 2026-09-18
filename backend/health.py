@@ -206,6 +206,36 @@ class HealthChecker:
             from backend.services.planner_service import planner_service
             from planner.errors import fix_hints, is_config_blocking, user_message
 
+            if planner_service.retry_suspended is True:
+                code = planner_service.last_error_code
+                if code is None:
+                    issues.append(
+                        HealthIssue(
+                            category="planner",
+                            severity="critical",
+                            message="Automatic planning is suspended",
+                            guidance=(
+                                "Planning will retry automatically after the suspension ceiling "
+                                "or when settings are saved."
+                            ),
+                        )
+                    )
+                    return issues
+
+                issues.append(
+                    HealthIssue(
+                        category="planner",
+                        severity="critical",
+                        message=user_message(code),
+                        guidance=(fix_hints(code) or [""])[0],
+                        code=code.value,
+                        details=planner_service.last_error_details,
+                        retry_in_s=None,
+                        config_blocking=is_config_blocking(code),
+                    )
+                )
+                return issues
+
             if planner_service.last_error_code is None:
                 return issues
 

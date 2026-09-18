@@ -484,9 +484,11 @@ async def get_initial_state(
         else:
             # Critical safety check: Do not default to 50% if we expected a live reading.
             # This causes "phantom charging" when HA is down.
-            raise RuntimeError(
-                f"Critical: Failed to read battery SoC from {soc_entity_id}. "
-                "Planning aborted to prevent unsafe assumptions."
+            from planner.errors import PlannerError, PlannerErrorCode
+
+            raise PlannerError(
+                PlannerErrorCode.HA_UNAVAILABLE,
+                details={"entity_id": soc_entity_id},
             )
 
     battery_soc_percent = max(0.0, min(100.0, battery_soc_percent))

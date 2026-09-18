@@ -18,6 +18,7 @@ class PlannerErrorCode(StrEnum):
     SOLVER_TIMEOUT = "SOLVER_TIMEOUT"
     SOLVER_UNDEFINED = "SOLVER_UNDEFINED"
     INVALID_SCHEDULE = "INVALID_SCHEDULE"
+    HA_UNAVAILABLE = "HA_UNAVAILABLE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -35,6 +36,7 @@ _USER_MESSAGES: dict[PlannerErrorCode, str] = {
     PlannerErrorCode.SOLVER_TIMEOUT: "Planner solver timed out",
     PlannerErrorCode.SOLVER_UNDEFINED: "Planner solver returned an undefined result",
     PlannerErrorCode.INVALID_SCHEDULE: "Planner produced an invalid schedule",
+    PlannerErrorCode.HA_UNAVAILABLE: "Home Assistant is unreachable",
     PlannerErrorCode.UNKNOWN: "An unexpected planner error occurred",
 }
 
@@ -78,6 +80,9 @@ _FIX_HINTS: dict[PlannerErrorCode, list[str]] = {
     PlannerErrorCode.INVALID_SCHEDULE: [
         "The planner produced an empty or malformed schedule. Check the logs for details and retry.",
     ],
+    PlannerErrorCode.HA_UNAVAILABLE: [
+        "Home Assistant did not respond. Planning is paused until it returns and will resume automatically — no action needed unless the outage persists.",
+    ],
     PlannerErrorCode.UNKNOWN: [
         "An unexpected error occurred. Check the backend logs for the full traceback.",
     ],
@@ -97,7 +102,6 @@ def is_config_blocking(code: PlannerErrorCode) -> bool:
         PlannerErrorCode.CONFIG_INVALID,
         PlannerErrorCode.EV_MISSING_POWER,
         PlannerErrorCode.EV_INVALID_CAPACITY,
-        PlannerErrorCode.INITIAL_SOC_OUT_OF_RANGE,
     }
 
 
@@ -106,6 +110,7 @@ def is_transient(code: PlannerErrorCode) -> bool:
         PlannerErrorCode.PRICES_UNAVAILABLE,
         PlannerErrorCode.FORECAST_UNAVAILABLE,
         PlannerErrorCode.SOLVER_TIMEOUT,
+        PlannerErrorCode.HA_UNAVAILABLE,
     }
 
 

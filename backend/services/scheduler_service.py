@@ -20,6 +20,8 @@ from backend.services.planner_service import PlannerResult, planner_service
 
 logger = logging.getLogger("darkstar.services.scheduler")
 
+_SKIP_LOG_INTERVAL_S = 300
+
 
 @dataclass
 class SchedulerStatus:
@@ -52,6 +54,28 @@ class SchedulerService:
         self._task: asyncio.Task[None] | None = None
         self._running = False
         self._status = SchedulerStatus()
+        self._last_skip_reason: str | None = None
+        self._last_skip_logged_at: datetime | None = None
+
+    def _log_skip(self, reason: str, due_at: datetime | None) -> None:
+        """Log a planning skip immediately on reason changes and periodically after."""
+        now = datetime.now(UTC)
+        should_log = (
+            reason != self._last_skip_reason
+            or self._last_skip_logged_at is None
+            or (now - self._last_skip_logged_at).total_seconds() >= _SKIP_LOG_INTERVAL_S
+        )
+        if not should_log:
+            return
+
+        due_text = (
+            due_at.isoformat()
+            if due_at is not None
+            else "after the suspension ceiling or settings_saved"
+        )
+        logger.info("Planning skipped: %s; next due %s", reason, due_text)
+        self._last_skip_reason = reason
+        self._last_skip_logged_at = now
 
     @property
     def status(self) -> SchedulerStatus:
@@ -94,6 +118,7 @@ class SchedulerService:
             ev_charger_id_override: Charger ID to apply the plug state override to (Task 7.3)
         """
         self._status.current_task = "planning"
+        self._last_skip_reason = None
         try:
             result = await planner_service.run_once(
                 ev_plugged_in_override=ev_plugged_in_override,
@@ -144,22 +169,26 @@ class SchedulerService:
                 if self._status.enabled:
                     now = datetime.now(UTC)
                     # Respect planner retry policy: skip if suspended or before retry time
-                    if planner_service.retry_suspended:
-                        pass  # Config-blocking error: wait for settings_saved event
+                    if planner_service.retry_suspended and not planner_service.suspension_expired:
+                        self._log_skip("suspended", None)
+                    elif planner_service.retry_suspended:
+                        self._last_skip_reason = None
+                        await self._run_scheduled(config)
                     elif planner_service.next_retry_at is not None:
-                        retry_at_utc = (
-                            planner_service.next_retry_at.replace(tzinfo=UTC)
-                            if planner_service.next_retry_at.tzinfo is None
-                            else planner_service.next_retry_at
-                        )
                         if (
-                            now >= retry_at_utc
+                            now >= planner_service.next_retry_at
                             and self._status.next_run_at
                             and now >= self._status.next_run_at
                         ):
                             await self._run_scheduled(config)
+                        elif now < planner_service.next_retry_at:
+                            self._log_skip("retry_pending", planner_service.next_retry_at)
+                        else:
+                            self._log_skip("cadence_pending", self._status.next_run_at)
                     elif self._status.next_run_at and now >= self._status.next_run_at:
                         await self._run_scheduled(config)
+                    elif self._status.next_run_at:
+                        self._log_skip("cadence_pending", self._status.next_run_at)
 
                 # Check Training (ARC11)
                 if self._status.training_enabled:
@@ -191,6 +220,7 @@ class SchedulerService:
     async def _run_scheduled(self, config: dict[str, Any]) -> None:
         """Execute a scheduled planner run."""
         self._status.current_task = "planning"
+        self._last_skip_reason = None
 
         try:
             result = await planner_service.run_once()
@@ -201,12 +231,7 @@ class SchedulerService:
 
             # If planner_service has set a retry time, use it; otherwise use the normal cadence
             if planner_service.next_retry_at is not None and not planner_service.retry_suspended:
-                retry_utc = (
-                    planner_service.next_retry_at.replace(tzinfo=UTC)
-                    if planner_service.next_retry_at.tzinfo is None
-                    else planner_service.next_retry_at
-                )
-                self._status.next_run_at = retry_utc
+                self._status.next_run_at = planner_service.next_retry_at
             else:
                 self._status.next_run_at = self._compute_next_run(
                     datetime.now(UTC),

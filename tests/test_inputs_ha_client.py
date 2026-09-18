@@ -138,6 +138,28 @@ async def test_ev_soc_fallback_logging_no_crash():
 
 
 @pytest.mark.asyncio
+async def test_missing_battery_soc_is_ha_unavailable_and_recovers():
+    from backend.core.ha_client import get_initial_state
+    from planner.errors import PlannerError, PlannerErrorCode
+
+    config = {
+        "system": {"battery": {"capacity_kwh": 10.0}},
+        "input_sensors": {"battery_soc": "sensor.soc"},
+    }
+    with (
+        patch("backend.core.ha_client.secrets.load_yaml", return_value=config),
+        patch("backend.core.ha_client.secrets.load_home_assistant_config", return_value={}),
+        patch("backend.core.ha_client.get_ha_sensor_float", side_effect=[None, 55.0]),
+    ):
+        with pytest.raises(PlannerError) as exc_info:
+            await get_initial_state()
+        recovered = await get_initial_state()
+
+    assert exc_info.value.code == PlannerErrorCode.HA_UNAVAILABLE
+    assert recovered["battery_soc_percent"] == 55.0
+
+
+@pytest.mark.asyncio
 async def test_get_ha_entity_state_uses_shared_client():
     """Verify that get_ha_entity_state() uses the shared HTTP client."""
     from backend.core.ha_client import get_ha_entity_state

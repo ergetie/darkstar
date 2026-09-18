@@ -1,4 +1,5 @@
 """Tests for planner/errors.py"""
+
 import pytest
 
 from planner.errors import (
@@ -41,9 +42,7 @@ def test_all_codes_are_classified():
     unclassified = [
         code
         for code in PlannerErrorCode
-        if not is_config_blocking(code)
-        and not is_transient(code)
-        and not is_warning_only(code)
+        if not is_config_blocking(code) and not is_transient(code) and not is_warning_only(code)
     ]
     # These should be the "invariant" codes — allowed to be unclassified
     invariant_codes = {
@@ -51,6 +50,7 @@ def test_all_codes_are_classified():
         PlannerErrorCode.SOLVER_INFEASIBLE,
         PlannerErrorCode.SOLVER_UNDEFINED,
         PlannerErrorCode.INVALID_SCHEDULE,
+        PlannerErrorCode.INITIAL_SOC_OUT_OF_RANGE,
         PlannerErrorCode.UNKNOWN,
     }
     for code in unclassified:
@@ -61,7 +61,7 @@ def test_is_config_blocking_codes():
     assert is_config_blocking(PlannerErrorCode.CONFIG_INVALID)
     assert is_config_blocking(PlannerErrorCode.EV_MISSING_POWER)
     assert is_config_blocking(PlannerErrorCode.EV_INVALID_CAPACITY)
-    assert is_config_blocking(PlannerErrorCode.INITIAL_SOC_OUT_OF_RANGE)
+    assert not is_config_blocking(PlannerErrorCode.INITIAL_SOC_OUT_OF_RANGE)
     assert not is_config_blocking(PlannerErrorCode.PRICES_UNAVAILABLE)
 
 
@@ -69,6 +69,7 @@ def test_is_transient_codes():
     assert is_transient(PlannerErrorCode.PRICES_UNAVAILABLE)
     assert is_transient(PlannerErrorCode.FORECAST_UNAVAILABLE)
     assert is_transient(PlannerErrorCode.SOLVER_TIMEOUT)
+    assert is_transient(PlannerErrorCode.HA_UNAVAILABLE)
     assert not is_transient(PlannerErrorCode.CONFIG_INVALID)
 
 

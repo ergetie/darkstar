@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 from contextlib import suppress
 from functools import wraps
 from pathlib import Path
@@ -38,6 +39,22 @@ class PollingEventLoopPolicy(asyncio.DefaultEventLoopPolicy):
 
 
 asyncio.set_event_loop_policy(PollingEventLoopPolicy())
+
+
+@pytest.fixture
+def stockholm_tz(monkeypatch):
+    """Run a test with the host timezone set to Europe/Stockholm."""
+    original_tz = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "Europe/Stockholm")
+    time.tzset()
+    try:
+        yield
+    finally:
+        if original_tz is None:
+            monkeypatch.delenv("TZ", raising=False)
+        else:
+            monkeypatch.setenv("TZ", original_tz)
+        time.tzset()
 
 
 @pytest.fixture(autouse=True)

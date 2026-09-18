@@ -1,7 +1,6 @@
 """Tests for HealthIssue serialization and planner health check."""
-import pytest
-from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
+
+from unittest.mock import MagicMock, patch
 
 from backend.health import (
     HealthChecker,
@@ -58,9 +57,7 @@ class TestCheckPlanner:
         checker = HealthChecker()
         mock_svc = MagicMock()
         mock_svc.last_error_code = None
-        with patch(
-            "backend.services.planner_service.planner_service", mock_svc
-        ):
+        with patch("backend.services.planner_service.planner_service", mock_svc):
             issues = checker.check_planner()
             assert issues == []
 
@@ -72,9 +69,7 @@ class TestCheckPlanner:
         mock_svc.last_error_code = PlannerErrorCode.CONFIG_INVALID
         mock_svc.last_error_details = {"field": "capacity_kwh"}
         mock_svc.retry_in_s = None
-        with patch(
-            "backend.services.planner_service.planner_service", mock_svc
-        ):
+        with patch("backend.services.planner_service.planner_service", mock_svc):
             issues = checker.check_planner()
             assert len(issues) == 1
             assert issues[0].severity == "critical"
@@ -90,14 +85,41 @@ class TestCheckPlanner:
         mock_svc.last_error_code = PlannerErrorCode.PRICES_UNAVAILABLE
         mock_svc.last_error_details = {"observed_horizon_hours": 2.0}
         mock_svc.retry_in_s = 120
-        with patch(
-            "backend.services.planner_service.planner_service", mock_svc
-        ):
+        with patch("backend.services.planner_service.planner_service", mock_svc):
             issues = checker.check_planner()
             assert len(issues) == 1
             assert issues[0].severity == "warning"
             assert issues[0].code == "PRICES_UNAVAILABLE"
             assert issues[0].retry_in_s == 120
+
+    def test_active_suspension_is_critical_even_without_last_error(self):
+        checker = HealthChecker()
+        mock_svc = MagicMock()
+        mock_svc.retry_suspended = True
+        mock_svc.last_error_code = None
+        with patch("backend.services.planner_service.planner_service", mock_svc):
+            issues = checker.check_planner()
+
+        assert len(issues) == 1
+        assert issues[0].category == "planner"
+        assert issues[0].severity == "critical"
+        assert "suspended" in issues[0].message.lower()
+
+    def test_active_suspension_remains_critical_after_prior_error(self):
+        from planner.errors import PlannerErrorCode
+
+        checker = HealthChecker()
+        mock_svc = MagicMock()
+        mock_svc.retry_suspended = True
+        mock_svc.last_error_code = PlannerErrorCode.CONFIG_INVALID
+        mock_svc.last_error_details = {"field": "capacity_kwh"}
+        with patch("backend.services.planner_service.planner_service", mock_svc):
+            issues = checker.check_planner()
+
+        assert len(issues) == 1
+        assert issues[0].category == "planner"
+        assert issues[0].severity == "critical"
+        assert issues[0].code == PlannerErrorCode.CONFIG_INVALID.value
 
 
 class TestCheckLoadForecast:

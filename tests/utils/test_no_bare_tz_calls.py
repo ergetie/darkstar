@@ -9,6 +9,34 @@ from pathlib import Path
 
 import pytest
 
+RETRY_PATH_FILES = {
+    Path("backend/services/planner_service.py"),
+    Path("backend/services/scheduler_service.py"),
+}
+ELAPSED_DURATION_COMMENT = (
+    "# naive by design: elapsed-duration only, never crosses a module boundary"
+)
+
+
+def find_unsafe_retry_datetime_calls(content: str, relative_path: Path) -> list[tuple[int, str]]:
+    """Find naive datetime calls in the planner/scheduler retry paths."""
+    if relative_path not in RETRY_PATH_FILES:
+        return []
+
+    violations: list[tuple[int, str]] = []
+    lines = content.splitlines()
+    for line_num, line in enumerate(lines, 1):
+        if not (
+            re.search(r"datetime\.now\(\s*\)", line) or re.search(r"datetime\.utcnow\(\s*\)", line)
+        ):
+            continue
+
+        previous_line = lines[line_num - 2].strip() if line_num > 1 else ""
+        if previous_line != ELAPSED_DURATION_COMMENT:
+            violations.append((line_num, line.strip()))
+
+    return violations
+
 
 def find_unsafe_tz_calls():
     """Scan production code for unsafe timezone-aware calls.
@@ -40,6 +68,19 @@ def find_unsafe_tz_calls():
             try:
                 content = py_file.read_text()
                 lines = content.split("\n")
+                relative_path = py_file.relative_to(project_root)
+
+                for retry_line_num, retry_line in find_unsafe_retry_datetime_calls(
+                    content, relative_path
+                ):
+                    violations.append(
+                        (
+                            str(relative_path),
+                            retry_line_num,
+                            retry_line,
+                            "naive datetime call in retry/scheduling path",
+                        )
+                    )
 
                 for line_num, line in enumerate(lines, 1):
                     # Check for pd.date_range calls with tz= parameter that's not UTC
@@ -86,6 +127,36 @@ def find_unsafe_tz_calls():
                 )
 
     return violations
+
+
+def test_retry_datetime_guard_rejects_naive_scheduling_assignment():
+    violations = find_unsafe_retry_datetime_calls(
+        "next_retry_at = datetime.now()", Path("backend/services/planner_service.py")
+    )
+    assert violations == [(1, "next_retry_at = datetime.now()")]
+
+
+def test_retry_datetime_guard_accepts_utc_and_elapsed_duration():
+    content = "\n".join(
+        [
+            "next_retry_at = datetime.now(UTC)",
+            ELAPSED_DURATION_COMMENT,
+            "start = datetime.now()",
+            ELAPSED_DURATION_COMMENT,
+            "elapsed = (datetime.now() - start).total_seconds()",
+        ]
+    )
+    assert (
+        find_unsafe_retry_datetime_calls(content, Path("backend/services/planner_service.py")) == []
+    )
+
+
+def test_retry_datetime_guard_requires_explicit_elapsed_duration_comment():
+    violations = find_unsafe_retry_datetime_calls(
+        "elapsed = (datetime.now() - start).total_seconds()",
+        Path("backend/services/planner_service.py"),
+    )
+    assert violations == [(1, "elapsed = (datetime.now() - start).total_seconds()")]
 
 
 def test_no_bare_unsafe_tz_calls():

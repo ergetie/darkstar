@@ -37,6 +37,31 @@ def test_health_endpoint(client):
     assert "issues" in data
 
 
+def test_health_endpoint_includes_active_planner_suspension(client):
+    from backend.health import HealthStatus
+
+    mock_svc = MagicMock()
+    mock_svc.retry_suspended = True
+    mock_svc.last_error_code = None
+
+    async def check_all(checker):
+        issues = checker.check_planner()
+        return HealthStatus(healthy=False, issues=issues)
+
+    with (
+        patch("backend.services.planner_service.planner_service", mock_svc),
+        patch("backend.health.HealthChecker.check_all", new=check_all),
+    ):
+        response = client.get("/api/health")
+
+    assert response.status_code == 200
+    data = response.json()
+    planner_issues = [issue for issue in data["issues"] if issue["category"] == "planner"]
+    assert planner_issues
+    assert planner_issues[0]["severity"] == "critical"
+    assert "suspended" in planner_issues[0]["message"].lower()
+
+
 def test_version_endpoint(client):
     response = client.get("/api/version")
     assert response.status_code == 200

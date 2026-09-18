@@ -8,7 +8,7 @@ for running inside the FastAPI process without blocking the event loop.
 import asyncio
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +25,7 @@ from planner.errors import (
 logger = logging.getLogger("darkstar.services.planner")
 
 _BACKOFF_STEPS = [60, 120, 240, 300]  # seconds, last value is cap
+_SUSPENSION_CEILING_S = 1800
 
 
 @dataclass
@@ -57,6 +58,7 @@ class PlannerService:
         self._next_retry_at: datetime | None = None
         self._consecutive_failures: int = 0
         self._retry_suspended: bool = False
+        self._suspended_since: datetime | None = None
 
     @property
     def retry_suspended(self) -> bool:
@@ -67,6 +69,15 @@ class PlannerService:
     def next_retry_at(self) -> datetime | None:
         """Timestamp of next scheduled retry."""
         return self._next_retry_at
+
+    @property
+    def suspension_expired(self) -> bool:
+        """Whether the active retry suspension has reached its retry ceiling."""
+        return bool(
+            self._retry_suspended
+            and self._suspended_since is not None
+            and (datetime.now(UTC) - self._suspended_since).total_seconds() >= _SUSPENSION_CEILING_S
+        )
 
     @property
     def last_error_code(self) -> PlannerErrorCode | None:
@@ -85,16 +96,17 @@ class PlannerService:
             return None
         if self._next_retry_at is None:
             return None
-        remaining = (self._next_retry_at - datetime.now()).total_seconds()
+        remaining = (self._next_retry_at - datetime.now(UTC)).total_seconds()
         return max(0, int(remaining))
 
     def _apply_retry_policy(self, code: PlannerErrorCode) -> None:
-        now = datetime.now()
+        now = datetime.now(UTC)
         if is_warning_only(code):
             # Warning-only: treat as success for retry purposes
             return
         if is_config_blocking(code):
             self._retry_suspended = True
+            self._suspended_since = now
             self._next_retry_at = None
         elif is_transient(code):
             step_index = min(self._consecutive_failures - 1, len(_BACKOFF_STEPS) - 1)
@@ -107,7 +119,8 @@ class PlannerService:
     def clear_retry_suspension(self) -> None:
         """Clear retry suspension and schedule an immediate retry."""
         self._retry_suspended = False
-        self._next_retry_at = datetime.now()
+        self._suspended_since = None
+        self._next_retry_at = datetime.now(UTC)
 
     async def _emit_progress(self, phase: str) -> None:
         """Emit progress event via WebSocket."""
@@ -115,6 +128,7 @@ class PlannerService:
 
         elapsed_ms = 0.0
         if self._planner_start_time:
+            # naive by design: elapsed-duration only, never crosses a module boundary
             elapsed_ms = (datetime.now() - self._planner_start_time).total_seconds() * 1000
 
         try:
@@ -123,7 +137,7 @@ class PlannerService:
                 {
                     "phase": phase,
                     "elapsed_ms": elapsed_ms,
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(UTC).isoformat(),
                 },
             )
             logger.debug(f"Planner progress: {phase} ({elapsed_ms:.0f}ms)")
@@ -137,6 +151,7 @@ class PlannerService:
 
         elapsed_ms = 0.0
         if self._planner_start_time:
+            # naive by design: elapsed-duration only, never crosses a module boundary
             elapsed_ms = (datetime.now() - self._planner_start_time).total_seconds() * 1000
 
         return {
@@ -165,13 +180,14 @@ class PlannerService:
             logger.warning("Planner already running, skipping concurrent request")
             return PlannerResult(
                 success=False,
-                planned_at=datetime.now(),
+                planned_at=datetime.now(UTC),
                 error="Planner already running",
             )
 
         async with self._lock:
+            # naive by design: elapsed-duration only, never crosses a module boundary
             start = datetime.now()
-            planned_at = start
+            planned_at = datetime.now(UTC)
             self._planner_start_time = start
 
             try:
@@ -199,6 +215,7 @@ class PlannerService:
                         error=f"Planner exited with code {exit_code}",
                     )
 
+                # naive by design: elapsed-duration only, never crosses a module boundary
                 result.duration_ms = (datetime.now() - start).total_seconds() * 1000
 
                 if result.success:
@@ -218,15 +235,17 @@ class PlannerService:
                 logger.exception("Planner execution failed with typed error: %s", e.code)
                 self._consecutive_failures += 1
                 self._last_error_code = e.code
-                self._last_error_at = datetime.now()
+                self._last_error_at = datetime.now(UTC)
                 self._last_error_details = e.details or {}
                 self._apply_retry_policy(e.code)
 
+                # naive by design: elapsed-duration only, never crosses a module boundary
+                duration_ms = (datetime.now() - start).total_seconds() * 1000
                 result = PlannerResult(
                     success=False,
-                    planned_at=start,
+                    planned_at=planned_at,
                     error=e.message,
-                    duration_ms=(datetime.now() - start).total_seconds() * 1000,
+                    duration_ms=duration_ms,
                     error_code=e.code.value,
                     error_details=e.details,
                     fix_hint=e.fix_hint,
@@ -243,15 +262,17 @@ class PlannerService:
                 logger.exception("Planner execution failed")
                 self._consecutive_failures += 1
                 self._last_error_code = PlannerErrorCode.UNKNOWN
-                self._last_error_at = datetime.now()
+                self._last_error_at = datetime.now(UTC)
                 self._last_error_details = {"exception": str(e)}
                 self._apply_retry_policy(PlannerErrorCode.UNKNOWN)
 
+                # naive by design: elapsed-duration only, never crosses a module boundary
+                duration_ms = (datetime.now() - start).total_seconds() * 1000
                 result = PlannerResult(
                     success=False,
-                    planned_at=start,
+                    planned_at=planned_at,
                     error=f"{type(e).__name__}: {e!s}",
-                    duration_ms=(datetime.now() - start).total_seconds() * 1000,
+                    duration_ms=duration_ms,
                     error_code=PlannerErrorCode.UNKNOWN.value,
                     error_details={"exception": str(e)},
                 )
@@ -266,6 +287,7 @@ class PlannerService:
     def _on_success(self) -> None:
         self._consecutive_failures = 0
         self._retry_suspended = False
+        self._suspended_since = None
         self._last_error_code = None
         self._last_error_at = None
         self._last_error_details = None
