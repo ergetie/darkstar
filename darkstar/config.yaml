@@ -3,7 +3,7 @@
 
 name: "Darkstar Energy Manager"
 description: "AI-powered home battery optimization with MILP scheduling"
-version: "2.6.2-beta"
+version: "2.7.0-beta"
 slug: "darkstar"
 url: "https://github.com/ergetie/darkstar"
 
