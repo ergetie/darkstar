@@ -1172,11 +1172,6 @@ class TestControlWaterHeatersPerDevice:
                     mock_ha.set_input_number.return_value = True
                     eng.ha_client = mock_ha
                     eng.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
-                    # These tests exercise per-device water dispatch.  Battery
-                    # cost updates fetch live Nordpool data, which is an
-                    # unrelated external dependency and can hold run_once()
-                    # open for the price-fetch timeout.
-                    eng._update_battery_cost = AsyncMock()
                     eng._has_water_heater = True
                     yield eng
 
@@ -1515,73 +1510,6 @@ executor:
         engine.config.has_battery = True
         return engine
 
-    @pytest.mark.asyncio
-    async def test_nordpool_price_fetched_via_await(self, engine_with_battery):
-        """Task 2.3: Nordpool price is fetched successfully via await in executor tick."""
-        from datetime import datetime
-        from unittest.mock import AsyncMock
-
-        import pytz
-
-        from executor.controller import ControllerDecision
-        from executor.override import SystemState
-
-        tz = pytz.timezone("Europe/Stockholm")
-        now = datetime.now(tz)
-
-        mock_prices = [
-            {
-                "start_time": now.replace(minute=0, second=0, microsecond=0),
-                "import_price_sek_kwh": 1.25,
-            }
-        ]
-
-        state = SystemState(current_soc_percent=50.0)
-        decision = ControllerDecision(
-            mode_intent="charge",
-            charge_value=10,
-            discharge_value=0,
-            soc_target=80,
-            water_temp=50,
-        )
-
-        with patch("backend.core.prices.get_nordpool_data", new_callable=AsyncMock) as mock_fetch:
-            mock_fetch.return_value = mock_prices
-
-            await engine_with_battery._update_battery_cost(state, decision, None)
-
-            mock_fetch.assert_called_once_with("config.yaml")
-
-    @pytest.mark.asyncio
-    async def test_nordpool_fallback_on_exception(self, engine_with_battery):
-        """Task 2.4: Executor falls back to 0.5 SEK/kWh when Nordpool fetch raises an exception."""
-        from unittest.mock import AsyncMock
-
-        from backend.battery_cost import BatteryCostTracker
-        from executor.controller import ControllerDecision
-        from executor.override import SystemState
-
-        state = SystemState(current_soc_percent=50.0)
-        decision = ControllerDecision(
-            mode_intent="charge",
-            charge_value=10,
-            discharge_value=0,
-            soc_target=80,
-            water_temp=50,
-        )
-
-        with patch("backend.core.prices.get_nordpool_data", new_callable=AsyncMock) as mock_fetch:
-            mock_fetch.side_effect = Exception("Network error")
-
-            with patch.object(BatteryCostTracker, "update_cost") as mock_update:
-                await engine_with_battery._update_battery_cost(state, decision, None)
-
-                # Check that update_cost was called with fallback price 0.5
-                mock_update.assert_called_once()
-                call_args = mock_update.call_args
-                assert call_args.kwargs["import_price_sek"] == 0.5
-
-
 @pytest.mark.asyncio
 class TestWaterBoostCancellationNotification:
     """Test that the boost-cancellation notification is awaited (#24)."""
@@ -1618,10 +1546,6 @@ class TestWaterBoostCancellationNotification:
                     from executor.actions import ActionDispatcher
 
                     engine.dispatcher = ActionDispatcher(mock_ha, config, shadow_mode=False)
-                    # Keep this notification test hermetic; it does not test
-                    # battery-cost accounting or Nordpool availability.
-                    engine._update_battery_cost = AsyncMock()
-
                     yield engine
 
     def _configure_devices(self, engine):

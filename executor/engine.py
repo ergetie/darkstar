@@ -222,6 +222,7 @@ class ExecutorEngine:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._tick_lock = threading.Lock()
 
         # Quick action storage (user-initiated time-limited overrides)
         self._quick_action: dict[str, Any] | None = None  # {type, expires_at, reason}
@@ -1134,6 +1135,18 @@ class ExecutorEngine:
         return next_boundary
 
     async def _tick(self) -> dict[str, Any]:
+        if not self._tick_lock.acquire(blocking=False):
+            logger.warning("Executor tick already running, skipping concurrent request")
+            self.status.last_run_status = "skipped"
+            self.status.last_skip_reason = "tick_already_running"
+            return {"success": False, "skipped": True, "reason": "tick_already_running"}
+
+        try:
+            return await self._tick_unlocked()
+        finally:
+            self._tick_lock.release()
+
+    async def _tick_unlocked(self) -> dict[str, Any]:
         """
         Execute one tick of the executor loop.
 
@@ -1811,9 +1824,6 @@ class ExecutorEngine:
                     },
                 )
 
-            # Rev F1: Update battery cost based on charging activity
-            await self._update_battery_cost(state, decision, slot)
-
             self.status.last_run_status = "success"
             logger.info("Executor tick completed in %dms", duration_ms)
 
@@ -2409,86 +2419,6 @@ class ExecutorEngine:
             source="native",
             executor_version=EXECUTOR_VERSION,
         )
-
-    async def _update_battery_cost(
-        self,
-        state: SystemState,
-        decision: ControllerDecision,
-        slot: SlotPlan | None,
-    ) -> None:
-        """
-        Update battery cost based on charging activity (Rev F1).
-
-        Uses weighted average algorithm:
-        - Grid charge: cost increases proportional to import price
-        - PV charge: cost dilutes (free energy reduces avg cost)
-        """
-        if not self.config.has_battery:
-            return
-
-        try:
-            from backend.battery_cost import BatteryCostTracker
-
-            # Get battery capacity from config
-            battery_cfg = self._full_config.get("battery", {})
-            capacity_kwh = battery_cfg.get("capacity_kwh", 27.0)
-
-            # Initialize tracker
-            db_path = self._get_db_path()
-            tracker = BatteryCostTracker(db_path, capacity_kwh)
-
-            # Estimate charging this slot (5 min @ planned power)
-            slot_duration_h = self.config.interval_seconds / 3600.0
-
-            # Grid charge: if mode_intent is "charge" and charge value > 0
-            grid_charge_kwh: float = 0.0
-            is_grid_charging = decision.mode_intent == "charge"
-            if is_grid_charging and decision.charge_value > 0:
-                # Rough estimate: charge_value * voltage / 1000 * efficiency * duration
-                voltage_v: float = getattr(self.config.controller, "system_voltage_v", 48.0) or 48.0
-                efficiency: float = (
-                    getattr(self.config.controller, "charge_efficiency", 0.92) or 0.92
-                )
-                charge_kw: float = (decision.charge_value * voltage_v / 1000.0) * efficiency
-                grid_charge_kwh = charge_kw * slot_duration_h
-
-            # PV charge: if PV exceeds load, surplus goes to battery
-            pv_charge_kwh = 0.0
-            if state.current_pv_kw and state.current_load_kw:
-                pv_surplus_kw = max(0.0, state.current_pv_kw - state.current_load_kw)
-                pv_charge_kwh = pv_surplus_kw * slot_duration_h * 0.95  # 95% efficiency
-
-            # Get current import price
-            import_price = 0.5  # Default fallback
-            try:
-                from backend.core.prices import get_nordpool_data
-
-                prices = await get_nordpool_data("config.yaml")
-
-                if prices:
-                    # Get current slot's price
-                    import pytz
-
-                    tz = pytz.timezone(self.config.timezone)
-                    now = datetime.now(tz)
-                    for p in prices:
-                        st = p.get("start_time")
-                        if st and st <= now < st + timedelta(hours=1):
-                            import_price = p.get("import_price_sek_kwh", 0.5)
-                            break
-            except Exception as e:
-                logger.debug("Failed to fetch import price: %s", e)
-
-            # Always update to keep energy state synced (cost only changes during charge)
-            tracker.update_cost(
-                current_soc_percent=state.current_soc_percent or 50.0,
-                grid_charge_kwh=grid_charge_kwh,
-                pv_charge_kwh=pv_charge_kwh,
-                import_price_sek=import_price,
-            )
-
-        except Exception as e:
-            logger.debug("Battery cost update skipped: %s", e)
 
     def _resolve_active_phase_count(
         self,

@@ -62,7 +62,6 @@ def profile_db():
     print("-" * 80)
 
     tables = [
-        "training_episodes",
         "slot_forecasts",
         "slot_plans",
         "slot_observations",
@@ -172,7 +171,7 @@ def profile_db():
     print("=" * 80)
 
     if size_mb > 500:
-        print("• Database > 500MB - consider archiving old training_episodes")
+        print("• Database > 500MB - consider archiving old historical data")
 
     if null_count > 0:
         print("• Run one-time migration to backfill NULLs")

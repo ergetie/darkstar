@@ -248,7 +248,6 @@ class HealthChecker:
                     ("slot_forecasts", "Slot Forecasts"),
                     ("slot_plans", "Slot Plans"),
                     ("execution_log", "Execution Log"),
-                    ("training_episodes", "Training Episodes"),
                 ]
 
                 results: list[list[str]] = []

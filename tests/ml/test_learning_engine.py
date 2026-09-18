@@ -47,12 +47,6 @@ async def test_schema_creation(learning_engine):
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='slot_plans'")
         assert cursor.fetchone() is not None
 
-        # Check training_episodes table
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='training_episodes'"
-        )
-        assert cursor.fetchone() is not None
-
 
 @pytest.mark.asyncio
 async def test_store_plan_and_metrics(learning_engine):
@@ -136,27 +130,6 @@ async def test_store_plan_and_metrics(learning_engine):
     assert metrics["total_planned_cost"] == 8.0
     assert metrics["total_realized_cost"] == 5.5
     assert metrics["cost_deviation"] == 2.5
-
-
-@pytest.mark.asyncio
-async def test_store_training_episode(learning_engine):
-    """Verify storing training episodes."""
-    episode_id = "test-episode-123"
-    inputs = {"foo": "bar"}
-    schedule = [{"start": "2023-01-01T00:00:00", "charge": 1.0}]
-
-    await learning_engine.store.store_training_episode(
-        episode_id=episode_id, inputs_json=json.dumps(inputs), schedule_json=json.dumps(schedule)
-    )
-
-    with sqlite3.connect(learning_engine.db_path) as conn:
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT inputs_json FROM training_episodes WHERE episode_id=?", (episode_id,)
-        )
-        row = cursor.fetchone()
-        assert row is not None
-    assert json.loads(row[0]) == inputs
 
 
 @pytest.mark.asyncio

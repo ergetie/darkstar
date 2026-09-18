@@ -184,35 +184,7 @@ Darkstar's intelligence is powered by the **Aurora Suite**, which consists of th
 
 ---
 
-## 5.4 Battery Cost Tracker (Rev F1)
-
-The **Battery Cost Tracker** (`backend/battery_cost.py`) tracks the **weighted average cost** of energy in the battery.
-
-### Why It Matters
-Export decisions require knowing what the stored energy is "worth". Exporting at 1.0 SEK makes no sense if the energy cost 1.2 SEK to charge.
-
-### Algorithm (Weighted Average)
-```python
-# Grid charging: adds expensive energy
-new_cost = (old_kwh * old_cost + charge_kwh * import_price) / new_total_kwh
-
-# PV charging: dilutes cost (free energy)
-new_cost = (old_kwh * old_cost) / (old_kwh + pv_surplus_kwh)
-
-# Discharge: cost stays same (removing energy, not changing cost/kWh)
-```
-
-### Integration
-- **Executor** → Updates cost after each slot based on charging source
-- **Kepler Solver** → Reads current cost for `wear_cost_sek_per_kwh`
-- **Default** → 1.0 SEK/kWh until sufficient data collected
-
-### Storage
-Persists in `planner_learning.db` table `battery_cost` with single row (id=1).
-
----
-
-## 5.5 Database-First Energy Architecture (Rev 2.6.1)
+## 5.4 Database-First Energy Architecture (Rev 2.6.1)
 
 As of **v2.6.1-beta**, Darkstar uses the **SQLite database** as the single source of truth for all daily energy metrics displayed in the Dashboard.
 
@@ -1024,11 +996,9 @@ The **Learning Database** (`planner_learning.db`) contains multiple critical tab
 - `slot_forecasts` - Aurora ML predictions with confidence intervals
 - `slot_plans` - Kepler MILP optimization results
 - `execution_log` - Executor action history (commands vs. planned)
-- `training_episodes` - ML training session records
 - `learning_runs` - Training execution metadata
 - `reflex_state` - Aurora auto-tuning state
 - `learning_daily_metrics` - Daily performance metrics
-- `battery_cost` - Weighted average battery energy cost
 
 **Migration Process:**
 1. Container starts

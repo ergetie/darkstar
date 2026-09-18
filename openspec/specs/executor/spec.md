@@ -225,26 +225,6 @@ The executor SHALL set temperature for each heater independently based on its pe
 - **WHEN** per-device plans exist
 - **THEN** the scalar `water_temp` field SHALL reflect the maximum temperature across all heaters (for logging/status compat)
 
-### Requirement: Executor fetches current Nordpool import price for battery cost tracking
-The executor tick SHALL fetch the current Nordpool import price using `await get_nordpool_data()` directly within the async tick context. If the fetch fails or returns no data, the executor SHALL fall back to 0.5 SEK/kWh.
-
-#### Scenario: Nordpool price fetch succeeds
-- **WHEN** the executor tick runs battery cost tracking
-- **AND** the Nordpool integration returns price data
-- **THEN** the executor uses the real spot price for the current time slot
-- **AND** the battery cost record reflects the actual import price
-
-#### Scenario: Nordpool price fetch fails
-- **WHEN** the executor tick runs battery cost tracking
-- **AND** the Nordpool fetch raises an exception or returns empty data
-- **THEN** the executor falls back to 0.5 SEK/kWh
-- **AND** the tick continues without interruption
-
-#### Scenario: Nordpool price fetch does not block the event loop
-- **WHEN** the executor tick fetches Nordpool prices
-- **THEN** the fetch is awaited as a coroutine within the existing async event loop
-- **AND** no `asyncio.run()` or nested event loop is used
-
 ### Requirement: Water heater sensor reads are gated by has_water_heater flag
 The executor and recorder SHALL NOT fetch water heater power sensors when `system.has_water_heater` is `false`. The `water_heaters[]` sensor loop SHALL be skipped entirely when the system flag is disabled.
 

@@ -2,8 +2,7 @@
 """
 Database Optimizer
 
-Shrinks the database by removing old training episodes while preserving recent history for debugging.
-Includes SAFETY BACKUP before any destructive operations.
+Compacts the learning database after creating a safety backup.
 """
 
 import shutil
@@ -17,8 +16,8 @@ from pathlib import Path
 sys.path.append(str(Path(__file__).parent.parent.resolve()))
 
 
-def optimize_db(rows_to_keep: int = 0):
-    """Optimize the database by trimming old training episodes."""
+def optimize_db():
+    """Optimize the database by reclaiming unused SQLite pages."""
 
     db_path = Path("data/planner_learning.db")
 
@@ -26,7 +25,7 @@ def optimize_db(rows_to_keep: int = 0):
     print("DATABASE OPTIMIZER")
     print("=" * 80)
     print(f"Target Database: {db_path}")
-    print(f"Policy: Keep most recent {rows_to_keep} rows (0 = Delete All)")
+    print("Policy: Reclaim unused SQLite pages")
     print("=" * 80 + "\n")
 
     if not db_path.exists():
@@ -60,50 +59,10 @@ def optimize_db(rows_to_keep: int = 0):
         return
 
     # --------------------------------------------------------------------------
-    # Step 2: Trim Data
+    # Step 2: Vacuum
     # --------------------------------------------------------------------------
     conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    print("\n2. Trimming 'training_episodes' table...")
-
-    try:
-        # Get total count before
-        cursor.execute("SELECT COUNT(*) FROM training_episodes")
-        count_before = cursor.fetchone()[0]
-        print(f"   Rows before: {count_before:,}")
-
-        print(f"   Target: Keep {rows_to_keep} rows")
-
-        start = time.time()
-
-        if rows_to_keep == 0:
-            cursor.execute("DELETE FROM training_episodes")
-        else:
-            cursor.execute(f"""
-                DELETE FROM training_episodes
-                WHERE episode_id NOT IN (
-                    SELECT episode_id FROM training_episodes
-                    ORDER BY created_at DESC
-                    LIMIT {rows_to_keep}
-                )
-            """)
-
-        deleted_count = cursor.rowcount
-        conn.commit()
-
-        elapsed = time.time() - start
-        print(f"✓ Deleted {deleted_count:,} old rows in {elapsed:.2f}s")
-
-    except Exception as e:
-        print(f"✗ Trim failed: {e}")
-        conn.close()
-        return
-
-    # --------------------------------------------------------------------------
-    # Step 3: Vacuum
-    # --------------------------------------------------------------------------
-    print("\n3. Running VACUUM (Reclaiming disk space)...")
+    print("\n2. Running VACUUM (Reclaiming disk space)...")
     print("   This may take a minute...")
 
     try:
@@ -120,7 +79,7 @@ def optimize_db(rows_to_keep: int = 0):
     conn.close()
 
     # --------------------------------------------------------------------------
-    # Step 4: Verify
+    # Step 3: Verify
     # --------------------------------------------------------------------------
     print("\n4. Verification")
 

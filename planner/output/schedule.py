@@ -15,9 +15,12 @@ from typing import Any
 
 import pandas as pd
 
+from backend.core.atomic_json import write_json_atomic
 from planner.observability.logging import record_debug_payload, record_s_index_history
 from planner.output.debug import generate_debug_payload
 from planner.output.formatter import dataframe_to_json_response
+
+DEFAULT_SCHEDULE_PATH = Path("data/schedule.json")
 
 
 def get_git_version() -> str:
@@ -43,7 +46,7 @@ async def save_schedule_to_json(
     s_index_debug: dict[str, Any] | None,
     window_responsibilities: list[dict[str, Any]],
     planner_state: dict[str, Any],
-    output_path: str = "data/schedule.json",
+    output_path: str | Path = DEFAULT_SCHEDULE_PATH,
 ) -> None:
     """
     Save the final schedule to schedule.json in the required format.
@@ -112,5 +115,4 @@ async def save_schedule_to_json(
                 return o.isoformat()
             return super().default(o)
 
-    with Path(output_path).open("w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2, cls=DateTimeEncoder)
+    write_json_atomic(output_path, output, encoder=DateTimeEncoder)

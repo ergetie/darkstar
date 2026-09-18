@@ -1,42 +1,39 @@
-## !!! PENDING RELEASE: [v2.6.3-beta]  - Price Forecasting, Export Floor, Excess PV Dispatch & Planner Resilience
+## [v2.7.0-beta] - Load Balancing, Goal-Based EV Charging, Price Forecasting & Stability - 2026-09-18
 
 > [!IMPORTANT]
-> **Nordpool Spot Price Forecasting**
-> This release introduces Aurora Price Forecasting. A built-in ML pipeline that predicts Nordpool spot prices up to 7 days ahead using LightGBM quantile regression. It is currently not connected to a feature but will be in the future.
+> **BREAKING: EV Charging Redesigned**
+> "Penalty levels" (a willingness-to-pay in SEK/kWh) are replaced by **goals**: *"have the car at 80% by 07:00"*. The old model defaulted to empty, so out of the box the EV silently never charged from surplus PV — and even tuned, it could never guarantee the car was usable by departure. Migration is automatic; set your goal on the Dashboard's EV tab.
+
+> [!IMPORTANT]
+> **New: Per-Phase Load Balancing (Main Fuse Protection)**
+> Darkstar can protect your main fuse in real time without dedicated hardware, throttling EV charge current and then shedding loads in an order you choose. **Opt-in** — activates only once you set a fuse rating and per-phase sensors under Settings → Load Balancing. **Needs a fast executor tick** (5 s recommended); the 300 s default makes fuse protection nearly useless, and Darkstar will warn you.
 
 **✨ Major Features**
 
-- **Nordpool Spot Price Forecasting**
-    - **LightGBM Quantile Model**: Predicts D+1 through D+7 spot prices with p10/p50/p90 probability bands using calendar effects, price lags, regional weather inputs (SE1–SE4 wind speed indices), and Swedish holidays.
-    - **D+1 Fallback & Bootstrap**: Aurora serves ML-generated price estimates before the daily Nordpool auction publishes. Fresh installs self-start — no chicken-and-egg deadlock.
-    - **Forecast Dashboard**: Horizon chart with confidence bands, price cards (current price, cheapest hours, sparklines), weekly outlook with color-coded day pills, and a live d1_mae accuracy KPI.
-    - **Price Advisor**: Intelligent recommendations — cheapest day to charge, rising price alerts, and overnight window detection.
-
-- **Excess PV Dispatch**
-    - Replaces the old reactive `EXCESS_PV_HEATING` override with MILP-based proactive scheduling — the Kepler solver forecasts excess PV slots ahead of time and schedules sinks into them.
-    - **Battery-First**: Sink activates only when projected SoC exceeds a configurable threshold (default 95%).
-    - **Water Heater Boost** or **Custom HA Entity** (pool pump, floor heating, etc.) as the excess PV sink, with configurable `power_kw` and `boost_reward_sek_per_kwh` to control aggressiveness vs. grid export.
-    - Settings UI and distinct chart visualization (teal for water heater boost, amber for custom entity).
-
-- **Export Floor Constraint**
-    - New `min_export_kw` parameter guarantees minimum grid export per slot — ideal for feed-in tariff obligations or contractual commitments. Configured via `config.yaml`.
-
-- **Dashboard Improvements**
-    - Updated the dashboard layout to better organize information and improve overall readability.
-
-- **Planner Diagnostics & Resilience**
-    - Structured error taxonomy, preflight validation (catches misconfiguration before solving), automatic retry for transient failures, and soft constraints to prevent infeasibility when PV exceeds inverter AC capacity.
-    - Persistent UI error drawer with full context for troubleshooting.
+- **Universal Load Balancing** — per-phase fuse protection with variable EV charge current (6 A floor, then pause). Accepts current *or* power sensors per phase (auto-detected). One drag-ordered give-way list mixing throttled chargers and on/off shed loads, each row stating what the balancer can do to it. Anti-flapping, stale-sensor fail-safe, early replan when throttling is sustained, and intervention notifications.
+- **Goal-Based EV Charging** — target SoC + ready-by time + repeat rule, solved as a soft requirement so an unreachable goal never breaks the plan. Dashboard EV tab with progress and on-track status, optional Home Assistant sync (HA wins), automatic chunk-aware multi-day spreading, and fractional charging for current-type chargers so small goals no longer produce zero charging. Configurable HA value mappings for select-based chargers such as the go-e Gemini Flex.
+- **Excess PV Priority Dispatch** — an ordered list of sinks replaces the single-sink setting, with the house battery implicitly first. EV surplus charging tracks *measured* surplus each tick, and commanded 1↔3-phase switching lets a 2–4 kW surplus reach the car at all.
+- **Nordpool Price Forecasting (Aurora)** — LightGBM quantile model predicting D+1 to D+7 with p10/p50/p90 bands. Serves D+1 estimates before the daily auction publishes. Forecast dashboard with horizon chart, price cards, weekly outlook and a live accuracy KPI, plus a Price Advisor. Not yet wired into planning decisions.
+- **Settings Search & Guides** — ~130 fields across eight tabs searchable by name, help text or everyday synonym ("breaker" finds Main Fuse). 14 plain-language guides plus a glossary, each linking to the settings it describes.
+- **Dashboard** — PowerFlow highway-bus redesign with a live Load Balancer tab (phase bars vs. fuse, state and reason) that auto-opens on intervention. Battery Strategy card with sparkline, mobile tap-to-select slot panel, tri-state connection status.
+- **Water Heater Switch Control** — relay-driven tanks (`switch.vvb`) now work via a new `control_type` field; previously they saved without error and silently did nothing. Manual boost is now per-device and actually writes. No migration needed.
+- **Planner & Strategy** — risk-aware safety buffer cap (**behaviour change**: Risk 1–2 hold a higher reserve on hard days, Risk 4–5 slightly lower, Risk 3 unchanged), `min_export_kw` export floor, planner error taxonomy with preflight validation and retry, Open-Meteo PV baseline, persisted S-Index run history, and honest keep-on slots (no more phantom charging energy in schedule totals).
 
 **🐛 Bug Fixes**
 
-- **Price Forecast Deduplication**: Fixed midnight planner crash from duplicate forecasts. Filtered stale D+1 slots and deduplicated Nordpool data to prevent incorrect price signals.
-- **Deye Idle Mode PV Cutoff**: Inverter no longer cuts off PV when battery SoC reaches 100%. Max discharge current satisfies EN50549_1 requirements.
-- **Dashboard Labels**: "Import Cost" → "Grid Import", "Grid Charge" → "Battery Charge". Signs now carry cost/earning meaning.
-- **EV Departure Time Parsing**: Fixed YAML parsing of departure times that caused incorrect schedules.
-- **Water Heater Energy Units**: Wh detection and unit propagation for HA sensors missing a unit of measurement.
-- **Resource Lifecycle**: Proper async cleanup on executor/HA socket shutdown.
-- **Version Logging**: Planner logs app version on every run for beta-tester log identification.
+Around 30 fixes landed. The ones most likely to have affected you:
+
+- **Planning silently stopped for 2 hours after saving settings** — retry timestamps mixed local time and UTC, so a 60-second backoff became a 2-hour outage with nothing in the logs. Now timezone-aware throughout, with skipped cycles logged.
+- **The executor could read a half-written schedule file** — both writers are now atomic.
+- **`database is locked`** — a manual executor trigger could run concurrently with a scheduled tick. Ticks are now single-flight.
+- **Water heater mid-block locking never fired** — the planner read the previous schedule from the wrong path. **This changes live schedules**: heaters mid-cycle now correctly hold their remaining slots on.
+- **Midnight planner crashes** from duplicate price forecasts, plus stale D+1 filtering.
+- **EV fixes** — goal persistence, a double-count bug, HA sync, entity changes applying without a restart, departure-time parsing.
+- Plus price-forecast accuracy and leakage, battery energy recording, action-verification false failures, load type enum, beta monitor false alarms, and the Load Balancing tab hiding before you could configure it.
+
+**🧹 Under the Hood**
+
+Recorder SSOT rewrite · runtime invariant monitors and fault-injection tests · executor safety hardening · atomic config writes · all dependencies exact-pinned (Node 22, pnpm 10) · hermetic CI · frontend typing and logic tests · dead code removal (battery cost tracking, write-only since December 2025, plus nine unused tables including the abandoned Antares experiment).
 
 ---
 

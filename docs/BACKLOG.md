@@ -43,18 +43,6 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 ## 🐛 Fixes
 
-#### [Schedule] Schedule File Write Integrity
-
-**Goal:** The executor should never read a half-written `schedule.json`.
-
-**Notes:** Observed once in production on 2026-09-14: `executor.engine | Failed to load schedule: Expecting ':' delimiter: line 6674 column 19 (char 196756)`. The file is ~200 KB, so a reader can observe a partial write. Likely a non-atomic write (write-in-place rather than write-to-temp-then-rename). Note that `darkstar.config_migration` already logs `[CONTAINER] Atomic replace not possible on this mount, falling back to direct copy (last resort)` for `config.yaml`, so the bind mount may block `os.replace` for this file too — check whether the same fallback applies and what the safe pattern is on that mount. Single occurrence in 7 days of retained logs; the executor recovers on the next tick, so impact is one skipped schedule load.
-
-#### [Database] Concurrent Planner Run DB Contention
-
-**Goal:** Overlapping planner runs should not produce `database is locked` errors.
-
-**Notes:** Observed on 2026-09-17 22:15 during an overlapping run: `executor.engine | Executor tick failed: (sqlite3.OperationalError) database is locked [SQL: INSERT INTO execution_log ...]` and `backend.battery_cost | Failed to update battery cost: (sqlite3.OperationalError) database is locked`. Trigger: a manual `POST /api/run_planner` fired while a scheduled run was still in flight — `darkstar.services.planner` logged `Planner already running, skipping concurrent request`, so the guard rejected the second planner run, but the surrounding writes still collided. The DB is WAL mode, so this is write-write contention, not reader blocking. Consider a busy_timeout and/or serializing these writers. Related existing capability: `database-concurrency-safety`.
-
 ---
 
 ## 🔧 Improvements

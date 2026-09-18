@@ -1,6 +1,4 @@
-import json
 import logging
-import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -108,24 +106,7 @@ class LearningEngine:
         Log a training episode (inputs + outputs) for RL.
         Also logs the planned schedule to slot_plans for metric tracking.
         """
-        # 1. Log to training_episodes (Legacy/Debug only)
-        if self.config.get("debug", {}).get("enable_training_episodes", False):
-            episode_id = str(uuid.uuid4())
-
-            inputs_json = json.dumps(input_data, default=str)
-            schedule_json = schedule_df.to_json(orient="records", date_format="iso")
-            context_json = None
-            config_overrides_json = json.dumps(config_overrides) if config_overrides else None
-
-            await self.store.store_training_episode(
-                episode_id=episode_id,
-                inputs_json=inputs_json,
-                schedule_json=schedule_json,
-                context_json=context_json,
-                config_overrides_json=config_overrides_json,
-            )
-
-        # 2. Log to slot_plans
+        # Log the planned schedule to slot_plans.
         await self.store.store_plan(schedule_df)
 
     def _canonical_sensor_name(self, name: str) -> str:
@@ -341,7 +322,6 @@ class LearningEngine:
     async def get_status(self) -> dict[str, Any]:
         """Get current status of the learning engine."""
         last_obs = await self.store.get_last_observation_time()
-        episodes = await self.store.get_episodes_count()
         forecasting_cfg: dict[str, Any] = self.config.get("forecasting", {}) or {}
         ramp_days = float(forecasting_cfg.get("pv_personalization_ramp_days", 14) or 14)
         pv_days = await self.store.count_paired_openmeteo_pv_days(days_back=max(90, int(ramp_days)))
@@ -350,7 +330,6 @@ class LearningEngine:
         return {
             "status": "active",
             "last_observation": last_obs.isoformat() if last_obs else None,
-            "training_episodes": episodes,
             "db_path": self.db_path,
             "timezone": str(self.timezone),
             "pv_personalization": {

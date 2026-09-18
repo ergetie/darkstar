@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 from backend.api.deps import get_learning_store
 
 # Local imports (using absolute paths relative to project root)
+from backend.core.atomic_json import write_json_atomic
 from backend.core.prices import get_nordpool_data
 from backend.core.secrets import load_yaml
 from backend.learning.store import LearningStore
@@ -511,8 +512,11 @@ async def save_schedule(request_body: dict[str, Any]) -> dict[str, str]:
             existing["meta"] = meta
 
         # Write back
-        with schedule_path.open("w") as f:
-            json.dump(existing, f, indent=2, default=str)
+        class StringEncoder(json.JSONEncoder):
+            def default(self, o: Any) -> Any:
+                return str(o)
+
+        write_json_atomic(schedule_path, existing, encoder=StringEncoder, indent=2)
 
         logger.info("Schedule saved with %d overrides", len(overrides))
         return {"status": "success", "message": f"Saved {len(overrides)} overrides"}

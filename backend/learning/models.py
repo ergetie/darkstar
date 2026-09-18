@@ -137,44 +137,6 @@ class LearningParamHistory(Base):
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
 
-class SensorTotal(Base):
-    __tablename__ = "sensor_totals"
-
-    name: Mapped[str] = mapped_column(String, primary_key=True)
-    last_value: Mapped[float | None] = mapped_column(Float)
-    last_timestamp: Mapped[str | None] = mapped_column(String)
-
-
-class TrainingEpisode(Base):
-    __tablename__ = "training_episodes"
-
-    episode_id: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
-    inputs_json: Mapped[str] = mapped_column(Text)
-    context_json: Mapped[str | None] = mapped_column(Text)
-    schedule_json: Mapped[str] = mapped_column(Text)
-    config_overrides_json: Mapped[str | None] = mapped_column(Text)
-
-
-class RealizedEnergy(Base):
-    __tablename__ = "realized_energy"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    slot_start: Mapped[str] = mapped_column(String)
-    slot_end: Mapped[str] = mapped_column(String)
-    action: Mapped[str | None] = mapped_column(String)
-    energy_kwh: Mapped[float | None] = mapped_column(Float)
-    created_at: Mapped[str] = mapped_column(String)
-
-
-class DailyWater(Base):
-    __tablename__ = "daily_water"
-
-    date: Mapped[str] = mapped_column(String, primary_key=True)
-    used_kwh: Mapped[float] = mapped_column(Float, default=0.0)
-    updated_at: Mapped[str] = mapped_column(String)
-
-
 class PlannerDebug(Base):
     __tablename__ = "planner_debug"
 
@@ -191,16 +153,6 @@ class SIndexHistory(Base):
     payload: Mapped[str] = mapped_column(Text)
 
 
-class StrategyLog(Base):
-    __tablename__ = "strategy_log"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    run_id: Mapped[str | None] = mapped_column(String)
-    timestamp: Mapped[str] = mapped_column(String)
-    overrides_json: Mapped[str | None] = mapped_column(Text)
-    reason: Mapped[str | None] = mapped_column(String)
-
-
 class ReflexState(Base):
     __tablename__ = "reflex_state"
 
@@ -208,59 +160,6 @@ class ReflexState(Base):
     last_value: Mapped[float | None] = mapped_column(Float)
     last_updated: Mapped[str | None] = mapped_column(String)
     change_count: Mapped[int] = mapped_column(Integer, default=0)
-
-
-class AntaresRLRun(Base):
-    __tablename__ = "antares_rl_runs"
-
-    run_id: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[str] = mapped_column(String)
-    algo: Mapped[str] = mapped_column(String)
-    state_version: Mapped[str] = mapped_column(String)
-    action_version: Mapped[str] = mapped_column(String)
-    train_start_date: Mapped[str | None] = mapped_column(String)
-    train_end_date: Mapped[str | None] = mapped_column(String)
-    val_start_date: Mapped[str | None] = mapped_column(String)
-    val_end_date: Mapped[str | None] = mapped_column(String)
-    hyperparams_json: Mapped[str | None] = mapped_column(Text)
-    metrics_json: Mapped[str | None] = mapped_column(Text)
-    artifact_dir: Mapped[str] = mapped_column(String)
-
-
-class AntaresTrainingRun(Base):
-    __tablename__ = "antares_training_runs"
-
-    run_id: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[str] = mapped_column(String)
-    dataset_version: Mapped[str] = mapped_column(String)
-    train_start_date: Mapped[str] = mapped_column(String)
-    train_end_date: Mapped[str] = mapped_column(String)
-    val_start_date: Mapped[str | None] = mapped_column(String)
-    val_end_date: Mapped[str | None] = mapped_column(String)
-    targets: Mapped[str] = mapped_column(String)
-    model_type: Mapped[str] = mapped_column(String)
-    hyperparams_json: Mapped[str] = mapped_column(Text)
-    metrics_json: Mapped[str] = mapped_column(Text)
-    artifact_dir: Mapped[str] = mapped_column(String)
-
-
-class AntaresPolicyRun(Base):
-    __tablename__ = "antares_policy_runs"
-
-    run_id: Mapped[str] = mapped_column(String, primary_key=True)
-    created_at: Mapped[str] = mapped_column(String)
-    models_dir: Mapped[str] = mapped_column(String)
-    target_names: Mapped[str] = mapped_column(String)
-    metrics_json: Mapped[str] = mapped_column(Text)
-
-
-class BatteryCost(Base):
-    __tablename__ = "battery_cost"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    avg_cost_sek_per_kwh: Mapped[float] = mapped_column(Float)
-    energy_kwh: Mapped[float] = mapped_column(Float)
-    updated_at: Mapped[str] = mapped_column(String)
 
 
 class VacationState(Base):

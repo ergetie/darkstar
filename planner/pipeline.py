@@ -27,7 +27,7 @@ from planner.errors import PlannerError, PlannerErrorCode
 from planner.inputs.data_prep import apply_safety_margins, prepare_df
 from planner.inputs.learning import load_learning_overlays
 from planner.inputs.weather import fetch_temperature_forecast
-from planner.output.schedule import save_schedule_to_json
+from planner.output.schedule import DEFAULT_SCHEDULE_PATH, save_schedule_to_json
 from planner.output.soc_target import apply_soc_target_percent
 from planner.preflight import run_preflight
 from planner.solver.adapter import (
@@ -75,6 +75,86 @@ def _ev_delivered_today_kwh(db_path: str, charger_id: str, tz: pytz.BaseTzInfo) 
         return 0.0
     finally:
         conn.close()
+
+
+def _load_previous_schedule(schedule_path: Path = DEFAULT_SCHEDULE_PATH) -> list[dict[str, Any]]:
+    """Load the previous schedule used for water-heater mid-block locking."""
+    try:
+        if not schedule_path.exists():
+            logger.warning(
+                "Previous schedule at %s is missing or empty; mid-block locking is unavailable",
+                schedule_path,
+            )
+            return []
+
+        import json
+
+        with schedule_path.open(encoding="utf-8") as f:
+            data = json.load(f)
+        previous_schedule = data.get("schedule", [])
+        if not previous_schedule:
+            logger.warning(
+                "Previous schedule at %s is missing or empty; mid-block locking is unavailable",
+                schedule_path,
+            )
+        return previous_schedule
+    except Exception as exc:
+        logger.warning(
+            "Failed to load previous schedule at %s for water locking: %s", schedule_path, exc
+        )
+        return []
+
+
+def _detect_mid_block_slots(
+    previous_schedule: list[dict[str, Any]],
+    enabled_heater_ids: list[str],
+    now_slot: pd.Timestamp,
+    tz: pytz.BaseTzInfo,
+) -> dict[str, set[pd.Timestamp]]:
+    """Return remaining scheduled slots for heaters active in the current block."""
+    force_water_by_heater: dict[str, set[pd.Timestamp]] = {
+        heater_id: set() for heater_id in enabled_heater_ids
+    }
+    if not previous_schedule or not enabled_heater_ids:
+        return force_water_by_heater
+
+    now_iso = now_slot.isoformat()
+    current_idx = next(
+        (
+            index
+            for index, slot in enumerate(previous_schedule)
+            if slot["start_time"].startswith(now_iso[:16])
+        ),
+        -1,
+    )
+    if current_idx < 0:
+        return force_water_by_heater
+
+    current_slot = previous_schedule[current_idx]
+    current_water_heaters: dict[str, Any] = current_slot.get("water_heaters", {})
+    for heater_id in enabled_heater_ids:
+        heater_data: dict[str, Any] = current_water_heaters.get(heater_id, {})
+        currently_heating = float(heater_data.get("heating_kw", 0.0)) > 0
+        if not currently_heating:
+            continue
+
+        locked_slots = 0
+        for slot_data in previous_schedule[current_idx:]:
+            slot_water_heaters: dict[str, Any] = slot_data.get("water_heaters", {})
+            slot_heater: dict[str, Any] = slot_water_heaters.get(heater_id, {})
+            if float(slot_heater.get("heating_kw", 0.0)) <= 0:
+                break
+            ts = pd.Timestamp(slot_data["start_time"]).astimezone(tz)
+            force_water_by_heater[heater_id].add(ts)
+            locked_slots += 1
+
+        logger.info(
+            "Mid-block lock: heater %s is active - locking %d remaining slots.",
+            heater_id,
+            locked_slots,
+        )
+
+    return force_water_by_heater
 
 
 def _calculate_required_kwh(
@@ -809,17 +889,7 @@ class PlannerPipeline:
             learning_overlays = await load_learning_overlays(active_config.get("learning", {}))
 
         # Rev WH2: Load previous schedule to check for active water heating (Mid-block locking)
-        previous_schedule: list[dict[str, Any]] = []
-        try:
-            import json
-
-            schedule_path = Path("schedule.json")
-            if schedule_path.exists():
-                with schedule_path.open() as f:
-                    data = json.load(f)
-                    previous_schedule = data.get("schedule", [])
-        except Exception as e:
-            logger.warning("Failed to load previous schedule for water locking: %s", e)
+        previous_schedule = _load_previous_schedule()
 
         # Prepare DataFrame (merge prices + forecasts)
         timezone_name = active_config.get("timezone", "Europe/Stockholm")
@@ -851,45 +921,9 @@ class PlannerPipeline:
             for wh in water_heaters_cfg
             if wh.get("enabled", True) and wh.get("id")
         ]
-        force_water_by_heater: dict[str, set[pd.Timestamp]] = {d: set() for d in enabled_heater_ids}
-
-        if previous_schedule and enabled_heater_ids:
-            try:
-                now_iso = now_slot.isoformat()
-                current_idx = -1
-                i: int = 0
-                s: dict[str, Any]
-                for i, s in enumerate(previous_schedule):
-                    if s["start_time"].startswith(now_iso[:16]):  # type: ignore[union-attr]
-                        current_idx = i
-                        break
-
-                if current_idx >= 0:
-                    curr: dict[str, Any] = previous_schedule[current_idx]
-                    curr_water_heaters: dict[str, Any] = curr.get("water_heaters", {})
-
-                    for heater_id in enabled_heater_ids:
-                        # Check if this specific heater is currently active
-                        heater_data: dict[str, Any] = curr_water_heaters.get(heater_id, {})
-                        currently_heating = float(heater_data.get("heating_kw", 0.0)) > 0
-
-                        if currently_heating:
-                            logger.info(
-                                "Mid-block lock: heater %s is active - locking remaining slots.",
-                                heater_id,
-                            )
-                            for j in range(current_idx, len(previous_schedule)):
-                                slot_s = previous_schedule[j]
-                                slot_water_heaters: dict[str, Any] = slot_s.get("water_heaters", {})
-                                slot_heater: dict[str, Any] = slot_water_heaters.get(heater_id, {})
-                                slot_heating = float(slot_heater.get("heating_kw", 0.0)) > 0
-                                if slot_heating:
-                                    ts = pd.Timestamp(slot_s["start_time"]).astimezone(tz)  # type: ignore[arg-type,index]
-                                    force_water_by_heater[heater_id].add(ts)
-                                else:
-                                    break
-            except Exception as e:
-                logger.warning("Failed to determine per-device forced water slots: %s", e)
+        force_water_by_heater = _detect_mid_block_slots(
+            previous_schedule, enabled_heater_ids, now_slot, tz
+        )
 
         # 3. Strategy (S-Index & Safety Margins)
         s_index_debug: dict[str, Any] = {}

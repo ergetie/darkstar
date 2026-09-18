@@ -19,7 +19,6 @@ from backend.learning.models import (
     SlotObservation,
     SlotPlan,
     SystemState,
-    TrainingEpisode,
 )
 
 logger = logging.getLogger("darkstar.learning.store")
@@ -370,30 +369,6 @@ class LearningStore:
                     },
                 )
                 await session.execute(stmt)
-            await session.commit()
-
-    async def store_training_episode(
-        self,
-        episode_id: str,
-        inputs_json: str,
-        schedule_json: str,
-        context_json: str | None = None,
-        config_overrides_json: str | None = None,
-    ) -> None:
-        """Store a training episode for RL using Async SQLAlchemy."""
-        async with self.AsyncSession() as session:
-            stmt = (
-                sqlite_insert(TrainingEpisode)
-                .values(
-                    episode_id=episode_id,
-                    inputs_json=inputs_json,
-                    schedule_json=schedule_json,
-                    context_json=context_json,
-                    config_overrides_json=config_overrides_json,
-                )
-                .on_conflict_do_nothing()
-            )
-            await session.execute(stmt)
             await session.commit()
 
     async def get_last_observation_time(self) -> datetime | None:
@@ -937,12 +912,6 @@ class LearningStore:
             ]
 
         return {"soc_series": soc_series, "cost_series": cost_series}
-
-    async def get_episodes_count(self) -> int:
-        """Count training episodes using Async SQLAlchemy."""
-        async with self.AsyncSession() as session:
-            stmt = select(func.count(TrainingEpisode.episode_id))
-            return await session.scalar(stmt) or 0
 
     async def get_history_range(self, start: datetime, end: datetime) -> list[dict[str, Any]]:
         """Get observation history for a specific range."""
