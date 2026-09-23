@@ -48,10 +48,17 @@ export function phaseColor(currentA: number, fuseA: number, marginPercent: numbe
 // eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
 export function chargerSetpointText(ev: LoadBalancerStatusResponse['ev'][number]): string {
     if (ev.setpoint_a === null) return 'Paused'
+    const drawing = measuredDrawText(ev)
     if (ev.planned_target_a !== null && ev.planned_target_a !== ev.setpoint_a) {
-        return `${ev.setpoint_a}A (planned ${ev.planned_target_a}A)`
+        return `${ev.setpoint_a}A (planned ${ev.planned_target_a}A)${drawing}`
     }
-    return `${ev.setpoint_a}A`
+    return `${ev.setpoint_a}A${drawing}`
+}
+
+/** ev-measured-draw: ", drawing X A" when the car's measured draw is known. */
+function measuredDrawText(ev: LoadBalancerStatusResponse['ev'][number]): string {
+    if (ev.measured_a === null || ev.measured_a === undefined) return ''
+    return `, drawing ${ev.measured_a.toFixed(1)}A`
 }
 
 /** excess-pv-priority-dispatch 4.4: "Surplus charging: X kW available -> charging at Y A (N-phase)". */
@@ -68,7 +75,7 @@ function SurplusEvRow({
             : 'Surplus charging'
     const dispatchText =
         ev.setpoint_a !== null
-            ? `charging at ${ev.setpoint_a}A${ev.phase_mode ? ` (${ev.phase_mode}-phase)` : ''}`
+            ? `charging at ${ev.setpoint_a}A${ev.phase_mode ? ` (${ev.phase_mode}-phase)` : ''}${measuredDrawText(ev)}`
             : 'paused'
 
     return (

@@ -99,6 +99,11 @@ class EVChargerState:
     active_phases: list[int] | None = None
     # Last commanded ampere setpoint for type="current" chargers (None = stopped/paused)
     current_setpoint_a: int | None = None
+    # When current_setpoint_a last changed value (None = stopped/paused).
+    setpoint_changed_at: datetime | None = None
+    # ev-measured-draw: amps per phase the car actually draws this tick
+    # (None = no trustworthy measurement).
+    measured_draw_a: float | None = None
 
 
 @dataclass
@@ -127,6 +132,10 @@ EV_BACKOFF_MAX_S = 600
 # Thresholds for treating a charger's per-phase sensor reading as "drawing power"
 _EV_PHASE_ACTIVE_THRESHOLD_A = 0.5
 _EV_PHASE_ACTIVE_THRESHOLD_W = 100.0
+
+# Seconds a new setpoint must stand before the car's measured draw is trusted
+# as the baseline for further amps adjustments (the car needs time to follow).
+EV_DRAW_SETTLE_S = 30
 
 # Sentinel: no load-balancer override present for this charger this tick —
 # _control_ev_charger_current computes its own target from the plan.
@@ -1552,6 +1561,9 @@ class ExecutorEngine:
                 # Manual override active — no writes, and no stale surplus
                 # targets from a previous tick should leak into the balancer.
                 self._ev_surplus_targets = {}
+                # Nor a stale measured draw from a previous tick.
+                for ev_state in self._ev_charger_states.values():
+                    ev_state.measured_draw_a = None
 
             # Real-time per-phase load balancing (universal-load-balancing 4.7):
             # runs after the controller decision, before dispatch; a no-op
@@ -2558,13 +2570,14 @@ class ExecutorEngine:
                 continue
             charger_id = charger_cfg.id
             dev_state = self._ev_charger_states.setdefault(charger_id, EVChargerState())
+            phase_ctrl = self._ev_phase_controllers.setdefault(charger_id, PhaseModeController())
+            await self._update_ev_measured_draw(charger_cfg, dev_state, phase_ctrl)
 
             surplus_entry = ev_entries_by_charger.get(charger_id)
             surplus_eligible = bool(
                 surplus_entry and slot and slot.ev_surplus_kw.get(charger_id, 0.0) > 0
             )
 
-            phase_ctrl = self._ev_phase_controllers.setdefault(charger_id, PhaseModeController())
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
             keep_on_only = (
                 not surplus_eligible
@@ -2619,6 +2632,7 @@ class ExecutorEngine:
                 surplus_kw=surplus_kw,
                 deadband_kw=surplus_entry.surplus_deadband_kw,
                 current_setpoint_a=dev_state.current_setpoint_a,
+                baseline_a=self._effective_baseline_a(charger_cfg, dev_state, now),
                 min_current_a=charger_cfg.min_current_a,
                 max_current_a=max_current_a,
                 active_phase_count=active_phase_count,
@@ -2710,6 +2724,9 @@ class ExecutorEngine:
                 planner_target_a=planner_target_a,
                 min_current_a=charger_cfg.min_current_a,
                 max_current_a=max_current_a,
+                effective_draw_a=(
+                    self._effective_baseline_a(charger_cfg, dev_state, now) if dev_state else None
+                ),
             )
 
         shed_inputs_by_id = {
@@ -2891,6 +2908,12 @@ class ExecutorEngine:
                         else (dev_state.current_setpoint_a if dev_state else None)
                     ),
                     "planned_target_a": planned.get(charger_id),
+                    # ev-measured-draw: amps per phase the car actually draws
+                    "measured_a": (
+                        round(dev_state.measured_draw_a, 1)
+                        if dev_state and dev_state.measured_draw_a is not None
+                        else None
+                    ),
                     "state": balancer_out.state if balancer_out is not None else "idle",
                     "reason": balancer_out.reason if balancer_out is not None else "",
                     # excess-pv-priority-dispatch 4.1: additive surplus-mode fields
@@ -3068,7 +3091,6 @@ class ExecutorEngine:
             dev_state = self._ev_charger_states[charger_id]
 
             if is_current_type:
-                await self._update_ev_active_phases(charger_cfg, dev_state)
                 balancer_target = (
                     balancer_ev_targets.get(charger_id)
                     if balancer_ev_targets is not None and charger_id in balancer_ev_targets
@@ -3271,9 +3293,57 @@ class ExecutorEngine:
             )
         )
 
+    async def _update_ev_measured_draw(
+        self,
+        charger_cfg: EVChargerDeviceConfig,
+        dev_state: EVChargerState,
+        phase_ctrl: PhaseModeController,
+    ) -> None:
+        """Derive the car's measured draw per phase (A) for this tick
+        (ev-measured-draw), before surplus feedback and load balancing run.
+
+        Source order: the charger's per-phase sensors (max across phases) →
+        the charger's total power reading from the load disaggregator,
+        divided by 230 V x active phase count → None. The per-phase read also
+        refreshes dev_state.active_phases, so it happens once per tick.
+        """
+        phase_amps = await self._update_ev_active_phases(charger_cfg, dev_state)
+        if phase_amps:
+            dev_state.measured_draw_a = max(phase_amps)
+            return
+
+        dev_state.measured_draw_a = None
+        # Only trust the disaggregator when it was read this tick and the EV
+        # power fail-safe is not active.
+        if not self._has_ev_charger or self._ev_power_fetch_failed:
+            return
+        load = self._load_disaggregator.get_load_by_id(charger_cfg.id)
+        if load is None or not load.is_healthy:
+            return
+        phase_count = self._resolve_active_phase_count(charger_cfg, dev_state, phase_ctrl)
+        dev_state.measured_draw_a = abs(load.current_power_kw) * 1000 / (230 * phase_count)
+
+    @staticmethod
+    def _effective_baseline_a(
+        charger_cfg: EVChargerDeviceConfig, dev_state: EVChargerState, now: datetime
+    ) -> int | None:
+        """Baseline for amps adjustments: the car's settled measured draw,
+        capped at the commanded setpoint and floored at min_current_a.
+        Falls back to the commanded setpoint when there is no measurement or
+        the setpoint changed less than EV_DRAW_SETTLE_S ago.
+        """
+        setpoint = dev_state.current_setpoint_a
+        measured = dev_state.measured_draw_a
+        changed_at = dev_state.setpoint_changed_at
+        if setpoint is None or measured is None:
+            return setpoint
+        if changed_at is not None and (now - changed_at).total_seconds() < EV_DRAW_SETTLE_S:
+            return setpoint
+        return max(charger_cfg.min_current_a, min(setpoint, round(measured)))
+
     async def _update_ev_active_phases(
         self, charger_cfg: EVChargerDeviceConfig, dev_state: EVChargerState
-    ) -> None:
+    ) -> list[float]:
         """Measure which phases the EV is drawing on this session (2.2).
 
         Reads the charger's own per-phase power/current sensors, if configured.
@@ -3281,9 +3351,12 @@ class ExecutorEngine:
         above threshold, so a momentary all-zero reading doesn't blank out a
         known session; callers fall back to charger_cfg.phases until the first
         successful measurement (dev_state.active_phases is None).
+
+        Returns the readable phases' values in amps (W/kW converted at 230 V);
+        empty when no per-phase sensor is configured or readable.
         """
         if not self.ha_client:
-            return
+            return []
 
         phase_sensors = {
             1: charger_cfg.phase_sensor_l1,
@@ -3292,9 +3365,10 @@ class ExecutorEngine:
         }
         configured = {phase: entity for phase, entity in phase_sensors.items() if entity}
         if not configured:
-            return
+            return []
 
         active: list[int] = []
+        amps: list[float] = []
         for phase, entity in configured.items():
             raw_state = await self.ha_client.get_state(entity)
             if not raw_state:
@@ -3309,15 +3383,19 @@ class ExecutorEngine:
             unit = str(raw_state.get("attributes", {}).get("unit_of_measurement", "")).upper()
             if unit == "W":
                 is_active = value > _EV_PHASE_ACTIVE_THRESHOLD_W
+                amps.append(value / 230)
             elif unit == "KW":
                 is_active = value * 1000 > _EV_PHASE_ACTIVE_THRESHOLD_W
+                amps.append(value * 1000 / 230)
             else:
                 is_active = value > _EV_PHASE_ACTIVE_THRESHOLD_A
+                amps.append(value)
             if is_active:
                 active.append(phase)
 
         if active:
             dev_state.active_phases = active
+        return amps
 
     async def _control_ev_charger_current(
         self,
@@ -3405,6 +3483,8 @@ class ExecutorEngine:
             self._ev_record_write_outcome(charger_id, desired_key, result, now)
             if not result.success:
                 return
+            if dev_state.current_setpoint_a != target_a:
+                dev_state.setpoint_changed_at = now
             dev_state.current_setpoint_a = target_a
 
             result = await self._set_charger_switch(
@@ -3444,5 +3524,6 @@ class ExecutorEngine:
         dev_state.charging_started_at = None
         dev_state.charging_slot_end = None
         dev_state.current_setpoint_a = None
+        dev_state.setpoint_changed_at = None
         dev_state.active_phases = None
         return True

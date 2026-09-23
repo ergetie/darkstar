@@ -350,6 +350,8 @@ export type LoadBalancerEvStatus = {
     charger_name: string
     setpoint_a: number | null
     planned_target_a: number | null
+    /** ev-measured-draw: amps per phase the car actually draws (null = no measurement) */
+    measured_a?: number | null
     state: string
     reason: string
     /** excess-pv-priority-dispatch 4.1: additive surplus-mode fields */

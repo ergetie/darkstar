@@ -90,6 +90,14 @@ class EVBalancerInput:
     planner_target_a: int | None  # None = plan does not want this charger charging
     min_current_a: int
     max_current_a: int
+    # Effective baseline (settled measured draw, see ev-measured-draw) that
+    # reductions, holds and relief accounting start from. None = use
+    # current_setpoint_a.
+    effective_draw_a: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.effective_draw_a is None:
+            self.effective_draw_a = self.current_setpoint_a
 
 
 @dataclass
@@ -321,6 +329,11 @@ class LoadBalancer:
         # Currently charging at ev.current_setpoint_a
         setpoint = ev.current_setpoint_a
         if binding_headroom < 0:
+            # Reduce/hold from what the car actually draws, never above the
+            # commanded setpoint.
+            draw = min(
+                setpoint, ev.effective_draw_a if ev.effective_draw_a is not None else setpoint
+            )
             if hold_for_relief:
                 # A higher-listed shed entry gave way this tick on a shared
                 # phase — hold the setpoint until its relief is measured
@@ -329,9 +342,9 @@ class LoadBalancer:
                 hold_ceiling = (
                     min(ev.max_current_a, ev.planner_target_a)
                     if ev.planner_target_a is not None
-                    else setpoint
+                    else draw
                 )
-                hold_target = min(setpoint, hold_ceiling)
+                hold_target = min(draw, hold_ceiling)
                 return (
                     EVBalancerOutput(
                         ev.charger_id,
@@ -343,7 +356,7 @@ class LoadBalancer:
                     False,
                     True,
                 )
-            new_target = math.floor(setpoint + binding_headroom)
+            new_target = math.floor(draw + binding_headroom)
             if new_target < ev.min_current_a:
                 self._ev_paused_at[ev.charger_id] = now
                 return (
@@ -363,7 +376,8 @@ class LoadBalancer:
                     ev.charger_id,
                     new_target,
                     "throttling",
-                    f"Reduced {setpoint}A -> {new_target}A (headroom {binding_headroom:.1f}A)",
+                    f"Reduced {setpoint}A -> {new_target}A (headroom {binding_headroom:.1f}A)"
+                    + (f", drawing {draw}A" if draw != setpoint else ""),
                 ),
                 False,
                 False,
@@ -522,9 +536,18 @@ class LoadBalancer:
 
                 # Fold this charger's resulting draw change into the pool so
                 # the next entry sees the deficit that actually remains.
-                previous_draw = entry.current_setpoint_a or 0
+                # A reduction relieves only what the car actually drew
+                # (effective baseline); a hold or raise keeps the setpoint-
+                # based accounting.
+                setpoint = entry.current_setpoint_a or 0
+                previous_draw = (
+                    entry.effective_draw_a if entry.effective_draw_a is not None else setpoint
+                )
                 new_draw = output.target_a or 0
-                delta = previous_draw - new_draw
+                if new_draw >= setpoint:
+                    delta = setpoint - new_draw
+                else:
+                    delta = max(0, previous_draw - new_draw)
                 if delta:
                     for p in binding_phases:
                         pool_headroom[p] = pool_headroom.get(p, main_fuse_a) + delta

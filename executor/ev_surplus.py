@@ -147,7 +147,12 @@ class EVSurplusController:
         resume_delay_s: int,
         resume_margin_percent: float,
         phase_switch_can_lower_floor: bool,
+        baseline_a: int | None = None,
     ) -> SurplusFeedbackResult:
+        """baseline_a: what adjustments are computed from while charging —
+        the effective baseline (settled measured draw, see ev-measured-draw);
+        defaults to current_setpoint_a when omitted.
+        """
         if current_setpoint_a is None:
             # Not currently charging: mirror the fuse balancer's own "resume at
             # floor" convention (no 0 -> floor ramp) — either enough surplus
@@ -182,12 +187,18 @@ class EVSurplusController:
 
         # Currently charging: deadband + asymmetric ramp (increases ramped,
         # decreases immediate — clouds must never cause grid import).
-        baseline_a = current_setpoint_a
+        # Adjustments start from the effective baseline (what the car actually
+        # draws), so a reduction always lands below the real draw.
+        if baseline_a is None:
+            baseline_a = current_setpoint_a
         if surplus_kw > deadband_kw or surplus_kw < -deadband_kw:
             delta_a = math.floor(surplus_kw * 1000 / (230 * max(1, active_phase_count)))
             desired_a = baseline_a + delta_a
         else:
-            desired_a = baseline_a  # within deadband: hold
+            # Within deadband: hold the commanded setpoint (not the baseline,
+            # which would ratchet the setpoint down on measurement error).
+            baseline_a = current_setpoint_a
+            desired_a = current_setpoint_a
 
         desired_a = max(0, min(desired_a, max_current_a))
 

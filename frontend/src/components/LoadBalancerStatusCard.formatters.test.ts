@@ -42,6 +42,16 @@ describe('chargerSetpointText', () => {
     it('shows "(planned XA)" when planned target differs from setpoint', () => {
         expect(chargerSetpointText(makeEv({ setpoint_a: 10, planned_target_a: 16 }))).toBe('10A (planned 16A)')
     })
+
+    it('shows the measured draw when present', () => {
+        expect(chargerSetpointText(makeEv({ setpoint_a: 16, planned_target_a: 16, measured_a: 10 }))).toBe(
+            '16A, drawing 10.0A',
+        )
+    })
+
+    it('omits the measured draw when null', () => {
+        expect(chargerSetpointText(makeEv({ setpoint_a: 16, planned_target_a: 16, measured_a: null }))).toBe('16A')
+    })
 })
 
 describe('formatAge', () => {
