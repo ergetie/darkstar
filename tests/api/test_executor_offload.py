@@ -22,7 +22,42 @@ async def test_executor_history_route_returns_records_after_offload():
         success_only=True,
         start_date=None,
         end_date=None,
+        source=None,
     )
+
+
+@pytest.mark.asyncio
+async def test_executor_history_route_passes_source_filter():
+    executor = MagicMock()
+    executor.history.get_history.return_value = []
+
+    with patch("backend.api.routers.executor.get_executor_instance", return_value=executor):
+        await executor_router.get_history(source="ev_charger")
+
+    assert executor.history.get_history.call_args.kwargs["source"] == "ev_charger"
+
+
+@pytest.mark.asyncio
+async def test_executor_history_download_passes_source_filter():
+    executor = MagicMock()
+    executor.history.get_history_csv.return_value = ""
+
+    with patch("backend.api.routers.executor.get_executor_instance", return_value=executor):
+        await executor_router.download_history(source="native")
+
+    assert executor.history.get_history_csv.call_args.kwargs["source"] == "native"
+
+
+def test_executor_history_rejects_unknown_source():
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(executor_router.router)
+    with patch("backend.api.routers.executor.get_executor_instance", return_value=MagicMock()):
+        response = TestClient(app).get("/api/executor/history", params={"source": "bogus"})
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

@@ -440,6 +440,23 @@ def _validate_config_for_save(
                 }
             )
 
+    # Kepler solver time limit: ERROR outside 10-600 s
+    kepler_cfg: dict[str, Any] = config.get("kepler") or {}
+    raw_time_limit: Any = kepler_cfg.get("solver_time_limit_s")
+    if raw_time_limit is not None:
+        try:
+            time_limit_ok = 10 <= float(raw_time_limit) <= 600
+        except (ValueError, TypeError):
+            time_limit_ok = False
+        if not time_limit_ok:
+            issues.append(
+                {
+                    "severity": "error",
+                    "message": f"kepler.solver_time_limit_s must be between 10 and 600 seconds (got {raw_time_limit})",
+                    "guidance": "Set the solver time limit to a value from 10 to 600 seconds (default 60).",
+                }
+            )
+
     # Inverter: WARNING if AC power not configured
     inverter_cfg = system_cfg.get("inverter", {})
     if (
@@ -699,6 +716,14 @@ def _validate_config_for_save(
                                 "severity": "error",
                                 "message": f"EV charger '{ev.get('id', i + 1)}' has type 'current' but no current_entity",
                                 "guidance": "Set ev_chargers[].current_entity to the HA number entity that controls charge current (A).",
+                            }
+                        )
+                    if ev.get("enabled", True) and not str(ev.get("switch_entity") or "").strip():
+                        issues.append(
+                            {
+                                "severity": "error",
+                                "message": f"EV charger '{ev.get('id', i + 1)}' has type 'current' but no switch_entity",
+                                "guidance": "Set ev_chargers[].switch_entity to the Charging Control Entity (switch or select) used to start and stop charging. The ampere setpoint alone cannot stop a charger.",
                             }
                         )
                     max_current = ev.get("max_current_a")

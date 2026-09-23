@@ -3,6 +3,7 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { EntityArrayEditor, type EVChargerEntity } from './EntityArrayEditor'
+import { evChargerArrayError } from '../utils'
 
 function makeCharger(overrides: Partial<EVChargerEntity> = {}): EVChargerEntity {
     return {
@@ -31,6 +32,30 @@ function renderEditor(charger: EVChargerEntity) {
         </MemoryRouter>,
     )
 }
+
+describe('EV charger charging-control entity requirement', () => {
+    it('flags a missing control entity as required for current-type chargers', () => {
+        renderEditor(makeCharger({ switch_entity: '' }))
+        expect(screen.getByRole('alert')).toHaveTextContent(/Required for current-type chargers/)
+    })
+
+    it('does not flag the control entity once set', () => {
+        renderEditor(makeCharger({ switch_entity: 'select.goe_frc' }))
+        expect(screen.queryByText(/Required for current-type chargers/)).not.toBeInTheDocument()
+    })
+
+    it('does not require the control entity check for binary chargers', () => {
+        renderEditor(makeCharger({ type: 'binary', switch_entity: '' }))
+        expect(screen.queryByText(/Required for current-type chargers/)).not.toBeInTheDocument()
+    })
+
+    it('blocks the EV charger array while a current charger lacks it', () => {
+        const missing = JSON.stringify([makeCharger({ switch_entity: '' })])
+        expect(evChargerArrayError(missing)).toMatch(/Charging Control Entity is required.*'Garage EV'/)
+        expect(evChargerArrayError(JSON.stringify([makeCharger({ switch_entity: 'switch.goe' })]))).toBeNull()
+        expect(evChargerArrayError(JSON.stringify([makeCharger({ switch_entity: '', enabled: false })]))).toBeNull()
+    })
+})
 
 describe('EV charger load type (EntityArrayEditor)', () => {
     it('renames the current option away from the old "Current (dynamic amps)" label', () => {
@@ -73,7 +98,7 @@ describe('EV charger load type (EntityArrayEditor)', () => {
 
     it('hides mapped charge values for switch-like controls', () => {
         renderEditor(makeCharger({ switch_entity: 'switch.ev_charger' }))
-        expect(screen.getByText('Charging Control Entity')).toBeInTheDocument()
+        expect(screen.getByText(/^Charging Control Entity/)).toBeInTheDocument()
         expect(screen.queryByLabelText('Charging Enabled Value')).not.toBeInTheDocument()
         expect(screen.queryByLabelText('Charging Disabled Value')).not.toBeInTheDocument()
     })

@@ -379,10 +379,110 @@ def _apply_keep_on_after_target(
     )
 
 
+EV_SHORTFALL_EPS_KWH = 0.01
+
+
+def compute_ev_goal_diagnostics(
+    result: Any,
+    input_slots: list[Any],
+    ev_states: list[dict[str, Any]],
+    ev_chargers_cfg: list[dict[str, Any]],
+    max_import_kw: float | None,
+    now: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Per-charger goal diagnostics: required / scheduled / shortfall / reason.
+
+    Computed for every plugged-in charger with an active goal (required_kwh > 0
+    and a deadline). When shortfall exceeds EV_SHORTFALL_EPS_KWH, the reason is
+    classified over the eligible slots (start >= now, end <= deadline):
+
+    - ``deadline_too_close``: no eligible slot exists.
+    - ``grid_limit``: in every eligible slot the grid import headroom (max
+      import minus house load, water heating and other EV energy) is below the
+      charger's minimum energy per slot. Battery discharge is blocked while the
+      EV charges, so the grid has to cover all of it.
+    - ``cost_tradeoff``: anything else.
+
+    The reason is display-only; combined causes fall back to ``cost_tradeoff``.
+    """
+    cfg_by_id = {str(c.get("id", "")): c for c in ev_chargers_cfg}
+    load_by_start = {s.start_time: float(s.load_kwh) for s in input_slots}
+    diagnostics: dict[str, dict[str, Any]] = {}
+
+    for state in ev_states:
+        required_kwh = state.get("required_kwh")
+        deadline = state.get("deadline")
+        if not state.get("plugged_in") or required_kwh is None or deadline is None:
+            continue
+        if required_kwh <= 0:
+            continue
+
+        charger_id = str(state.get("id", ""))
+        scheduled_kwh = sum(
+            s.ev_charger_results.get(charger_id, 0.0)
+            * ((s.end_time - s.start_time).total_seconds() / 3600.0)
+            for s in result.slots
+        )
+        solver_shortfall = next(
+            (
+                s.ev_shortfall_kwh[charger_id]
+                for s in result.slots
+                if charger_id in s.ev_shortfall_kwh
+            ),
+            None,
+        )
+        shortfall_kwh = max(
+            0.0,
+            float(solver_shortfall)
+            if solver_shortfall is not None
+            else float(required_kwh) - scheduled_kwh,
+        )
+
+        reason: str | None = None
+        if shortfall_kwh > EV_SHORTFALL_EPS_KWH:
+            cfg = cfg_by_id.get(charger_id, {})
+            control_type = str(cfg.get("type", "binary")).lower()
+            max_power_kw = float(cfg.get("max_power_kw") or 0.0)
+            min_power_kw = derive_min_power_kw(cfg, control_type, max_power_kw)
+            eligible = [s for s in result.slots if s.start_time >= now and s.end_time <= deadline]
+            if not eligible:
+                reason = "deadline_too_close"
+            elif max_import_kw is not None and all(
+                _grid_headroom_kwh(s, charger_id, max_import_kw, load_by_start)
+                < min_power_kw * ((s.end_time - s.start_time).total_seconds() / 3600.0)
+                for s in eligible
+            ):
+                reason = "grid_limit"
+            else:
+                reason = "cost_tradeoff"
+
+        diagnostics[charger_id] = {
+            "required_kwh": round(float(required_kwh), 3),
+            "scheduled_kwh": round(scheduled_kwh, 3),
+            "shortfall_kwh": round(shortfall_kwh, 3) if reason else 0.0,
+            "reason": reason,
+            "deadline": deadline.isoformat(),
+            "max_import_kw": max_import_kw,
+        }
+
+    return diagnostics
+
+
+def _grid_headroom_kwh(
+    slot: Any, charger_id: str, max_import_kw: float, load_by_start: dict[Any, float]
+) -> float:
+    """Grid import energy left in a slot after house load, water heating and other EVs."""
+    hours = (slot.end_time - slot.start_time).total_seconds() / 3600.0
+    other_ev_kw = sum(kw for cid, kw in slot.ev_charger_results.items() if cid != charger_id)
+    used_kwh = load_by_start.get(slot.start_time, 0.0) + (slot.water_heat_kw + other_ev_kw) * hours
+    return max_import_kw * hours - used_kwh
+
+
 def _warn_on_zero_scheduled_active_goals(
     result: Any,
     ev_states: list[dict[str, Any]],
     ev_chargers_cfg: list[dict[str, Any]],
+    diagnostics: dict[str, dict[str, Any]] | None = None,
 ) -> None:
     """Loudly report an active EV goal that produced zero scheduled energy.
 
@@ -417,12 +517,14 @@ def _warn_on_zero_scheduled_active_goals(
 
         quota_schedule = cast("dict[Any, float] | None", state.get("quota_schedule"))
         quota_by_day = {str(k): round(v, 2) for k, v in (quota_schedule or {}).items()}
+        reason = ((diagnostics or {}).get(charger_id) or {}).get("reason") or "unknown"
         logger.warning(
             "EV %s: active goal (required=%.2f kWh, deadline=%s) produced ZERO "
-            "scheduled charging — quota_by_day=%s, min_chunk_kwh=%.3f",
+            "scheduled charging — reason=%s, quota_by_day=%s, min_chunk_kwh=%.3f",
             charger_id,
             required_kwh,
             deadline,
+            reason,
             quota_by_day,
             min_chunk_kwh,
         )
@@ -1408,6 +1510,7 @@ class PlannerPipeline:
         solver = KeplerSolver()
         result = await asyncio.to_thread(solver.solve, kepler_input, kepler_config)
 
+        ev_goal_diagnostics: dict[str, dict[str, Any]] = {}
         if has_ev_charger and result.slots:
             try:
                 _apply_keep_on_after_target(
@@ -1416,8 +1519,20 @@ class PlannerPipeline:
             except Exception as exc:
                 logger.warning("keep_on_after_target injection failed: %s", exc)
 
+            try:
+                ev_goal_diagnostics = compute_ev_goal_diagnostics(
+                    result,
+                    kepler_input.slots,
+                    ev_charger_states_with_goal,
+                    ev_chargers_cfg,
+                    kepler_config.max_import_power_kw,
+                    now_dt,
+                )
+            except Exception as exc:
+                logger.warning("EV goal diagnostics failed: %s", exc)
+
             _warn_on_zero_scheduled_active_goals(
-                result, ev_charger_states_with_goal, ev_chargers_cfg
+                result, ev_charger_states_with_goal, ev_chargers_cfg, ev_goal_diagnostics
             )
 
         if result.slots:
@@ -1526,6 +1641,10 @@ class PlannerPipeline:
                 s_index_debug,
                 window_responsibilities,
                 planner_state_debug,
+                extra_meta={
+                    "ev_goal_diagnostics": ev_goal_diagnostics,
+                    "time_limit_hit": result.time_limit_hit,
+                },
             )
 
             # Rev UI5: Always store plan to slot_plans for performance tracking

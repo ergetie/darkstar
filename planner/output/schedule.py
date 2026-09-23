@@ -47,6 +47,7 @@ async def save_schedule_to_json(
     window_responsibilities: list[dict[str, Any]],
     planner_state: dict[str, Any],
     output_path: str | Path = DEFAULT_SCHEDULE_PATH,
+    extra_meta: dict[str, Any] | None = None,
 ) -> None:
     """
     Save the final schedule to schedule.json in the required format.
@@ -61,6 +62,7 @@ async def save_schedule_to_json(
         window_responsibilities: List of window responsibilities
         planner_state: Dictionary containing planner state metrics
         output_path: Path to save the JSON file
+        extra_meta: Additional keys merged into ``meta`` (e.g. ev_goal_diagnostics)
     """
     # Generate new future schedule
     new_future_records = dataframe_to_json_response(schedule_df, now_override=now_slot)
@@ -92,6 +94,7 @@ async def save_schedule_to_json(
             "planner_version": version,
             "forecast": final_forecast_meta,
             "s_index": s_index_debug or {},
+            **(extra_meta or {}),
         },
     }
 

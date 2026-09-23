@@ -45,6 +45,7 @@ def engine():
         name="go-e Gemini",
         type="current",
         current_entity="number.goe_current",
+        switch_entity="switch.goe_allow",
         min_current_a=6,
         max_current_a=16,
     )

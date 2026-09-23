@@ -95,6 +95,7 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         id="goe",
         type="current",
         current_entity="number.goe_current",
+        switch_entity="switch.goe_allow",
         min_current_a=6,
         max_current_a=16,
         phases=[1, 2, 3],
@@ -217,6 +218,13 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
             if c.args[0] == "input_number.water_heater_target"
         ]
 
+    def goe_switch_off_calls() -> int:
+        return sum(
+            1
+            for c in mock_ha.set_switch.call_args_list
+            if c.args[0] == "switch.goe_allow" and c.args[1] is False
+        )
+
     with patch("executor.engine.datetime", _FakeDateTime):
         # --- Stage 1: mid-session at 16A, stove spike hits (headroom -6) ---
         engine._ev_charger_states["goe"] = EVChargerState(
@@ -234,10 +242,12 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
         grid["2"] = 40.0  # water heater's phase, deeply over fuse
         mock_ha.set_number.reset_mock()
         mock_ha.set_input_number.reset_mock()
+        mock_ha.set_switch.reset_mock()
         await engine.run_once()
 
         assert engine._last_balancer_status.state in ("paused", "shedding")
-        assert goe_calls() == [0.0]  # commanded stop
+        assert goe_calls() == []  # pause never writes amps (no 0 A)
+        assert goe_switch_off_calls() == 1  # commanded stop via the switch
         assert water_heater_writes() == [40.0]  # config.water_heater.temp_off default
 
         # A couple more overloaded ticks confirm the shed holds (EV is fully
@@ -284,10 +294,12 @@ async def test_scripted_dry_run(temp_schedule, temp_db):
 
         _FakeDateTime._current = t_stale_start + timedelta(seconds=125)
         mock_ha.set_number.reset_mock()
+        mock_ha.set_switch.reset_mock()
         await engine.run_once()
 
         assert engine._last_balancer_status.state == "paused"
-        assert goe_calls() == [0.0]  # stale beyond resume_delay_s -> stopped
+        assert goe_calls() == []
+        assert goe_switch_off_calls() == 1  # stale beyond resume_delay_s -> stopped
 
 
 @pytest.mark.asyncio
@@ -302,6 +314,7 @@ async def test_power_sensor_phase_end_to_end(temp_schedule, temp_db):
         id="goe",
         type="current",
         current_entity="number.goe_current",
+        switch_entity="switch.goe_allow",
         min_current_a=6,
         max_current_a=16,
         phases=[1, 2, 3],
@@ -437,6 +450,7 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         id="goe",
         type="current",
         current_entity="number.goe_current",
+        switch_entity="switch.goe_allow",
         min_current_a=6,
         max_current_a=16,
         phases=[1, 2, 3],

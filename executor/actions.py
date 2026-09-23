@@ -1261,9 +1261,10 @@ class ActionDispatcher:
         # Shadow mode check
         if self.shadow_mode:
             logger.info(
-                "[SHADOW] EV Charger: Would set %s %s (current: %s)",
-                action_label,
+                "[SHADOW] EV Charger: Would set %s to %s (%s, current: %s)",
                 entity_id,
+                target_value,
+                action_label,
                 current_state,
             )
             return ActionResult(
@@ -1289,7 +1290,13 @@ class ActionDispatcher:
         except HACallError as e:
             success = False
             error_details = str(e)
-            logger.error("Failed to control EV charger %s: %s", entity_id, error_details)
+            logger.error(
+                "Failed to set EV charger %s to %s (%s): %s",
+                entity_id,
+                target_value,
+                action_label,
+                error_details,
+            )
 
         # Verification
         verified_value = None
@@ -1301,22 +1308,22 @@ class ActionDispatcher:
 
         duration = int((time.time() - start) * 1000)
 
-        # Notification (via _maybe_notify)
-        if turn_on:
+        # Notification (via _maybe_notify) — only for writes that went through
+        if success and turn_on:
             await self._maybe_notify(
                 "ev_charge_start", f"EV charging started ({charging_kw:.1f} kW)"
             )
-        else:
+        elif success:
             await self._maybe_notify("ev_charge_stop", "EV charging stopped")
 
         return ActionResult(
             action_type=action_type,
             success=success,
-            message=f"EV charger turned {action_label}"
+            message=f"EV charger set to {target_value} ({action_label})"
             if success
-            else f"Failed: {error_details}"
+            else f"Failed to set {entity_id} to {target_value}: {error_details}"
             if error_details
-            else f"Failed to turn {action_label} EV charger",
+            else f"Failed to set {entity_id} to {target_value}",
             previous_value=current_state,
             new_value=target_value,
             entity_id=entity_id,
@@ -1380,7 +1387,9 @@ class ActionDispatcher:
         except HACallError as e:
             success = False
             error_details = str(e)
-            logger.error("Failed to set EV charger current %s: %s", entity_id, error_details)
+            logger.error(
+                "Failed to set EV charger current %s to %sA: %s", entity_id, amps, error_details
+            )
 
         # Verification
         verified_value = None
@@ -1396,9 +1405,9 @@ class ActionDispatcher:
             message=(
                 f"EV charger current set to {amps}A"
                 if success
-                else f"Failed: {error_details}"
+                else f"Failed to set {entity_id} to {amps}A: {error_details}"
                 if error_details
-                else "Failed to set EV charger current"
+                else f"Failed to set {entity_id} to {amps}A"
             ),
             previous_value=current_state,
             new_value=amps,
@@ -1467,7 +1476,9 @@ class ActionDispatcher:
         except HACallError as e:
             success = False
             error_details = str(e)
-            logger.error("Failed to set EV charger phase mode %s: %s", entity_id, error_details)
+            logger.error(
+                "Failed to set EV charger phase mode %s to %s: %s", entity_id, option, error_details
+            )
 
         # Read-back verification
         verified_value = None
@@ -1483,9 +1494,9 @@ class ActionDispatcher:
             message=(
                 f"EV charger phase mode set to {option}"
                 if success
-                else f"Failed: {error_details}"
+                else f"Failed to set {entity_id} to {option}: {error_details}"
                 if error_details
-                else "Failed to set EV charger phase mode"
+                else f"Failed to set {entity_id} to {option}"
             ),
             previous_value=current_state,
             new_value=option,

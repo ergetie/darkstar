@@ -140,6 +140,8 @@ interface ActionResult {
     verification_success?: boolean
     skipped: boolean
     error_details?: string | null
+    charger_id?: string
+    repeat_count?: number
 }
 
 // Mode badge mapping for commanded_work_mode / mode_intent
@@ -149,7 +151,19 @@ const MODE_BADGES: Record<string, ModeBadge> = {
     self_consumption: { emoji: '🔄', label: 'Self-consumption', className: 'text-blue-400 bg-blue-400/20' },
     idle: { emoji: '⏸️', label: 'Idle', className: 'text-muted bg-surface2/50' },
     export: { emoji: '↗️', label: 'Export', className: 'text-warn bg-warn/20' },
+    ev_charge_start: { emoji: '🔌', label: 'EV start', className: 'text-good bg-good/20' },
+    ev_charge_stop: { emoji: '⏹️', label: 'EV stop', className: 'text-muted bg-surface2/50' },
+    ev_charge_current: { emoji: '🎚️', label: 'EV current', className: 'text-accent bg-accent/20' },
+    ev_phase_mode: { emoji: '🔀', label: 'EV phase mode', className: 'text-accent bg-accent/20' },
 }
+
+// Execution-log source filter (All / Inverter / EV) -> API `source` value
+type HistorySource = 'native' | 'ev_charger'
+const SOURCE_FILTERS: { value: HistorySource | undefined; label: string }[] = [
+    { value: undefined, label: 'All' },
+    { value: 'native', label: 'Inverter' },
+    { value: 'ev_charger', label: 'EV' },
+]
 
 // API helpers - using relative paths for HA Ingress compatibility
 const executorApi = {
@@ -179,6 +193,7 @@ const executorApi = {
             start_date?: string
             end_date?: string
             success_only?: boolean
+            source?: HistorySource
         } = {},
     ): Promise<{ records: ExecutionRecord[]; count: number }> => {
         const query = new URLSearchParams()
@@ -187,16 +202,20 @@ const executorApi = {
         if (params.start_date) query.append('start_date', params.start_date)
         if (params.end_date) query.append('end_date', params.end_date)
         if (params.success_only !== undefined) query.append('success_only', params.success_only.toString())
+        if (params.source) query.append('source', params.source)
 
         const r = await fetch(`api/executor/history?${query.toString()}`)
         if (!r.ok) throw new Error(`History failed: ${r.status}`)
         return r.json()
     },
-    downloadHistory: (params: { start_date?: string; end_date?: string; success_only?: boolean } = {}) => {
+    downloadHistory: (
+        params: { start_date?: string; end_date?: string; success_only?: boolean; source?: HistorySource } = {},
+    ) => {
         const query = new URLSearchParams()
         if (params.start_date) query.append('start_date', params.start_date)
         if (params.end_date) query.append('end_date', params.end_date)
         if (params.success_only !== undefined) query.append('success_only', params.success_only.toString())
+        if (params.source) query.append('source', params.source)
 
         window.open(`api/executor/history/download?${query.toString()}`, '_blank')
     },
@@ -373,6 +392,7 @@ export default function Executor() {
     const [startDate, setStartDate] = useState<string>('')
     const [endDate, setEndDate] = useState<string>('')
     const [successOnlyFilter, setSuccessOnlyFilter] = useState<boolean | undefined>(undefined)
+    const [sourceFilter, setSourceFilter] = useState<HistorySource | undefined>(undefined)
 
     const [savingNotification, setSavingNotification] = useState(false)
     const [testingNotification, setTestingNotification] = useState(false)
@@ -445,6 +465,7 @@ export default function Executor() {
             if (successOnlyFilter !== undefined) {
                 filters.success_only = successOnlyFilter
             }
+            if (sourceFilter) filters.source = sourceFilter
 
             const [statusRes, statsRes, historyRes] = await Promise.all([
                 executorApi.status(),
@@ -460,7 +481,7 @@ export default function Executor() {
         } finally {
             setLoading(false)
         }
-    }, [dateRange, startDate, endDate, successOnlyFilter])
+    }, [dateRange, startDate, endDate, successOnlyFilter, sourceFilter])
 
     // --- WebSocket Event Handlers (Rev E1) ---
 
@@ -875,6 +896,26 @@ export default function Executor() {
 
                         {/* Filters */}
                         <div className="flex flex-wrap items-center gap-2">
+                            <div
+                                className="flex bg-surface2/50 rounded-lg p-0.5 border border-line/30"
+                                role="group"
+                                aria-label="Record source"
+                            >
+                                {SOURCE_FILTERS.map((f) => (
+                                    <button
+                                        key={f.label}
+                                        onClick={() => setSourceFilter(f.value)}
+                                        aria-pressed={sourceFilter === f.value}
+                                        className={`px-2 py-1 text-[9px] rounded-md transition-all ${
+                                            sourceFilter === f.value
+                                                ? 'bg-accent text-white shadow-sm'
+                                                : 'text-muted hover:text-text'
+                                        }`}
+                                    >
+                                        {f.label}
+                                    </button>
+                                ))}
+                            </div>
                             <div className="flex bg-surface2/50 rounded-lg p-0.5 border border-line/30">
                                 {(['1h', '8h', '24h', '7d', 'custom'] as const).map((r) => (
                                     <button
@@ -948,6 +989,7 @@ export default function Executor() {
                                 if (startDate) filters.start_date = new Date(startDate).toISOString()
                                 if (endDate) filters.end_date = new Date(endDate).toISOString()
                                 if (successOnlyFilter !== undefined) filters.success_only = successOnlyFilter
+                                if (sourceFilter) filters.source = sourceFilter
 
                                 executorApi.downloadHistory(filters)
                             }}
@@ -1218,6 +1260,11 @@ export default function Executor() {
                                                                                     {group.parent.entity_id}
                                                                                 </span>
                                                                             )}
+                                                                            {group.parent.charger_id && (
+                                                                                <span className="text-[8px] text-muted truncate">
+                                                                                    Charger: {group.parent.charger_id}
+                                                                                </span>
+                                                                            )}
                                                                             {group.parent.message &&
                                                                                 !group.parent.success && (
                                                                                     <div className="flex flex-col gap-1 mt-1">
@@ -1251,7 +1298,10 @@ export default function Executor() {
                                                                                     : (group.parent.new_value ?? '—')}
                                                                                 {group.parent.type.includes('temp')
                                                                                     ? '°C'
-                                                                                    : ''}
+                                                                                    : group.parent.type ===
+                                                                                        'ev_charge_current'
+                                                                                      ? ' A'
+                                                                                      : ''}
                                                                             </div>
                                                                             {group.parent.verified_value !==
                                                                                 undefined &&

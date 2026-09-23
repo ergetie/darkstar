@@ -397,6 +397,41 @@ def _apply_bulk_mode_override(params: dict[str, float]) -> dict[str, float]:
     return params
 
 
+SOLVER_TIME_LIMIT_DEFAULT_S = 60
+SOLVER_TIME_LIMIT_MIN_S = 10
+SOLVER_TIME_LIMIT_MAX_S = 600
+
+
+def resolve_solver_time_limit_s(kepler_section: dict[str, Any]) -> int:
+    """Read ``kepler.solver_time_limit_s`` (default 60 s, range 10-600 s).
+
+    Config saves are validated against the range; a hand-edited out-of-range
+    or non-numeric value is clamped/defaulted here with a warning.
+    """
+    raw = kepler_section.get("solver_time_limit_s")
+    if raw is None:
+        return SOLVER_TIME_LIMIT_DEFAULT_S
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        logger.warning(
+            "kepler.solver_time_limit_s=%r is not a number; using %ds",
+            raw,
+            SOLVER_TIME_LIMIT_DEFAULT_S,
+        )
+        return SOLVER_TIME_LIMIT_DEFAULT_S
+    clamped = round(min(max(value, SOLVER_TIME_LIMIT_MIN_S), SOLVER_TIME_LIMIT_MAX_S))
+    if clamped != value:
+        logger.warning(
+            "kepler.solver_time_limit_s=%s is outside %d-%ds; using %ds",
+            raw,
+            SOLVER_TIME_LIMIT_MIN_S,
+            SOLVER_TIME_LIMIT_MAX_S,
+            clamped,
+        )
+    return clamped
+
+
 def config_to_kepler_config(
     planner_config: dict[str, Any],
     overrides: dict[str, Any] | None = None,
@@ -512,6 +547,7 @@ def config_to_kepler_config(
             planner_config.get("kepler", {}).get("ev_shortfall_penalty_sek_per_kwh", 50.0)
         ),
         export_threshold_sek_per_kwh=get_val("export_threshold_sek_per_kwh", 0.0),
+        solver_time_limit_s=resolve_solver_time_limit_s(planner_config.get("kepler", {})),
         # Per-device water heater inputs
         water_heaters=water_inputs,
         # Global water heating settings

@@ -337,3 +337,35 @@ export function buildPatch(
 
     return patch
 }
+
+interface EVChargerControlFields {
+    id?: string
+    name?: string
+    enabled?: boolean
+    type?: string
+    switch_entity?: string
+}
+
+/** True when an enabled current-type charger lacks its charging-control entity. */
+export function evChargerMissingControlEntity(charger: EVChargerControlFields): boolean {
+    return charger.enabled !== false && charger.type === 'current' && !charger.switch_entity?.trim()
+}
+
+/**
+ * Blocking validation error for the EV charger array form value, or null.
+ * Current-type chargers are started and stopped via their charging-control
+ * entity, so it is required.
+ */
+export function evChargerArrayError(value: string): string | null {
+    let chargers: EVChargerControlFields[]
+    try {
+        chargers = JSON.parse(value || '[]') as EVChargerControlFields[]
+    } catch {
+        return null
+    }
+    if (!Array.isArray(chargers)) return null
+    const missing = chargers.filter(evChargerMissingControlEntity)
+    if (missing.length === 0) return null
+    const names = missing.map((c) => `'${c.name || c.id || 'unnamed'}'`).join(', ')
+    return `Charging Control Entity is required for current-type charger ${names}`
+}

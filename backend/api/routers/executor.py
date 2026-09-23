@@ -2,7 +2,7 @@ import asyncio
 import logging
 import threading
 from pathlib import Path
-from typing import TYPE_CHECKING, Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("darkstar.api.executor")
 router = APIRouter(tags=["executor"])
+
+# Execution-log sources the history endpoints can filter on
+HistorySource = Literal["native", "ev_charger"]
 
 # --- Executor Singleton ---
 _executor_engine: "ExecutorEngine | None" = None
@@ -247,6 +250,7 @@ async def get_history(
     success_only: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
+    source: HistorySource | None = None,
 ) -> dict[str, Any]:
     executor = get_executor_instance()
     if not executor or not executor.history:
@@ -265,6 +269,7 @@ async def get_history(
             success_only=success,
             start_date=start_date,
             end_date=end_date,
+            source=source,
         )
         return {"records": records, "count": len(records)}
     except Exception as e:
@@ -281,6 +286,7 @@ async def download_history(
     start_date: str | None = None,
     end_date: str | None = None,
     success_only: str | None = None,
+    source: HistorySource | None = None,
 ):
     from fastapi.responses import Response
 
@@ -298,6 +304,7 @@ async def download_history(
             start_date=start_date,
             end_date=end_date,
             success_only=success,
+            source=source,
         )
 
         filename = "execution_history.csv"

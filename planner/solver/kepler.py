@@ -25,6 +25,15 @@ from .types import (
 
 logger = logging.getLogger("darkstar.kepler")
 
+# A solve that ends within this margin of the time limit is treated as limit-hit.
+TIME_LIMIT_HIT_MARGIN_S = 0.5
+
+
+def is_time_limit_hit(solve_duration_s: float, time_limit_s: float) -> bool:
+    """True when a solve ran into the configured solver time limit."""
+    return solve_duration_s >= time_limit_s - TIME_LIMIT_HIT_MARGIN_S
+
+
 EV_SHORTFALL_PENALTY_DEFAULT = 50.0  # SEK/kWh — soft target-by-time penalty
 
 
@@ -844,13 +853,14 @@ class KeplerSolver:
         # Note: pulp.LpProblem construction happened above, so 'build_time' here is mostly
         # just the overhead of writing the LP file in prob.solve()
 
+        time_limit_s: int = config.solver_time_limit_s
         try:
             # Try GLPK first (installed in Alpine Docker image) with timeout
-            solver_cmd: Any = pulp.GLPK_CMD(msg=False, timeLimit=30)
+            solver_cmd: Any = pulp.GLPK_CMD(msg=False, timeLimit=time_limit_s)
             prob.solve(solver_cmd)  # type: ignore[reportUnknownMemberType]
         except Exception:
             # Fall back to CBC if GLPK not available, also with timeout
-            solver_cmd: Any = pulp.PULP_CBC_CMD(msg=False, timeLimit=30)
+            solver_cmd: Any = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s)
             prob.solve(solver_cmd)  # type: ignore[reportUnknownMemberType]
 
         solve_end: float = time.time()
@@ -865,6 +875,18 @@ class KeplerSolver:
         var_count: int = len(prob.variables())  # type: ignore[reportUnknownMemberType,arg-type]
         const_count: int = len(prob.constraints)  # type: ignore[reportUnknownMemberType,arg-type]
 
+        # CBC returns its incumbent as "Optimal" when it stops at the limit, so
+        # detect limit hits from the duration rather than the status.
+        time_limit_hit: bool = is_time_limit_hit(solve_duration, time_limit_s)
+        if time_limit_hit:
+            logger.warning(
+                "Kepler solver hit its time limit (%.0fs): solve took %.1fs, status %s — "
+                "the plan may be suboptimal",
+                time_limit_s,
+                solve_duration,
+                status,
+            )
+
         if not is_optimal:
             prob.writeLP("kepler_debug.lp")  # type: ignore[reportUnknownMemberType]
             logger.warning("Solver failed: %s. LP written to kepler_debug.lp", status)
@@ -873,7 +895,7 @@ class KeplerSolver:
             details = {"solver_status": status, "solve_duration_s": round(solve_duration, 3)}
             if prob.status == pulp.LpStatusInfeasible:  # type: ignore[reportUnknownMemberType,reportAttributeAccessIssue]
                 raise PlannerError(code=PlannerErrorCode.SOLVER_INFEASIBLE, details=details)
-            elif solve_duration >= 30:  # timeLimit used above
+            elif time_limit_hit:
                 raise PlannerError(code=PlannerErrorCode.SOLVER_TIMEOUT, details=details)
             elif prob.status == pulp.LpStatusUndefined:  # type: ignore[reportUnknownMemberType,reportAttributeAccessIssue]
                 raise PlannerError(code=PlannerErrorCode.SOLVER_UNDEFINED, details=details)
@@ -1006,4 +1028,5 @@ class KeplerSolver:
             total_cost_sek=final_total_cost,
             is_optimal=is_optimal,
             status_msg=status,
+            time_limit_hit=time_limit_hit,
         )

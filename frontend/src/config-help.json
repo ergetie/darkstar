@@ -68,7 +68,7 @@
   "input_sensors.grid_power": "Current grid power (+ import, - export) (Used if meter_type=net)",
   "input_sensors.grid_import_power": "Current grid import power (W/kW) (Used if meter_type=dual)",
   "input_sensors.grid_export_power": "Current grid export power (W/kW) (Used if meter_type=dual)",
-  "input_sensors.total_load_consumption": "REQUIRED for ML forecasting: cumulative (monotonically increasing) energy counter in kWh, Wh, or MWh. Must have device_class: energy. WARNING: power sensors (W or kW) are NOT valid — they measure rate, not total energy. Example entities: sensor.house_energy_meter_total, sensor.load_energy_daily.",
+  "input_sensors.total_load_consumption": "REQUIRED for ML forecasting: cumulative (monotonically increasing) energy counter in kWh, Wh, or MWh. Must have device_class: energy. WARNING: power sensors (W or kW) are NOT valid \u2014 they measure rate, not total energy. Example entities: sensor.house_energy_meter_total, sensor.load_energy_daily.",
   "input_sensors.total_pv_production": "REQUIRED for ML forecasting: cumulative (monotonically increasing) energy counter in kWh, Wh, or MWh. Must have device_class: energy. WARNING: power sensors (W or kW) are NOT valid. Example: sensor.pv_energy_total.",
   "input_sensors.total_grid_import": "REQUIRED for ML forecasting: cumulative (monotonically increasing) energy counter in kWh, Wh, or MWh. Must have device_class: energy. WARNING: power sensors (W or kW) are NOT valid. Example: sensor.grid_import_energy_total.",
   "input_sensors.total_grid_export": "REQUIRED for ML forecasting: cumulative (monotonically increasing) energy counter in kWh, Wh, or MWh. Must have device_class: energy. WARNING: power sensors (W or kW) are NOT valid. Example: sensor.grid_export_energy_total.",
@@ -127,5 +127,7 @@
   "ui.theme": "Color theme name",
   "ui.theme_accent_index": "Accent color index (0-based)",
   "appliances.dishwasher.label": "Display name in UI",
-  "appliances.dishwasher.duration_hours": "Typical run duration"
+  "appliances.dishwasher.duration_hours": "Typical run duration",
+  "ev_chargers": "Add and configure EV chargers. Current-type chargers require a Charging Control Entity: Darkstar sets it to the enabled value to start and to the disabled value to stop, and only writes amps between min and max current.",
+  "kepler.solver_time_limit_s": "Maximum solver run time in seconds (10-600, default 60). Hitting the limit flags the plan and logs a warning; the plan may be suboptimal."
 }

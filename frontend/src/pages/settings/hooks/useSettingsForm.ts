@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Api, ConfigResponse } from '../../../lib/api'
 import { useToast } from '../../../lib/useToast'
 import { BaseField, HaEntity, InverterProfile, standardInverterKeys } from '../types'
-import { buildFormState, buildPatch } from '../utils'
+import { buildFormState, buildPatch, evChargerArrayError } from '../utils'
 
 export interface UseSettingsFormReturn {
     config: ConfigResponse | null
@@ -149,6 +149,12 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 return errors
             }
 
+            if (field.type === 'entity_array' && field.entityType === 'ev_charger') {
+                const evError = evChargerArrayError(value)
+                if (evError) errors[key] = evError
+                return errors
+            }
+
             // Only apply numeric validation if the field type is numeric
             if (field.type === 'number' || field.type === 'azimuth' || field.type === 'tilt') {
                 // DEBUG: Log when entering numeric validation block
@@ -161,6 +167,11 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                 const num = Number(trimmed)
                 if (trimmed !== '' && Number.isNaN(num)) {
                     errors[key] = 'Must be a number'
+                } else if (
+                    trimmed !== '' &&
+                    ((field.min !== undefined && num < field.min) || (field.max !== undefined && num > field.max))
+                ) {
+                    errors[key] = `Must be between ${field.min ?? '-∞'} and ${field.max ?? '∞'}`
                 } else if (!Number.isNaN(num)) {
                     if (key.includes('percent') || key.includes('soc')) {
                         if (num < 0 || num > 100) {
@@ -251,6 +262,20 @@ export function useSettingsForm(baseFields: BaseField[], profiles: InverterProfi
                     variant: 'warning', // Changed from 'error' - don't block save
                 })
                 // Don't return false - allow save to proceed
+            }
+
+            // Blocking EV charger checks run on save too, not only when the field was edited
+            const evArrayErrors: Record<string, string> = {}
+            fields.forEach((field) => {
+                if (field.type === 'entity_array' && field.entityType === 'ev_charger') {
+                    const evError = evChargerArrayError(form[field.key] ?? '')
+                    if (evError) evArrayErrors[field.key] = evError
+                }
+            })
+            if (Object.keys(evArrayErrors).length > 0) {
+                setFieldErrors((prev) => ({ ...prev, ...evArrayErrors }))
+                setStatusMessage('Please fix validation errors before saving.')
+                return false
             }
 
             // REV UI23: Only block on actual validation errors, not missing required fields

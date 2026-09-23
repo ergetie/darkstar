@@ -7,6 +7,7 @@ import Switch from '../../../components/ui/Switch'
 import EntitySelect from '../../../components/EntitySelect'
 import { NumberInput } from '../../../components/ui/NumberInput'
 import { HaEntity } from '../types'
+import { evChargerMissingControlEntity } from '../utils'
 import Tooltip from '../../../components/Tooltip'
 
 // Water Heater Entity Type
@@ -663,6 +664,9 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                             <div className="sm:col-span-2">
                                                 <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
                                                     Charging Control Entity
+                                                    {(entity as EVChargerEntity).type === 'current' && (
+                                                        <span className="text-bad"> *</span>
+                                                    )}
                                                 </label>
                                                 <EntitySelect
                                                     entities={haEntities}
@@ -676,6 +680,12 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                     placeholder="Select Home Assistant charging-control entity..."
                                                     disabled={disabled}
                                                 />
+                                                {evChargerMissingControlEntity(entity as EVChargerEntity) && (
+                                                    <p className="text-[11px] text-bad mt-1" role="alert">
+                                                        Required for current-type chargers: this entity starts and stops
+                                                        charging.
+                                                    </p>
+                                                )}
                                                 <p className="text-[10px] text-muted mt-1">
                                                     Switch-like entities use turn on/off. Select-like entities use the
                                                     mapped options below.

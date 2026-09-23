@@ -31,6 +31,7 @@ def _ev_config(**charger_overrides):
         "sensor": "sensor.ev_power",
         "type": "current",
         "current_entity": "number.ev_amp",
+        "switch_entity": "switch.ev_allow",
         "max_current_a": 16,
         "min_current_a": 6,
     }

@@ -121,7 +121,11 @@ class TestBinaryChargerKeepOnClosesSwitch:
         await engine._control_ev_charger(slot, now)
 
         engine.dispatcher.set_ev_charger_switch.assert_called_once_with(
-            "switch.ev1", turn_on=True, charging_kw=0.0
+            "switch.ev1",
+            turn_on=True,
+            charging_kw=0.0,
+            enabled_value="on",
+            disabled_value="off",
         )
         assert engine._ev_charger_states["ev1"].charging_active is True
 
@@ -151,6 +155,7 @@ class TestCurrentChargerKeepOnMinimumCurrent:
             id="goe",
             type="current",
             current_entity="number.goe_current",
+            switch_entity="switch.goe_allow",
             min_current_a=8,
             max_current_a=16,
             phases=[1, 2, 3],
@@ -186,6 +191,9 @@ class TestCurrentChargerKeepOnMinimumCurrent:
             id="goe",
             type="current",
             current_entity="number.goe_current",
+            switch_entity="select.goe_frc",
+            charge_enabled_value="charge",
+            charge_disabled_value="dont_charge",
             min_current_a=8,
             max_current_a=16,
             phases=[1, 2, 3],
@@ -209,6 +217,9 @@ class TestCurrentChargerKeepOnMinimumCurrent:
         )
         engine.dispatcher = AsyncMock()
         engine.dispatcher.set_ev_charger_current = AsyncMock(return_value=mock_result)
+        engine.dispatcher.set_ev_charger_switch = AsyncMock(
+            return_value=MagicMock(success=True, skipped=True)
+        )
 
         slot = SlotPlan(ev_charger_plans={"goe": 0.0}, ev_keep_on={"goe": True})
         tz = pytz.timezone("Europe/Stockholm")
@@ -219,6 +230,9 @@ class TestCurrentChargerKeepOnMinimumCurrent:
             "number.goe_current", 8
         )
         assert engine._ev_charger_states["goe"].current_setpoint_a == 8
+        switch_call = engine.dispatcher.set_ev_charger_switch.call_args
+        assert switch_call.args[0] == "select.goe_frc"
+        assert switch_call.kwargs["turn_on"] is True
 
 
 class TestKeepOnBlocksBatteryDischarge:
@@ -342,6 +356,7 @@ class TestPhaseModeUsesSharedShouldBeOnPredicate:
             id="goe",
             type="current",
             current_entity="number.goe_current",
+            switch_entity="switch.goe_allow",
             min_current_a=8,
             max_current_a=16,
             phases=[1, 2, 3],
@@ -373,6 +388,7 @@ class TestPhaseModeUsesSharedShouldBeOnPredicate:
             id="goe",
             type="current",
             current_entity="number.goe_current",
+            switch_entity="switch.goe_allow",
             min_current_a=8,
             max_current_a=16,
             phases=[1, 2, 3],

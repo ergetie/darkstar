@@ -320,12 +320,16 @@ class TestEVChargerCurrentTypeValidation:
             {
                 "type": "current",
                 "current_entity": "number.goe_current",
+                "switch_entity": "select.goe_frc",
+                "charge_enabled_value": "charge",
+                "charge_disabled_value": "dont_charge",
                 "min_current_a": 6,
                 "max_current_a": 16,
             }
         )
         issues = _validate_config_for_save(config)
         assert not any("uses unsupported type" in i["message"] for i in issues)
+        assert not any("switch_entity" in i["message"] for i in issues)
         assert not any("current_entity" in i["message"] for i in issues)
         assert not any("max_current_a" in i["message"] for i in issues)
 
@@ -353,6 +357,31 @@ class TestEVChargerCurrentTypeValidation:
         issues = _validate_config_for_save(config)
         errors = [i for i in issues if i["severity"] == "error"]
         assert any("min_current_a" in e["message"] for e in errors)
+
+    def test_current_type_without_switch_entity_is_error(self):
+        config = self._base_config(
+            {
+                "type": "current",
+                "current_entity": "number.goe_current",
+                "switch_entity": "",
+                "max_current_a": 16,
+            }
+        )
+        issues = _validate_config_for_save(config)
+        errors = [i for i in issues if i["severity"] == "error"]
+        assert any("'goe'" in e["message"] and "switch_entity" in e["message"] for e in errors)
+
+    def test_disabled_current_type_without_switch_entity_not_error(self):
+        config = self._base_config(
+            {
+                "type": "current",
+                "enabled": False,
+                "current_entity": "number.goe_current",
+                "max_current_a": 16,
+            }
+        )
+        issues = _validate_config_for_save(config)
+        assert not any("switch_entity" in i["message"] for i in issues)
 
     def test_unknown_type_still_warns(self):
         config = self._base_config({"type": "power"})

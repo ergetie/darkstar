@@ -149,3 +149,39 @@ describe('EVChargingCard settings link (7.7)', () => {
         expect(link).toHaveAttribute('href', '/settings?tab=load-balancing')
     })
 })
+
+describe('EVChargingCard at-risk goal (fix-ev-current-charger-control 5.3)', () => {
+    it('shows AT RISK with the undelivered kWh, ready-by time and reason', () => {
+        const deadline = new Date(2026, 8, 23, 18, 30).toISOString()
+        renderCard(
+            baseCharger({
+                status: 'at_risk',
+                deadline,
+                shortfall_kwh: 0.6,
+                shortfall_reason: 'grid_limit',
+                max_import_kw: 8,
+            }),
+        )
+        expect(screen.getByText('AT RISK')).toBeInTheDocument()
+        expect(screen.queryByText('ON TRACK')).not.toBeInTheDocument()
+        expect(screen.getByTestId('ev-shortfall')).toHaveTextContent(
+            "0.6 kWh won't be delivered by 18:30 — grid limit (8 kW) leaves no room",
+        )
+    })
+
+    it('explains a too-close ready-by and a cost trade-off', () => {
+        const { unmount } = renderCard(
+            baseCharger({ status: 'at_risk', shortfall_kwh: 1.2, shortfall_reason: 'deadline_too_close' }),
+        )
+        expect(screen.getByTestId('ev-shortfall')).toHaveTextContent('ready-by too close')
+        unmount()
+        renderCard(baseCharger({ status: 'at_risk', shortfall_kwh: 1.2, shortfall_reason: 'cost_tradeoff' }))
+        expect(screen.getByTestId('ev-shortfall')).toHaveTextContent('cheaper to miss than to charge')
+    })
+
+    it('shows no shortfall line while on track', () => {
+        renderCard(baseCharger())
+        expect(screen.getByText('ON TRACK')).toBeInTheDocument()
+        expect(screen.queryByTestId('ev-shortfall')).not.toBeInTheDocument()
+    })
+})

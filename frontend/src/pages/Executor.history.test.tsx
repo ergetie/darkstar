@@ -1,5 +1,5 @@
 /* load-balancing-completion 8.3: execution history explainer header */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import ExecutorPage from './Executor'
@@ -15,7 +15,7 @@ vi.mock('../components/LoadBalancerStatusCard', () => ({
 
 const LAST_RUN_AT = '2026-07-06T12:34:56+02:00'
 
-function mockFetch() {
+function mockFetch(historyRecords: unknown[] = []) {
     vi.stubGlobal(
         'fetch',
         vi.fn(async (input: RequestInfo | URL) => {
@@ -31,7 +31,7 @@ function mockFetch() {
                     override_active: false,
                 }
             } else if (url.includes('api/executor/history')) {
-                body = { records: [], count: 0 }
+                body = { records: historyRecords, count: historyRecords.length }
             } else if (url.includes('api/executor/stats')) {
                 body = {
                     period_days: 7,
@@ -95,5 +95,67 @@ describe('Execution history explainer header', () => {
         const explainer = await screen.findByTestId('history-explainer')
         expect(explainer).toHaveTextContent('No executor tick recorded yet')
         expect(explainer).toHaveTextContent('Only changes')
+    })
+})
+
+const EV_FAILURE_RECORD = {
+    id: 7,
+    executed_at: '2026-09-23T18:00:05+02:00',
+    slot_start: '2026-09-23T18:00:05+02:00',
+    success: 0,
+    override_active: 0,
+    commanded_work_mode: 'ev_charge_current',
+    source: 'ev_charger',
+    error_message: 'HTTP 500: min 6',
+    action_results: [
+        {
+            type: 'ev_charge_current',
+            success: false,
+            message: 'Failed to set number.goe_current to 6A: HTTP 500',
+            entity_id: 'number.goe_current',
+            charger_id: 'goe',
+            new_value: 6,
+            skipped: false,
+            error_details: 'HTTP 500: min 6',
+        },
+    ],
+}
+
+describe('Execution history source filter', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals()
+    })
+
+    it('requests only EV records when the EV filter is selected', async () => {
+        mockFetch()
+        render(
+            <MemoryRouter>
+                <ExecutorPage />
+            </MemoryRouter>,
+        )
+
+        fireEvent.click(await screen.findByRole('button', { name: 'EV' }))
+
+        await waitFor(() => {
+            const urls = vi.mocked(fetch).mock.calls.map((c) => String(c[0]))
+            expect(urls.some((u) => u.includes('api/executor/history') && u.includes('source=ev_charger'))).toBe(true)
+        })
+        expect(screen.getByRole('button', { name: 'EV' })).toHaveAttribute('aria-pressed', 'true')
+    })
+
+    it('renders an EV badge for EV action records', async () => {
+        mockFetch([EV_FAILURE_RECORD])
+        render(
+            <MemoryRouter>
+                <ExecutorPage />
+            </MemoryRouter>,
+        )
+
+        const badge = await screen.findByText(/EV current/)
+        fireEvent.click(badge)
+
+        expect(await screen.findByText('Charger: goe')).toBeInTheDocument()
+        expect(screen.getAllByText(/Failed to set number.goe_current to 6A/).length).toBeGreaterThan(0)
+        expect(screen.getAllByText('HTTP 500: min 6').length).toBeGreaterThan(0)
     })
 })

@@ -74,3 +74,28 @@ async def test_save_schedule_calls_s_index_history_when_debug_present(monkeypatc
     )
 
     mock_record.assert_awaited_once_with(debug_payload)
+
+
+@pytest.mark.asyncio
+async def test_save_schedule_merges_extra_meta(tmp_path):
+    """fix-ev-current-charger-control: diagnostics + time_limit_hit land in meta."""
+    import json
+
+    out = tmp_path / "schedule.json"
+    diagnostics = {"goe": {"shortfall_kwh": 0.6, "reason": "grid_limit"}}
+    await schedule_module.save_schedule_to_json(
+        schedule_df=_make_schedule_df(),
+        config={},
+        now_slot=None,
+        forecast_meta={},
+        s_index_debug=None,
+        window_responsibilities=[],
+        planner_state={},
+        output_path=str(out),
+        extra_meta={"ev_goal_diagnostics": diagnostics, "time_limit_hit": True},
+    )
+
+    meta = json.loads(out.read_text())["meta"]
+    assert meta["ev_goal_diagnostics"] == diagnostics
+    assert meta["time_limit_hit"] is True
+    assert "generated_at" in meta

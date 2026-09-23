@@ -77,6 +77,7 @@ def make_engine(temp_schedule, temp_db, *, load_balancing_enabled: bool, grid_cu
         id="goe",
         type="current",
         current_entity="number.goe_current",
+        switch_entity="switch.goe_allow",
         min_current_a=6,
         max_current_a=16,
         phases=[1, 2, 3],

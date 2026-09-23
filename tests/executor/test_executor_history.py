@@ -442,3 +442,33 @@ class TestCleanupOldRecords:
         records = history.get_history()
         assert len(records) == 1
         assert records[0]["commanded_work_mode"] == "New"
+
+
+class TestHistorySourceFilter:
+    """fix-ev-current-charger-control 4.1: optional source filter."""
+
+    def _seed(self, history):
+        for source, mode in (("native", "Export First"), ("ev_charger", "ev_charge_start")):
+            history.log_execution(
+                ExecutionRecord(
+                    executed_at=datetime.now(pytz.timezone("Europe/Stockholm")).isoformat(),
+                    slot_start="2026-09-23T18:00:00+02:00",
+                    commanded_work_mode=mode,
+                    source=source,
+                )
+            )
+
+    def test_filter_to_ev_records(self, history):
+        self._seed(history)
+        records = history.get_history(source="ev_charger")
+        assert [r["source"] for r in records] == ["ev_charger"]
+
+    def test_no_filter_returns_all(self, history):
+        self._seed(history)
+        assert {r["source"] for r in history.get_history()} == {"native", "ev_charger"}
+
+    def test_csv_respects_filter(self, history):
+        self._seed(history)
+        csv_data = history.get_history_csv(source="native")
+        assert "Export First" in csv_data
+        assert "ev_charge_start" not in csv_data

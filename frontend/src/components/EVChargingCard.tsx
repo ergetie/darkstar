@@ -62,6 +62,31 @@ export function computeProgressPercent(charger: EVChargerState): number {
     return required > 0 ? Math.min(100, Math.round((delivered / required) * 100)) : 0
 }
 
+/** Plain-language explanation of an at-risk goal, e.g.
+ * "0.6 kWh won't be delivered by 18:30 — grid limit (8 kW) leaves no room".
+ * Returns null unless the charger is at_risk with a shortfall. */
+// eslint-disable-next-line react-refresh/only-export-components -- pure helper, tested directly
+export function describeShortfall(charger: EVChargerState): string | null {
+    if (charger.status !== 'at_risk' || !charger.shortfall_kwh) return null
+    const deadline = charger.deadline ? new Date(charger.deadline) : null
+    const byTime =
+        deadline && !Number.isNaN(deadline.getTime())
+            ? ` by ${deadline.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`
+            : ''
+    let reason: string
+    if (charger.shortfall_reason === 'grid_limit') {
+        reason =
+            charger.max_import_kw != null
+                ? `grid limit (${charger.max_import_kw} kW) leaves no room`
+                : 'grid limit leaves no room'
+    } else if (charger.shortfall_reason === 'deadline_too_close') {
+        reason = 'ready-by too close'
+    } else {
+        reason = 'cheaper to miss than to charge'
+    }
+    return `${charger.shortfall_kwh.toFixed(1)} kWh won't be delivered${byTime} — ${reason}`
+}
+
 /** Derives the displayed status text/color for a charger, giving load-balancer
  * fail-safe states (throttling/paused/stale_fallback) priority over the
  * charger's own on_track/behind/complete/idle status. */
@@ -83,6 +108,9 @@ export function deriveChargerStatus(
     } else if (charger.status === 'on_track') {
         statusText = 'On track'
         statusColor = 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+    } else if (charger.status === 'at_risk') {
+        statusText = 'At risk'
+        statusColor = 'bg-warn/10 text-warn border border-warn/20'
     } else if (charger.status === 'behind') {
         statusText = 'Behind'
         statusColor = 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
@@ -210,6 +238,7 @@ export default function EVChargingCard({
     const required = charger.required_kwh ?? 0
     const progressPercent = computeProgressPercent(charger)
     const { statusText, statusColor } = deriveChargerStatus(charger, balancerEv)
+    const shortfallText = describeShortfall(charger)
 
     return (
         <div className="bg-surface2/30 rounded-xl p-3 border border-line/10 relative overflow-hidden transition-all duration-300">
@@ -237,6 +266,15 @@ export default function EVChargingCard({
                     </div>
                 )}
             </div>
+
+            {!isEditing && shortfallText && (
+                <p
+                    className="text-[10px] text-warn bg-warn/10 border border-warn/20 rounded-lg px-2 py-1 mb-3"
+                    data-testid="ev-shortfall"
+                >
+                    {shortfallText}
+                </p>
+            )}
 
             {isEditing ? (
                 /* Configure Schedule Form */

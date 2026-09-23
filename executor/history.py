@@ -166,9 +166,12 @@ class ExecutionHistory:
         success_only: bool | None = None,
         start_date: str | None = None,
         end_date: str | None = None,
+        source: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Query execution history with optional filters using SQLAlchemy.
+
+        source: only records written by that source ("native" or "ev_charger").
         """
         with self.Session() as session:
             stmt = select(ExecutionLog)
@@ -184,6 +187,9 @@ class ExecutionHistory:
 
             if end_date:
                 stmt = stmt.where(ExecutionLog.executed_at <= end_date)
+
+            if source:
+                stmt = stmt.where(ExecutionLog.source == source)
 
             stmt = stmt.order_by(desc(ExecutionLog.executed_at)).limit(limit).offset(offset)
 
@@ -216,6 +222,7 @@ class ExecutionHistory:
         start_date: str | None = None,
         end_date: str | None = None,
         success_only: bool | None = None,
+        source: str | None = None,
     ) -> str:
         """
         Generate a CSV string of execution history.
@@ -229,6 +236,7 @@ class ExecutionHistory:
             start_date=start_date,
             end_date=end_date,
             success_only=success_only,
+            source=source,
         )
 
         if not records:

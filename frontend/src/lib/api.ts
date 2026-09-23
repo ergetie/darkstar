@@ -690,7 +690,12 @@ export type EVChargerState = {
     ha_target_soc_entity: string | null
     type: 'current' | 'binary'
     n_days: number | null
-    status: 'on_track' | 'behind' | 'complete' | 'idle'
+    status: 'on_track' | 'at_risk' | 'behind' | 'complete' | 'idle'
+    /** kWh the current plan will not deliver by the deadline (at_risk only) */
+    shortfall_kwh?: number | null
+    shortfall_reason?: 'grid_limit' | 'deadline_too_close' | 'cost_tradeoff' | null
+    /** Grid import cap used for the grid_limit explanation */
+    max_import_kw?: number | null
     source: 'api' | 'ha' | null
     externally_controlled: boolean
     last_updated: string | null

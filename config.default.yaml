@@ -325,6 +325,9 @@ kepler:
   # target SoC by ready_by. Default 50 SEK/kWh is high enough to treat the goal
   # as near-mandatory without making an unreachable target infeasible.
   ev_shortfall_penalty_sek_per_kwh: 50.0
+  # Solver time limit (advanced, seconds, 10-600). When a solve runs into the
+  # limit the planner logs a warning and flags the plan (time_limit_hit).
+  solver_time_limit_s: 60
 
 # =============================================================================
 # Home Assistant Integration

@@ -53,6 +53,9 @@ export interface BaseField {
     className?: string
     /** For entity_array type: specifies which entity type to manage */
     entityType?: 'water_heater' | 'ev_charger'
+    /** Inclusive numeric bounds, validated on edit (number fields only) */
+    min?: number
+    max?: number
 }
 
 export interface InverterProfile {
@@ -588,6 +591,17 @@ export const parameterSections: SettingsSection[] = [
                 type: 'number',
                 subsection: 'Advanced Tuning',
                 isAdvanced: true,
+            },
+            {
+                key: 'kepler.solver_time_limit_s',
+                label: 'Solver Time Limit (s)',
+                helper: 'Maximum time the planner solver may run (10-600 s). If a run hits the limit, the plan is flagged and a warning is logged.',
+                path: ['kepler', 'solver_time_limit_s'],
+                type: 'number',
+                subsection: 'Advanced Tuning',
+                isAdvanced: true,
+                min: 10,
+                max: 600,
             },
         ],
     },

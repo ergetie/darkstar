@@ -909,6 +909,45 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
     )
 
 
+def validate_ev_chargers(config: ExecutorConfig) -> list[str]:
+    """Return blocking configuration errors for enabled EV chargers.
+
+    A `type: current` charger is started and stopped via its `switch_entity`
+    (the ampere setpoint alone cannot stop charging), so it is required. For
+    select-like entities the enabled/disabled options must be non-empty and
+    different. Errors are logged; the executor skips actuation for such a
+    charger until it is configured.
+    """
+    errors: list[str] = []
+    for charger in config.ev_chargers:
+        if charger.type != "current":
+            continue
+        switch_entity = (charger.switch_entity or "").strip()
+        if not switch_entity:
+            errors.append(
+                f"EV charger '{charger.id}' has type 'current' but no switch_entity — "
+                "set the charging-control entity used to start and stop charging"
+            )
+            continue
+        domain = switch_entity.split(".", 1)[0] if "." in switch_entity else ""
+        if domain in {"select", "input_select"}:
+            enabled = charger.charge_enabled_value.strip()
+            disabled = charger.charge_disabled_value.strip()
+            if not enabled or not disabled:
+                errors.append(
+                    f"EV charger '{charger.id}' select charging mappings must be non-empty"
+                )
+            elif enabled == disabled:
+                errors.append(
+                    f"EV charger '{charger.id}' charge_enabled_value and "
+                    "charge_disabled_value must differ"
+                )
+
+    for error in errors:
+        logger.error("Config validation: %s", error)
+    return errors
+
+
 _MOCK_ENTITY_PATTERNS = ("mock", "test")
 
 

@@ -10,11 +10,13 @@ No ``charge_priority`` field is returned — it does not exist in this change.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
 from datetime import UTC, date, datetime
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 import pytz
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -29,6 +31,12 @@ from backend.core.secrets import load_yaml
 logger = logging.getLogger("darkstar.api.ev")
 
 router = APIRouter(prefix="/api/ev", tags=["ev"])
+
+SCHEDULE_PATH = Path("data/schedule.json")
+# A goal is "at risk" when the current plan leaves more than this undelivered.
+AT_RISK_SHORTFALL_KWH = 0.01
+# Diagnostics belong to the active goal only if its required energy matches.
+DIAGNOSTICS_REQUIRED_TOLERANCE_KWH = 0.05
 
 
 class EVChargerScheduleBody(BaseModel):
@@ -259,12 +267,62 @@ def _compute_status(
     return "on_track" if deliverable + 1e-6 >= required_kwh else "behind"
 
 
+def _load_schedule_meta() -> dict[str, Any]:
+    """Read ``meta`` from schedule.json. Returns ``{}`` if missing/unreadable."""
+    try:
+        with SCHEDULE_PATH.open(encoding="utf-8") as f:
+            data: Any = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    meta: Any = cast("dict[str, Any]", data).get("meta") if isinstance(data, dict) else None
+    return cast("dict[str, Any]", meta) if isinstance(meta, dict) else {}
+
+
+def _active_goal_shortfall(
+    diagnostics: dict[str, Any] | None,
+    persisted: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Return the plan's shortfall diagnostics if they belong to the active goal.
+
+    Diagnostics are ignored (stale) when the goal was edited after the plan was
+    made, the deadline differs, or the required energy differs by more than
+    DIAGNOSTICS_REQUIRED_TOLERANCE_KWH. Only a shortfall above
+    AT_RISK_SHORTFALL_KWH is returned.
+    """
+    if not diagnostics:
+        return None
+    try:
+        shortfall = float(diagnostics.get("shortfall_kwh") or 0.0)
+        diag_required = float(diagnostics["required_kwh"])
+        goal_required = float(persisted["required_kwh"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if shortfall <= AT_RISK_SHORTFALL_KWH:
+        return None
+
+    diag_deadline = _parse_iso_deadline(diagnostics.get("deadline"))
+    goal_deadline = _parse_iso_deadline(persisted.get("deadline"))
+    if diag_deadline is None or goal_deadline is None or diag_deadline != goal_deadline:
+        return None
+    if abs(diag_required - goal_required) > DIAGNOSTICS_REQUIRED_TOLERANCE_KWH:
+        return None
+
+    goal_edited = _parse_iso_deadline(persisted.get("last_updated"))
+    plan_time = _parse_iso_deadline(persisted.get("last_planned_at"))
+    if goal_edited is not None and plan_time is not None and goal_edited > plan_time:
+        return None
+
+    return diagnostics
+
+
 @router.get(
     "/chargers",
     summary="Get EV Charger Status",
     description=(
         "Per-charger live HA sensor data merged with goal and progress from the "
-        "last pipeline run. ``status ∈ {on_track, behind, complete, idle}``."
+        "last pipeline run. ``status ∈ {on_track, at_risk, behind, complete, idle}``. "
+        "``at_risk`` means the current plan will not deliver the goal; see "
+        "``shortfall_kwh`` and ``shortfall_reason``."
     ),
 )
 async def get_ev_chargers() -> list[dict[str, Any]]:
@@ -272,6 +330,10 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
     config = load_yaml("config.yaml")
     ev_chargers_cfg: list[dict[str, Any]] = config.get("ev_chargers", []) or []
     state_by_id = _load_ev_state()
+    schedule_meta = _load_schedule_meta()
+    goal_diagnostics = cast(
+        "dict[str, dict[str, Any]]", schedule_meta.get("ev_goal_diagnostics") or {}
+    )
     now = datetime.now(UTC)
 
     async def _safe_float(entity_id: str) -> float | None:
@@ -349,6 +411,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "n_days": None,
                 "ready_by_date": None,
                 "status": "idle",
+                "shortfall_kwh": None,
+                "shortfall_reason": None,
                 "source": None,
                 "externally_controlled": externally_controlled,
                 "last_updated": None,
@@ -381,6 +445,15 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 now,
             )
 
+        shortfall_kwh: float | None = None
+        shortfall_reason: str | None = None
+        if status == "on_track":
+            at_risk = _active_goal_shortfall(goal_diagnostics.get(charger_id), persisted)
+            if at_risk is not None:
+                status = "at_risk"
+                shortfall_kwh = float(at_risk["shortfall_kwh"])
+                shortfall_reason = at_risk.get("reason")
+
         return {
             "id": charger_id,
             "name": ev.get("name", charger_id),
@@ -403,6 +476,11 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "n_days": persisted.get("n_days"),
             "ready_by_date": persisted.get("ready_by_date"),
             "status": status,
+            "shortfall_kwh": shortfall_kwh,
+            "shortfall_reason": shortfall_reason,
+            "max_import_kw": (goal_diagnostics.get(charger_id) or {}).get("max_import_kw")
+            if shortfall_reason
+            else None,
             "source": persisted.get("source"),
             "externally_controlled": externally_controlled,
             "last_updated": persisted.get("last_updated"),
