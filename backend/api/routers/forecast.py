@@ -107,50 +107,6 @@ async def _compute_risk_profile(
     return {"level": risk, "volatility_score": volatility, "details": "Based on weather variance"}
 
 
-async def _fetch_correction_history(
-    engine: LearningEngine | None, config: dict[str, Any]
-) -> list[dict[str, Any]]:
-    if not engine or not hasattr(engine, "store"):
-        return []
-
-    tz = engine.timezone if hasattr(engine, "timezone") else _get_timezone()
-    now = datetime.now(tz)
-    cutoff_date = (now - timedelta(days=14)).strftime("%Y-%m-%d")
-    active_version = config.get("forecasting", {}).get("active_forecast_version", "aurora")
-
-    rows: list[dict[str, Any]] = []
-    try:
-        async with engine.store.AsyncSession() as session:
-            stmt = (
-                select(
-                    func.date(SlotForecast.slot_start).label("date"),
-                    func.sum(func.abs(SlotForecast.pv_correction_kwh)).label("pv_corr"),
-                    func.sum(func.abs(SlotForecast.load_correction_kwh)).label("load_corr"),
-                )
-                .where(
-                    SlotForecast.forecast_version == active_version,
-                    func.date(SlotForecast.slot_start) >= cutoff_date,
-                )
-                .group_by("date")
-                .order_by("date")
-            )
-            results = await session.execute(stmt)
-            for date_str, pv_corr, load_corr in results.all():
-                pv = float(pv_corr or 0.0)
-                load = float(load_corr or 0.0)
-                rows.append(
-                    {
-                        "date": date_str,
-                        "total_correction_kwh": pv + load,
-                        "pv_correction_kwh": pv,
-                        "load_correction_kwh": load,
-                    }
-                )
-    except Exception:
-        logger.exception("Failed to fetch correction history")
-    return rows
-
-
 async def _compute_metrics(
     engine: LearningEngine | None, days_back: int = 7
 ) -> dict[str, float | None]:
@@ -327,7 +283,6 @@ async def aurora_dashboard() -> dict[str, Any]:
     identity = await _compute_graduation_level(engine)
     metrics = await _compute_metrics(engine, days_back=7)
     risk = await _compute_risk_profile(engine, config)
-    corrections = await _fetch_correction_history(engine, config)
 
     stats: dict[str, Any] = {}
     history_series: dict[str, list[dict[str, Any]]] = {"pv": [], "load": []}
@@ -385,7 +340,6 @@ async def aurora_dashboard() -> dict[str, Any]:
         "identity": identity,
         "metrics": metrics,
         "risk": risk,
-        "correction_history": corrections,
         "horizon": stats,
         "history": {"strategy_events": strategy_history},
         "status": "online" if engine else "offline",

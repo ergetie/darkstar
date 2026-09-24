@@ -52,11 +52,6 @@ class SlotForecast(Base):
     temp_c: Mapped[float | None] = mapped_column(Float)
 
     forecast_version: Mapped[str] = mapped_column(String)
-    pv_correction_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
-    load_correction_kwh: Mapped[float] = mapped_column(Float, default=0.0, server_default=text("0"))
-    correction_source: Mapped[str] = mapped_column(
-        String, default="none", server_default=text("'none'")
-    )
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 
     __table_args__ = (UniqueConstraint("slot_start", "forecast_version"),)

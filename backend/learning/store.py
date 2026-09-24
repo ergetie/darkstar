@@ -284,8 +284,6 @@ class LearningStore:
                     forecast_version=forecast_version,
                 )
                 # UPSERT: Update existing forecasts with new values
-                # Note: Correction columns (pv_correction_kwh, load_correction_kwh, correction_source)
-                # are no longer written but remain in DB schema for backward compatibility
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["slot_start", "forecast_version"],
                     set_={
@@ -960,9 +958,6 @@ class LearningStore:
                 SlotForecast.base_load_p90,
                 SlotForecast.temp_c,
                 SlotForecast.forecast_version,
-                SlotForecast.pv_correction_kwh,
-                SlotForecast.load_correction_kwh,
-                SlotForecast.correction_source,
             ).where(SlotForecast.slot_start >= start_iso, SlotForecast.forecast_version == version)
             result = await session.execute(stmt)
             return [row._asdict() for row in result.all()]  # type: ignore

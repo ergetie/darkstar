@@ -71,10 +71,7 @@ export default function ModelTrainingCard() {
     }
 
     const mainModel = status?.models
-        ? Object.values(status.models).find((m) => !m.last_modified.includes('error'))
-        : null
-    const correctorModel = status?.models
-        ? Object.entries(status.models).find(([filename]) => filename.includes('error'))?.[1]
+        ? Object.entries(status.models).find(([filename]) => filename.includes('model'))?.[1]
         : null
 
     // Helper to format age
@@ -126,32 +123,13 @@ export default function ModelTrainingCard() {
 
             <div className="flex-1 space-y-4">
                 {/* Status Grid */}
-                <div className="grid grid-cols-2 gap-2">
-                    <div className="p-2.5 rounded-lg bg-surface2/50 border border-line/50">
-                        <div className="text-[10px] text-muted mb-1">Main Models</div>
-                        <div className="flex items-center gap-1.5">
-                            <div className={`h-2 w-2 rounded-full ${mainModel ? 'bg-emerald-400' : 'bg-red-400'}`} />
-                            <span className="text-sm font-medium text-text">{mainModel ? 'Ready' : 'Missing'}</span>
-                        </div>
-                        {mainModel && (
-                            <div className="text-[10px] text-muted mt-1">{formatAge(mainModel.age_seconds)}</div>
-                        )}
+                <div className="p-2.5 rounded-lg bg-surface2/50 border border-line/50">
+                    <div className="text-[10px] text-muted mb-1">Main Models</div>
+                    <div className="flex items-center gap-1.5">
+                        <div className={`h-2 w-2 rounded-full ${mainModel ? 'bg-emerald-400' : 'bg-red-400'}`} />
+                        <span className="text-sm font-medium text-text">{mainModel ? 'Ready' : 'Missing'}</span>
                     </div>
-
-                    <div className="p-2.5 rounded-lg bg-surface2/50 border border-line/50">
-                        <div className="text-[10px] text-muted mb-1">Corrector</div>
-                        <div className="flex items-center gap-1.5">
-                            <div
-                                className={`h-2 w-2 rounded-full ${correctorModel ? 'bg-emerald-400' : 'bg-slate-500'}`}
-                            />
-                            <span className="text-sm font-medium text-text">
-                                {correctorModel ? 'Ready' : 'Inactive'}
-                            </span>
-                        </div>
-                        {correctorModel && (
-                            <div className="text-[10px] text-muted mt-1">{formatAge(correctorModel.age_seconds)}</div>
-                        )}
-                    </div>
+                    {mainModel && <div className="text-[10px] text-muted mt-1">{formatAge(mainModel.age_seconds)}</div>}
                 </div>
 
                 {/* Recent History */}

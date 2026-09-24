@@ -30,8 +30,7 @@ function generateMockSlots(): AuroraHorizonSlot[] {
 
         slots.push({
             slot_start: time.toISOString(),
-            base: { pv_kwh: pv * 0.8, load_kwh: load * 0.9 }, // Base plan
-            correction: { pv_kwh: pv * 0.2, load_kwh: load * 0.1 }, // Correction
+            base: { pv_kwh: pv, load_kwh: load }, // Base plan
             final: { pv_kwh: pv, load_kwh: load },
         })
     }

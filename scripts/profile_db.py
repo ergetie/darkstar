@@ -80,59 +80,7 @@ def profile_db():
 
     print()
 
-    # Test 3: NULL count in slot_forecasts
-    print("CHECKING FOR NULLs IN slot_forecasts:")
-    print("-" * 80)
-
-    start = time.time()
-    cursor.execute("""
-        SELECT COUNT(*) FROM slot_forecasts
-        WHERE pv_correction_kwh IS NULL
-           OR load_correction_kwh IS NULL
-           OR correction_source IS NULL
-    """)
-    null_count = cursor.fetchone()[0]
-    elapsed = time.time() - start
-
-    print(f"Rows with NULLs: {null_count:,} ({elapsed:.4f}s)")
-
-    if null_count > 0:
-        print("⚠️  WARNING: Found NULLs - the WHERE clause optimization is not effective!")
-    else:
-        print("✓ No NULLs found - WHERE clause should make UPDATE instant")
-
-    print()
-
-    # Test 4: Simulate _init_schema UPDATE
-    print("SIMULATING _init_schema UPDATE:")
-    print("-" * 80)
-
-    print("Testing UPDATE with WHERE clause (should be instant)...")
-    start = time.time()
-    cursor.execute("""
-        UPDATE slot_forecasts
-        SET
-            pv_correction_kwh = COALESCE(pv_correction_kwh, 0.0),
-            load_correction_kwh = COALESCE(load_correction_kwh, 0.0),
-            correction_source = COALESCE(correction_source, 'none')
-        WHERE pv_correction_kwh IS NULL
-           OR load_correction_kwh IS NULL
-           OR correction_source IS NULL
-    """)
-    conn.rollback()  # Don't actually commit
-    elapsed = time.time() - start
-
-    print(f"UPDATE execution time: {elapsed:.4f}s")
-
-    if elapsed > 0.5:
-        print("⚠️  WARNING: UPDATE took > 0.5s even with WHERE clause!")
-        print("   This suggests DB I/O is slow or the query plan is inefficient.")
-    else:
-        print("✓ UPDATE is fast as expected")
-
-    print()
-
-    # Test 5: Write test
+    # Test 3: Write test
     print("WRITE PERFORMANCE TEST:")
     print("-" * 80)
 
@@ -172,9 +120,6 @@ def profile_db():
 
     if size_mb > 500:
         print("• Database > 500MB - consider archiving old historical data")
-
-    if null_count > 0:
-        print("• Run one-time migration to backfill NULLs")
 
     print("• Run VACUUM to reclaim space and improve performance:")
     print("  sqlite3 data/planner_learning.db 'VACUUM;'")

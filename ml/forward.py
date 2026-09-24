@@ -1,7 +1,7 @@
 """
 Main entry point for calculating forecasted states for the next window (Aurora).
 
-Supports hybrid PV forecasting: physics base + ML residual + corrector.
+Supports hybrid PV forecasting: physics base + ML residual.
 """
 
 from __future__ import annotations

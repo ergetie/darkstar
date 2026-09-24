@@ -65,7 +65,6 @@ export type AuroraWeatherVolatility = {
 export type AuroraHorizonSlot = {
     slot_start: string
     base: { pv_kwh: number; load_kwh: number }
-    correction: { pv_kwh: number; load_kwh: number }
     final: { pv_kwh: number; load_kwh: number }
     probabilistic?: {
         pv_p10: number | null
@@ -101,13 +100,6 @@ export type AuroraHorizon = {
             forecast?: number | null
         }[]
     }
-}
-
-export type AuroraHistoryDay = {
-    date: string
-    total_correction_kwh: number
-    pv_correction_kwh?: number
-    load_correction_kwh?: number
 }
 
 export type StrategyEvent = {
