@@ -72,7 +72,17 @@ def make_ev_slot(start: datetime, charger_id: str, ev_kw: float) -> dict:
     }
 
 
-def make_engine(temp_schedule, temp_db, *, load_balancing_enabled: bool, grid_currents=None):
+def make_engine(
+    temp_schedule,
+    temp_db,
+    *,
+    load_balancing_enabled: bool,
+    grid_currents=None,
+    extra_input_sensors=None,
+    state_overrides=None,
+):
+    """``state_overrides`` maps entity_id -> full HA state, returned as-is by
+    ``get_state`` in place of the default fresh phase state."""
     charger = EVChargerDeviceConfig(
         id="goe",
         type="current",
@@ -113,6 +123,7 @@ def make_engine(temp_schedule, temp_db, *, load_balancing_enabled: bool, grid_cu
                 "grid_current_l2": "sensor.grid_l2",
                 "grid_current_l3": "sensor.grid_l3",
             }
+        input_sensors.update(extra_input_sensors or {})
         with patch("executor.engine.load_yaml", return_value={"input_sensors": input_sensors}):
             with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                 engine = ExecutorEngine("config.yaml")
@@ -137,7 +148,11 @@ def make_engine(temp_schedule, temp_db, *, load_balancing_enabled: bool, grid_cu
             "last_updated": datetime.now(pytz.UTC).isoformat(),
         }
 
+    state_overrides = state_overrides or {}
+
     async def fake_get_state(entity_id):
+        if entity_id in state_overrides:
+            return state_overrides[entity_id]
         if entity_id == "sensor.grid_l1":
             return _phase_state(grid_currents.get(1, 5.0))
         if entity_id == "sensor.grid_l2":
@@ -249,3 +264,111 @@ async def test_balancer_intervention_is_logged_with_reason_and_phase_currents(
     assert lb_action["state"] == "throttling"
     assert lb_action["message"]
     assert lb_action["phase_current_a"] == {"1": 26.0, "2": 5.0, "3": 5.0}
+
+
+# --- ha-sensor-freshness: staleness judged from last_reported -------------
+
+
+def _iso_ago(seconds: float) -> str:
+    return (datetime.now(pytz.UTC) - timedelta(seconds=seconds)).isoformat()
+
+
+def _current_state(value: float, **timestamps: str) -> dict:
+    return {"state": str(value), "attributes": {"unit_of_measurement": "A"}, **timestamps}
+
+
+async def _run_charging_tick(engine) -> None:
+    from executor.engine import EVChargerState
+
+    tz = pytz.timezone("Europe/Stockholm")
+    now = datetime.now(tz)
+    schedule = make_schedule([make_ev_slot(now - timedelta(minutes=5), "goe", 11.0)])
+    with Path(engine.config.schedule_path).open("w", encoding="utf-8") as f:
+        json.dump(schedule, f)
+    engine._ev_charger_states["goe"] = EVChargerState(
+        charging_active=True, current_setpoint_a=16, charging_started_at=now
+    )
+    engine.dispatcher.notify_balancer_intervention = AsyncMock()
+    await engine.run_once()
+
+
+@pytest.mark.asyncio
+async def test_steady_value_with_fresh_last_reported_is_not_stale(temp_schedule, temp_db):
+    """Value unchanged for 45 s (last_updated old) but re-reported 5 s ago."""
+    engine = make_engine(
+        temp_schedule,
+        temp_db,
+        load_balancing_enabled=True,
+        grid_currents={},
+        state_overrides={
+            "sensor.grid_l3": _current_state(
+                5.0, last_updated=_iso_ago(45), last_changed=_iso_ago(45), last_reported=_iso_ago(5)
+            )
+        },
+    )
+    await _run_charging_tick(engine)
+
+    assert engine._last_balancer_status.state != "stale_fallback"
+    engine.dispatcher.notify_balancer_intervention.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_old_last_reported_is_stale(temp_schedule, temp_db):
+    engine = make_engine(
+        temp_schedule,
+        temp_db,
+        load_balancing_enabled=True,
+        grid_currents={},
+        state_overrides={
+            "sensor.grid_l3": _current_state(
+                5.0, last_updated=_iso_ago(45), last_changed=_iso_ago(45), last_reported=_iso_ago(45)
+            )
+        },
+    )
+    await _run_charging_tick(engine)
+
+    assert engine._last_balancer_status.state == "stale_fallback"
+
+
+@pytest.mark.asyncio
+async def test_missing_last_reported_falls_back_to_last_updated(temp_schedule, temp_db):
+    """Pre-2024.3 HA: no last_reported, an old last_updated means stale."""
+    engine = make_engine(
+        temp_schedule,
+        temp_db,
+        load_balancing_enabled=True,
+        grid_currents={},
+        state_overrides={"sensor.grid_l3": _current_state(5.0, last_updated=_iso_ago(45))},
+    )
+    await _run_charging_tick(engine)
+
+    assert engine._last_balancer_status.state == "stale_fallback"
+
+
+@pytest.mark.asyncio
+async def test_stale_voltage_by_last_reported_marks_phase_stale(temp_schedule, temp_db):
+    """Power fresh, voltage value steady and last_reported old -> phase stale."""
+    engine = make_engine(
+        temp_schedule,
+        temp_db,
+        load_balancing_enabled=True,
+        grid_currents={},
+        extra_input_sensors={"grid_voltage_l3": "sensor.grid_l3_voltage"},
+        state_overrides={
+            "sensor.grid_l3": {
+                "state": "1150",
+                "attributes": {"unit_of_measurement": "W", "device_class": "power"},
+                "last_updated": _iso_ago(2),
+                "last_reported": _iso_ago(2),
+            },
+            "sensor.grid_l3_voltage": {
+                "state": "230",
+                "attributes": {"unit_of_measurement": "V", "device_class": "voltage"},
+                "last_updated": _iso_ago(45),
+                "last_reported": _iso_ago(45),
+            },
+        },
+    )
+    await _run_charging_tick(engine)
+
+    assert engine._last_balancer_status.state == "stale_fallback"

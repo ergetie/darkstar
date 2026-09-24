@@ -32,6 +32,8 @@ from typing import Any, cast
 import pytz
 
 # import yaml
+from backend.core.ha_timestamps import reading_timestamp
+
 # Import existing HA config loader
 from backend.core.secrets import load_home_assistant_config
 from backend.loads.service import LoadDisaggregator
@@ -145,15 +147,6 @@ _NO_BALANCER_OVERRIDE = object()
 def _values_equal(state: Any, expected: Any) -> bool:
     """Case/whitespace-insensitive comparison of an HA state to a target value."""
     return state is not None and str(state).strip().casefold() == str(expected).strip().casefold()
-
-
-def _parse_ha_timestamp(raw: str | None) -> datetime | None:
-    """Parse a `last_updated`/`last_changed` HA state timestamp, if present."""
-    if not raw:
-        return None
-    with contextlib.suppress(ValueError):
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    return None
 
 
 @dataclass
@@ -2168,8 +2161,8 @@ class ExecutorEngine:
 
         # Per-phase grid current/power sensors (universal-load-balancing,
         # load-balancing-power-sensors). Read full state (not just value) so
-        # unit/device_class can be inspected and staleness judged from
-        # last_updated.
+        # unit/device_class can be inspected and staleness judged from the
+        # reading-freshness timestamp (last_reported, see ha_timestamps).
         phase_entities: dict[int, str] = {}
         for phase, key in ((1, "grid_current_l1"), (2, "grid_current_l2"), (3, "grid_current_l3")):
             entity = input_sensors.get(key)
@@ -2259,9 +2252,7 @@ class ExecutorEngine:
                     unit_of_measurement = cast("str | None", attributes.get("unit_of_measurement"))
                     device_class = cast("str | None", attributes.get("device_class"))
                     kind = classify_phase_sensor_unit(unit_of_measurement, device_class)
-                    power_updated_at = _parse_ha_timestamp(
-                        phase_state.get("last_updated") or phase_state.get("last_changed")
-                    )
+                    power_updated_at = reading_timestamp(phase_state)
 
                     if kind == "current":
                         grid_current_a[phase] = raw_value
@@ -2297,9 +2288,7 @@ class ExecutorEngine:
                             voltage_v = float(v_value_str)
                         except (TypeError, ValueError):
                             continue
-                        voltage_updated_at = _parse_ha_timestamp(
-                            voltage_state.get("last_updated") or voltage_state.get("last_changed")
-                        )
+                        voltage_updated_at = reading_timestamp(voltage_state)
                         if power_updated_at is None or voltage_updated_at is None:
                             reading_updated_at = None
                         else:

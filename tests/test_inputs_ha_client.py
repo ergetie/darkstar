@@ -111,6 +111,11 @@ async def test_ev_soc_fallback_logging_no_crash():
     with (
         patch("backend.core.secrets.load_yaml", side_effect=mock_yaml_load),
         patch("backend.core.ha_client.get_ha_sensor_float") as mock_get_sensor,
+        patch(
+            "backend.core.ha_client.get_ha_entity_state",
+            new_callable=AsyncMock,
+            return_value={"state": "50.0"},
+        ),
         patch("backend.core.ha_client.logger") as mock_logger,
     ):
         # Battery SoC returns valid data
@@ -149,7 +154,11 @@ async def test_missing_battery_soc_is_ha_unavailable_and_recovers():
     with (
         patch("backend.core.ha_client.secrets.load_yaml", return_value=config),
         patch("backend.core.ha_client.secrets.load_home_assistant_config", return_value={}),
-        patch("backend.core.ha_client.get_ha_sensor_float", side_effect=[None, 55.0]),
+        patch(
+            "backend.core.ha_client.get_ha_entity_state",
+            new_callable=AsyncMock,
+            side_effect=[None, {"state": "55.0"}],
+        ),
     ):
         with pytest.raises(PlannerError) as exc_info:
             await get_initial_state()
@@ -332,6 +341,11 @@ class TestGatherSensorReadsBatchExecution:
         with (
             patch("backend.core.secrets.load_yaml", return_value=test_config),
             patch("backend.core.ha_client.get_ha_sensor_float") as mock_sensor,
+            patch(
+                "backend.core.ha_client.get_ha_entity_state",
+                new_callable=AsyncMock,
+                return_value={"state": "75.0"},
+            ),
             patch("backend.core.ha_client.get_ha_bool", new_callable=AsyncMock, return_value=False),
             patch("backend.core.secrets.load_home_assistant_config", return_value={}),
         ):
@@ -412,3 +426,80 @@ class TestGatherSensorReadsBatchExecution:
                 assert call_kwargs[1].get("context") == "recorder_observation" or (
                     len(call_kwargs[0]) > 1 and call_kwargs[0][1] == "recorder_observation"
                 )
+
+
+# --- ha-sensor-freshness: soc_timestamp feeds the pre-flight staleness check ---
+
+
+async def _initial_state_for_soc(soc_state: dict) -> dict:
+    from backend.core.ha_client import get_initial_state
+
+    config = {
+        "system": {"battery": {"capacity_kwh": 10.0}},
+        "input_sensors": {"battery_soc": "sensor.soc"},
+    }
+    with (
+        patch("backend.core.ha_client.secrets.load_yaml", return_value=config),
+        patch("backend.core.ha_client.secrets.load_home_assistant_config", return_value={}),
+        patch(
+            "backend.core.ha_client.get_ha_entity_state",
+            new_callable=AsyncMock,
+            return_value=soc_state,
+        ),
+    ):
+        return await get_initial_state()
+
+
+def _ago(**delta) -> str:
+    from datetime import UTC, datetime, timedelta
+
+    return (datetime.now(UTC) - timedelta(**delta)).isoformat()
+
+
+@pytest.mark.asyncio
+async def test_soc_timestamp_populated_from_last_reported():
+    from datetime import datetime
+
+    reported = _ago(minutes=1)
+    state = await _initial_state_for_soc(
+        {"state": "80", "last_updated": _ago(hours=2), "last_reported": reported}
+    )
+    assert state["battery_soc_percent"] == 80.0
+    assert datetime.fromisoformat(state["soc_timestamp"]) == datetime.fromisoformat(reported)
+    assert datetime.fromisoformat(state["soc_timestamp"]).tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_soc_timestamp_omitted_without_timestamps():
+    state = await _initial_state_for_soc({"state": "80"})
+    assert state["battery_soc_percent"] == 80.0
+    assert "soc_timestamp" not in state
+
+
+@pytest.mark.asyncio
+async def test_stale_soc_reading_emits_data_stale_warning(caplog):
+    import logging
+
+    from planner.preflight import check_soc_staleness
+
+    old = _ago(minutes=45)
+    initial = await _initial_state_for_soc(
+        {"state": "60", "last_updated": old, "last_reported": old}
+    )
+    with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
+        check_soc_staleness({"initial_state": initial})  # warns, does not raise
+    assert "DATA_STALE" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_steady_soc_with_fresh_last_reported_no_warning(caplog):
+    import logging
+
+    from planner.preflight import check_soc_staleness
+
+    initial = await _initial_state_for_soc(
+        {"state": "100", "last_updated": _ago(hours=2), "last_reported": _ago(minutes=1)}
+    )
+    with caplog.at_level(logging.WARNING, logger="darkstar.planner.preflight"):
+        check_soc_staleness({"initial_state": initial})
+    assert "DATA_STALE" not in caplog.text

@@ -11,6 +11,7 @@ import pytz
 
 from backend.core import secrets
 from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES, is_ev_plugged_in
+from backend.core.ha_timestamps import reading_timestamp
 from backend.health import set_load_forecast_status
 
 logger = logging.getLogger("darkstar.core.ha_client")
@@ -166,9 +167,8 @@ async def get_ha_entity_state(entity_id: str) -> dict[str, Any] | None:
         return None
 
 
-async def get_ha_sensor_float(entity_id: str) -> float | None:
-    """Return numeric state of HA sensor asynchronously."""
-    state = await get_ha_entity_state(entity_id)
+def _state_float(state: dict[str, Any] | None) -> float | None:
+    """Parse an HA state's value as float; None if missing/unknown/unavailable."""
     if not state:
         return None
 
@@ -180,6 +180,11 @@ async def get_ha_sensor_float(entity_id: str) -> float | None:
         return float(raw_value)
     except (TypeError, ValueError):
         return None
+
+
+async def get_ha_sensor_float(entity_id: str) -> float | None:
+    """Return numeric state of HA sensor asynchronously."""
+    return _state_float(await get_ha_entity_state(entity_id))
 
 
 async def get_ha_sensor_kw_normalized(entity_id: str) -> float | None:
@@ -476,11 +481,14 @@ async def get_initial_state(
     ha_config = secrets.load_home_assistant_config()
     input_sensors = config.get("input_sensors", {})
     soc_entity_id = input_sensors.get("battery_soc", ha_config.get("soc_entity_id"))
+    soc_timestamp: datetime | None = None
 
     if soc_entity_id:
-        ha_soc = await get_ha_sensor_float(soc_entity_id)
+        soc_state = await get_ha_entity_state(soc_entity_id)
+        ha_soc = _state_float(soc_state)
         if ha_soc is not None:
             battery_soc_percent = ha_soc
+            soc_timestamp = reading_timestamp(soc_state)
         else:
             # Critical safety check: Do not default to 50% if we expected a live reading.
             # This causes "phantom charging" when HA is down.
@@ -590,7 +598,7 @@ async def get_initial_state(
     )
     ev_plugged_in = ev_charger_states[0]["plugged_in"] if ev_charger_states else False
 
-    return {
+    initial_state: dict[str, Any] = {
         "battery_soc_percent": battery_soc_percent,
         "battery_kwh": battery_kwh,
         "battery_cost_sek_per_kwh": battery_cost_sek_per_kwh,
@@ -601,6 +609,10 @@ async def get_initial_state(
         # Per-device EV state list
         "ev_charger_states": ev_charger_states,
     }
+    if soc_timestamp is not None:
+        # Feeds planner/preflight.py::check_soc_staleness (ha-sensor-freshness)
+        initial_state["soc_timestamp"] = soc_timestamp.isoformat()
+    return initial_state
 
 
 async def get_load_profile_from_ha(config: dict[str, Any]) -> list[float]:
