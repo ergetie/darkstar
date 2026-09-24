@@ -139,6 +139,7 @@ class TestGetDailyOutlook(unittest.TestCase):
         cursor = conn.cursor()
 
         from datetime import datetime, timedelta
+
         base_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
         # Older run (earlier issue_timestamp)
@@ -164,7 +165,6 @@ class TestGetDailyOutlook(unittest.TestCase):
         self.assertLess(result[0]["avg_spot_p50"], 1.0)
         self.assertAlmostEqual(result[0]["avg_spot_p50"], 0.45, places=2)
         print("✓ Only latest run loaded successfully")
-
 
 
 class TestGetPriceWindowAverages(unittest.TestCase):
@@ -508,6 +508,84 @@ class TestBuildOutlookResponse(unittest.TestCase):
         self.assertEqual(len(result["days"]), 0)
 
         print("✓ Response correct when no data")
+
+
+class TestDailyOutlookKnownPrices(unittest.TestCase):
+    """Published spot overrides forecasts in the outlook (ev-quota-known-prices 3.3)."""
+
+    def setUp(self):
+        from datetime import datetime, timedelta
+
+        import pytz
+
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        self.tz = pytz.timezone("Europe/Stockholm")
+        today = datetime.now(self.tz).date()
+        self.d1 = today + timedelta(days=1)
+        self.d2 = today + timedelta(days=2)
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE price_forecasts (
+                slot_start TEXT, issue_timestamp TEXT, days_ahead INTEGER,
+                spot_p10 REAL, spot_p50 REAL, spot_p90 REAL
+            )
+        """)
+        for offset, day in ((1, self.d1), (2, self.d2)):
+            for hour in range(24):
+                slot = self.tz.localize(
+                    datetime.combine(day, datetime.min.time()).replace(hour=hour)
+                )
+                conn.execute(
+                    "INSERT INTO price_forecasts VALUES (?, ?, ?, ?, ?, ?)",
+                    (slot.isoformat(), "2026-03-30T12:00:00Z", offset, 1.0, 1.2, 1.4),
+                )
+        conn.commit()
+        conn.close()
+
+    def tearDown(self):
+        os.close(self.db_fd)
+        Path(self.db_path).unlink()
+
+    def _d1_known(self, spot_for_hour):
+        from datetime import datetime
+
+        return {
+            self.tz.localize(datetime.combine(self.d1, datetime.min.time()).replace(hour=h)): (
+                spot_for_hour(h)
+            )
+            for h in range(24)
+        }
+
+    def test_published_d1_overrides_forecast(self):
+        known = self._d1_known(lambda h: 1.5 if h < 12 else 2.5)
+        result = get_daily_outlook(self.db_path, known)
+
+        d1 = next(d for d in result if d["days_ahead"] == 1)
+        self.assertAlmostEqual(d1["avg_spot_p50"], 2.0)
+        self.assertAlmostEqual(d1["avg_spot_p10"], 2.0)
+        self.assertAlmostEqual(d1["avg_spot_p90"], 2.0)
+        self.assertAlmostEqual(d1["min_hour_p50"], 1.5)
+        self.assertAlmostEqual(d1["max_hour_p50"], 2.5)
+
+    def test_unpublished_days_unchanged(self):
+        baseline = get_daily_outlook(self.db_path)
+        result = get_daily_outlook(self.db_path, self._d1_known(lambda h: 2.0))
+
+        self.assertEqual(
+            next(d for d in result if d["days_ahead"] == 2),
+            next(d for d in baseline if d["days_ahead"] == 2),
+        )
+        self.assertAlmostEqual(
+            next(d for d in baseline if d["days_ahead"] == 1)["avg_spot_p50"], 1.2
+        )
+
+    def test_today_known_slots_do_not_add_a_day(self):
+        from datetime import datetime
+
+        now = datetime.now(self.tz)
+        result = get_daily_outlook(self.db_path, {now: 9.0})
+        self.assertEqual(sorted(d["days_ahead"] for d in result), [1, 2])
 
 
 if __name__ == "__main__":

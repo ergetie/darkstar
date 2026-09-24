@@ -113,6 +113,7 @@ async def get_nordpool_data(config_path: str = "config.yaml") -> list[dict[str, 
                                 "start": slot_start,
                                 "end": end_time,
                                 "value": fc.get("spot_p50", 0) * 1000,  # Convert SEK/kWh to SEK/MWh
+                                "price_source": "forecast",
                             }
                         )
                     logger.info(
@@ -211,6 +212,7 @@ def _process_nordpool_data(
                 "end_time": end_time,
                 "import_price_sek_kwh": import_price,
                 "export_price_sek_kwh": export_price,
+                "price_source": entry.get("price_source", "nordpool"),
             }
         )
 
@@ -233,6 +235,38 @@ def _process_nordpool_data(
         )
 
     return deduped
+
+
+async def get_known_spot_by_slot(config_path: str = "config.yaml") -> dict[datetime, float]:
+    """
+    Return published Nordpool spot prices keyed by tz-aware local slot start.
+
+    Values are raw spot in SEK/kWh (no fees/VAT). Entries synthesized from the
+    D+1 forecast fallback (``price_source == "forecast"``) are excluded, so the
+    map only contains genuinely known prices. On fetch failure an empty map is
+    returned and a warning is logged; callers then fall back to forecasts.
+    """
+    try:
+        price_data = await get_nordpool_data(config_path)
+    except Exception as exc:
+        logger.warning("Known spot prices unavailable, using forecasts only: %s", exc)
+        return {}
+
+    # Keys are 15-minute slot starts (the price-forecast grid), so coarser
+    # Nordpool resolutions are expanded to one key per covered quarter-hour.
+    quarter = timedelta(minutes=15)
+    known: dict[datetime, float] = {}
+    for slot in price_data:
+        if slot.get("price_source") != "nordpool":
+            continue
+        spot = float(slot["export_price_sek_kwh"])
+        slot_start = slot["start_time"]
+        while slot_start < slot["end_time"]:
+            known[slot_start] = spot
+            slot_start += quarter
+    if not known:
+        logger.warning("Known spot prices unavailable, using forecasts only: no Nordpool data")
+    return known
 
 
 async def get_current_slot_prices(config: dict[str, Any]) -> dict[str, float] | None:

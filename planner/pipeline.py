@@ -755,34 +755,45 @@ logger = logging.getLogger("darkstar.planner")
 
 
 def _fetch_price_floor_inputs_sync(
-    db_path: str, timezone_name: str
-) -> tuple[dict[int, float], float | None]:
+    db_path: str,
+    timezone_name: str,
+    known_spot: dict[datetime, float] | None = None,
+    now: datetime | None = None,
+) -> tuple[dict[int, float], float | None, dict[int, tuple[int, int]]]:
     """
     Fetch price floor inputs for the S-Index from the learning DB (Module 3).
 
+    Args:
+        known_spot: Published Nordpool spot (SEK/kWh) keyed by tz-aware slot
+            start. Where present it wins over the forecast for that slot.
+        now: Reference time (defaults to the current time in ``timezone_name``).
+
     Returns:
-        Tuple of (upcoming_daily_avg_spots, trailing_avg_spot):
-        - upcoming_daily_avg_spots: days-ahead offset (int) -> daily avg spot_p50
-          for D+1..D+7. Computed from the latest issue per slot_start, grouped by
-          calendar date in the configured timezone.
+        Tuple of (upcoming_daily_avg_spots, trailing_avg_spot, source_counts):
+        - upcoming_daily_avg_spots: days-ahead offset (int) -> daily avg spot
+          for D+0..D+7. Each slot uses the known spot if published, else the
+          latest-issue forecast spot_p50; grouped by calendar date in the
+          configured timezone.
         - trailing_avg_spot: 14-day trailing average of export_price_sek_kwh from
           slot_observations (>=2 distinct calendar days required); None if absent.
+        - source_counts: days-ahead offset -> (known_slots, forecast_slots).
     """
     import sqlite3
     from datetime import datetime, time, timedelta
 
     tz = pytz.timezone(timezone_name)
-    now = datetime.now(tz)
+    now = now.astimezone(tz) if now is not None else datetime.now(tz)
     today = now.date()
 
     upcoming: dict[int, float] = {}
     trailing: float | None = None
+    source_counts: dict[int, tuple[int, int]] = {}
 
     try:
         conn = sqlite3.connect(db_path, timeout=30)
     except Exception as exc:
         logger.warning("Price floor inputs: cannot open DB: %s", exc)
-        return upcoming, trailing
+        return upcoming, trailing, source_counts
 
     try:
         conn.row_factory = sqlite3.Row
@@ -814,24 +825,36 @@ def _fetch_price_floor_inputs_sync(
                     "spot_p50": float(r["spot_p50"]),
                 }
 
-        # Group by calendar date (local tz), then average per day. Offset 0
-        # (today) only counts remaining slots (slot_start >= now) — past
-        # cheap morning slots must not inflate today's attractiveness.
-        per_day: dict[int, list[float]] = {}
+        # Merge per slot: published spot wins, forecast fills the rest.
+        # Keys are tz-aware datetimes, which compare by instant, so forecast
+        # ISO strings and Nordpool datetimes line up across DST changes.
+        merged: dict[datetime, tuple[float, bool]] = {}
         for row in best_per_slot.values():
             try:
                 slot_dt = datetime.fromisoformat(row["slot_start"]).astimezone(tz)
             except (TypeError, ValueError):
                 continue
+            merged[slot_dt] = (row["spot_p50"], False)
+        for slot_dt, spot in (known_spot or {}).items():
+            merged[slot_dt.astimezone(tz)] = (float(spot), True)
+
+        # Group by calendar date (local tz), then average per day. Offset 0
+        # (today) only counts remaining slots (slot_start >= now) — past
+        # cheap morning slots must not inflate today's attractiveness.
+        per_day: dict[int, list[float]] = {}
+        counts: dict[int, list[int]] = {}
+        for slot_dt, (spot, is_known) in merged.items():
             offset = (slot_dt.date() - today).days
             if offset == 0 and slot_dt < now:
                 continue
             if 0 <= offset <= 7:
-                per_day.setdefault(offset, []).append(row["spot_p50"])
+                per_day.setdefault(offset, []).append(spot)
+                counts.setdefault(offset, [0, 0])[0 if is_known else 1] += 1
 
         for offset, spots in per_day.items():
             if spots:
                 upcoming[offset] = sum(spots) / len(spots)
+        source_counts = {offset: (c[0], c[1]) for offset, c in counts.items()}
 
         # --- Trailing 14-day avg export price_sek_kwh (>=2 distinct days) ---
         trailing_start = (today - timedelta(days=14)).isoformat()
@@ -857,24 +880,31 @@ def _fetch_price_floor_inputs_sync(
             trailing = sum(values) / len(values)
     except Exception as exc:
         logger.warning("Price floor inputs: DB query failed: %s", exc)
-        return upcoming, trailing
+        return upcoming, trailing, source_counts
     finally:
         conn.close()
 
-    return upcoming, trailing
+    return upcoming, trailing, source_counts
 
 
 async def fetch_price_floor_inputs(
     db_path: str, timezone_name: str
-) -> tuple[dict[int, float], float | None]:
+) -> tuple[dict[int, float], float | None, dict[int, tuple[int, int]]]:
     """
     Async wrapper around the synchronous price-floor-inputs DB query.
 
-    The synchronous query is offloaded to a thread (matching the established
-    `asyncio.to_thread` pattern used by the price-forecast API router) so the
-    event loop is never blocked on a long-running SQLite read.
+    Published Nordpool prices are resolved first (empty map on failure, which
+    degrades to forecast-only). The synchronous query is then offloaded to a
+    thread (matching the established `asyncio.to_thread` pattern used by the
+    price-forecast API router) so the event loop is never blocked on a
+    long-running SQLite read.
     """
-    return await asyncio.to_thread(_fetch_price_floor_inputs_sync, db_path, timezone_name)
+    from backend.core.prices import get_known_spot_by_slot
+
+    known_spot = await get_known_spot_by_slot()
+    return await asyncio.to_thread(
+        _fetch_price_floor_inputs_sync, db_path, timezone_name, known_spot
+    )
 
 
 def _calculate_excess_pv_flags(
@@ -1176,7 +1206,7 @@ class PlannerPipeline:
                 _db_path = active_config.get("learning", {}).get(
                     "sqlite_path", "data/planner_learning.db"
                 )
-                upcoming_spots, trailing_spot = await fetch_price_floor_inputs(
+                upcoming_spots, trailing_spot, _ = await fetch_price_floor_inputs(
                     _db_path, timezone_name
                 )
 
@@ -1445,11 +1475,16 @@ class PlannerPipeline:
 
             # Fetch 7-day forecast once if any plugged charger has a far deadline.
             if needs_price_forecast:
+                from datetime import timedelta
+
                 try:
-                    upcoming_spots, _ = await fetch_price_floor_inputs(sqlite_path, timezone_name)
+                    upcoming_spots, _, spot_sources = await fetch_price_floor_inputs(
+                        sqlite_path, timezone_name
+                    )
                 except Exception as exc:
                     logger.warning("Could not fetch price-floor inputs for EV spreading: %s", exc)
                     upcoming_spots = {}
+                    spot_sources = {}
 
                 for state in ev_charger_states_with_goal:
                     deadline = cast("datetime | None", state.get("deadline"))
@@ -1474,10 +1509,15 @@ class PlannerPipeline:
                     state["quota_schedule"] = quota_schedule
                     if today_quota is not None:
                         logger.info(
-                            "EV %s: multi-day quota today=%.2f kWh, schedule=%s",
+                            "EV %s: multi-day quota today=%.2f kWh, schedule=%s, "
+                            "prices known/forecast slots=%s",
                             state["id"],
                             today_quota,
                             {str(k): round(v, 2) for k, v in (quota_schedule or {}).items()},
+                            {
+                                str(now_dt.date() + timedelta(days=offset)): f"{k}/{f}"
+                                for offset, (k, f) in sorted(spot_sources.items())
+                            },
                         )
 
             # Rebuild kepler_config with per-device EV charger inputs

@@ -44,7 +44,9 @@ def _localize(tz: pytz.BaseTzInfo, naive_dt: datetime) -> datetime:
         return tz.localize(naive_dt + timedelta(hours=1))
 
 
-def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
+def get_daily_outlook(
+    db_path: str | None = None, known_spot: dict[datetime, float] | None = None
+) -> list[dict[str, Any]]:
     """
     Query price_forecasts DB table and aggregate per-slot p10/p50/p90 into daily summaries.
 
@@ -58,8 +60,12 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
     - min_hour_p50: minimum p50 value for the day
     - max_hour_p50: maximum p50 value for the day
 
+    Slots with a published Nordpool price (``known_spot``) use that price for
+    p10/p50/p90 in place of the forecast; other slots use the latest run.
+
     Args:
         db_path: Path to the SQLite database. If None, uses default learning DB.
+        known_spot: Published spot (SEK/kWh) keyed by tz-aware slot start.
 
     Returns:
         List of daily summary dicts, sorted by date (D+1 to D+7).
@@ -87,20 +93,20 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
         rows = cursor.fetchall()
         conn.close()
 
-        if not rows:
+        if not rows and not known_spot:
             return []
 
-        # Group by date and aggregate
-        daily_data: dict[str, dict[str, Any]] = {}
+        tz = _get_configured_timezone()
+        today = datetime.now(tz).date()
+        today_str = today.strftime("%Y-%m-%d")
 
+        # Resolve each slot: tz-aware local start -> (p10, p50, p90). Forecast
+        # first, then published prices override within D+1..D+7.
+        slots: dict[datetime, tuple[Any, Any, Any]] = {}
         for row in rows:
             slot_start = row["slot_start"]
-            days_ahead = row["days_ahead"]
-            spot_p10 = row["spot_p10"]
-            spot_p50 = row["spot_p50"]
-            spot_p90 = row["spot_p90"]
 
-            # Parse date from slot_start (ISO format)
+            # Parse slot_start (ISO format); naive values are local wall-clock
             try:
                 slot_dt = datetime.fromisoformat(slot_start.replace("Z", "+00:00"))
             except (ValueError, AttributeError):
@@ -109,7 +115,19 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
                     slot_dt = datetime.strptime(slot_start[:10], "%Y-%m-%d")
                 except (ValueError, AttributeError):
                     continue
+            slot_dt = _localize(tz, slot_dt) if slot_dt.tzinfo is None else slot_dt.astimezone(tz)
 
+            slots[slot_dt] = (row["spot_p10"], row["spot_p50"], row["spot_p90"])
+
+        for slot_dt, spot in (known_spot or {}).items():
+            local_dt = slot_dt.astimezone(tz)
+            if 1 <= (local_dt.date() - today).days <= 7:
+                slots[local_dt] = (spot, spot, spot)
+
+        # Group by date and aggregate
+        daily_data: dict[str, dict[str, Any]] = {}
+
+        for slot_dt, (spot_p10, spot_p50, spot_p90) in sorted(slots.items()):
             date_str = slot_dt.strftime("%Y-%m-%d")
             day_label = slot_dt.strftime("%a")
 
@@ -117,7 +135,6 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
                 daily_data[date_str] = {
                     "date": date_str,
                     "day_label": day_label,
-                    "days_ahead": days_ahead,
                     "p50_values": [],
                     "p10_values": [],
                     "p90_values": [],
@@ -131,18 +148,6 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
             if spot_p90 is not None:
                 daily_data[date_str]["p90_values"].append(spot_p90)
 
-        # Calculate today's date in configured timezone
-        tz_name = "Europe/Stockholm"
-        try:
-            from backend.core.secrets import load_yaml
-
-            config = load_yaml("config.yaml")
-            tz_name = config.get("timezone", "Europe/Stockholm")
-        except Exception:
-            pass
-        tz = pytz.timezone(tz_name)
-        today_str = datetime.now(tz).strftime("%Y-%m-%d")
-
         # Calculate aggregates for each day
         result: list[dict[str, Any]] = []
         for date_str in sorted(daily_data.keys()):
@@ -153,9 +158,7 @@ def get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
                 continue
 
             # Recalculate days_ahead from actual date difference
-            days_ahead = (
-                datetime.strptime(date_str, "%Y-%m-%d").date() - datetime.now(tz).date()
-            ).days
+            days_ahead = (datetime.strptime(date_str, "%Y-%m-%d").date() - today).days
 
             p50_values = day_data["p50_values"]
             p10_values = day_data["p10_values"]
@@ -339,7 +342,10 @@ def get_trailing_avg(db_path: str | None = None) -> float | None:
 
 
 async def async_get_daily_outlook(db_path: str | None = None) -> list[dict[str, Any]]:
-    return await asyncio.to_thread(get_daily_outlook, db_path)
+    from backend.core.prices import get_known_spot_by_slot
+
+    known_spot = await get_known_spot_by_slot()
+    return await asyncio.to_thread(get_daily_outlook, db_path, known_spot)
 
 
 async def async_get_price_window_averages(db_path: str | None = None) -> dict[str, float | None]:

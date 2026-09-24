@@ -198,10 +198,13 @@ async def _get_strategy_advice() -> dict[str, Any]:
             try:
                 # Import price outlook helpers
                 from backend.core.forecasts import get_forecast_db_path
-                from backend.core.price_outlook import get_daily_outlook, get_price_window_averages
+                from backend.core.price_outlook import (
+                    async_get_daily_outlook,
+                    get_price_window_averages,
+                )
 
                 db_path = get_forecast_db_path()
-                daily_outlook = get_daily_outlook(db_path)
+                daily_outlook = await async_get_daily_outlook(db_path)
 
                 if daily_outlook:
                     today_avg_spot = await _get_today_avg_spot_price(config)
