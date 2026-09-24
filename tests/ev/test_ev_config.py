@@ -164,6 +164,27 @@ def test_ha_entity_fields_parse() -> None:
     assert ev3.ha_target_soc_entity is None
 
 
+def test_soc_and_plug_sensor_fields_parse() -> None:
+    data = {
+        **MINIMAL_CONFIG,
+        "ev_chargers": [
+            {
+                "id": "ev1",
+                "enabled": True,
+                "soc_sensor": "sensor.car_soc",
+                "plug_sensor": "binary_sensor.car_plug",
+            },
+            {"id": "ev2", "enabled": True, "soc_sensor": "", "plug_sensor": "  "},
+        ],
+    }
+    cfg = _load(data)
+
+    assert cfg.ev_chargers[0].soc_sensor == "sensor.car_soc"
+    assert cfg.ev_chargers[0].plug_sensor == "binary_sensor.car_plug"
+    assert cfg.ev_chargers[1].soc_sensor is None
+    assert cfg.ev_chargers[1].plug_sensor is None
+
+
 def test_hardware_fields_unaffected_by_deprecated_fields() -> None:
     """battery_capacity_kwh etc. still parse normally alongside ignored goal fields."""
     data = {

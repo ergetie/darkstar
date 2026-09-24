@@ -32,7 +32,7 @@ from typing import Any, cast
 import pytz
 
 # import yaml
-from backend.core.ev_plug import is_unreachable_state
+from backend.core.ev_plug import is_ev_plugged_in, is_unreachable_state
 from backend.core.ha_timestamps import reading_timestamp
 
 # Import existing HA config loader
@@ -114,6 +114,49 @@ class EVChargerState:
     # ev-missed-goal-recovery: the charger's switch entity last read
     # unavailable/unknown (charger unreachable, not unplugged).
     unreachable: bool = False
+
+
+@dataclass
+class ManualCharge:
+    """A user-started "charge now to target SoC" on one charger (ev-manual-charge)."""
+
+    target_soc: int
+    current_a: int | None  # None = charger's max_current_a (always None for binary)
+    started_at: datetime
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "target_soc": self.target_soc,
+            "current_a": self.current_a,
+            "started_at": self.started_at.isoformat(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> "ManualCharge | None":
+        """Parse a persisted entry; None when malformed."""
+        if not isinstance(data, dict):
+            return None
+        raw = cast("dict[str, Any]", data)
+        try:
+            started_at = datetime.fromisoformat(str(raw["started_at"]))
+            if started_at.tzinfo is None:
+                return None
+            current_raw = raw.get("current_a")
+            return cls(
+                target_soc=int(raw["target_soc"]),
+                current_a=int(current_raw) if current_raw is not None else None,
+                started_at=started_at,
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+
+
+# Safety timeout for a manual EV charge whose end condition never fires.
+EV_MANUAL_CHARGE_TIMEOUT = timedelta(hours=24)
+# Key of the manual charge inside a charger's ev_multi_day_state.json entry.
+EV_MANUAL_CHARGE_STATE_KEY = "manual_charge"
+# Safety timeout for the battery Top Up (force_charge) quick action.
+FORCE_CHARGE_TIMEOUT = timedelta(hours=24)
 
 
 @dataclass
@@ -296,6 +339,10 @@ class ExecutorEngine:
         # Per-charger write failure backoff and per-(charger, action) failure dedup
         self._ev_write_backoff: dict[str, _EVWriteBackoff] = {}
         self._ev_failure_dedup: dict[tuple[str, str], _EVFailureDedup] = {}
+        # ev-manual-charge: active manual charges per charger id, persisted in
+        # data/ev_multi_day_state.json so a restart resumes them.
+        self._ev_manual_charge: dict[str, ManualCharge] = self._load_ev_manual_charges()
+        self._ev_manual_replan_pending: bool = False
 
         # excess-pv-priority-dispatch: per-charger surplus feedback + phase-mode
         # controllers, and this tick's surplus-computed ampere targets (consumed
@@ -641,28 +688,35 @@ class ExecutorEngine:
         if action_type not in valid_types:
             raise ValueError(f"Invalid action type: {action_type}. Must be one of {valid_types}")
 
-        if duration_minutes not in [15, 30, 60]:
-            raise ValueError(f"Invalid duration: {duration_minutes}. Must be 15, 30, or 60 minutes")
-
         tz = pytz.timezone(self.config.timezone)
         now = datetime.now(tz)
-        expires_at = now + timedelta(minutes=duration_minutes)
+
+        if action_type == "force_charge":
+            # Top Up runs until the battery reaches target_soc (ended in the
+            # tick); the expiry is only a safety timeout, so the duration list
+            # does not apply.
+            target_soc = self._validate_force_charge_target(params or {})
+            params = {**(params or {}), "target_soc": target_soc}
+            expires_at = now + FORCE_CHARGE_TIMEOUT
+            reason = f"User activated Top Up to {target_soc}%"
+        else:
+            if duration_minutes not in [15, 30, 60]:
+                raise ValueError(
+                    f"Invalid duration: {duration_minutes}. Must be 15, 30, or 60 minutes"
+                )
+            expires_at = now + timedelta(minutes=duration_minutes)
+            reason = f"User activated {action_type} for {duration_minutes} minutes"
 
         with self._lock:
             self._quick_action = {
                 "type": action_type,
                 "expires_at": expires_at.isoformat(),
-                "reason": f"User activated {action_type} for {duration_minutes} minutes",
+                "reason": reason,
                 "created_at": now.isoformat(),
                 "params": params or {},
             }
 
-        logger.info(
-            "Quick action set: %s for %d minutes (expires %s)",
-            action_type,
-            duration_minutes,
-            expires_at.isoformat(),
-        )
+        logger.info("Quick action set: %s (expires %s)", reason, expires_at.isoformat())
 
         return {
             "success": True,
@@ -670,6 +724,31 @@ class ExecutorEngine:
             "duration_minutes": duration_minutes,
             "expires_at": expires_at.isoformat(),
         }
+
+    def _validate_force_charge_target(self, params: dict[str, Any]) -> int:
+        """Validate a Top Up target against min SoC, 100% and the live battery SoC."""
+        try:
+            target_soc = int(params.get("target_soc", 100))
+        except (TypeError, ValueError) as e:
+            raise ValueError("Target SoC must be a whole number") from e
+
+        battery_raw: Any = self._full_config.get("battery")
+        battery_cfg: dict[str, Any] = (
+            cast("dict[str, Any]", battery_raw) if isinstance(battery_raw, dict) else {}
+        )
+        min_soc = float(battery_cfg.get("min_soc_percent", 10.0))
+        if not min_soc <= target_soc <= 100:
+            raise ValueError(f"Target SoC must be between {min_soc:.0f} and 100%")
+
+        state = self._last_system_state
+        if state is None:
+            raise ValueError("Battery SoC is unknown")
+        if state.current_soc_percent >= target_soc:
+            raise ValueError(
+                f"Target already reached (battery SoC {state.current_soc_percent:.0f}% "
+                f"≥ {target_soc}%)"
+            )
+        return target_soc
 
     def clear_quick_action(self) -> dict[str, Any]:
         """Clear any active quick action."""
@@ -1009,6 +1088,248 @@ class ExecutorEngine:
             except Exception as e:
                 logger.warning(f"Failed to emit water boost status: {e}")
 
+    # --- EV Manual Charge (ev-manual-charge) ---
+
+    def _load_ev_manual_charges(self) -> dict[str, ManualCharge]:
+        """Restore persisted manual charges for configured chargers."""
+        from backend.core.ev_state import read_ev_state
+
+        try:
+            state = read_ev_state()
+        except Exception as e:
+            logger.warning("Could not restore EV manual charges: %s", e)
+            return {}
+
+        configured_ids = {c.id for c in self.config.ev_chargers}
+        restored: dict[str, ManualCharge] = {}
+        for charger_id, entry in cast("dict[str, Any]", state).items():
+            raw = (
+                cast("dict[str, Any]", entry).get(EV_MANUAL_CHARGE_STATE_KEY)
+                if isinstance(entry, dict)
+                else None
+            )
+            if raw is None:
+                continue
+            manual = ManualCharge.from_dict(raw)
+            if manual is None:
+                logger.warning("Ignoring malformed persisted manual charge for %s", charger_id)
+                continue
+            if charger_id not in configured_ids:
+                logger.warning(
+                    "Ignoring persisted manual charge for unknown/disabled charger %s", charger_id
+                )
+                continue
+            restored[charger_id] = manual
+            logger.info(
+                "Resumed manual charge on %s: target %d%% (started %s)",
+                charger_id,
+                manual.target_soc,
+                manual.started_at.isoformat(),
+            )
+        return restored
+
+    @staticmethod
+    def _persist_ev_manual_charge(charger_id: str, manual: ManualCharge | None) -> None:
+        """Write (or remove, when None) a charger's manual charge; goal fields untouched."""
+        from backend.core.ev_state import update_ev_state
+
+        def _mutate(state: dict[str, dict[str, Any]]) -> None:
+            entry = state.get(charger_id)
+            if manual is None:
+                if not isinstance(entry, dict):
+                    return
+                entry.pop(EV_MANUAL_CHARGE_STATE_KEY, None)
+                if not entry:
+                    state.pop(charger_id, None)
+                return
+            if not isinstance(entry, dict):
+                entry = {}
+            entry[EV_MANUAL_CHARGE_STATE_KEY] = manual.to_dict()
+            state[charger_id] = entry
+
+        try:
+            update_ev_state(_mutate)
+        except Exception as e:
+            logger.error("Failed to persist manual charge for %s: %s", charger_id, e)
+
+    def _ev_charger_cfg(self, charger_id: str) -> EVChargerDeviceConfig | None:
+        return next((c for c in self.config.ev_chargers if c.id == charger_id), None)
+
+    @staticmethod
+    def _ev_charger_controllable(charger_cfg: EVChargerDeviceConfig) -> bool:
+        """Whether Darkstar can actuate this charger (see _control_ev_charger)."""
+        if charger_cfg.type == "current":
+            return bool(charger_cfg.current_entity and charger_cfg.switch_entity)
+        return bool(charger_cfg.switch_entity)
+
+    def set_ev_manual_charge(
+        self,
+        charger_id: str,
+        target_soc: int,
+        current_a: int | None = None,
+        *,
+        current_soc_percent: float | None,
+        plugged_in: bool,
+    ) -> dict[str, Any]:
+        """Start a manual charge to ``target_soc`` on one charger.
+
+        ``current_soc_percent``/``plugged_in`` are the car's live readings,
+        supplied by the caller. Raises ValueError with a user-facing message
+        when the request is not allowed.
+        """
+        charger_cfg = self._ev_charger_cfg(charger_id)
+        if charger_cfg is None:
+            raise ValueError(f"Unknown or disabled EV charger: {charger_id}")
+        if not self._ev_charger_controllable(charger_cfg):
+            raise ValueError(f"EV charger {charger_id} is not controlled by Darkstar")
+        if not 1 <= target_soc <= 100:
+            raise ValueError("Target SoC must be between 1 and 100%")
+        if current_a is not None:
+            if charger_cfg.type != "current":
+                raise ValueError("A charging current can only be set on current-type chargers")
+            max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
+            if not charger_cfg.min_current_a <= current_a <= max_current_a:
+                raise ValueError(
+                    f"Charging current must be between {charger_cfg.min_current_a} "
+                    f"and {max_current_a} A"
+                )
+        if not plugged_in:
+            raise ValueError("The car is not connected")
+        if current_soc_percent is None:
+            raise ValueError("The car's SoC is unknown")
+        if current_soc_percent >= target_soc:
+            raise ValueError(
+                f"Target already reached (car SoC {current_soc_percent:.0f}% ≥ {target_soc}%)"
+            )
+
+        tz = pytz.timezone(self.config.timezone)
+        manual = ManualCharge(
+            target_soc=target_soc, current_a=current_a, started_at=datetime.now(tz)
+        )
+        with self._lock:
+            self._ev_manual_charge[charger_id] = manual
+        self._persist_ev_manual_charge(charger_id, manual)
+
+        logger.info(
+            "Manual charge started on %s: target %d%%%s (car SoC %.0f%%)",
+            charger_id,
+            target_soc,
+            f" at {current_a} A" if current_a is not None else "",
+            current_soc_percent,
+        )
+        self._emit_ev_manual_charge_status()
+        return {"success": True, "charger_id": charger_id, **manual.to_dict()}
+
+    def clear_ev_manual_charge(
+        self, charger_id: str, reason: str = "stopped by user"
+    ) -> dict[str, Any]:
+        """End a charger's manual charge; the plan takes over on the next tick."""
+        with self._lock:
+            manual = self._ev_manual_charge.pop(charger_id, None)
+        if manual is None:
+            return {"success": True, "was_active": False}
+
+        self._persist_ev_manual_charge(charger_id, None)
+        # Replan from the next tick (rate-limited there), so control returns
+        # to a plan that knows the car's new SoC.
+        self._ev_manual_replan_pending = True
+        logger.info("Manual charge on %s ended: %s", charger_id, reason)
+        self._emit_ev_manual_charge_status()
+        return {"success": True, "was_active": True}
+
+    def get_ev_manual_charge_status(self) -> dict[str, dict[str, Any]]:
+        """Active manual charges per charger id."""
+        with self._lock:
+            return {
+                charger_id: {
+                    **manual.to_dict(),
+                    "expires_at": (manual.started_at + EV_MANUAL_CHARGE_TIMEOUT).isoformat(),
+                }
+                for charger_id, manual in self._ev_manual_charge.items()
+            }
+
+    def _ev_manual_charge_active(self, charger_id: str) -> bool:
+        return charger_id in self._ev_manual_charge
+
+    def _ev_manual_target_a(self, charger_cfg: EVChargerDeviceConfig) -> int | None:
+        """Requested amps for a current-type charger under manual charge, else None."""
+        manual = self._ev_manual_charge.get(charger_cfg.id)
+        if manual is None:
+            return None
+        if manual.current_a is not None:
+            return manual.current_a
+        return charger_cfg.max_current_a or charger_cfg.min_current_a
+
+    def _emit_ev_manual_charge_status(self) -> None:
+        from backend.core.websockets import ws_manager
+
+        try:
+            ws_manager.emit_sync(
+                "ev_manual_charge_updated", {"chargers": self.get_ev_manual_charge_status()}
+            )
+        except Exception as e:
+            logger.warning("Failed to emit EV manual charge status: %s", e)
+
+    async def _check_ev_manual_charge_end(self, now: datetime) -> None:
+        """End manual charges whose car reached target, was unplugged, or timed out.
+
+        An unavailable SoC or plug reading keeps the charge running (until the
+        reading returns or the safety timeout elapses).
+        """
+        with self._lock:
+            active = dict(self._ev_manual_charge)
+
+        for charger_id, manual in active.items():
+            charger_cfg = self._ev_charger_cfg(charger_id)
+            if charger_cfg is None:
+                self.clear_ev_manual_charge(charger_id, "charger no longer configured")
+                continue
+            if now - manual.started_at >= EV_MANUAL_CHARGE_TIMEOUT:
+                self.clear_ev_manual_charge(charger_id, "24 h safety timeout")
+                continue
+            if not self.ha_client:
+                continue
+
+            if charger_cfg.soc_sensor:
+                try:
+                    raw_soc = await self.ha_client.get_state_value(charger_cfg.soc_sensor)
+                    soc = float(raw_soc) if raw_soc is not None else None
+                except (TypeError, ValueError):
+                    soc = None  # unavailable/unknown/non-numeric
+                except Exception as e:
+                    logger.warning("Manual charge %s: SoC read failed: %s", charger_id, e)
+                    soc = None
+                if soc is not None and soc >= manual.target_soc:
+                    self.clear_ev_manual_charge(
+                        charger_id, f"target reached ({soc:.0f}% ≥ {manual.target_soc}%)"
+                    )
+                    continue
+
+            if charger_cfg.plug_sensor:
+                try:
+                    raw_plug = await self.ha_client.get_state_value(charger_cfg.plug_sensor)
+                except Exception as e:
+                    logger.warning("Manual charge %s: plug read failed: %s", charger_id, e)
+                    continue
+                if (
+                    raw_plug is not None
+                    and not is_unreachable_state(raw_plug)
+                    and not is_ev_plugged_in(raw_plug, charger_cfg.plugged_in_states)
+                ):
+                    self.clear_ev_manual_charge(charger_id, "car unplugged")
+
+    def _maybe_request_ev_manual_replan(self, now: datetime) -> None:
+        """Replan once after a manual charge ended, subject to the executor's
+        replan rate limit (a skipped request is covered by the next scheduled run)."""
+        if not self._ev_manual_replan_pending:
+            return
+        self._ev_manual_replan_pending = False
+        if not self._executor_replan_allowed(now):
+            logger.debug("Manual charge ended — replan skipped (rate limit)")
+            return
+        logger.info("Manual charge ended — requesting replan")
+        self._request_balancer_replan()
+
     def start(self) -> None:
         """Start the executor loop in a background thread."""
         if self._thread and self._thread.is_alive():
@@ -1300,8 +1621,25 @@ class ExecutorEngine:
             # D1: Honor manual override — skip all writes but keep telemetry
             skip_writes = state.manual_override_active
 
+            # ev-manual-charge: end manual charges whose condition fired, before
+            # any EV decision this tick, then replan if one ended.
+            if self._ev_manual_charge:
+                await self._check_ev_manual_charge_end(now)
+            self._maybe_request_ev_manual_replan(now)
+
             # 4. Check for active Quick Action OR Water Boost
             quick_action = self._get_quick_action_status()
+            if quick_action and quick_action["type"] == "force_charge":
+                target_soc = float(quick_action.get("params", {}).get("target_soc", 100))
+                if state.current_soc_percent >= target_soc:
+                    logger.info(
+                        "Top Up target reached (SoC %.1f%% >= %.0f%%) - following schedule",
+                        state.current_soc_percent,
+                        target_soc,
+                    )
+                    with self._lock:
+                        self._quick_action = None
+                    quick_action = None
             water_boost = self.get_water_boost_status()
 
             if quick_action:
@@ -1429,8 +1767,12 @@ class ExecutorEngine:
             # REV K25 Phase 5 + REV F76: EV Charging Logic with Actual Power Monitoring
             ev_charging_kw = slot.ev_charging_kw if slot else 0.0
             slot_keep_on_active = bool(slot and any(slot.ev_keep_on.values()))
-            scheduled_ev_charging = (ev_charging_kw > 0.1 if ev_charging_kw else False) or (
-                slot_keep_on_active
+            # An active manual charge counts as scheduled so source isolation
+            # blocks battery discharge from its first tick.
+            scheduled_ev_charging = (
+                (ev_charging_kw > 0.1 if ev_charging_kw else False)
+                or slot_keep_on_active
+                or bool(self._ev_manual_charge)
             )
 
             # REV F76 Phase 2: Get actual EV power from disaggregator
@@ -2580,18 +2922,29 @@ class ExecutorEngine:
             phase_ctrl = self._ev_phase_controllers.setdefault(charger_id, PhaseModeController())
             await self._update_ev_measured_draw(charger_cfg, dev_state, phase_ctrl)
 
+            # ev-manual-charge: excluded from surplus targeting (which could
+            # only lower the requested current) while a manual charge runs.
+            manual_target_a = self._ev_manual_target_a(charger_cfg)
             surplus_entry = ev_entries_by_charger.get(charger_id)
             surplus_eligible = bool(
-                surplus_entry and slot and slot.ev_surplus_kw.get(charger_id, 0.0) > 0
+                manual_target_a is None
+                and surplus_entry
+                and slot
+                and slot.ev_surplus_kw.get(charger_id, 0.0) > 0
             )
 
             charger_plan_kw = slot.ev_charger_plans.get(charger_id, 0.0) if slot else 0.0
             keep_on_only = (
-                not surplus_eligible
+                manual_target_a is None
+                and not surplus_eligible
                 and charger_plan_kw <= 0.1
                 and self._charger_should_be_on(slot, charger_id)
             )
-            if surplus_eligible:
+            if manual_target_a is not None:
+                target_power_kw = (
+                    manual_target_a * 230.0 * len(charger_cfg.phases or [1, 2, 3]) / 1000.0
+                )
+            elif surplus_eligible:
                 target_power_kw = surplus_kw
             elif keep_on_only:
                 # Keep-on-only: no planned energy, target the smallest
@@ -2704,7 +3057,12 @@ class ExecutorEngine:
             )
             max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
 
-            if charger_id in self._ev_surplus_targets:
+            manual_target_a = self._ev_manual_target_a(charger_cfg)
+            if manual_target_a is not None:
+                # ev-manual-charge: the user's requested current (default
+                # max_current_a); the balancer below still clamps it.
+                planner_target_a = manual_target_a
+            elif charger_id in self._ev_surplus_targets:
                 # excess-pv-priority-dispatch 3.3: surplus-eligible this slot —
                 # use the feedback controller's proposed amps (already
                 # deadband/ramp/pause-aware) instead of the plan-derived target,
@@ -3081,14 +3439,16 @@ class ExecutorEngine:
             return f"{EV_KEEP_ON_REASON_MARKER}: {', '.join(keep_on_charger_ids)}"
         return None
 
-    @staticmethod
-    def _charger_should_be_on(slot: "SlotPlan | None", charger_id: str) -> bool:
-        """True when a charger has planned power OR is held on via keep_on_after_target.
+    def _charger_should_be_on(self, slot: "SlotPlan | None", charger_id: str) -> bool:
+        """True when a charger has planned power, is held on via
+        keep_on_after_target, or has an active manual charge.
 
         Single source of truth for "should this charger be on?" across the
         switch-close decision, load balancer, and surplus/phase-mode target —
         keep-on plans no energy but still needs the switch/relay closed.
         """
+        if self._ev_manual_charge_active(charger_id):
+            return True
         if slot is None:
             return False
         plan_kw = slot.ev_charger_plans.get(charger_id, 0.0)
@@ -3503,8 +3863,11 @@ class ExecutorEngine:
                 else len(charger_cfg.phases or [1, 2, 3])
             ) or 1
             target_a = None
+            manual_target_a = self._ev_manual_target_a(charger_cfg)
             if should_charge:
-                if charger_plan_kw > 0.1:
+                if manual_target_a is not None:
+                    target_a = manual_target_a
+                elif charger_plan_kw > 0.1:
                     max_current_a = charger_cfg.max_current_a or charger_cfg.min_current_a
                     target_a = planned_kw_to_amps(
                         charger_plan_kw,

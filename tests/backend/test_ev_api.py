@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -467,3 +467,169 @@ async def test_unavailable_switch_reports_unreachable(monkeypatch):
 
     assert result[0]["unreachable"] is True
     assert result[0]["plugged_in"] is True
+
+
+# --- ev-manual-charge API ---
+
+
+class _FakeExecutor:
+    def __init__(self, error: str | None = None):
+        self.error = error
+        self.set_calls: list[tuple] = []
+        self.cleared: list[str] = []
+
+    def set_ev_manual_charge(self, charger_id, target_soc, current_a, **live):
+        self.set_calls.append((charger_id, target_soc, current_a, live))
+        if self.error:
+            raise ValueError(self.error)
+        return {"success": True, "charger_id": charger_id, "target_soc": target_soc}
+
+    def clear_ev_manual_charge(self, charger_id):
+        self.cleared.append(charger_id)
+        return {"success": True, "was_active": True}
+
+
+def _patch_executor(executor):
+    return patch("backend.api.routers.executor.get_executor_instance", return_value=executor)
+
+
+@pytest.mark.asyncio
+async def test_manual_charge_start_passes_live_readings(monkeypatch):
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg()]))
+    executor = _FakeExecutor()
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=49.0, plugged=True)
+    with p_power, p_soc, p_plug, _patch_executor(executor):
+        result = await ev_router.start_ev_manual_charge(
+            "ev1", ev_router.EVManualChargeBody(target_soc=80)
+        )
+
+    assert result["success"] is True
+    assert executor.set_calls == [
+        ("ev1", 80, None, {"current_soc_percent": 49.0, "plugged_in": True})
+    ]
+
+
+@pytest.mark.asyncio
+async def test_manual_charge_start_reports_unplugged_to_executor(monkeypatch):
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg()]))
+    executor = _FakeExecutor(error="The car is not connected")
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=49.0, plugged=False)
+    with p_power, p_soc, p_plug, _patch_executor(executor):
+        with pytest.raises(ev_router.HTTPException) as exc_info:
+            await ev_router.start_ev_manual_charge(
+                "ev1", ev_router.EVManualChargeBody(target_soc=80)
+            )
+
+    assert exc_info.value.status_code == 400
+    assert "not connected" in exc_info.value.detail
+    assert executor.set_calls[0][3]["plugged_in"] is False
+
+
+@pytest.mark.asyncio
+async def test_manual_charge_unknown_or_disabled_charger_404(monkeypatch):
+    monkeypatch.setattr(
+        ev_router, "load_yaml", lambda _p: _config([_charger_cfg(enabled=False)])
+    )
+    with _patch_executor(_FakeExecutor()):
+        for charger_id in ("ev1", "nope"):
+            with pytest.raises(ev_router.HTTPException) as exc_info:
+                await ev_router.start_ev_manual_charge(
+                    charger_id, ev_router.EVManualChargeBody(target_soc=80)
+                )
+            assert exc_info.value.status_code == 404
+
+
+@pytest.mark.parametrize("target", [0, 101])
+def test_manual_charge_body_rejects_target_out_of_range(target):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        ev_router.EVManualChargeBody(target_soc=target)
+
+
+@pytest.mark.asyncio
+async def test_manual_charge_stop(monkeypatch):
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg()]))
+    executor = _FakeExecutor()
+    with _patch_executor(executor):
+        result = await ev_router.stop_ev_manual_charge("ev1")
+    assert result["was_active"] is True
+    assert executor.cleared == ["ev1"]
+
+
+@pytest.mark.asyncio
+async def test_chargers_expose_manual_charge_without_treating_it_as_goal(monkeypatch):
+    started = datetime.now(UTC).isoformat()
+    state = {"ev1": {"manual_charge": {"target_soc": 80, "current_a": None, "started_at": started}}}
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: state)
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg()]))
+
+    p_power, p_soc, p_plug = _patch_ha(power_kw=7.2, soc=49.0, plugged=True)
+    with p_power, p_soc, p_plug:
+        result = await ev_router.get_ev_chargers()
+
+    entry = result[0]
+    assert entry["manual_charge"] == {"target_soc": 80, "current_a": None, "started_at": started}
+    assert entry["target_soc_percent"] is None
+    assert entry["status"] == "idle"
+
+
+@pytest.mark.asyncio
+async def test_chargers_manual_charge_null_when_inactive(monkeypatch):
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg()]))
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=49.0, plugged=True)
+    with p_power, p_soc, p_plug:
+        result = await ev_router.get_ev_chargers()
+    assert result[0]["manual_charge"] is None
+
+
+@pytest.mark.asyncio
+async def test_clearing_goal_keeps_manual_charge(monkeypatch, tmp_path):
+    from backend.core import ev_state
+
+    ev_state.write_ev_state(
+        {
+            "ev1": {
+                "target_soc_percent": 80,
+                "manual_charge": {"target_soc": 60, "current_a": None, "started_at": "x"},
+            }
+        }
+    )
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg()]))
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=49.0, plugged=True)
+    with p_power, p_soc, p_plug:
+        await ev_router.set_ev_charger_schedule(
+            "ev1", ev_router.EVChargerScheduleBody(target_soc_percent=None), MagicMock()
+        )
+
+    assert ev_state.read_ev_state() == {
+        "ev1": {"manual_charge": {"target_soc": 60, "current_a": None, "started_at": "x"}}
+    }
+
+
+@pytest.mark.asyncio
+async def test_chargers_report_type_with_executor_default_and_current_limits(monkeypatch):
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    cfg = _config(
+        [
+            _charger_cfg(id="bin", switch_entity="switch.bin"),
+            _charger_cfg(
+                id="cur",
+                type="current",
+                current_entity="number.cur",
+                min_current_a=6,
+                max_current_a=16,
+            ),
+        ]
+    )
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: cfg)
+    p_power, p_soc, p_plug = _patch_ha(power_kw=0.0, soc=49.0, plugged=True)
+    with p_power, p_soc, p_plug:
+        result = {c["id"]: c for c in await ev_router.get_ev_chargers()}
+
+    assert result["bin"]["type"] == "binary"
+    assert result["bin"]["externally_controlled"] is False
+    assert result["bin"]["min_current_a"] is None
+    assert result["cur"]["type"] == "current"
+    assert (result["cur"]["min_current_a"], result["cur"]["max_current_a"]) == (6, 16)

@@ -588,6 +588,10 @@ function EVTabContent({ config }: { config: ConfigResponse | null }) {
         fetchChargers()
     })
 
+    useSocket('ev_manual_charge_updated', () => {
+        fetchChargers()
+    })
+
     useSocket('schedule_updated', () => {
         fetchChargers()
     })

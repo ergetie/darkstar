@@ -85,6 +85,13 @@ For dynamic colors (when color is a prop):
 <input type="text" className="input" placeholder="..." />
 ```
 
+### SoC Stepper
+Shared target selector for Top Up and EV Charge (`components/ui/SocStepper.tsx`, classes `.soc-stepper*`):
+```tsx
+<SocStepper value={target} min={minSoc} max={100} onChange={setTarget} label="Top Up target" />
+```
+− / + move 15 percentage points (clamped to min–max); tapping the value opens a number input (Enter/blur commits, Esc cancels, invalid input keeps the old value). Pure helpers `clampSoc` / `parseSocInput` live in `components/ui/socStepper.ts`.
+
 ### Loading States
 ```tsx
 <div className="spinner" />

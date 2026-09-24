@@ -188,8 +188,12 @@ async def set_ev_charger_schedule(
     def _mutate(state: dict[str, dict[str, Any]]) -> None:
         nonlocal new_charger_state
         if body.target_soc_percent is None:
-            # Clear the goal
-            state.pop(id, None)
+            # Clear the goal, keeping an active manual charge (ev-manual-charge)
+            manual_charge = state.get(id, {}).get("manual_charge")
+            if manual_charge is not None:
+                state[id] = {"manual_charge": manual_charge}
+            else:
+                state.pop(id, None)
             new_charger_state = {}
             return
         charger_state = state.get(id, {})
@@ -396,12 +400,30 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             )
         unreachable = plug_unreachable or is_unreachable_state(raw_switch)
 
-        persisted = state_by_id.get(charger_id, {})
+        entry = state_by_id.get(charger_id, {})
+        # The executor's active manual charge shares the entry; it is not a goal.
+        manual_charge = _manual_charge_view(entry.get("manual_charge"))
+        persisted = {k: v for k, v in entry.items() if k != "manual_charge"}
 
         max_power_kw = float(ev.get("max_power_kw") or 7.4)
 
+        # Same default as the executor (EVChargerDeviceConfig.type).
+        charger_type = str(ev.get("type") or "binary").lower()
+        # Manual-charge current range (current-type only); max falls back to
+        # min exactly like the executor does.
+        current_limits: dict[str, int | None] = {"min_current_a": None, "max_current_a": None}
+        if charger_type == "current":
+            min_current_a = int(ev.get("min_current_a", 6))
+            max_current_raw = ev.get("max_current_a")
+            current_limits = {
+                "min_current_a": min_current_a,
+                "max_current_a": int(max_current_raw)
+                if max_current_raw is not None
+                else min_current_a,
+            }
+
         externally_controlled = False
-        if ev.get("type", "current") == "binary":
+        if charger_type == "binary":
             externally_controlled = not bool(ev.get("switch_entity"))
         else:
             externally_controlled = not bool(ev.get("current_entity"))
@@ -427,7 +449,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "keep_on_after_target": bool(ev.get("keep_on_after_target", False)),
                 "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
                 "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
-                "type": ev.get("type", "current"),
+                "type": charger_type,
+                **current_limits,
                 "n_days": None,
                 "ready_by_date": None,
                 "status": "idle",
@@ -437,6 +460,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "externally_controlled": externally_controlled,
                 "last_updated": None,
                 "last_planned_at": None,
+                "manual_charge": manual_charge,
             }
 
         deadline = _parse_iso_deadline(persisted.get("deadline"))
@@ -493,7 +517,8 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "keep_on_after_target": bool(persisted.get("keep_on_after_target", False)),
             "ha_ready_by_entity": ev.get("ha_ready_by_entity"),
             "ha_target_soc_entity": ev.get("ha_target_soc_entity"),
-            "type": ev.get("type", "current"),
+            "type": charger_type,
+            **current_limits,
             "n_days": persisted.get("n_days"),
             "ready_by_date": persisted.get("ready_by_date"),
             "status": status,
@@ -506,7 +531,115 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "externally_controlled": externally_controlled,
             "last_updated": persisted.get("last_updated"),
             "last_planned_at": persisted.get("last_planned_at"),
+            "manual_charge": manual_charge,
         }
 
     results = await asyncio.gather(*(_build_charger(ev) for ev in ev_chargers_cfg))
     return [charger for charger in results if charger is not None]
+
+
+# --- Manual charge (ev-manual-charge) ---
+
+
+class EVManualChargeBody(BaseModel):
+    target_soc: int = Field(ge=1, le=100)
+    current_a: int | None = Field(default=None)
+
+
+def _manual_charge_view(raw: Any) -> dict[str, Any] | None:
+    """Public shape of a persisted manual charge; None when absent/malformed."""
+    if not isinstance(raw, dict):
+        return None
+    data = cast("dict[str, Any]", raw)
+    if data.get("target_soc") is None or data.get("started_at") is None:
+        return None
+    return {
+        "target_soc": data.get("target_soc"),
+        "current_a": data.get("current_a"),
+        "started_at": data.get("started_at"),
+    }
+
+
+def _enabled_charger_cfg(charger_id: str) -> dict[str, Any]:
+    config = load_yaml("config.yaml")
+    ev_chargers_cfg: list[dict[str, Any]] = config.get("ev_chargers", []) or []
+    charger_cfg = next(
+        (c for c in ev_chargers_cfg if c.get("id") == charger_id and c.get("enabled", True)),
+        None,
+    )
+    if charger_cfg is None:
+        raise HTTPException(status_code=404, detail=f"EV charger {charger_id} not found")
+    return charger_cfg
+
+
+def _executor_or_503() -> Any:
+    from backend.api.routers.executor import get_executor_instance
+
+    executor = get_executor_instance()
+    if executor is None:
+        raise HTTPException(status_code=503, detail="Executor unavailable")
+    return executor
+
+
+@router.post(
+    "/chargers/{id}/manual-charge",
+    summary="Start EV Manual Charge",
+    description=(
+        "Charge the car on this charger now until it reaches ``target_soc`` (1-100). "
+        "``current_a`` is optional and only valid on current-type chargers "
+        "(default ``max_current_a``). Rejected when the car is not connected, its "
+        "SoC is unknown, or the target is already reached. Ends by itself at the "
+        "target, on unplug, or after 24 h; the charging goal is not changed."
+    ),
+)
+async def start_ev_manual_charge(id: str, body: EVManualChargeBody) -> dict[str, Any]:
+    charger_cfg = _enabled_charger_cfg(id)
+    executor = _executor_or_503()
+
+    soc_sensor = str(charger_cfg.get("soc_sensor") or "")
+    plug_sensor = str(charger_cfg.get("plug_sensor") or "")
+
+    soc_percent: float | None = None
+    if soc_sensor:
+        try:
+            soc_percent = await get_ha_sensor_float(soc_sensor)
+        except Exception as exc:
+            logger.warning("Failed to read EV SoC sensor %s: %s", soc_sensor, exc)
+
+    if plug_sensor:
+        raw_plug: Any = None
+        try:
+            plug_state = await get_ha_entity_state(plug_sensor)
+            raw_plug = plug_state.get("state") if isinstance(plug_state, dict) else None
+        except Exception as exc:
+            logger.warning("Failed to read EV plug sensor %s: %s", plug_sensor, exc)
+        plugged_in, _unreachable = resolve_plug_state(
+            id,
+            raw_plug,
+            charger_cfg.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
+        )
+    else:
+        # No plug sensor → assumed plugged in (same as the planner).
+        plugged_in = True
+
+    try:
+        return executor.set_ev_manual_charge(
+            id,
+            body.target_soc,
+            body.current_a,
+            current_soc_percent=soc_percent,
+            plugged_in=plugged_in,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.delete(
+    "/chargers/{id}/manual-charge",
+    summary="Stop EV Manual Charge",
+    description="Stops the charger's manual charge; the plan takes over on the next tick.",
+)
+async def stop_ev_manual_charge(id: str) -> dict[str, Any]:
+    _enabled_charger_cfg(id)
+    executor = _executor_or_503()
+    return executor.clear_ev_manual_charge(id)

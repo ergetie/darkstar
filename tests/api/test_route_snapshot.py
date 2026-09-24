@@ -41,6 +41,8 @@ def test_route_snapshot(app_client):
         "GET /api/energy/range",
         "GET /api/performance/data",
         "GET /api/ha-socket",
+        "POST /api/ev/chargers/{id}/manual-charge",
+        "DELETE /api/ev/chargers/{id}/manual-charge",
     }
 
     def collect(routes):

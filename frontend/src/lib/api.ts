@@ -20,6 +20,16 @@ export type PlannerSIndex = {
     [key: string]: unknown
 }
 
+/** Live per-charger reading (websocket live_metrics / GET /api/status). */
+export type LiveEvCharger = {
+    id?: string
+    name: string
+    kw: number
+    soc: number | null
+    plugged_in: boolean
+    unreachable?: boolean
+}
+
 export type StatusResponse = {
     // New flat structure from Rev ARC1
     soc_percent?: number
@@ -29,7 +39,7 @@ export type StatusResponse = {
     grid_power_kw?: number
     ev_kw?: number
     ev_plugged_in?: boolean
-    ev_chargers?: Array<{ name: string; kw: number; soc: number | null; plugged_in: boolean }>
+    ev_chargers?: LiveEvCharger[]
     status?: string
     mode?: string
     rev?: string
@@ -693,6 +703,9 @@ export type EVChargerState = {
     ha_ready_by_entity: string | null
     ha_target_soc_entity: string | null
     type: 'current' | 'binary'
+    /** Manual-charge current range (current-type only, else null) */
+    min_current_a?: number | null
+    max_current_a?: number | null
     n_days: number | null
     status: 'on_track' | 'at_risk' | 'behind' | 'complete' | 'idle'
     /** kWh the current plan will not deliver by the deadline (at_risk only) */
@@ -704,6 +717,20 @@ export type EVChargerState = {
     externally_controlled: boolean
     last_updated: string | null
     last_planned_at: string | null
+    /** Active manual "charge now" override, null when none */
+    manual_charge?: EVManualCharge | null
+}
+
+export type EVManualCharge = {
+    target_soc: number
+    /** Requested amps (current-type only); null = charger's max_current_a */
+    current_a: number | null
+    started_at: string
+}
+
+/** Payload of the `ev_manual_charge_updated` websocket event. */
+export type EVManualChargeUpdatedEvent = {
+    chargers: Record<string, EVManualCharge & { expires_at: string }>
 }
 
 export type EVChargersResponse = EVChargerState[]
@@ -720,7 +747,12 @@ async function getJSON<T>(path: string, method: 'GET' | 'POST' | 'DELETE' = 'GET
         options.body = JSON.stringify(body)
     }
     const r = await fetch(relativePath, options)
-    if (!r.ok) throw new Error(`${path} -> ${r.status}`)
+    if (!r.ok) {
+        // Surface a backend rejection message (FastAPI `detail` string) when present.
+        const data = await r.json().catch(() => null)
+        const detail = data && typeof data.detail === 'string' ? data.detail : null
+        throw new Error(detail ?? `${path} -> ${r.status}`)
+    }
     return r.json() as Promise<T>
 }
 
@@ -922,6 +954,12 @@ export const Api = {
                 keep_on_after_target?: boolean | null
             },
         ) => getJSON<EVChargerState>(`/api/ev/chargers/${id}/schedule`, 'POST', body),
+        manualCharge: {
+            start: (id: string, body: { target_soc: number; current_a?: number | null }) =>
+                getJSON<{ success: boolean } & EVManualCharge>(`/api/ev/chargers/${id}/manual-charge`, 'POST', body),
+            stop: (id: string) =>
+                getJSON<{ success: boolean; was_active: boolean }>(`/api/ev/chargers/${id}/manual-charge`, 'DELETE'),
+        },
     },
 }
 

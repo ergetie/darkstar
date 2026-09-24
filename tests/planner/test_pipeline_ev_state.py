@@ -84,6 +84,28 @@ def test_persist_ev_multi_day_state_preserves_goals(tmp_path, monkeypatch):
     assert charger["last_planned_at"] == now.isoformat()
 
 
+def test_persist_keeps_executor_manual_charge(tmp_path, monkeypatch):
+    """The planner's writeback must not drop the executor's manual charge entry."""
+    state_file = tmp_path / "ev_multi_day_state.json"
+    monkeypatch.setattr(ev_state, "STATE_FILE_PATH", state_file)
+    manual = {"target_soc": 60, "current_a": None, "started_at": "2026-06-10T14:00:00+02:00"}
+    state_file.write_text(
+        json.dumps({"ev1": {"target_soc_percent": 90, "ready_by": "08:30", "manual_charge": manual}})
+    )
+
+    _persist_ev_multi_day_state(
+        [{"id": "ev1", "deadline": None, "required_kwh": None, "soc_percent": 50.0}],
+        [{"id": "ev1", "max_power_kw": 7.4}],
+        sqlite_path="",
+        tz=pytz.timezone("Europe/Stockholm"),
+        now=datetime(2026, 6, 10, 15, 0, tzinfo=UTC),
+    )
+
+    updated = json.loads(state_file.read_text())["ev1"]
+    assert updated["manual_charge"] == manual
+    assert updated["target_soc_percent"] == 90
+
+
 def test_persist_skips_chargers_with_no_goal(tmp_path, monkeypatch):
     """A charger with no goal in the state file gets no persisted entry —
     the planner never invents a goal from config (config carries none)."""

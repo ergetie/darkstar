@@ -185,7 +185,10 @@ async def set_quick_action(payload: QuickActionRequest) -> dict[str, str]:
     if not executor:
         raise HTTPException(500, "Executor unavailable")
 
-    executor.set_quick_action(payload.action, payload.duration_minutes, payload.params)
+    try:
+        executor.set_quick_action(payload.action, payload.duration_minutes, payload.params)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
     return {"status": "success"}
 
 

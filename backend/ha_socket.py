@@ -179,6 +179,7 @@ class HAWebSocketClient:
                 # Initialize ev_chargers array upfront with configured EVs
                 self.latest_values["ev_chargers"] = [
                     {
+                        "id": ec.get("id"),
                         "name": ec.get("name", f"EV {i + 1}"),
                         "kw": 0.0,
                         "soc": None,
@@ -297,6 +298,9 @@ class HAWebSocketClient:
                                 while len(ev_chargers) < len(self.ev_charger_configs):
                                     ev_chargers.append(
                                         {
+                                            "id": self.ev_charger_configs[len(ev_chargers)].get(
+                                                "id"
+                                            ),
                                             "name": self.ev_charger_configs[len(ev_chargers)].get(
                                                 "name",
                                                 f"EV {len(ev_chargers) + 1}",
@@ -546,6 +550,7 @@ class HAWebSocketClient:
                 while len(ev_chargers) < len(self.ev_charger_configs):
                     ev_chargers.append(
                         {
+                            "id": self.ev_charger_configs[len(ev_chargers)].get("id"),
                             "name": self.ev_charger_configs[len(ev_chargers)].get(
                                 "name", f"EV {len(ev_chargers) + 1}"
                             ),
@@ -745,6 +750,7 @@ class HAWebSocketClient:
                 while len(ev_chargers) < len(self.ev_charger_configs):
                     ev_chargers.append(
                         {
+                            "id": self.ev_charger_configs[len(ev_chargers)].get("id"),
                             "name": self.ev_charger_configs[len(ev_chargers)].get(
                                 "name", f"EV {len(ev_chargers) + 1}"
                             ),
@@ -818,6 +824,7 @@ class HAWebSocketClient:
                 while len(ev_chargers) < len(self.ev_charger_configs):
                     ev_chargers.append(
                         {
+                            "id": self.ev_charger_configs[len(ev_chargers)].get("id"),
                             "name": self.ev_charger_configs[len(ev_chargers)].get(
                                 "name", f"EV {len(ev_chargers) + 1}"
                             ),

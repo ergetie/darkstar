@@ -707,7 +707,7 @@ def _persist_ev_multi_day_state(
 
             dq = state.get("daily_quota_kwh")
 
-            existing_state[charger_id] = {
+            new_entry: dict[str, Any] = {
                 # Goal fields: preserved verbatim, never derived from config.
                 "target_soc_percent": existing_charger.get("target_soc_percent"),
                 "ready_by": existing_charger.get("ready_by"),
@@ -738,6 +738,11 @@ def _persist_ev_multi_day_state(
                 "missed_goal_grace": bool(state.get("missed_goal_grace", False)),
                 "last_planned_at": now.isoformat(),
             }
+            # The executor's active manual charge (ev-manual-charge) shares
+            # this entry; it is not the planner's to drop.
+            if "manual_charge" in existing_charger:
+                new_entry["manual_charge"] = existing_charger["manual_charge"]
+            existing_state[charger_id] = new_entry
 
     try:
         update_ev_state(_mutate)

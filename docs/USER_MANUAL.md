@@ -65,7 +65,8 @@ You'll see an "S-Index" score on the dashboard. This measures **volatility**.
 
 ### Quick Actions (Executor Tab)
 *   **Dynamic Monitoring**: All logs and charts in the Executor tab automatically respect your hardware's native units (**Amperes** or **Watts**).
-*   **Force Charge**: Immediately charges the battery to 100% (or your set limit) at max power. Useful if a storm is coming.
+*   **Top Up (Force Charge)**: Charges the house battery now, at max power, until it reaches the target SoC you pick. It then stops and Darkstar follows the plan again. Set the target in the command bar with **−/+** (15% steps) or tap the number to type an exact value. The target can't be below your `min_soc_percent` or at/below the battery's current SoC. It stops early if you press **STOP**, and after 24 hours at the latest. Useful if a storm is coming.
+*   **EV Charge**: Charges your car now until it reaches a target SoC — see [Charge now](#charge-now-manual-ev-charge) below.
 *   **Pause Plan**: Stops all automated control. Your battery will sit idle.
 *   **Water Boost**: Triggers the water heater immediately, ignoring price. Useful if you need a hot bath *now*.
 
@@ -105,9 +106,22 @@ Darkstar treats your Electric Vehicle as a "Deferrable Load." This means it unde
     *   🟡 **High Priority (20-40%)**: Prioritizes charging in the next available cheap windows.
     *   🟢 **Normal (>40%)**: Only charges when prices are at their absolute lowest.
 
+### Charge now (manual EV charge)
+Use **EV Charge** in the dashboard command bar when you want the car charged *now*, regardless of the plan.
+
+*   The control appears when a car is plugged into a charger Darkstar controls. With several cars plugged in, pick the charger first.
+*   Choose the target SoC with **−/+** (15% steps) or tap the number to type an exact value (1–100%).
+*   **Current-type chargers** charge at the charger's `max_current_a`. Tap the small **A** to choose a lower current. **Binary chargers** are simply switched on.
+*   The fuse/load balancer still applies: it may throttle or pause the car to protect your main fuse. A **Pause**, the **manual override**, or a **Force Stop** still stop charging.
+*   It ends by itself when the car reaches the target, when you unplug, when you press **STOP** (command bar or EV card), or after 24 hours. Darkstar then replans and goes back to the plan.
+*   It does **not** change your charging goal (target SoC / ready-by). It survives a restart.
+*   The request is refused if the car isn't connected, its SoC is unknown, or it is already at the target. Requires `soc_sensor` (and ideally `plug_sensor`) on the charger.
+*   The car's SoC sensor often updates only every few minutes, so the car may end a few percent above the target.
+
 ### Dashboard Indicators
 *   **Gold Bars**: EV charging power is shown on the Dashboard and Horizon chart.
-*   **EV SoC**: Your car's current charge level is displayed in the Charging Status card.
+*   **EV SoC**: Your car's current charge level is displayed in the Charging Status card. An active manual charge shows as "Manual charge → 80% · Stop".
+*   **Power-flow EV node** (one charger): a violet ⚡ + `49% → 80%` while charging (target = manual charge target, else your goal), a green 🔌 + `49%` when plugged in but idle (the same green the EV popup uses for a connected car), and a greyed unplug icon with "away" when no car is connected. The node stays at full brightness whenever a car is connected, even at 0 kW, so "connected but waiting for cheap power" is easy to tell apart from "away"; only with no car connected is it dimmed like other idle nodes. With several chargers it shows the icon for the "busiest" state and "N connected". Tap it for per-car SoC and target.
 
 ---
 

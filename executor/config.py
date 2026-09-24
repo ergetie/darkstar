@@ -134,6 +134,10 @@ class EVChargerDeviceConfig:
     charge_enabled_value: str = "on"
     charge_disabled_value: str = "off"
     plugged_in_states: str = "on,true,1,connected"
+    # Car SoC (%) and plug sensors, read by the executor only while a manual
+    # charge is active (ev-manual-charge end detection).
+    soc_sensor: str | None = None
+    plug_sensor: str | None = None
     phase_1_value: str = "1"
     phase_3_value: str = "3"
     max_power_kw: float = 7.4
@@ -695,6 +699,8 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                     if "plugged_in_states" in charger and charger["plugged_in_states"] is not None
                     else EVChargerDeviceConfig.plugged_in_states
                 ),
+                soc_sensor=_str_or_none(charger.get("soc_sensor")),
+                plug_sensor=_str_or_none(charger.get("plug_sensor")),
                 phase_1_value=(
                     str(charger["phase_1_value"]).strip()
                     if "phase_1_value" in charger and charger["phase_1_value"] is not None

@@ -1,3 +1,4 @@
+import { Zap } from 'lucide-react'
 import { describe, expect, it } from 'vitest'
 import { NODE_REGISTRY } from './PowerFlowRegistry'
 import type { PowerFlowData } from './PowerFlowRegistry'
@@ -33,35 +34,34 @@ describe('fmtKw (via node valueAccessors)', () => {
     })
 })
 
-describe('EV subValueAccessor', () => {
+describe('EV accessors (via deriveEvNodeView)', () => {
     it('returns undefined when there are zero chargers', () => {
         const ev = node('ev')
         expect(ev.subValueAccessor?.({ ...baseData, evChargers: [] })).toBeUndefined()
         expect(ev.subValueAccessor?.({ ...baseData })).toBeUndefined()
     })
 
-    it('falls back to the first charger when multiple chargers exist and none are plugged in', () => {
+    it('single charging charger shows SoC → target and the lightning icon', () => {
         const ev = node('ev')
-        const result = ev.subValueAccessor?.({
+        const data: PowerFlowData = {
             ...baseData,
-            evChargers: [
-                { name: 'A', kw: 0, soc: 42, pluggedIn: false },
-                { name: 'B', kw: 0, soc: 77, pluggedIn: false },
-            ],
-        })
-        expect(result).toBe('42%')
+            evChargers: [{ id: 'ev1', name: 'A', kw: 7.2, soc: 49, pluggedIn: true }],
+            evChargerStatuses: [{ id: 'ev1', name: 'A', target_soc_percent: 80, manual_charge: null }],
+        }
+        expect(ev.subValueAccessor?.(data)).toBe('49% → 80%')
+        expect(typeof ev.lucideIcon === 'function' ? ev.lucideIcon(data) : null).toBe(Zap)
     })
 
-    it('prefers the plugged-in charger when one exists among several', () => {
+    it('multiple chargers show the connected count', () => {
         const ev = node('ev')
         const result = ev.subValueAccessor?.({
             ...baseData,
             evChargers: [
-                { name: 'A', kw: 0, soc: 42, pluggedIn: false },
-                { name: 'B', kw: 3, soc: 77, pluggedIn: true },
+                { id: 'a', name: 'A', kw: 0, soc: 42, pluggedIn: false },
+                { id: 'b', name: 'B', kw: 3, soc: 77, pluggedIn: true },
             ],
         })
-        expect(result).toBe('77%')
+        expect(result).toBe('1 connected')
     })
 })
 

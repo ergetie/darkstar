@@ -389,6 +389,15 @@ The Executor includes a dedicated controller for EV charging state management.
 - **Source Isolation**: Actively monitors house battery discharge. If discharge is detected while the EV is charging, the executor can throttle or stop the EV session as a safety backup to the planner.
 - **Heartbeat Safety**: If the planner fails to provide a new plan within 30 minutes, the executor auto-stops the EV charger for safety.
 - **Re-plan Trigger**: Hooks into the Home Assistant `plug_sensor` to trigger an immediate `PlannerPipeline` run upon connection.
+- **Single on/off decision**: `_charger_should_be_on(slot, charger_id)` is the one predicate used by the surplus/phase-mode step, the load balancer input and the switch/current actuation. It is true for planned power, `ev_keep_on`, or an active manual charge.
+
+**Manual charge ("Charge now", per charger):**
+- Started/stopped via `POST` / `DELETE /api/ev/chargers/{id}/manual-charge` (`{target_soc, current_a?}`). The router reads the car's live SoC and plug state and the executor validates (charger controllable, plugged in, SoC known and below target, current within `min_current_a`–`max_current_a`, current only on `type: current`).
+- Stored in `ExecutorEngine._ev_manual_charge` and persisted under a `manual_charge` key in the charger's entry of `data/ev_multi_day_state.json` (goal fields untouched; the planner writeback and goal-clear preserve it). Restored at executor startup.
+- While active the charger counts as "should be on"; current-type chargers request the manual current (default `max_current_a`) and are excluded from surplus targeting. Load balancer clamp/shed, `force_stop` and manual override still take precedence. It also counts as scheduled EV charging for battery source isolation.
+- Each tick reads `soc_sensor`/`plug_sensor` for manual chargers and ends the charge on SoC ≥ target, unplug, or a 24 h timeout (unavailable readings keep it running). Any end requests one replan via the executor replan rate limit. Start/end emits the websocket event `ev_manual_charge_updated`; `GET /api/ev/chargers` exposes `manual_charge`.
+
+**Battery Top Up (`force_charge` quick action):** runs until battery SoC ≥ `target_soc` (checked every tick), with a 24 h safety expiry instead of the 15/30/60-minute list (which still applies to `force_stop`/`force_heat`). Rejected when the target is outside `min_soc_percent`–100 or already reached.
 
 **Safety Clamp**: All temperature commands are clamped to `temp_max` before sending to Home Assistant.
 

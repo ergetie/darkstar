@@ -9,6 +9,7 @@ import {
     type ExecutorStatusResponse,
     type LearningStatusResponse,
     type ConfigResponse,
+    type LiveEvCharger,
 } from '../lib/api'
 import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, formatHour } from '../lib/time'
@@ -19,6 +20,8 @@ import BatteryStrategyCard from '../components/BatteryStrategyCard'
 import { GridDomain, ResourcesDomain } from '../components/CommandDomains'
 import { useSocket, useSocketStatus } from '../lib/hooks'
 import { useToast } from '../lib/useToast'
+import { useEvChargers } from '../lib/useEvChargers'
+import type { EvLiveReading } from '../components/evNodeView'
 
 type PlannerMeta = {
     planned_at?: string
@@ -85,6 +88,10 @@ export function computeTodaySummary(slots: ScheduleSlot[], now: Date = new Date(
         .join(' → ')
 }
 
+function toEvLiveReading(ev: LiveEvCharger): EvLiveReading {
+    return { id: ev.id, name: ev.name, kw: ev.kw, soc: ev.soc, pluggedIn: ev.plugged_in }
+}
+
 export default function Dashboard() {
     const [soc, setSoc] = useState<number | null>(null)
     const [chartRefreshToken, setChartRefreshToken] = useState(0)
@@ -149,8 +156,7 @@ export default function Dashboard() {
         water_kw?: number
         ev_kw?: number
         ev_plugged_in?: boolean
-        ev_soc?: number
-        ev_chargers?: Array<{ name: string; kw: number; soc: number | null; pluggedIn: boolean }>
+        ev_chargers?: EvLiveReading[]
     }>({})
 
     const [executorHealth, setExecutorHealth] = useState<import('../lib/api').ExecutorHealthResponse | null>(null)
@@ -161,6 +167,13 @@ export default function Dashboard() {
     const [learningStatus, setLearningStatus] = useState<LearningStatusResponse | null>(null)
 
     const { toast } = useToast()
+
+    const { chargers: evChargerStatuses, refresh: refreshEvChargers } = useEvChargers(systemFlags.hasEvCharger)
+    // Live plug/SoC (websocket) take precedence over the last REST snapshot.
+    const evChargerControls = evChargerStatuses.map((charger) => {
+        const reading = livePower.ev_chargers?.find((ev) => ev.id === charger.id)
+        return reading ? { ...charger, plugged_in: reading.pluggedIn, soc_percent: reading.soc } : charger
+    })
 
     useSocket('live_metrics', (data: any) => {
         if (data.soc !== undefined) setSoc(data.soc)
@@ -173,13 +186,7 @@ export default function Dashboard() {
             water_kw: data.water_kw ?? prev.water_kw,
             ev_kw: data.ev_kw ?? prev.ev_kw,
             ev_plugged_in: data.ev_plugged_in !== undefined ? data.ev_plugged_in : prev.ev_plugged_in,
-            ev_soc: data.ev_soc !== undefined ? data.ev_soc : prev.ev_soc,
-            ev_chargers: data.ev_chargers
-                ? data.ev_chargers.map((ev: { name: string; kw: number; soc: number | null; plugged_in: boolean }) => ({
-                      ...ev,
-                      pluggedIn: ev.plugged_in,
-                  }))
-                : prev.ev_chargers,
+            ev_chargers: data.ev_chargers ? data.ev_chargers.map(toEvLiveReading) : prev.ev_chargers,
         }))
     })
 
@@ -260,16 +267,7 @@ export default function Dashboard() {
                     grid_kw: data.grid_power_kw ?? prev.grid_kw,
                     ev_kw: data.ev_kw ?? prev.ev_kw,
                     ev_plugged_in: data.ev_plugged_in !== undefined ? data.ev_plugged_in : prev.ev_plugged_in,
-                    ev_chargers: data.ev_chargers
-                        ? data.ev_chargers.map(
-                              (ev: { name: string; kw: number; soc: number | null; plugged_in: boolean }) => ({
-                                  name: ev.name,
-                                  kw: ev.kw,
-                                  soc: ev.soc,
-                                  pluggedIn: ev.plugged_in,
-                              }),
-                          )
-                        : prev.ev_chargers,
+                    ev_chargers: data.ev_chargers ? data.ev_chargers.map(toEvLiveReading) : prev.ev_chargers,
                 }))
             }
 
@@ -748,6 +746,9 @@ export default function Dashboard() {
                         name: heater.name,
                     }))}
                     soc={soc}
+                    batteryMinSoc={config?.battery?.min_soc_percent ?? 10}
+                    evChargers={evChargerControls}
+                    onEvRefresh={refreshEvChargers}
                     plannerMeta={plannerLocalMeta}
                     onSetRiskAppetite={handleSetRiskAppetite}
                     onSetComfortLevel={handleSetComfortLevel}
@@ -785,8 +786,8 @@ export default function Dashboard() {
                             water: { kw: livePower.water_kw ?? 0, todayKwh: waterToday?.kwh },
                             ev: { kw: livePower.ev_kw ?? 0 },
                             evPluggedIn: livePower.ev_plugged_in,
-                            evSoc: livePower.ev_soc,
                             evChargers: livePower.ev_chargers,
+                            evChargerStatuses: evChargerStatuses,
                         }}
                     />
                 </motion.div>

@@ -125,6 +125,7 @@ async def get_system_status() -> StatusResponse:
 
         ev_chargers.append(
             {
+                "id": ev.get("id"),
                 "name": ev.get("name", f"EV {i + 1}"),
                 "kw": round(kw, 3),
                 "soc": round(ev_soc, 1) if ev_soc is not None else None,

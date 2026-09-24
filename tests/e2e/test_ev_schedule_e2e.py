@@ -271,6 +271,7 @@ async def test_ev_schedule_e2e_escape_hatch(tmp_path, monkeypatch):
     engine._ev_charger_states = {}
     engine._ev_write_backoff = {}
     engine._ev_failure_dedup = {}
+    engine._ev_manual_charge = {}
     engine.history = MagicMock()
 
     mock_ha = AsyncMock()

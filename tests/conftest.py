@@ -67,6 +67,19 @@ def disable_external_nordpool_requests(monkeypatch):
     monkeypatch.setattr("nordpool.elspot.Prices.fetch", empty_fetch)
 
 
+@pytest.fixture(autouse=True)
+def isolated_ev_state_file(monkeypatch, tmp_path):
+    """Point the EV state file at a per-test temp path.
+
+    The executor restores/persists manual charges there on construction and
+    on start/stop, so tests must never read or write the real data/ file.
+    Tests that set STATE_FILE_PATH themselves still override this.
+    """
+    from backend.core import ev_state
+
+    monkeypatch.setattr(ev_state, "STATE_FILE_PATH", tmp_path / "ev_multi_day_state.json")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_env():
     """Set up a clean, hermetic test environment.

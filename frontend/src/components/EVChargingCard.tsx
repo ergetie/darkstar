@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { Clock, RotateCw, Sun, Trash2, Loader2, Save } from 'lucide-react'
+import { Clock, RotateCw, Sun, Trash2, Loader2, Save, Zap } from 'lucide-react'
 import {
     Api,
     EVChargerState,
@@ -216,6 +216,21 @@ export default function EVChargingCard({
         }
     }
 
+    const [stoppingManual, setStoppingManual] = useState(false)
+    const handleStopManualCharge = async () => {
+        setStoppingManual(true)
+        try {
+            await Api.ev.manualCharge.stop(charger.id)
+            toast({ message: `Manual charge stopped for ${charger.name}`, variant: 'success' })
+            await onRefresh()
+        } catch (err: unknown) {
+            console.error(err)
+            toast({ message: err instanceof Error ? err.message : 'Failed to stop manual charge', variant: 'error' })
+        } finally {
+            setStoppingManual(false)
+        }
+    }
+
     const handleClear = async () => {
         if (!window.confirm(`Are you sure you want to clear the goal for ${charger.name}?`)) return
         setSubmitting(true)
@@ -270,6 +285,27 @@ export default function EVChargingCard({
                     </div>
                 )}
             </div>
+
+            {charger.manual_charge && (
+                <div
+                    className="flex items-center justify-between text-[10px] text-ai bg-ai/10 border border-ai/20 rounded-lg px-2 py-1 mb-3"
+                    data-testid="ev-manual-charge"
+                >
+                    <span className="flex items-center gap-1 font-medium">
+                        <Zap className="h-3 w-3" />
+                        Manual charge → {charger.manual_charge.target_soc}%
+                        {charger.manual_charge.current_a != null && ` · ${charger.manual_charge.current_a} A`}
+                    </span>
+                    <button
+                        type="button"
+                        onClick={handleStopManualCharge}
+                        disabled={stoppingManual}
+                        className="font-semibold hover:text-text disabled:opacity-50"
+                    >
+                        Stop
+                    </button>
+                </div>
+            )}
 
             {!isEditing && shortfallText && (
                 <p

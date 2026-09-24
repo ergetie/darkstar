@@ -435,6 +435,61 @@ body::before {
         color: rgb(var(--color-muted));
     }
 
+    /* SoC stepper: compact −/+ with tap-to-type value (command bar Top Up / EV Charge) */
+    .soc-stepper {
+        display: inline-flex;
+        align-items: center;
+    }
+
+    .soc-stepper-btn {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 0.125rem;
+        color: rgb(var(--color-text));
+        transition: color 0.2s;
+    }
+
+    .soc-stepper-btn:hover:not(:disabled) {
+        color: rgb(var(--color-accent));
+    }
+
+    .soc-stepper-btn:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
+
+    .soc-stepper-value {
+        min-width: 1.75rem;
+        text-align: center;
+        font-size: 0.5625rem;
+        color: rgb(var(--color-muted));
+        border-radius: var(--radius-sm);
+        cursor: text;
+    }
+
+    .soc-stepper-value:hover:not(:disabled) {
+        color: rgb(var(--color-accent));
+    }
+
+    .soc-stepper-input {
+        width: 2rem;
+        padding: 0 0.125rem;
+        text-align: center;
+        font-size: 0.5625rem;
+        background: rgb(var(--color-surface2));
+        border: 1px solid rgb(var(--color-accent));
+        border-radius: var(--radius-sm);
+        color: rgb(var(--color-text));
+        outline: none;
+        -moz-appearance: textfield;
+    }
+
+    .soc-stepper-input::-webkit-inner-spin-button,
+    .soc-stepper-input::-webkit-outer-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
+
     /* Toggle switch */
     .toggle {
         position: relative;

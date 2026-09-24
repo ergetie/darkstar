@@ -1,8 +1,21 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useState, useEffect } from 'react'
-import { Play, Pause, Loader2, Rocket, Flame, BatteryCharging, ChevronLeft, ChevronRight, Palmtree } from 'lucide-react'
+import {
+    Play,
+    Pause,
+    Loader2,
+    Rocket,
+    Flame,
+    BatteryCharging,
+    ChevronLeft,
+    ChevronRight,
+    Palmtree,
+    Car,
+} from 'lucide-react'
 import Card from './Card'
-import { Api, type ExecutorStatusResponse, type PlannerSIndex } from '../lib/api'
+import SocStepper from './ui/SocStepper'
+import { clampSoc } from './ui/socStepper'
+import { Api, type EVChargerState, type ExecutorStatusResponse, type PlannerSIndex } from '../lib/api'
 import { useSocket } from '../lib/hooks'
 import { useToast } from '../lib/useToast'
 
@@ -12,7 +25,8 @@ type PlannerMeta = {
     s_index?: PlannerSIndex
 } | null
 
-const TOP_UP_SOC_OPTIONS = [30, 50, 80, 100]
+const TOP_UP_DEFAULT_SOC = 50
+const EV_CHARGE_DEFAULT_SOC = 80
 const BOOST_MINUTES_OPTIONS = [30, 60, 120]
 const VACATION_DAYS_OPTIONS = [1, 3, 7, 14, 30]
 
@@ -44,6 +58,11 @@ interface CommandBarProps {
     } | null
     waterHeaters: { id: string; name: string }[]
     soc: number | null
+    /** Configured battery min SoC — lower bound of the Top Up target */
+    batteryMinSoc: number
+    /** EV chargers (status + live plug/SoC) for the EV Charge control */
+    evChargers: EVChargerState[]
+    onEvRefresh: () => void
     plannerMeta: PlannerMeta
     onSetRiskAppetite: (level: number) => void
     onSetComfortLevel: (level: number) => void
@@ -74,6 +93,9 @@ export default function CommandBar({
     vacationModeHA,
     waterBoostActive,
     waterHeaters,
+    batteryMinSoc,
+    evChargers,
+    onEvRefresh,
     plannerMeta,
     onSetRiskAppetite,
     onSetComfortLevel,
@@ -86,7 +108,12 @@ export default function CommandBar({
     const [quickActionLoading, setQuickActionLoading] = useState<string | null>(null)
     const [vacationDaysIdx, setVacationDaysIdx] = useState(1)
     const [boostMinutesIdx, setBoostMinutesIdx] = useState(1)
-    const [topUpSocIdx, setTopUpSocIdx] = useState(1)
+    const [topUpSoc, setTopUpSoc] = useState(TOP_UP_DEFAULT_SOC)
+    const [evTargetSoc, setEvTargetSoc] = useState(EV_CHARGE_DEFAULT_SOC)
+    const [evAmpsOpen, setEvAmpsOpen] = useState(false)
+    const [evAmps, setEvAmps] = useState<number | null>(null)
+    const [selectedEvId, setSelectedEvId] = useState<string>('')
+    const [loadingEv, setLoadingEv] = useState(false)
     const [loadingVacation, setLoadingVacation] = useState(false)
     const [loadingBoost, setLoadingBoost] = useState(false)
     const [selectedHeaterId, setSelectedHeaterId] = useState<string>('')
@@ -154,14 +181,39 @@ export default function CommandBar({
                 onRefresh()
                 toast({ message: 'Top-Up Stopped', variant: 'success' })
             } else {
-                const target = TOP_UP_SOC_OPTIONS[topUpSocIdx]
+                const target = effectiveTopUpSoc
+                // Runs until the battery reaches the target; the duration is ignored.
                 await Api.executor.quickAction.set('force_charge', 60, { target_soc: target })
                 onRefresh()
                 toast({ message: `Top-Up to ${target}% started`, variant: 'success' })
             }
         } catch (e) {
             console.error('Top Up/Stop failed', e)
-            toast({ message: 'Action failed', variant: 'error' })
+            toast({ message: e instanceof Error ? e.message : 'Action failed', variant: 'error' })
+        }
+    }
+
+    const handleToggleEvCharge = async () => {
+        if (loadingEv || !selectedEv) return
+        setLoadingEv(true)
+        try {
+            if (selectedEv.manual_charge) {
+                await Api.ev.manualCharge.stop(selectedEv.id)
+                toast({ message: `EV charge stopped (${selectedEv.name})`, variant: 'success' })
+            } else {
+                const currentA = selectedEv.type === 'current' && evAmpsOpen ? effectiveEvAmps : null
+                await Api.ev.manualCharge.start(selectedEv.id, {
+                    target_soc: evTargetSoc,
+                    ...(currentA != null ? { current_a: currentA } : {}),
+                })
+                toast({ message: `EV charging to ${evTargetSoc}% (${selectedEv.name})`, variant: 'success' })
+            }
+            onEvRefresh()
+        } catch (e) {
+            console.error('EV charge start/stop failed', e)
+            toast({ message: e instanceof Error ? e.message : 'Action failed', variant: 'error' })
+        } finally {
+            setLoadingEv(false)
         }
     }
 
@@ -219,6 +271,21 @@ export default function CommandBar({
     const isPaused = executorStatus?.paused != null
     const isPlanning = plannerProgress !== null
     const isTopUpActive = executorStatus?.quick_action?.type === 'force_charge'
+    const topUpMin = clampSoc(batteryMinSoc, 0, 100)
+    const effectiveTopUpSoc = clampSoc(topUpSoc, topUpMin, 100)
+
+    // EV Charge: controllable chargers with a car plugged in, plus any charger
+    // still in a manual charge (so it can always be stopped).
+    const evCandidates = evChargers.filter((c) => !c.externally_controlled && (c.plugged_in || c.manual_charge))
+    const selectedEv = evCandidates.find((c) => c.id === selectedEvId) ?? evCandidates[0]
+    const isEvChargeActive = Boolean(selectedEv?.manual_charge)
+    const evMinA = selectedEv?.min_current_a ?? null
+    const evMaxA = selectedEv?.max_current_a ?? null
+    const evAmpsOptions =
+        selectedEv?.type === 'current' && evMinA != null && evMaxA != null && evMaxA >= evMinA
+            ? Array.from({ length: evMaxA - evMinA + 1 }, (_, i) => evMinA + i)
+            : []
+    const effectiveEvAmps = evAmps != null && evAmpsOptions.includes(evAmps) ? evAmps : evMaxA
     const isBoostActive = waterBoostActive?.boost ?? false
     const isVacationActive = vacationMode || vacationModeHA
     const effectiveSelectedHeaterId =
@@ -340,24 +407,14 @@ export default function CommandBar({
                 }`}
             >
                 {!isTopUpActive && (
-                    <div className="flex items-center mr-1">
-                        <button
-                            onClick={() => setTopUpSocIdx((i) => Math.max(0, i - 1))}
-                            className="px-0.5 hover:text-accent"
-                            disabled={topUpSocIdx === 0}
-                        >
-                            <ChevronLeft className="h-2.5 w-2.5" />
-                        </button>
-                        <span className="text-muted text-[9px] min-w-[16px] text-center">
-                            {TOP_UP_SOC_OPTIONS[topUpSocIdx]}%
-                        </span>
-                        <button
-                            onClick={() => setTopUpSocIdx((i) => Math.min(TOP_UP_SOC_OPTIONS.length - 1, i + 1))}
-                            className="px-0.5 hover:text-accent"
-                            disabled={topUpSocIdx === TOP_UP_SOC_OPTIONS.length - 1}
-                        >
-                            <ChevronRight className="h-2.5 w-2.5" />
-                        </button>
+                    <div className="mr-1">
+                        <SocStepper
+                            value={effectiveTopUpSoc}
+                            min={topUpMin}
+                            max={100}
+                            onChange={setTopUpSoc}
+                            label="Top Up target"
+                        />
                     </div>
                 )}
                 <button
@@ -368,6 +425,86 @@ export default function CommandBar({
                     <span>{isTopUpActive ? 'STOP' : 'Top Up'}</span>
                 </button>
             </div>
+
+            {/* EV Charge */}
+            {selectedEv && (
+                <div
+                    className={`flex items-center rounded px-1.5 py-1 text-[10px] font-semibold transition-all ${
+                        isEvChargeActive
+                            ? 'bg-ai/40 border border-ai/60'
+                            : 'bg-surface2/50 border border-line/50 hover:border-accent/40'
+                    }`}
+                >
+                    {evCandidates.length > 1 && (
+                        <select
+                            aria-label="EV charger"
+                            value={selectedEv.id}
+                            onChange={(e) => setSelectedEvId(e.target.value)}
+                            className="mr-1 max-w-[110px] bg-transparent text-[9px] text-muted outline-none"
+                            disabled={loadingEv}
+                        >
+                            {evCandidates.map((charger) => (
+                                <option key={charger.id} value={charger.id}>
+                                    {charger.name}
+                                </option>
+                            ))}
+                        </select>
+                    )}
+                    {!isEvChargeActive && (
+                        <div className="flex items-center mr-1">
+                            <SocStepper
+                                value={evTargetSoc}
+                                min={1}
+                                max={100}
+                                onChange={setEvTargetSoc}
+                                label="EV charge target"
+                                disabled={loadingEv}
+                            />
+                            {evAmpsOptions.length > 0 && (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => setEvAmpsOpen((open) => !open)}
+                                        className={`ml-1 px-0.5 text-[9px] ${evAmpsOpen ? 'text-accent' : 'text-muted hover:text-accent'}`}
+                                        aria-label="Charging current"
+                                        aria-expanded={evAmpsOpen}
+                                        title="Charging current (default: charger maximum)"
+                                    >
+                                        A
+                                    </button>
+                                    {evAmpsOpen && (
+                                        <select
+                                            aria-label="Charging current in amps"
+                                            value={effectiveEvAmps ?? ''}
+                                            onChange={(e) => setEvAmps(Number(e.target.value))}
+                                            className="bg-transparent text-[9px] text-muted outline-none"
+                                            disabled={loadingEv}
+                                        >
+                                            {evAmpsOptions.map((a) => (
+                                                <option key={a} value={a}>
+                                                    {a} A
+                                                </option>
+                                            ))}
+                                        </select>
+                                    )}
+                                </>
+                            )}
+                        </div>
+                    )}
+                    <button
+                        onClick={handleToggleEvCharge}
+                        disabled={loadingEv}
+                        className={`flex items-center gap-1 ${isEvChargeActive ? 'text-white' : 'text-ai'}`}
+                        title="Charge the car now to the target SoC"
+                    >
+                        <Car className={`h-3 w-3 ${isEvChargeActive ? 'animate-pulse' : ''}`} />
+                        <span>{isEvChargeActive ? 'STOP' : 'EV Charge'}</span>
+                        {isEvChargeActive && selectedEv.manual_charge && (
+                            <span className="text-white/80">→ {selectedEv.manual_charge.target_soc}%</span>
+                        )}
+                    </button>
+                </div>
+            )}
 
             {/* Boost */}
             <div

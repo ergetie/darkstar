@@ -114,8 +114,8 @@ ev_chargers:
     max_power_kw: 11.0               # Maximum charging power (kW)
     battery_capacity_kwh: 82.0       # Battery capacity for SoC calculations (kWh)
     sensor: ""                       # Home Assistant entity for power reading
-    soc_sensor: ""                   # EV battery state of charge (%) - Required for smart charging
-    plug_sensor: ""                  # EV plug status sensor - Required for smart charging
+    soc_sensor: ""                   # EV battery state of charge (%) - Required for smart charging and "EV Charge" (charge now)
+    plug_sensor: ""                  # EV plug status sensor - Required for smart charging; ends "EV Charge" on unplug
     type: binary                     # Control type: binary (ON/OFF switch) or current (variable ampere setpoint)
     nominal_power_kw: 11.0           # Nominal power for load calculations
     # Charging goals (target SoC, ready-by, repeat, n_days, keep-on-after-target) are

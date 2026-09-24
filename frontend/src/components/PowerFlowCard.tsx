@@ -10,6 +10,7 @@ import { useMemo, useState, useCallback, useEffect } from 'react'
 import { NODE_REGISTRY, type PowerFlowData } from './PowerFlowRegistry'
 import type { ConfigResponse } from '../lib/api'
 import { Plug } from 'lucide-react'
+import { deriveEvNodeView, evTargetSoc, type EvLiveReading } from './evNodeView'
 
 interface PowerFlowCardProps {
     data: PowerFlowData
@@ -38,7 +39,14 @@ const COLORS: Record<string, string> = {
 const TEXT = 'rgb(var(--color-text))'
 const SURFACE = 'rgb(var(--color-surface))'
 const MUTED = 'rgb(var(--color-muted))'
+// EV node state icon colours: charging = EV violet, plugged in = green (as in the EV popup).
+const EV_ICON_COLORS: Partial<Record<'charging' | 'plugged' | 'unplugged', string>> = {
+    charging: 'rgb(var(--color-ai))',
+    plugged: 'rgb(var(--color-good))',
+}
 const MONO = 'JetBrains Mono, monospace'
+// Approximate glyph advance of the 9px monospace sub-line, for centring icon + text.
+const EV_SUB_CHAR_W = 5.4
 
 const TOP_ORDER = ['solar', 'battery', 'grid'] as const
 const BOT_ORDER = ['house', 'water', 'ev'] as const
@@ -187,6 +195,9 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
     const evTooltipContent = useMemo(() => {
         if (!data.evChargers || data.evChargers.length === 0) return null
         const evCount = data.evChargers.length
+        const statuses = data.evChargerStatuses ?? []
+        const targetFor = (ev: EvLiveReading) =>
+            evTargetSoc(ev.id != null ? statuses.find((s) => s.id === ev.id) : undefined)
         const header = evCount > 1 ? `${evCount} EVs Connected` : data.evChargers[0]?.name || 'EV'
         return (
             <div
@@ -229,11 +240,17 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
                         <span style={{ flex: 1 }}>{ev.name}</span>
                         <span>{ev.kw.toFixed(1)} kW</span>
                         {ev.soc !== null && <span>{ev.soc.toFixed(0)}%</span>}
+                        {targetFor(ev) != null && <span style={{ color: MUTED }}>→ {targetFor(ev)}%</span>}
                     </div>
                 ))}
             </div>
         )
-    }, [data.evChargers])
+    }, [data.evChargers, data.evChargerStatuses])
+
+    const evView = useMemo(
+        () => deriveEvNodeView(data.evChargers, data.evChargerStatuses),
+        [data.evChargers, data.evChargerStatuses],
+    )
 
     // Config-based node visibility
     const configMap = useMemo(() => {
@@ -339,11 +356,36 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
                     ? `${data.water.todayKwh.toFixed(1)} kWh`
                     : undefined
             case 'ev':
-                if (!data.evChargers || data.evChargers.length === 0) return undefined
-                return data.evSoc != null ? `${data.evSoc.toFixed(0)}%` : data.evPluggedIn ? 'plugged' : 'away'
+                return evView?.text
             default:
                 return undefined
         }
+    }
+
+    // EV sub-line: state icon (lightning / plug / unplug) + text, centred together.
+    const renderEvSubValue = (cx: number, baselineY: number, view: NonNullable<typeof evView>, active: boolean) => {
+        const Icon = view.icon
+        const color = view.muted ? MUTED : active ? TEXT : MUTED
+        const iconSize = 8
+        const gap = 2
+        const textWidth = view.text.length * EV_SUB_CHAR_W
+        const startX = cx - (iconSize + gap + textWidth) / 2
+        return (
+            <g data-testid="ev-node-sub" data-ev-state={view.state}>
+                <Icon
+                    x={startX}
+                    y={baselineY - iconSize + 1}
+                    width={iconSize}
+                    height={iconSize}
+                    color={EV_ICON_COLORS[view.state] ?? color}
+                    strokeWidth={2.5}
+                    aria-hidden="true"
+                />
+                <text x={startX + iconSize + gap} y={baselineY} fill={color} fontSize={9} fontFamily={MONO}>
+                    {view.text}
+                </text>
+            </g>
+        )
     }
 
     const renderBracketNode = (id: string, row: 'top' | 'bot', idx: number, count: number) => {
@@ -356,6 +398,8 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
         const label = getLabel(id)
         const subValue = getSubValue(id)
         const isEvNode = id === 'ev' && evTooltipContent != null
+        // A connected (plugged/charging) car keeps the EV node at full opacity even at 0 kW.
+        const evConnected = id === 'ev' && evView != null && evView.state !== 'unplugged'
 
         const lbp = [
             `M ${cx - B_W + B_SIZE} ${cy - B_H}`,
@@ -377,7 +421,7 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
         return (
             <g
                 key={id}
-                opacity={active ? 1 : 0.45}
+                opacity={active || evConnected ? 1 : 0.45}
                 onClick={isEvNode ? handleEvInteract : undefined}
                 style={isEvNode ? { cursor: 'pointer' } : undefined}
             >
@@ -405,7 +449,9 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
                 >
                     {kw.toFixed(1)} kW
                 </text>
-                {subValue && (
+                {subValue && id === 'ev' && evView ? (
+                    renderEvSubValue(cx, cy + 17, evView, active)
+                ) : subValue ? (
                     <text
                         x={cx}
                         y={cy + 17}
@@ -416,7 +462,7 @@ export default function PowerFlowCard({ data, systemConfig }: PowerFlowCardProps
                     >
                         {subValue}
                     </text>
-                )}
+                ) : null}
             </g>
         )
     }

@@ -26,7 +26,7 @@ from executor.config import (
     WaterHeaterConfig,
 )
 from executor.engine import EVChargerState, ExecutorEngine, ExecutorStatus
-from executor.override import SlotPlan
+from executor.override import SlotPlan, SystemState
 
 
 @pytest.fixture
@@ -281,12 +281,17 @@ class TestQuickActions:
                 with patch.object(ExecutorEngine, "_get_db_path", return_value=temp_db):
                     yield ExecutorEngine("config.yaml")
 
+    @staticmethod
+    def _with_soc(engine, soc: float):
+        engine._last_system_state = SystemState(current_soc_percent=soc)
+        return engine
+
     def test_set_quick_action(self, engine):
-        """Can set a quick action."""
-        result = engine.set_quick_action("force_charge", 30)
+        """Can set a duration-limited quick action."""
+        result = engine.set_quick_action("force_stop", 30)
 
         assert result["success"] is True
-        assert result["type"] == "force_charge"
+        assert result["type"] == "force_stop"
         assert result["duration_minutes"] == 30
         assert "expires_at" in result
 
@@ -296,13 +301,74 @@ class TestQuickActions:
             engine.set_quick_action("invalid_action", 30)
 
     def test_invalid_duration_raises(self, engine):
-        """Invalid duration raises ValueError."""
+        """Invalid duration raises ValueError for duration-limited actions."""
         with pytest.raises(ValueError):
-            engine.set_quick_action("force_charge", 45)  # Must be 15, 30, or 60
+            engine.set_quick_action("force_stop", 45)  # Must be 15, 30, or 60
+
+    def test_force_charge_ignores_duration_list_and_expires_in_24h(self, engine):
+        """Top Up is not limited by the 15/30/60 list; expiry is a 24 h safety timeout."""
+        self._with_soc(engine, 40.0)
+        engine.set_quick_action("force_charge", 45, {"target_soc": 80})
+
+        action = engine.get_active_quick_action()
+
+        assert action is not None
+        assert action["params"]["target_soc"] == 80
+        assert action["remaining_minutes"] > 23.9 * 60
+
+    def test_force_charge_still_active_past_60_minutes(self, engine):
+        self._with_soc(engine, 20.0)
+        engine.set_quick_action("force_charge", 60, {"target_soc": 100})
+
+        later = datetime.now(pytz.timezone("Europe/Stockholm")) + timedelta(minutes=61)
+        with patch("executor.engine.datetime") as mock_dt:
+            mock_dt.now.return_value = later
+            mock_dt.fromisoformat = datetime.fromisoformat
+            action = engine.get_active_quick_action()
+
+        assert action is not None
+
+    def test_force_charge_24h_timeout(self, engine):
+        self._with_soc(engine, 20.0)
+        engine.set_quick_action("force_charge", 60, {"target_soc": 100})
+
+        later = datetime.now(pytz.timezone("Europe/Stockholm")) + timedelta(hours=24, seconds=1)
+        with patch("executor.engine.datetime") as mock_dt:
+            mock_dt.now.return_value = later
+            mock_dt.fromisoformat = datetime.fromisoformat
+            action = engine.get_active_quick_action()
+
+        assert action is None
+
+    @pytest.mark.parametrize(
+        ("soc", "target", "message"),
+        [
+            (40.0, 9, "between 10 and 100"),
+            (40.0, 101, "between 10 and 100"),
+            (85.0, 80, "already reached"),
+            (80.0, 80, "already reached"),
+        ],
+    )
+    def test_force_charge_rejections(self, engine, soc, target, message):
+        self._with_soc(engine, soc)
+        with pytest.raises(ValueError, match=message):
+            engine.set_quick_action("force_charge", 60, {"target_soc": target})
+        assert engine.get_active_quick_action() is None
+
+    def test_force_charge_rejected_below_configured_min_soc(self, engine):
+        engine._full_config = {"battery": {"min_soc_percent": 12}}
+        self._with_soc(engine, 5.0)
+        with pytest.raises(ValueError, match="between 12 and 100"):
+            engine.set_quick_action("force_charge", 60, {"target_soc": 10})
+
+    def test_force_charge_rejected_when_soc_unknown(self, engine):
+        with pytest.raises(ValueError, match="SoC is unknown"):
+            engine.set_quick_action("force_charge", 60, {"target_soc": 80})
 
     def test_get_active_quick_action(self, engine):
         """Can retrieve active quick action."""
-        engine.set_quick_action("force_charge", 60)
+        self._with_soc(engine, 40.0)
+        engine.set_quick_action("force_charge", 60, {"target_soc": 80})
 
         action = engine.get_active_quick_action()
 
@@ -312,7 +378,7 @@ class TestQuickActions:
 
     def test_clear_quick_action(self, engine):
         """Can clear a quick action."""
-        engine.set_quick_action("force_charge", 30)
+        engine.set_quick_action("force_stop", 30)
 
         result = engine.clear_quick_action()
 
@@ -459,6 +525,39 @@ class TestRunOnce:
 
         assert result["success"] is True
         assert len(result["actions"]) > 0
+
+    async def test_force_charge_cleared_when_target_reached(self, engine, temp_schedule):
+        """Top Up ends at its target SoC and the tick follows the schedule."""
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
+            json.dump({"schedule": []}, f)
+        engine._last_system_state = SystemState(current_soc_percent=60.0)
+        engine.set_quick_action("force_charge", 60, {"target_soc": 80})
+
+        with patch.object(
+            engine,
+            "_gather_system_state",
+            AsyncMock(return_value=SystemState(current_soc_percent=80.0)),
+        ):
+            result = await engine.run_once()
+
+        assert engine.get_active_quick_action() is None
+        assert result.get("override") is None or result["override"]["type"] != "force_charge"
+
+    async def test_force_charge_kept_below_target(self, engine, temp_schedule):
+        with Path(temp_schedule).open("w", encoding="utf-8") as f:
+            json.dump({"schedule": []}, f)
+        engine._last_system_state = SystemState(current_soc_percent=60.0)
+        engine.set_quick_action("force_charge", 60, {"target_soc": 80})
+
+        with patch.object(
+            engine,
+            "_gather_system_state",
+            AsyncMock(return_value=SystemState(current_soc_percent=79.0)),
+        ):
+            result = await engine.run_once()
+
+        assert engine.get_active_quick_action() is not None
+        assert result["override"]["type"] == "force_charge"
 
     async def test_run_once_logs_to_history(self, engine, temp_schedule):
         """run_once logs execution to history."""

@@ -12,11 +12,13 @@ import Select from '../components/ui/Select'
 import Modal from '../components/ui/Modal'
 import { Banner, Badge } from '../components/ui/Banner'
 import Switch from '../components/ui/Switch'
+import SocStepper from '../components/ui/SocStepper'
 import { useToast } from '../lib/useToast'
 
 export default function DesignSystem() {
     const { toast } = useToast()
     const [toggleActive, setToggleActive] = useState(false)
+    const [stepperValue, setStepperValue] = useState(50)
     const [progressValue, setProgressValue] = useState(65)
     const [accordionOpen, setAccordionOpen] = useState(false)
     const [modalOpen, setModalOpen] = useState(false)
@@ -184,6 +186,20 @@ export default function DesignSystem() {
                         <div className="flex items-center gap-3">
                             <Switch checked={toggleActive} onCheckedChange={setToggleActive} />
                             <span className="text-sm text-text">{toggleActive ? 'On' : 'Off'}</span>
+                        </div>
+                    </div>
+                    <div>
+                        <label className="block text-sm text-muted mb-2">
+                            SoC Stepper (<code>.soc-stepper</code>) — ±15%, tap value to type
+                        </label>
+                        <div className="inline-flex items-center rounded px-1.5 py-1 bg-surface2/50 border border-line/50">
+                            <SocStepper
+                                value={stepperValue}
+                                min={10}
+                                max={100}
+                                onChange={setStepperValue}
+                                label="Example target"
+                            />
                         </div>
                     </div>
                 </div>

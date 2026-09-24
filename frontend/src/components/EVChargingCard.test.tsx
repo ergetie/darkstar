@@ -1,13 +1,15 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import EVChargingCard from './EVChargingCard'
+import { Api } from '../lib/api'
 import type { EVChargerState, LoadBalancerEvStatus, LoadBalancerStatusResponse } from '../lib/api'
 
 vi.mock('../lib/api', () => ({
     Api: {
         ev: {
             setSchedule: vi.fn(),
+            manualCharge: { stop: vi.fn().mockResolvedValue({ success: true, was_active: true }) },
         },
     },
 }))
@@ -197,5 +199,33 @@ describe('EVChargingCard at-risk goal (fix-ev-current-charger-control 5.3)', () 
         renderCard(baseCharger())
         expect(screen.getByText('ON TRACK')).toBeInTheDocument()
         expect(screen.queryByTestId('ev-shortfall')).not.toBeInTheDocument()
+    })
+})
+
+describe('EVChargingCard manual charge line', () => {
+    it('shows "Manual charge → X%" with Stop when active', async () => {
+        const onRefresh = vi.fn().mockResolvedValue(undefined)
+        render(
+            <MemoryRouter>
+                <EVChargingCard
+                    charger={baseCharger({
+                        manual_charge: { target_soc: 80, current_a: null, started_at: '2026-09-24T10:00:00+02:00' },
+                    })}
+                    config={{}}
+                    loadBalancing={null}
+                    onRefresh={onRefresh}
+                />
+            </MemoryRouter>,
+        )
+        expect(screen.getByTestId('ev-manual-charge')).toHaveTextContent('Manual charge → 80%')
+
+        fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+        await waitFor(() => expect(onRefresh).toHaveBeenCalled())
+        expect(Api.ev.manualCharge.stop).toHaveBeenCalledWith('ev1')
+    })
+
+    it('shows no manual charge line when inactive', () => {
+        renderCard(baseCharger({ manual_charge: null }))
+        expect(screen.queryByTestId('ev-manual-charge')).not.toBeInTheDocument()
     })
 })
