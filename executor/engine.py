@@ -32,6 +32,7 @@ from typing import Any, cast
 import pytz
 
 # import yaml
+from backend.core.ev_plug import is_unreachable_state
 from backend.core.ha_timestamps import reading_timestamp
 
 # Import existing HA config loader
@@ -87,6 +88,10 @@ EV_KEEP_ON_REASON_MARKER = "EV keep-on active"
 ACTION_FAILURE_NOTIFY_STREAK = 3
 
 
+# Minimum gap between EV charge failure/recovery replans (ev-charge-failure-detection).
+EV_FAILURE_REPLAN_COOLDOWN_S = 300
+
+
 @dataclass
 class EVChargerState:
     """Per-device EV charger runtime state."""
@@ -106,6 +111,9 @@ class EVChargerState:
     # ev-measured-draw: amps per phase the car actually draws this tick
     # (None = no trustworthy measurement).
     measured_draw_a: float | None = None
+    # ev-missed-goal-recovery: the charger's switch entity last read
+    # unavailable/unknown (charger unreachable, not unplugged).
+    unreachable: bool = False
 
 
 @dataclass
@@ -336,6 +344,13 @@ class ExecutorEngine:
         # EV charge failure detection
         self._ev_zero_power_ticks: int = 0
         self._ev_failure_notified: bool = False
+        # A failure fired this commanded period; the first >0.1kW afterwards
+        # requests a recovery replan (ev-charge-failure-detection).
+        self._ev_failure_recovery_pending: bool = False
+        # Own cooldown for failure/recovery replans, separate from the
+        # balancer's once-per-interval limit so a recovery soon after a
+        # failure is not dropped.
+        self._last_ev_failure_replan_at: datetime | None = None
 
         # Command-failure streak tracking, per action type
         self._action_fail_counts: dict[str, int] = {}
@@ -1631,11 +1646,14 @@ class ExecutorEngine:
                     for c in self.config.ev_chargers
                     if c.id in self._ev_charger_states
                 )
-                if await self._check_ev_charge_failure(commanded_active, actual_ev_power_kw):
+                if await self._check_ev_charge_failure(
+                    commanded_active, actual_ev_power_kw, now=now
+                ):
                     ev_charge_failed = True
             elif self._has_ev_charger:
                 self._ev_zero_power_ticks = 0
                 self._ev_failure_notified = False
+                self._ev_failure_recovery_pending = False
 
             # 6. Execute actions (skipped when manual_override_active — no inverter/EV/water writes)
             action_results: list[ActionResult] = list(ev_surplus_phase_mode_results)
@@ -2779,6 +2797,20 @@ class ExecutorEngine:
 
     def _maybe_fire_balancer_replan(self, charger_id: str, now: datetime) -> None:
         """Fire one balancer-triggered replan, at most one per planner interval."""
+        if not self._executor_replan_allowed(now):
+            return  # rate limit: keep the tracker running, retry when rearmed
+
+        self._balancer_throttled_since.pop(charger_id, None)  # reset on fire
+        logger.info(
+            "Load balancer has constrained charger '%s' for over %ss — requesting one early replan",
+            charger_id,
+            self.config.load_balancing.replan_after_throttled_s,
+        )
+        self._request_balancer_replan()
+
+    def _executor_replan_allowed(self, now: datetime) -> bool:
+        """Rate limit for balancer-triggered replans: at most one per planner
+        interval. Consumes the slot when it returns True."""
         automation_raw: Any = self._full_config.get("automation", {})
         automation_cfg: dict[str, Any] = (
             cast("dict[str, Any]", automation_raw) if isinstance(automation_raw, dict) else {}
@@ -2794,16 +2826,10 @@ class ExecutorEngine:
 
         last = self._last_balancer_replan_at
         if last is not None and (now - last).total_seconds() < interval_minutes * 60:
-            return  # rate limit: keep the tracker running, retry when rearmed
+            return False
 
         self._last_balancer_replan_at = now
-        self._balancer_throttled_since.pop(charger_id, None)  # reset on fire
-        logger.info(
-            "Load balancer has constrained charger '%s' for over %ss — requesting one early replan",
-            charger_id,
-            self.config.load_balancing.replan_after_throttled_s,
-        )
-        self._request_balancer_replan()
+        return True
 
     def _request_balancer_replan(self) -> None:
         """Request a planner run via the same mechanism as the plug/unplug triggers."""
@@ -2952,7 +2978,10 @@ class ExecutorEngine:
         }
 
     async def _check_ev_charge_failure(
-        self, commanded_active: bool, actual_ev_power_kw: float
+        self,
+        commanded_active: bool,
+        actual_ev_power_kw: float,
+        now: datetime | None = None,
     ) -> bool:
         """EV charge failure detection based on the commanded level (5.1).
 
@@ -2964,16 +2993,38 @@ class ExecutorEngine:
 
         Returns True the tick the failure notification fires (once per
         commanded session).
+
+        The first failure in a commanded period, and the first tick with
+        actual power above 0.1kW after it, each request a replan so the
+        remaining time is re-planned. Both use their own short cooldown
+        (EV_FAILURE_REPLAN_COOLDOWN_S), independent of the balancer replan
+        rate limit; at most one failure and one recovery replan fire per
+        commanded period anyway. A recovery inside the cooldown stays pending
+        and fires on the first charging tick after the cooldown ends.
         """
         if not commanded_active:
             self._ev_zero_power_ticks = 0
             self._ev_failure_notified = False
+            self._ev_failure_recovery_pending = False
             return False
+
+        if now is None:
+            now = datetime.now(pytz.timezone(self.config.timezone))
 
         if actual_ev_power_kw < 0.1 and not self._ev_power_fetch_failed:
             self._ev_zero_power_ticks += 1
         else:
             self._ev_zero_power_ticks = 0
+            # Stays pending until the replan actually fires, so a recovery
+            # inside the cooldown is retried on a later tick, not dropped.
+            if (
+                self._ev_failure_recovery_pending
+                and actual_ev_power_kw >= 0.1
+                and self._request_ev_failure_replan(
+                    now, f"EV charging resumed ({actual_ev_power_kw:.2f}kW) after a failure"
+                )
+            ):
+                self._ev_failure_recovery_pending = False
 
         if self._ev_zero_power_ticks >= 5 and not self._ev_failure_notified:
             error_msg = (
@@ -2985,9 +3036,23 @@ class ExecutorEngine:
             if self.dispatcher:
                 await self.dispatcher.notify_error(error_msg)
             self._ev_failure_notified = True
+            self._ev_failure_recovery_pending = True
+            self._request_ev_failure_replan(now, "EV charge failure detected")
             return True
 
         return False
+
+    def _request_ev_failure_replan(self, now: datetime, reason: str) -> bool:
+        """Request a replan for an EV charge failure/recovery, unless one was
+        requested within EV_FAILURE_REPLAN_COOLDOWN_S. Returns True if requested."""
+        last = self._last_ev_failure_replan_at
+        if last is not None and (now - last).total_seconds() < EV_FAILURE_REPLAN_COOLDOWN_S:
+            logger.debug("%s — replan deferred (failure replan cooldown)", reason)
+            return False
+        self._last_ev_failure_replan_at = now
+        logger.info("%s — requesting replan of the remaining charging time", reason)
+        self._request_balancer_replan()
+        return True
 
     @staticmethod
     def _build_ev_reason_note(
@@ -3167,13 +3232,28 @@ class ExecutorEngine:
         """Set a charger's `switch_entity` to its enabled/disabled value (idempotent)."""
         assert self.dispatcher is not None
         assert charger_cfg.switch_entity
-        return await self.dispatcher.set_ev_charger_switch(
+        result = await self.dispatcher.set_ev_charger_switch(
             charger_cfg.switch_entity,
             turn_on=turn_on,
             charging_kw=charging_kw if turn_on else 0.0,
             enabled_value=charger_cfg.charge_enabled_value,
             disabled_value=charger_cfg.charge_disabled_value,
         )
+        dev_state = self._ev_charger_states.get(charger_cfg.id)
+        if dev_state is not None:
+            unreachable = is_unreachable_state(getattr(result, "previous_value", None))
+            if unreachable != dev_state.unreachable:
+                if unreachable:
+                    logger.warning(
+                        "EV %s: charger unreachable (switch %s is %s)",
+                        charger_cfg.id,
+                        charger_cfg.switch_entity,
+                        result.previous_value,
+                    )
+                else:
+                    logger.info("EV %s: charger reachable again", charger_cfg.id)
+            dev_state.unreachable = unreachable
+        return result
 
     def _ev_backoff_active(self, charger_id: str, desired_key: str, now: datetime) -> bool:
         """True while a charger is in write-failure backoff for this desired state.

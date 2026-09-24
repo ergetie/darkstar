@@ -376,9 +376,9 @@ async def test_non_surplus_slot_unaffected_by_ev_surplus_feature(temp_schedule, 
 
     await engine.run_once()
 
-    # 11kW / 3-phase -> 15A, exactly as planned_kw_to_amps computes, unaffected
+    # 11kW / 3-phase -> 16A (ceil), exactly as planned_kw_to_amps computes, unaffected
     # by the (empty) surplus feature.
-    engine.ha_client.set_number.assert_any_call("number.goe_current", 15.0)
+    engine.ha_client.set_number.assert_any_call("number.goe_current", 16.0)
     assert engine._ev_surplus_targets == {}
 
 

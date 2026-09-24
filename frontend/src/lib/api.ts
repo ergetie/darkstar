@@ -675,6 +675,8 @@ export type EVChargerState = {
     id: string
     name: string
     plugged_in: boolean
+    /** Plug sensor or switch reads unavailable/unknown; plugged_in is the last known state */
+    unreachable?: boolean
     soc_percent: number | null
     power_kw: number | null
     target_soc_percent: number | null

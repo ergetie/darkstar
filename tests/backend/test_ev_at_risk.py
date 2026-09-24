@@ -70,7 +70,7 @@ async def _get(monkeypatch, persisted: dict, diagnostics: dict | None) -> dict:
     with (
         patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=79.0)),
-        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(return_value=True)),
+        patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})),
     ):
         (charger,) = await ev_router.get_ev_chargers()
     return charger

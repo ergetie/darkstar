@@ -188,15 +188,15 @@ async def test_disabled_balancer_matches_unbalanced_target(temp_schedule, temp_d
 
     await engine.run_once()
 
-    # 11kW / 3-phase -> 15A, exactly as planned_kw_to_amps computes with no cap
-    engine.ha_client.set_number.assert_any_call("number.goe_current", 15.0)
+    # 11kW / 3-phase -> 16A (ceil), exactly as planned_kw_to_amps computes with no cap
+    engine.ha_client.set_number.assert_any_call("number.goe_current", 16.0)
     assert engine._last_balancer_status.state == "disabled"
 
 
 @pytest.mark.asyncio
 async def test_enabled_balancer_caps_setpoint_below_planned(temp_schedule, temp_db):
     """With load balancing enabled and L1 already near the fuse, an in-progress
-    charging session must be reduced below the naive 15A planner target."""
+    charging session must be reduced below the naive 16A planner target."""
     from executor.engine import EVChargerState
 
     engine = make_engine(

@@ -16,7 +16,6 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from backend.api.routers import ev as ev_router
-from backend.core.ev_plug import is_ev_plugged_in
 
 
 def _config(chargers: list[dict]) -> dict:
@@ -53,7 +52,10 @@ def _patch_ha(power_kw: float, soc: float, plugged: bool):
             "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=power_kw)
         ),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=soc)),
-        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(return_value=plugged)),
+        patch(
+            "backend.api.routers.ev.get_ha_entity_state",
+            AsyncMock(return_value={"state": "on" if plugged else "off"}),
+        ),
     )
 
 
@@ -322,8 +324,8 @@ async def test_multiple_chargers_preserve_config_order(monkeypatch):
             AsyncMock(side_effect=lambda e: soc_by_entity[e]),
         ),
         patch(
-            "backend.api.routers.ev.get_ha_bool",
-            AsyncMock(side_effect=lambda e, _states: plug_by_entity[e]),
+            "backend.api.routers.ev.get_ha_entity_state",
+            AsyncMock(side_effect=lambda e: {"state": "on" if plug_by_entity[e] else "off"}),
         ),
     ):
         result = await ev_router.get_ev_chargers()
@@ -353,15 +355,14 @@ async def test_charger_specific_plug_mapping_is_used(monkeypatch):
         ),
     )
 
-    async def read_plug(entity_id: str, connected_states: str) -> bool:
+    async def read_plug(entity_id: str) -> dict:
         assert entity_id == "sensor.goe_state"
-        assert connected_states == "WaitCar, Charging"
-        return is_ev_plugged_in(" charging ", connected_states)
+        return {"state": " charging "}
 
     with (
         patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0)),
-        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(side_effect=read_plug)),
+        patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(side_effect=read_plug)),
     ):
         result = await ev_router.get_ev_chargers()
 
@@ -394,7 +395,7 @@ async def test_one_charger_sensor_failure_isolated(monkeypatch):
             "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(side_effect=_flaky_power)
         ),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=50.0)),
-        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(return_value=True)),
+        patch("backend.api.routers.ev.get_ha_entity_state", AsyncMock(return_value={"state": "on"})),
     ):
         result = await ev_router.get_ev_chargers()
 
@@ -419,3 +420,50 @@ async def test_disabled_chargers_not_returned(monkeypatch):
 
     assert len(result) == 1
     assert result[0]["id"] == "ev1"
+
+
+@pytest.mark.asyncio
+async def test_unavailable_plug_reports_unreachable_with_last_known_state(monkeypatch):
+    """ev-missed-goal-recovery: unavailable plug sensor = unreachable, not unplugged."""
+    from backend.core import ev_plug
+
+    monkeypatch.setattr(ev_plug, "_last_known_plugged", {"ev1": True})
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    monkeypatch.setattr(ev_router, "load_yaml", lambda _p: _config([_charger_cfg(id="ev1")]))
+
+    with (
+        patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)),
+        patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=53.0)),
+        patch(
+            "backend.api.routers.ev.get_ha_entity_state",
+            AsyncMock(return_value={"state": "unavailable"}),
+        ),
+    ):
+        result = await ev_router.get_ev_chargers()
+
+    assert result[0]["unreachable"] is True
+    assert result[0]["plugged_in"] is True
+
+
+@pytest.mark.asyncio
+async def test_unavailable_switch_reports_unreachable(monkeypatch):
+    monkeypatch.setattr(ev_router, "_load_ev_state", lambda: {})
+    monkeypatch.setattr(
+        ev_router,
+        "load_yaml",
+        lambda _p: _config([_charger_cfg(id="ev1", switch_entity="select.goe_force")]),
+    )
+    states = {"binary_sensor.ev1_plug": {"state": "on"}, "select.goe_force": {"state": "unknown"}}
+
+    with (
+        patch("backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=0.0)),
+        patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=53.0)),
+        patch(
+            "backend.api.routers.ev.get_ha_entity_state",
+            AsyncMock(side_effect=lambda e: states[e]),
+        ),
+    ):
+        result = await ev_router.get_ev_chargers()
+
+    assert result[0]["unreachable"] is True
+    assert result[0]["plugged_in"] is True

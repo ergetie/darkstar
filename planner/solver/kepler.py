@@ -91,6 +91,12 @@ class KeplerSolver:
             duration = (s.end_time - s.start_time).total_seconds() / 3600.0
             slot_hours.append(duration)
 
+        # EV-only slot durations: the in-progress slot 0 only has the time left
+        # in it for EV charging. Other flows keep the full slot duration.
+        ev_slot_hours: list[float] = list(slot_hours)
+        if input_data.first_slot_remaining_h is not None:
+            ev_slot_hours[0] = min(slot_hours[0], max(0.0, input_data.first_slot_remaining_h))
+
         # Problem Definition
         prob: Any = pulp.LpProblem("KeplerSchedule", pulp.LpMinimize)
 
@@ -422,17 +428,18 @@ class KeplerSolver:
                 prob += soc[t] >= threshold_kwh - M_soc * (1 - soc_above_threshold[t])
 
             # Per-device EV constraints
+            h_ev: float = ev_slot_hours[t]
             for charger in plugged_chargers:
                 d = charger.id
                 if charger.control_type == "current":
                     # Semi-continuous: off => 0, on => any power in
                     # [min_power_kw, max_power_kw]. min_power_kw is derived
                     # by the adapter from min_current_a x phases (design D1/D2).
-                    prob += ev_energy[d][t] >= charger.min_power_kw * h * ev_charge[d][t]
-                    prob += ev_energy[d][t] <= charger.max_power_kw * h * ev_charge[d][t]
+                    prob += ev_energy[d][t] >= charger.min_power_kw * h_ev * ev_charge[d][t]
+                    prob += ev_energy[d][t] <= charger.max_power_kw * h_ev * ev_charge[d][t]
                 else:
                     # Binary ON/OFF at max power (unchanged)
-                    prob += ev_energy[d][t] == ev_charge[d][t] * charger.max_power_kw * h
+                    prob += ev_energy[d][t] == ev_charge[d][t] * charger.max_power_kw * h_ev
 
                 # Deadline constraint: zero charging after deadline
                 if charger.deadline is not None and s.end_time > charger.deadline:
@@ -953,7 +960,8 @@ class KeplerSolver:
                 for charger in plugged_chargers:
                     d = charger.id
                     ev_val: float | None = pulp.value(ev_energy[d][t])  # type: ignore[assignment]
-                    device_kw: float = ev_val / h if ev_val is not None and h > 0 else 0.0
+                    h_ev_t = ev_slot_hours[t]
+                    device_kw: float = ev_val / h_ev_t if ev_val is not None and h_ev_t > 0 else 0.0
                     ev_charger_results[d] = device_kw
                     total_ev_kw += device_kw
                 ev_kw = total_ev_kw

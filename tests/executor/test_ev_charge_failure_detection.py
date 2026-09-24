@@ -7,6 +7,7 @@ delta-spec scenarios directly against ExecutorEngine._check_ev_charge_failure.
 import contextlib
 import tempfile
 from pathlib import Path
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -64,6 +65,8 @@ def engine():
         eng._has_ev_charger = True
         eng.dispatcher = MagicMock()
         eng.dispatcher.notify_error = AsyncMock()
+        eng._full_config = {"automation": {"schedule": {"every_minutes": 60}}}
+        eng._request_balancer_replan = MagicMock()
         return eng
 
 
@@ -226,3 +229,79 @@ class TestFullTickWiring:
         assert eng._last_balancer_status.state == "paused"
         assert eng._ev_zero_power_ticks == 0
         assert eng._ev_failure_notified is False
+
+
+T0 = datetime(2026, 9, 24, 10, 15)
+
+
+async def _fail(engine, start: datetime) -> datetime:
+    """Drive 5 zero-power ticks (10 s apart) so the failure fires; return last tick time."""
+    t = start
+    for i in range(5):
+        t = start + timedelta(seconds=10 * i)
+        await engine._check_ev_charge_failure(True, 0.0, now=t)
+    return t
+
+
+class TestFailureRecoveryReplan:
+    """ev-goal-shortfall-recovery 5.4: failure/recovery replan with its own cooldown."""
+
+    @pytest.mark.asyncio
+    async def test_failure_requests_replan(self, engine):
+        await _fail(engine, T0)
+        engine._request_balancer_replan.assert_called_once()
+        engine.dispatcher.notify_error.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_recovery_requests_replan(self, engine):
+        """Incident timing: failure ~10:16, power back 10:22 -> both replan."""
+        await _fail(engine, T0)
+        await engine._check_ev_charge_failure(True, 4.1, now=T0 + timedelta(minutes=7))
+        # Only the first >0.1 kW tick requests a replan.
+        await engine._check_ev_charge_failure(True, 4.1, now=T0 + timedelta(minutes=30))
+        assert engine._request_balancer_replan.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_recovery_within_cooldown_is_deferred_not_dropped(self, engine):
+        last = await _fail(engine, T0)
+        await engine._check_ev_charge_failure(True, 4.1, now=last + timedelta(minutes=2))
+        engine._request_balancer_replan.assert_called_once()
+        assert engine._ev_failure_recovery_pending is True
+        # Still charging after the cooldown -> the deferred recovery replan fires once.
+        await engine._check_ev_charge_failure(True, 4.1, now=last + timedelta(minutes=5))
+        await engine._check_ev_charge_failure(True, 4.1, now=last + timedelta(minutes=6))
+        assert engine._request_balancer_replan.call_count == 2
+        assert engine._ev_failure_recovery_pending is False
+
+    @pytest.mark.asyncio
+    async def test_deferred_recovery_waits_for_power(self, engine):
+        """After the cooldown, a zero-power tick does not fire the recovery replan."""
+        last = await _fail(engine, T0)
+        await engine._check_ev_charge_failure(True, 4.1, now=last + timedelta(minutes=2))
+        await engine._check_ev_charge_failure(True, 0.0, now=last + timedelta(minutes=6))
+        engine._request_balancer_replan.assert_called_once()
+        await engine._check_ev_charge_failure(True, 4.1, now=last + timedelta(minutes=7))
+        assert engine._request_balancer_replan.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_balancer_rate_limit_does_not_block_failure_replan(self, engine):
+        engine._last_balancer_replan_at = T0 - timedelta(minutes=5)
+        await _fail(engine, T0)
+        engine._request_balancer_replan.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_failure_replan_does_not_consume_balancer_slot(self, engine):
+        last = await _fail(engine, T0)
+        assert engine._executor_replan_allowed(last + timedelta(minutes=1)) is True
+
+    @pytest.mark.asyncio
+    async def test_power_without_prior_failure_does_not_replan(self, engine):
+        await engine._check_ev_charge_failure(True, 4.1, now=T0)
+        engine._request_balancer_replan.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_command_end_clears_pending_recovery(self, engine):
+        await _fail(engine, T0)
+        await engine._check_ev_charge_failure(False, 0.0, now=T0 + timedelta(minutes=30))
+        await engine._check_ev_charge_failure(True, 4.1, now=T0 + timedelta(minutes=90))
+        engine._request_balancer_replan.assert_called_once()

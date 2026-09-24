@@ -162,6 +162,9 @@ class KeplerInput:
 
     slots: list[KeplerInputSlot]
     initial_soc_kwh: float
+    # Hours left in slot 0 when planning starts mid-slot. Bounds EV energy in
+    # that slot only; None means the full slot duration is available.
+    first_slot_remaining_h: float | None = None
 
 
 @dataclass

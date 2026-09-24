@@ -23,9 +23,17 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.core.ev_goal import resolve_next_ready_by
-from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES
+from backend.core.ev_plug import (
+    DEFAULT_EV_PLUGGED_IN_STATES,
+    is_unreachable_state,
+    resolve_plug_state,
+)
 from backend.core.ev_state import read_ev_state, update_ev_state
-from backend.core.ha_client import get_ha_bool, get_ha_sensor_float, get_ha_sensor_kw_normalized
+from backend.core.ha_client import (
+    get_ha_entity_state,
+    get_ha_sensor_float,
+    get_ha_sensor_kw_normalized,
+)
 from backend.core.secrets import load_yaml
 
 logger = logging.getLogger("darkstar.api.ev")
@@ -354,28 +362,39 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
 
-    async def _safe_bool(entity_id: str, connected_states: Any) -> bool | None:
+    async def _safe_raw_state(entity_id: str) -> Any:
         if not entity_id:
             return None
         try:
-            return await get_ha_bool(entity_id, connected_states)
+            state = await get_ha_entity_state(entity_id)
         except Exception as exc:
             logger.warning("Failed to read HA sensor %s: %s", entity_id, exc)
             return None
+        return state.get("state") if isinstance(state, dict) else None
 
     async def _build_charger(ev: dict[str, Any]) -> dict[str, Any] | None:
         if not ev.get("enabled", True):
             return None
         charger_id = str(ev.get("id", ""))
 
-        power_kw, soc_percent, plugged_in = await asyncio.gather(
+        plug_sensor = str(ev.get("plug_sensor", "") or "")
+        power_kw, soc_percent, raw_plug, raw_switch = await asyncio.gather(
             _safe_kw(str(ev.get("sensor", ""))),
             _safe_float(str(ev.get("soc_sensor", ""))),
-            _safe_bool(
-                str(ev.get("plug_sensor", "")),
-                ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
-            ),
+            _safe_raw_state(plug_sensor),
+            _safe_raw_state(str(ev.get("switch_entity", "") or "")),
         )
+        # unavailable/unknown plug or switch = charger unreachable, not unplugged;
+        # the plug state then reports the last known reading.
+        plugged_in: bool | None = None
+        plug_unreachable = False
+        if plug_sensor and raw_plug is not None:
+            plugged_in, plug_unreachable = resolve_plug_state(
+                charger_id,
+                raw_plug,
+                ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
+            )
+        unreachable = plug_unreachable or is_unreachable_state(raw_switch)
 
         persisted = state_by_id.get(charger_id, {})
 
@@ -393,6 +412,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
                 "id": charger_id,
                 "name": ev.get("name", charger_id),
                 "plugged_in": plugged_in,
+                "unreachable": unreachable,
                 "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
                 "power_kw": round(power_kw, 3) if power_kw is not None else None,
                 "target_soc_percent": None,
@@ -458,6 +478,7 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
             "id": charger_id,
             "name": ev.get("name", charger_id),
             "plugged_in": plugged_in,
+            "unreachable": unreachable,
             "soc_percent": round(soc_percent, 1) if soc_percent is not None else None,
             "power_kw": round(power_kw, 3) if power_kw is not None else None,
             "target_soc_percent": persisted.get("target_soc_percent"),

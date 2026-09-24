@@ -96,6 +96,20 @@ describe('EVChargingCard mode derivation (7.3)', () => {
     })
 })
 
+describe('EVChargingCard unreachable charger', () => {
+    it('shows "Charger unreachable" instead of Plugged/Away', () => {
+        renderCard(baseCharger({ unreachable: true }))
+        expect(screen.getByText(/Charger unreachable/)).toBeInTheDocument()
+        expect(screen.queryByText(/Plugged/)).not.toBeInTheDocument()
+    })
+
+    it('shows Plugged when reachable', () => {
+        renderCard(baseCharger({ unreachable: false }))
+        expect(screen.getByText(/Plugged/)).toBeInTheDocument()
+        expect(screen.queryByText(/Charger unreachable/)).not.toBeInTheDocument()
+    })
+})
+
 describe('EVChargingCard balancer badge (7.6)', () => {
     it('shows Throttling (not throttled) when the balancer reports throttling', () => {
         renderCard(baseCharger())

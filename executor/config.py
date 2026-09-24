@@ -140,6 +140,9 @@ class EVChargerDeviceConfig:
     battery_capacity_kwh: float | None = None
     replan_on_plugin: bool = True
     replan_on_unplug: bool = False
+    # Hours a missed goal stays active while the car is still plugged in
+    # (ev-missed-goal-recovery). 0 disables the grace window.
+    missed_goal_grace_hours: float = 4.0
 
     # HA entities the charging goal (set in the dashboard, stored in
     # data/ev_multi_day_state.json) is mirrored to/from. The goal itself is
@@ -663,6 +666,13 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 ", ".join(sorted(deprecated_fields_present)),
             )
 
+        grace_raw: Any = charger.get("missed_goal_grace_hours")
+        missed_goal_grace_hours = (
+            max(0.0, float(grace_raw))
+            if grace_raw is not None
+            else EVChargerDeviceConfig.missed_goal_grace_hours
+        )
+
         ev_chargers_list.append(
             EVChargerDeviceConfig(
                 id=charger_id,
@@ -705,6 +715,7 @@ def load_executor_config(config_path: str = "config.yaml") -> ExecutorConfig:
                 replan_on_unplug=bool(
                     charger.get("replan_on_unplug", EVChargerDeviceConfig.replan_on_unplug)
                 ),
+                missed_goal_grace_hours=missed_goal_grace_hours,
                 ha_ready_by_entity=_str_or_none(charger.get("ha_ready_by_entity")),
                 ha_target_soc_entity=_str_or_none(charger.get("ha_target_soc_entity")),
                 type=str(charger.get("type", EVChargerDeviceConfig.type)).lower(),

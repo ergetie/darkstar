@@ -7,7 +7,7 @@ from typing import Any
 
 import websockets
 
-from backend.core.ev_plug import is_ev_plugged_in
+from backend.core.ev_plug import resolve_plug_state
 from backend.core.secrets import load_home_assistant_config, load_yaml
 
 logger = logging.getLogger("darkstar.ha_socket")
@@ -526,7 +526,16 @@ class HAWebSocketClient:
                 ev_config = (
                     self.ev_charger_configs[ev_idx] if ev_idx < len(self.ev_charger_configs) else {}
                 )
-                is_plugged = is_ev_plugged_in(raw_state, ev_config.get("plugged_in_states"))
+                charger_id = (
+                    self.ev_charger_configs[ev_idx].get("id", f"ev_charger_{ev_idx}")
+                    if ev_idx < len(self.ev_charger_configs)
+                    else f"ev_charger_{ev_idx}"
+                )
+                # unavailable/unknown = charger unreachable, not unplugged: keep
+                # the last known plug state (ev-missed-goal-recovery).
+                is_plugged, unreachable = resolve_plug_state(
+                    charger_id, raw_state, ev_config.get("plugged_in_states")
+                )
 
                 # Initialize ev_chargers data structure if needed
                 ev_chargers: list[dict[str, Any]] = self.latest_values.get("ev_chargers", [])
@@ -549,20 +558,32 @@ class HAWebSocketClient:
                 # Update this EV's plug status, remembering the derived value so
                 # connected-to-connected state changes do not retrigger planning.
                 previous_plugged = False
+                was_unreachable = False
                 if ev_idx < len(ev_chargers):
                     previous_plugged = bool(ev_chargers[ev_idx].get("plugged_in", False))
+                    was_unreachable = bool(ev_chargers[ev_idx].get("unreachable", False))
+                    if unreachable:
+                        # Keep the plug state we already hold for this charger.
+                        is_plugged = previous_plugged
                     ev_chargers[ev_idx]["plugged_in"] = is_plugged
+                    ev_chargers[ev_idx]["unreachable"] = unreachable
 
                 # Build aggregate for backward compat
                 any_plugged = any(ev.get("plugged_in", False) for ev in ev_chargers)
 
                 # Trigger immediate re-plan on plug-in or unplug (Task 7.2/7.3: pass charger ID)
-                charger_id = (
-                    self.ev_charger_configs[ev_idx].get("id", f"ev_charger_{ev_idx}")
-                    if ev_idx < len(self.ev_charger_configs)
-                    else f"ev_charger_{ev_idx}"
-                )
-                if is_plugged != previous_plugged:
+                if unreachable:
+                    logger.warning(
+                        f"EV{ev_idx} ({charger_id}) charger unreachable ({state_val}) - "
+                        f"keeping last known plug state plugged_in={is_plugged}, no re-plan"
+                    )
+                elif was_unreachable and is_plugged and is_plugged == previous_plugged:
+                    logger.info(
+                        f"EV{ev_idx} ({charger_id}) reachable again and connected - "
+                        "triggering immediate re-plan"
+                    )
+                    self._trigger_ev_replan(charger_id=charger_id, plugged_in=True)
+                elif is_plugged != previous_plugged:
                     if is_plugged:
                         logger.info(
                             f"EV{ev_idx} ({charger_id}) plugged in - triggering immediate re-plan"

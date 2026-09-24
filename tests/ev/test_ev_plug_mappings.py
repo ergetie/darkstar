@@ -35,20 +35,19 @@ async def test_initial_state_uses_charger_specific_plug_mapping(tmp_path):
     config_path = tmp_path / "config.yaml"
     config_path.write_text("placeholder")
 
-    async def read_bool(entity_id: str, states: str):
+    async def read_state(entity_id: str):
         assert entity_id == "sensor.goe_state"
-        assert states == "WaitCar, Charging"
-        return is_ev_plugged_in(" charging ", states)
+        return {"state": " charging "}
 
     with (
         patch("backend.core.secrets.load_yaml", return_value=config),
-        patch("backend.core.ha_client.get_ha_bool", new=AsyncMock(side_effect=read_bool)),
+        patch("backend.core.ha_client.get_ha_entity_state", new=AsyncMock(side_effect=read_state)),
         patch("backend.core.secrets.load_home_assistant_config", return_value={}),
     ):
         result = await get_initial_state(config_path=str(config_path))
 
     assert result["ev_charger_states"] == [
-        {"id": "goe", "soc_percent": None, "plugged_in": True}
+        {"id": "goe", "soc_percent": None, "plugged_in": True, "unreachable": False}
     ]
 
 

@@ -10,7 +10,12 @@ import httpx
 import pytz
 
 from backend.core import secrets
-from backend.core.ev_plug import DEFAULT_EV_PLUGGED_IN_STATES, is_ev_plugged_in
+from backend.core.ev_plug import (
+    DEFAULT_EV_PLUGGED_IN_STATES,
+    is_ev_plugged_in,
+    remember_plug_state,
+    resolve_plug_state,
+)
 from backend.core.ha_timestamps import reading_timestamp
 from backend.health import set_load_forecast_status
 
@@ -531,13 +536,8 @@ async def get_initial_state(
             )
             if plug_sensor and not (ev_plugged_in_override is not None and is_override_charger):
                 key = f"ev_plug_{charger_id}"
-                configured_states = ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES
-                per_device_reads.append(
-                    (
-                        key,
-                        lambda e=plug_sensor, states=configured_states: get_ha_bool(e, states),
-                    )
-                )
+                # Raw state: unavailable/unknown must be told apart from unplugged.
+                per_device_reads.append((key, lambda e=plug_sensor: get_ha_entity_state(e)))
 
         per_device_results: dict[str, Any] = {}
         if per_device_reads:
@@ -570,13 +570,34 @@ async def get_initial_state(
             is_override_charger = ev_plug_override_charger_id == charger_id or (
                 ev_plug_override_charger_id is None and ev is enabled_ev_chargers[0]
             )
+            unreachable = False
             if ev_plugged_in_override is not None and is_override_charger:
                 plugged_in = ev_plugged_in_override
+                remember_plug_state(charger_id, plugged_in)
                 logger.debug(
                     "EV %s: using plug state override=%s", charger_id, ev_plugged_in_override
                 )
             elif plug_sensor:
-                plugged_in = bool(per_device_results.get(f"ev_plug_{charger_id}", False))
+                plug_state: Any = per_device_results.get(f"ev_plug_{charger_id}")
+                raw_plug: object = (
+                    cast("dict[str, Any]", plug_state).get("state")
+                    if isinstance(plug_state, dict)
+                    else None
+                )
+                plugged_in, unreachable = resolve_plug_state(
+                    charger_id,
+                    raw_plug,
+                    ev.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
+                )
+                if unreachable:
+                    logger.warning(
+                        "EV %s: charger unreachable (plug sensor %s is %s) - "
+                        "planning with last known plug state plugged_in=%s",
+                        charger_id,
+                        plug_sensor,
+                        raw_plug,
+                        plugged_in,
+                    )
             else:
                 # No plug sensor → assume plugged in (let enabled flag be the control)
                 plugged_in = True
@@ -586,6 +607,7 @@ async def get_initial_state(
                     "id": charger_id,
                     "soc_percent": soc_percent,
                     "plugged_in": plugged_in,
+                    "unreachable": unreachable,
                 }
             )
 

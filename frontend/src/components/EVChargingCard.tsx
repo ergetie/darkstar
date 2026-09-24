@@ -247,8 +247,12 @@ export default function EVChargingCard({
                 <div>
                     <h4 className="text-xs font-semibold text-text">{charger.name}</h4>
                     <p className="text-[10px] text-muted flex items-center gap-1">
-                        <span className={`h-1.5 w-1.5 rounded-full ${charger.plugged_in ? 'bg-good' : 'bg-muted'}`} />
-                        {charger.plugged_in ? 'Plugged' : 'Away'}
+                        <span
+                            className={`h-1.5 w-1.5 rounded-full ${
+                                charger.unreachable ? 'bg-warn' : charger.plugged_in ? 'bg-good' : 'bg-muted'
+                            }`}
+                        />
+                        {charger.unreachable ? 'Charger unreachable' : charger.plugged_in ? 'Plugged' : 'Away'}
                         {charger.soc_percent !== null && ` · ${charger.soc_percent}% SoC`}
                         {charger.power_kw !== null && charger.power_kw > 0.05 && ` · ${charger.power_kw.toFixed(1)} kW`}
                     </p>

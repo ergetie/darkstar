@@ -110,3 +110,77 @@ def resolve_next_ready_by(
 
     # Unknown repeat mode: behave like daily.
     return candidate
+
+
+def _every_n_days_params(
+    goal: dict[str, Any], now: datetime, tz: pytz.BaseTzInfo
+) -> tuple[int, date]:
+    n_days_raw = goal.get("n_days")
+    n = n_days_raw if (isinstance(n_days_raw, int) and n_days_raw > 0) else 1
+    anchor_date = now.date()
+    anchor_str = goal.get("last_updated")
+    if anchor_str:
+        try:
+            anchor_dt = datetime.fromisoformat(str(anchor_str))
+            anchor_date = anchor_dt.astimezone(tz).date() if anchor_dt.tzinfo else anchor_dt.date()
+        except (ValueError, TypeError):
+            pass
+    return n, anchor_date
+
+
+def resolve_previous_ready_by(
+    goal: dict[str, Any], now: datetime, tz: pytz.BaseTzInfo
+) -> datetime | None:
+    """Resolve the most recent ready-by at or before ``now`` for a goal dict.
+
+    Mirror of :func:`resolve_next_ready_by` (same keys and ``repeat``
+    semantics): an occurrence that ``resolve_next_ready_by`` would have
+    returned earlier and that has since passed. Used by the missed-goal grace
+    window. ``repeat == "none"`` returns the one-off deadline once it has
+    passed, else ``None``.
+    """
+    time_tuple = _parse_hhmm(goal.get("ready_by"))
+    if time_tuple is None:
+        return None
+    hour, minute = time_tuple
+
+    if now.tzinfo is None:
+        now = tz.localize(now)
+
+    repeat_raw = goal.get("repeat")
+    repeat = str(repeat_raw).lower() if repeat_raw else "daily"
+
+    if repeat == "none":
+        date_str = goal.get("ready_by_date")
+        if not date_str:
+            return None
+        try:
+            target_date = date.fromisoformat(str(date_str).strip())
+        except (ValueError, TypeError):
+            return None
+        deadline = tz.localize(datetime.combine(target_date, time(hour, minute)))
+        return deadline if deadline <= now else None
+
+    n, anchor_date = (
+        _every_n_days_params(goal, now, tz) if repeat == "every_n_days" else (1, now.date())
+    )
+
+    def _is_occurrence(d: date) -> bool:
+        if repeat == "weekdays":
+            return d.weekday() < 5
+        if repeat == "weekends":
+            return d.weekday() >= 5
+        if repeat == "every_n_days":
+            # resolve_next_ready_by schedules anchor + k*n for k >= 1.
+            offset = (d - anchor_date).days
+            return offset >= n and offset % n == 0
+        return True  # daily and unknown modes
+
+    for back in range(max(7, n) + 1):
+        d = now.date() - timedelta(days=back)
+        if not _is_occurrence(d):
+            continue
+        candidate = tz.localize(datetime.combine(d, time(hour, minute)))
+        if candidate <= now:
+            return candidate
+    return None

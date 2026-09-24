@@ -43,7 +43,10 @@ def _patch_ha(power_kw: float, soc: float, plugged: bool):
             "backend.api.routers.ev.get_ha_sensor_kw_normalized", AsyncMock(return_value=power_kw)
         ),
         patch("backend.api.routers.ev.get_ha_sensor_float", AsyncMock(return_value=soc)),
-        patch("backend.api.routers.ev.get_ha_bool", AsyncMock(return_value=plugged)),
+        patch(
+            "backend.api.routers.ev.get_ha_entity_state",
+            AsyncMock(return_value={"state": "on" if plugged else "off"}),
+        ),
     )
 
 

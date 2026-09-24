@@ -52,11 +52,22 @@ class TestPowerToCurrentA:
 class TestPlannedKwToAmps:
     """universal-load-balancing 3.2: kW -> A translation."""
 
-    def test_11kw_three_phase_yields_15a(self):
-        assert planned_kw_to_amps(11.0, 3, min_current_a=6, max_current_a=16) == 15
+    def test_11kw_three_phase_rounds_up_to_16a(self):
+        assert planned_kw_to_amps(11.0, 3, min_current_a=6, max_current_a=16) == 16
 
-    def test_3_6kw_single_phase_yields_15a(self):
-        assert planned_kw_to_amps(3.6, 1, min_current_a=6, max_current_a=16) == 15
+    def test_3_6kw_single_phase_rounds_up_to_16a(self):
+        assert planned_kw_to_amps(3.6, 1, min_current_a=6, max_current_a=16) == 16
+
+    def test_4_8kw_three_phase_rounds_up_to_7a(self):
+        # 4800 / 690 = 6.96 -> 7A, never below the planned power
+        assert planned_kw_to_amps(4.8, 3, min_current_a=6, max_current_a=16) == 7
+
+    def test_exact_multiple_does_not_round_up(self):
+        # 16A * 230V * 3 phases = 11.04kW -> exactly 16A, not 17A clamped
+        assert planned_kw_to_amps(11.04, 3, min_current_a=6, max_current_a=32) == 16
+
+    def test_round_up_clamped_to_max_current(self):
+        assert planned_kw_to_amps(11.0, 3, min_current_a=6, max_current_a=15) == 15
 
     def test_below_floor_returns_none(self):
         assert planned_kw_to_amps(1.0, 3, min_current_a=6, max_current_a=16) is None

@@ -43,6 +43,7 @@ export interface EVChargerEntity {
     plugged_in_states?: string
     replan_on_plugin?: boolean
     replan_on_unplug?: boolean
+    missed_goal_grace_hours?: number
     current_entity?: string
     min_current_a?: number
     max_current_a?: number
@@ -107,6 +108,7 @@ const createDefaultEVCharger = (index: number): EVChargerEntity => ({
     plugged_in_states: 'on,true,1,connected',
     replan_on_plugin: true,
     replan_on_unplug: false,
+    missed_goal_grace_hours: 4,
     current_entity: '',
     min_current_a: 6,
     phases: [1, 2, 3],
@@ -902,6 +904,30 @@ export const EntityArrayEditor: React.FC<EntityArrayEditorProps> = ({
                                                         Re-run planner immediately when unplugged
                                                     </span>
                                                 </div>
+                                            </div>
+                                        )}
+
+                                        {/* Missed-goal grace window (EV only) */}
+                                        {!isWaterHeater && (
+                                            <div>
+                                                <label className="text-[10px] uppercase font-bold text-muted mb-1.5 block">
+                                                    Missed Goal Grace (hours)
+                                                </label>
+                                                <NumberInput
+                                                    value={(entity as EVChargerEntity).missed_goal_grace_hours ?? 4}
+                                                    onChange={(val) =>
+                                                        updateEntity(index, {
+                                                            missed_goal_grace_hours: Number(val),
+                                                        } as Partial<EVChargerEntity>)
+                                                    }
+                                                    disabled={disabled}
+                                                    step={0.5}
+                                                    min={0}
+                                                    max={24}
+                                                />
+                                                <p className="text-[10px] text-muted mt-1">
+                                                    Keep charging toward a missed goal while still plugged in. 0 = off
+                                                </p>
                                             </div>
                                         )}
 

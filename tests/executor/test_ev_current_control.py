@@ -150,7 +150,7 @@ class TestControlEvChargerCurrentType:
         await engine._control_ev_charger(make_slot(11.0), now)
 
         engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 15
+            "number.goe_current", 16
         )
         call = engine.dispatcher.set_ev_charger_switch.call_args
         assert call.args[0] == GOE_SWITCH
@@ -158,7 +158,7 @@ class TestControlEvChargerCurrentType:
         assert call.kwargs["enabled_value"] == "charge"
         assert [c[0] for c in calls.mock_calls] == ["amps", "switch"]
         state = engine._ev_charger_states["goe"]
-        assert state.current_setpoint_a == 15
+        assert state.current_setpoint_a == 16
         assert state.charging_active is True
 
     @pytest.mark.asyncio
@@ -168,14 +168,14 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher(current_skipped=True, switch_skipped=True)
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=15, charging_started_at=now
+            charging_active=True, current_setpoint_a=16, charging_started_at=now
         )
 
         with patch.object(engine.history, "log_execution") as log_execution:
             await engine._control_ev_charger(make_slot(11.0), now)
 
         engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 15
+            "number.goe_current", 16
         )
         assert switch_calls(engine.dispatcher) == [(GOE_SWITCH, True)]
         log_execution.assert_not_called()
@@ -183,19 +183,19 @@ class TestControlEvChargerCurrentType:
     @pytest.mark.asyncio
     async def test_external_amps_change_is_corrected(self, engine):
         """HA holds a different amps value than last sent (e.g. changed in the
-        go-e app): the setpoint is written again even though memory says 15 A."""
+        go-e app): the setpoint is written again even though memory says 16 A."""
         engine.dispatcher = make_dispatcher(switch_skipped=True)  # current not skipped
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=15, charging_started_at=now
+            charging_active=True, current_setpoint_a=16, charging_started_at=now
         )
 
         await engine._control_ev_charger(make_slot(11.0), now)
 
         engine.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 15
+            "number.goe_current", 16
         )
-        assert engine._ev_charger_states["goe"].current_setpoint_a == 15
+        assert engine._ev_charger_states["goe"].current_setpoint_a == 16
 
     @pytest.mark.asyncio
     async def test_external_dont_charge_is_corrected(self, engine):
@@ -203,7 +203,7 @@ class TestControlEvChargerCurrentType:
         engine.dispatcher = make_dispatcher()  # not skipped -> HA held a different value
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
         engine._ev_charger_states["goe"] = EVChargerState(
-            charging_active=True, current_setpoint_a=15, charging_started_at=now
+            charging_active=True, current_setpoint_a=16, charging_started_at=now
         )
 
         await engine._control_ev_charger(make_slot(11.0), now)
@@ -442,11 +442,11 @@ class TestEvCurrentTypeUsesActivePhases:
         eng.dispatcher = make_dispatcher()
 
         now = datetime.now(pytz.timezone("Europe/Stockholm"))
-        # 3.6kW / 1 phase -> 15A (vs ~5A if treated as 3-phase)
+        # 3.6kW / 1 phase -> 16A (ceil) (vs ~5A if treated as 3-phase)
         await eng._control_ev_charger(make_slot(3.6), now)
 
         eng.dispatcher.set_ev_charger_current.assert_called_once_with(
-            "number.goe_current", 15
+            "number.goe_current", 16
         )
 
 

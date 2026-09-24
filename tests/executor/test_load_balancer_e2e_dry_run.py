@@ -572,8 +572,8 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
         status = engine._last_balancer_status
         assert any(o.shed for o in status.shed_outputs)
         ev_out = status.ev_outputs[0]
-        # Held at the planned level (11kW/3ph -> 15A), not reduced below it
-        assert ev_out.target_a == 15
+        # Held at the planned level (11kW/3ph -> 16A (ceil)), not reduced below it
+        assert ev_out.target_a == 16
         assert 0.0 not in goe_calls()  # never commanded to stop
 
         # --- Tick 2: shed relieved L2 -> charger still untouched at 16A ---
@@ -584,5 +584,5 @@ async def test_shed_ordered_above_charger_end_to_end(temp_schedule, temp_db):
 
         status = engine._last_balancer_status
         assert any(o.shed for o in status.shed_outputs)  # WH stays shed (anti-flap)
-        assert status.ev_outputs[0].target_a == 15
+        assert status.ev_outputs[0].target_a == 16
         assert 0.0 not in goe_calls()

@@ -51,6 +51,10 @@ def power_to_current_a(power_w: float, voltage_v: float) -> float:
     return power_w / voltage_v
 
 
+# Tolerance for float noise when rounding planned kW up to whole amps.
+_AMPS_EPSILON = 1e-6
+
+
 def planned_kw_to_amps(
     planned_kw: float,
     active_phase_count: int,
@@ -59,15 +63,17 @@ def planned_kw_to_amps(
 ) -> int | None:
     """Translate a planned charging power (kW) into an ampere setpoint.
 
-    amps = floor(planned_kw * 1000 / (230 * active_phase_count)), clamped to
-    max_current_a. Returns None when the result would be below min_current_a —
+    amps = ceil(planned_kw * 1000 / (230 * active_phase_count)), clamped to
+    max_current_a, so the commanded power is never below the planned power. A
+    small epsilon keeps exact multiples (e.g. 4.14 kW on 3 phases = 6 A) from
+    rounding up. Returns None when the result would be below min_current_a —
     the caller should pause charging rather than command a setpoint below the
     charger's minimum.
     """
     if active_phase_count <= 0 or planned_kw <= 0:
         return None
 
-    amps = math.floor(planned_kw * 1000 / (230 * active_phase_count))
+    amps = math.ceil(planned_kw * 1000 / (230 * active_phase_count) - _AMPS_EPSILON)
     amps = min(amps, max_current_a)
 
     if amps < min_current_a:
