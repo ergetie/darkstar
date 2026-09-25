@@ -59,6 +59,12 @@ This document contains ideas, improvements, and tasks that are not yet scheduled
 
 **Notes:** The endpoint reads `manual_charge` from `data/ev_multi_day_state.json` (`ev.py`, charger list builder), not from the executor's in-memory `_ev_manual_charge`. They agree today because `set_/clear_ev_manual_charge` always update both together. If either is ever written alone, the UI could show a stale or missing manual charge. Options: read from `executor.get_ev_manual_charge_status()` when the executor is available, or add a consistency test. Found during ev-manual-charge-and-node verification.
 
+#### [Planner] Slot Duration in Planned kWh Storage
+
+**Goal:** Store planned kWh in `slot_plans` using the real slot duration instead of a fixed 15 minutes.
+
+**Notes:** `store_plan` (`backend/learning/store.py`) converts `water_heating_kw` and `ev_charging_kw` to kWh with a hardcoded `* 0.25`, while the schedule history API (`backend/api/routers/schedule.py`, `planned_map`) converts back to kW with the actual slot duration. Correct today because slots are 15 min; if slot length ever changes, planned water and EV history would be wrong. Derive the duration from the plan dataframe (e.g. slot start/end) and use it for both columns. Found during ev-planned-history verification.
+
 ---
 
 ## ✨ New Features

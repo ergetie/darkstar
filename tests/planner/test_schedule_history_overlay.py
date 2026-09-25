@@ -157,3 +157,65 @@ async def test_today_with_history_includes_past(tmp_path):
     # 01:00 should be INCLUDED (past/history), 22:00 should be INCLUDED (future)
     assert any("01:00:00" in s["start_time"] for s in slots)
     assert any("22:00:00" in s["start_time"] for s in slots)
+
+
+@pytest.mark.anyio
+async def test_past_slot_keeps_planned_ev_and_null_is_not_fabricated(tmp_path):
+    """Planned EV for past slots comes from slot_plans; NULL rows yield no value."""
+    db_path = tmp_path / "planner_learning.db"
+    tz = pytz.timezone("Europe/Stockholm")
+    today_start = tz.localize(datetime.combine(datetime.now(tz).date(), time(0, 0)))
+    ev_slot = today_start.replace(hour=1)
+    null_slot = today_start.replace(hour=2)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.execute(
+                text(
+                    "INSERT INTO slot_plans (slot_start, planned_soc_percent, "
+                    "planned_ev_charging_kwh) VALUES (:s, 50.0, 2.75)"
+                ),
+                {"s": ev_slot.isoformat()},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO slot_plans (slot_start, planned_soc_percent, "
+                    "planned_ev_charging_kwh) VALUES (:s, 50.0, NULL)"
+                ),
+                {"s": null_slot.isoformat()},
+            )
+    finally:
+        await engine.dispose()
+
+    mock_config = {"learning": {"sqlite_path": str(db_path)}, "timezone": "Europe/Stockholm"}
+
+    with (
+        patch("backend.api.routers.schedule.load_yaml", return_value=mock_config),
+        patch("backend.api.routers.schedule.get_nordpool_data", new=AsyncMock(return_value=[])),
+        patch("backend.api.routers.schedule.Path") as MockPath,
+        patch("backend.api.routers.schedule.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = today_start.replace(hour=12)
+        mock_datetime.fromisoformat.side_effect = datetime.fromisoformat
+        mock_datetime.combine.side_effect = datetime.combine
+        mock_datetime.min = datetime.min
+
+        # No schedule.json: past slots only exist in slot_plans, as after a replan.
+        def side_effect(arg):
+            m = MagicMock()
+            m.exists.return_value = False
+            return m
+
+        MockPath.side_effect = side_effect
+
+        store = LearningStore(str(db_path), tz)
+        try:
+            result = await schedule_today_with_history(store=store)
+        finally:
+            await store.close()
+
+    by_start = {s["start_time"]: s for s in result["slots"]}
+    assert by_start[ev_slot.isoformat()]["ev_charging_kw"] == pytest.approx(11.0)
+    assert by_start[null_slot.isoformat()].get("ev_charging_kw") is None

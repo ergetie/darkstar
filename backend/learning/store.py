@@ -345,6 +345,7 @@ class LearningStore:
                     planned_import_kwh=float(row.get("kepler_import_kwh", 0.0) or 0.0),
                     planned_export_kwh=float(row.get("kepler_export_kwh", 0.0) or 0.0),
                     planned_water_heating_kwh=float(row.get("water_heating_kw", 0.0) or 0.0) * 0.25,
+                    planned_ev_charging_kwh=float(row.get("ev_charging_kw", 0.0) or 0.0) * 0.25,
                     planned_cost_sek=float(
                         row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0
                     ),
@@ -359,6 +360,7 @@ class LearningStore:
                         "planned_import_kwh": stmt.excluded.planned_import_kwh,
                         "planned_export_kwh": stmt.excluded.planned_export_kwh,
                         "planned_water_heating_kwh": stmt.excluded.planned_water_heating_kwh,
+                        "planned_ev_charging_kwh": stmt.excluded.planned_ev_charging_kwh,
                         "planned_cost_sek": stmt.excluded.planned_cost_sek,
                         # created_at is naive UTC (SQLite CURRENT_TIMESTAMP), unlike
                         # slot_start above (local ISO with offset) — compare only after
@@ -976,6 +978,7 @@ class LearningStore:
                     SlotPlan.projected_soc_percent,
                     SlotPlan.planned_export_kwh,
                     SlotPlan.planned_water_heating_kwh,
+                    SlotPlan.planned_ev_charging_kwh,
                 )
                 .where(SlotPlan.slot_start >= start_iso)
                 .order_by(SlotPlan.slot_start.asc())

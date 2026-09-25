@@ -127,6 +127,23 @@ async def test_store_plan_projected_soc_percent(store, memory_db_path):
 
 
 @pytest.mark.asyncio
+async def test_store_plan_round_trips_planned_ev_kwh(store):
+    """ev_charging_kw is stored as kWh per 15-min slot and returned by get_plans_range."""
+    now = datetime.now(TZ).replace(second=0, microsecond=0)
+    df = pd.DataFrame(
+        [
+            {"start_time": now, "ev_charging_kw": 11.0},
+            {"start_time": now + timedelta(minutes=15), "ev_charging_kw": 0.0},
+        ]
+    )
+    await store.store_plan(df)
+
+    plans = await store.get_plans_range(now)
+
+    assert [p["planned_ev_charging_kwh"] for p in plans] == [2.75, 0.0]
+
+
+@pytest.mark.asyncio
 async def test_get_plans_range_returns_projected_soc_percent(store):
     """
     Verify that get_plans_range returns projected_soc_percent for each slot.

@@ -2,8 +2,8 @@
 Schedule Output
 
 Handles saving the final schedule to JSON, including:
-- Formatting future records
-- Preserving past slots from database
+- Formatting current and future records (past slots are not written; their
+  planned values live in slot_plans, backfilled by the schedule history API)
 - Generating and recording debug payloads
 """
 
@@ -51,7 +51,7 @@ async def save_schedule_to_json(
 ) -> None:
     """
     Save the final schedule to schedule.json in the required format.
-    Preserves past hours from existing schedule when regenerating.
+    Only current and future slots are written; past slots are dropped on each replan.
 
     Args:
         schedule_df: The final schedule DataFrame

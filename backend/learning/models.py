@@ -69,6 +69,8 @@ class SlotPlan(Base):
     planned_import_kwh: Mapped[float | None] = mapped_column(Float)
     planned_export_kwh: Mapped[float | None] = mapped_column(Float)
     planned_water_heating_kwh: Mapped[float | None] = mapped_column(Float)
+    # Aggregate over all chargers. NULL = unknown (rows stored before this column existed).
+    planned_ev_charging_kwh: Mapped[float | None] = mapped_column(Float)
     planned_cost_sek: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime | None] = mapped_column(DateTime, default=func.now())
 

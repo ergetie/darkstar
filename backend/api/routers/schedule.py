@@ -265,7 +265,7 @@ async def schedule_today_with_history(
         logger.warning(f"Failed to load forecast map: {e}")
 
     # 4. Planned Actions Map (LearningStore Async)
-    planned_map: dict[datetime, dict[str, float]] = {}
+    planned_map: dict[datetime, dict[str, float | None]] = {}
     try:
         today_start_dt = tz.localize(datetime.combine(today_local, datetime.min.time()))
 
@@ -290,6 +290,12 @@ async def schedule_today_with_history(
                     "export_kwh": float(row["planned_export_kwh"] or 0.0),
                     "water_heating_kw": float(row["planned_water_heating_kwh"] or 0.0)
                     / duration_hours,
+                    # NULL means unknown (pre-migration row), not "0 planned".
+                    "ev_charging_kw": (
+                        None
+                        if row["planned_ev_charging_kwh"] is None
+                        else float(row["planned_ev_charging_kwh"]) / duration_hours
+                    ),
                 }
             except Exception:
                 continue
@@ -410,6 +416,8 @@ async def schedule_today_with_history(
                     slot["export_kwh"] = p.get("export_kwh", 0.0)
                 if "water_heating_kw" not in slot or slot.get("water_heating_kw") is None:
                     slot["water_heating_kw"] = p.get("water_heating_kw", 0.0)
+                if slot.get("ev_charging_kw") is None and p.get("ev_charging_kw") is not None:
+                    slot["ev_charging_kw"] = p["ev_charging_kw"]
             else:
                 # Future: Only take non-critical data from planned_map if really needed.
                 # [REV F36] CRITICAL: Absolutely DO NOT touch battery_charge_kw or battery_discharge_kw for future slots.
