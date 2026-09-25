@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import ChartCard from '../components/ChartCard'
 import { Flame, BatteryCharging } from 'lucide-react'
 import { motion } from 'framer-motion'
@@ -15,6 +15,7 @@ import type { ScheduleSlot } from '../lib/types'
 import { isToday, isTomorrow, formatHour } from '../lib/time'
 import SmartAdvisor from '../components/SmartAdvisor'
 import PowerFlowTabs from '../components/PowerFlowTabs'
+import { computeHouseKw } from '../components/PowerFlowHouse'
 import CommandBar from '../components/CommandBar'
 import BatteryStrategyCard from '../components/BatteryStrategyCard'
 import { GridDomain, ResourcesDomain } from '../components/CommandDomains'
@@ -121,6 +122,7 @@ export default function Dashboard() {
         pvProduction: number | null
         pvForecast: number | null
         loadConsumption: number | null
+        baseLoadAvgDaily: number | null
         netCost: number | null
         evCharging: number | null
         waterHeating: number | null
@@ -139,7 +141,6 @@ export default function Dashboard() {
 
     const [plannerLocalMeta, setPlannerLocalMeta] = useState<PlannerMeta>(null)
     const [batteryCapacity, setBatteryCapacity] = useState<number>(0)
-    const [avgLoad, setAvgLoad] = useState<{ kw: number; dailyKwh: number } | null>(null)
     const [currentSlotTarget, setCurrentSlotTarget] = useState<number>(0)
     const [currentAction, setCurrentAction] = useState<string | undefined>(undefined)
     const [waterToday] = useState<{ kwh: number; source: string } | null>(null)
@@ -169,6 +170,13 @@ export default function Dashboard() {
     const { toast } = useToast()
 
     const { chargers: evChargerStatuses, refresh: refreshEvChargers } = useEvChargers(systemFlags.hasEvCharger)
+    // Managed loads shown on their own Power Flow nodes, subtracted from House.
+    const managedLoadNodeIds = useMemo(() => {
+        const ids = new Set<string>()
+        if (systemFlags.hasEvCharger) ids.add('ev')
+        if (systemFlags.hasWaterHeater) ids.add('water')
+        return ids
+    }, [systemFlags.hasEvCharger, systemFlags.hasWaterHeater])
     // Live plug/SoC (websocket) take precedence over the last REST snapshot.
     const evChargerControls = evChargerStatuses.map((charger) => {
         const reading = livePower.ev_chargers?.find((ev) => ev.id === charger.id)
@@ -380,7 +388,6 @@ export default function Dashboard() {
     const fetchDeferredData = useCallback(async () => {
         try {
             const [
-                haAverageData,
                 todayStatsData,
                 auroraData,
                 historyData,
@@ -389,7 +396,6 @@ export default function Dashboard() {
                 adviceData,
                 learningStatusData,
             ] = await Promise.allSettled([
-                Api.haAverage(),
                 Api.energyToday(),
                 Api.aurora.dashboard(),
                 Api.scheduleTodayWithHistory(),
@@ -419,13 +425,6 @@ export default function Dashboard() {
                 setLearningStatus(learningStatusData.value)
             }
 
-            if (haAverageData.status === 'fulfilled') {
-                setAvgLoad({
-                    kw: haAverageData.value.average_load_kw ?? 0,
-                    dailyKwh: haAverageData.value.daily_kwh ?? 0,
-                })
-            }
-
             let pvForecastTotal = 0
             if (auroraData.status === 'fulfilled' && auroraData.value?.horizon?.slots) {
                 const now = new Date()
@@ -444,6 +443,7 @@ export default function Dashboard() {
                     pvProduction: data.pv_production_kwh ?? null,
                     pvForecast: pvForecastTotal >= 0 ? parseFloat(pvForecastTotal.toFixed(1)) : null,
                     loadConsumption: data.load_consumption_kwh ?? null,
+                    baseLoadAvgDaily: data.base_load_avg_daily_kwh ?? null,
                     netCost: data.net_cost_sek ?? data.net_cost_kr ?? null,
                     evCharging: data.ev_charging_kwh ?? null,
                     waterHeating: data.water_heating_kwh ?? null,
@@ -780,7 +780,12 @@ export default function Dashboard() {
                                 exportKwh: todayStats?.gridExport ?? undefined,
                             },
                             house: {
-                                kw: livePower.load_kw ?? 0,
+                                kw: computeHouseKw(
+                                    livePower.load_kw,
+                                    livePower.ev_kw,
+                                    livePower.water_kw,
+                                    managedLoadNodeIds,
+                                ),
                                 todayKwh: todayStats?.loadConsumption ?? undefined,
                             },
                             water: { kw: livePower.water_kw ?? 0, todayKwh: waterToday?.kwh },
@@ -826,7 +831,7 @@ export default function Dashboard() {
                         pvSourceLabel={pvSourceLabel}
                         pvSourceActive={pvPersonalized}
                         loadActual={todayStats?.loadConsumption ?? null}
-                        loadAvg={avgLoad?.dailyKwh ?? null}
+                        loadAvg={todayStats?.baseLoadAvgDaily ?? null}
                         waterKwh={todayStats?.waterHeating ?? null}
                         evChargingKwh={todayStats?.evCharging ?? null}
                         hasSolar={systemFlags.hasSolar}

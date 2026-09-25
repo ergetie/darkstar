@@ -1,9 +1,5 @@
-# Dashboard EV Display
+## MODIFIED Requirements
 
-## Purpose
-
-Dashboard display of energy resources and EV charging metrics with conditional rendering based on system configuration.
-## Requirements
 ### Requirement: Dashboard Energy Resources card renders metrics conditionally
 The Dashboard Energy Resources card SHALL display metrics conditionally based on system `has_*` configuration flags. Metrics SHALL only appear when the corresponding feature is enabled.
 
@@ -47,12 +43,3 @@ When `has_ev_charger` is true, the card SHALL expose a "Metrics | EV" tab switch
 - **WHEN** fewer than 87 of the last 96 completed slots have recorded base load
 - **THEN** the API SHALL return `base_load_avg_daily_kwh: null`
 - **AND** the card SHALL show its unavailable value, not 0 and not a gross-sensor average
-
-### Requirement: Frontend fetches config once at Dashboard initialization
-The Dashboard frontend SHALL fetch the system configuration once on initialization to determine which metrics to display.
-
-#### Scenario: Frontend reads has_* flags
-- **WHEN** the Dashboard initializes
-- **THEN** the frontend fetches the system configuration
-- **AND** reads `has_solar`, `has_battery`, `has_water_heater`, and `has_ev_charger`
-- **AND** renders only the applicable metric fields

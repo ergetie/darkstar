@@ -432,6 +432,7 @@ export type EnergyTodayResponse = {
     water_heating_kwh: number | null
     net_cost_sek: number | null
     battery_cycles: number | null
+    base_load_avg_daily_kwh: number | null
     // Legacy aliases (for backwards compatibility)
     solar?: number | null
     consumption?: number | null

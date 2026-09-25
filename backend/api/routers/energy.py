@@ -1,5 +1,5 @@
 import logging
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends
@@ -49,6 +49,45 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
         }
 
 
+BASE_LOAD_WINDOW_SLOTS = 96
+BASE_LOAD_MIN_SLOTS = 87
+
+
+async def _base_load_avg_daily_kwh(store: LearningStore, now: datetime) -> float | None:
+    """Base-load total of the last 96 completed 15-minute slots, scaled to 96 slots.
+
+    Returns None when fewer than 87 of those slots have a recorded ``load_kwh``.
+    """
+    from sqlalchemy import func, select
+
+    from backend.learning.models import SlotObservation
+
+    # Window arithmetic in UTC so a DST change can't widen or shrink it; bounds are
+    # then rendered in the store's timezone to match the stored slot_start strings.
+    now_utc = now.astimezone(UTC)
+    current_slot_start = now_utc.replace(
+        minute=now_utc.minute - now_utc.minute % 15, second=0, microsecond=0
+    )
+    window_start = current_slot_start - timedelta(minutes=15 * BASE_LOAD_WINDOW_SLOTS)
+    start_iso = window_start.astimezone(store.timezone).isoformat()
+    end_iso = current_slot_start.astimezone(store.timezone).isoformat()
+
+    async with store.AsyncSession() as session:
+        stmt = select(
+            func.sum(SlotObservation.load_kwh),
+            func.count(SlotObservation.load_kwh),
+        ).where(SlotObservation.slot_start >= start_iso, SlotObservation.slot_start < end_iso)
+        row = (await session.execute(stmt)).fetchone()
+
+    if not row:
+        return None
+    total = float(row[0] or 0.0)
+    count = int(row[1] or 0)
+    if count < BASE_LOAD_MIN_SLOTS:
+        return None
+    return round(total * BASE_LOAD_WINDOW_SLOTS / count, 2)
+
+
 @router.get(
     "/energy/today",
     summary="Get Today's Energy",
@@ -56,7 +95,7 @@ async def get_performance_data(days: int = 7) -> dict[str, Any]:
 )
 async def get_energy_today(
     store: LearningStore = Depends(get_learning_store),
-) -> dict[str, float]:
+) -> dict[str, float | None]:
     """Get today's energy summary from database aggregation."""
     # Delegate to energy/range with period="today" to avoid duplicate query logic
     range_data = await get_energy_range(period="today", store=store)
@@ -76,6 +115,11 @@ async def get_energy_today(
 
     # Calculate battery cycles
     config = load_yaml("config.yaml")
+    base_load_avg: float | None = None
+    try:
+        base_load_avg = await _base_load_avg_daily_kwh(store, datetime.now(UTC))
+    except Exception as e:
+        logger.warning("Failed to compute base-load daily average: %s", e)
     battery_cycles = 0.0
     try:
         cap = float(config.get("battery", {}).get("capacity_kwh", 0.0))
@@ -99,6 +143,7 @@ async def get_energy_today(
         "battery_wear_cost_sek": round(battery_wear_cost, 2),
         "net_cost_incl_wear_sek": round(net_cost_incl_wear, 2),
         "battery_cycles": round(battery_cycles, 2),
+        "base_load_avg_daily_kwh": base_load_avg,
         # Legacy aliases (for backwards compatibility during transition)
         "solar": round(pv_kwh, 2),
         "consumption": round(load_kwh, 2),
