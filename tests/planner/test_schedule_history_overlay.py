@@ -219,3 +219,109 @@ async def test_past_slot_keeps_planned_ev_and_null_is_not_fabricated(tmp_path):
     by_start = {s["start_time"]: s for s in result["slots"]}
     assert by_start[ev_slot.isoformat()]["ev_charging_kw"] == pytest.approx(11.0)
     assert by_start[null_slot.isoformat()].get("ev_charging_kw") is None
+
+
+# --- consistency-hardening: real slot duration ---
+
+
+@pytest.mark.parametrize(
+    ("end", "expected"),
+    [
+        ("2026-09-24T11:00:00+02:00", 1.0),
+        ("2026-09-24T10:30:00+02:00", 0.5),
+        ("2026-09-24T10:30:00", 0.5),  # naive end takes the start's offset
+        (None, 0.25),
+        ("garbage", 0.25),
+        ("2026-09-24T10:00:00+02:00", 0.25),  # not after start
+        ("2026-09-24T09:45:00+02:00", 0.25),
+    ],
+)
+def test_slot_duration_hours(end, expected):
+    from backend.api.routers.schedule import _slot_duration_hours
+
+    start = datetime.fromisoformat("2026-09-24T10:00:00+02:00")
+    assert _slot_duration_hours(start, end) == pytest.approx(expected)
+
+
+@pytest.mark.anyio
+async def test_history_uses_real_slot_duration(tmp_path):
+    db_path = tmp_path / "planner_learning.db"
+    tz = pytz.timezone("Europe/Stockholm")
+    today_start = tz.localize(datetime.combine(datetime.now(tz).date(), time(0, 0)))
+    hour_slot = today_start.replace(hour=1)
+    null_slot = today_start.replace(hour=2)
+    half_slot = today_start.replace(hour=3)
+
+    engine = create_async_engine(f"sqlite+aiosqlite:///{db_path}")
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            insert_plan = text(
+                "INSERT INTO slot_plans (slot_start, slot_end, planned_soc_percent, "
+                "planned_water_heating_kwh, planned_ev_charging_kwh) "
+                "VALUES (:s, :e, 50.0, :w, :ev)"
+            )
+            await conn.execute(
+                insert_plan,
+                {
+                    "s": hour_slot.isoformat(),
+                    "e": (hour_slot + timedelta(hours=1)).isoformat(),
+                    "w": 0.0,
+                    "ev": 11.0,
+                },
+            )
+            await conn.execute(
+                insert_plan, {"s": null_slot.isoformat(), "e": None, "w": 0.5, "ev": 0.0}
+            )
+            await conn.execute(
+                insert_plan,
+                {
+                    "s": half_slot.isoformat(),
+                    "e": (half_slot + timedelta(minutes=30)).isoformat(),
+                    "w": 0.0,
+                    "ev": 0.0,
+                },
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO slot_observations (slot_start, slot_end, water_kwh) "
+                    "VALUES (:s, :e, 1.5)"
+                ),
+                {
+                    "s": half_slot.isoformat(),
+                    "e": (half_slot + timedelta(minutes=30)).isoformat(),
+                },
+            )
+    finally:
+        await engine.dispose()
+
+    mock_config = {"learning": {"sqlite_path": str(db_path)}, "timezone": "Europe/Stockholm"}
+
+    with (
+        patch("backend.api.routers.schedule.load_yaml", return_value=mock_config),
+        patch("backend.api.routers.schedule.get_nordpool_data", new=AsyncMock(return_value=[])),
+        patch("backend.api.routers.schedule.Path") as MockPath,
+        patch("backend.api.routers.schedule.datetime") as mock_datetime,
+    ):
+        mock_datetime.now.return_value = today_start.replace(hour=12)
+        mock_datetime.fromisoformat.side_effect = datetime.fromisoformat
+        mock_datetime.combine.side_effect = datetime.combine
+        mock_datetime.min = datetime.min
+
+        def side_effect(arg):
+            m = MagicMock()
+            m.exists.return_value = False
+            return m
+
+        MockPath.side_effect = side_effect
+
+        store = LearningStore(str(db_path), tz)
+        try:
+            result = await schedule_today_with_history(store=store)
+        finally:
+            await store.close()
+
+    by_start = {s["start_time"]: s for s in result["slots"]}
+    assert by_start[hour_slot.isoformat()]["ev_charging_kw"] == pytest.approx(11.0)
+    assert by_start[null_slot.isoformat()]["water_heating_kw"] == pytest.approx(2.0)
+    assert by_start[half_slot.isoformat()]["actual_water_kw"] == pytest.approx(3.0)

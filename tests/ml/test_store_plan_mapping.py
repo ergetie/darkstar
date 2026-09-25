@@ -180,3 +180,81 @@ async def test_get_plans_range_returns_projected_soc_percent(store):
     assert plans[1]["projected_soc_percent"] == 60.0
     assert plans[2]["projected_soc_percent"] == 70.0
     assert plans[3]["projected_soc_percent"] == 80.0
+
+
+# --- consistency-hardening: real slot duration ---
+
+
+def _slot(start: datetime, minutes: int | None, **values) -> dict:
+    row = {"start_time": start, **values}
+    if minutes is not None:
+        row["end_time"] = start + timedelta(minutes=minutes)
+    return row
+
+
+def _plan_rows(db_path: str) -> list[sqlite3.Row]:
+    with sqlite3.connect(db_path) as conn:
+        conn.row_factory = sqlite3.Row
+        return conn.execute(
+            "SELECT slot_start, slot_end, planned_water_heating_kwh, planned_ev_charging_kwh "
+            "FROM slot_plans ORDER BY slot_start"
+        ).fetchall()
+
+
+@pytest.mark.asyncio
+async def test_store_plan_15_min_slot_unchanged(store, memory_db_path):
+    start = TZ.localize(datetime(2026, 9, 24, 10, 0))
+    await store.store_plan(pd.DataFrame([_slot(start, 15, ev_charging_kw=11.0)]))
+
+    row = _plan_rows(memory_db_path)[0]
+    assert row["planned_ev_charging_kwh"] == 2.75
+    assert row["slot_end"] == "2026-09-24T10:15:00+02:00"
+
+
+@pytest.mark.asyncio
+async def test_store_plan_30_min_slot(store, memory_db_path):
+    start = TZ.localize(datetime(2026, 9, 24, 10, 0))
+    await store.store_plan(
+        pd.DataFrame([_slot(start, 30, ev_charging_kw=11.0, water_heating_kw=3.0)])
+    )
+
+    row = _plan_rows(memory_db_path)[0]
+    assert row["planned_ev_charging_kwh"] == 5.5
+    assert row["planned_water_heating_kwh"] == 1.5
+
+
+@pytest.mark.asyncio
+async def test_store_plan_slot_end_in_local_iso(store, memory_db_path):
+    start_utc = datetime(2026, 9, 24, 8, 0, tzinfo=pytz.UTC)
+    await store.store_plan(pd.DataFrame([_slot(start_utc, 15)]))
+
+    row = _plan_rows(memory_db_path)[0]
+    assert row["slot_start"] == "2026-09-24T10:00:00+02:00"
+    assert row["slot_end"] == "2026-09-24T10:15:00+02:00"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("minutes", [0, None])
+async def test_store_plan_invalid_end_falls_back_to_15_min(
+    store, memory_db_path, caplog, minutes
+):
+    start = TZ.localize(datetime(2026, 9, 24, 10, 0))
+    with caplog.at_level("WARNING", logger="darkstar.learning.store"):
+        await store.store_plan(pd.DataFrame([_slot(start, minutes, water_heating_kw=2.0)]))
+
+    row = _plan_rows(memory_db_path)[0]
+    assert row["slot_end"] is None
+    assert row["planned_water_heating_kwh"] == 0.5
+    assert any("invalid end" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_store_plan_upsert_updates_slot_end(store, memory_db_path):
+    start = TZ.localize(datetime(2026, 9, 24, 10, 0))
+    await store.store_plan(pd.DataFrame([_slot(start, 15, ev_charging_kw=4.0)]))
+    await store.store_plan(pd.DataFrame([_slot(start, 60, ev_charging_kw=4.0)]))
+
+    rows = _plan_rows(memory_db_path)
+    assert len(rows) == 1
+    assert rows[0]["slot_end"] == "2026-09-24T11:00:00+02:00"
+    assert rows[0]["planned_ev_charging_kwh"] == 4.0

@@ -23,6 +23,7 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.core.ev_goal import resolve_next_ready_by
+from backend.core.ev_live_state import read_ev_live_state
 from backend.core.ev_plug import (
     DEFAULT_EV_PLUGGED_IN_STATES,
     is_unreachable_state,
@@ -347,6 +348,14 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         "dict[str, dict[str, Any]]", schedule_meta.get("ev_goal_diagnostics") or {}
     )
     now = datetime.now(UTC)
+    # The executor runs manual charges; the state file is only its mirror
+    # and is read when no executor instance exists.
+    from backend.api.routers.executor import get_executor_instance
+
+    executor = get_executor_instance()
+    live_manual: dict[str, dict[str, Any]] | None = (
+        executor.get_ev_manual_charge_status() if executor is not None else None
+    )
 
     async def _safe_float(entity_id: str) -> float | None:
         if not entity_id:
@@ -401,8 +410,10 @@ async def get_ev_chargers() -> list[dict[str, Any]]:
         unreachable = plug_unreachable or is_unreachable_state(raw_switch)
 
         entry = state_by_id.get(charger_id, {})
-        # The executor's active manual charge shares the entry; it is not a goal.
-        manual_charge = _manual_charge_view(entry.get("manual_charge"))
+        # The persisted manual charge shares the entry; it is not a goal.
+        manual_charge = _manual_charge_view(
+            live_manual.get(charger_id) if live_manual is not None else entry.get("manual_charge")
+        )
         persisted = {k: v for k, v in entry.items() if k != "manual_charge"}
 
         max_power_kw = float(ev.get("max_power_kw") or 7.4)
@@ -547,7 +558,7 @@ class EVManualChargeBody(BaseModel):
 
 
 def _manual_charge_view(raw: Any) -> dict[str, Any] | None:
-    """Public shape of a persisted manual charge; None when absent/malformed."""
+    """Public shape of a manual charge (executor or persisted); None when absent/malformed."""
     if not isinstance(raw, dict):
         return None
     data = cast("dict[str, Any]", raw)
@@ -588,7 +599,7 @@ def _executor_or_503() -> Any:
         "Charge the car on this charger now until it reaches ``target_soc`` (1-100). "
         "``current_a`` is optional and only valid on current-type chargers "
         "(default ``max_current_a``). Rejected when the car is not connected, its "
-        "SoC is unknown, or the target is already reached. Ends by itself at the "
+        "plug state or SoC is unknown, or the target is already reached. Ends by itself at the "
         "target, on unplug, or after 24 h; the charging goal is not changed."
     ),
 )
@@ -596,39 +607,26 @@ async def start_ev_manual_charge(id: str, body: EVManualChargeBody) -> dict[str,
     charger_cfg = _enabled_charger_cfg(id)
     executor = _executor_or_503()
 
-    soc_sensor = str(charger_cfg.get("soc_sensor") or "")
-    plug_sensor = str(charger_cfg.get("plug_sensor") or "")
+    async def _raw_state(entity_id: str) -> str | None:
+        state = await get_ha_entity_state(entity_id)
+        raw = state.get("state") if isinstance(state, dict) else None
+        return str(raw) if raw is not None else None
 
-    soc_percent: float | None = None
-    if soc_sensor:
-        try:
-            soc_percent = await get_ha_sensor_float(soc_sensor)
-        except Exception as exc:
-            logger.warning("Failed to read EV SoC sensor %s: %s", soc_sensor, exc)
-
-    if plug_sensor:
-        raw_plug: Any = None
-        try:
-            plug_state = await get_ha_entity_state(plug_sensor)
-            raw_plug = plug_state.get("state") if isinstance(plug_state, dict) else None
-        except Exception as exc:
-            logger.warning("Failed to read EV plug sensor %s: %s", plug_sensor, exc)
-        plugged_in, _unreachable = resolve_plug_state(
-            id,
-            raw_plug,
-            charger_cfg.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
-        )
-    else:
-        # No plug sensor → assumed plugged in (same as the planner).
-        plugged_in = True
+    live = await read_ev_live_state(
+        id,
+        _raw_state,
+        soc_sensor=str(charger_cfg.get("soc_sensor") or ""),
+        plug_sensor=str(charger_cfg.get("plug_sensor") or ""),
+        plugged_in_states=charger_cfg.get("plugged_in_states") or DEFAULT_EV_PLUGGED_IN_STATES,
+    )
 
     try:
         return executor.set_ev_manual_charge(
             id,
             body.target_soc,
             body.current_a,
-            current_soc_percent=soc_percent,
-            plugged_in=plugged_in,
+            current_soc_percent=live.soc_percent,
+            plug_state=live.plug,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

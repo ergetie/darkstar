@@ -32,7 +32,8 @@ from typing import Any, cast
 import pytz
 
 # import yaml
-from backend.core.ev_plug import is_ev_plugged_in, is_unreachable_state
+from backend.core.ev_live_state import EVPlugState, read_ev_live_state
+from backend.core.ev_plug import is_unreachable_state
 from backend.core.ha_timestamps import reading_timestamp
 
 # Import existing HA config loader
@@ -1169,12 +1170,12 @@ class ExecutorEngine:
         current_a: int | None = None,
         *,
         current_soc_percent: float | None,
-        plugged_in: bool,
+        plug_state: EVPlugState,
     ) -> dict[str, Any]:
         """Start a manual charge to ``target_soc`` on one charger.
 
-        ``current_soc_percent``/``plugged_in`` are the car's live readings,
-        supplied by the caller. Raises ValueError with a user-facing message
+        ``current_soc_percent``/``plug_state`` are the car's live readings from
+        ``read_ev_live_state``, supplied by the caller. Raises ValueError with a user-facing message
         when the request is not allowed.
         """
         charger_cfg = self._ev_charger_cfg(charger_id)
@@ -1193,8 +1194,10 @@ class ExecutorEngine:
                     f"Charging current must be between {charger_cfg.min_current_a} "
                     f"and {max_current_a} A"
                 )
-        if not plugged_in:
+        if plug_state == "unplugged":
             raise ValueError("The car is not connected")
+        if plug_state == "unknown":
+            raise ValueError("The car's plug state is unknown (charger unreachable)")
         if current_soc_percent is None:
             raise ValueError("The car's SoC is unknown")
         if current_soc_percent >= target_soc:
@@ -1273,8 +1276,9 @@ class ExecutorEngine:
     async def _check_ev_manual_charge_end(self, now: datetime) -> None:
         """End manual charges whose car reached target, was unplugged, or timed out.
 
-        An unavailable SoC or plug reading keeps the charge running (until the
-        reading returns or the safety timeout elapses).
+        SoC and plug come from the shared ``read_ev_live_state``. An unknown SoC
+        or plug reading keeps the charge running (until the reading returns or
+        the safety timeout elapses).
         """
         with self._lock:
             active = dict(self._ev_manual_charge)
@@ -1290,33 +1294,21 @@ class ExecutorEngine:
             if not self.ha_client:
                 continue
 
-            if charger_cfg.soc_sensor:
-                try:
-                    raw_soc = await self.ha_client.get_state_value(charger_cfg.soc_sensor)
-                    soc = float(raw_soc) if raw_soc is not None else None
-                except (TypeError, ValueError):
-                    soc = None  # unavailable/unknown/non-numeric
-                except Exception as e:
-                    logger.warning("Manual charge %s: SoC read failed: %s", charger_id, e)
-                    soc = None
-                if soc is not None and soc >= manual.target_soc:
-                    self.clear_ev_manual_charge(
-                        charger_id, f"target reached ({soc:.0f}% ≥ {manual.target_soc}%)"
-                    )
-                    continue
-
-            if charger_cfg.plug_sensor:
-                try:
-                    raw_plug = await self.ha_client.get_state_value(charger_cfg.plug_sensor)
-                except Exception as e:
-                    logger.warning("Manual charge %s: plug read failed: %s", charger_id, e)
-                    continue
-                if (
-                    raw_plug is not None
-                    and not is_unreachable_state(raw_plug)
-                    and not is_ev_plugged_in(raw_plug, charger_cfg.plugged_in_states)
-                ):
-                    self.clear_ev_manual_charge(charger_id, "car unplugged")
+            live = await read_ev_live_state(
+                charger_id,
+                self.ha_client.get_state_value,
+                soc_sensor=charger_cfg.soc_sensor,
+                plug_sensor=charger_cfg.plug_sensor,
+                plugged_in_states=charger_cfg.plugged_in_states,
+            )
+            if live.soc_percent is not None and live.soc_percent >= manual.target_soc:
+                self.clear_ev_manual_charge(
+                    charger_id,
+                    f"target reached ({live.soc_percent:.0f}% ≥ {manual.target_soc}%)",
+                )
+                continue
+            if live.plug == "unplugged":
+                self.clear_ev_manual_charge(charger_id, "car unplugged")
 
     def _maybe_request_ev_manual_replan(self, now: datetime) -> None:
         """Replan once after a manual charge ended, subject to the executor's

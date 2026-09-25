@@ -24,6 +24,21 @@ logger = logging.getLogger("darkstar.api.schedule")
 router = APIRouter(tags=["schedule"])
 
 
+def _slot_duration_hours(slot_start: datetime, slot_end: Any) -> float:
+    """Real slot length in hours; 0.25 (15 min) when ``slot_end`` is missing,
+    unparseable or not after ``slot_start``."""
+    if slot_end is None:
+        return 0.25
+    try:
+        end = datetime.fromisoformat(str(slot_end))
+        if end.tzinfo is None and slot_start.tzinfo is not None:
+            end = end.replace(tzinfo=slot_start.tzinfo)
+        hours = (end - slot_start).total_seconds() / 3600.0
+    except (TypeError, ValueError):
+        return 0.25
+    return hours if hours > 0 else 0.25
+
+
 def get_executor_instance() -> Any | None:
     """Helper to get executor instance. Delegating to executor router singleton."""
     from backend.api.routers.executor import get_executor_instance as get_exec
@@ -279,7 +294,7 @@ async def schedule_today_with_history(
                 key = st_local.astimezone(tz).replace(tzinfo=None)
 
                 # Convert kWh to kW (slot_plans stores kWh, frontend expects kW)
-                duration_hours = 0.25  # 15-min slots
+                duration_hours = _slot_duration_hours(st, row.get("slot_end"))
 
                 planned_map[key] = {
                     "battery_charge_kw": float(row["planned_charge_kwh"] or 0.0) / duration_hours,
@@ -318,8 +333,8 @@ async def schedule_today_with_history(
                 st_local = st if st.tzinfo else tz.localize(st)
                 key = st_local.astimezone(tz).replace(tzinfo=None)
 
-                # Convert kWh to kW for water (15-min slots = 0.25h)
-                duration_hours = 0.25
+                # Convert kWh to kW for water
+                duration_hours = _slot_duration_hours(st, row.get("slot_end"))
 
                 obs_map[key] = {
                     "actual_pv_kwh": float(row["pv_kwh"] or 0),

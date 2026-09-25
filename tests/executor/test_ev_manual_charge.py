@@ -108,9 +108,9 @@ def ok_result(**kwargs) -> MagicMock:
     return MagicMock(**defaults)
 
 
-def start(engine, charger_id="ev1", target=80, current_a=None, soc=49.0, plugged=True):
+def start(engine, charger_id="ev1", target=80, current_a=None, soc=49.0, plug="plugged"):
     return engine.set_ev_manual_charge(
-        charger_id, target, current_a, current_soc_percent=soc, plugged_in=plugged
+        charger_id, target, current_a, current_soc_percent=soc, plug_state=plug
     )
 
 
@@ -161,7 +161,8 @@ class TestValidation:
             ({"charger_id": "nope"}, "Unknown or disabled"),
             ({"target": 0}, "between 1 and 100"),
             ({"target": 101}, "between 1 and 100"),
-            ({"plugged": False}, "not connected"),
+            ({"plug": "unplugged"}, "not connected"),
+            ({"plug": "unknown"}, "plug state is unknown"),
             ({"soc": None}, "SoC is unknown"),
             ({"soc": 82.0}, "already reached"),
             ({"soc": 80.0}, "already reached"),
@@ -464,6 +465,40 @@ class TestEndConditions:
         engine = make_engine(temp_schedule, temp_db, [binary_charger()])
         start(engine)
         engine.ha_client = ha_states({"sensor.ev1_soc": "50", "binary_sensor.ev1_plug": "off"})
+
+        await engine._check_ev_manual_charge_end(datetime.now(TZ))
+
+        assert engine.get_ev_manual_charge_status() == {}
+
+    @pytest.mark.asyncio
+    async def test_disconnected_ends(self, temp_schedule, temp_db):
+        engine = make_engine(
+            temp_schedule, temp_db, [binary_charger(plugged_in_states="connected")]
+        )
+        start(engine)
+        engine.ha_client = ha_states(
+            {"sensor.ev1_soc": "50", "binary_sensor.ev1_plug": "disconnected"}
+        )
+
+        await engine._check_ev_manual_charge_end(datetime.now(TZ))
+
+        assert engine.get_ev_manual_charge_status() == {}
+
+    @pytest.mark.asyncio
+    async def test_unavailable_plug_keeps_charging(self, temp_schedule, temp_db):
+        engine = make_engine(temp_schedule, temp_db, [binary_charger()])
+        start(engine)
+        engine.ha_client = ha_states({"sensor.ev1_soc": "50", "binary_sensor.ev1_plug": "unavailable"})
+
+        await engine._check_ev_manual_charge_end(datetime.now(TZ))
+
+        assert "ev1" in engine.get_ev_manual_charge_status()
+
+    @pytest.mark.asyncio
+    async def test_target_reached_with_unavailable_plug_ends(self, temp_schedule, temp_db):
+        engine = make_engine(temp_schedule, temp_db, [binary_charger()])
+        start(engine, target=80)
+        engine.ha_client = ha_states({"sensor.ev1_soc": "81", "binary_sensor.ev1_plug": "unavailable"})
 
         await engine._check_ev_manual_charge_end(datetime.now(TZ))
 

@@ -62,6 +62,8 @@ class SlotPlan(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     slot_start: Mapped[str] = mapped_column(String, unique=True)
+    # NULL = unknown (rows stored before this column existed); read as 15 min.
+    slot_end: Mapped[str | None] = mapped_column(String)
     planned_charge_kwh: Mapped[float | None] = mapped_column(Float)
     planned_discharge_kwh: Mapped[float | None] = mapped_column(Float)
     planned_soc_percent: Mapped[float | None] = mapped_column(Float)

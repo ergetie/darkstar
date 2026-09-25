@@ -11,7 +11,6 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.learning.models import (
-    ExecutionLog,
     LearningDailyMetric,
     LearningRun,
     ReflexState,
@@ -307,6 +306,12 @@ class LearningStore:
                 await session.execute(stmt)
             await session.commit()
 
+    def _to_local_datetime(self, value: Any) -> datetime:
+        """A plan timestamp as an aware datetime in ``self.timezone``."""
+        if isinstance(value, datetime | pd.Timestamp):
+            return value.astimezone(self.timezone)
+        return pd.to_datetime(value).astimezone(self.timezone)  # type: ignore[reportUnknownMemberType]
+
     async def store_plan(self, plan_df: pd.DataFrame) -> None:
         """Store the planned schedule for later comparison using Async SQLAlchemy."""
         if plan_df.empty:
@@ -321,16 +326,28 @@ class LearningStore:
 
                 # slot_start is local ISO with offset (self.timezone), unlike
                 # created_at below (naive UTC) — compare only after converting to a common tz.
-                slot_start: str
-                if isinstance(slot_start_raw, datetime | pd.Timestamp):
-                    slot_start = slot_start_raw.astimezone(self.timezone).isoformat()
+                start_dt = self._to_local_datetime(slot_start_raw)
+                slot_start = start_dt.isoformat()
+
+                # Real slot length (resolution_minutes may be 15, 30 or 60).
+                slot_end: str | None = None
+                duration_h = 0.25
+                slot_end_raw = row.get("end_time") or row.get("slot_end")
+                end_dt = self._to_local_datetime(slot_end_raw) if slot_end_raw else None
+                if end_dt is not None and end_dt > start_dt:
+                    slot_end = end_dt.isoformat()
+                    duration_h = (end_dt - start_dt).total_seconds() / 3600.0
                 else:
-                    slot_start = (  # type: ignore[reportUnknownVariableType]
-                        pd.to_datetime(slot_start_raw).astimezone(self.timezone).isoformat()  # type: ignore[reportUnknownMemberType]
+                    logger.warning(
+                        "store_plan: slot %s has missing or invalid end %r; "
+                        "storing slot_end NULL and assuming 15 minutes",
+                        slot_start,
+                        slot_end_raw,
                     )
 
                 stmt = sqlite_insert(SlotPlan).values(
                     slot_start=slot_start,
+                    slot_end=slot_end,
                     planned_charge_kwh=float(row.get("kepler_charge_kwh", 0.0) or 0.0),
                     planned_discharge_kwh=float(row.get("kepler_discharge_kwh", 0.0) or 0.0),
                     planned_soc_percent=float(
@@ -344,8 +361,10 @@ class LearningStore:
                     ),
                     planned_import_kwh=float(row.get("kepler_import_kwh", 0.0) or 0.0),
                     planned_export_kwh=float(row.get("kepler_export_kwh", 0.0) or 0.0),
-                    planned_water_heating_kwh=float(row.get("water_heating_kw", 0.0) or 0.0) * 0.25,
-                    planned_ev_charging_kwh=float(row.get("ev_charging_kw", 0.0) or 0.0) * 0.25,
+                    planned_water_heating_kwh=float(row.get("water_heating_kw", 0.0) or 0.0)
+                    * duration_h,
+                    planned_ev_charging_kwh=float(row.get("ev_charging_kw", 0.0) or 0.0)
+                    * duration_h,
                     planned_cost_sek=float(
                         row.get("planned_cost_sek", row.get("kepler_cost_sek", 0.0)) or 0.0
                     ),
@@ -353,6 +372,7 @@ class LearningStore:
                 stmt = stmt.on_conflict_do_update(
                     index_elements=["slot_start"],
                     set_={
+                        "slot_end": stmt.excluded.slot_end,
                         "planned_charge_kwh": stmt.excluded.planned_charge_kwh,
                         "planned_discharge_kwh": stmt.excluded.planned_discharge_kwh,
                         "planned_soc_percent": stmt.excluded.planned_soc_percent,
@@ -972,6 +992,7 @@ class LearningStore:
             stmt = (
                 select(
                     SlotPlan.slot_start,
+                    SlotPlan.slot_end,
                     SlotPlan.planned_charge_kwh,
                     SlotPlan.planned_discharge_kwh,
                     SlotPlan.planned_soc_percent,
@@ -996,6 +1017,7 @@ class LearningStore:
             stmt = (
                 select(
                     SlotObservation.slot_start,
+                    SlotObservation.slot_end,
                     SlotObservation.pv_kwh,
                     SlotObservation.load_kwh,
                     SlotObservation.water_kwh,
@@ -1009,73 +1031,6 @@ class LearningStore:
 
             result = await session.execute(stmt)
             return [row._asdict() for row in result.all()]  # type: ignore
-
-    async def get_executions_range(self, start: datetime) -> list[dict[str, Any]]:
-        """Get execution history from execution_log table, grouped by slot_start."""
-        start_iso = start.isoformat()
-
-        async with self.AsyncSession() as session:
-            stmt = (
-                select(ExecutionLog)
-                .where(ExecutionLog.slot_start >= start_iso)
-                .order_by(ExecutionLog.executed_at.asc())
-            )
-
-            result = await session.execute(stmt)
-            rows = result.scalars().all()
-
-            # Group by slot_start
-            slots: dict[str, list[ExecutionLog]] = {}
-            for r in rows:
-                ss = r.slot_start
-                if ss not in slots:
-                    slots[ss] = []
-                slots[ss].append(r)
-
-            results: list[dict[str, Any]] = []
-            for ss, entries in slots.items():
-                if not entries:
-                    continue
-
-                # Last entry for SoC (representing end of slot state as it progresses)
-                last_entry = entries[-1]
-
-                # Average planned power for the slot. universal-load-balancing 5.3:
-                # ExecutionLog is now throttled (one row per change or 15-min
-                # heartbeat, not one per tick) — averaging still holds because
-                # planned_*_kw is the slot's static schedule value, identical
-                # across every row within a slot regardless of row count.
-                avg_charge_kw = sum((e.planned_charge_kw or 0.0) for e in entries) / len(entries)
-                avg_discharge_kw = sum((e.planned_discharge_kw or 0.0) for e in entries) / len(
-                    entries
-                )
-                avg_water_kw = sum((e.planned_water_kw or 0.0) for e in entries) / len(entries)
-                avg_export_kw = sum((e.planned_export_kw or 0.0) for e in entries) / len(entries)
-
-                # Estimate slot end (15 mins)
-                try:
-                    s_start_dt = datetime.fromisoformat(ss)
-                    s_end_dt = s_start_dt + timedelta(minutes=15)
-                    slot_end = s_end_dt.isoformat()
-                except Exception:
-                    slot_end = ss
-
-                results.append(
-                    {
-                        "slot_start": ss,
-                        "slot_end": slot_end,
-                        # Map to names expected by schedule API (mocking SlotObservation fields)
-                        # schedule.py expects kWh fields (and divides by duration), so we provide kWh.
-                        "batt_charge_kwh": avg_charge_kw * 0.25,
-                        "batt_discharge_kwh": avg_discharge_kw * 0.25,
-                        "water_kwh": avg_water_kw * 0.25,
-                        "export_kwh": avg_export_kw * 0.25,
-                        "import_price_sek_kwh": None,
-                        "soc_end_percent": float(last_entry.planned_soc_projected or 0.0),
-                    }
-                )
-
-            return results
 
     async def get_db_stats(self) -> dict[str, Any]:
         """Get database statistics (size, row counts) using Async SQLAlchemy."""
